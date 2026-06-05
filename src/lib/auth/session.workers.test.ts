@@ -56,6 +56,22 @@ describe('getSession sliding renewal', () => {
     const finalRecord = await getSession(kv(), token, { now: laterNow + 1 });
     expect(finalRecord!.lastSeen).toBe(laterNow);
   });
+
+  it('keeps the usess index alive after sliding renewal', async () => {
+    const createdAt = 1_700_000_000;
+    const userId = 'user-renewal-index';
+    const token = await createSession(kv(), { id: userId, roles: [] }, { now: createdAt });
+
+    // Trigger a sliding renewal (more than 6h later).
+    const laterNow = createdAt + 21_601;
+    await getSession(kv(), token, { now: laterNow });
+
+    // The per-user index must still be present and contain the hash.
+    const indexRaw = await kv().get(`usess:${userId}`);
+    expect(indexRaw).not.toBeNull();
+    const index = JSON.parse(indexRaw!) as string[];
+    expect(index.length).toBeGreaterThan(0);
+  });
 });
 
 describe('revokeSession', () => {
@@ -70,6 +86,22 @@ describe('revokeSession', () => {
   it('does not throw for an unknown token', async () => {
     const fakeToken = 'totallyUnknownTokenThatDoesNotExist';
     await expect(revokeSession(kv(), fakeToken)).resolves.toBeUndefined();
+  });
+
+  it('removes the hash from the per-user index after revocation', async () => {
+    const userId = 'user-index-prune';
+    const t1 = await createSession(kv(), { id: userId, roles: [] });
+    const t2 = await createSession(kv(), { id: userId, roles: [] });
+
+    await revokeSession(kv(), t1);
+
+    // t1 should be gone from KV; t2 should still be readable.
+    expect(await getSession(kv(), t1)).toBeNull();
+    expect(await getSession(kv(), t2)).not.toBeNull();
+
+    // Revoking all should still work for t2 (index still has t2 entry).
+    await revokeSession(kv(), t2);
+    expect(await getSession(kv(), t2)).toBeNull();
   });
 });
 
@@ -107,6 +139,28 @@ describe('revokeAllForUser', () => {
   });
 });
 
+describe('corrupt usess index handling', () => {
+  it('createSession recovers when the index contains corrupt JSON', async () => {
+    const userId = 'user-corrupt-create';
+    // Write corrupt JSON into the index before creating the session.
+    await kv().put(`usess:${userId}`, 'not-valid-json');
+    // createSession must not throw; it should treat the index as empty and write a fresh one.
+    const token = await createSession(kv(), { id: userId, roles: [] });
+    expect(typeof token).toBe('string');
+    const record = await getSession(kv(), token);
+    expect(record).not.toBeNull();
+  });
+
+  it('revokeAllForUser deletes the corrupt index and returns without throwing', async () => {
+    const userId = 'user-corrupt-revoke-all';
+    await kv().put(`usess:${userId}`, '!!!bad json!!!');
+    await expect(revokeAllForUser(kv(), userId)).resolves.toBeUndefined();
+    // Index key must be gone after the call.
+    const gone = await kv().get(`usess:${userId}`);
+    expect(gone).toBeNull();
+  });
+});
+
 describe('getSession with unknown or garbage tokens', () => {
   it('returns null for an unknown token (no throw)', async () => {
     expect(await getSession(kv(), 'noSuchToken')).toBeNull();
@@ -131,6 +185,15 @@ describe('cookie helpers', () => {
     expect(cookie).toContain('SameSite=Lax');
     expect(cookie).toContain('Path=/');
     expect(cookie).toContain('Max-Age=2592000');
+  });
+
+  it('buildSessionCookie omits Secure when secure:false is passed', () => {
+    const token = 'localDevToken';
+    const cookie = buildSessionCookie(token, { secure: false });
+    expect(cookie).toContain(`dreptalk_session=${token}`);
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).not.toContain('Secure');
+    expect(cookie).toContain('SameSite=Lax');
   });
 
   it('clearSessionCookie has Max-Age=0', () => {

@@ -96,4 +96,17 @@ describe('consumeNonce', () => {
     const wrongPrefix = 'othertalk' + payload.slice('dreptalk'.length);
     expect(await consumeNonce(kv(), wrongPrefix)).toBe(false);
   });
+
+  it('returns false when issuedAt segment is non-numeric', async () => {
+    const { nonce, payload } = await issueNonce(kv(), { domain: 'example.com' });
+    // Replace the trailing numeric issuedAt with a non-numeric string.
+    const parts = payload.split(':');
+    parts[parts.length - 1] = 'not-a-number';
+    const tampered = parts.join(':');
+    const result = await consumeNonce(kv(), tampered);
+    expect(result).toBe(false);
+    // Original nonce must still be present (no deletion occurred).
+    const stored = await kv().get(nonce);
+    expect(stored).not.toBeNull();
+  });
 });

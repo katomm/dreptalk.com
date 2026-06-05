@@ -41,6 +41,20 @@ function usessKey(userId: string): string {
   return `usess:${userId}`;
 }
 
+/**
+ * Reads the per-user session hash index from KV.
+ * Returns an empty array if the key is absent or the stored value is corrupt JSON.
+ */
+async function readHashIndex(kv: KVNamespace, userId: string): Promise<string[]> {
+  const raw = await kv.get(usessKey(userId));
+  if (raw === null) return [];
+  try {
+    return JSON.parse(raw) as string[];
+  } catch {
+    return [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Session lifecycle
 // ---------------------------------------------------------------------------
@@ -74,9 +88,8 @@ export async function createSession(
   // Store session record keyed by hash.
   await kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC });
 
-  // Maintain per-user index: read existing list, append, write back.
-  const existing = await kv.get(usessKey(user.id));
-  const hashes: string[] = existing ? (JSON.parse(existing) as string[]) : [];
+  // Maintain per-user index: read existing list (tolerates corrupt data), append, write back.
+  const hashes = await readHashIndex(kv, user.id);
   hashes.push(keyHash);
   await kv.put(usessKey(user.id), JSON.stringify(hashes), { expirationTtl: SESSION_TTL_SEC });
 
@@ -108,6 +121,11 @@ export async function getSession(
     if (now - record.lastSeen > SLIDING_WINDOW_SEC) {
       record.lastSeen = now;
       await kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC });
+      // Also refresh the per-user index TTL so it never expires before live sessions.
+      const indexRaw = await kv.get(usessKey(record.userId));
+      if (indexRaw !== null) {
+        await kv.put(usessKey(record.userId), indexRaw, { expirationTtl: SESSION_TTL_SEC });
+      }
     }
 
     return record;
@@ -117,14 +135,33 @@ export async function getSession(
 }
 
 /**
- * Revokes a single session by deleting its KV record.
+ * Revokes a single session by deleting its KV record and removing the hash
+ * from the per-user index to prevent unbounded index growth.
  *
  * @param kv - The SESSIONS KV namespace.
  * @param token - The opaque bearer token to revoke.
  */
 export async function revokeSession(kv: KVNamespace, token: string): Promise<void> {
   const keyHash = await sha256hex(token);
+  // Read the record first so we know which user's index to prune.
+  const raw = await kv.get(sessKey(keyHash));
   await kv.delete(sessKey(keyHash));
+  if (raw !== null) {
+    try {
+      const record = JSON.parse(raw) as SessionRecord;
+      const hashes = await readHashIndex(kv, record.userId);
+      const pruned = hashes.filter(h => h !== keyHash);
+      if (pruned.length > 0) {
+        await kv.put(usessKey(record.userId), JSON.stringify(pruned), {
+          expirationTtl: SESSION_TTL_SEC,
+        });
+      } else {
+        await kv.delete(usessKey(record.userId));
+      }
+    } catch {
+      // If we cannot parse the record the session key is already deleted; nothing more to do.
+    }
+  }
 }
 
 /**
@@ -142,7 +179,14 @@ export async function revokeSession(kv: KVNamespace, token: string): Promise<voi
 export async function revokeAllForUser(kv: KVNamespace, userId: string): Promise<void> {
   const raw = await kv.get(usessKey(userId));
   if (!raw) return;
-  const hashes: string[] = JSON.parse(raw) as string[];
+  // On corrupt index: delete the index key and return; nothing safely revocable.
+  let hashes: string[];
+  try {
+    hashes = JSON.parse(raw) as string[];
+  } catch {
+    await kv.delete(usessKey(userId));
+    return;
+  }
   await Promise.all(hashes.map(h => kv.delete(sessKey(h))));
   await kv.delete(usessKey(userId));
 }
@@ -153,10 +197,12 @@ export async function revokeAllForUser(kv: KVNamespace, userId: string): Promise
 
 /**
  * Builds a Set-Cookie header value for the session token.
- * Flags: HttpOnly, Secure, SameSite=Lax, Path=/, Max-Age=30d.
+ * Flags: HttpOnly, SameSite=Lax, Path=/, Max-Age=30d, and Secure by default.
+ * The caller passes secure:false for local http dev so the session cookie is set over http://localhost.
  */
-export function buildSessionCookie(token: string): string {
-  return `${SESSION_COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_SEC}`;
+export function buildSessionCookie(token: string, opts?: { secure?: boolean }): string {
+  const secureFlag = opts?.secure !== false ? '; Secure' : '';
+  return `${SESSION_COOKIE_NAME}=${token}; HttpOnly${secureFlag}; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_SEC}`;
 }
 
 /**

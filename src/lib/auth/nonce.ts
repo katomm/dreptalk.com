@@ -66,6 +66,8 @@ export async function consumeNonce(
     // domain = rest[0..rest.length-3] joined by ":"
     // (simple domain strings won't have colons, but this keeps the split logic safe)
 
+    // Reject non-numeric issuedAt before parsing to prevent parseInt coercion surprises.
+    if (!/^\d{1,15}$/.test(issuedAtStr)) return false;
     const issuedAt = parseInt(issuedAtStr, 10);
     if (!Number.isFinite(issuedAt)) return false;
     if (issuedAt > now) return false; // issued in the future
