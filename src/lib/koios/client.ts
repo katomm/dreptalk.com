@@ -83,6 +83,20 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     }
   }
 
+  async function postSingleRow<T>(
+    path: string,
+    bodyKey: string,
+    id: string,
+    schema: z.ZodType<T>,
+  ): Promise<T | null> {
+    const data = await request(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ [bodyKey]: [id] }),
+    });
+    return z.array(schema).parse(data)[0] ?? null;
+  }
+
   return {
     async tip(): Promise<Tip> {
       const data = await request('/tip', { method: 'GET' });
@@ -90,28 +104,14 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     },
 
     async drepInfo(drepId: string): Promise<DrepInfo | null> {
-      const data = await request('/drep_info', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ _drep_ids: [drepId] }),
-      });
-      const rows = z.array(drepInfoSchema).parse(data);
-      return rows[0] ?? null;
+      return postSingleRow('/drep_info', '_drep_ids', drepId, drepInfoSchema);
     },
 
     async accountInfo(stakeAddress: string): Promise<AccountInfo | null> {
-      const data = await request('/account_info', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ _stake_addresses: [stakeAddress] }),
-      });
-      const rows = z.array(accountInfoSchema).parse(data);
-      return rows[0] ?? null;
+      return postSingleRow('/account_info', '_stake_addresses', stakeAddress, accountInfoSchema);
     },
 
-    async proposalsByReturnAddress(
-      stakeAddress: string,
-    ): Promise<Array<{ proposal_id: string; return_address: string; proposal_type: string }>> {
+    async proposalsByReturnAddress(stakeAddress: string): Promise<Proposal[]> {
       const path = `/proposal_list?return_address=eq.${encodeURIComponent(stakeAddress)}`;
       const data = await request(path, { method: 'GET' });
       return z.array(proposalSchema).parse(data);

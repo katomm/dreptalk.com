@@ -1,7 +1,7 @@
 // Pure, dependency-injected wallet login flow logic.
 // No DOM imports; fully testable in Node.js with injected fetch and wallet API.
 import { blake2b224 } from '../crypto/blake.js';
-import { bytesToHex } from '../crypto/hex.js';
+import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 
 // Minimal CIP-30 + CIP-95 wallet API surface required for login.
 export interface WalletApi {
@@ -108,12 +108,3 @@ export async function loginWithWallet(
   }
 }
 
-// Local hex-to-bytes helper to avoid circular imports in test environments.
-function hexToBytes(hex: string): Uint8Array {
-  if (hex.length % 2 !== 0) throw new Error('hex string must have even length');
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-}

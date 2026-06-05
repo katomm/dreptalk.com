@@ -47,16 +47,10 @@ export async function consumeNonce(
     const maxAge = opts?.maxAgeSec ?? NONCE_TTL_SEC;
     const now = Math.floor(opts?.now ?? Date.now() / 1000);
 
-    // Parse and validate payload shape: "dreptalk:<domain>:<nonce>:<issuedAt>"
-    const parts = payload.split(':');
-    if (parts.length < 4) return false;
-
-    // The nonce itself may contain base64url characters but no colons, so
-    // we take index 0, 1, last-1 (nonce), last (issuedAt) -- but domain can
-    // contain colons too. Re-split from the right to be robust.
-    // Payload: "dreptalk:<domain>:<nonce>:<issuedAt>"
-    // Guarantee: nonce is base64url (no colons), issuedAt is a decimal integer.
+    // Parse payload shape: "dreptalk:<domain>:<nonce>:<issuedAt>"
+    // Nonce is base64url (no colons); issuedAt is a decimal integer.
     // Split off prefix, issuedAt, and nonce from the right; domain is whatever is in the middle.
+    // Domain may contain colons, so we split once and extract from the ends.
     const [prefix, ...rest] = payload.split(':');
     if (prefix !== PAYLOAD_PREFIX) return false;
     if (rest.length < 3) return false;

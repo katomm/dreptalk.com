@@ -85,11 +85,13 @@ export async function createSession(
     lastSeen: now,
   };
 
-  // Store session record keyed by hash.
-  await kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC });
+  // Store session record and read per-user index concurrently (different keys).
+  const [, hashes] = await Promise.all([
+    kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC }),
+    readHashIndex(kv, user.id),
+  ]);
 
-  // Maintain per-user index: read existing list (tolerates corrupt data), append, write back.
-  const hashes = await readHashIndex(kv, user.id);
+  // Append new hash and write updated index.
   hashes.push(keyHash);
   await kv.put(usessKey(user.id), JSON.stringify(hashes), { expirationTtl: SESSION_TTL_SEC });
 
@@ -120,9 +122,12 @@ export async function getSession(
     // Lazy sliding renewal: refresh at most once per 6-hour window.
     if (now - record.lastSeen > SLIDING_WINDOW_SEC) {
       record.lastSeen = now;
-      await kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC });
+      // Session re-put and index read are independent (different keys): run concurrently.
+      const [, indexRaw] = await Promise.all([
+        kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC }),
+        kv.get(usessKey(record.userId)),
+      ]);
       // Also refresh the per-user index TTL so it never expires before live sessions.
-      const indexRaw = await kv.get(usessKey(record.userId));
       if (indexRaw !== null) {
         await kv.put(usessKey(record.userId), indexRaw, { expirationTtl: SESSION_TTL_SEC });
       }

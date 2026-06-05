@@ -3,6 +3,7 @@
 import { decode, encode } from 'cborg';
 import { blake2b224, blake2b256 } from '../crypto/blake.js';
 import { hexToBytes } from '../crypto/hex.js';
+import { bytesEqual } from '../crypto/bytes.js';
 import { keyHashMatchesAddress } from '../cardano/identity.js';
 
 export interface Cip8VerifyResult {
@@ -99,7 +100,7 @@ async function verifyCip8Internal(input: {
   const kty = coseKey.get(1);
   const alg = coseKey.get(3);
   const crv = coseKey.get(-1);
-  const xBytes = coseKey.get(-2);
+  const pubKey = coseKey.get(-2);
 
   if (kty !== KTY_OKP) {
     return { ok: false, reason: `COSE_Key kty must be OKP (1), got ${kty}` };
@@ -110,11 +111,9 @@ async function verifyCip8Internal(input: {
   if (crv !== CRV_ED25519) {
     return { ok: false, reason: `COSE_Key crv must be Ed25519 (6), got ${crv}` };
   }
-  if (!(xBytes instanceof Uint8Array) || xBytes.length !== 32) {
-    return { ok: false, reason: `COSE_Key x (-2) must be a 32-byte bstr, got ${xBytes instanceof Uint8Array ? xBytes.length + ' bytes' : typeof xBytes}` };
+  if (!(pubKey instanceof Uint8Array) || pubKey.length !== 32) {
+    return { ok: false, reason: `COSE_Key x (-2) must be a 32-byte bstr, got ${pubKey instanceof Uint8Array ? pubKey.length + ' bytes' : typeof pubKey}` };
   }
-
-  const pubKey = xBytes;
 
   // Step 3: Decode protected header (double-encoded CBOR bstr).
   let protectedHeader: unknown;
@@ -238,11 +237,3 @@ async function verifyEd25519(
   }
 }
 
-/** Returns true if two Uint8Arrays have identical contents. */
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}

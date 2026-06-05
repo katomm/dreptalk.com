@@ -2,6 +2,7 @@
 // Implements CIP-19, CIP-105, and CIP-129 conventions.
 import { blake2b224 } from '../crypto/blake.js';
 import { encodeBech32, decodeBech32 } from '../crypto/bech32.js';
+import { bytesEqual } from '../crypto/bytes.js';
 
 // CIP-129 header byte for DRep key hash credentials.
 const DREP_KEY_HEADER = 0x22;
@@ -62,7 +63,7 @@ export function keyHashMatchesAddress(pubKey: Uint8Array, addressBytes: Uint8Arr
 
   if (addressBytes.length === 29) {
     // Reward/enterprise address: bytes[1..29] is the key hash.
-    return arrayEquals(keyHash, addressBytes.slice(1, 29));
+    return bytesEqual(keyHash, addressBytes.slice(1, 29));
   }
 
   if (addressBytes.length === 57) {
@@ -72,15 +73,15 @@ export function keyHashMatchesAddress(pubKey: Uint8Array, addressBytes: Uint8Arr
       case 0x00:
         // Key payment + key stake: key hash may be in either slot.
         return (
-          arrayEquals(keyHash, addressBytes.slice(1, 29)) ||
-          arrayEquals(keyHash, addressBytes.slice(29, 57))
+          bytesEqual(keyHash, addressBytes.slice(1, 29)) ||
+          bytesEqual(keyHash, addressBytes.slice(29, 57))
         );
       case 0x01:
         // Script payment + key stake: only the stake slot holds a key hash.
-        return arrayEquals(keyHash, addressBytes.slice(29, 57));
+        return bytesEqual(keyHash, addressBytes.slice(29, 57));
       case 0x02:
         // Key payment + script stake: only the payment slot holds a key hash.
-        return arrayEquals(keyHash, addressBytes.slice(1, 29));
+        return bytesEqual(keyHash, addressBytes.slice(1, 29));
       case 0x03:
         // Script payment + script stake: no key-hash credential present.
         return false;
@@ -101,11 +102,3 @@ export function cip105ToCip129(drepVkh: string): string {
   return drepIdFromKeyHash(keyHash);
 }
 
-// Compares two Uint8Arrays for value equality.
-function arrayEquals(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
