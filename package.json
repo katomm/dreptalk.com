@@ -9,7 +9,7 @@
     "build": "astro build",
     "preview": "astro build && wrangler pages dev ./dist",
     "typecheck": "astro check",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
   "dependencies": {
