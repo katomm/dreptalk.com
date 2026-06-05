@@ -8,6 +8,7 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     exclude: ['src/**/*.workers.test.ts', 'node_modules/**'],
+    passWithNoTests: true,
   },
   resolve: {
     alias: { '@': new URL('./src', import.meta.url).pathname },

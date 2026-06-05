@@ -19,5 +19,6 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_drep_id ON users(drep_id);
 CREATE INDEX IF NOT EXISTS idx_users_stake_addr ON users(stake_addr);
+-- created_at/last_verified_at 0 = sentinel: system account, not a real timestamp
 INSERT OR IGNORE INTO users (id, role, status, display_name, created_at, last_verified_at)
 VALUES ('system', 'system', 'active', 'DRepTalk', 0, 0);
