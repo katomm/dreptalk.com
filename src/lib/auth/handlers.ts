@@ -70,10 +70,11 @@ export interface VerifyInput {
   network: CardanoNetwork;
   now?: number;
   secure?: boolean;
-  // Injectable for testing: defaults to the real consumeNonce.
-  // Allows tests to pre-validate nonces that use fixture-format payloads
-  // which do not conform to the dreptalk:<domain>:<nonce>:<issuedAt> shape.
-  _consumeNonce?: (kv: KVNamespace, payload: string, opts?: { now?: number }) => Promise<boolean>;
+}
+
+/** Injected dependencies for handleVerify. All fields are optional; defaults are the real implementations. */
+export interface VerifyDeps {
+  consumeNonce?: (kv: KVNamespace, payload: string, opts?: { now?: number }) => Promise<boolean>;
 }
 
 export interface VerifyResult {
@@ -86,19 +87,22 @@ export interface VerifyResult {
  * Full CIP-8 verify flow with fail-closed semantics.
  * Returns a structured result (status + json + optional Set-Cookie).
  * Never throws to the caller; all failures are caught and returned as 4xx.
+ *
+ * The optional second parameter allows injecting a custom consumeNonce
+ * implementation for tests. Production callers omit it.
  */
-export async function handleVerify(input: VerifyInput): Promise<VerifyResult> {
+export async function handleVerify(input: VerifyInput, deps?: VerifyDeps): Promise<VerifyResult> {
   try {
-    return await handleVerifyInternal(input);
+    return await handleVerifyInternal(input, deps);
   } catch {
     // Unexpected internal error: fail closed with a generic 500.
     return { status: 500, json: { ok: false, error: 'internal error' } };
   }
 }
 
-async function handleVerifyInternal(input: VerifyInput): Promise<VerifyResult> {
+async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Promise<VerifyResult> {
   const { body, nonceKv, sessionKv, db, koios, network, now, secure } = input;
-  const consumeNonceFn = input._consumeNonce ?? consumeNonce;
+  const consumeNonceFn = deps?.consumeNonce ?? consumeNonce;
 
   // Step 1: Validate body shape.
   if (

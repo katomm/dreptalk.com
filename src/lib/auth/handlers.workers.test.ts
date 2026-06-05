@@ -6,10 +6,10 @@
 //   The real consumeNonce requires the payload format
 //   "dreptalk:<domain>:<nonce>:<issuedAt>" and looks up the nonce segment in KV.
 //   These two formats are structurally incompatible, so we inject a custom
-//   _consumeNonce override into handleVerify for the happy-path tests. This
-//   override stores the fixture payload in KV under a synthetic key and deletes
-//   it on the first call (single-use simulation) -- providing replay protection
-//   while allowing the fixture signature to verify correctly.
+//   consumeNonce via the deps parameter of handleVerify for the happy-path tests.
+//   This override stores the fixture payload in KV under a synthetic key and
+//   deletes it on the first call (single-use simulation), providing replay
+//   protection while allowing the fixture signature to verify correctly.
 //   Reject cases for replayed nonces are tested with real consumeNonce and a
 //   proper dreptalk:<domain>:<nonce>:<ts> payload (signature step is never
 //   reached after nonce rejection, so no fixture alignment is needed there).
@@ -142,8 +142,7 @@ describe('handleVerify: happy path (proposer)', () => {
       network: 'preprod',
       now: 1_700_000_000,
       secure: false,
-      _consumeNonce: consumeOverride,
-    });
+    }, { consumeNonce: consumeOverride });
 
     expect(result.status).toBe(200);
     expect((result.json as { ok: boolean }).ok).toBe(true);
@@ -203,8 +202,7 @@ describe('handleVerify: happy path (drep)', () => {
       network: 'preprod',
       now: 1_700_000_100,
       secure: false,
-      _consumeNonce: consumeOverride,
-    });
+    }, { consumeNonce: consumeOverride });
 
     expect(result.status).toBe(200);
     expect((result.json as { ok: boolean }).ok).toBe(true);
@@ -229,7 +227,7 @@ describe('handleVerify: reject replayed nonce', () => {
     await preloadNonce(env.NONCES, fixturePayload);
     const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
 
-    const commonArgs = {
+    const commonInput = {
       body: {
         payload: fixturePayload,
         signatureHex: stakeVector.signatureHex,
@@ -249,14 +247,14 @@ describe('handleVerify: reject replayed nonce', () => {
       network: 'preprod' as const,
       now: 1_700_000_000,
       secure: false,
-      _consumeNonce: consumeOverride,
     };
+    const commonDeps = { consumeNonce: consumeOverride };
 
-    const first = await handleVerify(commonArgs);
+    const first = await handleVerify(commonInput, commonDeps);
     expect(first.status).toBe(200);
 
     // Second call: nonce already consumed, override returns false.
-    const second = await handleVerify(commonArgs);
+    const second = await handleVerify(commonInput, commonDeps);
     expect(second.status).toBe(401);
   });
 });
@@ -288,8 +286,7 @@ describe('handleVerify: reject bad signature', () => {
       network: 'preprod',
       now: 1_700_000_000,
       secure: false,
-      _consumeNonce: consumeOverride,
-    });
+    }, { consumeNonce: consumeOverride });
 
     expect(result.status).toBe(401);
   });
@@ -319,8 +316,7 @@ describe('handleVerify: reject when koios returns no proposals', () => {
       network: 'preprod',
       now: 1_700_000_000,
       secure: false,
-      _consumeNonce: consumeOverride,
-    });
+    }, { consumeNonce: consumeOverride });
 
     expect(result.status).toBe(401);
   });
@@ -352,8 +348,7 @@ describe('handleVerify: reject wrong address type for role', () => {
       network: 'preprod',
       now: 1_700_000_000,
       secure: false,
-      _consumeNonce: consumeOverride,
-    });
+    }, { consumeNonce: consumeOverride });
 
     // Should fail with 401 because header 0xe0 != 0x22 (DRep key-hash).
     expect(result.status).toBe(401);
@@ -378,8 +373,7 @@ describe('handleVerify: reject wrong address type for role', () => {
       network: 'preprod',
       now: 1_700_000_000,
       secure: false,
-      _consumeNonce: consumeOverride,
-    });
+    }, { consumeNonce: consumeOverride });
 
     expect(result.status).toBe(401);
   });
