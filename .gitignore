@@ -6,3 +6,10 @@ dist/
 .env
 *.log
 .DS_Store
+
+# Claude Code local files: present in the working dir, never committed
+CLAUDE.md
+.claude/
+
+# Local design mockups (not for the public repo); also backed up outside the repo
+src/assets/images/artwork/
