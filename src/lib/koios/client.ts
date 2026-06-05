@@ -23,17 +23,20 @@ export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
 
-  async function request(path: string, init: RequestInit): Promise<unknown> {
+  async function request(
+    path: string,
+    init: { method: string; headers?: Record<string, string> },
+  ): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const headers: Record<string, string> = {
         accept: 'application/json',
-        ...(init.headers as Record<string, string> | undefined),
+        ...(init.headers ?? {}),
       };
       if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
       const res = await fetchImpl(`${opts.baseUrl}${path}`, {
-        ...init,
+        method: init.method,
         headers,
         signal: controller.signal,
       });

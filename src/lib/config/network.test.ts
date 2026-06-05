@@ -8,6 +8,7 @@ describe('resolveNetwork', () => {
     expect(cfg.koiosBaseUrl).toBe('https://api.koios.rest/api/v1');
     expect(cfg.networkId).toBe(1);
     expect(cfg.stakePrefix).toBe('stake');
+    expect(cfg.addrPrefix).toBe('addr');
   });
 
   it('defaults to mainnet when the value is an empty string', () => {

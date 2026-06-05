@@ -63,4 +63,14 @@ describe('createKoiosClient.tip', () => {
 
     await expect(client.tip()).rejects.toThrow();
   });
+
+  it('throws when the response is an empty array', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createKoiosClient({
+      baseUrl: 'https://api.koios.rest/api/v1',
+      fetchImpl,
+    });
+
+    await expect(client.tip()).rejects.toThrow();
+  });
 });
