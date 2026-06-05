@@ -36,7 +36,7 @@ const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN;
       <script
         defer
         src="https://static.cloudflareinsights.com/beacon.min.js"
-        data-cf-beacon={`{"token": "${analyticsToken}"}`}
+        data-cf-beacon={JSON.stringify({ token: analyticsToken })}
       ></script>
     )}
   </head>
