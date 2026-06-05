@@ -1,0 +1,18 @@
+User-agent: *
+Disallow: /admin
+Disallow: /api
+Disallow: /impressum
+Disallow: /datenschutz
+Disallow: /agb
+
+User-agent: GPTBot
+User-agent: ClaudeBot
+User-agent: Claude-Web
+User-agent: anthropic-ai
+User-agent: CCBot
+User-agent: Google-Extended
+User-agent: PerplexityBot
+User-agent: Applebot-Extended
+Disallow: /
+
+Sitemap: https://dreptalk.com/sitemap-index.xml
