@@ -44,38 +44,48 @@ export function stakeAddressFromPubKey(pubKey: Uint8Array, network: 'mainnet' | 
 }
 
 /**
- * Returns true if the Blake2b-224 hash of pubKey matches the credential
+ * Returns true if the Blake2b-224 hash of pubKey matches a key-hash credential
  * embedded in addressBytes (CIP-19 encoded).
  *
  * Supports:
- *   - Reward/stake addresses (29 bytes: 1 header + 28 hash at bytes[1..29])
- *   - Base addresses (57 bytes: 1 header + 28 payment + 28 stake credential)
- *     Checks payment credential (bytes[1..29]) or stake credential (bytes[29..57])
- *     depending on the upper nibble of the header byte.
+ *   - Reward/enterprise addresses (29 bytes): bytes[1..29] is the key hash.
+ *   - Base addresses (57 bytes): payment key hash at bytes[1..29], stake key
+ *     hash at bytes[29..57]. Which slots contain key hashes depends on the
+ *     header type (high nibble of bytes[0]):
+ *       0x00 key payment + key stake: check payment OR stake credential.
+ *       0x01 script payment + key stake: check stake credential only.
+ *       0x02 key payment + script stake: check payment credential only.
+ *       0x03 script payment + script stake: no key hash present, return false.
  */
 export function keyHashMatchesAddress(pubKey: Uint8Array, addressBytes: Uint8Array): boolean {
   const keyHash = blake2b224(pubKey);
 
   if (addressBytes.length === 29) {
-    // Reward/stake address: bytes[1..29] is the staking key hash.
+    // Reward/enterprise address: bytes[1..29] is the key hash.
     return arrayEquals(keyHash, addressBytes.slice(1, 29));
   }
 
   if (addressBytes.length === 57) {
-    // Base address: header upper nibble indicates credential types.
-    // In CIP-19, all base address types (0x00..0x03) have payment hash at [1..29]
-    // and stake hash at [29..57]. Check payment credential first.
-    const headerType = (addressBytes[0] & 0xf0) >> 4;
-    if (headerType <= 0x03) {
-      // Both payment and staking credentials are key hashes.
-      return (
-        arrayEquals(keyHash, addressBytes.slice(1, 29)) ||
-        arrayEquals(keyHash, addressBytes.slice(29, 57))
-      );
-    }
-    // Script-involved types: only check the key-hash side.
-    if (headerType === 0x02 || headerType === 0x01) {
-      return arrayEquals(keyHash, addressBytes.slice(1, 29));
+    // Base address: header high nibble encodes credential types (CIP-19 Table 1).
+    const headerType = addressBytes[0] >> 4;
+    switch (headerType) {
+      case 0x00:
+        // Key payment + key stake: key hash may be in either slot.
+        return (
+          arrayEquals(keyHash, addressBytes.slice(1, 29)) ||
+          arrayEquals(keyHash, addressBytes.slice(29, 57))
+        );
+      case 0x01:
+        // Script payment + key stake: only the stake slot holds a key hash.
+        return arrayEquals(keyHash, addressBytes.slice(29, 57));
+      case 0x02:
+        // Key payment + script stake: only the payment slot holds a key hash.
+        return arrayEquals(keyHash, addressBytes.slice(1, 29));
+      case 0x03:
+        // Script payment + script stake: no key-hash credential present.
+        return false;
+      default:
+        return false;
     }
   }
 

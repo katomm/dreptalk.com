@@ -95,6 +95,33 @@ describe('keyHashMatchesAddress', () => {
     const { data: addrBytes } = decodeBech32(STAKE_VECTOR.expectedStakeAddress);
     expect(keyHashMatchesAddress(pubKey, addrBytes)).toBe(true);
   });
+
+  describe('base address (57 bytes, header 0x00)', () => {
+    // The fixture stake key hash is blake2b224(expectedPubKeyHex),
+    // which equals bytes[1..29] of the fixture reward address (addressHex).
+    // Construct a synthetic 57-byte base address: header 0x00 + dummy 28-byte
+    // payment slot (all 0x11) + real stake key hash in the stake slot.
+    const pubKey = hexToBytes(STAKE_VECTOR.expectedPubKeyHex);
+    // Real stake key hash extracted from the fixture reward address.
+    const realStakeKeyHash = hexToBytes(STAKE_VECTOR.addressHex).slice(1, 29);
+
+    const baseAddrMatch = new Uint8Array(57);
+    baseAddrMatch[0] = 0x00; // header: key payment + key stake
+    baseAddrMatch.fill(0x11, 1, 29); // dummy payment slot
+    baseAddrMatch.set(realStakeKeyHash, 29); // real stake credential
+
+    it('returns true when keyHash matches the stake credential slot', () => {
+      expect(keyHashMatchesAddress(pubKey, baseAddrMatch)).toBe(true);
+    });
+
+    it('returns false when neither slot matches', () => {
+      const baseAddrNoMatch = new Uint8Array(57);
+      baseAddrNoMatch[0] = 0x00;
+      baseAddrNoMatch.fill(0x11, 1, 29); // payment slot: all 0x11
+      baseAddrNoMatch.fill(0x22, 29, 57); // stake slot: all 0x22 (wrong)
+      expect(keyHashMatchesAddress(pubKey, baseAddrNoMatch)).toBe(false);
+    });
+  });
 });
 
 describe('cip105ToCip129', () => {

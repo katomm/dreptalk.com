@@ -16,6 +16,10 @@ describe('hexToBytes', () => {
   it('handles uppercase hex', () => {
     expect(Array.from(hexToBytes('DEADBEEF'))).toEqual([0xde, 0xad, 0xbe, 0xef]);
   });
+
+  it('throws on odd-length input', () => {
+    expect(() => hexToBytes('abc')).toThrow('hex string must have even length');
+  });
 });
 
 describe('bytesToHex', () => {
