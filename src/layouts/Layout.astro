@@ -1,0 +1,53 @@
+---
+import '@/styles/global.css';
+import ThemeToggle from '@/components/ThemeToggle.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  noindex?: boolean;
+}
+const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content="DRepTalk" />
+    <meta name="twitter:card" content="summary_large_image" />
+    {analyticsToken && (
+      // SRI is omitted here intentionally: Cloudflare pushes beacon.min.js
+      // updates in place with no version pin, so a fixed hash would break
+      // analytics silently on every Cloudflare deploy. The CSP already limits
+      // this script to the specific origin (static.cloudflareinsights.com).
+      <script
+        defer
+        src="https://static.cloudflareinsights.com/beacon.min.js"
+        data-cf-beacon={`{"token": "${analyticsToken}"}`}
+      ></script>
+    )}
+  </head>
+  <body>
+    <header class="container" style="display:flex;justify-content:space-between;align-items:center;">
+      <a href="/" style="font-weight:700;text-decoration:none;color:var(--fg);">
+        DRep<span style="color:var(--accent)">Talk</span>
+      </a>
+      <ThemeToggle />
+    </header>
+    <main class="container">
+      <slot />
+    </main>
+  </body>
+</html>
