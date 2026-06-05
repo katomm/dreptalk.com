@@ -1,22 +1,6 @@
 ---
 ---
 <button id="theme-toggle" aria-label="Toggle dark mode" type="button">🌓</button>
-<script>
-  // Init plus toggle in one bundled (external) script so the CSP stays strict
-  // (script-src 'self', no inline script in the document). Runs after first
-  // paint, so dark-mode users may see a brief flash on load. Pre-paint
-  // anti-flash arrives in the Phase 9 polish.
-  const root = document.documentElement;
-  const stored = localStorage.getItem('theme');
-  if (stored === 'dark' || (!stored && matchMedia('(prefers-color-scheme: dark)').matches)) {
-    root.setAttribute('data-theme', 'dark');
-  }
-  document.getElementById('theme-toggle')?.addEventListener('click', () => {
-    const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    root.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-  });
-</script>
 <style>
   #theme-toggle {
     background: none;
