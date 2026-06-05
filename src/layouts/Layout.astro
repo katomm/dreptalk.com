@@ -34,6 +34,7 @@ const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN;
       // analytics silently on every Cloudflare deploy. The CSP already limits
       // this script to the specific origin (static.cloudflareinsights.com).
       <script
+        is:inline
         defer
         src="https://static.cloudflareinsights.com/beacon.min.js"
         data-cf-beacon={JSON.stringify({ token: analyticsToken })}
