@@ -1,9 +1,10 @@
 // CIP-8 COSE_Sign1 verifier tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
 // This exercises WebCrypto Ed25519 in the Workers runtime, with @noble/curves as fallback.
 import { describe, it, expect } from 'vitest';
+import { decode, encode } from 'cborg';
 import vectors from './__fixtures__/cip8-vectors.json';
 import { verifyCip8 } from './cose.js';
-import { bytesToHex } from '../crypto/hex.js';
+import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 
 /** Probes which Ed25519 path is available in the current runtime. */
 async function detectEd25519Path(): Promise<'WebCrypto-Ed25519' | 'WebCrypto-NODE-ED25519' | 'noble-fallback'> {
@@ -168,5 +169,106 @@ describe('verifyCip8 (drep-key-valid fixture)', () => {
     expect(result.ok).toBe(true);
     expect(result.pubKey).toBeInstanceOf(Uint8Array);
     expect(bytesToHex(result.pubKey!)).toBe(drepVector.expectedPubKeyHex);
+  });
+});
+
+// Helpers for mutating COSE_Key / COSE_Sign1 via cborg round-trip.
+
+/** Re-encodes a COSE_Key map with one integer key set to a new value. */
+function mutateCoseKey(keyHex: string, mapKey: number, newValue: number | Uint8Array): string {
+  const keyMap: Map<number, unknown> = decode(hexToBytes(keyHex), { useMaps: true }) as Map<number, unknown>;
+  keyMap.set(mapKey, newValue);
+  return bytesToHex(encode(keyMap));
+}
+
+/** Re-encodes a COSE_Sign1 with the protected header map key 1 (alg) changed to newAlg. */
+function mutateCoseSign1ProtectedAlg(sigHex: string, newAlg: number): string {
+  const coseSign1: [Uint8Array, unknown, Uint8Array, Uint8Array] = decode(
+    hexToBytes(sigHex),
+    { useMaps: true },
+  ) as [Uint8Array, unknown, Uint8Array, Uint8Array];
+  const [protectedBstr, unprotectedHeader, payload, sig] = coseSign1;
+  const protectedMap: Map<number, unknown> = decode(protectedBstr, { useMaps: true }) as Map<number, unknown>;
+  protectedMap.set(1, newAlg);
+  const newProtectedBstr = encode(protectedMap);
+  return bytesToHex(encode([newProtectedBstr, unprotectedHeader, payload, sig]));
+}
+
+/** Re-encodes a COSE_Sign1 with the sigBstr (index 3) replaced by a new value. */
+function mutateCoseSign1Sig(sigHex: string, newSig: Uint8Array): string {
+  const coseSign1: [Uint8Array, unknown, Uint8Array, Uint8Array] = decode(
+    hexToBytes(sigHex),
+    { useMaps: true },
+  ) as [Uint8Array, unknown, Uint8Array, Uint8Array];
+  const [protectedBstr, unprotectedHeader, payload] = coseSign1;
+  return bytesToHex(encode([protectedBstr, unprotectedHeader, payload, newSig]));
+}
+
+describe('verifyCip8 negative guard cases (alg, kty, crv, key size, sig)', () => {
+  // Each case mutates exactly one field of the valid stake-key-valid fixture.
+  // The guards run before signature math, so these prove the guard, not the crypto.
+
+  it('rejects COSE_Key with alg changed from -8 to -7 (ok=false, no throw)', async () => {
+    const mutatedKeyHex = mutateCoseKey(stakeVector.keyHex, 3, -7);
+    const result = await verifyCip8({
+      signatureHex: stakeVector.signatureHex,
+      keyHex: mutatedKeyHex,
+      expectedPayload: stakeVector.payloadUtf8,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects COSE_Key with kty changed from 1 to 2 (ok=false, no throw)', async () => {
+    const mutatedKeyHex = mutateCoseKey(stakeVector.keyHex, 1, 2);
+    const result = await verifyCip8({
+      signatureHex: stakeVector.signatureHex,
+      keyHex: mutatedKeyHex,
+      expectedPayload: stakeVector.payloadUtf8,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects COSE_Key with crv changed from 6 to 1 (ok=false, no throw)', async () => {
+    const mutatedKeyHex = mutateCoseKey(stakeVector.keyHex, -1, 1);
+    const result = await verifyCip8({
+      signatureHex: stakeVector.signatureHex,
+      keyHex: mutatedKeyHex,
+      expectedPayload: stakeVector.payloadUtf8,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects COSE_Key with x truncated to 31 bytes (ok=false, no throw)', async () => {
+    // Decode original key, slice 1 byte off x, re-encode.
+    const keyMap: Map<number, unknown> = decode(hexToBytes(stakeVector.keyHex), { useMaps: true }) as Map<number, unknown>;
+    const xFull = keyMap.get(-2) as Uint8Array;
+    keyMap.set(-2, xFull.slice(0, 31));
+    const mutatedKeyHex = bytesToHex(encode(keyMap));
+    const result = await verifyCip8({
+      signatureHex: stakeVector.signatureHex,
+      keyHex: mutatedKeyHex,
+      expectedPayload: stakeVector.payloadUtf8,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects COSE_Sign1 with protected header alg changed from -8 to -7 (ok=false, no throw)', async () => {
+    const mutatedSigHex = mutateCoseSign1ProtectedAlg(stakeVector.signatureHex, -7);
+    const result = await verifyCip8({
+      signatureHex: mutatedSigHex,
+      keyHex: stakeVector.keyHex,
+      expectedPayload: stakeVector.payloadUtf8,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects COSE_Sign1 with sigBstr replaced by empty Uint8Array (ok=false, no throw)', async () => {
+    const mutatedSigHex = mutateCoseSign1Sig(stakeVector.signatureHex, new Uint8Array(0));
+    const result = await verifyCip8({
+      signatureHex: mutatedSigHex,
+      keyHex: stakeVector.keyHex,
+      expectedPayload: stakeVector.payloadUtf8,
+    });
+    expect(result.ok).toBe(false);
   });
 });

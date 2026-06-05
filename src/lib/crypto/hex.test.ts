@@ -20,6 +20,10 @@ describe('hexToBytes', () => {
   it('throws on odd-length input', () => {
     expect(() => hexToBytes('abc')).toThrow('hex string must have even length');
   });
+
+  it('throws on non-hex characters', () => {
+    expect(() => hexToBytes('deadbeXX')).toThrow('invalid hex string');
+  });
 });
 
 describe('bytesToHex', () => {
