@@ -16,7 +16,7 @@ Early development.
 
 ## Feedback
 
-Bugs and feature requests: open a [GitHub issue](https://github.com/).
+Bugs and feature requests: open a [GitHub issue](https://github.com/katomm/dreptalk.com/issues/new).
 
 ## License
 
