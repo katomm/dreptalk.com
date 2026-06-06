@@ -77,6 +77,29 @@ describe('koios proxy: GET forwarding', () => {
       delete process.env.KOIOS_API_KEY;
     }
   });
+
+  it('never forwards the client cookie or authorization headers to Koios', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(jsonResponse([{ ok: true }]));
+    _setFetchImpl(mockFetch as unknown as typeof fetch);
+
+    const req = new Request('https://dreptalk.com/api/koios/tip', {
+      method: 'GET',
+      headers: { cookie: 'session=secret', authorization: 'Bearer client-token' },
+    });
+    const ctx = {
+      request: req,
+      params: { path: 'tip' },
+    } as unknown as Parameters<typeof GET>[0];
+
+    await GET(ctx);
+
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    const fwd = new Headers(init.headers);
+    // No server KOIOS_API_KEY here, so neither the client cookie nor the
+    // client bearer must reach the upstream.
+    expect(fwd.get('cookie')).toBeNull();
+    expect(fwd.get('authorization')).toBeNull();
+  });
 });
 
 describe('koios proxy: POST forwarding', () => {

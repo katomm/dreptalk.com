@@ -75,15 +75,12 @@ async function proxyRequest(request: Request, subPath: string): Promise<Response
   const qs = incomingUrl.search; // includes leading "?" or empty string
   const upstreamUrl = `${baseUrl}/${subPath}${qs}`;
 
-  // Build forwarded headers: strip hop-by-hop, inject auth when available.
-  const outHeaders = new Headers();
-  for (const [k, v] of request.headers.entries()) {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) {
-      outHeaders.set(k, v);
-    }
-  }
-  if (!outHeaders.has('accept')) {
-    outHeaders.set('accept', 'application/json');
+  // Build the upstream headers from scratch (least privilege): never forward the
+  // client's own request headers (cookies, authorization, etc.) to Koios. Send
+  // only what the upstream needs, plus our server-side token when configured.
+  const outHeaders = new Headers({ accept: 'application/json' });
+  if (request.method === 'POST' || request.method === 'PUT') {
+    outHeaders.set('content-type', 'application/json');
   }
   if (token) {
     outHeaders.set('authorization', `Bearer ${token}`);
