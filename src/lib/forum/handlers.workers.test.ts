@@ -1,0 +1,376 @@
+/// <reference types="@cloudflare/workers-types" />
+// Handler tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// Tests handleCreateTopic and handleCreatePost with real D1/KV bindings
+// and injected fake user objects. No actual HTTP requests are made.
+import { describe, it, expect } from 'vitest';
+import { env } from 'cloudflare:test';
+import { createTopic, getTopicBySlug } from '../db/forum.js';
+import { handleCreateTopic, handleCreatePost } from './handlers.js';
+
+// Stable fake user with writer role.
+const WRITER = { id: 'user-writer-001', roles: ['writer'] };
+
+// Shared DB and KV accessors.
+const db = () => env.DB;
+const rateKv = () => env.NONCES;
+
+// Fixed timestamp to keep tests deterministic.
+const NOW = 1_750_000_000_000;
+
+// ---------------------------------------------------------------------------
+// handleCreateTopic
+// ---------------------------------------------------------------------------
+
+describe('handleCreateTopic: happy path', () => {
+  it('returns 201 with a slug and creates the topic in DB', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: {
+        categorySlug: 'general',
+        title: 'My Test Topic',
+        bodyMd: '**hello world**',
+      },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+
+    expect(result.status).toBe(201);
+    const json = result.json as { ok: boolean; slug: string };
+    expect(json.ok).toBe(true);
+    expect(typeof json.slug).toBe('string');
+    expect(json.slug.length).toBeGreaterThan(0);
+
+    // Topic must exist in DB.
+    const topic = await getTopicBySlug(db(), json.slug);
+    expect(topic).not.toBeNull();
+    expect(topic!.title).toBe('My Test Topic');
+    expect(topic!.author_id).toBe(WRITER.id);
+    expect(topic!.category_slug).toBe('general');
+  });
+
+  it('stores sanitized body_html (script tags stripped)', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: {
+        categorySlug: 'general',
+        title: 'XSS Topic',
+        bodyMd: 'safe text <script>alert(1)</script> more text',
+      },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 1,
+    });
+
+    expect(result.status).toBe(201);
+    const json = result.json as { ok: boolean; slug: string };
+
+    // Read back the first post's body_html directly from DB.
+    const topicRow = await db()
+      .prepare('SELECT id FROM topics WHERE slug = ?')
+      .bind(json.slug)
+      .first<{ id: string }>();
+    expect(topicRow).not.toBeNull();
+
+    const postRow = await db()
+      .prepare('SELECT body_html FROM posts WHERE topic_id = ? ORDER BY created_at ASC LIMIT 1')
+      .bind(topicRow!.id)
+      .first<{ body_html: string }>();
+    expect(postRow).not.toBeNull();
+    expect(postRow!.body_html).not.toContain('<script');
+    expect(postRow!.body_html).toContain('safe text');
+  });
+});
+
+describe('handleCreateTopic: authorization', () => {
+  it('returns 401 when user is null', async () => {
+    const result = await handleCreateTopic({
+      user: null,
+      body: { categorySlug: 'general', title: 'Test', bodyMd: 'body' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(401);
+    const json = result.json as { ok: boolean; error: string };
+    expect(json.ok).toBe(false);
+    expect(json.error).toBe('unauthorized');
+  });
+});
+
+describe('handleCreateTopic: category rules', () => {
+  it('returns 400 for an unknown category slug', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'does-not-exist', title: 'Test Topic', bodyMd: 'body' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(400);
+  });
+
+  it('returns 403 for the governance category', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'governance-actions', title: 'Governance Post', bodyMd: 'body' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(403);
+    const json = result.json as { ok: boolean; error: string };
+    expect(json.error).toBe('cannot post in this category');
+  });
+});
+
+describe('handleCreateTopic: title validation', () => {
+  it('returns 400 when title is too short (< 3 chars)', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'ab', bodyMd: 'body text' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(400);
+  });
+
+  it('returns 400 when title is too long (> 200 chars)', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'a'.repeat(201), bodyMd: 'body text' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(400);
+  });
+
+  it('accepts a title of exactly 3 chars', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'abc', bodyMd: 'body text' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 2,
+    });
+    expect(result.status).toBe(201);
+  });
+
+  it('accepts a title of exactly 200 chars', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'a'.repeat(200), bodyMd: 'body text' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 3,
+    });
+    expect(result.status).toBe(201);
+  });
+});
+
+describe('handleCreateTopic: body validation', () => {
+  it('returns 400 when bodyMd is empty', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'Valid Title', bodyMd: '' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(400);
+  });
+
+  it('returns 400 when bodyMd exceeds 20000 chars', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'Valid Title', bodyMd: 'x'.repeat(20001) },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(400);
+  });
+
+  it('accepts bodyMd of exactly 20000 chars', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'Max Body', bodyMd: 'x'.repeat(20000) },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 4,
+    });
+    expect(result.status).toBe(201);
+  });
+});
+
+describe('handleCreateTopic: rate limiting', () => {
+  it('returns 429 on the 6th topic creation within 600s window', async () => {
+    // Use a unique user ID so this test does not share state with others.
+    const rateUser = { id: `rate-topic-user-${Date.now()}`, roles: ['writer'] };
+
+    const makeReq = (n: number) =>
+      handleCreateTopic({
+        user: rateUser,
+        body: {
+          categorySlug: 'general',
+          title: `Rate Test Topic ${n}`,
+          bodyMd: 'some body text',
+        },
+        db: db(),
+        rateKv: rateKv(),
+        now: NOW + n,
+      });
+
+    // 5 allowed.
+    for (let i = 1; i <= 5; i++) {
+      const r = await makeReq(i);
+      expect(r.status, `request ${i} should be 201`).toBe(201);
+    }
+
+    // 6th denied.
+    const denied = await makeReq(6);
+    expect(denied.status).toBe(429);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleCreatePost
+// ---------------------------------------------------------------------------
+
+describe('handleCreatePost: happy path', () => {
+  it('returns 201 and increments post_count on the topic', async () => {
+    // Create a topic to reply to.
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: WRITER.id,
+      title: 'Topic for Reply',
+      bodyMd: 'original body',
+      bodyHtml: '<p>original body</p>',
+      now: NOW,
+      rand: 'reply-test-001',
+    });
+
+    const result = await handleCreatePost({
+      user: WRITER,
+      topicId: topic.id,
+      body: { bodyMd: '**reply text**' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 1000,
+    });
+
+    expect(result.status).toBe(201);
+    const json = result.json as { ok: boolean };
+    expect(json.ok).toBe(true);
+
+    // post_count must be 2 now (original + reply).
+    const updated = await getTopicBySlug(db(), topic.slug);
+    expect(updated!.post_count).toBe(2);
+  });
+});
+
+describe('handleCreatePost: authorization', () => {
+  it('returns 401 when user is null', async () => {
+    const result = await handleCreatePost({
+      user: null,
+      topicId: 'any-topic-id',
+      body: { bodyMd: 'reply' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(401);
+    const json = result.json as { ok: boolean; error: string };
+    expect(json.error).toBe('unauthorized');
+  });
+});
+
+describe('handleCreatePost: topic state errors', () => {
+  it('returns 403 when the topic is locked', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: WRITER.id,
+      title: 'Locked Topic Handler',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: NOW,
+      rand: 'locked-handler-001',
+    });
+
+    await db()
+      .prepare('UPDATE topics SET locked = 1 WHERE id = ?')
+      .bind(topic.id)
+      .run();
+
+    const result = await handleCreatePost({
+      user: WRITER,
+      topicId: topic.id,
+      body: { bodyMd: 'reply to locked' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 1,
+    });
+
+    expect(result.status).toBe(403);
+  });
+
+  it('returns 404 when the topic does not exist', async () => {
+    const result = await handleCreatePost({
+      user: WRITER,
+      topicId: 'non-existent-topic-id-xyz',
+      body: { bodyMd: 'reply to nothing' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(404);
+  });
+});
+
+describe('handleCreatePost: body validation', () => {
+  it('returns 400 when bodyMd is empty', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: WRITER.id,
+      title: 'Topic for Empty Reply',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: NOW,
+      rand: 'empty-reply-001',
+    });
+
+    const result = await handleCreatePost({
+      user: WRITER,
+      topicId: topic.id,
+      body: { bodyMd: '' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 1,
+    });
+    expect(result.status).toBe(400);
+  });
+
+  it('returns 400 when bodyMd exceeds 20000 chars', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: WRITER.id,
+      title: 'Topic for Oversized Reply',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: NOW,
+      rand: 'oversized-reply-001',
+    });
+
+    const result = await handleCreatePost({
+      user: WRITER,
+      topicId: topic.id,
+      body: { bodyMd: 'x'.repeat(20001) },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 1,
+    });
+    expect(result.status).toBe(400);
+  });
+});
