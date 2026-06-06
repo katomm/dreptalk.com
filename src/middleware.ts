@@ -1,7 +1,10 @@
-// Session middleware: reads the dreptalk_session cookie and sets locals.user.
+// Session middleware: reads the dreptalk_session cookie and sets locals.user,
+// and attaches the baseline security headers to every SSR response (public/_headers
+// does not cover Worker-generated responses on Cloudflare Workers Static Assets).
 import { defineMiddleware } from 'astro:middleware';
 import { env } from 'cloudflare:workers';
 import { parseSessionToken, getSession } from './lib/auth/session.js';
+import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
 
 export const onRequest = defineMiddleware(async (context, next) => {
   // Default to unauthenticated.
@@ -20,7 +23,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
     }
   }
 
-  return next();
+  const response = await next();
+  applySecurityHeaders(response.headers);
+  relaxStyleSrc(response.headers);
+  return response;
 });
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,12 @@
+# This file only decorates STATIC ASSET responses (CSS, JS, fonts, images).
+# On Cloudflare Workers Static Assets it is not applied to Worker-generated SSR
+# pages or API routes; those get their security headers from src/middleware.ts,
+# and their Content-Security-Policy as a response header from Astro security.csp
+# (see astro.config.mjs). Keep this set in sync with src/lib/http/securityHeaders.ts.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  X-Frame-Options: DENY
