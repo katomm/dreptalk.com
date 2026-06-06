@@ -323,6 +323,42 @@ describe('handleVerify: reject when koios returns no proposals', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleVerify -- grant moderator role via the stake-key allowlist
+// ---------------------------------------------------------------------------
+
+describe('handleVerify: moderator allowlist', () => {
+  it('logs in an allowlisted stake address that has no proposals, with the admin role', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    await preloadNonce(env.NONCES, fixturePayload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'proposer',
+        },
+        nonceKv: env.NONCES,
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll(), // no proposals: access is granted only by the allowlist
+        network: 'preprod',
+        now: 1_700_000_000,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride, getModeratorRole: () => 'admin' },
+    );
+
+    expect(result.status).toBe(200);
+    const json = result.json as { ok: boolean; user: { roles: string[] } };
+    expect(json.ok).toBe(true);
+    expect(json.user.roles).toContain('admin');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleVerify -- reject: wrong header byte for the role
 // ---------------------------------------------------------------------------
 
