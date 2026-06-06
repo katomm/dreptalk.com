@@ -46,8 +46,6 @@ const dotGradients: Record<string, string> = {
   'governance-actions': 'linear-gradient(135deg, #8b5cf6, #6d28d9)',
   constitution: 'linear-gradient(135deg, #6366f1, #3b82f6)',
   budget: 'linear-gradient(135deg, #3b82f6, #22d3ee)',
-  'drep-hub': 'linear-gradient(135deg, #06b6d4, #2dd4bf)',
-  committee: 'linear-gradient(135deg, #2dd4bf, #34d399)',
   general: 'linear-gradient(135deg, #a78bfa, #f0abfc)',
 };
 const defaultDot = 'var(--grad)';
@@ -69,14 +67,6 @@ const heroFeatures = [
     body: 'Share perspectives, challenge ideas, and inform your vote.',
     icon: 'spark',
   },
-];
-
-// Trust row near the foot of the page.
-const trustItems = [
-  { label: 'On-chain roles', body: 'Posts come from roles proven on-chain, not anonymous accounts.', icon: 'verified' },
-  { label: 'Automatic', body: 'Governance Actions are imported in real time.', icon: 'bolt' },
-  { label: 'Transparent', body: 'All discussions are public and on record.', icon: 'eye' },
-  { label: 'For governance', body: 'Built by the community, for the community.', icon: 'people' },
 ];
 ---
 
@@ -211,29 +201,6 @@ const trustItems = [
         </a>
       ))}
     </div>
-  </section>
-
-  <section class="trust reveal" aria-label="Why DRepTalk">
-    {trustItems.map((t) => (
-      <div class="trust__item">
-        <span class="trust__icon" aria-hidden="true">
-          {t.icon === 'verified' && (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>
-          )}
-          {t.icon === 'bolt' && (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" /></svg>
-          )}
-          {t.icon === 'eye' && (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
-          )}
-          {t.icon === 'people' && (
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-          )}
-        </span>
-        <strong class="trust__label">{t.label}</strong>
-        <span class="trust__body">{t.body}</span>
-      </div>
-    ))}
   </section>
 </Layout>
 
@@ -596,42 +563,6 @@ const trustItems = [
     color: var(--accent);
   }
 
-  /* ---- Trust row ------------------------------------------------------ */
-  .trust {
-    margin-top: 3rem;
-    padding-top: 2.25rem;
-    border-top: 1px solid var(--border);
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1.5rem;
-  }
-  .trust__item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-  .trust__icon {
-    width: 38px;
-    height: 38px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 11px;
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    margin-bottom: 0.15rem;
-  }
-  .trust__label {
-    font-weight: 600;
-    font-size: 0.95rem;
-    color: var(--fg);
-  }
-  .trust__body {
-    color: var(--muted);
-    font-size: 0.875rem;
-    line-height: 1.45;
-  }
-
   /* ---- Responsive ----------------------------------------------------- */
   @media (max-width: 900px) {
     .hero {
@@ -644,10 +575,6 @@ const trustItems = [
       max-width: 360px;
       margin: 0 auto;
     }
-    .trust {
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1.5rem 1.25rem;
-    }
   }
   @media (max-width: 560px) {
     .announce {
@@ -655,9 +582,6 @@ const trustItems = [
     }
     .announce__link {
       margin-left: 52px;
-    }
-    .trust {
-      grid-template-columns: 1fr;
     }
   }
 </style>
