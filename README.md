@@ -10,6 +10,8 @@ The aim is a calmer, accountable home for governance discussion, away from the d
 
 Astro (SSR) on Cloudflare Workers, with D1 and KV. A standalone cron worker ingests governance actions. Chain data via Koios, used anonymously by default; set `KOIOS_API_KEY` to send an authenticated key for higher rate limits. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
 
+Moderators and admins are granted by stake address through the `MODERATORS` env value (comma-separated `stakeAddress` or `stakeAddress:role`, role `admin` or `moderator`); empty by default. They sign in with the normal stake-key wallet flow; the allowlist only adds the moderation role.
+
 ## Local development
 
 Requires Node 20+. Local and preview run against the Cardano preprod testnet; set `CARDANO_NETWORK=preprod` in `.dev.vars`.

@@ -5,6 +5,7 @@
 import { issueNonce, consumeNonce } from './nonce.js';
 import { verifyCip8 } from './cose.js';
 import { isHex, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
+import type { ModeratorRole } from '../../../config/moderators.js';
 import { drepIdFromPubKey, stakeAddressFromPubKey } from '../cardano/identity.js';
 import { resolveDRep, resolveProposer } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
@@ -76,6 +77,9 @@ export interface VerifyInput {
 /** Injected dependencies for handleVerify. All fields are optional; defaults are the real implementations. */
 export interface VerifyDeps {
   consumeNonce?: (kv: KVNamespace, payload: string, opts?: { now?: number }) => Promise<boolean>;
+  // Resolves a derived stake address to a moderator role, or null when the
+  // address is not on the allowlist. Defaults to "no moderators".
+  getModeratorRole?: (stakeAddr: string) => ModeratorRole | null;
 }
 
 export interface VerifyResult {
@@ -104,6 +108,7 @@ export async function handleVerify(input: VerifyInput, deps?: VerifyDeps): Promi
 async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Promise<VerifyResult> {
   const { body, nonceKv, sessionKv, db, koios, network, now, secure } = input;
   const consumeNonceFn = deps?.consumeNonce ?? consumeNonce;
+  const getModeratorRole = deps?.getModeratorRole ?? (() => null);
 
   // Step 1: Validate body shape.
   if (
@@ -178,31 +183,42 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
     stakeAddr = stakeAddressFromPubKey(pubKey, network);
   }
 
-  // Step 6: Resolve role via Koios.
+  // Step 6: Resolve authorization via Koios and the moderator allowlist.
+  // Only the roles actually proven on-chain are granted; moderator status comes
+  // from the config allowlist (keyed by the derived stake address).
+  const grantedRoles: ('drep' | 'proposer')[] = [];
+  let modRole: ModeratorRole | null = null;
+
   if (body.role === 'drep') {
     const resolution = await resolveDRep(koios, drepId!);
     if (!resolution.isDrep) {
       return { status: 401, json: { ok: false, error: 'not an active DRep' } };
     }
+    grantedRoles.push('drep');
   } else {
     const resolution = await resolveProposer(koios, stakeAddr!);
-    if (!resolution.isProposer) {
-      return { status: 401, json: { ok: false, error: 'no proposals found for this address' } };
+    modRole = getModeratorRole(stakeAddr!);
+    if (!resolution.isProposer && !modRole) {
+      return { status: 401, json: { ok: false, error: 'not a proposer or moderator' } };
     }
+    if (resolution.isProposer) grantedRoles.push('proposer');
   }
 
-  // Step 7: Upsert user.
+  // Step 7: Upsert user with the on-chain roles actually granted (a moderator
+  // who is neither DRep nor proposer is stored as a plain member row).
   const user = await upsertUserFromAuth(db, {
     drepId,
     stakeAddr,
-    roles: [body.role as 'drep' | 'proposer'],
+    roles: grantedRoles,
     now: Math.floor(now ?? Date.now() / 1000),
   });
 
-  // Step 8: Create session.
+  // Step 8: Create session. The moderator role is re-evaluated from the
+  // allowlist on every login and is not persisted on the user row.
   const roles: string[] = [];
   if (user.is_drep) roles.push('drep');
   if (user.is_proposer) roles.push('proposer');
+  if (modRole) roles.push(modRole);
   if (roles.length === 0) roles.push('member');
 
   const token = await createSession(sessionKv, { id: user.id, roles }, { now });
