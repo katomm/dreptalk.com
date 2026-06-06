@@ -75,7 +75,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
     }
 
     // 5. Validate bodyMd.
-    const bodyMd = typeof body.bodyMd === 'string' ? body.bodyMd : '';
+    const bodyMd = (typeof body.bodyMd === 'string' ? body.bodyMd : '').trim();
     if (bodyMd.length === 0 || bodyMd.length > 20000) {
       return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
     }
@@ -142,7 +142,7 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     }
 
     // 3. Validate bodyMd.
-    const bodyMd = typeof body.bodyMd === 'string' ? body.bodyMd : '';
+    const bodyMd = (typeof body.bodyMd === 'string' ? body.bodyMd : '').trim();
     if (bodyMd.length === 0 || bodyMd.length > 20000) {
       return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
     }

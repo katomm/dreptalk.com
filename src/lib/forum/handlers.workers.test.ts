@@ -373,4 +373,77 @@ describe('handleCreatePost: body validation', () => {
     });
     expect(result.status).toBe(400);
   });
+
+  it('returns 400 when bodyMd is whitespace-only (post)', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: WRITER.id,
+      title: 'Topic for Whitespace Reply',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: NOW,
+      rand: 'ws-reply-001',
+    });
+
+    const result = await handleCreatePost({
+      user: WRITER,
+      topicId: topic.id,
+      body: { bodyMd: '   ' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 1,
+    });
+    expect(result.status).toBe(400);
+  });
+});
+
+describe('handleCreateTopic: whitespace body', () => {
+  it('returns 400 when bodyMd is whitespace-only (topic)', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'Whitespace Body Topic', bodyMd: '   ' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(result.status).toBe(400);
+  });
+});
+
+describe('handleCreatePost: rate limiting', () => {
+  it('returns 429 on the 21st reply within 600s window', async () => {
+    // Use a unique user ID so this test does not share state with others.
+    const rateUser = { id: `rate-post-user-${Date.now()}`, roles: ['writer'] };
+
+    // Create a topic to reply to (use WRITER so the topic user is separate).
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: WRITER.id,
+      title: 'Rate Limit Reply Topic',
+      bodyMd: 'topic body',
+      bodyHtml: '<p>topic body</p>',
+      now: NOW,
+      rand: 'rate-post-topic-001',
+    });
+
+    const makeReq = (n: number) =>
+      handleCreatePost({
+        user: rateUser,
+        topicId: topic.id,
+        body: { bodyMd: `reply number ${n}` },
+        db: db(),
+        rateKv: rateKv(),
+        now: NOW + n,
+      });
+
+    // 20 allowed.
+    for (let i = 1; i <= 20; i++) {
+      const r = await makeReq(i);
+      expect(r.status, `request ${i} should be 201`).toBe(201);
+    }
+
+    // 21st denied.
+    const denied = await makeReq(21);
+    expect(denied.status).toBe(429);
+  });
 });

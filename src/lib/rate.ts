@@ -24,12 +24,17 @@ export async function checkRate(
   const kvKey = `rate:${key}`;
 
   const existing = await kv.get(kvKey);
-  const current = existing === null ? 0 : parseInt(existing, 10);
+  const parsed = parseInt(existing ?? '0', 10);
+  const current = Number.isFinite(parsed) ? parsed : 0;
 
   if (current >= max) {
     return false;
   }
 
-  await kv.put(kvKey, String(current + 1), { expirationTtl: windowSec });
+  if (existing === null) {
+    await kv.put(kvKey, '1', { expirationTtl: windowSec });
+  } else {
+    await kv.put(kvKey, String(current + 1));
+  }
   return true;
 }
