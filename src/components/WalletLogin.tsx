@@ -53,6 +53,14 @@ export default function WalletLogin() {
     if (found.length > 0) setSelectedWallet(found[0].key);
   }, []);
 
+  // Preselect the role from a ?role= deep link (e.g. the header entry menu).
+  // Only the roles this flow supports are honored; the server validates the
+  // role independently, so this just sets the initial radio choice.
+  useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get('role');
+    if (r === 'drep' || r === 'proposer') setRole(r);
+  }, []);
+
   async function handleLogin() {
     const walletInfo = wallets.find((w) => w.key === selectedWallet);
     if (!walletInfo) return;
@@ -80,7 +88,7 @@ export default function WalletLogin() {
       setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });
     } else {
       const msg = result.error === 'wallet does not support CIP-95'
-        ? 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Yoroi).'
+        ? 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).'
         : result.error === 'login failed'
           ? 'Login failed. Please try again.'
           : (result.error ?? 'Login failed.');
@@ -116,7 +124,7 @@ export default function WalletLogin() {
         <>
           {wallets.length === 0 ? (
             <p style={{ color: 'var(--muted)' }}>
-              No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Yoroi).
+              No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

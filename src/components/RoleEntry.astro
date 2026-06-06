@@ -1,0 +1,180 @@
+---
+// Role-aware sign-in control. The primary action enters as a DRep; the chevron
+// reveals the other on-chain writing roles. Reading the forum is public, this
+// only gates who can post. SPO and CC-member sign-in are not built yet, so they
+// render as disabled "soon" rows. Built on a native <details> so it needs no
+// client JS (the strict CSP forbids inline scripts).
+interface Props {
+  layout?: 'split' | 'flat';
+}
+const { layout = 'split' } = Astro.props;
+
+// Roles revealed beyond the primary "Enter as DRep" action. Order follows the
+// product framing; entries without an href are not implemented yet.
+const moreRoles: Array<{ label: string; href?: string }> = [
+  { label: 'Enter as SPO' },
+  { label: 'Enter as CC member' },
+  { label: 'Enter as proposer', href: '/login?role=proposer' },
+];
+---
+
+<div class:list={['role-entry', `role-entry--${layout}`]}>
+  <a class="btn btn-primary role-entry__main" href="/login">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+    Enter as DRep
+  </a>
+
+  {layout === 'split' ? (
+    <details class="role-entry__more">
+      <summary class="role-entry__toggle" aria-label="More ways to sign in">
+        <svg class="role-entry__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </summary>
+      <div class="role-entry__menu" role="menu">
+        {moreRoles.map((r) =>
+          r.href ? (
+            <a class="role-entry__item" href={r.href} role="menuitem">{r.label}</a>
+          ) : (
+            <span class="role-entry__item role-entry__item--soon" aria-disabled="true">
+              {r.label}
+              <span class="role-entry__soon">soon</span>
+            </span>
+          ),
+        )}
+      </div>
+    </details>
+  ) : (
+    <div class="role-entry__list">
+      {moreRoles.map((r) =>
+        r.href ? (
+          <a class="role-entry__item" href={r.href}>{r.label}</a>
+        ) : (
+          <span class="role-entry__item role-entry__item--soon" aria-disabled="true">
+            {r.label}
+            <span class="role-entry__soon">soon</span>
+          </span>
+        ),
+      )}
+    </div>
+  )}
+</div>
+
+<style>
+  .role-entry {
+    position: relative;
+    display: inline-flex;
+    align-items: stretch;
+  }
+
+  /* The primary action reuses the global .btn .btn-primary; only the split-pill
+     and flat-width tweaks below are component-specific. */
+
+  /* Split layout: join the primary button and the chevron into one pill. */
+  .role-entry--split .role-entry__main {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .role-entry__more {
+    display: inline-flex;
+  }
+  .role-entry__toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.7rem;
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: 1px solid transparent;
+    border-left: 1px solid color-mix(in srgb, var(--accent-fg) 28%, transparent);
+    border-top-right-radius: var(--radius);
+    border-bottom-right-radius: var(--radius);
+    cursor: pointer;
+    list-style: none;
+    transition: background-color 0.15s ease;
+  }
+  .role-entry__toggle::-webkit-details-marker {
+    display: none;
+  }
+  .role-entry__toggle:hover {
+    background: var(--accent-hover);
+  }
+  .role-entry__chev {
+    transition: transform 0.18s ease;
+  }
+  .role-entry__more[open] .role-entry__chev {
+    transform: rotate(180deg);
+  }
+
+  /* Dropdown menu */
+  .role-entry__menu {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    z-index: 60;
+    min-width: 210px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: 0.4rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .role-entry__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--fg);
+    text-decoration: none;
+  }
+  a.role-entry__item:hover {
+    background: var(--surface);
+    color: var(--accent);
+  }
+  .role-entry__item--soon {
+    color: var(--muted);
+    cursor: default;
+  }
+  .role-entry__soon {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.05rem 0.4rem;
+  }
+
+  /* Flat layout for the mobile menu: stacked full-width rows, no disclosure. */
+  .role-entry--flat {
+    display: flex;
+    width: 100%;
+    margin-top: 0.4rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.15rem;
+  }
+  .role-entry--flat .role-entry__main {
+    justify-content: center;
+    width: 100%;
+  }
+  .role-entry__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-top: 0.15rem;
+  }
+</style>

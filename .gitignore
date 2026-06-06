@@ -11,8 +11,11 @@ dist/
 CLAUDE.md
 .claude/
 
-# Local design mockups (not for the public repo); also backed up outside the repo
+# Local design mockups (not for the public repo)
 src/assets/images/artwork/
 
 # Skill/spec output from Claude Code subagents; not project files
 docs/generated/
+
+# Local design review screenshots; not project files
+.screenshots/
