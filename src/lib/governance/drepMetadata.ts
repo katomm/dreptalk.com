@@ -11,6 +11,10 @@ import { blake2b256 } from '@/lib/crypto/blake.js';
 import { bytesToHex } from '@/lib/crypto/hex.js';
 import { sanitizeExternalText } from '@/lib/validation/input.js';
 
+// Reused across every buildDrepMetadata call; allocation is cheap but
+// TextEncoder has no state, so a single module-level instance is fine.
+const TEXT_ENCODER = new TextEncoder();
+
 // Character limits defined by CIP-119 and enforced before hashing.
 export const MAX_DREP_NAME = 80;
 export const MAX_DREP_BIO = 1000;
@@ -117,7 +121,7 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
   };
 
   const body = JSON.stringify(doc);
-  const hash = bytesToHex(blake2b256(new TextEncoder().encode(body)));
+  const hash = bytesToHex(blake2b256(TEXT_ENCODER.encode(body)));
 
   return { name, bio, links, body, hash };
 }

@@ -5,6 +5,7 @@
 import { Anchor, Client, Credential, Transaction, Url, mainnet, preprod } from '@evolution-sdk/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
+import type { CardanoNetwork } from '../config/network.js';
 
 // WalletApi is not re-exported from the barrel. We define a structurally compatible
 // interface (a strict superset of what we actually call) so callers can pass the
@@ -22,7 +23,7 @@ export interface WalletApi {
 export interface RegisterDRepOpts {
   /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
   walletApi: WalletApi;
-  network: 'preprod' | 'mainnet';
+  network: CardanoNetwork;
   /** 28-byte blake2b-224 of the CIP-95 DRep verification key. */
   drepKeyHash: Uint8Array;
   /** Hosted metadata URL returned by POST /api/drep/metadata. */

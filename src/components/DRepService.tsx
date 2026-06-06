@@ -5,13 +5,16 @@
 // wallet builds nothing, but it does sign and submit the reg_drep transaction
 // (see registerDRep). The only server calls here are reading public chain data
 // via the Koios proxy and hosting the metadata document.
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
 import { registerDRep } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
-import { drepIdFromPubKey } from '@/lib/cardano/identity.js';
+import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
 import { blake2b224 } from '@/lib/crypto/blake.js';
 import { hexToBytes } from '@/lib/crypto/hex.js';
+import type { CardanoNetwork } from '@/lib/config/network.js';
+import { txExplorerUrl } from '@/lib/config/network.js';
+import { walletErrorDetail } from '@/lib/wallet/walletError.js';
 
 // The enabled wallet api is the CIP-30 surface plus the optional CIP-95
 // extension namespace. We intersect the structural Tx api (used by
@@ -19,8 +22,6 @@ import { hexToBytes } from '@/lib/crypto/hex.js';
 type EnabledWalletApi = TxWalletApi & {
   cip95?: { getPubDRepKey(): Promise<string> };
 };
-
-type Network = 'preprod' | 'mainnet';
 
 // A few sensible, light client-side limits. The /api/drep/metadata endpoint is
 // the real validator; this only keeps obvious mistakes out of the wallet prompt.
@@ -44,7 +45,7 @@ type Phase =
 
 interface DRepServiceProps {
   // Resolved at build time from the .astro shell; defaults to preprod.
-  network?: Network;
+  network?: CardanoNetwork;
 }
 
 // Splits the free-form links field (newline or comma separated) into a clean
@@ -56,14 +57,10 @@ export function parseLinks(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-// Maps wallet/network failures to a readable sentence. CIP-30 errors carry
-// { code, info }; prefer info, then message, then a generic fallback.
+// Maps wallet/network failures to a readable sentence. Delegates detail
+// extraction to walletErrorDetail; applies sentence-case and punctuation here.
 function readableError(err: unknown): string {
-  const e = err as { info?: unknown; message?: unknown } | null;
-  const detail =
-    (typeof e?.info === 'string' && e.info) ||
-    (typeof e?.message === 'string' && e.message) ||
-    '';
+  const detail = walletErrorDetail(err) ?? '';
   if (!detail) return 'Something went wrong. Please try again.';
   const msg = detail.charAt(0).toUpperCase() + detail.slice(1);
   return /[.!?]$/.test(msg) ? msg : `${msg}.`;
@@ -73,15 +70,15 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
 
+  // Stores the CIP-30 api object returned by enable() during the connect step
+  // so the submit step can reuse it without a second enable() IPC round trip.
+  // CIP-30 enable() is idempotent, but caching avoids the extra call.
+  const enabledApiRef = useRef<EnabledWalletApi | null>(null);
+
   // Registration form fields.
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
   const [links, setLinks] = useState('');
-
-  const explorerBase =
-    network === 'mainnet'
-      ? 'https://cardanoscan.io/transaction/'
-      : 'https://preprod.cardanoscan.io/transaction/';
 
   // Step 1 + 2 + 3: connect, derive the DRep identity, check current status.
   async function handleConnect() {
@@ -112,14 +109,21 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
       return;
     }
 
+    // Store the enabled api for reuse in the submit step; avoids a second
+    // enable() IPC call when the user submits the registration form.
+    enabledApiRef.current = api;
+
     // Derive the DRep key hash (28-byte blake2b-224) and the CIP-129 drep1 id.
+    // Compute the hash once and derive the id from the same bytes via
+    // drepIdFromKeyHash so the pubkey is only hashed once.
     let identity: DRepIdentity;
     try {
       const pubKeyHex = await api.cip95.getPubDRepKey();
       const pubKeyBytes = hexToBytes(pubKeyHex);
+      const drepKeyHash = blake2b224(pubKeyBytes);
       identity = {
-        drepKeyHash: blake2b224(pubKeyBytes),
-        drepId: drepIdFromPubKey(pubKeyBytes),
+        drepKeyHash,
+        drepId: drepIdFromKeyHash(drepKeyHash),
       };
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
@@ -192,12 +196,12 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
       const { url, hash } = (await metaRes.json()) as { url: string; hash: string };
 
       // 4b + 4c: the wallet builds, signs (deposit + fee shown here), submits.
-      const walletInfo = wallets.find((w) => w.key === selected);
-      if (!walletInfo) {
+      // Reuse the api stored during the connect step; no second enable() needed.
+      const api = enabledApiRef.current;
+      if (!api) {
         setPhase({ status: 'error', message: 'Wallet connection was lost. Please reconnect.' });
         return;
       }
-      const api = (await walletInfo.raw.enable({ extensions: [{ cip: 95 }] })) as unknown as EnabledWalletApi;
 
       const { txHash } = await registerDRep({
         walletApi: api,
@@ -215,6 +219,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   }
 
   function reset() {
+    enabledApiRef.current = null;
     setPhase({ status: 'idle' });
   }
 
@@ -251,7 +256,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
             <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>Registration submitted</p>
             <p style={{ margin: '0 0 0.5rem' }}>
               Transaction:{' '}
-              <a href={`${explorerBase}${phase.txHash}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+              <a href={txExplorerUrl(network, phase.txHash)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
                 {phase.txHash}
               </a>
             </p>

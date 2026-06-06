@@ -41,34 +41,24 @@ export function _setFetchImpl(f: typeof fetch): void {
   _fetchImpl = f;
 }
 
-function resolveKoiosBaseUrl(): string {
+function resolveKoiosConfig(): { baseUrl: string; token?: string } {
   // In Workers runtime env is available via cloudflare:workers.
   // In Node test environments it is not, so fall back to process.env.
-  let networkValue: string | undefined;
+  let env: Record<string, string | undefined>;
   try {
     // Dynamic require so Node tests never blow up on the missing virtual module.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { env } = require('cloudflare:workers') as { env: Record<string, string | undefined> };
-    networkValue = env.CARDANO_NETWORK;
+    ({ env } = require('cloudflare:workers') as { env: Record<string, string | undefined> });
   } catch {
-    networkValue = process.env.CARDANO_NETWORK;
+    env = process.env as Record<string, string | undefined>;
   }
-  return resolveNetwork(networkValue ?? null).koiosBaseUrl;
-}
-
-function resolveKoiosToken(): string | undefined {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { env } = require('cloudflare:workers') as { env: Record<string, string | undefined> };
-    return env.KOIOS_API_KEY || undefined;
-  } catch {
-    return process.env.KOIOS_API_KEY || undefined;
-  }
+  const baseUrl = resolveNetwork(env.CARDANO_NETWORK ?? null).koiosBaseUrl;
+  const token = env.KOIOS_API_KEY || undefined;
+  return { baseUrl, token };
 }
 
 async function proxyRequest(request: Request, subPath: string): Promise<Response> {
-  const baseUrl = resolveKoiosBaseUrl();
-  const token = resolveKoiosToken();
+  const { baseUrl, token } = resolveKoiosConfig();
 
   // Reconstruct the upstream URL: base + path + original query string.
   const incomingUrl = new URL(request.url);
