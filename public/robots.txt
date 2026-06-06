@@ -1,9 +1,8 @@
 User-agent: *
 Disallow: /admin
 Disallow: /api
-Disallow: /impressum
-Disallow: /datenschutz
-Disallow: /agb
+Disallow: /imprint
+Disallow: /privacy
 
 User-agent: GPTBot
 User-agent: ClaudeBot
@@ -15,4 +14,4 @@ User-agent: PerplexityBot
 User-agent: Applebot-Extended
 Disallow: /
 
-Sitemap: https://dreptalk.com/sitemap-index.xml
+Sitemap: https://dreptalk.com/sitemap.xml
