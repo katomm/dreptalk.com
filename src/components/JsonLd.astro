@@ -1,0 +1,9 @@
+---
+// Renders a <script type="application/ld+json"> block for structured data (JSON-LD).
+// Pass any JSON-serializable object as `data`.
+interface Props {
+  data: Record<string, unknown>;
+}
+const { data } = Astro.props;
+---
+<script type="application/ld+json" set:html={JSON.stringify(data)} />
