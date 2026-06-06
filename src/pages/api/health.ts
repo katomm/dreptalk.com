@@ -1,10 +1,10 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { buildHealthPayload } from '@/lib/health';
 
 export const prerender = false;
 
-export const GET: APIRoute = ({ locals }) => {
-  const env = (locals as any).runtime?.env ?? {};
+export const GET: APIRoute = () => {
   try {
     const payload = buildHealthPayload(env.CARDANO_NETWORK);
     return new Response(JSON.stringify(payload), {

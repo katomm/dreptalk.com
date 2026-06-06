@@ -1,4 +1,5 @@
 // Shared helpers for API route handlers.
+import { env as workersEnv } from 'cloudflare:workers';
 
 /**
  * Builds a JSON Response with the correct content-type header.
@@ -16,9 +17,12 @@ export function jsonResponse(
 }
 
 /**
- * Extracts the runtime environment bindings from Astro locals.
- * Returns an empty object when the runtime env is not present (e.g. during local dev).
+ * Returns the Cloudflare runtime environment bindings (D1, KV, vars).
+ *
+ * Adapter 13 / Astro 6 removed `Astro.locals.runtime.env`; the bindings are now
+ * exposed as a module global via `cloudflare:workers`. The `locals` argument is
+ * accepted for call-site compatibility but is no longer read.
  */
-export function runtimeEnv(locals: App.Locals): Record<string, unknown> {
-  return (locals.runtime?.env ?? {}) as Record<string, unknown>;
+export function runtimeEnv(_locals?: App.Locals): Record<string, unknown> {
+  return (workersEnv ?? {}) as unknown as Record<string, unknown>;
 }

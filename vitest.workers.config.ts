@@ -15,8 +15,17 @@ export default defineWorkersProject(async () => {
       setupFiles: ['./src/lib/test-setup.workers.ts'],
       poolOptions: {
         workers: {
-          wrangler: { configPath: './wrangler.toml' },
+          // Bindings are declared inline so the pool does NOT read wrangler.toml.
+          // wrangler.toml has [assets] directory = "./dist/client" which fails
+          // validation in CI because no build is run before tests. The tests
+          // import library functions directly and never serve static assets, so
+          // the [assets] block is irrelevant here.
+          main: './src/lib/test-worker-entry.ts',
           miniflare: {
+            compatibilityDate: '2025-09-01',
+            compatibilityFlags: ['nodejs_compat'],
+            d1Databases: ['DB'],
+            kvNamespaces: ['SESSIONS', 'NONCES'],
             bindings: {
               // Pass serialized migration data so the setup file can apply them.
               TEST_D1_MIGRATIONS: JSON.stringify(migrations),

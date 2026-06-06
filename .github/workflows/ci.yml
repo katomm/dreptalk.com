@@ -10,16 +10,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      # Gate: production dependencies must be free of critical vulnerabilities.
+      # Gate: production dependencies must be free of high and critical vulnerabilities.
       # The deployed Workers runtime ships only the runtime deps (cborg, noble, blake, bech32, zod);
       # the Astro/adapter toolchain (undici, vitest, miniflare) is build/dev only.
-      - name: Audit production deps (gate on critical)
-        run: npm audit --omit=dev --audit-level=critical
+      # After the Astro 6 / adapter 13 upgrade the previous undici high cleared,
+      # so the gate is tightened from critical to high.
+      - name: Audit production deps (gate on high)
+        run: npm audit --omit=dev --audit-level=high
       # Informational: full audit for visibility, does not fail the build.
       - name: Full audit (informational)
         run: npm audit || true

@@ -1,10 +1,10 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { handleChallenge } from '@/lib/auth/handlers';
 
 export const prerender = false;
 
-export const POST: APIRoute = async ({ request, locals }) => {
-  const env = (locals as { runtime?: { env?: Record<string, unknown> } }).runtime?.env ?? {};
+export const POST: APIRoute = async ({ request }) => {
   const nonceKv = env.NONCES as KVNamespace | undefined;
   if (!nonceKv) {
     return new Response(JSON.stringify({ ok: false, error: 'service unavailable' }), {

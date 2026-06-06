@@ -7,16 +7,16 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro build && wrangler pages dev ./dist",
+    "preview": "astro build && wrangler dev",
     "typecheck": "astro check",
     "test": "vitest run --workspace vitest.workspace.ts",
     "test:watch": "vitest --workspace vitest.workspace.ts"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^12.0.0",
-    "@astrojs/react": "^4.0.0",
+    "@astrojs/cloudflare": "^13.0.0",
+    "@astrojs/react": "^5.0.0",
     "@noble/curves": "^2.2.0",
-    "astro": "^5.0.0",
+    "astro": "^6.0.0",
     "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cborg": "^5.1.1",

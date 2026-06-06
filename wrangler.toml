@@ -1,7 +1,14 @@
 name = "dreptalk"
+main = "@astrojs/cloudflare/entrypoints/server"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "./dist"
+
+# Workers Static Assets: the Astro client build output (dist/client) is served
+# as static assets, with the SSR worker handling everything else. The adapter
+# emits the SSR bundle under dist/server and merges this config at build time.
+[assets]
+directory = "./dist/client"
+binding = "ASSETS"
 
 # D1 database for application data.
 # database_id is a placeholder; the real id is created at deploy time via
