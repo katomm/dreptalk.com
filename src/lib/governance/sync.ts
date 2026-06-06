@@ -44,9 +44,11 @@ function formatDeposit(lovelace: string | null | undefined): string | null {
   return `${(n / 1_000_000).toLocaleString('en-US')} ADA`;
 }
 
-function govToolUrl(network: CardanoNetwork, proposalId: string): string {
-  const base = network === 'mainnet' ? 'https://gov.tools' : 'https://pre-prod.gov.tools';
-  return `${base}/governance_actions/${proposalId}`;
+function explorerUrl(network: CardanoNetwork, proposalId: string): string {
+  // Cardanoscan has a live preprod instance with stable /govAction routes;
+  // GovTool's preprod host was unreliable.
+  const base = network === 'mainnet' ? 'https://cardanoscan.io' : 'https://preprod.cardanoscan.io';
+  return `${base}/govAction/${proposalId}`;
 }
 
 /**
@@ -66,7 +68,7 @@ function composeFirstPostMd(p: ProposalListRow, abstract: string | null, network
   if (dep) lines.push(`- Deposit: ${dep}`);
   if (p.proposed_epoch != null) lines.push(`- Submitted: epoch ${p.proposed_epoch}`);
   if (p.expiration != null) lines.push(`- Expires: epoch ${p.expiration}`);
-  lines.push('', `[View on GovTool](${govToolUrl(network, p.proposal_id)})`);
+  lines.push('', `[View on Cardanoscan](${explorerUrl(network, p.proposal_id)})`);
   return lines.join('\n');
 }
 
