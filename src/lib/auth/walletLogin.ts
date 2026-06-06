@@ -2,6 +2,7 @@
 // No DOM imports; fully testable in Node.js with injected fetch and wallet API.
 import { blake2b224 } from '../crypto/blake.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
+import { walletErrorDetail } from '../wallet/walletError.js';
 
 // Minimal CIP-30 + CIP-95 wallet API surface required for login.
 export interface WalletApi {
@@ -109,11 +110,7 @@ export async function loginWithWallet(
   } catch (err) {
     // Wallet rejection (user declined), network error, or other failure.
     // CIP-30 wallet errors carry { code, info }; prefer that detail when present.
-    const e = err as { info?: unknown; message?: unknown } | null;
-    const detail =
-      (typeof e?.info === 'string' && e.info) ||
-      (typeof e?.message === 'string' && e.message) ||
-      'wallet connection or network error';
+    const detail = walletErrorDetail(err) ?? 'wallet connection or network error';
     return { ok: false, error: detail };
   }
 }
