@@ -56,6 +56,16 @@ export function truncateId(id: string, len = 16): string {
 }
 
 /**
+ * Strips HTML tags from a string, collapses whitespace, and truncates to
+ * `maxLen` characters (appending "..." when truncated). For plain-text meta
+ * descriptions and JSON-LD text derived from sanitized post HTML.
+ */
+export function excerptFromHtml(html: string, maxLen = 155): string {
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return text.length > maxLen ? text.slice(0, maxLen - 1).trimEnd() + '...' : text;
+}
+
+/**
  * Format a Unix timestamp (ms) as a human-readable relative time string.
  * Designed for short display next to posts and topic rows.
  *

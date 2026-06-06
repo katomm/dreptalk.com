@@ -7,7 +7,7 @@ import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
 import { getCategory } from '../../../config/categories.js';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
@@ -50,6 +50,12 @@ const firstPostDate = topic
   ? new Date(topic.created_at).toISOString()
   : new Date().toISOString();
 
+// Meta description / schema text from the opening post (posts[0] on page 1);
+// deeper pages fall back to a generic line.
+const openingExcerpt = page === 1 && posts[0]?.body_html ? excerptFromHtml(posts[0].body_html) : '';
+const metaDescription =
+  openingExcerpt || (topic ? `Discussion of ${topic.title} on DRepTalk.` : 'Discussion on DRepTalk.');
+
 const discussionLd = topic
   ? {
       '@context': 'https://schema.org',
@@ -61,6 +67,8 @@ const discussionLd = topic
       },
       datePublished: firstPostDate,
       url: siteOrigin + `/t/${topic.slug}`,
+      commentCount: Math.max(0, topic.post_count - 1),
+      ...(openingExcerpt ? { text: openingExcerpt } : {}),
     }
   : null;
 
@@ -97,7 +105,7 @@ const breadcrumbLd = topic
 ) : (
   <Layout
     title={`${topic.title} - DRepTalk`}
-    description={`Discussion: ${topic.title}`}
+    description={metaDescription}
   >
     {discussionLd && <JsonLd data={discussionLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
