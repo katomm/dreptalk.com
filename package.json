@@ -10,7 +10,8 @@
     "preview": "astro build && wrangler dev",
     "typecheck": "astro check",
     "test": "vitest run --workspace vitest.workspace.ts",
-    "test:watch": "vitest --workspace vitest.workspace.ts"
+    "test:watch": "vitest --workspace vitest.workspace.ts",
+    "sync:dev": "wrangler dev --config workers/gov-sync/wrangler.toml --test-scheduled --persist-to .wrangler/state --var CARDANO_NETWORK:preprod --port 8787"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.0.0",
