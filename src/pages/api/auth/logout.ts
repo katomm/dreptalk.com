@@ -1,10 +1,10 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { handleLogout } from '@/lib/auth/handlers';
 
 export const prerender = false;
 
-export const POST: APIRoute = async ({ request, locals }) => {
-  const env = (locals as { runtime?: { env?: Record<string, unknown> } }).runtime?.env ?? {};
+export const POST: APIRoute = async ({ request }) => {
   const sessionKv = env.SESSIONS as KVNamespace | undefined;
 
   if (!sessionKv) {

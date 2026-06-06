@@ -5,8 +5,8 @@ import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import { getCategories } from '../../config/categories.js';
 import { cacheControlFor } from '@/lib/forum/view.js';
+import { env } from 'cloudflare:workers';
 
-const env = (Astro.locals as App.Locals).runtime?.env ?? {};
 const db = env.DB as D1Database | undefined;
 
 // One parameterless query to get topic counts per category.

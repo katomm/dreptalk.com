@@ -8,10 +8,10 @@ import NotFound from '@/components/NotFound.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
 
-const env = (Astro.locals as App.Locals).runtime?.env ?? {};
 const db = env.DB as D1Database | undefined;
 
 const topic = slug && db ? await getTopicBySlug(db, slug) : null;
