@@ -1,13 +1,23 @@
 ---
 ---
-<button id="theme-toggle" aria-label="Toggle dark mode" type="button">🌓</button>
+<button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode">
+  <span class="toggle-icons">
+    <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+    <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  </span>
+</button>
 <style>
-  #theme-toggle {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    padding: 0.35rem 0.6rem;
-    cursor: pointer;
-    font-size: 1rem;
-  }
+  .theme-toggle { background:none; border:none; cursor:pointer; padding:6px; display:flex; align-items:center; justify-content:center; color:var(--fg); border-radius:8px; transition:background .2s ease; flex-shrink:0; }
+  .theme-toggle:hover { background:rgba(128,128,128,.12); }
+  .toggle-icons { position:relative; display:flex; align-items:center; justify-content:center; width:18px; height:18px; }
+  .icon-sun, .icon-moon { position:absolute; transition:transform .5s ease, opacity .3s ease; }
+  .icon-sun { opacity:1; transform:rotate(0deg) scale(1); }
+  .icon-moon { opacity:0; transform:rotate(-90deg) scale(0); }
+  :global(html[data-theme='dark']) .icon-sun { opacity:0; transform:rotate(90deg) scale(0); }
+  :global(html[data-theme='dark']) .icon-moon { opacity:1; transform:rotate(0deg) scale(1); }
+  @media (prefers-reduced-motion: reduce){ .icon-sun,.icon-moon{ transition:none; } }
 </style>

@@ -31,7 +31,11 @@ export const POST: APIRoute = async ({ request }) => {
 
     const networkEnv = (env.CARDANO_NETWORK as string | undefined) ?? null;
     const { network, koiosBaseUrl } = resolveNetwork(networkEnv);
-    const koios = createKoiosClient({ baseUrl: koiosBaseUrl });
+    // Optional Koios API key: when KOIOS_API_KEY is set it is sent as a Bearer
+    // token (higher rate limits); when unset the client falls back to anonymous
+    // requests, so no configuration is required.
+    const koiosToken = (env.KOIOS_API_KEY as string | undefined) || undefined;
+    const koios = createKoiosClient({ baseUrl: koiosBaseUrl, token: koiosToken });
     const secure = new URL(request.url).protocol === 'https:';
 
     const result = await handleVerify({
