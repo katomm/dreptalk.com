@@ -5,6 +5,7 @@
 
 import type { ProposalListRow } from '../koios/client.js';
 import type { CardanoNetwork } from '../config/network.js';
+import { cardanoscanBase } from '../config/network.js';
 import { fetchAnchorMetadata } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
 import { createTopic } from '../db/forum.js';
@@ -47,8 +48,7 @@ function formatDeposit(lovelace: string | null | undefined): string | null {
 function explorerUrl(network: CardanoNetwork, proposalId: string): string {
   // Cardanoscan has a live preprod instance with stable /govAction routes;
   // GovTool's preprod host was unreliable.
-  const base = network === 'mainnet' ? 'https://cardanoscan.io' : 'https://preprod.cardanoscan.io';
-  return `${base}/govAction/${proposalId}`;
+  return `${cardanoscanBase(network)}/govAction/${proposalId}`;
 }
 
 /**
