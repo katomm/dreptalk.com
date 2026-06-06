@@ -45,7 +45,7 @@ function formatDeposit(lovelace: string | null | undefined): string | null {
 }
 
 function govToolUrl(network: CardanoNetwork, proposalId: string): string {
-  const base = network === 'mainnet' ? 'https://gov.tools' : 'https://pre.gov.tools';
+  const base = network === 'mainnet' ? 'https://gov.tools' : 'https://pre-prod.gov.tools';
   return `${base}/governance_actions/${proposalId}`;
 }
 
