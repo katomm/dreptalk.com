@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd } from './view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId } from './view.js';
 
 // ---------------------------------------------------------------------------
 // serializeJsonLd
@@ -27,6 +27,33 @@ describe('serializeJsonLd', () => {
   it('leaves values without </ unchanged', () => {
     const data = { title: 'Hello world', count: 1 };
     expect(serializeJsonLd(data)).toBe(JSON.stringify(data));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// truncateId
+// ---------------------------------------------------------------------------
+
+describe('truncateId', () => {
+  it('returns the id unchanged when it is shorter than len', () => {
+    expect(truncateId('abc', 16)).toBe('abc');
+  });
+
+  it('returns the id unchanged when it equals len exactly', () => {
+    expect(truncateId('1234567890123456', 16)).toBe('1234567890123456');
+  });
+
+  it('truncates and appends "..." when id is longer than len', () => {
+    expect(truncateId('12345678901234567', 16)).toBe('1234567890123456...');
+  });
+
+  it('uses default len of 16', () => {
+    const long = 'a'.repeat(20);
+    expect(truncateId(long)).toBe('a'.repeat(16) + '...');
+  });
+
+  it('respects a custom len', () => {
+    expect(truncateId('hello world', 5)).toBe('hello...');
   });
 });
 

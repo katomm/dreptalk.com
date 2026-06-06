@@ -23,7 +23,8 @@ export interface Post {
   id: string;
   topic_id: string;
   author_id: string;
-  body_md: string;
+  /** Populated by createTopic/createPost; omitted by getPostsByTopic (use body_html for display). */
+  body_md?: string;
   body_html: string;
   reaction_count: number;
   flag_count: number;
@@ -62,6 +63,11 @@ interface PostRow {
   created_at: number;
 }
 
+// Subset returned by getPostsByTopic (body_md excluded to avoid pulling up to 20KB/post).
+interface PostRowNoBody extends Omit<PostRow, 'body_md'> {
+  body_md?: never;
+}
+
 /** Maps a raw D1 row to the Topic type (0/1 integers to JS booleans). */
 function rowToTopic(row: TopicRow): Topic {
   return {
@@ -82,12 +88,11 @@ function rowToTopic(row: TopicRow): Topic {
 }
 
 /** Maps a raw D1 row to the Post type (0/1 integers to JS booleans). */
-function rowToPost(row: PostRow): Post {
-  return {
+function rowToPost(row: PostRow | PostRowNoBody): Post {
+  const post: Post = {
     id: row.id,
     topic_id: row.topic_id,
     author_id: row.author_id,
-    body_md: row.body_md,
     body_html: row.body_html,
     reaction_count: row.reaction_count,
     flag_count: row.flag_count,
@@ -95,6 +100,10 @@ function rowToPost(row: PostRow): Post {
     deleted: row.deleted === 1,
     created_at: row.created_at,
   };
+  if ('body_md' in row && row.body_md !== undefined) {
+    post.body_md = row.body_md;
+  }
+  return post;
 }
 
 /**
@@ -155,21 +164,38 @@ export async function createTopic(
 
   await db.batch([insertTopic, insertPost]);
 
-  const topicRow = await db
-    .prepare('SELECT * FROM topics WHERE id = ?')
-    .bind(topicId)
-    .first<TopicRow>();
+  // Construct return objects from the known inputs and D1 column defaults;
+  // avoids a SELECT round-trip after the batch insert.
+  const topic = rowToTopic({
+    id: topicId,
+    category_slug: categorySlug,
+    author_id: authorId,
+    source,
+    title,
+    slug,
+    pinned: 0,
+    locked: 0,
+    deleted: 0,
+    flag_count: 0,
+    post_count: 1,
+    last_post_at: now,
+    created_at: now,
+  });
 
-  const postRow = await db
-    .prepare('SELECT * FROM posts WHERE id = ?')
-    .bind(postId)
-    .first<PostRow>();
+  const firstPost = rowToPost({
+    id: postId,
+    topic_id: topicId,
+    author_id: authorId,
+    body_md: bodyMd,
+    body_html: bodyHtml,
+    reaction_count: 0,
+    flag_count: 0,
+    edited_at: null,
+    deleted: 0,
+    created_at: now,
+  });
 
-  if (!topicRow || !postRow) {
-    throw new Error('createTopic: row not found after batch insert');
-  }
-
-  return { topic: rowToTopic(topicRow), firstPost: rowToPost(postRow) };
+  return { topic, firstPost };
 }
 
 /**
@@ -223,13 +249,14 @@ export async function getPostsByTopic(
 
   const rows = await db
     .prepare(
-      `SELECT * FROM posts
+      `SELECT id, topic_id, author_id, body_html, reaction_count, flag_count, edited_at, deleted, created_at
+       FROM posts
        WHERE topic_id = ? AND deleted = 0
        ORDER BY created_at ASC
        LIMIT ? OFFSET ?`,
     )
     .bind(topicId, limit, offset)
-    .all<PostRow>();
+    .all<PostRowNoBody>();
 
   return (rows.results ?? []).map(rowToPost);
 }
@@ -283,14 +310,17 @@ export async function createPost(
 
   await db.batch([insertPost, updateTopic]);
 
-  const postRow = await db
-    .prepare('SELECT * FROM posts WHERE id = ?')
-    .bind(postId)
-    .first<PostRow>();
-
-  if (!postRow) {
-    throw new Error('createPost: row not found after insert');
-  }
-
-  return rowToPost(postRow);
+  // Construct the return value from known inputs and column defaults.
+  return rowToPost({
+    id: postId,
+    topic_id: topicId,
+    author_id: authorId,
+    body_md: bodyMd,
+    body_html: bodyHtml,
+    reaction_count: 0,
+    flag_count: 0,
+    edited_at: null,
+    deleted: 0,
+    created_at: now,
+  });
 }

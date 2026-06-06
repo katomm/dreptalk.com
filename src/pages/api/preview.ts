@@ -1,43 +1,38 @@
 import type { APIRoute } from 'astro';
 import { renderMarkdown } from '@/lib/markdown.js';
 import { checkRate } from '@/lib/rate.js';
+import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = locals.user;
   if (!user) {
-    return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
-      status: 401,
-      headers: { 'content-type': 'application/json' },
-    });
+    return jsonResponse({ ok: false, error: 'unauthorized' }, 401);
   }
 
-  const env = (locals as App.Locals).runtime?.env ?? {};
+  const env = runtimeEnv(locals as App.Locals);
   const noncesKv = env.NONCES as KVNamespace | undefined;
 
-  if (noncesKv) {
-    const allowed = await checkRate(noncesKv, `preview:${user.id}`, {
-      max: 60,
-      windowSec: 60,
-      now: Date.now(),
-    });
-    if (!allowed) {
-      return new Response(JSON.stringify({ ok: false, error: 'rate_limited' }), {
-        status: 429,
-        headers: { 'content-type': 'application/json' },
-      });
-    }
+  // Rate-limit KV is required; 503 when unbound so preview stays rate-limited.
+  if (!noncesKv) {
+    return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
+  }
+
+  const allowed = await checkRate(noncesKv, `preview:${user.id}`, {
+    max: 60,
+    windowSec: 60,
+    now: Date.now(),
+  });
+  if (!allowed) {
+    return jsonResponse({ ok: false, error: 'rate_limited' }, 429);
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ ok: false, error: 'invalid JSON' }), {
-      status: 400,
-      headers: { 'content-type': 'application/json' },
-    });
+    return jsonResponse({ ok: false, error: 'invalid JSON' }, 400);
   }
 
   const rawMd = typeof (body as { bodyMd?: unknown }).bodyMd === 'string'
@@ -45,16 +40,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     : '';
 
   if (rawMd.length > 20000) {
-    return new Response(JSON.stringify({ ok: false, error: 'body too long' }), {
-      status: 400,
-      headers: { 'content-type': 'application/json' },
-    });
+    return jsonResponse({ ok: false, error: 'body too long' }, 400);
   }
 
   const html = renderMarkdown(rawMd);
 
-  return new Response(JSON.stringify({ html }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  });
+  return jsonResponse({ html });
 };

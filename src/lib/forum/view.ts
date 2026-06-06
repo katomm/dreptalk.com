@@ -1,6 +1,9 @@
 // Pure helpers for forum view rendering: pagination, cache headers, relative time, JSON-LD.
 // No I/O, no side effects; all functions are deterministic and testable.
 
+/** Canonical origin for the site, used as fallback when Astro.site is not configured. */
+export const SITE_ORIGIN = 'https://dreptalk.com';
+
 /**
  * Parse a page number from a URL query param string.
  * Returns a 1-based page number, min 1, default 1.
@@ -42,6 +45,14 @@ export function cacheControlFor(user: unknown | null): string {
  */
 export function serializeJsonLd(data: unknown): string {
   return JSON.stringify(data).replace(/<\//g, '<\\/');
+}
+
+/**
+ * Truncates a long id (e.g. a stake address) to at most `len` characters,
+ * appending "..." when truncation occurs. Default len is 16.
+ */
+export function truncateId(id: string, len = 16): string {
+  return id.length > len ? id.slice(0, len) + '...' : id;
 }
 
 /**

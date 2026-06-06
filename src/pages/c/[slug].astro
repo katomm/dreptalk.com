@@ -4,14 +4,16 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import Composer from '@/components/Composer.tsx';
+import NotFound from '@/components/NotFound.astro';
 import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { getTopicsByCategory } from '@/lib/db/forum.js';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, SITE_ORIGIN } from '@/lib/forum/view.js';
 
 const { slug } = Astro.params;
 const category = slug ? getCategory(slug) : undefined;
 
-if (!category) {
+const notFound = !category;
+if (notFound) {
   Astro.response.status = 404;
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
@@ -27,9 +29,11 @@ const topics = category && db
   ? await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset })
   : [];
 
-Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
+if (!notFound) {
+  Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
+}
 
-const siteOrigin = Astro.site?.origin ?? 'https://dreptalk.com';
+const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
 
 // Show composer only for authenticated users on discussion (non-governance) categories.
@@ -59,16 +63,8 @@ const breadcrumbLd = {
 };
 ---
 
-{!category ? (
-  <html lang="en">
-    <head><title>Category not found - DRepTalk</title></head>
-    <body>
-      <main style="max-width:56rem;margin:0 auto;padding:1.5rem;">
-        <h1>Category not found</h1>
-        <p><a href="/">Back to home</a></p>
-      </main>
-    </body>
-  </html>
+{notFound ? (
+  <NotFound noun="Category" />
 ) : (
   <Layout
     title={`${category.name} - DRepTalk`}
@@ -108,7 +104,7 @@ const breadcrumbLd = {
                 {topic.title}
               </a>
               <div style="font-size:0.8125rem;color:var(--muted);margin-top:0.2rem;">
-                by {topic.author_id.slice(0, 16)}{topic.author_id.length > 16 ? '...' : ''}
+                by {truncateId(topic.author_id)}
                 <span style="margin:0 0.4rem;">&middot;</span>
                 {topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}
                 <span style="margin:0 0.4rem;">&middot;</span>

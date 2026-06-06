@@ -466,10 +466,10 @@ describe('createPost', () => {
       expect(posts[i].created_at).toBeGreaterThanOrEqual(posts[i - 1].created_at);
     }
 
-    // Verify content order.
-    expect(posts[0].body_md).toBe('first');
-    expect(posts[1].body_md).toBe('second');
-    expect(posts[2].body_md).toBe('third');
+    // Verify content order via body_html (body_md is not selected by getPostsByTopic).
+    expect(posts[0].body_html).toBe('<p>first</p>');
+    expect(posts[1].body_html).toBe('<p>second</p>');
+    expect(posts[2].body_html).toBe('<p>third</p>');
   });
 
   it('throws "topic_locked" when posting to a locked topic', async () => {

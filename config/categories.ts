@@ -19,8 +19,11 @@ export const CATEGORIES: Category[] = [
 
 export const GOVERNANCE_CATEGORY_SLUG = 'governance-actions';
 
-export function getCategories(): Category[] {
-  return [...CATEGORIES].sort((a, b) => a.position - b.position);
+// Pre-sorted once at module load; avoids repeated sort on every getCategories() call.
+const SORTED_CATEGORIES: readonly Category[] = [...CATEGORIES].sort((a, b) => a.position - b.position);
+
+export function getCategories(): readonly Category[] {
+  return SORTED_CATEGORIES;
 }
 
 export function getCategory(slug: string): Category | undefined {

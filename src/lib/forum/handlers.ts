@@ -4,8 +4,9 @@
 
 import { createTopic, createPost } from '../db/forum.js';
 import { renderMarkdown } from '../markdown.js';
-import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
+import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
+import { toBase64Url } from '../crypto/base64url.js';
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -63,7 +64,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
     if (!category) {
       return { status: 400, json: { ok: false, error: 'unknown category' } };
     }
-    if (categorySlug === GOVERNANCE_CATEGORY_SLUG || !isDiscussion(categorySlug)) {
+    if (!isDiscussion(categorySlug)) {
       return { status: 403, json: { ok: false, error: 'cannot post in this category' } };
     }
 
@@ -83,8 +84,8 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
     // 6. Render and sanitize markdown.
     const bodyHtml = renderMarkdown(bodyMd);
 
-    // 7. Generate a short random suffix for the slug (base36, 6 chars).
-    const rand = Math.random().toString(36).slice(2, 8);
+    // 7. Generate a short CSPRNG-based suffix for the slug (~5 lowercase base64url chars, no underscores).
+    const rand = toBase64Url(crypto.getRandomValues(new Uint8Array(4))).replace(/_/g, '').toLowerCase().slice(0, 8);
 
     // 8. Persist.
     const { topic } = await createTopic(db, {

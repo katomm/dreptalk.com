@@ -1,28 +1,23 @@
 import type { APIRoute } from 'astro';
 import { handleCreateTopic } from '@/lib/forum/handlers';
+import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, locals }) => {
-  const env = (locals as App.Locals).runtime?.env ?? {};
+  const env = runtimeEnv(locals as App.Locals);
   const db = env.DB as D1Database | undefined;
   const rateKv = env.NONCES as KVNamespace | undefined;
 
   if (!db || !rateKv) {
-    return new Response(JSON.stringify({ ok: false, error: 'service unavailable' }), {
-      status: 503,
-      headers: { 'content-type': 'application/json' },
-    });
+    return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ ok: false, error: 'invalid JSON' }), {
-      status: 400,
-      headers: { 'content-type': 'application/json' },
-    });
+    return jsonResponse({ ok: false, error: 'invalid JSON' }, 400);
   }
 
   const result = await handleCreateTopic({
@@ -33,8 +28,5 @@ export const POST: APIRoute = async ({ request, locals }) => {
     now: Date.now(),
   });
 
-  return new Response(JSON.stringify(result.json), {
-    status: result.status,
-    headers: { 'content-type': 'application/json' },
-  });
+  return jsonResponse(result.json, result.status);
 };
