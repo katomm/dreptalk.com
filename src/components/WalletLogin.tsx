@@ -1,0 +1,235 @@
+// React island: Cardano wallet picker and wallet-sign login flow.
+// Uses loginWithWallet for the testable flow logic.
+import { useState, useEffect } from 'react';
+import { loginWithWallet } from '@/lib/auth/walletLogin.js';
+import type { WalletApi } from '@/lib/auth/walletLogin.js';
+
+// CIP-30 wallet object shape, with optional CIP-95 extension marker.
+interface CardanoWalletInfo {
+  key: string;
+  name: string;
+  icon: string;
+  supportsCip95: boolean;
+  // The raw window.cardano[key] object for enable().
+  raw: {
+    enable(opts?: { extensions?: Array<{ cip: number }> }): Promise<WalletApi>;
+    name: string;
+    icon: string;
+    supportedExtensions?: Array<{ cip: number }>;
+  };
+}
+
+type LoginState =
+  | { status: 'idle' }
+  | { status: 'connecting' }
+  | { status: 'awaiting-signature' }
+  | { status: 'success'; userId: string; roles: string[] }
+  | { status: 'error'; message: string };
+
+export default function WalletLogin() {
+  const [wallets, setWallets] = useState<CardanoWalletInfo[]>([]);
+  const [selectedWallet, setSelectedWallet] = useState<string>('');
+  const [role, setRole] = useState<'drep' | 'proposer'>('drep');
+  const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
+
+  // Enumerate available Cardano wallets from window.cardano on mount.
+  useEffect(() => {
+    const cardano = (window as unknown as { cardano?: Record<string, CardanoWalletInfo['raw']> }).cardano;
+    if (!cardano) return;
+
+    const found: CardanoWalletInfo[] = Object.entries(cardano)
+      .filter(([, w]) => w && typeof w.enable === 'function' && typeof w.name === 'string')
+      .map(([key, w]) => ({
+        key,
+        name: w.name,
+        icon: w.icon ?? '',
+        supportsCip95: Array.isArray(w.supportedExtensions)
+          ? w.supportedExtensions.some((e) => e.cip === 95)
+          : false,
+        raw: w,
+      }));
+
+    setWallets(found);
+    if (found.length > 0) setSelectedWallet(found[0].key);
+  }, []);
+
+  async function handleLogin() {
+    const walletInfo = wallets.find((w) => w.key === selectedWallet);
+    if (!walletInfo) return;
+
+    setLoginState({ status: 'connecting' });
+
+    let api: WalletApi;
+    try {
+      // Request CIP-95 extension when the wallet reports support.
+      const enableOpts =
+        walletInfo.supportsCip95 || role === 'drep'
+          ? { extensions: [{ cip: 95 }] }
+          : undefined;
+      api = await walletInfo.raw.enable(enableOpts);
+    } catch {
+      setLoginState({ status: 'error', message: 'Wallet connection was rejected.' });
+      return;
+    }
+
+    setLoginState({ status: 'awaiting-signature' });
+
+    const result = await loginWithWallet(api, role);
+
+    if (result.ok && result.user) {
+      setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });
+    } else {
+      const msg = result.error === 'wallet does not support CIP-95'
+        ? 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Yoroi).'
+        : result.error === 'login failed'
+          ? 'Login failed. Please try again.'
+          : (result.error ?? 'Login failed.');
+      setLoginState({ status: 'error', message: msg });
+    }
+  }
+
+  function reset() {
+    setLoginState({ status: 'idle' });
+  }
+
+  const busy =
+    loginState.status === 'connecting' || loginState.status === 'awaiting-signature';
+
+  return (
+    <div style={{ maxWidth: '28rem' }}>
+      {/* Note shown to user before signing */}
+      <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1.25rem' }}>
+        You are signing a one-time login challenge for dreptalk.com (no transaction, no fees).
+      </p>
+
+      {loginState.status === 'success' ? (
+        <div style={{ border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '1rem' }}>
+          <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>Logged in</p>
+          <p style={{ margin: '0 0 0.25rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
+            User: {loginState.userId}
+          </p>
+          <p style={{ margin: '0', fontSize: '0.875rem', color: 'var(--muted)' }}>
+            Roles: {loginState.roles.join(', ')}
+          </p>
+        </div>
+      ) : (
+        <>
+          {wallets.length === 0 ? (
+            <p style={{ color: 'var(--muted)' }}>
+              No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Yoroi).
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {/* Wallet picker */}
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Wallet</span>
+                <select
+                  value={selectedWallet}
+                  onChange={(e) => setSelectedWallet(e.target.value)}
+                  disabled={busy}
+                  style={{
+                    padding: '0.5rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.375rem',
+                    background: 'var(--bg)',
+                    color: 'var(--fg)',
+                    fontSize: '1rem',
+                  }}
+                >
+                  {wallets.map((w) => (
+                    <option key={w.key} value={w.key}>
+                      {w.name}
+                      {w.supportsCip95 ? ' (CIP-95)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Role toggle */}
+              <fieldset
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: '0.375rem',
+                  padding: '0.5rem 0.75rem',
+                  margin: 0,
+                }}
+              >
+                <legend style={{ fontSize: '0.875rem', fontWeight: 500, padding: '0 0.25rem' }}>
+                  Role
+                </legend>
+                <div style={{ display: 'flex', gap: '1.5rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="role"
+                      value="drep"
+                      checked={role === 'drep'}
+                      onChange={() => setRole('drep')}
+                      disabled={busy}
+                    />
+                    DRep
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="role"
+                      value="proposer"
+                      checked={role === 'proposer'}
+                      onChange={() => setRole('proposer')}
+                      disabled={busy}
+                    />
+                    Proposer
+                  </label>
+                </div>
+              </fieldset>
+
+              {/* Status message */}
+              {loginState.status === 'connecting' && (
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                  Connecting to wallet...
+                </p>
+              )}
+              {loginState.status === 'awaiting-signature' && (
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                  Please sign the login challenge in your wallet.
+                </p>
+              )}
+              {loginState.status === 'error' && (
+                <p style={{ margin: 0, color: '#dc2626', fontSize: '0.875rem' }}>
+                  {loginState.message}
+                  {' '}
+                  <button
+                    onClick={reset}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: '0.875rem', textDecoration: 'underline' }}
+                  >
+                    Try again
+                  </button>
+                </p>
+              )}
+
+              {/* Connect button */}
+              <button
+                onClick={handleLogin}
+                disabled={busy}
+                style={{
+                  padding: '0.625rem 1.25rem',
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  fontSize: '1rem',
+                  fontWeight: 500,
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  opacity: busy ? 0.7 : 1,
+                  alignSelf: 'flex-start',
+                }}
+              >
+                {busy ? 'Connecting...' : 'Connect and sign in'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
