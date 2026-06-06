@@ -329,6 +329,48 @@ describe('getTopicsByCategory', () => {
     const results = await getTopicsByCategory(db(), catSlug, { limit: 200 });
     expect(results.length).toBeLessThanOrEqual(100);
   });
+
+  it('clamps negative limit: limit -1 does not bypass the row cap', async () => {
+    const catSlug = 'cat-neg-limit-test';
+    // Insert 3 topics into the category.
+    for (let i = 0; i < 3; i++) {
+      await createTopic(db(), {
+        categorySlug: catSlug,
+        authorId: AUTHOR,
+        title: `Neg Limit Topic ${i}`,
+        bodyMd: 'body',
+        bodyHtml: '<p>body</p>',
+        now: T1 + i,
+        rand: `r05n${i}`,
+      });
+    }
+
+    // limit: -1 must be clamped to 1, not passed as LIMIT -1 to SQLite.
+    const negResult = await getTopicsByCategory(db(), catSlug, { limit: -1 });
+    expect(negResult.length).toBeGreaterThanOrEqual(1);
+    expect(negResult.length).toBeLessThanOrEqual(100);
+
+    // Explicitly: must not return more rows than the clamped-up value of 1.
+    expect(negResult.length).toBe(1);
+  });
+
+  it('clamps limit 1000 to at most 100', async () => {
+    const catSlug = 'cat-1000-limit-test';
+    for (let i = 0; i < 3; i++) {
+      await createTopic(db(), {
+        categorySlug: catSlug,
+        authorId: AUTHOR,
+        title: `Limit 1000 Topic ${i}`,
+        bodyMd: 'body',
+        bodyHtml: '<p>body</p>',
+        now: T1 + i,
+        rand: `r05k${i}`,
+      });
+    }
+
+    const results = await getTopicsByCategory(db(), catSlug, { limit: 1000 });
+    expect(results.length).toBeLessThanOrEqual(100);
+  });
 });
 
 // ---- createPost + getPostsByTopic -------------------------------------------
@@ -548,6 +590,37 @@ describe('getPostsByTopic pagination', () => {
 
     const results = await getPostsByTopic(db(), topic.id, { limit: 500 });
     expect(results.length).toBeLessThanOrEqual(100);
+  });
+
+  it('clamps negative limit: limit -1 does not bypass the row cap', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: AUTHOR,
+      title: 'Neg Limit Posts Topic',
+      bodyMd: 'first',
+      bodyHtml: '<p>first</p>',
+      now: T1,
+      rand: 'r073',
+    });
+
+    // Add 2 more posts so the topic has 3 total.
+    for (let i = 1; i <= 2; i++) {
+      await createPost(db(), {
+        topicId: topic.id,
+        authorId: AUTHOR,
+        bodyMd: `reply ${i}`,
+        bodyHtml: `<p>reply ${i}</p>`,
+        now: T1 + i,
+      });
+    }
+
+    // limit: -1 must be clamped to 1, not passed as LIMIT -1 to SQLite.
+    const negResult = await getPostsByTopic(db(), topic.id, { limit: -1 });
+    expect(negResult.length).toBeGreaterThanOrEqual(1);
+    expect(negResult.length).toBeLessThanOrEqual(100);
+
+    // Explicitly: clamped to 1, so only 1 row returned even though 3 exist.
+    expect(negResult.length).toBe(1);
   });
 
   it('excludes deleted posts', async () => {

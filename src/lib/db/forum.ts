@@ -193,7 +193,7 @@ export async function getTopicsByCategory(
   categorySlug: string,
   opts?: { limit?: number; offset?: number },
 ): Promise<Topic[]> {
-  const limit = Math.min(opts?.limit ?? 30, 100);
+  const limit = Math.min(Math.max(opts?.limit ?? 30, 1), 100);
   const offset = Math.max(opts?.offset ?? 0, 0);
 
   const rows = await db
@@ -218,7 +218,7 @@ export async function getPostsByTopic(
   topicId: string,
   opts?: { limit?: number; offset?: number },
 ): Promise<Post[]> {
-  const limit = Math.min(opts?.limit ?? 50, 100);
+  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
   const offset = Math.max(opts?.offset ?? 0, 0);
 
   const rows = await db

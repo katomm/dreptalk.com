@@ -13,3 +13,6 @@ CLAUDE.md
 
 # Local design mockups (not for the public repo); also backed up outside the repo
 src/assets/images/artwork/
+
+# Skill/spec output from Claude Code subagents; not project files
+docs/superpowers/
