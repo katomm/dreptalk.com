@@ -27,6 +27,15 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 
 const siteOrigin = Astro.site?.origin ?? 'https://dreptalk.com';
 
+const websiteLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'DRepTalk',
+  url: siteOrigin + '/',
+  inLanguage: 'en',
+  description: 'The public deliberation layer for Cardano governance.',
+};
+
 const breadcrumbLd = {
   '@context': 'https://schema.org',
   '@type': 'BreadcrumbList',
@@ -74,6 +83,7 @@ const heroFeatures = [
   title="DRepTalk - Cardano Governance Forum"
   description="The public deliberation layer for Cardano governance. DReps discuss every on-chain governance action in its own thread."
 >
+  <JsonLd data={websiteLd} />
   <JsonLd data={breadcrumbLd} />
 
   <section class="hero">

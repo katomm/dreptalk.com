@@ -13,20 +13,31 @@ export const prerender = false;
 export const GET: APIRoute = async ({ site }) => {
   const origin = site?.origin ?? 'https://dreptalk.com';
 
-  const paths: string[] = ['/', ...getCategories().map((c) => `/c/${c.slug}`)];
+  const entries: Array<{ path: string; lastmod?: string }> = [
+    { path: '/' },
+    ...getCategories().map((c) => ({ path: `/c/${c.slug}` })),
+  ];
 
   const db = env.DB as D1Database | undefined;
   if (db) {
     const rows =
       (
         await db
-          .prepare('SELECT slug FROM topics WHERE deleted = 0 ORDER BY last_post_at DESC LIMIT 5000')
-          .all<{ slug: string }>()
+          .prepare('SELECT slug, last_post_at FROM topics WHERE deleted = 0 ORDER BY last_post_at DESC LIMIT 5000')
+          .all<{ slug: string; last_post_at: number }>()
       ).results ?? [];
-    for (const row of rows) paths.push(`/t/${row.slug}`);
+    // last_post_at is stored in milliseconds (same as created_at).
+    for (const row of rows) {
+      entries.push({ path: `/t/${row.slug}`, lastmod: new Date(row.last_post_at).toISOString() });
+    }
   }
 
-  const urls = paths.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join('\n');
+  const urls = entries
+    .map((e) => {
+      const lastmod = e.lastmod ? `<lastmod>${e.lastmod}</lastmod>` : '';
+      return `  <url><loc>${origin}${e.path}</loc>${lastmod}</url>`;
+    })
+    .join('\n');
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 
   return new Response(xml, {

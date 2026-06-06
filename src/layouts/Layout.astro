@@ -2,15 +2,27 @@
 import '@/styles/global.css';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import RoleEntry from '@/components/RoleEntry.astro';
+import JsonLd from '@/components/JsonLd.astro';
 
 interface Props {
   title: string;
   description?: string;
   noindex?: boolean;
+  ogImage?: string;
 }
-const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false } = Astro.props;
+const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.png' } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const ogImageUrl = new URL(ogImage, Astro.site).href;
 const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN;
+
+// Site-wide Organization schema, emitted on every page.
+const organizationLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'DRepTalk',
+  url: Astro.site?.href ?? 'https://dreptalk.com/',
+  logo: new URL('/logo.png', Astro.site).href,
+};
 
 const pathname = Astro.url.pathname;
 const navLinks = [
@@ -49,7 +61,10 @@ const isActive = (href: string) =>
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
     <meta property="og:site_name" content="DRepTalk" />
+    <meta property="og:image" content={ogImageUrl} />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={ogImageUrl} />
+    <JsonLd data={organizationLd} />
     {analyticsToken && (
       // SRI is omitted here intentionally: Cloudflare pushes beacon.min.js
       // updates in place with no version pin, so a fixed hash would break
@@ -128,7 +143,6 @@ const isActive = (href: string) =>
         <nav class="site-footer__links" aria-label="Footer">
           <a href="#">Privacy</a>
           <a href="#">Imprint</a>
-          <a href="/brand">Brand</a>
           <a
             class="site-footer__github"
             href="https://github.com/katomm/dreptalk.com"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId } from './view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, excerptFromHtml } from './view.js';
 
 // ---------------------------------------------------------------------------
 // serializeJsonLd
@@ -220,5 +220,29 @@ describe('formatRelativeTime', () => {
 
   it('shows "2y ago" for 2 years ago', () => {
     expect(formatRelativeTime(NOW - 2 * YEAR, NOW)).toBe('2y ago');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// excerptFromHtml
+// ---------------------------------------------------------------------------
+
+describe('excerptFromHtml', () => {
+  it('strips tags and collapses whitespace', () => {
+    expect(excerptFromHtml('<p>Hello   <strong>world</strong></p>')).toBe('Hello world');
+  });
+
+  it('returns short text unchanged', () => {
+    expect(excerptFromHtml('<p>Short.</p>')).toBe('Short.');
+  });
+
+  it('truncates with an ellipsis past maxLen', () => {
+    const out = excerptFromHtml('<p>' + 'a '.repeat(20) + '</p>', 10);
+    expect(out.endsWith('...')).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(13);
+  });
+
+  it('handles empty input', () => {
+    expect(excerptFromHtml('')).toBe('');
   });
 });
