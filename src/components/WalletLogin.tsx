@@ -210,6 +210,14 @@ export default function WalletLogin() {
                     >
                       Try again
                     </button>
+                    {role === 'drep' && (
+                      <>
+                        {' '}
+                        <a href="/drep" style={{ color: 'var(--accent)' }}>
+                          Register as a DRep
+                        </a>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
