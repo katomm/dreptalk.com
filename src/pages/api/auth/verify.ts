@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import { handleVerify } from '@/lib/auth/handlers';
 import { resolveNetwork } from '@/lib/config/network';
 import { createKoiosClient } from '@/lib/koios/client';
+import { parseModerators } from '../../../../config/moderators.js';
 
 export const prerender = false;
 
@@ -38,15 +39,21 @@ export const POST: APIRoute = async ({ request }) => {
     const koios = createKoiosClient({ baseUrl: koiosBaseUrl, token: koiosToken });
     const secure = new URL(request.url).protocol === 'https:';
 
-    const result = await handleVerify({
-      body: body as Parameters<typeof handleVerify>[0]['body'],
-      nonceKv,
-      sessionKv,
-      db,
-      koios,
-      network,
-      secure,
-    });
+    // Moderator / admin allowlist from the MODERATORS env value (empty by default).
+    const moderators = parseModerators(env.MODERATORS as string | undefined);
+
+    const result = await handleVerify(
+      {
+        body: body as Parameters<typeof handleVerify>[0]['body'],
+        nonceKv,
+        sessionKv,
+        db,
+        koios,
+        network,
+        secure,
+      },
+      { getModeratorRole: (stakeAddr) => moderators.get(stakeAddr) ?? null },
+    );
 
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (result.setCookie) {
