@@ -111,6 +111,39 @@ describe('renderMarkdown - security (negative cases)', () => {
     const out = renderMarkdown('["><script>alert(1)</script>](https://safe.example.com)');
     assertInert(out, 'smuggled script in link text');
   });
+
+  // data:image/ bypass: safeAttrValue used to pass data:image/* through for img src,
+  // but the same logic also applied to <a href>, creating a stored-XSS vector.
+  it('neutralizes data:image/svg+xml link href (XSS bypass)', () => {
+    const svg64 =
+      'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxzY3JpcHQ+YWxlcnQoMSk8L3NjcmlwdD48L3N2Zz4=';
+    const out = renderMarkdown(`[x](data:image/svg+xml;base64,${svg64})`);
+    // The dangerous data: URI must not survive as a navigable href.
+    expect(out, 'no data:image/svg in href').not.toMatch(/href\s*=\s*["']?\s*data:image\/svg/i);
+    expect(out, 'no raw data:image/svg').not.toContain('data:image/svg');
+    // The link text may still appear (element preserved but href neutralized).
+    assertInert(out, 'data:image/svg+xml link');
+  });
+
+  it('neutralizes data:image/png link href', () => {
+    const out = renderMarkdown('[x](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==)');
+    expect(out, 'no data:image/png in href').not.toMatch(/href\s*=\s*["']?\s*data:image\/png/i);
+    expect(out, 'no raw data:image/png').not.toContain('data:image/png');
+    assertInert(out, 'data:image/png link');
+  });
+
+  it('neutralizes protocol-relative // link href', () => {
+    const out = renderMarkdown('[x](//evil.example.com)');
+    expect(out, 'no protocol-relative href').not.toMatch(/href\s*=\s*["']?\/\//i);
+    assertInert(out, 'protocol-relative link');
+  });
+
+  it('neutralizes bare relative path link href', () => {
+    const out = renderMarkdown('[x](/relative/path)');
+    // Relative paths are not navigable to safe external resources and are blocked.
+    expect(out, 'no relative href').not.toMatch(/href\s*=\s*["']?\/relative/i);
+    assertInert(out, 'relative path link');
+  });
 });
 
 describe('renderMarkdown - correctness (positive cases)', () => {
@@ -175,14 +208,25 @@ describe('renderMarkdown - correctness (positive cases)', () => {
     expect(out).toContain('second');
   });
 
-  it('renders safe link with href', () => {
+  it('renders safe https link with href', () => {
     const out = renderMarkdown('[visit](https://example.com)');
     expect(out).toContain('href="https://example.com"');
     expect(out).toContain('visit');
   });
 
-  it('forces rel="noopener noreferrer nofollow ugc" on safe links', () => {
+  it('renders safe http link with href', () => {
+    const out = renderMarkdown('[visit](http://example.com)');
+    expect(out).toContain('href="http://example.com"');
+    expect(out).toContain('visit');
+  });
+
+  it('forces rel="noopener noreferrer nofollow ugc" on safe https links', () => {
     const out = renderMarkdown('[text](https://example.com)');
+    expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
+  });
+
+  it('forces rel="noopener noreferrer nofollow ugc" on safe http links', () => {
+    const out = renderMarkdown('[text](http://example.com)');
     expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
   });
 
