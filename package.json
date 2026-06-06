@@ -16,6 +16,7 @@
   "dependencies": {
     "@astrojs/cloudflare": "^13.0.0",
     "@astrojs/react": "^5.0.0",
+    "@evolution-sdk/evolution": "^0.5.9",
     "@noble/curves": "^2.2.0",
     "astro": "^6.0.0",
     "bech32": "^2.0.0",
