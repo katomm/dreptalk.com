@@ -1,13 +1,13 @@
 // Session middleware: reads the dreptalk_session cookie and sets locals.user.
 import { defineMiddleware } from 'astro:middleware';
+import { env } from 'cloudflare:workers';
 import { parseSessionToken, getSession } from './lib/auth/session.js';
 
 export const onRequest = defineMiddleware(async (context, next) => {
   // Default to unauthenticated.
   context.locals.user = null;
 
-  const env = context.locals.runtime?.env;
-  const sessionKv = env?.SESSIONS;
+  const sessionKv = env?.SESSIONS as KVNamespace | undefined;
 
   if (sessionKv) {
     const cookieHeader = context.request.headers.get('Cookie');
