@@ -15,6 +15,12 @@ export default defineWorkersProject(async () => {
       setupFiles: ['./src/lib/test-setup.workers.ts'],
       poolOptions: {
         workers: {
+          // Bindings (D1 DB, KV SESSIONS/NONCES) and migrations are read from
+          // wrangler.toml. Override `main` so the pool does not try to resolve
+          // the production entrypoint (`@astrojs/cloudflare/entrypoints/server`),
+          // a bare package specifier the pool cannot load as a file. The tests
+          // import library functions directly and never fetch the SSR worker.
+          main: './src/lib/test-worker-entry.ts',
           wrangler: { configPath: './wrangler.toml' },
           miniflare: {
             bindings: {
