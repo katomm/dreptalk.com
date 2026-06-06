@@ -139,9 +139,12 @@ export async function createTopic(
     source?: 'user' | 'governance';
     now: number;
     rand: string;
+    // Extra statements to commit atomically in the same batch as the topic and
+    // first post (e.g. a governance_actions row). Receives the new topic id.
+    batchWith?: (topicId: string) => D1PreparedStatement[];
   },
 ): Promise<{ topic: Topic; firstPost: Post }> {
-  const { categorySlug, authorId, title, bodyMd, bodyHtml, source = 'user', now, rand } = args;
+  const { categorySlug, authorId, title, bodyMd, bodyHtml, source = 'user', now, rand, batchWith } = args;
   const slug = slugify(title, rand);
   const topicId = crypto.randomUUID();
   const postId = crypto.randomUUID();
@@ -162,7 +165,8 @@ export async function createTopic(
     )
     .bind(postId, topicId, authorId, bodyMd, bodyHtml, now);
 
-  await db.batch([insertTopic, insertPost]);
+  const extra = batchWith ? batchWith(topicId) : [];
+  await db.batch([insertTopic, insertPost, ...extra]);
 
   // Construct return objects from the known inputs and D1 column defaults;
   // avoids a SELECT round-trip after the batch insert.

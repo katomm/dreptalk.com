@@ -56,6 +56,30 @@ const proposalSchema = z.object({
 
 export type Proposal = z.infer<typeof proposalSchema>;
 
+// Full /proposal_list row. Only the fields gov-sync needs are required; the rest
+// is tolerated. meta_url/meta_hash drive the off-chain anchor fetch and its
+// mandatory hash verification.
+const proposalListRowSchema = z
+  .object({
+    proposal_id: z.string(),
+    proposal_tx_hash: z.string(),
+    proposal_index: z.number(),
+    proposal_type: z.string(),
+    deposit: z.string().nullable().optional(),
+    return_address: z.string().nullable().optional(),
+    proposed_epoch: z.number().nullable().optional(),
+    expiration: z.number().nullable().optional(),
+    meta_url: z.string().nullable().optional(),
+    meta_hash: z.string().nullable().optional(),
+    enacted_epoch: z.number().nullable().optional(),
+    ratified_epoch: z.number().nullable().optional(),
+    dropped_epoch: z.number().nullable().optional(),
+    expired_epoch: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+export type ProposalListRow = z.infer<typeof proposalListRowSchema>;
+
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
@@ -119,6 +143,15 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/proposal_list?return_address=eq.${encodeURIComponent(stakeAddress)}`;
       const data = await request(path, { method: 'GET' });
       return z.array(proposalSchema).parse(data);
+    },
+
+    // Lists governance actions for gov-sync discovery. `limit` caps the page
+    // (Koios paginates at 1000); governance actions are low-volume so one page
+    // is enough for the realistic dataset.
+    async proposalList(limit = 1000): Promise<ProposalListRow[]> {
+      const path = `/proposal_list?limit=${limit}&order=proposed_epoch.desc`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(proposalListRowSchema).parse(data);
     },
   };
 }
