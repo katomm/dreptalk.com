@@ -88,7 +88,7 @@ export default function WalletLogin() {
       setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });
     } else {
       const msg = result.error === 'wallet does not support CIP-95'
-        ? 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Yoroi).'
+        ? 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).'
         : result.error === 'login failed'
           ? 'Login failed. Please try again.'
           : (result.error ?? 'Login failed.');
@@ -124,7 +124,7 @@ export default function WalletLogin() {
         <>
           {wallets.length === 0 ? (
             <p style={{ color: 'var(--muted)' }}>
-              No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Yoroi).
+              No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
