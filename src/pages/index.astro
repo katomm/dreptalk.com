@@ -60,7 +60,7 @@ const heroFeatures = [
   },
   {
     title: 'DReps discuss. Not everyone.',
-    body: 'Only verified DReps can create and participate.',
+    body: 'Posting is gated to registered DReps, proven by wallet signature.',
     icon: 'shield',
   },
   {
@@ -72,7 +72,7 @@ const heroFeatures = [
 
 // Trust row near the foot of the page.
 const trustItems = [
-  { label: 'DRep verified', body: 'Only registered DReps can access and participate.', icon: 'verified' },
+  { label: 'DReps only', body: 'Only registered DReps can post, proven by wallet signature.', icon: 'verified' },
   { label: 'Automatic', body: 'Governance Actions are imported in real time.', icon: 'bolt' },
   { label: 'Transparent', body: 'All discussions are public and on record.', icon: 'eye' },
   { label: 'For governance', body: 'Built by the community, for the community.', icon: 'people' },
@@ -81,7 +81,7 @@ const trustItems = [
 
 <Layout
   title="DRepTalk - Cardano Governance Forum"
-  description="The public deliberation layer for Cardano governance. Verified DReps discuss every on-chain governance action in its own thread."
+  description="The public deliberation layer for Cardano governance. DReps discuss every on-chain governance action in its own thread."
 >
   <JsonLd data={breadcrumbLd} />
 
@@ -121,7 +121,7 @@ const trustItems = [
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
           Enter as DRep
         </a>
-        <a class="hero__learn" href="#categories">Learn more about DRepTalk -&gt;</a>
+        <a class="hero__learn" href="#categories">Learn more about DRepTalk</a>
       </div>
     </div>
 
@@ -175,7 +175,7 @@ const trustItems = [
       <strong class="announce__title">Platform Launch</strong>
       <span class="announce__body">DRepTalk is now live. Only DReps can participate.</span>
     </div>
-    <a class="announce__link" href="#categories">Read announcement -&gt;</a>
+    <a class="announce__link" href="#categories">Read announcement</a>
   </aside>
 
   <section id="categories" class="categories" aria-labelledby="categories-heading">
@@ -207,7 +207,7 @@ const trustItems = [
               <span class="card__count">
                 {countMap.get(cat.slug) ?? 0} {(countMap.get(cat.slug) ?? 0) === 1 ? 'topic' : 'topics'}
               </span>
-              <span class="card__view">View -&gt;</span>
+              <span class="card__view">View</span>
             </div>
           </div>
         </a>

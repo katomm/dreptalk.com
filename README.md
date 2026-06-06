@@ -2,23 +2,23 @@
 
 Wallet-authenticated discussion forum for Cardano governance, running at [dreptalk.com](https://dreptalk.com).
 
-Incoming on-chain Governance Actions automatically open a thread, and verified DReps, SPOs, CC members, and proposers discuss them next to the live on-chain vote data. Reading is public; writing is gated to verified on-chain roles (no custody of keys, signature-based login).
+Incoming on-chain Governance Actions automatically open a thread, and DReps, SPOs, CC members, and proposers discuss them next to the live on-chain vote data. Reading is public; writing is gated to those on-chain roles, each proven by a wallet signature (no custody of keys, signature-based login).
 
 The aim is a calmer, accountable home for governance discussion, away from the drama of social media.
 
 ## Stack
 
-Astro (SSR) on Cloudflare Pages, with D1 and KV. A standalone cron worker ingests governance actions. Chain data via Koios. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
+Astro (SSR) on Cloudflare Workers, with D1 and KV. A standalone cron worker ingests governance actions. Chain data via Koios. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
 
 ## Local development
 
 Requires Node 20+. Local and preview run against the Cardano preprod testnet; set `CARDANO_NETWORK=preprod` in `.dev.vars`.
 
 - `npm install`
-- `npm run dev` — app dev server (Astro, with HMR)
-- `npm test` — unit and integration tests
-- `npm run typecheck` — type check
-- `npm run preview` — production build served via `wrangler pages dev`
+- `npm run dev`: app dev server (Astro, with HMR)
+- `npm test`: unit and integration tests
+- `npm run typecheck`: type check
+- `npm run preview`: production build served via `wrangler dev`
 
 ### Running a governance sync locally
 
