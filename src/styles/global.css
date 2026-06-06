@@ -260,7 +260,9 @@ main.container {
    Callout / admonition. Reusable box for inline messages (errors, warnings,
    info, success). Use the global classes from any component:
      <div class="callout callout--error" role="alert"> icon + body </div>
-   The icon (.callout__icon) inherits the variant color via currentColor.
+   The variant is signalled by a soft full border, a tinted background, and a
+   colored icon (.callout__icon inherits the variant color via currentColor).
+   No left-edge accent stripe.
    ========================================================================== */
 .callout {
   display: flex;
@@ -268,7 +270,6 @@ main.container {
   align-items: flex-start;
   padding: 0.8rem 1rem;
   border: 1px solid var(--border);
-  border-left-width: 3px;
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--fg);
@@ -285,28 +286,28 @@ main.container {
   min-width: 0;
 }
 .callout--error {
-  border-left-color: #dc2626;
+  border-color: color-mix(in srgb, #dc2626 35%, var(--border));
   background: color-mix(in srgb, #dc2626 8%, var(--surface));
 }
 .callout--error .callout__icon {
   color: #dc2626;
 }
 .callout--warning {
-  border-left-color: #d97706;
+  border-color: color-mix(in srgb, #d97706 35%, var(--border));
   background: color-mix(in srgb, #d97706 9%, var(--surface));
 }
 .callout--warning .callout__icon {
   color: #d97706;
 }
 .callout--info {
-  border-left-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: color-mix(in srgb, var(--accent) 9%, var(--surface));
 }
 .callout--info .callout__icon {
   color: var(--accent);
 }
 .callout--success {
-  border-left-color: #0a8a5f;
+  border-color: color-mix(in srgb, #0a8a5f 35%, var(--border));
   background: color-mix(in srgb, #0a8a5f 9%, var(--surface));
 }
 .callout--success .callout__icon {
