@@ -50,36 +50,145 @@ const dotGradients: Record<string, string> = {
   general: 'linear-gradient(135deg, #a78bfa, #f0abfc)',
 };
 const defaultDot = 'var(--grad)';
+
+// Hero feature rows: each is a small icon plus a title and supporting line.
+const heroFeatures = [
+  {
+    title: 'Governance Actions are imported automatically',
+    body: 'Every on-chain action gets its own discussion space.',
+    icon: 'auto',
+  },
+  {
+    title: 'DReps discuss. Not everyone.',
+    body: 'Only verified DReps can create and participate.',
+    icon: 'shield',
+  },
+  {
+    title: 'Better discussion. Better decisions.',
+    body: 'Share perspectives, challenge ideas, and inform your vote.',
+    icon: 'spark',
+  },
+];
+
+// Trust row near the foot of the page.
+const trustItems = [
+  { label: 'DRep verified', body: 'Only registered DReps can access and participate.', icon: 'verified' },
+  { label: 'Automatic', body: 'Governance Actions are imported in real time.', icon: 'bolt' },
+  { label: 'Transparent', body: 'All discussions are public and on record.', icon: 'eye' },
+  { label: 'For governance', body: 'Built by the community, for the community.', icon: 'people' },
+];
 ---
 
 <Layout
   title="DRepTalk - Cardano Governance Forum"
-  description="A calmer, accountable home for Cardano governance discussion. Browse categories, DRep threads, and governance action debates."
+  description="The public deliberation layer for Cardano governance. Verified DReps discuss every on-chain governance action in its own thread."
 >
   <JsonLd data={breadcrumbLd} />
 
   <section class="hero">
-    <div class="hero__glow" aria-hidden="true"></div>
-    <h1 class="hero__title reveal" style="--reveal-delay:0ms">
-      Where DReps discuss <span class="grad-text">governance.</span>
-    </h1>
-    <p class="hero__subtitle reveal" style="--reveal-delay:80ms">
-      The public deliberation layer for Cardano governance. Incoming governance actions
-      open a thread; verified DReps, SPOs, CC members, and proposers discuss them.
-    </p>
-    <div class="hero__cta reveal" style="--reveal-delay:160ms">
-      <a class="btn btn-primary" href="#categories">Browse discussions</a>
-      <a class="btn btn-secondary" href="/login">Connect wallet</a>
+    <div class="hero__copy">
+      <h1 class="hero__title reveal" style="--reveal-delay:0ms">
+        Where DReps discuss <span class="grad-text">governance.</span>
+      </h1>
+      <p class="hero__subtitle reveal" style="--reveal-delay:60ms">
+        DRepTalk is the public deliberation layer for Cardano governance.
+      </p>
+
+      <ul class="hero__features reveal" style="--reveal-delay:120ms">
+        {heroFeatures.map((f) => (
+          <li class="feature">
+            <span class="feature__icon" aria-hidden="true">
+              {f.icon === 'auto' && (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /></svg>
+              )}
+              {f.icon === 'shield' && (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>
+              )}
+              {f.icon === 'spark' && (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3" /><path d="M12 18v3" /><path d="M5.6 5.6l2.1 2.1" /><path d="M16.3 16.3l2.1 2.1" /><path d="M3 12h3" /><path d="M18 12h3" /><circle cx="12" cy="12" r="3.5" /></svg>
+              )}
+            </span>
+            <span class="feature__text">
+              <strong class="feature__title">{f.title}</strong>
+              <span class="feature__body">{f.body}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <div class="hero__cta reveal" style="--reveal-delay:180ms">
+        <a class="btn btn-primary" href="/login">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+          Enter as DRep
+        </a>
+        <a class="hero__learn" href="#categories">Learn more about DRepTalk -&gt;</a>
+      </div>
+    </div>
+
+    <div class="hero__visual reveal" style="--reveal-delay:160ms" aria-hidden="true">
+      <div class="hero-scene">
+        <div class="hero-scene__glow"></div>
+
+        <svg class="hero-scene__links" viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="link-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#8b5cf6" stop-opacity="0.5" />
+              <stop offset="0.5" stop-color="#3b82f6" stop-opacity="0.45" />
+              <stop offset="1" stop-color="#2dd4bf" stop-opacity="0.4" />
+            </linearGradient>
+          </defs>
+          <g stroke="url(#link-grad)" stroke-width="1.5" fill="none">
+            <line x1="160" y1="160" x2="58" y2="62" />
+            <line x1="160" y1="160" x2="270" y2="78" />
+            <line x1="160" y1="160" x2="40" y2="210" />
+            <line x1="160" y1="160" x2="284" y2="222" />
+            <line x1="160" y1="160" x2="120" y2="292" />
+            <line x1="160" y1="160" x2="232" y2="288" />
+          </g>
+        </svg>
+
+        <div class="gov-card">
+          <span class="gov-card__icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M9 21v-6h6v6" /><path d="M3 10h18" /></svg>
+          </span>
+          <span class="gov-card__label">Governance Action</span>
+          <span class="gov-card__num">#127</span>
+          <span class="gov-card__title">Treasury Withdrawal</span>
+          <span class="gov-card__badge">Active</span>
+        </div>
+
+        <span class="pill pill--1"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+        <span class="pill pill--2"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+        <span class="pill pill--3"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+        <span class="pill pill--4"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+        <span class="pill pill--5"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+        <span class="pill pill--6"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+      </div>
     </div>
   </section>
 
-  <section id="categories" class="categories" aria-label="Categories">
+  <aside class="announce reveal" style="--reveal-delay:220ms" aria-label="Announcement">
+    <span class="announce__icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z" /><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" /></svg>
+    </span>
+    <div class="announce__text">
+      <strong class="announce__title">Platform Launch</strong>
+      <span class="announce__body">DRepTalk is now live. Only DReps can participate.</span>
+    </div>
+    <a class="announce__link" href="#categories">Read announcement -&gt;</a>
+  </aside>
+
+  <section id="categories" class="categories" aria-labelledby="categories-heading">
+    <div class="categories__head">
+      <h2 id="categories-heading">Discussion categories</h2>
+      <p>Browse the standing spaces where DReps debate governance between actions.</p>
+    </div>
     <div class="cards">
       {categories.map((cat, i) => (
         <a
           class="card reveal"
           href={`/c/${cat.slug}`}
-          style={`--reveal-delay:${220 + i * 60}ms`}
+          style={`--reveal-delay:${260 + i * 50}ms`}
         >
           <span
             class="card__dot"
@@ -88,68 +197,320 @@ const defaultDot = 'var(--grad)';
           ></span>
           <div class="card__body">
             <div class="card__head">
-              <h2 class="card__name">{cat.name}</h2>
+              <h3 class="card__name">{cat.name}</h3>
               {cat.slug === GOVERNANCE_CATEGORY_SLUG && (
                 <span class="card__badge">auto</span>
               )}
             </div>
             <p class="card__desc">{cat.description}</p>
-            <span class="card__count">
-              {countMap.get(cat.slug) ?? 0} {(countMap.get(cat.slug) ?? 0) === 1 ? 'topic' : 'topics'}
-            </span>
+            <div class="card__foot">
+              <span class="card__count">
+                {countMap.get(cat.slug) ?? 0} {(countMap.get(cat.slug) ?? 0) === 1 ? 'topic' : 'topics'}
+              </span>
+              <span class="card__view">View -&gt;</span>
+            </div>
           </div>
         </a>
       ))}
     </div>
+  </section>
+
+  <section class="trust reveal" aria-label="Why DRepTalk">
+    {trustItems.map((t) => (
+      <div class="trust__item">
+        <span class="trust__icon" aria-hidden="true">
+          {t.icon === 'verified' && (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>
+          )}
+          {t.icon === 'bolt' && (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" /></svg>
+          )}
+          {t.icon === 'eye' && (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+          )}
+          {t.icon === 'people' && (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          )}
+        </span>
+        <strong class="trust__label">{t.label}</strong>
+        <span class="trust__body">{t.body}</span>
+      </div>
+    ))}
   </section>
 </Layout>
 
 <style>
   /* ---- Hero ----------------------------------------------------------- */
   .hero {
-    position: relative;
-    text-align: center;
-    padding: 3.5rem 0 3rem;
-  }
-  .hero__glow {
-    position: absolute;
-    inset: -20% -10% auto -10%;
-    height: 420px;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      radial-gradient(40% 60% at 30% 30%, rgba(139, 92, 246, 0.22), transparent 70%),
-      radial-gradient(40% 60% at 70% 40%, rgba(59, 130, 246, 0.18), transparent 70%),
-      radial-gradient(36% 55% at 55% 65%, rgba(45, 212, 191, 0.16), transparent 70%);
-    filter: blur(8px);
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    align-items: center;
+    gap: 3rem;
+    padding: 3rem 0 2.5rem;
   }
   .hero__title {
-    font-size: clamp(2.4rem, 6vw, 4rem);
-    font-weight: 600;
-    line-height: 1.05;
-    letter-spacing: -0.02em;
-    margin: 0 auto;
+    font-size: clamp(2.2rem, 5vw, 3.5rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: normal;
+    margin: 0;
     max-width: 16ch;
   }
   .hero__subtitle {
-    margin: 1.25rem auto 0;
-    max-width: 52ch;
+    margin: 1.1rem 0 0;
+    max-width: 46ch;
     color: var(--muted);
     font-size: clamp(1rem, 2vw, 1.15rem);
     line-height: 1.6;
   }
+
+  .hero__features {
+    list-style: none;
+    margin: 1.75rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+  .feature {
+    display: flex;
+    gap: 0.85rem;
+    align-items: flex-start;
+  }
+  .feature__icon {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .feature__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .feature__title {
+    font-weight: 600;
+    font-size: 0.975rem;
+    color: var(--fg);
+    line-height: 1.35;
+  }
+  .feature__body {
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
   .hero__cta {
     margin-top: 2rem;
     display: flex;
-    gap: 0.75rem;
-    justify-content: center;
+    gap: 1.25rem;
+    align-items: center;
     flex-wrap: wrap;
   }
+  .hero__learn {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  .hero__learn:hover {
+    text-decoration: underline;
+  }
 
-  /* ---- Cards ---------------------------------------------------------- */
+  /* ---- Hero visual (network of participants around a governance action) -- */
+  .hero__visual {
+    display: flex;
+    justify-content: center;
+  }
+  .hero-scene {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    aspect-ratio: 1 / 1;
+  }
+  .hero-scene__glow {
+    position: absolute;
+    inset: 4%;
+    border-radius: 28px;
+    background:
+      radial-gradient(45% 45% at 35% 30%, rgba(139, 92, 246, 0.28), transparent 70%),
+      radial-gradient(45% 45% at 70% 40%, rgba(59, 130, 246, 0.24), transparent 70%),
+      radial-gradient(45% 50% at 55% 72%, rgba(45, 212, 191, 0.22), transparent 70%);
+    filter: blur(6px);
+  }
+  .hero-scene__links {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .gov-card {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60%;
+    min-width: 190px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      'icon label num'
+      'icon title badge';
+    align-items: center;
+    gap: 0.15rem 0.65rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+  }
+  .gov-card__icon {
+    grid-area: icon;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    color: #fff;
+    background: var(--grad);
+  }
+  .gov-card__label {
+    grid-area: label;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .gov-card__num {
+    grid-area: num;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .gov-card__title {
+    grid-area: title;
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--fg);
+    line-height: 1.2;
+  }
+  .gov-card__badge {
+    grid-area: badge;
+    justify-self: end;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #0a8a5f;
+    background: rgba(45, 212, 191, 0.18);
+    border: 1px solid rgba(45, 212, 191, 0.4);
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
+    line-height: 1.4;
+  }
+
+  .pill {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.3rem 0.4rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+  }
+  .pill__avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--grad);
+    flex-shrink: 0;
+  }
+  .pill__bubble {
+    width: 26px;
+    height: 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 30%, var(--border));
+  }
+  .pill--1 { top: 12%; left: 6%; }
+  .pill--2 { top: 16%; right: 4%; }
+  .pill--3 { top: 60%; left: 0%; }
+  .pill--4 { top: 64%; right: 2%; }
+  .pill--5 { bottom: 6%; left: 28%; }
+  .pill--6 { bottom: 8%; right: 24%; }
+
+  /* ---- Announcement banner ------------------------------------------- */
+  .announce {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    margin: 0.5rem 0 2.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .announce__icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .announce__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    margin-right: auto;
+  }
+  .announce__title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--fg);
+  }
+  .announce__body {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .announce__link {
+    flex-shrink: 0;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .announce__link:hover {
+    text-decoration: underline;
+  }
+
+  /* ---- Categories ----------------------------------------------------- */
   .categories {
-    padding-top: 1rem;
     scroll-margin-top: 5rem;
+  }
+  .categories__head {
+    margin-bottom: 1.25rem;
+  }
+  .categories__head h2 {
+    font-size: clamp(1.4rem, 3vw, 1.85rem);
+    font-weight: 700;
+    margin: 0;
+  }
+  .categories__head p {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.975rem;
   }
   .cards {
     display: grid;
@@ -183,6 +544,7 @@ const defaultDot = 'var(--grad)';
   }
   .card__body {
     min-width: 0;
+    width: 100%;
   }
   .card__head {
     display: flex;
@@ -190,7 +552,6 @@ const defaultDot = 'var(--grad)';
     gap: 0.5rem;
   }
   .card__name {
-    font-family: var(--font-display);
     font-size: 1.0625rem;
     font-weight: 600;
     margin: 0;
@@ -215,15 +576,85 @@ const defaultDot = 'var(--grad)';
     font-size: 0.9rem;
     line-height: 1.5;
   }
+  .card__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
   .card__count {
     font-size: 0.8125rem;
     font-weight: 500;
     color: var(--muted);
   }
+  .card__view {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
 
-  @media (max-width: 520px) {
+  /* ---- Trust row ------------------------------------------------------ */
+  .trust {
+    margin-top: 3rem;
+    padding-top: 2.25rem;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.5rem;
+  }
+  .trust__item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .trust__icon {
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    margin-bottom: 0.15rem;
+  }
+  .trust__label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--fg);
+  }
+  .trust__body {
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+
+  /* ---- Responsive ----------------------------------------------------- */
+  @media (max-width: 900px) {
     .hero {
-      padding-top: 2.5rem;
+      grid-template-columns: 1fr;
+      gap: 2.25rem;
+      padding-top: 2rem;
+    }
+    .hero__visual {
+      order: -1;
+      max-width: 360px;
+      margin: 0 auto;
+    }
+    .trust {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem 1.25rem;
+    }
+  }
+  @media (max-width: 560px) {
+    .announce {
+      flex-wrap: wrap;
+    }
+    .announce__link {
+      margin-left: 52px;
+    }
+    .trust {
+      grid-template-columns: 1fr;
     }
   }
 </style>
