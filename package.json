@@ -20,8 +20,10 @@
     "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cborg": "^5.1.1",
+    "marked": "^18.0.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "xss": "^1.0.15",
     "zod": "^3.23.0"
   },
   "devDependencies": {

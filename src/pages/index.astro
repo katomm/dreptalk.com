@@ -1,7 +1,72 @@
 ---
+export const prerender = false;
+
 import Layout from '@/layouts/Layout.astro';
+import JsonLd from '@/components/JsonLd.astro';
+import { getCategories } from '../../config/categories.js';
+import { cacheControlFor } from '@/lib/forum/view.js';
+
+const env = (Astro.locals as App.Locals).runtime?.env ?? {};
+const db = env.DB as D1Database | undefined;
+
+// One parameterless query to get topic counts per category.
+const countRows = db
+  ? (
+      await db
+        .prepare('SELECT category_slug, COUNT(*) AS n FROM topics WHERE deleted = 0 GROUP BY category_slug')
+        .all<{ category_slug: string; n: number }>()
+    ).results ?? []
+  : [];
+
+const countMap = new Map<string, number>(countRows.map((r) => [r.category_slug, r.n]));
+
+const categories = getCategories();
+
+Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
+
+const siteOrigin = Astro.site?.origin ?? 'https://dreptalk.com';
+
+const breadcrumbLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    {
+      '@type': 'ListItem',
+      position: 1,
+      name: 'DRepTalk',
+      item: siteOrigin + '/',
+    },
+  ],
+};
 ---
-<Layout title="DRepTalk">
+
+<Layout
+  title="DRepTalk - Cardano Governance Forum"
+  description="A calmer, accountable home for Cardano governance discussion. Browse categories, DRep threads, and governance action debates."
+>
+  <JsonLd data={breadcrumbLd} />
+
   <h1>DRepTalk</h1>
-  <p>A calmer, accountable home for Cardano governance discussion.</p>
+  <p style="color:var(--muted);margin-bottom:2rem;">
+    A calmer, accountable home for Cardano governance discussion.
+  </p>
+
+  <div style="display:flex;flex-direction:column;gap:0.75rem;">
+    {categories.map((cat) => (
+      <a
+        href={`/c/${cat.slug}`}
+        style="display:block;border:1px solid var(--border);border-radius:0.5rem;padding:1rem 1.25rem;text-decoration:none;color:inherit;transition:border-color 0.15s;"
+        onmouseover="this.style.borderColor='var(--accent)'"
+        onmouseout="this.style.borderColor='var(--border)'"
+      >
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;">
+          <span style="font-weight:600;color:var(--fg);">{cat.name}</span>
+          <span style="font-size:0.8125rem;color:var(--muted);white-space:nowrap;">
+            {countMap.get(cat.slug) ?? 0} topics
+          </span>
+        </div>
+        <p style="margin:0.25rem 0 0;font-size:0.875rem;color:var(--muted);">{cat.description}</p>
+      </a>
+    ))}
+  </div>
 </Layout>
