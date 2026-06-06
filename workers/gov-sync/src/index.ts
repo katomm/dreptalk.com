@@ -36,14 +36,16 @@ async function runSync(env: Env): Promise<SyncResult> {
 }
 
 export default {
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(
-      runSync(env)
-        .then((r) =>
-          console.log(`[gov-sync] total=${r.total} created=${r.created} skipped=${r.skipped} failed=${r.failed}`),
-        )
-        .catch((err) => console.error('[gov-sync] run failed', err)),
-    );
+  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
+    // Await the sync directly: it is the handler's whole job, so the runtime
+    // should keep the invocation alive until it finishes (and `wrangler dev
+    // --test-scheduled` only returns once it resolves).
+    try {
+      const r = await runSync(env);
+      console.log(`[gov-sync] total=${r.total} created=${r.created} skipped=${r.skipped} failed=${r.failed}`);
+    } catch (err) {
+      console.error('[gov-sync] run failed', err);
+    }
   },
 
   // The cron drives scheduled() in production. This handler only reports health;

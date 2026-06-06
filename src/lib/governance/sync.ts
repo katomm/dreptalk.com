@@ -95,8 +95,10 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
           : { status: 'no-anchor' as const, metadata: null };
 
       const meta = anchor.metadata;
+      // Fallback title includes the proposal index so multiple actions in one
+      // transaction (same tx hash) get distinct titles.
       const title =
-        meta?.title || `${readableType(p.proposal_type)} (${p.proposal_tx_hash.slice(0, 10)})`;
+        meta?.title || `${readableType(p.proposal_type)} (${p.proposal_tx_hash.slice(0, 8)}#${p.proposal_index})`;
 
       const bodyMd = composeFirstPostMd(p, meta?.abstract ?? null, network);
       const bodyHtml = renderMarkdown(bodyMd);
