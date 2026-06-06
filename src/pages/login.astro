@@ -1,0 +1,18 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import WalletLogin from '@/components/WalletLogin.tsx';
+
+export const prerender = false;
+---
+<Layout
+  title="Sign in - DRepTalk"
+  description="Sign in to DRepTalk with your Cardano wallet. No password, no transaction; just a one-time signed challenge."
+>
+  <h1>Sign in</h1>
+  <p style="color:var(--muted);max-width:38rem;margin-bottom:2rem;">
+    DRepTalk uses wallet-based authentication. Connect your Cardano wallet and sign a
+    one-time challenge to prove ownership of your DRep or reward address. No password
+    required, no transaction, no fees.
+  </p>
+  <WalletLogin client:load />
+</Layout>

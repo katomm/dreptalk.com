@@ -9,19 +9,25 @@
     "build": "astro build",
     "preview": "astro build && wrangler pages dev ./dist",
     "typecheck": "astro check",
-    "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test": "vitest run --workspace vitest.workspace.ts",
+    "test:watch": "vitest --workspace vitest.workspace.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^12.0.0",
     "@astrojs/react": "^4.0.0",
+    "@noble/curves": "^2.2.0",
     "astro": "^5.0.0",
+    "bech32": "^2.0.0",
+    "blakejs": "^1.2.1",
+    "cborg": "^5.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.0",
+    "@cloudflare/vitest-pool-workers": "^0.12.21",
+    "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.6.0",

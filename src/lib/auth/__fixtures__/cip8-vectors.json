@@ -1,0 +1,28 @@
+{
+  "note": "Real CIP-8 signData vectors generated from the preprod test wallet. Public material only.",
+  "vectors": [
+    {
+      "label": "stake-key-valid",
+      "network": "preprod",
+      "payloadUtf8": "dreptalk-login:test-vector-001",
+      "payloadHex": "6472657074616c6b2d6c6f67696e3a746573742d766563746f722d303031",
+      "signatureHex": "84582aa201276761646472657373581de0020bbbc054b1c5cdcbc826c6a016973f3ef684d9dd7f3ed8e448cb71a166686173686564f4581e6472657074616c6b2d6c6f67696e3a746573742d766563746f722d3030315840e5c3f61df9e60ca0d37e649f67add464dbd9686719f96c541c890cd365ccd7aef163bfe64065ba5437ac817b08e5f491b2166273f4f92459022f83592ee9f40c",
+      "keyHex": "a40101032720062158203a7a243a6b00e4a913d74a054984079299315828c366d1cc9cc88d06af742d5a",
+      "expectedPubKeyHex": "3a7a243a6b00e4a913d74a054984079299315828c366d1cc9cc88d06af742d5a",
+      "expectedStakeAddress": "stake_test1uqpqhw7q2jcutnwteqnvdgqkjulnaa5ym8wh70kcu3yvkugckkcgj",
+      "addressHex": "e0020bbbc054b1c5cdcbc826c6a016973f3ef684d9dd7f3ed8e448cb71",
+      "note": "CIP-1852 path 1852h/1815h/0h/2/0, testnet reward address, Ed25519/EdDSA"
+    },
+    {
+      "label": "drep-key-valid",
+      "network": "preprod",
+      "payloadUtf8": "dreptalk-login:test-vector-001",
+      "payloadHex": "6472657074616c6b2d6c6f67696e3a746573742d766563746f722d303031",
+      "signatureHex": "84582aa201276761646472657373581d22af4e07977b6c2683c065e17ec1ea0421ac7c2fc579f9dd98ff8e2f82a166686173686564f4581e6472657074616c6b2d6c6f67696e3a746573742d766563746f722d30303158408ab0e92860a969bb55a05aeb49a752f0f918150e4c64cc22a5b41f72924e4c36751a2051b827742de6690bbda1e7e574f3eeb5d0f9321b80dd66a3a216fd2b05",
+      "keyHex": "a4010103272006215820a1458f6a1e1763fc379d7593b855ea21066cc76b78bfb5860f17315c86b561f6",
+      "expectedPubKeyHex": "a1458f6a1e1763fc379d7593b855ea21066cc76b78bfb5860f17315c86b561f6",
+      "expectedDrepAddrHex": "22af4e07977b6c2683c065e17ec1ea0421ac7c2fc579f9dd98ff8e2f82",
+      "note": "CIP-1852/CIP-95 path 1852h/1815h/0h/3/0, DRep key, address header = 0x22 + keyhash (testnet). CIP-95 DRep signData conventions are still evolving; treat this vector as best-effort."
+    }
+  ]
+}
