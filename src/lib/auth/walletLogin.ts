@@ -97,14 +97,24 @@ export async function loginWithWallet(
     });
 
     if (!verifyRes.ok) {
-      return { ok: false, error: 'login failed' };
+      // Surface the server's specific reason (e.g. "not an active DRep",
+      // "signature verification failed", "address type mismatch for role",
+      // "invalid or expired nonce") instead of a flat "login failed".
+      const body = (await verifyRes.json().catch(() => null)) as { error?: string } | null;
+      return { ok: false, error: body?.error || `login failed (HTTP ${verifyRes.status})` };
     }
 
     const data = (await verifyRes.json()) as { ok: boolean; user?: { id: string; roles: string[] } };
     return { ok: true, user: data.user };
-  } catch {
-    // Wallet rejection, network error, or any other unexpected failure.
-    return { ok: false, error: 'login failed' };
+  } catch (err) {
+    // Wallet rejection (user declined), network error, or other failure.
+    // CIP-30 wallet errors carry { code, info }; prefer that detail when present.
+    const e = err as { info?: unknown; message?: unknown } | null;
+    const detail =
+      (typeof e?.info === 'string' && e.info) ||
+      (typeof e?.message === 'string' && e.message) ||
+      'wallet connection or network error';
+    return { ok: false, error: detail };
   }
 }
 
