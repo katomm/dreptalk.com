@@ -1,0 +1,15 @@
+---
+interface Props {
+  noun: string;
+}
+const { noun } = Astro.props;
+---
+<html lang="en">
+  <head><title>{noun} not found - DRepTalk</title></head>
+  <body>
+    <main style="max-width:56rem;margin:0 auto;padding:1.5rem;">
+      <h1>{noun} not found</h1>
+      <p><a href="/">Back to home</a></p>
+    </main>
+  </body>
+</html>

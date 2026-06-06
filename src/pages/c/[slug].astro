@@ -1,0 +1,137 @@
+---
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import JsonLd from '@/components/JsonLd.astro';
+import Composer from '@/components/Composer.tsx';
+import NotFound from '@/components/NotFound.astro';
+import { getCategory, isDiscussion } from '../../../config/categories.js';
+import { getTopicsByCategory } from '@/lib/db/forum.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, SITE_ORIGIN } from '@/lib/forum/view.js';
+
+const { slug } = Astro.params;
+const category = slug ? getCategory(slug) : undefined;
+
+const notFound = !category;
+if (notFound) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+const env = (Astro.locals as App.Locals).runtime?.env ?? {};
+const db = env.DB as D1Database | undefined;
+
+const PAGE_SIZE = 30;
+const page = parsePage(Astro.url.searchParams.get('page'));
+const offset = pageToOffset(page, PAGE_SIZE);
+
+const topics = category && db
+  ? await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset })
+  : [];
+
+if (!notFound) {
+  Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
+}
+
+const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
+const now = Date.now();
+
+// Show composer only for authenticated users on discussion (non-governance) categories.
+const user = Astro.locals.user;
+const showComposer = !!user && !!category && isDiscussion(category.slug);
+
+const prevPage = page > 1 ? page - 1 : null;
+const nextPage = topics.length === PAGE_SIZE ? page + 1 : null;
+
+const breadcrumbLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    {
+      '@type': 'ListItem',
+      position: 1,
+      name: 'DRepTalk',
+      item: siteOrigin + '/',
+    },
+    {
+      '@type': 'ListItem',
+      position: 2,
+      name: category?.name ?? 'Category',
+      item: siteOrigin + `/c/${slug}`,
+    },
+  ],
+};
+---
+
+{notFound ? (
+  <NotFound noun="Category" />
+) : (
+  <Layout
+    title={`${category.name} - DRepTalk`}
+    description={category.description}
+  >
+    <JsonLd data={breadcrumbLd} />
+
+    <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+      <a href="/">DRepTalk</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <span>{category.name}</span>
+    </nav>
+
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1.5rem;">
+      <div>
+        <h1 style="margin:0 0 0.25rem;">{category.name}</h1>
+        <p style="margin:0;color:var(--muted);font-size:0.875rem;">{category.description}</p>
+      </div>
+    </div>
+
+    {topics.length === 0 ? (
+      <p style="color:var(--muted);">No topics yet in this category.</p>
+    ) : (
+      <div style="display:flex;flex-direction:column;gap:0;">
+        {topics.map((topic) => (
+          <div style="border-bottom:1px solid var(--border);padding:0.875rem 0;display:flex;gap:0.75rem;align-items:baseline;">
+            {topic.pinned && (
+              <span style="font-size:0.75rem;background:var(--accent);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;flex-shrink:0;">
+                pinned
+              </span>
+            )}
+            <div style="flex:1;min-width:0;">
+              <a
+                href={`/t/${topic.slug}`}
+                style="font-weight:500;text-decoration:none;color:var(--fg);"
+              >
+                {topic.title}
+              </a>
+              <div style="font-size:0.8125rem;color:var(--muted);margin-top:0.2rem;">
+                by {truncateId(topic.author_id)}
+                <span style="margin:0 0.4rem;">&middot;</span>
+                {topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}
+                <span style="margin:0 0.4rem;">&middot;</span>
+                last activity {formatRelativeTime(topic.last_post_at, now)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {(prevPage || nextPage) && (
+      <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
+        {prevPage && (
+          <a href={`/c/${category.slug}?page=${prevPage}`}>Previous page</a>
+        )}
+        {nextPage && (
+          <a href={`/c/${category.slug}?page=${nextPage}`}>Next page</a>
+        )}
+      </nav>
+    )}
+
+    {showComposer && (
+      <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
+        <h2 style="margin:0 0 1rem;font-size:1.125rem;">Start a new topic</h2>
+        <Composer client:load mode="topic" categorySlug={category.slug} />
+      </section>
+    )}
+  </Layout>
+)}
