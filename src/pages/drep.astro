@@ -1,0 +1,26 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import DRepService from '@/components/DRepService.tsx';
+
+// Prerendered shell: the page is static; all wallet and chain work happens in
+// the client island. The island is non-custodial (the server never sees keys).
+export const prerender = true;
+
+// Network for the registration transaction. Prerendered pages cannot read the
+// runtime CARDANO_NETWORK, so this is fixed to preprod for the current spike.
+// Phase B-11 will resolve this from the deployed environment.
+const network = 'preprod';
+---
+<Layout
+  title="Register as a DRep - DRepTalk"
+  description="Register as a Cardano DRep with your wallet. Fully client-side and non-custodial: dreptalk.com never sees your keys, your wallet signs and submits the transaction."
+>
+  <h1>Register as a DRep</h1>
+  <p style="color:var(--muted);max-width:38rem;margin-bottom:2rem;">
+    Become a Delegated Representative for Cardano governance. Connect a CIP-95
+    capable wallet, add a short profile, and your wallet will submit the on-chain
+    registration. The deposit is refundable when you later retire. Everything is
+    signed locally; dreptalk.com never handles your private keys.
+  </p>
+  <DRepService network={network} client:load />
+</Layout>
