@@ -1,28 +1,14 @@
 /* ==========================================================================
    Fonts (self-hosted, no CDN. font-display: swap)
-   Body: Hanken Grotesk (variable, latin subset, weights 400-700)
-   Display: Clash Display (headings/hero, 500 + 600)
+   Plus Jakarta Sans (variable, latin subset, weight axis 200-800).
+   Single family for both headings and body for a clean, cohesive look.
    ========================================================================== */
 @font-face {
-  font-family: 'Hanken Grotesk';
+  font-family: 'Plus Jakarta Sans';
   font-style: normal;
-  font-weight: 400 700;
+  font-weight: 200 800;
   font-display: swap;
-  src: url('/fonts/hanken-grotesk-latin.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Clash Display';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/clash-display-500.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Clash Display';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/clash-display-600.woff2') format('woff2');
+  src: url('/fonts/plus-jakarta-sans-latin.woff2') format('woff2');
 }
 
 /* ==========================================================================
@@ -54,9 +40,9 @@
   --shadow: 0 1px 2px rgba(20, 16, 40, 0.04), 0 8px 24px rgba(20, 16, 40, 0.06);
   --shadow-lg: 0 2px 4px rgba(20, 16, 40, 0.05), 0 18px 40px rgba(20, 16, 40, 0.1);
 
-  /* Typography */
-  --font-body: 'Hanken Grotesk', ui-sans-serif, sans-serif;
-  --font-display: 'Clash Display', 'Hanken Grotesk', ui-sans-serif, sans-serif;
+  /* Typography (one clean family for body and headings) */
+  --font-body: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
 
   /* Layout */
   --wrap: 64rem;
@@ -113,9 +99,10 @@ body {
 
 h1, h2, h3, h4 {
   font-family: var(--font-display);
-  font-weight: 600;
-  line-height: 1.15;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: normal;
+  word-spacing: normal;
   color: var(--fg);
 }
 
@@ -286,4 +273,21 @@ main.container {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ==========================================================================
+   Theme toggle: circular-reveal view transition (clean clip, not cross-fade).
+   The JS in public/theme.js animates the new snapshot's clip-path from the
+   toggle button outward.
+   ========================================================================== */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
 }
