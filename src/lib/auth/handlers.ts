@@ -4,6 +4,7 @@
 
 import { issueNonce, consumeNonce } from './nonce.js';
 import { verifyCip8 } from './cose.js';
+import { isHex, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
 import { drepIdFromPubKey, stakeAddressFromPubKey } from '../cardano/identity.js';
 import { resolveDRep, resolveProposer } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
@@ -115,6 +116,18 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
   if (body.role !== 'drep' && body.role !== 'proposer') {
+    return { status: 400, json: { ok: false, error: 'invalid request' } };
+  }
+
+  // Step 1b: Bound and format-check the untrusted fields before any hex decode
+  // or crypto. This is a public, unauthenticated endpoint, so reject oversized
+  // or non-hex key/signature input cheaply instead of letting it reach the
+  // decoder and verifier.
+  if (
+    body.payload.length > MAX_PAYLOAD_LEN ||
+    !isHex(body.keyHex, MAX_KEY_HEX_LEN) ||
+    !isHex(body.signatureHex, MAX_SIG_HEX_LEN)
+  ) {
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
 
