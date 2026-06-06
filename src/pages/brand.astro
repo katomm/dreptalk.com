@@ -1,0 +1,316 @@
+---
+import Layout from '@/layouts/Layout.astro';
+
+export const prerender = true;
+
+// Brand palette. Hexes mirror the design tokens in src/styles/global.css.
+const brandColors = [
+  { name: 'Violet (accent)', hex: '#6d28d9' },
+  { name: 'Violet (hover)', hex: '#5b21b6' },
+  { name: 'Gradient violet', hex: '#8b5cf6' },
+  { name: 'Gradient blue', hex: '#3b82f6' },
+  { name: 'Gradient teal', hex: '#2dd4bf' },
+];
+const lightColors = [
+  { name: 'Background', hex: '#ffffff' },
+  { name: 'Surface', hex: '#f7f7fb' },
+  { name: 'Text', hex: '#17141f' },
+  { name: 'Muted', hex: '#6b6880' },
+  { name: 'Border', hex: '#ece9f4' },
+];
+const darkColors = [
+  { name: 'Background', hex: '#0c0a12' },
+  { name: 'Surface', hex: '#1a1522' },
+  { name: 'Text', hex: '#ece9f4' },
+  { name: 'Accent', hex: '#a78bfa' },
+  { name: 'Border', hex: '#272233' },
+];
+
+const swatchGroups = [
+  { title: 'Brand', colors: brandColors },
+  { title: 'Light theme', colors: lightColors },
+  { title: 'Dark theme', colors: darkColors },
+];
+---
+
+<Layout
+  title="Brand assets - DRepTalk"
+  description="The DRepTalk logo, wordmark, brand colors, and typeface for press, integrations, and partners."
+>
+  <article class="brand">
+    <header class="brand__head">
+      <h1 class="brand__title">Brand <span class="grad-text">assets</span></h1>
+      <p class="brand__lede">
+        The DRepTalk logo, wordmark, colors, and type. Please use them as provided: do not stretch,
+        rotate, recolor, or add effects.
+      </p>
+    </header>
+
+    <section class="brand__section" aria-labelledby="logo-heading">
+      <h2 id="logo-heading">Logo</h2>
+      <div class="brand__cards">
+        <figure class="logo-card logo-card--light">
+          <img src="/logo.png" alt="DRepTalk logo on a light background" width="200" height="144" />
+        </figure>
+        <figure class="logo-card logo-card--dark">
+          <img src="/logo.png" alt="DRepTalk logo on a dark background" width="200" height="144" />
+        </figure>
+        <figure class="logo-card logo-card--grad">
+          <span class="logo-card__wordmark">DRep<span>Talk</span></span>
+        </figure>
+      </div>
+      <div class="brand__downloads">
+        <a class="btn btn-secondary" href="/logo.png" download="dreptalk-logo.png">Logo PNG</a>
+        <a class="btn btn-secondary" href="/logo-mark.png" download="dreptalk-mark.png">Mark PNG</a>
+      </div>
+    </section>
+
+    <section class="brand__section" aria-labelledby="wordmark-heading">
+      <h2 id="wordmark-heading">Wordmark</h2>
+      <p class="brand__note">
+        DRepTalk is one word, capital D, R, T. The second half uses the brand gradient (or the
+        accent violet on a flat background). Do not space it as "DRep Talk".
+      </p>
+      <div class="wordmark-row">
+        <span class="wordmark-chip">DRep<span class="grad-text">Talk</span></span>
+        <span class="wordmark-chip wordmark-chip--accent">DRep<span>Talk</span></span>
+      </div>
+    </section>
+
+    <section class="brand__section" aria-labelledby="colors-heading">
+      <h2 id="colors-heading">Colors</h2>
+      <p class="brand__note">Click a swatch to copy its hex.</p>
+      {swatchGroups.map((group) => (
+        <div class="swatch-group">
+          <h3>{group.title}</h3>
+          <div class="swatches">
+            {group.colors.map((c) => (
+              <button class="swatch" type="button" data-copy={c.hex} aria-label={`Copy ${c.hex}`}>
+                <span class="swatch__chip" style={`background:${c.hex}`}></span>
+                <span class="swatch__meta">
+                  <span class="swatch__name">{c.name}</span>
+                  <span class="swatch__hex" data-hex={c.hex}>{c.hex}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div class="swatch-group">
+        <h3>Gradient</h3>
+        <button class="swatch swatch--wide" type="button" data-copy="linear-gradient(120deg, #8b5cf6 0%, #3b82f6 50%, #2dd4bf 100%)" aria-label="Copy the brand gradient">
+          <span class="swatch__chip swatch__chip--grad"></span>
+          <span class="swatch__meta">
+            <span class="swatch__name">Brand gradient</span>
+            <span class="swatch__hex" data-hex="linear-gradient(120deg, #8b5cf6, #3b82f6, #2dd4bf)">linear-gradient(120deg, #8b5cf6, #3b82f6, #2dd4bf)</span>
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <section class="brand__section" aria-labelledby="type-heading">
+      <h2 id="type-heading">Typeface</h2>
+      <p class="brand__note">
+        Plus Jakarta Sans, self-hosted, weight axis 200 to 800, used for both headings and body.
+      </p>
+      <p class="type-sample">Aa Bb Cc Dd Ee 0123456789</p>
+      <p class="type-line">Where DReps discuss governance.</p>
+    </section>
+  </article>
+
+  <script is:inline src="/brand-copy.js"></script>
+</Layout>
+
+<style>
+  .brand {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: 1rem 0 2rem;
+  }
+  .brand__head {
+    padding: 1.5rem 0 0.5rem;
+  }
+  .brand__title {
+    font-size: clamp(2rem, 4vw, 2.75rem);
+    font-weight: 700;
+    margin: 0;
+  }
+  .brand__lede {
+    margin: 0.75rem 0 0;
+    max-width: 46ch;
+    color: var(--muted);
+    font-size: 1.05rem;
+    line-height: 1.6;
+  }
+
+  .brand__section {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+  }
+  .brand__section h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+  }
+  .brand__section h3 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 1.5rem 0 0.75rem;
+  }
+  .brand__note {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  /* ---- Logo cards ---- */
+  .brand__cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+  .logo-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 180px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .logo-card img {
+    width: auto;
+    height: auto;
+    max-width: 70%;
+  }
+  .logo-card--light {
+    background: #ffffff;
+  }
+  .logo-card--dark {
+    background: #0c0a12;
+  }
+  .logo-card--grad {
+    background: var(--grad);
+  }
+  .logo-card__wordmark {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.75rem;
+    color: #fff;
+    letter-spacing: -0.01em;
+  }
+  .logo-card__wordmark span {
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .brand__downloads {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+  }
+
+  /* ---- Wordmark ---- */
+  .wordmark-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .wordmark-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1.25rem 1.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.6rem;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+  }
+  .wordmark-chip--accent span {
+    color: var(--accent);
+  }
+
+  /* ---- Swatches ---- */
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+  .swatch {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem;
+    text-align: left;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .swatch:hover {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    transform: translateY(-1px);
+  }
+  .swatch.is-copied {
+    border-color: var(--accent);
+  }
+  .swatch--wide {
+    width: 100%;
+  }
+  .swatch__chip {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+  }
+  .swatch__chip--grad {
+    background: var(--grad);
+    border: none;
+  }
+  .swatch__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .swatch__name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .swatch__hex {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---- Type ---- */
+  .type-sample {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    margin: 0.5rem 0 0;
+    letter-spacing: -0.01em;
+  }
+  .type-line {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.5rem;
+    color: var(--muted);
+    margin: 0.75rem 0 0;
+  }
+</style>
