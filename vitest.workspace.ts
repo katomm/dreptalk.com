@@ -7,7 +7,7 @@ export default defineWorkspace([
     test: {
       name: 'node',
       environment: 'node',
-      include: ['src/**/*.test.ts'],
+      include: ['src/**/*.test.ts', 'config/**/*.test.ts'],
       exclude: ['src/**/*.workers.test.ts', 'node_modules/**'],
     },
     resolve: {
