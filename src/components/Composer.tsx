@@ -47,7 +47,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
     };
   }, [bodyMd, showPreview, fetchPreview]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);

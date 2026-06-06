@@ -17,6 +17,7 @@ const topic = slug && db ? await getTopicBySlug(db, slug) : null;
 
 if (!topic || topic.deleted) {
   Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
 const PAGE_SIZE = 50;

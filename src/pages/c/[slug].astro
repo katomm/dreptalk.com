@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import Composer from '@/components/Composer.tsx';
-import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
+import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { getTopicsByCategory } from '@/lib/db/forum.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
 
@@ -13,6 +13,7 @@ const category = slug ? getCategory(slug) : undefined;
 
 if (!category) {
   Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
 const env = (Astro.locals as App.Locals).runtime?.env ?? {};
@@ -33,7 +34,7 @@ const now = Date.now();
 
 // Show composer only for authenticated users on discussion (non-governance) categories.
 const user = Astro.locals.user;
-const showComposer = !!user && !!category && isDiscussion(category.slug) && category.slug !== GOVERNANCE_CATEGORY_SLUG;
+const showComposer = !!user && !!category && isDiscussion(category.slug);
 
 const prevPage = page > 1 ? page - 1 : null;
 const nextPage = topics.length === PAGE_SIZE ? page + 1 : null;

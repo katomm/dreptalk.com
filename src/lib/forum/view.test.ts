@@ -1,5 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime } from './view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd } from './view.js';
+
+// ---------------------------------------------------------------------------
+// serializeJsonLd
+// ---------------------------------------------------------------------------
+
+describe('serializeJsonLd', () => {
+  it('escapes </script> so it cannot break out of a <script> block', () => {
+    const out = serializeJsonLd({ headline: 'foo </script><script>alert(1)</script>' });
+    expect(out).toContain('<\\/script>');
+    expect(out).not.toContain('</script>');
+  });
+
+  it('round-trips: JSON.parse of the output equals the original data', () => {
+    const data = { headline: 'foo </script><script>alert(1)</script>', num: 42, nested: { a: true } };
+    expect(JSON.parse(serializeJsonLd(data))).toEqual(data);
+  });
+
+  it('escapes all occurrences of </ in a string', () => {
+    const out = serializeJsonLd({ x: 'a</b>c</d>' });
+    expect(out).not.toContain('</');
+    expect(out).toContain('<\\/b>');
+    expect(out).toContain('<\\/d>');
+  });
+
+  it('leaves values without </ unchanged', () => {
+    const data = { title: 'Hello world', count: 1 };
+    expect(serializeJsonLd(data)).toBe(JSON.stringify(data));
+  });
+});
 
 // ---------------------------------------------------------------------------
 // parsePage

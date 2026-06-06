@@ -146,6 +146,18 @@ describe('renderMarkdown - security (negative cases)', () => {
   });
 });
 
+describe('renderMarkdown - href scheme normalization (control chars)', () => {
+  it('accepts https link with leading spaces before the URL', () => {
+    const out = renderMarkdown('[x](  https://example.com)');
+    expect(out).toContain('href="https://example.com"');
+  });
+
+  it('accepts https link with leading tab before the URL', () => {
+    const out = renderMarkdown('[x](\thttps://example.com)');
+    expect(out).toContain('href="https://example.com"');
+  });
+});
+
 describe('renderMarkdown - correctness (positive cases)', () => {
   it('renders bold with **', () => {
     const out = renderMarkdown('**bold**');

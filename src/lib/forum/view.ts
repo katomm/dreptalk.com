@@ -1,4 +1,4 @@
-// Pure helpers for forum view rendering: pagination, cache headers, relative time.
+// Pure helpers for forum view rendering: pagination, cache headers, relative time, JSON-LD.
 // No I/O, no side effects; all functions are deterministic and testable.
 
 /**
@@ -27,6 +27,21 @@ export function pageToOffset(page: number, pageSize: number): number {
  */
 export function cacheControlFor(user: unknown | null): string {
   return user ? 'private, no-store' : 'public, s-maxage=30';
+}
+
+/**
+ * Serialize a value to a JSON string safe for embedding inside a
+ * <script type="application/ld+json"> block.
+ *
+ * The only required escape is `</` -> `<\/`: the JSON spec allows both
+ * forms and parsers handle them identically, but the unescaped form ends
+ * the enclosing <script> element when a string value contains `</script>`.
+ *
+ * @param data - Any JSON-serializable value.
+ * @returns JSON string with `</` escaped to `<\/`.
+ */
+export function serializeJsonLd(data: unknown): string {
+  return JSON.stringify(data).replace(/<\//g, '<\\/');
 }
 
 /**
