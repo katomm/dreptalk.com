@@ -1,13 +1,13 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { handleVerify } from '@/lib/auth/handlers';
 import { resolveNetwork } from '@/lib/config/network';
 import { createKoiosClient } from '@/lib/koios/client';
 
 export const prerender = false;
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request }) => {
   try {
-    const env = (locals as { runtime?: { env?: Record<string, unknown> } }).runtime?.env ?? {};
     const nonceKv = env.NONCES as KVNamespace | undefined;
     const sessionKv = env.SESSIONS as KVNamespace | undefined;
     const db = env.DB as D1Database | undefined;

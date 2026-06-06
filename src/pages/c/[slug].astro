@@ -8,6 +8,7 @@ import NotFound from '@/components/NotFound.astro';
 import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { getTopicsByCategory } from '@/lib/db/forum.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
 const category = slug ? getCategory(slug) : undefined;
@@ -18,7 +19,6 @@ if (notFound) {
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
-const env = (Astro.locals as App.Locals).runtime?.env ?? {};
 const db = env.DB as D1Database | undefined;
 
 const PAGE_SIZE = 30;
