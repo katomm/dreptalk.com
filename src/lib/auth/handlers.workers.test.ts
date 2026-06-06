@@ -191,7 +191,7 @@ describe('handleVerify: happy path (drep)', () => {
           drep_id: id,
           hex: 'bb',
           has_script: false,
-          registered: true,
+          drep_status: 'registered',
           active: true,
           deposit: '500000000',
           expires_epoch_no: null,

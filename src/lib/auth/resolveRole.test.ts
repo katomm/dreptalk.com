@@ -26,7 +26,7 @@ function drepFixture(overrides: Partial<DrepInfo> = {}): DrepInfo {
     drep_id: DREP_ID,
     hex: 'abc123',
     has_script: false,
-    registered: true,
+    drep_status: 'registered',
     deposit: '500000000',
     active: true,
     expires_epoch_no: 600,
@@ -52,17 +52,19 @@ describe('resolveDRep', () => {
     expect(result.reason).toBe('script');
   });
 
-  it('returns isDrep false when registered but inactive', async () => {
+  it('returns isDrep false with reason "inactive" when registered but inactive', async () => {
     const koios = makeKoios({ drepInfo: () => Promise.resolve(drepFixture({ active: false })) });
     const result = await resolveDRep(koios, DREP_ID);
     expect(result.isDrep).toBe(false);
     expect(result.active).toBe(false);
+    expect(result.reason).toBe('inactive');
   });
 
-  it('returns isDrep false when not registered', async () => {
-    const koios = makeKoios({ drepInfo: () => Promise.resolve(drepFixture({ registered: false })) });
+  it('returns isDrep false with reason "not registered" when drep_status is retired', async () => {
+    const koios = makeKoios({ drepInfo: () => Promise.resolve(drepFixture({ drep_status: 'retired' })) });
     const result = await resolveDRep(koios, DREP_ID);
     expect(result.isDrep).toBe(false);
+    expect(result.reason).toBe('not registered');
   });
 
   it('returns isDrep false when drepInfo returns null (not found)', async () => {

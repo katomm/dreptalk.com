@@ -19,16 +19,20 @@ const tipSchema = z
 
 export type Tip = z.infer<typeof tipSchema>[number];
 
-// DrepInfo schema: tolerate extra fields, nullable deposit and expires_epoch_no.
-const drepInfoSchema = z.object({
-  drep_id: z.string(),
-  hex: z.string(),
-  has_script: z.boolean(),
-  registered: z.boolean(),
-  deposit: z.string().nullable(),
-  active: z.boolean(),
-  expires_epoch_no: z.number().nullable(),
-}).passthrough();
+// DrepInfo schema: matches the real Koios /drep_info response shape.
+// Status is the string field drep_status ("registered", "retired", "expired", ...).
+// There is no boolean registered field in the real API.
+const drepInfoSchema = z
+  .object({
+    drep_id: z.string(),
+    hex: z.string(),
+    has_script: z.boolean(),
+    drep_status: z.string(),
+    deposit: z.string().nullable(),
+    active: z.boolean(),
+    expires_epoch_no: z.number().nullable(),
+  })
+  .passthrough();
 
 export type DrepInfo = z.infer<typeof drepInfoSchema>;
 

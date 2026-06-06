@@ -84,7 +84,7 @@ const drepInfoFixture: DrepInfo = {
   drep_id: DREP_ID,
   hex: 'abc123',
   has_script: false,
-  registered: true,
+  drep_status: 'registered',
   deposit: '500000000',
   active: true,
   expires_epoch_no: 600,
@@ -103,7 +103,7 @@ describe('createKoiosClient.drepInfo', () => {
     expect(result).not.toBeNull();
     expect(result!.drep_id).toBe(DREP_ID);
     expect(result!.active).toBe(true);
-    expect(result!.registered).toBe(true);
+    expect(result!.drep_status).toBe('registered');
     expect(result!.has_script).toBe(false);
 
     expect(fetchImpl).toHaveBeenCalledWith(

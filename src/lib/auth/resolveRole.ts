@@ -36,8 +36,15 @@ export async function resolveDRep(
     return { isDrep: false, active: info.active, reason: 'script' };
   }
 
-  const isDrep = info.registered && info.active;
-  return { isDrep, active: info.active };
+  if (info.drep_status !== 'registered') {
+    return { isDrep: false, active: info.active, reason: 'not registered' };
+  }
+
+  if (!info.active) {
+    return { isDrep: false, active: false, reason: 'inactive' };
+  }
+
+  return { isDrep: true, active: true };
 }
 
 /**
