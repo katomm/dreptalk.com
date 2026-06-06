@@ -10,6 +10,13 @@ interface Props {
 const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN;
+
+const navLinks = [
+  { label: 'Governance Actions', href: '/c/governance-actions' },
+  { label: 'Discussions', href: '/' },
+  { label: 'DReps', href: '#' },
+  { label: 'About', href: '#' },
+];
 ---
 <!doctype html>
 <html lang="en">
@@ -22,6 +29,22 @@ const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN;
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     {noindex && <meta name="robots" content="noindex" />}
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/logo-96.png" />
+    <link
+      rel="preload"
+      href="/fonts/hanken-grotesk-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/clash-display-600.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
@@ -42,14 +65,247 @@ const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN;
     )}
   </head>
   <body>
-    <header class="container" style="display:flex;justify-content:space-between;align-items:center;">
-      <a href="/" style="font-weight:700;text-decoration:none;color:var(--fg);">
-        DRep<span style="color:var(--accent)">Talk</span>
-      </a>
-      <ThemeToggle />
+    <header class="site-header">
+      <div class="site-header__inner container">
+        <a class="brand" href="/" aria-label="DRepTalk home">
+          <img class="brand__mark" src="/logo.png" alt="" width="32" height="23" />
+          <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
+        </a>
+
+        <nav class="site-nav" aria-label="Primary">
+          {navLinks.map((link) => (
+            <a class="site-nav__link" href={link.href}>{link.label}</a>
+          ))}
+        </nav>
+
+        <div class="header-actions">
+          <ThemeToggle />
+          <a class="btn btn-primary header-actions__cta" href="/login">Connect wallet</a>
+
+          <details class="mobile-menu">
+            <summary class="mobile-menu__btn" aria-label="Open menu">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </summary>
+            <div class="mobile-menu__panel">
+              {navLinks.map((link) => (
+                <a class="mobile-menu__link" href={link.href}>{link.label}</a>
+              ))}
+              <a class="btn btn-primary mobile-menu__cta" href="/login">Connect wallet</a>
+            </div>
+          </details>
+        </div>
+      </div>
     </header>
+
     <main class="container">
       <slot />
     </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner container">
+        <div class="site-footer__brand">
+          <a class="brand" href="/" aria-label="DRepTalk home">
+            <img class="brand__mark" src="/logo.png" alt="" width="30" height="22" />
+            <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
+          </a>
+          <p class="site-footer__tagline">A calmer, accountable home for Cardano governance.</p>
+        </div>
+        <nav class="site-footer__links" aria-label="Footer">
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+          <a href="https://github.com/katomm/dreptalk.com" rel="noopener" target="_blank">GitHub</a>
+        </nav>
+        <p class="site-footer__copy">© {new Date().getFullYear()} DRepTalk</p>
+      </div>
+    </footer>
+
+    <style>
+      /* ---- Header ------------------------------------------------------- */
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        backdrop-filter: saturate(180%) blur(12px);
+        -webkit-backdrop-filter: saturate(180%) blur(12px);
+        border-bottom: 1px solid var(--border);
+      }
+      .site-header__inner {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        padding-top: 0.75rem;
+        padding-bottom: 0.75rem;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        text-decoration: none;
+        flex-shrink: 0;
+      }
+      .brand__mark {
+        height: 32px;
+        width: auto;
+        display: block;
+      }
+      .brand__word {
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 1.25rem;
+        letter-spacing: -0.01em;
+        color: var(--fg);
+        line-height: 1;
+      }
+
+      .site-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-left: auto;
+      }
+      .site-nav__link {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.9375rem;
+        font-weight: 500;
+        padding: 0.45rem 0.7rem;
+        border-radius: var(--radius-sm);
+        transition: color 0.15s ease, background-color 0.15s ease;
+      }
+      .site-nav__link:hover {
+        color: var(--fg);
+        background: var(--surface);
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        flex-shrink: 0;
+      }
+
+      /* ---- Mobile menu -------------------------------------------------- */
+      .mobile-menu {
+        display: none;
+        position: relative;
+      }
+      .mobile-menu__btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--surface);
+        color: var(--fg);
+        cursor: pointer;
+        list-style: none;
+      }
+      .mobile-menu__btn::-webkit-details-marker {
+        display: none;
+      }
+      .mobile-menu[open] .mobile-menu__btn {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .mobile-menu__panel {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 0.6rem);
+        min-width: 220px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        padding: 0.5rem;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-lg);
+      }
+      .mobile-menu__link {
+        color: var(--fg);
+        text-decoration: none;
+        font-size: 0.9375rem;
+        font-weight: 500;
+        padding: 0.6rem 0.7rem;
+        border-radius: var(--radius-sm);
+      }
+      .mobile-menu__link:hover {
+        background: var(--surface);
+      }
+      .mobile-menu__cta {
+        margin-top: 0.4rem;
+        width: 100%;
+      }
+
+      /* ---- Footer ------------------------------------------------------- */
+      .site-footer {
+        margin-top: 5rem;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .site-footer__inner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 1rem 2rem;
+        padding-top: 2.25rem;
+        padding-bottom: 2.25rem;
+      }
+      .site-footer__brand {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-right: auto;
+      }
+      .site-footer__brand .brand__word {
+        font-size: 1.1rem;
+      }
+      .site-footer__tagline {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.9375rem;
+      }
+      .site-footer__links {
+        display: flex;
+        gap: 1.25rem;
+      }
+      .site-footer__links a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+      }
+      .site-footer__links a:hover {
+        color: var(--fg);
+      }
+      .site-footer__copy {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.85rem;
+        width: 100%;
+      }
+
+      /* ---- Responsive --------------------------------------------------- */
+      @media (max-width: 820px) {
+        .site-nav,
+        .header-actions__cta {
+          display: none;
+        }
+        .header-actions {
+          margin-left: auto;
+        }
+        .mobile-menu {
+          display: block;
+        }
+      }
+    </style>
   </body>
 </html>
