@@ -53,6 +53,14 @@ export default function WalletLogin() {
     if (found.length > 0) setSelectedWallet(found[0].key);
   }, []);
 
+  // Preselect the role from a ?role= deep link (e.g. the header entry menu).
+  // Only the roles this flow supports are honored; the server validates the
+  // role independently, so this just sets the initial radio choice.
+  useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get('role');
+    if (r === 'drep' || r === 'proposer') setRole(r);
+  }, []);
+
   async function handleLogin() {
     const walletInfo = wallets.find((w) => w.key === selectedWallet);
     if (!walletInfo) return;

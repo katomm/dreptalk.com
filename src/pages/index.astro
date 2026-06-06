@@ -3,6 +3,7 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
+import RoleEntry from '@/components/RoleEntry.astro';
 import { getCategories, GOVERNANCE_CATEGORY_SLUG } from '../../config/categories.js';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
@@ -59,8 +60,8 @@ const heroFeatures = [
     icon: 'auto',
   },
   {
-    title: 'DReps discuss. Not everyone.',
-    body: 'Posting is gated to registered DReps, proven by wallet signature.',
+    title: 'Public to read, signed to post.',
+    body: 'Anyone can follow along; DReps, SPOs, CC members, and proposers post by wallet signature.',
     icon: 'shield',
   },
   {
@@ -72,7 +73,7 @@ const heroFeatures = [
 
 // Trust row near the foot of the page.
 const trustItems = [
-  { label: 'DReps only', body: 'Only registered DReps can post, proven by wallet signature.', icon: 'verified' },
+  { label: 'On-chain roles', body: 'Posts come from roles proven on-chain, not anonymous accounts.', icon: 'verified' },
   { label: 'Automatic', body: 'Governance Actions are imported in real time.', icon: 'bolt' },
   { label: 'Transparent', body: 'All discussions are public and on record.', icon: 'eye' },
   { label: 'For governance', body: 'Built by the community, for the community.', icon: 'people' },
@@ -117,10 +118,7 @@ const trustItems = [
       </ul>
 
       <div class="hero__cta reveal" style="--reveal-delay:180ms">
-        <a class="btn btn-primary" href="/login">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-          Enter as DRep
-        </a>
+        <RoleEntry />
         <a class="hero__learn" href="#categories">Learn more about DRepTalk</a>
       </div>
     </div>
@@ -173,7 +171,7 @@ const trustItems = [
     </span>
     <div class="announce__text">
       <strong class="announce__title">Platform Launch</strong>
-      <span class="announce__body">DRepTalk is now live. Only DReps can participate.</span>
+      <span class="announce__body">DRepTalk is now live. Reading is open to everyone; on-chain roles can post.</span>
     </div>
     <a class="announce__link" href="#categories">Read announcement</a>
   </aside>
@@ -247,6 +245,11 @@ const trustItems = [
     align-items: center;
     gap: 3rem;
     padding: 3rem 0 2.5rem;
+    /* The .reveal animation leaves a residual transform on later sections, each
+       creating a stacking context; give the hero its own so the entry dropdown
+       overlays them instead of being painted under the announcement banner. */
+    position: relative;
+    z-index: 1;
   }
   .hero__title {
     font-size: clamp(2.2rem, 5vw, 3.5rem);

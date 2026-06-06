@@ -1,6 +1,7 @@
 ---
 import '@/styles/global.css';
 import ThemeToggle from '@/components/ThemeToggle.astro';
+import RoleEntry from '@/components/RoleEntry.astro';
 
 interface Props {
   title: string;
@@ -83,12 +84,9 @@ const isActive = (href: string) =>
         <div class="header-actions">
           <ThemeToggle />
           <a class="site-nav__signin" href="/login">Sign in</a>
-          <a class="btn btn-primary header-actions__cta" href="/login">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-            DRep only access
-          </a>
+          <div class="header-actions__cta">
+            <RoleEntry />
+          </div>
 
           <details class="mobile-menu">
             <summary class="mobile-menu__btn" aria-label="Open menu">
@@ -107,12 +105,7 @@ const isActive = (href: string) =>
                 >{link.label}</a>
               ))}
               <a class="mobile-menu__link" href="/login">Sign in</a>
-              <a class="btn btn-primary mobile-menu__cta" href="/login">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-                DRep only access
-              </a>
+              <RoleEntry layout="flat" />
             </div>
           </details>
         </div>
@@ -211,6 +204,12 @@ const isActive = (href: string) =>
         gap: 0.6rem;
         flex-shrink: 0;
       }
+      /* Wrapper owns the responsive hide so the scoped media query below can
+         match it (the RoleEntry root carries its own component scope). */
+      .header-actions__cta {
+        display: inline-flex;
+        align-items: center;
+      }
       .site-nav__signin {
         color: var(--fg);
         text-decoration: none;
@@ -277,10 +276,6 @@ const isActive = (href: string) =>
       .mobile-menu__link[aria-current='page'] {
         color: var(--accent);
         font-weight: 600;
-      }
-      .mobile-menu__cta {
-        margin-top: 0.4rem;
-        width: 100%;
       }
 
       /* ---- Footer ------------------------------------------------------- */
