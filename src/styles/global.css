@@ -257,6 +257,63 @@ main.container {
 }
 
 /* ==========================================================================
+   Callout / admonition. Reusable box for inline messages (errors, warnings,
+   info, success). Use the global classes from any component:
+     <div class="callout callout--error" role="alert"> icon + body </div>
+   The icon (.callout__icon) inherits the variant color via currentColor.
+   ========================================================================== */
+.callout {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+.callout__icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+}
+.callout__body {
+  min-width: 0;
+}
+.callout--error {
+  border-left-color: #dc2626;
+  background: color-mix(in srgb, #dc2626 8%, var(--surface));
+}
+.callout--error .callout__icon {
+  color: #dc2626;
+}
+.callout--warning {
+  border-left-color: #d97706;
+  background: color-mix(in srgb, #d97706 9%, var(--surface));
+}
+.callout--warning .callout__icon {
+  color: #d97706;
+}
+.callout--info {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+.callout--info .callout__icon {
+  color: var(--accent);
+}
+.callout--success {
+  border-left-color: #0a8a5f;
+  background: color-mix(in srgb, #0a8a5f 9%, var(--surface));
+}
+.callout--success .callout__icon {
+  color: #0a8a5f;
+}
+
+/* ==========================================================================
    Motion (page-load reveal). Subtle, fast, opt-out for reduced motion.
    ========================================================================== */
 @media (prefers-reduced-motion: no-preference) {
