@@ -26,6 +26,41 @@ type LoginState =
   | { status: 'success'; userId: string; roles: string[] }
   | { status: 'error'; message: string };
 
+// Maps the server's terse error codes to a clear, role-aware explanation with a
+// next step. Unknown codes fall back to the (capitalized) server message.
+function friendlyLoginError(error: string | undefined, role: 'drep' | 'proposer'): string {
+  const e = (error ?? '').toLowerCase();
+  if (!e) return 'Login failed. Please try again.';
+  if (e.includes('cip-95')) {
+    return 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).';
+  }
+  if (e.includes('nonce')) {
+    return 'Your login challenge expired. Please try signing in again.';
+  }
+  if (e.includes('signature verification') || e.includes('invalid address in signature')) {
+    return 'We could not verify your wallet signature. Please try signing again.';
+  }
+  if (e.includes('address type mismatch')) {
+    return role === 'drep'
+      ? 'This wallet did not sign as a DRep. Pick a wallet/account that has a DRep key (CIP-95) and keep the DRep role selected, or register as a DRep first.'
+      : 'This wallet did not sign with a reward address. Use the wallet that submitted the governance action and select the Proposer role.';
+  }
+  if (e.includes('not an active drep')) {
+    return 'This wallet is not a registered, active DRep on this network. Register as a DRep to take part.';
+  }
+  if (e.includes('not a proposer or moderator')) {
+    return 'This wallet has not submitted a governance action and is not a listed moderator, so it cannot sign in.';
+  }
+  if (e.includes('invalid request')) {
+    return 'Something was off with the login request. Please try again.';
+  }
+  if (e.includes('login failed') || e.includes('service unavailable') || e.includes('internal')) {
+    return 'Login failed, the service may be busy. Please try again.';
+  }
+  const msg = error!.charAt(0).toUpperCase() + error!.slice(1);
+  return /[.!?]$/.test(msg) ? msg : `${msg}.`;
+}
+
 export default function WalletLogin() {
   const [wallets, setWallets] = useState<CardanoWalletInfo[]>([]);
   const [selectedWallet, setSelectedWallet] = useState<string>('');
@@ -87,12 +122,7 @@ export default function WalletLogin() {
     if (result.ok && result.user) {
       setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });
     } else {
-      const msg = result.error === 'wallet does not support CIP-95'
-        ? 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).'
-        : result.error === 'login failed'
-          ? 'Login failed. Please try again.'
-          : (result.error ?? 'Login failed.');
-      setLoginState({ status: 'error', message: msg });
+      setLoginState({ status: 'error', message: friendlyLoginError(result.error, role) });
     }
   }
 
@@ -203,16 +233,21 @@ export default function WalletLogin() {
                 </p>
               )}
               {loginState.status === 'error' && (
-                <p style={{ margin: 0, color: '#dc2626', fontSize: '0.875rem' }}>
-                  {loginState.message}
-                  {' '}
-                  <button
-                    onClick={reset}
-                    style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, fontSize: '0.875rem', textDecoration: 'underline' }}
-                  >
-                    Try again
-                  </button>
-                </p>
+                <div className="callout callout--error" role="alert">
+                  <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <div className="callout__body">
+                    {loginState.message}
+                    {' '}
+                    <button
+                      onClick={reset}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                </div>
               )}
 
               {/* Connect button */}
