@@ -87,11 +87,17 @@ export default function WalletLogin() {
     if (result.ok && result.user) {
       setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });
     } else {
-      const msg = result.error === 'wallet does not support CIP-95'
-        ? 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).'
-        : result.error === 'login failed'
-          ? 'Login failed. Please try again.'
-          : (result.error ?? 'Login failed.');
+      const err = result.error ?? '';
+      let msg: string;
+      if (err.includes('CIP-95')) {
+        msg = 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).';
+      } else if (!err || err.startsWith('login failed')) {
+        msg = 'Login failed. Please try again.';
+      } else {
+        // Show the server's specific reason (e.g. "not an active DRep"), capitalized.
+        msg = err.charAt(0).toUpperCase() + err.slice(1);
+        if (!/[.!?]$/.test(msg)) msg += '.';
+      }
       setLoginState({ status: 'error', message: msg });
     }
   }
