@@ -3,7 +3,7 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
-import { getCategories } from '../../config/categories.js';
+import { getCategories, GOVERNANCE_CATEGORY_SLUG } from '../../config/categories.js';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 
@@ -38,6 +38,18 @@ const breadcrumbLd = {
     },
   ],
 };
+
+// A small set of gradient tints so each category dot reads distinctly while
+// staying inside the brand's violet/blue/mint range.
+const dotGradients: Record<string, string> = {
+  'governance-actions': 'linear-gradient(135deg, #8b5cf6, #6d28d9)',
+  constitution: 'linear-gradient(135deg, #6366f1, #3b82f6)',
+  budget: 'linear-gradient(135deg, #3b82f6, #22d3ee)',
+  'drep-hub': 'linear-gradient(135deg, #06b6d4, #2dd4bf)',
+  committee: 'linear-gradient(135deg, #2dd4bf, #34d399)',
+  general: 'linear-gradient(135deg, #a78bfa, #f0abfc)',
+};
+const defaultDot = 'var(--grad)';
 ---
 
 <Layout
@@ -46,27 +58,172 @@ const breadcrumbLd = {
 >
   <JsonLd data={breadcrumbLd} />
 
-  <h1>DRepTalk</h1>
-  <p style="color:var(--muted);margin-bottom:2rem;">
-    A calmer, accountable home for Cardano governance discussion.
-  </p>
+  <section class="hero">
+    <div class="hero__glow" aria-hidden="true"></div>
+    <h1 class="hero__title reveal" style="--reveal-delay:0ms">
+      Where DReps discuss <span class="grad-text">governance.</span>
+    </h1>
+    <p class="hero__subtitle reveal" style="--reveal-delay:80ms">
+      The public deliberation layer for Cardano governance. Incoming governance actions
+      open a thread; verified DReps, SPOs, CC members, and proposers discuss them.
+    </p>
+    <div class="hero__cta reveal" style="--reveal-delay:160ms">
+      <a class="btn btn-primary" href="#categories">Browse discussions</a>
+      <a class="btn btn-secondary" href="/login">Connect wallet</a>
+    </div>
+  </section>
 
-  <div style="display:flex;flex-direction:column;gap:0.75rem;">
-    {categories.map((cat) => (
-      <a
-        href={`/c/${cat.slug}`}
-        style="display:block;border:1px solid var(--border);border-radius:0.5rem;padding:1rem 1.25rem;text-decoration:none;color:inherit;transition:border-color 0.15s;"
-        onmouseover="this.style.borderColor='var(--accent)'"
-        onmouseout="this.style.borderColor='var(--border)'"
-      >
-        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;">
-          <span style="font-weight:600;color:var(--fg);">{cat.name}</span>
-          <span style="font-size:0.8125rem;color:var(--muted);white-space:nowrap;">
-            {countMap.get(cat.slug) ?? 0} topics
-          </span>
-        </div>
-        <p style="margin:0.25rem 0 0;font-size:0.875rem;color:var(--muted);">{cat.description}</p>
-      </a>
-    ))}
-  </div>
+  <section id="categories" class="categories" aria-label="Categories">
+    <div class="cards">
+      {categories.map((cat, i) => (
+        <a
+          class="card reveal"
+          href={`/c/${cat.slug}`}
+          style={`--reveal-delay:${220 + i * 60}ms`}
+        >
+          <span
+            class="card__dot"
+            style={`background:${dotGradients[cat.slug] ?? defaultDot}`}
+            aria-hidden="true"
+          ></span>
+          <div class="card__body">
+            <div class="card__head">
+              <h2 class="card__name">{cat.name}</h2>
+              {cat.slug === GOVERNANCE_CATEGORY_SLUG && (
+                <span class="card__badge">auto</span>
+              )}
+            </div>
+            <p class="card__desc">{cat.description}</p>
+            <span class="card__count">
+              {countMap.get(cat.slug) ?? 0} {(countMap.get(cat.slug) ?? 0) === 1 ? 'topic' : 'topics'}
+            </span>
+          </div>
+        </a>
+      ))}
+    </div>
+  </section>
 </Layout>
+
+<style>
+  /* ---- Hero ----------------------------------------------------------- */
+  .hero {
+    position: relative;
+    text-align: center;
+    padding: 3.5rem 0 3rem;
+  }
+  .hero__glow {
+    position: absolute;
+    inset: -20% -10% auto -10%;
+    height: 420px;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(40% 60% at 30% 30%, rgba(139, 92, 246, 0.22), transparent 70%),
+      radial-gradient(40% 60% at 70% 40%, rgba(59, 130, 246, 0.18), transparent 70%),
+      radial-gradient(36% 55% at 55% 65%, rgba(45, 212, 191, 0.16), transparent 70%);
+    filter: blur(8px);
+  }
+  .hero__title {
+    font-size: clamp(2.4rem, 6vw, 4rem);
+    font-weight: 600;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 auto;
+    max-width: 16ch;
+  }
+  .hero__subtitle {
+    margin: 1.25rem auto 0;
+    max-width: 52ch;
+    color: var(--muted);
+    font-size: clamp(1rem, 2vw, 1.15rem);
+    line-height: 1.6;
+  }
+  .hero__cta {
+    margin-top: 2rem;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* ---- Cards ---------------------------------------------------------- */
+  .categories {
+    padding-top: 1rem;
+    scroll-margin-top: 5rem;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+  }
+  .card {
+    display: flex;
+    gap: 0.9rem;
+    padding: 1.25rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+  .card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  }
+  .card__dot {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    margin-top: 0.35rem;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .card__body {
+    min-width: 0;
+  }
+  .card__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .card__name {
+    font-family: var(--font-display);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.25;
+    color: var(--fg);
+  }
+  .card__badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
+    line-height: 1.4;
+  }
+  .card__desc {
+    margin: 0.35rem 0 0.75rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .card__count {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  @media (max-width: 520px) {
+    .hero {
+      padding-top: 2.5rem;
+    }
+  }
+</style>
