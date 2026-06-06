@@ -8,7 +8,7 @@ The aim is a calmer, accountable home for governance discussion, away from the d
 
 ## Stack
 
-Astro (SSR) on Cloudflare Workers, with D1 and KV. A standalone cron worker ingests governance actions. Chain data via Koios. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
+Astro (SSR) on Cloudflare Workers, with D1 and KV. A standalone cron worker ingests governance actions. Chain data via Koios, used anonymously by default; set `KOIOS_API_KEY` to send an authenticated key for higher rate limits. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
 
 ## Local development
 
