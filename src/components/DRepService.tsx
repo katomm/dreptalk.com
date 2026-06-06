@@ -7,7 +7,7 @@
 // via the Koios proxy and hosting the metadata document.
 import { useState, useRef } from 'react';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
-import { registerDRep } from '@/lib/governance/drepTx.js';
+import { registerDRep, retireDRep } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
 import { blake2b224 } from '@/lib/crypto/blake.js';
@@ -28,6 +28,10 @@ type EnabledWalletApi = TxWalletApi & {
 const NAME_MAX = 80;
 const BIO_MAX = 1500;
 
+// Distinguishes the two on-chain actions so the submitting and success states
+// can render action-appropriate copy without duplicating the phase machine.
+type DRepAction = 'register' | 'retire';
+
 interface DRepIdentity {
   drepId: string;
   drepKeyHash: Uint8Array;
@@ -39,8 +43,8 @@ type Phase =
   | { status: 'checking'; identity: DRepIdentity }
   | { status: 'already-registered'; identity: DRepIdentity }
   | { status: 'form'; identity: DRepIdentity }
-  | { status: 'submitting'; identity: DRepIdentity }
-  | { status: 'success'; txHash: string }
+  | { status: 'submitting'; identity: DRepIdentity; action: DRepAction }
+  | { status: 'success'; txHash: string; action: DRepAction }
   | { status: 'error'; message: string };
 
 interface DRepServiceProps {
@@ -169,7 +173,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
       return;
     }
 
-    setPhase({ status: 'submitting', identity });
+    setPhase({ status: 'submitting', identity, action: 'register' });
 
     try {
       // 4a: host the CIP-119 metadata, get its URL + hash.
@@ -212,7 +216,33 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
         origin: window.location.origin,
       });
 
-      setPhase({ status: 'success', txHash });
+      setPhase({ status: 'success', txHash, action: 'register' });
+    } catch (err) {
+      setPhase({ status: 'error', message: readableError(err) });
+    }
+  }
+
+  // Retire flow: have the wallet sign and submit an unreg_drep certificate.
+  // No metadata is involved; the deposit is refunded on confirmation. Reuses
+  // the api stored during connect (no second enable() call).
+  async function handleRetire(identity: DRepIdentity) {
+    const api = enabledApiRef.current;
+    if (!api) {
+      setPhase({ status: 'error', message: 'Wallet connection was lost. Please reconnect.' });
+      return;
+    }
+
+    setPhase({ status: 'submitting', identity, action: 'retire' });
+
+    try {
+      const { txHash } = await retireDRep({
+        walletApi: api,
+        network,
+        drepKeyHash: identity.drepKeyHash,
+        origin: window.location.origin,
+      });
+
+      setPhase({ status: 'success', txHash, action: 'retire' });
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
     }
@@ -253,7 +283,9 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
           </svg>
           <div className="callout__body">
-            <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>Registration submitted</p>
+            <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>
+              {phase.action === 'retire' ? 'Retirement submitted' : 'Registration submitted'}
+            </p>
             <p style={{ margin: '0 0 0.5rem' }}>
               Transaction:{' '}
               <a href={txExplorerUrl(network, phase.txHash)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
@@ -261,7 +293,9 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               </a>
             </p>
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-              Your DRep becomes active once the transaction is confirmed.
+              {phase.action === 'retire'
+                ? 'Your DRep deposit is refunded once the transaction is confirmed.'
+                : 'Your DRep becomes active once the transaction is confirmed.'}
             </p>
           </div>
         </div>
@@ -339,15 +373,44 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               </svg>
               <div className="callout__body">
                 <p style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>You are already a registered DRep</p>
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                <p style={{ margin: '0 0 0.75rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
                   DRep id: {phase.identity.drepId}
                 </p>
+                <p style={{ margin: '0 0 0.75rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
+                  This submits a deregistration. Your DRep deposit is refunded once the
+                  transaction is confirmed.
+                </p>
+                <button
+                  onClick={() => void handleRetire(phase.identity)}
+                  disabled={busy}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    background: 'transparent',
+                    color: 'var(--accent)',
+                    border: '1px solid var(--accent)',
+                    borderRadius: '0.375rem',
+                    fontSize: '0.9375rem',
+                    fontWeight: 500,
+                    cursor: busy ? 'not-allowed' : 'pointer',
+                    opacity: busy ? 0.7 : 1,
+                  }}
+                >
+                  Retire DRep
+                </button>
               </div>
             </div>
           )}
 
-          {/* Registration form. */}
-          {(phase.status === 'form' || phase.status === 'submitting') && (
+          {/* Retire is in flight (submitted from the already-registered state). */}
+          {phase.status === 'submitting' && phase.action === 'retire' && (
+            <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+              Please review and approve the deregistration in your wallet.
+            </p>
+          )}
+
+          {/* Registration form (also stays mounted during a register submit). */}
+          {(phase.status === 'form' ||
+            (phase.status === 'submitting' && phase.action === 'register')) && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
