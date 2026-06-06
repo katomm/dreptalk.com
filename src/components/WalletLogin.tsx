@@ -3,21 +3,7 @@
 import { useState, useEffect } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
-
-// CIP-30 wallet object shape, with optional CIP-95 extension marker.
-interface CardanoWalletInfo {
-  key: string;
-  name: string;
-  icon: string;
-  supportsCip95: boolean;
-  // The raw window.cardano[key] object for enable().
-  raw: {
-    enable(opts?: { extensions?: Array<{ cip: number }> }): Promise<WalletApi>;
-    name: string;
-    icon: string;
-    supportedExtensions?: Array<{ cip: number }>;
-  };
-}
+import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
 
 type LoginState =
   | { status: 'idle' }
@@ -62,31 +48,9 @@ function friendlyLoginError(error: string | undefined, role: 'drep' | 'proposer'
 }
 
 export default function WalletLogin() {
-  const [wallets, setWallets] = useState<CardanoWalletInfo[]>([]);
-  const [selectedWallet, setSelectedWallet] = useState<string>('');
+  const { wallets, selected: selectedWallet, setSelected: setSelectedWallet } = useCardanoWallets();
   const [role, setRole] = useState<'drep' | 'proposer'>('drep');
   const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
-
-  // Enumerate available Cardano wallets from window.cardano on mount.
-  useEffect(() => {
-    const cardano = (window as unknown as { cardano?: Record<string, CardanoWalletInfo['raw']> }).cardano;
-    if (!cardano) return;
-
-    const found: CardanoWalletInfo[] = Object.entries(cardano)
-      .filter(([, w]) => w && typeof w.enable === 'function' && typeof w.name === 'string')
-      .map(([key, w]) => ({
-        key,
-        name: w.name,
-        icon: w.icon ?? '',
-        supportsCip95: Array.isArray(w.supportedExtensions)
-          ? w.supportedExtensions.some((e) => e.cip === 95)
-          : false,
-        raw: w,
-      }));
-
-    setWallets(found);
-    if (found.length > 0) setSelectedWallet(found[0].key);
-  }, []);
 
   // Preselect the role from a ?role= deep link (e.g. the header entry menu).
   // Only the roles this flow supports are honored; the server validates the
