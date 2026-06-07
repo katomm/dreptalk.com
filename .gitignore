@@ -4,6 +4,8 @@ dist/
 .wrangler/
 .dev.vars
 .env
+.env.*
+!.env.example
 *.log
 .DS_Store
 
@@ -13,9 +15,6 @@ CLAUDE.md
 
 # Local design mockups, not part of the project
 src/assets/images/artwork/
-
-# Generated local output, not project files
-docs/generated/
 
 # Local design review screenshots; not project files
 .screenshots/
