@@ -173,23 +173,35 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
   return { name, bio, imageUrl, links };
 }
 
+// Discriminated union returning the raw parsed doc on success. The doc is the
+// untrusted JSON value; callers MUST run a field extractor (extractCip108 or
+// extractCip119Profile) that sanitizes before storing or rendering anything.
+export type AnchorDocResult =
+  | { status: 'ok'; doc: unknown }
+  | { status: Exclude<AnchorStatus, 'ok'>; doc: null };
+
 /**
- * Fetches and verifies a governance-action anchor.
+ * Fetches, verifies, and parses an on-chain anchor, returning the raw JSON doc.
+ *
+ * This is the shared security pipeline (scheme allowlist, timeout, size cap,
+ * content-type check, mandatory blake2b-256 hash verification, JSON parse) used
+ * by both the CIP-108 governance-action path and the CIP-119 DRep-profile path.
+ * It performs no field extraction: the returned doc is untrusted.
  *
  * @param anchorUrl  on-chain anchor URL (untrusted)
  * @param anchorHash on-chain blake2b-256 hash, hex (untrusted but authoritative)
  * @param deps       injectable fetch + timeout for testing
  */
-export async function fetchAnchorMetadata(
+export async function fetchAnchorDoc(
   anchorUrl: string,
   anchorHash: string,
   deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<AnchorResult> {
+): Promise<AnchorDocResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const timeoutMs = deps.timeoutMs ?? ANCHOR_FETCH_TIMEOUT_MS;
 
   const resolved = resolveAnchorUrl(anchorUrl);
-  if (!resolved) return { status: 'unsupported-url', metadata: null };
+  if (!resolved) return { status: 'unsupported-url', doc: null };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -201,19 +213,19 @@ export async function fetchAnchorMetadata(
       signal: controller.signal,
       headers: { accept: 'application/json, text/plain' },
     });
-    if (!res.ok) return { status: 'fetch-failed', metadata: null };
+    if (!res.ok) return { status: 'fetch-failed', doc: null };
     if (!looksLikeJsonOrText(res.headers.get('content-type'))) {
-      return { status: 'bad-content-type', metadata: null };
+      return { status: 'bad-content-type', doc: null };
     }
     const declared = Number(res.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > MAX_ANCHOR_BYTES) {
-      return { status: 'too-large', metadata: null };
+      return { status: 'too-large', doc: null };
     }
     const buf = await res.arrayBuffer();
-    if (buf.byteLength > MAX_ANCHOR_BYTES) return { status: 'too-large', metadata: null };
+    if (buf.byteLength > MAX_ANCHOR_BYTES) return { status: 'too-large', doc: null };
     bytes = new Uint8Array(buf);
   } catch {
-    return { status: 'fetch-failed', metadata: null };
+    return { status: 'fetch-failed', doc: null };
   } finally {
     clearTimeout(timer);
   }
@@ -221,15 +233,32 @@ export async function fetchAnchorMetadata(
   // Mandatory integrity check: the document must hash to the on-chain anchor hash.
   const actualHash = bytesToHex(blake2b256(bytes));
   if (actualHash.toLowerCase() !== anchorHash.trim().toLowerCase()) {
-    return { status: 'hash-mismatch', metadata: null };
+    return { status: 'hash-mismatch', doc: null };
   }
 
   let doc: unknown;
   try {
     doc = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    return { status: 'parse-failed', metadata: null };
+    return { status: 'parse-failed', doc: null };
   }
 
-  return { status: 'ok', metadata: extractCip108(doc) };
+  return { status: 'ok', doc };
+}
+
+/**
+ * Fetches and verifies a governance-action anchor, returning CIP-108 metadata.
+ *
+ * @param anchorUrl  on-chain anchor URL (untrusted)
+ * @param anchorHash on-chain blake2b-256 hash, hex (untrusted but authoritative)
+ * @param deps       injectable fetch + timeout for testing
+ */
+export async function fetchAnchorMetadata(
+  anchorUrl: string,
+  anchorHash: string,
+  deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<AnchorResult> {
+  const result = await fetchAnchorDoc(anchorUrl, anchorHash, deps);
+  if (result.status !== 'ok') return { status: result.status, metadata: null };
+  return { status: 'ok', metadata: extractCip108(result.doc) };
 }
