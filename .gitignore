@@ -7,14 +7,14 @@ dist/
 *.log
 .DS_Store
 
-# Claude Code local files: present in the working dir, never committed
+# Local-only files, never committed
 CLAUDE.md
 .claude/
 
-# Local design mockups (not for the public repo)
+# Local design mockups, not part of the project
 src/assets/images/artwork/
 
-# Skill/spec output from Claude Code subagents; not project files
+# Generated local output, not project files
 docs/superpowers/
 
 # Local design review screenshots; not project files
