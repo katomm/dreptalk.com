@@ -1,0 +1,32 @@
+name: Deploy workers
+
+# Standalone workers in workers/* are NOT deployed by the Pages/Workers app
+# build. Deploy them here on push to main when the worker or shared lib changes.
+# D1 migrations are a SEPARATE step: run `wrangler d1 migrations apply DB --remote`
+# before a deploy that depends on a new column/table.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/**'
+      - 'src/lib/**'
+      - 'migrations/**'
+  workflow_dispatch:
+
+jobs:
+  deploy-gov-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Deploy gov-sync worker
+        working-directory: workers/gov-sync
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
