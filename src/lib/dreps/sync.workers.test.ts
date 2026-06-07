@@ -282,6 +282,20 @@ describe('syncDreps', () => {
     expect(await getDrepMetadata(env.DB, junk)).toBeNull(); // unregistered junk -> deleted
   });
 
+  it('does NOT garbage-collect when the enumeration is empty (transient empty drep_list)', async () => {
+    // A transient empty drep_list must not be read as "no DReps exist" and wipe
+    // every hosted document.
+    const orphan = 'drep1-empty-enum-orphan';
+    await putDrepMetadata(env.DB, { drepId: orphan, body: '{}', hash: 'c'.repeat(64), name: 'Orphan', createdAt: 1000 });
+    const { koios } = fakeKoios({ pages: [[]], infoById: new Map() });
+
+    const result = await syncDreps({ koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+
+    expect(result.total).toBe(0);
+    expect(result.gcDeleted).toBe(0);
+    expect(await getDrepMetadata(env.DB, orphan)).not.toBeNull(); // preserved
+  });
+
   it('skips DReps that are not registered', async () => {
     const reg = 'drep1-registered';
     const unreg = 'drep1-unregistered';

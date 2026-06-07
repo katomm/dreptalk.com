@@ -262,14 +262,22 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
     }
   }
 
-  // Reaching here means every chunk's drepInfoBatch succeeded, so registeredIds
-  // and keepHashes are complete; GC unreferenced junk older than the grace period.
+  // GC unreferenced junk older than the grace period. Reaching here means every
+  // chunk's drepInfoBatch succeeded, so registeredIds and keepHashes are complete.
+  // Guard on a non-empty enumeration: a transient empty drep_list must never be
+  // treated as "no DReps exist" and wipe every hosted document.
   // `now` is milliseconds (cron passes Date.now()); created_at is stored in seconds.
-  const { scanned: gcScanned, deleted: gcDeleted } = await gcDrepMetadata(db, {
-    registeredIds,
-    keepHashes,
-    olderThanSec: Math.floor(now / 1000) - METADATA_GC_GRACE_SEC,
-  });
+  let gcScanned = 0;
+  let gcDeleted = 0;
+  if (ids.length > 0) {
+    const gc = await gcDrepMetadata(db, {
+      registeredIds,
+      keepHashes,
+      olderThanSec: Math.floor(now / 1000) - METADATA_GC_GRACE_SEC,
+    });
+    gcScanned = gc.scanned;
+    gcDeleted = gc.deleted;
+  }
 
   return { total: ids.length, updated, skipped, anchorsFetched, failed, gcScanned, gcDeleted };
 }

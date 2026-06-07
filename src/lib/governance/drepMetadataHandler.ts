@@ -12,13 +12,11 @@
 import { z } from 'zod';
 import { verifyCip8 } from '../auth/cose.js';
 import { consumeNonce as defaultConsumeNonce } from '../auth/nonce.js';
-import { drepIdFromPubKey } from '../cardano/identity.js';
+import { drepIdFromPubKey, DREP_KEY_HEADER } from '../cardano/identity.js';
 import { isHex, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
 import { buildDrepMetadata } from './drepMetadata.js';
 import { putDrepMetadata } from '../db/drepMetadata.js';
 
-// CIP-129 DRep key-hash credential header byte.
-const DREP_KEYHASH_HEADER = 0x22;
 // CIP-129 DRep id: bech32 with "drep1" prefix.
 const DREP_ID_RE = /^drep1[0-9a-z]{10,120}$/;
 
@@ -90,7 +88,7 @@ async function handleInternal(input: DrepMetadataInput, deps?: DrepMetadataDeps)
   if (!verified.ok || !verified.pubKey || !verified.addressBytes) {
     return { status: 401, json: { error: 'signature verification failed' } };
   }
-  if (verified.addressBytes.length === 0 || verified.addressBytes[0] !== DREP_KEYHASH_HEADER) {
+  if (verified.addressBytes.length === 0 || verified.addressBytes[0] !== DREP_KEY_HEADER) {
     return { status: 401, json: { error: 'not a DRep key signature' } };
   }
 

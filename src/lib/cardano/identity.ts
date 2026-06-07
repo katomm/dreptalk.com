@@ -6,7 +6,7 @@ import { bytesEqual } from '../crypto/bytes.js';
 import { bytesToHex } from '../crypto/hex.js';
 
 // CIP-129 header byte for DRep key hash credentials.
-const DREP_KEY_HEADER = 0x22;
+export const DREP_KEY_HEADER = 0x22;
 // CIP-19 header byte for testnet reward addresses (stake_test).
 const REWARD_TESTNET_HEADER = 0xe0;
 // CIP-19 header byte for mainnet reward addresses (stake).
