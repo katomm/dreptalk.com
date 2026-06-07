@@ -130,13 +130,17 @@ async function resolveProfile(
         fetched: true,
       };
     }
-    // Any non-ok status: store the error status, drop any profile fields.
+    // Any non-ok status: record the error status but PRESERVE the previously
+    // resolved profile. A transient fetch failure (Koios or the host being down)
+    // must not blank an otherwise-good avatar or name; the next successful sync
+    // re-fetches (the stored anchorStatus is not 'ok', so the reuse path is
+    // skipped). On first sight with no prior profile, the fields stay null.
     return {
       profile: {
-        name: null,
-        bio: null,
-        imageUrl: null,
-        links: null,
+        name: existing?.name ?? null,
+        bio: existing?.bio ?? null,
+        imageUrl: existing?.imageUrl ?? null,
+        links: existing?.links ?? null,
         anchorUrl: metaUrl,
         anchorHash: metaHash,
         anchorStatus: result.status,

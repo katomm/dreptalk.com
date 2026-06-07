@@ -177,6 +177,36 @@ describe('syncDreps', () => {
     expect(stored!.name).toBe('Alice DRep');
   });
 
+  it('preserves the stored profile when a re-fetch fails, recording the error status', async () => {
+    const id = 'drep1-preserve';
+    const map = new Map([
+      [id, infoRow(id, { meta_url: 'https://example.com/a.json', meta_hash: profileHash })],
+    ]);
+    const { koios } = fakeKoios({ pages: [[listRow(id)]], infoById: map });
+
+    // First run stores a good profile.
+    await syncDreps({ koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+    const afterFirst = await getDrepById(env.DB, id);
+    expect(afterFirst!.name).toBe('Alice DRep');
+    expect(afterFirst!.anchorStatus).toBe('ok');
+
+    // The DRep advertises a new anchor hash, but the fetched bytes do not match
+    // it (stand-in for a transient or corrupt fetch) -> hash-mismatch.
+    const newHash = 'a'.repeat(64);
+    map.set(id, infoRow(id, { meta_url: 'https://example.com/a.json', meta_hash: newHash }));
+
+    const r2 = await syncDreps({ koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW + 1 });
+    expect(r2).toMatchObject({ updated: 1, anchorsFetched: 1, failed: 0 });
+
+    const afterSecond = await getDrepById(env.DB, id);
+    // The profile is PRESERVED, not blanked, despite the failed re-fetch.
+    expect(afterSecond!.name).toBe('Alice DRep');
+    expect(afterSecond!.imageUrl).toBe('https://example.com/alice.png');
+    // The error status and new hash are recorded so the next sync retries.
+    expect(afterSecond!.anchorStatus).toBe('hash-mismatch');
+    expect(afterSecond!.anchorHash).toBe(newHash);
+  });
+
   it('stores the error anchorStatus for a failing anchor and keeps processing others', async () => {
     const bad = 'drep1-bad-anchor';
     const good = 'drep1-good-noanchor';
