@@ -20,6 +20,16 @@ export interface WalletApi {
   submitTx(txCborHex: string): Promise<string>;
 }
 
+export interface RetireDRepOpts {
+  /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
+  walletApi: WalletApi;
+  network: CardanoNetwork;
+  /** 28-byte blake2b-224 of the CIP-95 DRep verification key. */
+  drepKeyHash: Uint8Array;
+  /** window.location.origin, used as the base for the /api/koios proxy. */
+  origin: string;
+}
+
 export interface RegisterDRepOpts {
   /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
   walletApi: WalletApi;
@@ -59,6 +69,17 @@ export function buildRegisterDrepParts(opts: {
 }
 
 /**
+ * Builds the EvolutionSDK client wired to the network, our Koios proxy, and
+ * the connected CIP-30 wallet. Shared by the register and retire builders so
+ * both use the identical provider setup.
+ */
+function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletApi) {
+  return Client.make(network === 'mainnet' ? mainnet : preprod)
+    .withKoios({ baseUrl: `${origin}/api/koios` })
+    .withCip30(walletApi);
+}
+
+/**
  * Builds, signs, and submits a Conway reg_drep certificate transaction.
  *
  * The wallet extension performs signing and submission; the server is
@@ -75,13 +96,43 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
     anchorHashHex: opts.anchorHashHex,
   });
 
-  const client = Client.make(opts.network === 'mainnet' ? mainnet : preprod)
-    .withKoios({ baseUrl: `${opts.origin}/api/koios` })
-    .withCip30(opts.walletApi);
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
 
   const built = await client
     .newTx()
     .registerDRep({ drepCredential, anchor })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
+    .build();
+
+  const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
+  const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
+  const signedTxHex = Transaction.addVKeyWitnessesHex(unsignedTxHex, witnessSetHex);
+  const txHash = await opts.walletApi.submitTx(signedTxHex);
+
+  return { txHash };
+}
+
+/**
+ * Builds, signs, and submits a Conway unreg_drep certificate transaction
+ * (DRep retirement / deregistration). No metadata document is involved.
+ *
+ * The SDK reads the drepDeposit from protocol parameters and refunds it
+ * automatically; the caller does not pass a deposit. The wallet extension
+ * performs signing and submission; the server is never involved in key
+ * operations. The CIP-20 attribution tag (label 674) is attached so chain
+ * observers can identify DRepTalk-originated actions.
+ *
+ * Requires a live wallet and a reachable Koios provider. Not unit-testable
+ * offline; mirrors registerDRep and is covered by the preprod e2e suite.
+ */
+export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string }> {
+  const drepCredential = Credential.makeKeyHash(opts.drepKeyHash);
+
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+
+  const built = await client
+    .newTx()
+    .deregisterDRep({ drepCredential })
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
     .build();
 
