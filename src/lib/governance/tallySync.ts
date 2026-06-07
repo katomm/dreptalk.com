@@ -105,13 +105,21 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
 
   for (const ga of active) {
     try {
-      const status = deriveStatus(lifecycle.get(ga.id), ga, currentEpoch);
+      const life = lifecycle.get(ga.id);
+      const status = deriveStatus(life, ga, currentEpoch);
       const summary = ga.proposalId ? await koios.proposalVotingSummary(ga.proposalId) : null;
+
+      // The epoch the action was decided: the terminal lifecycle epoch, falling
+      // back to the expiry epoch when status was derived from the expiry check.
+      const decidedEpoch =
+        life?.enacted_epoch ?? life?.ratified_epoch ?? life?.expired_epoch ?? life?.dropped_epoch ??
+        (status !== 'active' ? ga.expiryEpoch ?? life?.expiration ?? null : null);
 
       await updateGovernanceTallyAndStatus(db, {
         id: ga.id,
         status,
         ...tallyFields(summary),
+        decidedEpoch,
         tallySyncedAt: now,
         now,
       });

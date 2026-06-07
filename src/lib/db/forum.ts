@@ -245,6 +245,19 @@ export async function getTopicsByCategory(
 }
 
 /**
+ * Returns ALL non-deleted topics in a category (no pagination). Used by the
+ * governance-actions list, which sorts in memory across the full set and is
+ * bounded (low hundreds of actions). Do not use for high-volume categories.
+ */
+export async function getAllTopicsByCategory(db: D1Database, categorySlug: string): Promise<Topic[]> {
+  const rows = await db
+    .prepare('SELECT * FROM topics WHERE category_slug = ? AND deleted = 0')
+    .bind(categorySlug)
+    .all<TopicRow>();
+  return (rows.results ?? []).map(rowToTopic);
+}
+
+/**
  * Returns non-deleted posts for the given topic, ordered by created_at ascending.
  * Hidden posts ARE returned (unlike deleted ones): the view renders them as a
  * placeholder so the community-flag outcome is visible in the thread.

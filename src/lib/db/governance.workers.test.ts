@@ -69,7 +69,7 @@ describe('getSyncableGovernanceActions', () => {
       ccYes: null, ccNo: null, ccAbstain: null,
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
-      tallyEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
     });
 
     const rows = await getSyncableGovernanceActions(db());
@@ -90,13 +90,14 @@ describe('updateGovernanceTallyAndStatus', () => {
       ccYes: 0, ccNo: 0, ccAbstain: 0,
       drepYesPct: 0.01, drepNoPct: 99.99, spoYesPct: 0, spoNoPct: 0,
       ccYesPct: 0, ccNoPct: 100,
-      tallyEpoch: 293, tallySyncedAt: NOW + 5, now: NOW + 5,
+      tallyEpoch: 293, decidedEpoch: 291, tallySyncedAt: NOW + 5, now: NOW + 5,
     });
 
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.drepNoPct).toBeCloseTo(99.99);
     expect(got!.drepYes).toBe(1);
     expect(got!.tallyEpoch).toBe(293);
+    expect(got!.decidedEpoch).toBe(291);
     expect(got!.tallySyncedAt).toBe(NOW + 5);
   });
 });
