@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { resolveNetwork } from './network';
+import { resolveNetwork, txExplorerUrl, governanceActionUrl } from './network';
+
+describe('explorer links (neutral cardano-foundation landing)', () => {
+  it('links a governance action with no network param on mainnet', () => {
+    expect(governanceActionUrl('mainnet', 'gov_action1abc')).toBe(
+      'https://explorer.cardano.org/governance-action?id=gov_action1abc',
+    );
+  });
+
+  it('adds the network param for preprod', () => {
+    expect(governanceActionUrl('preprod', 'gov_action1abc')).toBe(
+      'https://explorer.cardano.org/governance-action?id=gov_action1abc&network=preprod',
+    );
+  });
+
+  it('links a transaction through the same landing', () => {
+    expect(txExplorerUrl('mainnet', 'deadbeef')).toBe(
+      'https://explorer.cardano.org/transaction?id=deadbeef',
+    );
+    expect(txExplorerUrl('preprod', 'deadbeef')).toBe(
+      'https://explorer.cardano.org/transaction?id=deadbeef&network=preprod',
+    );
+  });
+});
 
 describe('resolveNetwork', () => {
   it('defaults to mainnet when the value is undefined', () => {
