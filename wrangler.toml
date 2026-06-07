@@ -11,22 +11,18 @@ directory = "./dist/client"
 binding = "ASSETS"
 
 # D1 database for application data.
-# database_id is a placeholder; the real id is created at deploy time via
-# `wrangler d1 create dreptalk` and must be set before deploying to production.
 [[d1_databases]]
 binding = "DB"
 database_name = "dreptalk"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "4a84966c-9fde-49f7-bfed-9c3c927e5db3"
 migrations_dir = "migrations"
 
 # KV namespace for server-side session storage.
-# id is a placeholder; create with `wrangler kv namespace create SESSIONS` at deploy time.
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "00000000000000000000000000000001"
+id = "2e999274a29a41319b3e1214653b4fee"
 
 # KV namespace for ephemeral auth nonces (challenge-response).
-# id is a placeholder; create with `wrangler kv namespace create NONCES` at deploy time.
 [[kv_namespaces]]
 binding = "NONCES"
-id = "00000000000000000000000000000002"
+id = "9b7873fb79c04d6eb34ec2fb2170a30b"

@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "dreptalk"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "4a84966c-9fde-49f7-bfed-9c3c927e5db3"
 migrations_dir = "../../migrations"
 
 # Three cron triggers (the expressions are mirrored as constants in
