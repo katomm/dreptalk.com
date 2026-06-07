@@ -1,11 +1,8 @@
 ---
 export const prerender = false;
 
-import Layout from '@/layouts/Layout.astro';
+import HelpLayout from '@/layouts/HelpLayout.astro';
 import { statusBadge, TONE_COLORS } from '@/lib/governance/view.js';
-
-// Public docs; cache at the edge but keep it reasonably fresh if labels change.
-Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 
 // Each group's rows: the status value (rendered with the real badge styling) and
 // a one-line explanation. Kept in sync with statusBadge() and deriveStatus().
@@ -40,22 +37,17 @@ const GROUPS = [
 ];
 ---
 
-<Layout
+<HelpLayout
   title="Governance action statuses - DRepTalk"
   description="What each governance action status label means: active, ratified, enacted, expired, dropped, closed, and pending."
+  crumb="Governance statuses"
+  heading="Governance action statuses"
 >
-  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
-    <a href="/">DRepTalk</a>
-    <span style="margin:0 0.375rem;">/</span>
-    <span>Governance statuses</span>
-  </nav>
-
-  <h1 style="margin:0 0 0.5rem;">Governance action statuses</h1>
   <p style="color:var(--muted);max-width:62ch;line-height:1.6;">
     Each governance action carries a status label derived from its on-chain lifecycle.
     The labels differ by action type: enactable actions can be ratified and enacted, while
     info actions only signal and never enact. All values are synced on a schedule and shown
-    with an &ldquo;as of&rdquo; time (see <a href="/docs/data-freshness">data freshness</a>).
+    with an &ldquo;as of&rdquo; time (see <a href="/help/data-freshness">data freshness</a>).
   </p>
 
   {GROUPS.map((g) => (
@@ -72,4 +64,4 @@ const GROUPS = [
       </dl>
     </section>
   ))}
-</Layout>
+</HelpLayout>

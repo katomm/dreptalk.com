@@ -32,12 +32,11 @@ const pathname = Astro.url.pathname;
 const navLinks = [
   { label: 'Governance Actions', href: '/c/governance-actions' },
   { label: 'Discussions', href: '/discussions' },
-  { label: 'DReps', href: '#' },
-  { label: 'About', href: '#' },
+  { label: 'Help', href: '/help' },
 ];
-// Highlight the link whose path prefixes the current page (placeholder '#' never matches).
+// Highlight the link whose path prefixes the current page.
 const isActive = (href: string) =>
-  href !== '#' && (pathname === href || pathname.startsWith(href + '/'));
+  pathname === href || pathname.startsWith(href + '/');
 ---
 <!doctype html>
 <html lang="en">
@@ -149,7 +148,6 @@ const isActive = (href: string) =>
         <nav class="site-footer__links" aria-label="Footer">
           <a href="/privacy">Privacy</a>
           <a href="/imprint">Imprint</a>
-          <a href="/docs">Docs</a>
           <a
             class="site-footer__github"
             href="https://github.com/katomm/dreptalk.com"

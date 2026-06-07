@@ -1,0 +1,30 @@
+---
+import Layout from '@/layouts/Layout.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  // Breadcrumb label for this page (the trailing "DRepTalk / Help / {crumb}" segment).
+  crumb: string;
+  // h1 text; defaults to the breadcrumb label when the two are the same.
+  heading?: string;
+}
+
+const { title, description, crumb, heading = crumb } = Astro.props;
+
+// Public help pages: cache at the edge but keep them reasonably fresh.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+---
+
+<Layout title={title} description={description}>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <a href="/help">Help</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>{crumb}</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.5rem;">{heading}</h1>
+  <slot />
+</Layout>
