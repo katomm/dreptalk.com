@@ -273,6 +273,54 @@ export async function getPostsByTopic(
 }
 
 /**
+ * Returns the newest non-deleted topics across ALL categories, ordered by last
+ * activity. Powers the forum overview's "latest activity" column. Uses the
+ * idx_topics_last_post index. Default limit 20, capped at 50.
+ */
+export async function getLatestTopicsAcrossCategories(
+  db: D1Database,
+  opts?: { limit?: number; offset?: number },
+): Promise<Topic[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
+  const offset = Math.max(opts?.offset ?? 0, 0);
+
+  const rows = await db
+    .prepare(
+      `SELECT * FROM topics
+       WHERE deleted = 0
+       ORDER BY last_post_at DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(limit, offset)
+    .all<TopicRow>();
+
+  return (rows.results ?? []).map(rowToTopic);
+}
+
+/**
+ * Returns per-category topic counts and last-activity time in one grouped query
+ * (no per-category round-trips). Powers the overview's category column.
+ */
+export async function getCategoryStats(
+  db: D1Database,
+): Promise<Map<string, { topicCount: number; lastPostAt: number | null }>> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT category_slug, COUNT(*) AS topic_count, MAX(last_post_at) AS last_post_at
+         FROM topics WHERE deleted = 0 GROUP BY category_slug`,
+      )
+      .all<{ category_slug: string; topic_count: number; last_post_at: number | null }>()
+  ).results ?? [];
+
+  const map = new Map<string, { topicCount: number; lastPostAt: number | null }>();
+  for (const r of rows) {
+    map.set(r.category_slug, { topicCount: r.topic_count, lastPostAt: r.last_post_at });
+  }
+  return map;
+}
+
+/**
  * Returns a single post by id, or null if missing. The 20KB body_md is excluded
  * (like getPostsByTopic): the flag handler only needs author_id/deleted/hidden.
  */
