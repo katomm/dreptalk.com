@@ -10,6 +10,7 @@
 import type { DrepInfoRow, DrepListRow } from '../koios/client.js';
 import type { Drep } from '../db/dreps.js';
 import { getDrepsByIds, upsertDrep } from '../db/dreps.js';
+import { gcDrepMetadata } from '../db/drepMetadata.js';
 import { fetchAnchorDoc, extractCip119Profile } from '../governance/metadata.js';
 
 // Koios paginates drep_list at 1000 rows; page through by incrementing offset.
@@ -17,6 +18,9 @@ const PAGE_SIZE = 1000;
 // Chunk size for drep_info batch lookups and the matching D1 read. Bounds the
 // Koios POST body, the IN-clause read, and the SQLite bound-parameter limit.
 const CHUNK_SIZE = 100;
+// Grace period before hosted metadata for an unregistered drep id is GC'd. Long
+// enough that a DRep can host its CIP-119 doc and then submit its registration tx.
+const METADATA_GC_GRACE_SEC = 14 * 24 * 60 * 60;
 
 export interface DrepSyncResult {
   total: number;
@@ -24,6 +28,9 @@ export interface DrepSyncResult {
   skipped: number;
   anchorsFetched: number;
   failed: number;
+  // Hosted-metadata GC (junk written for self-generated keys).
+  gcScanned: number;
+  gcDeleted: number;
 }
 
 export interface DrepSyncDeps {
@@ -218,6 +225,12 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   let anchorsFetched = 0;
   let failed = 0;
 
+  // Collected for the hosted-metadata GC: every registered drep id and every
+  // current on-chain anchor hash. A row survives GC if it matches either, so a
+  // real DRep's metadata is never deleted.
+  const registeredIds = new Set(ids);
+  const keepHashes = new Set<string>();
+
   for (const chunkIds of chunk(ids, CHUNK_SIZE)) {
     // One batched Koios lookup and one batched D1 read per chunk (no N+1). The
     // two are independent (outbound HTTP vs local D1), so run them together.
@@ -227,6 +240,7 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
     ]);
 
     for (const info of infoRows) {
+      if (info.meta_hash) keepHashes.add(info.meta_hash.toLowerCase());
       try {
         const prior = existing.get(info.drep_id);
         const { profile, fetched } = await resolveProfile(info, prior, deps);
@@ -248,5 +262,14 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
     }
   }
 
-  return { total: ids.length, updated, skipped, anchorsFetched, failed };
+  // Reaching here means every chunk's drepInfoBatch succeeded, so registeredIds
+  // and keepHashes are complete; GC unreferenced junk older than the grace period.
+  // `now` is milliseconds (cron passes Date.now()); created_at is stored in seconds.
+  const { scanned: gcScanned, deleted: gcDeleted } = await gcDrepMetadata(db, {
+    registeredIds,
+    keepHashes,
+    olderThanSec: Math.floor(now / 1000) - METADATA_GC_GRACE_SEC,
+  });
+
+  return { total: ids.length, updated, skipped, anchorsFetched, failed, gcScanned, gcDeleted };
 }

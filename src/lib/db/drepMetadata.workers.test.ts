@@ -2,7 +2,7 @@
 // Exercises putDrepMetadata and getDrepMetadata against the real miniflare D1 binding.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { putDrepMetadata, getDrepMetadata } from './drepMetadata.js';
+import { putDrepMetadata, getDrepMetadata, gcDrepMetadata } from './drepMetadata.js';
 
 const db = () => env.DB;
 
@@ -67,5 +67,52 @@ describe('putDrepMetadata + getDrepMetadata', () => {
     expect(result!.hash).toBe(newHash);
     expect(result!.name).toBe('Updated DRep');
     expect(result!.createdAt).toBe(NOW + 3600);
+  });
+});
+
+describe('gcDrepMetadata', () => {
+  it('deletes only old rows that are neither a registered drep nor a referenced hash', async () => {
+    const OLD = 1000;
+    const RECENT = 1_000_000;
+    const THRESHOLD = 500_000;
+
+    const registeredId = 'gc-registered-drep';
+    const referencedId = 'gc-referenced-junk-id';
+    const referencedHash = 'c'.repeat(64);
+    const junkId = 'gc-pure-junk-id';
+    const recentJunkId = 'gc-recent-junk-id';
+
+    // A: registered drep, old -> kept (registered)
+    await putDrepMetadata(db(), { drepId: registeredId, body: '{}', hash: 'd'.repeat(64), name: 'A', createdAt: OLD });
+    // B: junk id but its hash is a current on-chain anchor, old -> kept (referenced)
+    await putDrepMetadata(db(), { drepId: referencedId, body: '{}', hash: referencedHash, name: 'B', createdAt: OLD });
+    // C: pure junk, old -> deleted
+    await putDrepMetadata(db(), { drepId: junkId, body: '{}', hash: 'e'.repeat(64), name: 'C', createdAt: OLD });
+    // D: pure junk but recent (within grace) -> kept
+    await putDrepMetadata(db(), { drepId: recentJunkId, body: '{}', hash: 'f'.repeat(64), name: 'D', createdAt: RECENT });
+
+    const result = await gcDrepMetadata(db(), {
+      registeredIds: new Set([registeredId]),
+      keepHashes: new Set([referencedHash]),
+      olderThanSec: THRESHOLD,
+    });
+
+    expect(result.deleted).toBe(1);
+    expect(await getDrepMetadata(db(), registeredId)).not.toBeNull();
+    expect(await getDrepMetadata(db(), referencedId)).not.toBeNull();
+    expect(await getDrepMetadata(db(), junkId)).toBeNull();
+    expect(await getDrepMetadata(db(), recentJunkId)).not.toBeNull();
+  });
+
+  it('deletes nothing when every old row is registered or referenced', async () => {
+    const id = 'gc-allkept-registered';
+    await putDrepMetadata(db(), { drepId: id, body: '{}', hash: 'a1'.repeat(32), name: 'X', createdAt: 100 });
+    const result = await gcDrepMetadata(db(), {
+      registeredIds: new Set([id]),
+      keepHashes: new Set(),
+      olderThanSec: 500_000,
+    });
+    expect(result.deleted).toBe(0);
+    expect(await getDrepMetadata(db(), id)).not.toBeNull();
   });
 });
