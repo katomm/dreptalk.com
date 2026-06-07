@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { handleChallenge } from '@/lib/auth/handlers';
 import { checkRate } from '@/lib/rate';
+import { clientIpFrom } from '@/lib/http/clientIp';
 
 export const prerender = false;
 
@@ -25,10 +26,7 @@ export const POST: APIRoute = async ({ request }) => {
     });
   }
 
-  const clientIp =
-    request.headers.get('cf-connecting-ip') ??
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    'unknown';
+  const clientIp = clientIpFrom(request.headers);
   const allowed = await checkRate(nonceKv, `authch:${clientIp}`, {
     max: RATE_MAX,
     windowSec: RATE_WINDOW_SEC,

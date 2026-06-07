@@ -64,8 +64,7 @@ export default function OfflineLogin({ role }: { role: OfflineRole }) {
     void loadChallenge();
   }, [loadChallenge]);
 
-  const payload =
-    state.status === 'ready' || state.status === 'submitting' || state.status === 'error' ? state.payload : '';
+  const payload = 'payload' in state ? state.payload : '';
   const command = `cardano-signer sign --data "${payload}" --secret-key ${copy.keyFile} --json`;
 
   async function handleSubmit() {

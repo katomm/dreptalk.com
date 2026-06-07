@@ -4,6 +4,7 @@ import { handleVerify } from '@/lib/auth/handlers';
 import { resolveNetwork } from '@/lib/config/network';
 import { createKoiosClient } from '@/lib/koios/client';
 import { checkRate } from '@/lib/rate';
+import { clientIpFrom } from '@/lib/http/clientIp';
 import { parseModerators } from '../../../../config/moderators.js';
 
 export const prerender = false;
@@ -27,10 +28,7 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     // Throttle per IP before any signature verification or Koios call.
-    const clientIp =
-      request.headers.get('cf-connecting-ip') ??
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-      'unknown';
+    const clientIp = clientIpFrom(request.headers);
     const allowed = await checkRate(nonceKv, `authvf:${clientIp}`, {
       max: RATE_MAX,
       windowSec: RATE_WINDOW_SEC,

@@ -128,8 +128,7 @@ export async function resolveCc(
     (m) =>
       m.status === 'authorized' &&
       m.cc_hot_has_script === false &&
-      typeof m.cc_hot_hex === 'string' &&
-      m.cc_hot_hex.toLowerCase() === want,
+      m.cc_hot_hex?.toLowerCase() === want,
   );
 
   if (!match) {
