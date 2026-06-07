@@ -7,11 +7,16 @@ import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import FlagButton from '@/components/FlagButton.tsx';
+import GovernanceHeader from '@/components/GovernanceHeader.astro';
+import VoteBadge from '@/components/VoteBadge.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
 import { getFlaggedPostIds } from '@/lib/db/postFlags.js';
+import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
+import { getVotesByGaId } from '@/lib/db/drepVotes.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { isWriter } from '@/lib/auth/roles.js';
 import { postViewerContext } from '@/lib/forum/postVisibility.js';
+import { currentNetwork } from '@/lib/api/response.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
@@ -63,6 +68,12 @@ if (!notFound) {
 
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
+
+// Governance-action enrichment: the on-chain values (header) and the per-author
+// votes (per-post badges), both read from D1 (synced on a cron, shown "as of").
+const govAction = isGovernanceTopic && db && topic ? await getGovernanceActionByTopicId(db, topic.id) : null;
+const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string }>();
+const network = currentNetwork().network;
 
 const user = Astro.locals.user;
 const showComposer = !!user && !!topic && !topic.locked;
@@ -164,6 +175,10 @@ const breadcrumbLd = topic
       </div>
     </div>
 
+    {govAction && page === 1 && (
+      <GovernanceHeader action={govAction} network={network} now={now} />
+    )}
+
     <div style="display:flex;flex-direction:column;gap:0;">
       {posts.map((post, i) => {
         // The opening post of a governance-sourced topic (page 1, index 0) shows
@@ -174,11 +189,14 @@ const breadcrumbLd = topic
             : describe(post.author_id);
 
         const { canSeeContent, canFlag } = postViewerContext(post, user, !!author.isSystem);
+        // Per-post vote badge: match the author's DRep id to the on-chain votes.
+        const authorVote = author.drepId ? govVotes.get(author.drepId) : undefined;
 
         return (
           <article style="border-top:1px solid var(--border);padding:1.25rem 0;" id={`post-${post.id}`}>
             <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
               <AuthorIdentity author={author} />
+              {authorVote && <VoteBadge vote={authorVote.vote} />}
               <span>{formatRelativeTime(post.created_at, now)}</span>
               {post.edited_at && <span>(edited)</span>}
               {post.hidden && canSeeContent && (

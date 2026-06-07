@@ -1,0 +1,104 @@
+---
+// Rich header for a governance-action thread: type, lifecycle status, proposer,
+// deposit, epochs + countdown, power-weighted DRep/SPO/CC tally bars, and a
+// collapsible rationale. All values come from D1 (synced on a cron); they are
+// shown with an explicit "as of" time and never claimed to be live.
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { CardanoNetwork } from '@/lib/config/network.js';
+import { statusBadge, readableType, formatAda, epochCountdown, tallyBar, explorerUrl } from '@/lib/governance/view.js';
+import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
+
+interface Props {
+  action: GovernanceAction;
+  network: CardanoNetwork;
+  now: number;
+}
+
+const { action, network, now } = Astro.props;
+
+const badge = statusBadge(action.status);
+const STATUS_COLOR = {
+  active: 'var(--accent)',
+  positive: '#1a7f37',
+  negative: '#c0392b',
+  neutral: 'var(--muted)',
+} as const;
+const badgeColor = STATUS_COLOR[badge.tone];
+
+const deposit = formatAda(action.deposit);
+const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
+const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
+
+// The three role tallies, built once. A role with no synced pct is skipped.
+const tallies = [
+  { label: 'DRep', bar: tallyBar(action.drepYesPct, action.drepNoPct), yes: action.drepYes, no: action.drepNo, abstain: action.drepAbstain },
+  { label: 'SPO', bar: tallyBar(action.spoYesPct, action.spoNoPct), yes: action.spoYes, no: action.spoNo, abstain: action.spoAbstain },
+  { label: 'CC', bar: tallyBar(action.ccYesPct, action.ccNoPct), yes: action.ccYes, no: action.ccNo, abstain: action.ccAbstain },
+].filter((t) => t.bar !== null);
+
+const fmtPct = (n: number) => `${n.toFixed(n < 1 && n > 0 ? 2 : 0)}%`;
+---
+
+<section style="border:1px solid var(--border);border-radius:0.5rem;padding:1rem 1.25rem;margin-bottom:1.5rem;background:color-mix(in srgb, var(--accent) 3%, var(--surface));">
+  <div style="display:flex;align-items:center;gap:0.625rem;flex-wrap:wrap;margin-bottom:0.625rem;">
+    <span style="font-weight:600;">{readableType(action.type)}</span>
+    <span style={`font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:#fff;background:${badgeColor};border-radius:0.25rem;padding:0.15rem 0.45rem;`}>
+      {badge.label}
+    </span>
+    {action.proposalId && (
+      <a
+        href={explorerUrl(network, action.proposalId)}
+        rel="noopener noreferrer"
+        target="_blank"
+        style="font-size:0.8125rem;color:var(--accent);margin-left:auto;"
+      >
+        View on Cardanoscan
+      </a>
+    )}
+  </div>
+
+  <div style="font-size:0.8125rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:0.5rem 1rem;margin-bottom:0.875rem;">
+    {action.returnAddress && <span>Proposer: <code>{truncateId(action.returnAddress, 22)}</code></span>}
+    {deposit && <span>Deposit: {deposit}</span>}
+    {action.submittedEpoch != null && <span>Submitted: epoch {action.submittedEpoch}</span>}
+    {action.expiryEpoch != null && <span>Expiry: epoch {action.expiryEpoch}</span>}
+    {countdown && <span>{countdown}</span>}
+  </div>
+
+  {tallies.length > 0 ? (
+    <div style="display:flex;flex-direction:column;gap:0.5rem;">
+      {tallies.map((t) => (
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--muted);margin-bottom:0.2rem;">
+            <span style="font-weight:600;color:var(--fg);">{t.label}</span>
+            <span>
+              {fmtPct(t.bar!.yes)} yes &middot; {fmtPct(t.bar!.no)} no
+              {(t.yes != null || t.no != null || t.abstain != null) && (
+                <span> ({t.yes ?? 0}/{t.no ?? 0}/{t.abstain ?? 0})</span>
+              )}
+            </span>
+          </div>
+          <div style="display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--border);">
+            <div style={`width:${t.bar!.yes}%;background:#1a7f37;`}></div>
+            <div style={`width:${t.bar!.no}%;background:#c0392b;`}></div>
+            <div style={`width:${t.bar!.abstain}%;background:var(--muted);`}></div>
+          </div>
+        </div>
+      ))}
+      {asOf && (
+        <p style="margin:0.25rem 0 0;font-size:0.6875rem;color:var(--muted);">
+          Tallies as of {asOf}. Cached, not live.
+        </p>
+      )}
+    </div>
+  ) : (
+    <p style="margin:0;font-size:0.8125rem;color:var(--muted);">Tallies not yet synced.</p>
+  )}
+
+  {action.rationaleHtml && (
+    <details style="margin-top:0.875rem;">
+      <summary style="cursor:pointer;font-size:0.8125rem;color:var(--accent);">Rationale</summary>
+      <div class="prose" style="margin-top:0.5rem;font-size:0.9375rem;" set:html={action.rationaleHtml} />
+    </details>
+  )}
+</section>
