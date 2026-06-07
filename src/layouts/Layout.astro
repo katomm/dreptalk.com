@@ -31,14 +31,13 @@ const organizationLd = {
 const pathname = Astro.url.pathname;
 const navLinks = [
   { label: 'Governance Actions', href: '/c/governance-actions' },
-  { label: 'Discussions', href: '/' },
+  { label: 'Discussions', href: '/discussions' },
   { label: 'DReps', href: '#' },
   { label: 'About', href: '#' },
 ];
-// The home page is the entry point for governance actions, so mark that link
-// active there; otherwise highlight whichever link matches the current path.
+// Highlight the link whose path prefixes the current page (placeholder '#' never matches).
 const isActive = (href: string) =>
-  href === '/c/governance-actions' ? pathname === '/' || pathname.startsWith('/c/governance-actions') : href !== '#' && href !== '/' && pathname === href;
+  href !== '#' && (pathname === href || pathname.startsWith(href + '/'));
 ---
 <!doctype html>
 <html lang="en">
