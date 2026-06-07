@@ -88,23 +88,120 @@ function extractCip108(doc: unknown): AnchorMetadata {
   };
 }
 
+// Character caps for CIP-119 profile fields extracted from untrusted on-chain docs.
+const MAX_PROFILE_NAME_LEN = 80;
+const MAX_PROFILE_BIO_LEN = 1_000;
+const MAX_PROFILE_IMAGE_URL_LEN = 2_048;
+const MAX_PROFILE_LINK_LABEL_LEN = 100;
+const MAX_PROFILE_LINK_URI_LEN = 2_048;
+const MAX_PROFILE_LINKS = 10;
+
+export interface Cip119Profile {
+  name: string | null;
+  bio: string | null;
+  imageUrl: string | null;
+  links: { label: string; uri: string }[] | null;
+}
+
+/** Returns true for http(s) URLs that parse without error. */
+function isHttpUrl(raw: string): boolean {
+  try {
+    const { protocol } = new URL(raw);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/** Extracts a CIP-119 DRep profile from a parsed, untrusted on-chain metadata doc. */
+export function extractCip119Profile(doc: unknown): Cip119Profile {
+  // CIP-119 nests all profile fields under a `body` key. Fall back to the root
+  // object itself for docs that skip the wrapper (some early DRep registrations).
+  const root = asRecord(doc);
+  const body = 'body' in root ? asRecord(root.body) : root;
+
+  // name: body.givenName, sanitized and capped.
+  const rawName = typeof body.givenName === 'string' ? body.givenName : '';
+  const name = sanitizeExternalText(rawName, MAX_PROFILE_NAME_LEN) || null;
+
+  // bio: prefer body.bio, fall back to body.objectives (CIP-119 uses objectives).
+  const rawBio =
+    (typeof body.bio === 'string' && body.bio) ||
+    (typeof body.objectives === 'string' && body.objectives) ||
+    '';
+  const bio = sanitizeExternalText(rawBio, MAX_PROFILE_BIO_LEN) || null;
+
+  // imageUrl: body.image may be a plain string URL or a CIP-119 ImageObject with contentUrl.
+  // Only http(s) URLs are kept; ipfs/data/javascript and other schemes are dropped.
+  let imageUrl: string | null = null;
+  const imgField = body.image;
+  if (typeof imgField === 'string') {
+    if (isHttpUrl(imgField)) {
+      imageUrl = imgField.slice(0, MAX_PROFILE_IMAGE_URL_LEN);
+    }
+  } else if (imgField && typeof imgField === 'object') {
+    const imgObj = asRecord(imgField);
+    const contentUrl = typeof imgObj.contentUrl === 'string' ? imgObj.contentUrl : '';
+    if (isHttpUrl(contentUrl)) {
+      imageUrl = contentUrl.slice(0, MAX_PROFILE_IMAGE_URL_LEN);
+    }
+  }
+
+  // links: body.references is an array; keep only items with http(s) uri/url.
+  let links: { label: string; uri: string }[] | null = null;
+  if (Array.isArray(body.references)) {
+    const valid = body.references
+      .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
+      .reduce<{ label: string; uri: string }[]>((acc, item) => {
+        if (acc.length >= MAX_PROFILE_LINKS) return acc;
+        const rawUri = typeof item.uri === 'string' ? item.uri
+          : typeof item.url === 'string' ? item.url
+          : '';
+        if (!isHttpUrl(rawUri)) return acc;
+        const uri = rawUri.slice(0, MAX_PROFILE_LINK_URI_LEN);
+        const rawLabel = typeof item.label === 'string' ? item.label
+          : typeof item.name === 'string' ? item.name
+          : typeof item['@type'] === 'string' ? item['@type']
+          : '';
+        const label = sanitizeExternalText(rawLabel, MAX_PROFILE_LINK_LABEL_LEN);
+        acc.push({ label, uri });
+        return acc;
+      }, []);
+    links = valid.length > 0 ? valid : null;
+  }
+
+  return { name, bio, imageUrl, links };
+}
+
+// Discriminated union returning the raw parsed doc on success. The doc is the
+// untrusted JSON value; callers MUST run a field extractor (extractCip108 or
+// extractCip119Profile) that sanitizes before storing or rendering anything.
+export type AnchorDocResult =
+  | { status: 'ok'; doc: unknown }
+  | { status: Exclude<AnchorStatus, 'ok'>; doc: null };
+
 /**
- * Fetches and verifies a governance-action anchor.
+ * Fetches, verifies, and parses an on-chain anchor, returning the raw JSON doc.
+ *
+ * This is the shared security pipeline (scheme allowlist, timeout, size cap,
+ * content-type check, mandatory blake2b-256 hash verification, JSON parse) used
+ * by both the CIP-108 governance-action path and the CIP-119 DRep-profile path.
+ * It performs no field extraction: the returned doc is untrusted.
  *
  * @param anchorUrl  on-chain anchor URL (untrusted)
  * @param anchorHash on-chain blake2b-256 hash, hex (untrusted but authoritative)
  * @param deps       injectable fetch + timeout for testing
  */
-export async function fetchAnchorMetadata(
+export async function fetchAnchorDoc(
   anchorUrl: string,
   anchorHash: string,
   deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<AnchorResult> {
+): Promise<AnchorDocResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const timeoutMs = deps.timeoutMs ?? ANCHOR_FETCH_TIMEOUT_MS;
 
   const resolved = resolveAnchorUrl(anchorUrl);
-  if (!resolved) return { status: 'unsupported-url', metadata: null };
+  if (!resolved) return { status: 'unsupported-url', doc: null };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -116,19 +213,19 @@ export async function fetchAnchorMetadata(
       signal: controller.signal,
       headers: { accept: 'application/json, text/plain' },
     });
-    if (!res.ok) return { status: 'fetch-failed', metadata: null };
+    if (!res.ok) return { status: 'fetch-failed', doc: null };
     if (!looksLikeJsonOrText(res.headers.get('content-type'))) {
-      return { status: 'bad-content-type', metadata: null };
+      return { status: 'bad-content-type', doc: null };
     }
     const declared = Number(res.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > MAX_ANCHOR_BYTES) {
-      return { status: 'too-large', metadata: null };
+      return { status: 'too-large', doc: null };
     }
     const buf = await res.arrayBuffer();
-    if (buf.byteLength > MAX_ANCHOR_BYTES) return { status: 'too-large', metadata: null };
+    if (buf.byteLength > MAX_ANCHOR_BYTES) return { status: 'too-large', doc: null };
     bytes = new Uint8Array(buf);
   } catch {
-    return { status: 'fetch-failed', metadata: null };
+    return { status: 'fetch-failed', doc: null };
   } finally {
     clearTimeout(timer);
   }
@@ -136,15 +233,32 @@ export async function fetchAnchorMetadata(
   // Mandatory integrity check: the document must hash to the on-chain anchor hash.
   const actualHash = bytesToHex(blake2b256(bytes));
   if (actualHash.toLowerCase() !== anchorHash.trim().toLowerCase()) {
-    return { status: 'hash-mismatch', metadata: null };
+    return { status: 'hash-mismatch', doc: null };
   }
 
   let doc: unknown;
   try {
     doc = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    return { status: 'parse-failed', metadata: null };
+    return { status: 'parse-failed', doc: null };
   }
 
-  return { status: 'ok', metadata: extractCip108(doc) };
+  return { status: 'ok', doc };
+}
+
+/**
+ * Fetches and verifies a governance-action anchor, returning CIP-108 metadata.
+ *
+ * @param anchorUrl  on-chain anchor URL (untrusted)
+ * @param anchorHash on-chain blake2b-256 hash, hex (untrusted but authoritative)
+ * @param deps       injectable fetch + timeout for testing
+ */
+export async function fetchAnchorMetadata(
+  anchorUrl: string,
+  anchorHash: string,
+  deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<AnchorResult> {
+  const result = await fetchAnchorDoc(anchorUrl, anchorHash, deps);
+  if (result.status !== 'ok') return { status: result.status, metadata: null };
+  return { status: 'ok', metadata: extractCip108(result.doc) };
 }
