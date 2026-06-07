@@ -203,21 +203,20 @@ export default function WalletLogin() {
                   </svg>
                   <div className="callout__body">
                     {loginState.message}
-                    {' '}
-                    <button
-                      onClick={reset}
-                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
-                    >
-                      Try again
-                    </button>
-                    {role === 'drep' && (
-                      <>
-                        {' '}
-                        <a href="/drep" style={{ color: 'var(--accent)' }}>
-                          Register as a DRep
-                        </a>
-                      </>
-                    )}
+                    <div style={{ marginTop: '0.6rem' }}>
+                      <button
+                        onClick={reset}
+                        style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+                      >
+                        Try again
+                      </button>
+                      {role === 'drep' && (
+                        <>
+                          <span style={{ color: 'var(--muted)', margin: '0 0.5rem' }}>or</span>
+                          <a href="/drep" style={{ color: 'var(--accent)' }}>register as a DRep</a>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

@@ -47,18 +47,26 @@ const moreRoles: Array<{ label: string; href?: string }> = [
       </div>
     </details>
   ) : (
-    <div class="role-entry__list">
-      {moreRoles.map((r) =>
-        r.href ? (
-          <a class="role-entry__item" href={r.href}>{r.label}</a>
-        ) : (
-          <span class="role-entry__item role-entry__item--soon" aria-disabled="true">
-            {r.label}
-            <span class="role-entry__soon">soon</span>
-          </span>
-        ),
-      )}
-    </div>
+    <details class="role-entry__more-flat">
+      <summary class="role-entry__flat-toggle">
+        <span>More ways to sign in</span>
+        <svg class="role-entry__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </summary>
+      <div class="role-entry__list" role="menu">
+        {moreRoles.map((r) =>
+          r.href ? (
+            <a class="role-entry__item" href={r.href} role="menuitem">{r.label}</a>
+          ) : (
+            <span class="role-entry__item role-entry__item--soon" aria-disabled="true">
+              {r.label}
+              <span class="role-entry__soon">soon</span>
+            </span>
+          ),
+        )}
+      </div>
+    </details>
   )}
 </div>
 
@@ -176,5 +184,31 @@ const moreRoles: Array<{ label: string; href?: string }> = [
     flex-direction: column;
     gap: 0.15rem;
     margin-top: 0.15rem;
+  }
+
+  /* Flat disclosure for the mobile menu: collapsed by default, so the extra
+     roles are not shown until the user opens "More ways to sign in". */
+  .role-entry__more-flat {
+    width: 100%;
+    margin-top: 0.15rem;
+  }
+  .role-entry__flat-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+  }
+  .role-entry__flat-toggle::-webkit-details-marker {
+    display: none;
+  }
+  .role-entry__more-flat[open] .role-entry__chev {
+    transform: rotate(180deg);
   }
 </style>

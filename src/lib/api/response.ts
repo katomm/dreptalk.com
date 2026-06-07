@@ -1,5 +1,6 @@
 // Shared helpers for API route handlers.
 import { env as workersEnv } from 'cloudflare:workers';
+import { resolveNetwork, type NetworkConfig } from '@/lib/config/network';
 
 /**
  * Builds a JSON Response with the correct content-type header.
@@ -25,4 +26,15 @@ export function jsonResponse(
  */
 export function runtimeEnv(_locals?: App.Locals): Record<string, unknown> {
   return (workersEnv ?? {}) as unknown as Record<string, unknown>;
+}
+
+/**
+ * Resolves the active Cardano network from the runtime env (CARDANO_NETWORK),
+ * defaulting to mainnet when unset. Use from SSR pages and the Layout to keep
+ * the network in one place. Reads the cloudflare:workers env, so call only from
+ * server-rendered or build (prerender) contexts, not from node unit tests.
+ */
+export function currentNetwork(): NetworkConfig {
+  const value = (workersEnv as Record<string, string | undefined> | undefined)?.CARDANO_NETWORK;
+  return resolveNetwork(value ?? null);
 }
