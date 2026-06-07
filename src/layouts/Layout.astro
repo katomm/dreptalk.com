@@ -220,6 +220,12 @@ const isActive = (href: string) =>
         color: var(--fg);
         line-height: 1;
       }
+      /* The mark artwork is top-heavy (dense cluster high, faint tail low), so it
+         reads as floating above the wordmark even though the flex boxes are
+         centered. Nudge the header mark down a touch to optically center it. */
+      .site-header .brand__mark {
+        transform: translateY(2px);
+      }
 
       .site-nav {
         display: flex;
