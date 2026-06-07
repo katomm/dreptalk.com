@@ -35,6 +35,9 @@ export interface StatusBadge {
 /** Maps a lifecycle status to a label + color tone for the badge. */
 export function statusBadge(status: string): StatusBadge {
   switch (status) {
+    case 'pending':
+      // Discovered but not yet verified by a sync; neutral, not a confident "Active".
+      return { label: 'Pending', tone: 'neutral' };
     case 'active':
       return { label: 'Active', tone: 'active' };
     case 'ratified':
