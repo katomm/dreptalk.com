@@ -58,8 +58,12 @@ export function deriveStatus(
 ): string {
   if (life?.enacted_epoch != null) return 'enacted';
   if (life?.ratified_epoch != null) return 'ratified';
-  if (life?.dropped_epoch != null) return 'dropped';
+  // An action that times out is marked expired, then removed (dropped) from the
+  // proposal set the next epoch, so most expired actions carry BOTH epochs.
+  // Expiry is the meaningful outcome, so it wins; 'dropped' alone means the action
+  // was pruned WITHOUT expiring (e.g. a competing action of the same type was enacted).
   if (life?.expired_epoch != null) return 'expired';
+  if (life?.dropped_epoch != null) return 'dropped';
   const expiry = ga.expiryEpoch ?? life?.expiration ?? null;
   if (expiry != null && currentEpoch != null && currentEpoch > expiry) return 'expired';
   return 'active';
