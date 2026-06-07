@@ -4,6 +4,7 @@ import { decode, encode } from 'cborg';
 import { blake2b224, blake2b256 } from '../crypto/blake.js';
 import { hexToBytes } from '../crypto/hex.js';
 import { bytesEqual } from '../crypto/bytes.js';
+import { verifyEd25519 } from '../crypto/ed25519.js';
 import { keyHashMatchesAddress } from '../cardano/identity.js';
 
 export interface Cip8VerifyResult {
@@ -186,54 +187,5 @@ async function verifyCip8Internal(input: {
 
   // Step 8: All checks passed.
   return { ok: true, pubKey, addressBytes };
-}
-
-/** Attempts Ed25519 signature verification, trying WebCrypto then noble/curves fallback. */
-async function verifyEd25519(
-  sig: Uint8Array,
-  msg: Uint8Array,
-  pubKey: Uint8Array,
-): Promise<{ ok: boolean; reason?: string }> {
-  // Ensure all buffers are backed by a plain ArrayBuffer (not SharedArrayBuffer),
-  // which is required by the WebCrypto BufferSource type.
-  const pubKeyBuf: Uint8Array<ArrayBuffer> = new Uint8Array(pubKey);
-  const sigBuf: Uint8Array<ArrayBuffer> = new Uint8Array(sig);
-  const msgBuf: Uint8Array<ArrayBuffer> = new Uint8Array(msg);
-
-  // Try WebCrypto 'Ed25519' first.
-  try {
-    const key = await crypto.subtle.importKey('raw', pubKeyBuf, 'Ed25519', false, ['verify']);
-    const valid = await crypto.subtle.verify('Ed25519', key, sigBuf, msgBuf);
-    return valid ? { ok: true } : { ok: false, reason: 'Ed25519 signature verification failed (WebCrypto)' };
-  } catch (webcryptoErr: unknown) {
-    const webcryptoMsg = webcryptoErr instanceof Error ? webcryptoErr.message : String(webcryptoErr);
-    // WebCrypto 'Ed25519' unavailable; try 'NODE-ED25519'.
-    try {
-      const key = await crypto.subtle.importKey(
-        'raw',
-        pubKeyBuf,
-        { name: 'NODE-ED25519', namedCurve: 'NODE-ED25519' } as AlgorithmIdentifier,
-        false,
-        ['verify'],
-      );
-      const valid = await crypto.subtle.verify('NODE-ED25519', key, sigBuf, msgBuf);
-      return valid ? { ok: true } : { ok: false, reason: 'Ed25519 signature verification failed (NODE-ED25519)' };
-    } catch {
-      // Both WebCrypto paths failed; fall back to @noble/curves.
-      try {
-        const { ed25519 } = await import('@noble/curves/ed25519.js');
-        const valid = ed25519.verify(sig, msg, pubKey);
-        return valid
-          ? { ok: true }
-          : { ok: false, reason: 'Ed25519 signature verification failed (@noble/curves fallback)' };
-      } catch (nobleErr: unknown) {
-        const nobleMsg = nobleErr instanceof Error ? nobleErr.message : String(nobleErr);
-        return {
-          ok: false,
-          reason: `Ed25519 verification unavailable. WebCrypto: ${webcryptoMsg}; noble/curves: ${nobleMsg}`,
-        };
-      }
-    }
-  }
 }
 

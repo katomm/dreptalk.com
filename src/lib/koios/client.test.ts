@@ -251,3 +251,114 @@ describe('createKoiosClient.proposalsByReturnAddress', () => {
     await expect(client.proposalsByReturnAddress(STAKE_ADDR)).rejects.toThrow(/koios request failed: 503/i);
   });
 });
+
+// --- poolCalidusKey ---
+
+const CALIDUS_PUBKEY_HEX = '200bff1edb79e633786f7f1bc2989d61db7cb1211e6a55b6efc5b6203ff711dd';
+const calidusRowFixture = {
+  pool_id_bech32: 'pool10dtwvn64akqjdtn9d4pd2mnhpxfgp76hvsfkgmfwugrsxef3y2p',
+  calidus_pub_key: CALIDUS_PUBKEY_HEX,
+  calidus_id_bech32: 'calidus15xdvep33kxuvep5h6h0vqzarsc5f4khre4lr7ptv8qefs2s0vtnj6',
+  registered: true,
+  pool_status: 'registered',
+};
+
+describe('createKoiosClient.poolCalidusKey', () => {
+  it('GETs /pool_calidus_keys filtered by calidus_pub_key and returns the row', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([calidusRowFixture]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    const result = await client.poolCalidusKey(CALIDUS_PUBKEY_HEX);
+
+    expect(result).not.toBeNull();
+    expect(result!.pool_id_bech32).toBe(calidusRowFixture.pool_id_bech32);
+    expect(result!.calidus_pub_key).toBe(CALIDUS_PUBKEY_HEX);
+    expect(result!.registered).toBe(true);
+    expect(result!.pool_status).toBe('registered');
+
+    const calledUrl = fetchImpl.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('/pool_calidus_keys?');
+    expect(calledUrl).toContain(`calidus_pub_key=eq.${CALIDUS_PUBKEY_HEX}`);
+    expect(fetchImpl).toHaveBeenCalledWith(calledUrl, expect.objectContaining({ method: 'GET' }));
+  });
+
+  it('returns null when no calidus key matches (empty array)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    expect(await client.poolCalidusKey(CALIDUS_PUBKEY_HEX)).toBeNull();
+  });
+
+  it('throws on non-200 response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 502));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    await expect(client.poolCalidusKey(CALIDUS_PUBKEY_HEX)).rejects.toThrow(/koios request failed: 502/i);
+  });
+});
+
+// --- committeeInfo ---
+
+const committeeResponseFixture = [
+  {
+    proposal_id: null,
+    quorum_numerator: 2,
+    quorum_denominator: 3,
+    members: [
+      {
+        status: 'authorized',
+        cc_hot_id: 'cc_hot1qwlykh9rzq3s3z2qaw2j6qdaxed0psedz05eu0qxj20038qc7zdu7',
+        cc_cold_id: 'cc_cold1zvcxrfwegfn9ls72cmfchty3cnczwtztc2e48eyxxwnrw3cwfypz8',
+        cc_hot_hex: 'be4b5ca31023088940eb952d01bd365af0c32d13e99e3c06929ef89c',
+        cc_cold_hex: '3061a5d942665fc3cac6d38bac91c4f0272c4bc2b353e48633a63747',
+        expiration_epoch: 242,
+        cc_hot_has_script: true,
+        cc_cold_has_script: true,
+      },
+      {
+        status: 'not_authorized',
+        cc_hot_id: null,
+        cc_cold_id: 'cc_cold1zvh55mr0px8zpmjtl4dnn9pvzezht7xwkdyww4xlt58vqnc6qdgps',
+        cc_hot_hex: null,
+        cc_cold_hex: '2f4a6c6f098e20ee4bfd5b39942c164575f8ceb348e754df5d0ec04f',
+        expiration_epoch: 229,
+        cc_hot_has_script: null,
+        cc_cold_has_script: true,
+      },
+    ],
+  },
+];
+
+describe('createKoiosClient.committeeInfo', () => {
+  it('GETs /committee_info and returns the members array', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(committeeResponseFixture));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    const members = await client.committeeInfo();
+
+    expect(members).toHaveLength(2);
+    expect(members[0].status).toBe('authorized');
+    expect(members[0].cc_hot_hex).toBe('be4b5ca31023088940eb952d01bd365af0c32d13e99e3c06929ef89c');
+    expect(members[0].cc_hot_has_script).toBe(true);
+    expect(members[1].cc_hot_id).toBeNull();
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.koios.rest/api/v1/committee_info',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('returns an empty array when there is no committee row', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    expect(await client.committeeInfo()).toEqual([]);
+  });
+
+  it('throws on non-200 response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    await expect(client.committeeInfo()).rejects.toThrow(/koios request failed: 500/i);
+  });
+});

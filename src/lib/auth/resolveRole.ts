@@ -1,10 +1,12 @@
-import type { DrepInfo, Proposal } from '../koios/client';
+import type { DrepInfo, Proposal, PoolCalidusKeyRow, CommitteeMember } from '../koios/client';
 
 // Minimal interface satisfied by createKoiosClient's return value.
 // Using a structural interface keeps this module testable with fake clients.
 export interface KoiosClient {
   drepInfo(drepId: string): Promise<DrepInfo | null>;
   proposalsByReturnAddress(stakeAddress: string): Promise<Proposal[]>;
+  poolCalidusKey(calidusPubKeyHex: string): Promise<PoolCalidusKeyRow | null>;
+  committeeInfo(): Promise<CommitteeMember[]>;
 }
 
 export interface DRepResolution {
@@ -16,6 +18,19 @@ export interface DRepResolution {
 export interface ProposerResolution {
   isProposer: boolean;
   proposalIds: string[];
+}
+
+export interface SpoResolution {
+  isSpo: boolean;
+  poolId?: string;
+  reason?: string;
+}
+
+export interface CcResolution {
+  isCc: boolean;
+  ccHotId?: string;
+  ccColdId?: string;
+  reason?: string;
 }
 
 /**
@@ -61,5 +76,76 @@ export async function resolveProposer(
   return {
     isProposer: matches.length > 0,
     proposalIds: matches.map((p) => p.proposal_id),
+  };
+}
+
+/**
+ * Determines whether a raw Ed25519 Calidus public key (hex) belongs to an
+ * active stake pool. Koios already enforces the CIP-151 highest-nonce and
+ * revocation rules (only the current valid key is returned with registered:true);
+ * we additionally require the pool to be registered and re-check, defense in
+ * depth, that the returned key equals the one we queried. Match is
+ * case-insensitive on the hex.
+ */
+export async function resolveSpo(
+  koios: KoiosClient,
+  calidusPubKeyHex: string,
+): Promise<SpoResolution> {
+  const want = calidusPubKeyHex.toLowerCase();
+  const row = await koios.poolCalidusKey(want);
+
+  if (!row) {
+    return { isSpo: false };
+  }
+  // defense in depth: a misbehaving or cached Koios response whose calidus_pub_key
+  // does not match the queried key must not grant SPO status.
+  if (row.calidus_pub_key.toLowerCase() !== want) {
+    return { isSpo: false, reason: 'pubkey mismatch' };
+  }
+  if (!row.registered) {
+    return { isSpo: false, reason: 'revoked' };
+  }
+  if (row.pool_status !== 'registered') {
+    return { isSpo: false, reason: 'pool not registered' };
+  }
+
+  return { isSpo: true, poolId: row.pool_id_bech32 };
+}
+
+/**
+ * Determines whether a CC hot key-hash (hex, blake2b-224 of the hot pubkey)
+ * belongs to an authorized, key-based constitutional committee member. Script
+ * (native-script) hot credentials are rejected in v1. Match is case-insensitive.
+ */
+export async function resolveCc(
+  koios: KoiosClient,
+  hotKeyHashHex: string,
+): Promise<CcResolution> {
+  const want = hotKeyHashHex.toLowerCase();
+  const members = await koios.committeeInfo();
+
+  const match = members.find(
+    (m) =>
+      m.status === 'authorized' &&
+      m.cc_hot_has_script === false &&
+      typeof m.cc_hot_hex === 'string' &&
+      m.cc_hot_hex.toLowerCase() === want,
+  );
+
+  if (!match) {
+    return { isCc: false };
+  }
+
+  // Defense in depth: an authorized member must expose at least one credential id
+  // to serve as the stable account identity. Reject rather than mint a session
+  // with no id (which would otherwise fail later in upsertUserFromAuth).
+  if (!match.cc_cold_id && !match.cc_hot_id) {
+    return { isCc: false, reason: 'no credential id' };
+  }
+
+  return {
+    isCc: true,
+    ccHotId: match.cc_hot_id ?? undefined,
+    ccColdId: match.cc_cold_id ?? undefined,
   };
 }
