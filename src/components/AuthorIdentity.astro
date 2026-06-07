@@ -1,0 +1,121 @@
+---
+// Inline author identity for a forum post or topic header: avatar, display name,
+// and a small role badge. This is a pure presentational component; it never
+// queries the database. The page resolves all author data in a single batch and
+// passes a ready descriptor in, so batching stays in one place (no N+1).
+//
+// CSP note: the strict CSP forbids inline scripts and event-handler attributes,
+// so there is no onerror/onload fallback. When a synced drep image is expected
+// the <img> is rendered (proxied via /api/avatar/<drepId>); otherwise a static
+// initials placeholder is shown.
+
+export interface AuthorDescriptor {
+  /** The raw post/topic author_id. */
+  authorId: string;
+  /** Display name: the DRep name when known, else a truncated id. */
+  displayName: string;
+  /** drep id when this author has a synced on-chain DRep, used for the avatar URL. */
+  drepId?: string | null;
+  /** True when the drep has a synced CIP-119 image and the avatar proxy can serve it. */
+  hasImage?: boolean;
+  /** On-chain / forum roles to surface as badges. */
+  badges?: string[];
+  /** System author (gov-sync / governance source first post): neutral identity, no avatar lookup. */
+  isSystem?: boolean;
+}
+
+interface Props {
+  author: AuthorDescriptor;
+  /** Avatar edge length in px. Default 28. */
+  size?: number;
+}
+
+const { author, size = 28 } = Astro.props;
+const { displayName, drepId, hasImage, badges = [], isSystem = false } = author;
+
+// First letter for the placeholder circle; falls back to "?" for empty names.
+const initial = (displayName.trim()[0] ?? '?').toUpperCase();
+
+// Render the proxied avatar only when a synced drep image is expected.
+const showImage = !isSystem && !!drepId && !!hasImage;
+---
+
+<span class="author-identity" style={`--avatar-size:${size}px;`}>
+  {showImage ? (
+    <img
+      class="author-identity__avatar"
+      src={`/api/avatar/${drepId}`}
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      alt=""
+    />
+  ) : (
+    <span
+      class:list={['author-identity__avatar', 'author-identity__placeholder', { 'author-identity__placeholder--system': isSystem }]}
+      aria-hidden="true"
+    >
+      {isSystem ? 'S' : initial}
+    </span>
+  )}
+
+  <span class="author-identity__name">{displayName}</span>
+
+  {badges.map((badge) => (
+    <span class="author-identity__badge">{badge}</span>
+  ))}
+</span>
+
+<style>
+  .author-identity {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .author-identity__avatar {
+    width: var(--avatar-size);
+    height: var(--avatar-size);
+    border-radius: 999px;
+    flex-shrink: 0;
+    object-fit: cover;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .author-identity__placeholder {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(var(--avatar-size) * 0.46);
+    font-weight: 600;
+    line-height: 1;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    user-select: none;
+  }
+
+  .author-identity__placeholder--system {
+    color: var(--muted);
+    background: var(--surface);
+  }
+
+  .author-identity__name {
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .author-identity__badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 999px;
+    padding: 0.15rem 0.4rem;
+  }
+</style>

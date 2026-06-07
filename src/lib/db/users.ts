@@ -76,6 +76,29 @@ export async function getUserById(db: D1Database, id: string): Promise<User | nu
 }
 
 /**
+ * Fetches multiple users by id in a single query (no N+1).
+ * Builds a parameterized IN clause from the id list.
+ * Returns an empty Map for empty input without querying D1.
+ */
+export async function getUsersByIds(db: D1Database, ids: string[]): Promise<Map<string, User>> {
+  if (ids.length === 0) return new Map();
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = (
+    await db
+      .prepare(`SELECT * FROM users WHERE id IN (${placeholders})`)
+      .bind(...ids)
+      .all<UserRow>()
+  ).results ?? [];
+
+  const result = new Map<string, User>();
+  for (const row of rows) {
+    result.set(row.id, rowToUser(row));
+  }
+  return result;
+}
+
+/**
  * Upserts a user from an auth event.
  *
  * id = drepId ?? stakeAddr (at least one must be provided).
