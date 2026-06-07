@@ -2,6 +2,8 @@
 // Parameterized D1 access for the users table.
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 
+import { sqlPlaceholders } from './sql.js';
+
 export interface User {
   id: string;
   drep_id: string | null;
@@ -83,7 +85,7 @@ export async function getUserById(db: D1Database, id: string): Promise<User | nu
 export async function getUsersByIds(db: D1Database, ids: string[]): Promise<Map<string, User>> {
   if (ids.length === 0) return new Map();
 
-  const placeholders = ids.map(() => '?').join(', ');
+  const placeholders = sqlPlaceholders(ids);
   const rows = (
     await db
       .prepare(`SELECT * FROM users WHERE id IN (${placeholders})`)

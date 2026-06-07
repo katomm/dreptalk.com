@@ -15,14 +15,19 @@ const db = env.DB as D1Database | undefined;
 const now = Date.now();
 
 const categories = getCategories();
-const stats = db ? await getCategoryStats(db) : new Map<string, { topicCount: number; lastPostAt: number | null }>();
-const latest = db ? await getLatestTopicsAcrossCategories(db, { limit: 20 }) : [];
 
-// Batch the author identities for the listed topics and the governance actions
-// for any governance-category rows (mini-tally), each in one query (no N+1).
-const identities = db ? await loadAuthorIdentities(db, latest.map((t) => t.author_id)) : null;
+// Category stats and the latest-topics list are independent; load them together.
+const [stats, latest] = db
+  ? await Promise.all([getCategoryStats(db), getLatestTopicsAcrossCategories(db, { limit: 20 })])
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), []];
+
+// Then the author identities and the governance actions for the listed topics,
+// both depending only on `latest` and independent of each other (one query each).
 const govTopicIds = latest.filter((t) => t.category_slug === GOVERNANCE_CATEGORY_SLUG).map((t) => t.id);
-const govByTopic = db && govTopicIds.length ? await getGovernanceActionsByTopicIds(db, govTopicIds) : new Map();
+const [identities, govByTopic] = await Promise.all([
+  db ? loadAuthorIdentities(db, latest.map((t) => t.author_id)) : Promise.resolve(null),
+  db && govTopicIds.length ? getGovernanceActionsByTopicIds(db, govTopicIds) : Promise.resolve(new Map()),
+]);
 
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 

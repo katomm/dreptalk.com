@@ -7,8 +7,9 @@ import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import type { Category } from '../../config/categories.js';
 import AuthorIdentity from './AuthorIdentity.astro';
+import TallyBar from './TallyBar.astro';
 import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
-import { statusBadge, tallyBar, epochCountdown } from '@/lib/governance/view.js';
+import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
 
 interface Props {
   topic: Topic;
@@ -19,13 +20,6 @@ interface Props {
 }
 
 const { topic, now, author, category, governance } = Astro.props;
-
-const STATUS_COLOR = {
-  active: 'var(--accent)',
-  positive: '#1a7f37',
-  negative: '#c0392b',
-  neutral: 'var(--muted)',
-} as const;
 
 const gaBadge = governance ? statusBadge(governance.status) : null;
 const gaBar = governance ? tallyBar(governance.drepYesPct, governance.drepNoPct) : null;
@@ -54,7 +48,7 @@ const gaCountdown = governance ? epochCountdown(governance.expiryEpoch, governan
         </a>
       )}
       {gaBadge && (
-        <span style={`font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:#fff;background:${STATUS_COLOR[gaBadge.tone]};border-radius:0.25rem;padding:0.05rem 0.4rem;`}>
+        <span style={`font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:#fff;background:${TONE_COLORS[gaBadge.tone]};border-radius:0.25rem;padding:0.05rem 0.4rem;`}>
           {gaBadge.label}
         </span>
       )}
@@ -70,12 +64,10 @@ const gaCountdown = governance ? epochCountdown(governance.expiryEpoch, governan
     {gaBar && (
       <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.4rem;max-width:320px;">
         <span style="font-size:0.6875rem;color:var(--muted);flex-shrink:0;">DRep</span>
-        <div style="flex:1;display:flex;height:6px;border-radius:999px;overflow:hidden;background:var(--border);">
-          <div style={`width:${gaBar.yes}%;background:#1a7f37;`}></div>
-          <div style={`width:${gaBar.no}%;background:#c0392b;`}></div>
-          <div style={`width:${gaBar.abstain}%;background:var(--muted);`}></div>
+        <div style="flex:1;">
+          <TallyBar bar={gaBar} height={6} />
         </div>
-        <span style="font-size:0.6875rem;color:var(--muted);flex-shrink:0;">{gaBar.yes.toFixed(0)}% yes</span>
+        <span style="font-size:0.6875rem;color:var(--muted);flex-shrink:0;">{fmtPct(gaBar.yes)} yes</span>
       </div>
     )}
   </div>

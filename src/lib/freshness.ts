@@ -51,5 +51,9 @@ export const FRESHNESS: readonly FreshnessRow[] = [
 ] as const;
 
 // Cron expressions for the gov-sync worker, documented alongside the cadences.
-export const CRON_GOVERNANCE = '*/15 * * * *';
-export const CRON_DREP_SYNC = '0 */6 * * *';
+// These MUST match the `crons` array in workers/gov-sync/wrangler.toml: the worker
+// dispatches on event.cron against these constants, so a mismatch is caught in the
+// first scheduled log after a deploy (the run falls through to the default branch).
+export const CRON_GOVERNANCE = '*/15 * * * *'; // discovery + active-action tallies
+export const CRON_VOTE_SYNC = '0 * * * *'; // per-post vote lists (hourly, active only)
+export const CRON_DREP_SYNC = '0 */6 * * *'; // DRep profile sync

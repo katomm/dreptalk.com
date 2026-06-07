@@ -92,3 +92,17 @@ export function voteTone(vote: string): StatusTone {
   if (v === 'no') return 'negative';
   return 'neutral';
 }
+
+// CSS color per tone, owned here next to the tone vocabulary so badges across
+// the header, list rows, and vote pills never drift.
+export const TONE_COLORS: Record<StatusTone, string> = {
+  active: 'var(--accent)',
+  positive: '#1a7f37',
+  negative: '#c0392b',
+  neutral: 'var(--muted)',
+};
+
+/** Formats a tally percentage: two decimals for tiny non-zero values, else whole. */
+export function fmtPct(n: number): string {
+  return `${n.toFixed(n > 0 && n < 1 ? 2 : 0)}%`;
+}

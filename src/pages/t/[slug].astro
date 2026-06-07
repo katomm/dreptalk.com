@@ -68,24 +68,27 @@ if (!notFound) {
 
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
-
-// Governance-action enrichment: the on-chain values (header) and the per-author
-// votes (per-post badges), both read from D1 (synced on a cron, shown "as of").
-const govAction = isGovernanceTopic && db && topic ? await getGovernanceActionByTopicId(db, topic.id) : null;
-const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string }>();
 const network = currentNetwork().network;
 
 const user = Astro.locals.user;
 const showComposer = !!user && !!topic && !topic.locked;
 
-// Community-flag viewer context. Only on-chain writers can flag, so the set of
-// posts the viewer already flagged is loaded (one batched query, no N+1) only
-// for writers. Per-post flag/visibility policy lives in postViewerContext.
+// Only on-chain writers can flag, so the flagged-id set is loaded for them only.
+// Per-post flag/visibility policy lives in postViewerContext.
 const viewerIsWriter = !!user && isWriter(user.roles);
-const flaggedPostIds =
+
+// Governance-action enrichment (header values) and the flagged-id set are
+// independent (different tables), so load them together. The per-author votes
+// then need govAction.id, so that one follows. All read from D1 ("as of").
+const [govAction, flaggedPostIds] = await Promise.all([
+  isGovernanceTopic && db && topic
+    ? getGovernanceActionByTopicId(db, topic.id)
+    : Promise.resolve(null),
   db && user && viewerIsWriter && posts.length
-    ? await getFlaggedPostIds(db, user.id, posts.map((p) => p.id))
-    : new Set<string>();
+    ? getFlaggedPostIds(db, user.id, posts.map((p) => p.id))
+    : Promise.resolve(new Set<string>()),
+]);
+const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string }>();
 
 const prevPage = page > 1 ? page - 1 : null;
 const nextPage = posts.length === PAGE_SIZE ? page + 1 : null;

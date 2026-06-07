@@ -1,20 +1,13 @@
 ---
 // Per-post badge showing an author's on-chain vote on the governance action.
-import { voteTone, type StatusTone } from '@/lib/governance/view.js';
+import { voteTone, TONE_COLORS } from '@/lib/governance/view.js';
 
 interface Props {
   vote: string;
 }
 
 const { vote } = Astro.props;
-
-const TONE_COLOR: Record<StatusTone, string> = {
-  positive: '#1a7f37',
-  negative: '#c0392b',
-  neutral: 'var(--muted)',
-  active: 'var(--accent)',
-};
-const color = TONE_COLOR[voteTone(vote)];
+const color = TONE_COLORS[voteTone(vote)];
 ---
 
 <span

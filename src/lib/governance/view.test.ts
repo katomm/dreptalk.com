@@ -6,6 +6,7 @@ import {
   epochCountdown,
   tallyBar,
   voteTone,
+  fmtPct,
 } from './view.js';
 
 describe('readableType / formatAda', () => {
@@ -51,6 +52,15 @@ describe('tallyBar', () => {
   });
   it('returns null when no tally exists', () => {
     expect(tallyBar(null, null)).toBeNull();
+  });
+});
+
+describe('fmtPct', () => {
+  it('uses two decimals for tiny non-zero values and whole numbers otherwise', () => {
+    expect(fmtPct(0.01)).toBe('0.01%');
+    expect(fmtPct(0)).toBe('0%');
+    expect(fmtPct(99.99)).toBe('100%');
+    expect(fmtPct(30)).toBe('30%');
   });
 });
 

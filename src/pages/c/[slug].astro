@@ -33,13 +33,15 @@ const topics = category && db
   : [];
 
 // Batch author identities for the page's topics, and (for the governance
-// category) the governance actions for the enriched rows. One query each, no N+1.
+// category) the governance actions for the enriched rows. Both depend only on
+// `topics` and are independent, so load them together. One query each, no N+1.
 const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
-const identities = db && topics.length ? await loadAuthorIdentities(db, topics.map((t) => t.author_id)) : null;
-const govByTopic =
+const [identities, govByTopic] = await Promise.all([
+  db && topics.length ? loadAuthorIdentities(db, topics.map((t) => t.author_id)) : Promise.resolve(null),
   db && isGovernanceCategory && topics.length
-    ? await getGovernanceActionsByTopicIds(db, topics.map((t) => t.id))
-    : new Map();
+    ? getGovernanceActionsByTopicIds(db, topics.map((t) => t.id))
+    : Promise.resolve(new Map()),
+]);
 
 if (!notFound) {
   Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));

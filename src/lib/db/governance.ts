@@ -2,6 +2,8 @@
 // Parameterized D1 access for the governance_actions table.
 // All queries use .prepare().bind(); never string-concatenated SQL.
 
+import { sqlPlaceholders } from './sql.js';
+
 /** Returns the set of governance-action ids already stored, for the sync diff. */
 export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
   const rows = (await db.prepare('SELECT id FROM governance_actions').all<{ id: string }>()).results ?? [];
@@ -197,7 +199,7 @@ export async function getGovernanceActionsByTopicIds(
 ): Promise<Map<string, GovernanceAction>> {
   if (topicIds.length === 0) return new Map();
 
-  const placeholders = topicIds.map(() => '?').join(', ');
+  const placeholders = sqlPlaceholders(topicIds);
   const rows = (
     await db
       .prepare(`SELECT * FROM governance_actions WHERE topic_id IN (${placeholders})`)
@@ -212,28 +214,23 @@ export async function getGovernanceActionsByTopicIds(
   return map;
 }
 
-export interface GovernanceTallyUpdate {
+// The tally + pct + epoch fields a sync writes: a subset of GovernanceAction, so
+// the field list lives in exactly one place (no drift with tallyFields()).
+export type GovernanceTally = Pick<
+  GovernanceAction,
+  | 'drepYes' | 'drepNo' | 'drepAbstain'
+  | 'spoYes' | 'spoNo' | 'spoAbstain'
+  | 'ccYes' | 'ccNo' | 'ccAbstain'
+  | 'drepYesPct' | 'drepNoPct' | 'spoYesPct' | 'spoNoPct' | 'ccYesPct' | 'ccNoPct'
+  | 'tallyEpoch'
+>;
+
+export type GovernanceTallyUpdate = GovernanceTally & {
   id: string;
   status: string;
-  drepYes: number | null;
-  drepNo: number | null;
-  drepAbstain: number | null;
-  spoYes: number | null;
-  spoNo: number | null;
-  spoAbstain: number | null;
-  ccYes: number | null;
-  ccNo: number | null;
-  ccAbstain: number | null;
-  drepYesPct: number | null;
-  drepNoPct: number | null;
-  spoYesPct: number | null;
-  spoNoPct: number | null;
-  ccYesPct: number | null;
-  ccNoPct: number | null;
-  tallyEpoch: number | null;
   tallySyncedAt: number;
   now: number;
-}
+};
 
 /** Updates the tally columns, pct columns, status, and sync timestamps in place. */
 export async function updateGovernanceTallyAndStatus(

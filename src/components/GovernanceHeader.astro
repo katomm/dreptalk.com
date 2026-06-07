@@ -5,8 +5,19 @@
 // shown with an explicit "as of" time and never claimed to be live.
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
-import { statusBadge, readableType, formatAda, epochCountdown, tallyBar, explorerUrl } from '@/lib/governance/view.js';
+import {
+  statusBadge,
+  readableType,
+  formatAda,
+  epochCountdown,
+  tallyBar,
+  explorerUrl,
+  fmtPct,
+  TONE_COLORS,
+  type TallyBar as TallyData,
+} from '@/lib/governance/view.js';
 import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
+import TallyBar from '@/components/TallyBar.astro';
 
 interface Props {
   action: GovernanceAction;
@@ -17,26 +28,26 @@ interface Props {
 const { action, network, now } = Astro.props;
 
 const badge = statusBadge(action.status);
-const STATUS_COLOR = {
-  active: 'var(--accent)',
-  positive: '#1a7f37',
-  negative: '#c0392b',
-  neutral: 'var(--muted)',
-} as const;
-const badgeColor = STATUS_COLOR[badge.tone];
+const badgeColor = TONE_COLORS[badge.tone];
 
 const deposit = formatAda(action.deposit);
 const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
 const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
 
-// The three role tallies, built once. A role with no synced pct is skipped.
+interface TallyEntry {
+  label: string;
+  bar: TallyData;
+  yes: number | null;
+  no: number | null;
+  abstain: number | null;
+}
+
+// The three role tallies, built once. A role with no synced pct is dropped.
 const tallies = [
   { label: 'DRep', bar: tallyBar(action.drepYesPct, action.drepNoPct), yes: action.drepYes, no: action.drepNo, abstain: action.drepAbstain },
   { label: 'SPO', bar: tallyBar(action.spoYesPct, action.spoNoPct), yes: action.spoYes, no: action.spoNo, abstain: action.spoAbstain },
   { label: 'CC', bar: tallyBar(action.ccYesPct, action.ccNoPct), yes: action.ccYes, no: action.ccNo, abstain: action.ccAbstain },
-].filter((t) => t.bar !== null);
-
-const fmtPct = (n: number) => `${n.toFixed(n < 1 && n > 0 ? 2 : 0)}%`;
+].filter((t): t is TallyEntry => t.bar !== null);
 ---
 
 <section style="border:1px solid var(--border);border-radius:0.5rem;padding:1rem 1.25rem;margin-bottom:1.5rem;background:color-mix(in srgb, var(--accent) 3%, var(--surface));">
@@ -72,17 +83,13 @@ const fmtPct = (n: number) => `${n.toFixed(n < 1 && n > 0 ? 2 : 0)}%`;
           <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--muted);margin-bottom:0.2rem;">
             <span style="font-weight:600;color:var(--fg);">{t.label}</span>
             <span>
-              {fmtPct(t.bar!.yes)} yes &middot; {fmtPct(t.bar!.no)} no
+              {fmtPct(t.bar.yes)} yes &middot; {fmtPct(t.bar.no)} no
               {(t.yes != null || t.no != null || t.abstain != null) && (
                 <span> ({t.yes ?? 0}/{t.no ?? 0}/{t.abstain ?? 0})</span>
               )}
             </span>
           </div>
-          <div style="display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--border);">
-            <div style={`width:${t.bar!.yes}%;background:#1a7f37;`}></div>
-            <div style={`width:${t.bar!.no}%;background:#c0392b;`}></div>
-            <div style={`width:${t.bar!.abstain}%;background:var(--muted);`}></div>
-          </div>
+          <TallyBar bar={t.bar} height={8} />
         </div>
       ))}
       {asOf && (

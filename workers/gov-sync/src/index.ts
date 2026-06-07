@@ -1,9 +1,10 @@
 /// <reference types="@cloudflare/workers-types" />
-// Standalone cron worker: two triggers share this handler.
-//   */15 * * * *  pulls on-chain governance actions from Koios and opens one
-//                 system thread per new action (fast, low-volume).
-//   0 */6 * * *   enumerates every registered DRep and persists profile data
-//                 (heavier, runs every 6 hours).
+// Standalone cron worker: three triggers share this handler, dispatched on
+// event.cron against the constants in src/lib/freshness.js (kept in sync with
+// wrangler.toml's `crons`).
+//   */15 * * * *  discover governance actions + refresh active-action tallies.
+//   0 * * * *     refresh the larger per-post vote lists (active actions only).
+//   0 */6 * * *   enumerate every registered DRep and persist profile data.
 // Shares the app's D1 database.
 //
 // Deployed separately from the Pages/Workers app (see
@@ -12,9 +13,10 @@
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
 import { bytesToHex } from '../../../src/lib/crypto/hex.js';
+import { CRON_VOTE_SYNC, CRON_DREP_SYNC } from '../../../src/lib/freshness.js';
 import { syncGovernanceActions } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes } from '../../../src/lib/governance/tallySync.js';
-import { syncDreps, type DrepSyncResult } from '../../../src/lib/dreps/sync.js';
+import { syncDreps } from '../../../src/lib/dreps/sync.js';
 
 interface Env {
   DB: D1Database;
@@ -27,63 +29,61 @@ function randSuffix(): string {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(4)));
 }
 
-/** Resolves the network and a Koios client from env bindings. Shared by both paths. */
+/** Resolves the network and a Koios client from env bindings. Shared by all paths. */
 function buildKoios(env: Env) {
   const { network, koiosBaseUrl } = resolveNetwork(env.CARDANO_NETWORK ?? null);
   const koios = createKoiosClient({ baseUrl: koiosBaseUrl, token: env.KOIOS_API_KEY || undefined });
   return { koios, network };
 }
 
-// Governance cycle: discover new actions, refresh tallies + lifecycle for active
-// actions every cycle, and refresh the larger per-post vote lists hourly only.
+// Discover new actions, then refresh tallies + lifecycle for active actions.
 async function runGovernanceSync(env: Env): Promise<void> {
   const { koios, network } = buildKoios(env);
   const now = Date.now();
 
-  const disc = await syncGovernanceActions({ koios, db: env.DB, network, now, rand: randSuffix });
+  // Discovery and the tip lookup are independent; run them together.
+  const [disc, tip] = await Promise.all([
+    syncGovernanceActions({ koios, db: env.DB, network, now, rand: randSuffix }),
+    koios.tip(),
+  ]);
   console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
 
-  const tip = await koios.tip();
   const tally = await syncGovernanceTallies({ koios, db: env.DB, currentEpoch: tip.epoch_no, now });
   console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
-
-  // Vote lists are larger and per-post badges do not need 15-min freshness, so
-  // refresh them only at the top of the hour (the cron fires every 15 min).
-  if (new Date(now).getUTCMinutes() < 15) {
-    const votes = await syncGovernanceVotes({ koios, db: env.DB, now });
-    console.log(`[gov-votes] actions=${votes.actions} votes=${votes.votes} failed=${votes.failed}`);
-  }
 }
 
-async function runDrepSync(env: Env): Promise<DrepSyncResult> {
+// Refresh the per-post vote lists (active actions only). Hourly: vote lists are
+// larger and per-post badges do not need 15-minute freshness.
+async function runVoteSync(env: Env): Promise<void> {
   const { koios } = buildKoios(env);
-  return syncDreps({ koios, db: env.DB, fetchImpl: fetch, now: Date.now() });
+  const r = await syncGovernanceVotes({ koios, db: env.DB, now: Date.now() });
+  console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
 }
 
-// The cron expression that triggers the DRep sync (every 6 hours on the hour).
-const DREP_SYNC_CRON = '0 */6 * * *';
+async function runDrepSync(env: Env): Promise<void> {
+  const { koios } = buildKoios(env);
+  const r = await syncDreps({ koios, db: env.DB, fetchImpl: fetch, now: Date.now() });
+  console.log(
+    `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} anchorsFetched=${r.anchorsFetched} failed=${r.failed}`,
+  );
+}
 
 export default {
   async scheduled(event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     // Await the sync directly: it is the handler's whole job, so the runtime
-    // should keep the invocation alive until it finishes (and `wrangler dev
+    // keeps the invocation alive until it finishes (and `wrangler dev
     // --test-scheduled` only returns once it resolves).
-    if (event.cron === DREP_SYNC_CRON) {
-      try {
-        const r = await runDrepSync(env);
-        console.log(
-          `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} anchorsFetched=${r.anchorsFetched} failed=${r.failed}`,
-        );
-      } catch (err) {
-        console.error('[drep-sync] run failed', err);
-      }
-    } else {
-      // Default: governance-action sync (*/15 * * * *). Logs each phase itself.
-      try {
+    try {
+      if (event.cron === CRON_DREP_SYNC) {
+        await runDrepSync(env);
+      } else if (event.cron === CRON_VOTE_SYNC) {
+        await runVoteSync(env);
+      } else {
+        // Default: the */15 governance discovery + tally cycle.
         await runGovernanceSync(env);
-      } catch (err) {
-        console.error('[gov-sync] run failed', err);
       }
+    } catch (err) {
+      console.error(`[gov-sync] scheduled run failed (cron=${event.cron})`, err);
     }
   },
 

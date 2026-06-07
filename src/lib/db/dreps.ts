@@ -3,6 +3,8 @@
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 // Stores on-chain DRep status and CIP-119 profile data synced from Koios.
 
+import { sqlPlaceholders } from './sql.js';
+
 export interface Drep {
   drepId: string;
   hex: string | null;
@@ -87,7 +89,7 @@ export async function getDrepById(db: D1Database, drepId: string): Promise<Drep 
 export async function getDrepsByIds(db: D1Database, ids: string[]): Promise<Map<string, Drep>> {
   if (ids.length === 0) return new Map();
 
-  const placeholders = ids.map(() => '?').join(', ');
+  const placeholders = sqlPlaceholders(ids);
   const rows = (
     await db
       .prepare(`SELECT * FROM dreps WHERE drep_id IN (${placeholders})`)

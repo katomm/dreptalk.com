@@ -11,11 +11,13 @@ database_name = "dreptalk"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "../../migrations"
 
-# Two cron triggers:
-#   */15 * * * *  governance actions (low-frequency, fast)
+# Three cron triggers (the expressions are mirrored as constants in
+# src/lib/freshness.ts, which the worker dispatches on; keep them in sync):
+#   */15 * * * *  governance discovery + active-action tallies (fast)
+#   0 * * * *     per-post vote lists (hourly, active actions only)
 #   0 */6 * * *   DRep sync (heavy: enumerates all DReps, runs every 6 h)
 [triggers]
-crons = ["*/15 * * * *", "0 */6 * * *"]
+crons = ["*/15 * * * *", "0 * * * *", "0 */6 * * *"]
 
 # CARDANO_NETWORK is intentionally NOT set here: unset defaults to mainnet in
 # production. For local preprod runs, set it in workers/gov-sync/.dev.vars

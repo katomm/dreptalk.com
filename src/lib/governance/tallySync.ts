@@ -10,6 +10,7 @@ import {
   getActiveGovernanceActions,
   updateGovernanceTallyAndStatus,
   type GovernanceAction,
+  type GovernanceTally,
 } from '../db/governance.js';
 import { upsertVotes, type VoteInput } from '../db/drepVotes.js';
 
@@ -64,7 +65,7 @@ export function deriveStatus(
 }
 
 /** Maps a Koios voting summary onto the tally-update fields (null-tolerant). */
-function tallyFields(s: VotingSummary | null) {
+function tallyFields(s: VotingSummary | null): GovernanceTally {
   return {
     drepYes: s?.drep_yes_votes_cast ?? null,
     drepNo: s?.drep_no_votes_cast ?? null,
