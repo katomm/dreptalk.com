@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { syncDreps } from './sync.js';
 import { getDrepById } from '../db/dreps.js';
+import { putDrepMetadata, getDrepMetadata } from '../db/drepMetadata.js';
 import type { DrepListRow, DrepInfoRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
@@ -263,6 +264,36 @@ describe('syncDreps', () => {
     // Spot-check one id from each page made it into D1.
     expect(await getDrepById(env.DB, 'drep1-page-a-0')).not.toBeNull();
     expect(await getDrepById(env.DB, 'drep1-page-b-2')).not.toBeNull();
+  });
+
+  it('garbage-collects hosted metadata for unregistered drep ids, keeping registered ones', async () => {
+    const reg = 'drep1-gc-registered';
+    const junk = 'drep1-gc-junk-unregistered';
+    const { koios } = fakeKoios({ pages: [[listRow(reg)]], infoById: new Map([[reg, infoRow(reg)]]) });
+
+    // Old hosted metadata: one for the registered drep (keep), one pure junk (delete).
+    await putDrepMetadata(env.DB, { drepId: reg, body: '{}', hash: 'a'.repeat(64), name: 'Reg', createdAt: 1000 });
+    await putDrepMetadata(env.DB, { drepId: junk, body: '{}', hash: 'b'.repeat(64), name: 'Junk', createdAt: 1000 });
+
+    const result = await syncDreps({ koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+
+    expect(result.gcDeleted).toBeGreaterThanOrEqual(1);
+    expect(await getDrepMetadata(env.DB, reg)).not.toBeNull(); // registered -> kept
+    expect(await getDrepMetadata(env.DB, junk)).toBeNull(); // unregistered junk -> deleted
+  });
+
+  it('does NOT garbage-collect when the enumeration is empty (transient empty drep_list)', async () => {
+    // A transient empty drep_list must not be read as "no DReps exist" and wipe
+    // every hosted document.
+    const orphan = 'drep1-empty-enum-orphan';
+    await putDrepMetadata(env.DB, { drepId: orphan, body: '{}', hash: 'c'.repeat(64), name: 'Orphan', createdAt: 1000 });
+    const { koios } = fakeKoios({ pages: [[]], infoById: new Map() });
+
+    const result = await syncDreps({ koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+
+    expect(result.total).toBe(0);
+    expect(result.gcDeleted).toBe(0);
+    expect(await getDrepMetadata(env.DB, orphan)).not.toBeNull(); // preserved
   });
 
   it('skips DReps that are not registered', async () => {

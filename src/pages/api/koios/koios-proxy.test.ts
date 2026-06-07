@@ -30,14 +30,14 @@ beforeEach(() => {
 });
 
 describe('koios proxy: GET forwarding', () => {
-  it('forwards GET /api/koios/drep_info?_select=drep_id to the Koios host and returns upstream body+status', async () => {
-    const upstream = [{ drep_id: 'drep1abc', drep_status: 'registered' }];
+  it('forwards GET /api/koios/epoch_params (allowed read endpoint) to the Koios host and returns upstream body+status', async () => {
+    const upstream = [{ epoch_no: 500, min_fee_a: 44 }];
     const mockFetch = vi.fn().mockResolvedValue(jsonResponse(upstream, 200));
     _setFetchImpl(mockFetch as unknown as typeof fetch);
 
     const ctx = makeContext(
       'GET',
-      'https://dreptalk.com/api/koios/drep_info?_select=drep_id',
+      'https://dreptalk.com/api/koios/epoch_params?limit=1&order=epoch_no.desc',
     );
 
     const res = await GET(ctx);
@@ -50,8 +50,21 @@ describe('koios proxy: GET forwarding', () => {
     expect(mockFetch).toHaveBeenCalledOnce();
     const calledUrl = mockFetch.mock.calls[0][0] as string;
     expect(calledUrl).toMatch(/koios\.rest/);
-    expect(calledUrl).toContain('/drep_info');
-    expect(calledUrl).toContain('_select=drep_id');
+    expect(calledUrl).toContain('/epoch_params');
+    expect(calledUrl).toContain('order=epoch_no.desc');
+  });
+
+  it('rejects GET to a non-allowlisted path with 403 and never calls upstream', async () => {
+    const mockFetch = vi.fn();
+    _setFetchImpl(mockFetch as unknown as typeof fetch);
+
+    // tip is a real Koios endpoint but is not routed through this proxy, so
+    // deny-by-default must reject it without contacting the upstream.
+    const ctx = makeContext('GET', 'https://dreptalk.com/api/koios/tip');
+    const res = await GET(ctx);
+
+    expect(res.status).toBe(403);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('injects the Bearer token when KOIOS_API_KEY is set', async () => {
@@ -61,7 +74,7 @@ describe('koios proxy: GET forwarding', () => {
       const mockFetch = vi.fn().mockResolvedValue(jsonResponse(upstream));
       _setFetchImpl(mockFetch as unknown as typeof fetch);
 
-      const ctx = makeContext('GET', 'https://dreptalk.com/api/koios/tip');
+      const ctx = makeContext('GET', 'https://dreptalk.com/api/koios/epoch_params');
       await GET(ctx);
 
       const callInit = mockFetch.mock.calls[0][1] as RequestInit & {
@@ -82,13 +95,13 @@ describe('koios proxy: GET forwarding', () => {
     const mockFetch = vi.fn().mockResolvedValue(jsonResponse([{ ok: true }]));
     _setFetchImpl(mockFetch as unknown as typeof fetch);
 
-    const req = new Request('https://dreptalk.com/api/koios/tip', {
+    const req = new Request('https://dreptalk.com/api/koios/epoch_params', {
       method: 'GET',
       headers: { cookie: 'session=secret', authorization: 'Bearer client-token' },
     });
     const ctx = {
       request: req,
-      params: { path: 'tip' },
+      params: { path: 'epoch_params' },
     } as unknown as Parameters<typeof GET>[0];
 
     await GET(ctx);

@@ -101,10 +101,16 @@ beforeEach(() => {
 
 // ---------------------------------------------------------------------------
 // Tests
+//
+// Writing now requires proof of control of the DRep key (a CIP-8 signature over
+// a fresh challenge). The full happy path is covered, with a real DRep fixture,
+// in src/lib/governance/drepMetadataHandler.workers.test.ts. The route tests
+// below cover the gates that need no valid signature: rate limiting, malformed
+// input, and the rejection of a well-formed body that omits the proof.
 // ---------------------------------------------------------------------------
 
-describe('POST /api/drep/metadata: valid input', () => {
-  it('returns 200 with { url, hash } and stores the row in D1', async () => {
+describe('POST /api/drep/metadata: proof of control required', () => {
+  it('returns 400 and stores nothing when a well-formed body omits the signature', async () => {
     const ctx = makeCtx({
       drepId: VALID_DREP_ID,
       name: 'Alice Cardano',
@@ -114,21 +120,8 @@ describe('POST /api/drep/metadata: valid input', () => {
 
     const res = await POST(ctx);
 
-    expect(res.status).toBe(200);
-    const json = await res.json() as { url: string; hash: string };
-
-    // url must be the absolute metadata URL.
-    expect(json.url).toBe(`${ORIGIN}/drep/${VALID_DREP_ID}/metadata.json`);
-
-    // hash must be 64 lowercase hex chars.
-    expect(json.hash).toMatch(/^[0-9a-f]{64}$/);
-
-    // D1 must have received the row (bound args: drepId, body, hash, name, createdAt).
-    expect(fakeDb.lastBound).not.toBeNull();
-    const [boundDrepId, _body, boundHash, boundName] = fakeDb.lastBound as unknown[];
-    expect(boundDrepId).toBe(VALID_DREP_ID);
-    expect(boundHash).toBe(json.hash);
-    expect(boundName).toBe('Alice Cardano');
+    expect(res.status).toBe(400);
+    expect(fakeDb.lastBound).toBeNull();
   });
 });
 
@@ -155,24 +148,6 @@ describe('POST /api/drep/metadata: invalid drepId', () => {
     const ctx = makeCtx({ name: 'Alice', bio: 'bio', links: [] });
     const res = await POST(ctx);
     expect(res.status).toBe(400);
-  });
-});
-
-describe('POST /api/drep/metadata: javascript: link', () => {
-  it('returns 200 (javascript: link dropped by builder, no crash)', async () => {
-    const ctx = makeCtx({
-      drepId: VALID_DREP_ID,
-      name: 'Bob',
-      bio: 'bio',
-      links: ['javascript:alert(1)', 'https://bob.example.com'],
-    });
-
-    const res = await POST(ctx);
-
-    // Must not 500: the builder silently drops the bad link.
-    expect(res.status).toBe(200);
-    const json = await res.json() as { url: string; hash: string };
-    expect(json.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

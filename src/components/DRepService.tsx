@@ -11,7 +11,7 @@ import { registerDRep, retireDRep } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
 import { blake2b224 } from '@/lib/crypto/blake.js';
-import { hexToBytes } from '@/lib/crypto/hex.js';
+import { hexToBytes, bytesToHex } from '@/lib/crypto/hex.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { walletErrorDetail } from '@/lib/wallet/walletError.js';
@@ -21,6 +21,13 @@ import { walletErrorDetail } from '@/lib/wallet/walletError.js';
 // registerDRep) with the cip95 reader we need to derive the DRep key.
 type EnabledWalletApi = TxWalletApi & {
   cip95?: { getPubDRepKey(): Promise<string> };
+};
+
+// CIP-30 DataSignature ({ signature: COSE_Sign1 hex, key: COSE_Key hex }). The
+// shared Tx WalletApi models signData's return loosely, so we read it through
+// this precise shape when proving control of the DRep key.
+type DataSigner = {
+  signData(addr: string, payloadHex: string): Promise<{ signature: string; key: string }>;
 };
 
 // A few sensible, light client-side limits. The /api/drep/metadata endpoint is
@@ -176,7 +183,32 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
     setPhase({ status: 'submitting', identity, action: 'register' });
 
     try {
-      // 4a: host the CIP-119 metadata, get its URL + hash.
+      // Reuse the api stored during the connect step; no second enable() needed.
+      const api = enabledApiRef.current;
+      if (!api) {
+        setPhase({ status: 'error', message: 'Wallet connection was lost. Please reconnect.' });
+        return;
+      }
+
+      // 4a: prove control of the DRep key, then host the CIP-119 metadata.
+      // Hosting requires a CIP-8 signature over a fresh challenge so that only
+      // the key owner can write metadata for this drep id.
+      const challengeRes = await fetch('/api/auth/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      if (!challengeRes.ok) {
+        setPhase({ status: 'error', message: 'Could not start the signing step. Please try again.' });
+        return;
+      }
+      const { payload } = (await challengeRes.json()) as { payload: string };
+      const payloadHex = bytesToHex(new TextEncoder().encode(payload));
+      const { signature, key } = await (api as unknown as DataSigner).signData(
+        bytesToHex(identity.drepKeyHash),
+        payloadHex,
+      );
+
       const metaRes = await fetch('/api/drep/metadata', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -185,6 +217,9 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           name: trimmedName,
           bio: bio.trim(),
           links: parseLinks(links),
+          payload,
+          signatureHex: signature,
+          keyHex: key,
         }),
       });
       if (!metaRes.ok) {
@@ -200,13 +235,6 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
       const { url, hash } = (await metaRes.json()) as { url: string; hash: string };
 
       // 4b + 4c: the wallet builds, signs (deposit + fee shown here), submits.
-      // Reuse the api stored during the connect step; no second enable() needed.
-      const api = enabledApiRef.current;
-      if (!api) {
-        setPhase({ status: 'error', message: 'Wallet connection was lost. Please reconnect.' });
-        return;
-      }
-
       const { txHash } = await registerDRep({
         walletApi: api,
         network,
