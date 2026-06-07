@@ -1,0 +1,38 @@
+---
+export const prerender = false;
+
+import HelpLayout from '@/layouts/HelpLayout.astro';
+---
+
+<HelpLayout
+  title="Moderation - DRepTalk"
+  description="How moderation works on DRepTalk: community flagging today, with appointed moderators a possibility later."
+  crumb="Moderation"
+>
+  <p style="color:var(--muted);max-width:62ch;line-height:1.6;">
+    DRepTalk keeps moderation light and transparent. There are no appointed
+    moderators today: the community itself decides what stays. We may bring in
+    moderators later as the forum grows, but for now a single, simple rule governs
+    what gets hidden.
+  </p>
+
+  <section style="margin-top:1.75rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">How flagging works today</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Any signed-in member can flag a post they consider abusive, spam, or off-topic.
+      Once a post has been flagged by <strong>3 different people</strong>, it is
+      automatically hidden from the forum. No single person can take a post down on
+      their own: it always takes three independent flags, so one bad actor cannot
+      silence a discussion.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Looking ahead</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Appointed moderators with additional tools are a possibility for the future,
+      especially as the community scales. Until then, community flagging is the only
+      moderation mechanism, and the threshold is kept deliberately simple.
+    </p>
+  </section>
+</HelpLayout>
