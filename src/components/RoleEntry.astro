@@ -1,9 +1,9 @@
 ---
 // Role-aware sign-in control. The primary action enters as a DRep; the chevron
 // reveals the other on-chain writing roles. Reading the forum is public, this
-// only gates who can post. SPO and CC-member sign-in are not built yet, so they
-// render as disabled "soon" rows. Built on a native <details> so it needs no
-// client JS (the strict CSP forbids inline scripts).
+// only gates who can post. SPO (Calidus key) and CC-member sign-in use the
+// offline paste flow; proposer uses the wallet flow. Built on a native <details>
+// so it needs no client JS (the strict CSP forbids inline scripts).
 interface Props {
   layout?: 'split' | 'flat';
 }
@@ -12,8 +12,8 @@ const { layout = 'split' } = Astro.props;
 // Roles revealed beyond the primary "Enter as DRep" action. Order follows the
 // product framing; entries without an href are not implemented yet.
 const moreRoles: Array<{ label: string; href?: string }> = [
-  { label: 'Enter as SPO' },
-  { label: 'Enter as CC member' },
+  { label: 'Enter as SPO', href: '/login?role=spo' },
+  { label: 'Enter as CC member', href: '/login?role=cc' },
   { label: 'Enter as proposer', href: '/login?role=proposer' },
 ];
 ---

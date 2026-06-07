@@ -6,6 +6,7 @@ import {
   stakeAddressFromPubKey,
   keyHashMatchesAddress,
   cip105ToCip129,
+  ccHotKeyHashHex,
 } from './identity.js';
 import { hexToBytes, bytesToHex } from '../crypto/hex.js';
 import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
@@ -121,6 +122,24 @@ describe('keyHashMatchesAddress', () => {
       baseAddrNoMatch.fill(0x22, 29, 57); // stake slot: all 0x22 (wrong)
       expect(keyHashMatchesAddress(pubKey, baseAddrNoMatch)).toBe(false);
     });
+  });
+});
+
+describe('ccHotKeyHashHex', () => {
+  it('returns the lowercase blake2b-224 hash of the pubkey as hex (matches Koios cc_hot_hex)', () => {
+    // For the DREP fixture pubkey, blake2b224 == the 28-byte hash inside the
+    // CIP-129 drep address (everything after the 0x22 header). The CC hot key
+    // hash is computed the same way (blake2b224 of the Ed25519 pubkey), which is
+    // exactly what Koios /committee_info returns as cc_hot_hex.
+    const pubKey = hexToBytes(DREP_VECTOR.expectedPubKeyHex);
+    const expectedHash = DREP_VECTOR.expectedDrepAddrHex.slice(2); // drop 0x22 header
+    expect(ccHotKeyHashHex(pubKey)).toBe(expectedHash);
+  });
+
+  it('produces a 56-character (28-byte) lowercase hex string', () => {
+    const pubKey = hexToBytes(STAKE_VECTOR.expectedPubKeyHex);
+    const hash = ccHotKeyHashHex(pubKey);
+    expect(hash).toMatch(/^[0-9a-f]{56}$/);
   });
 });
 

@@ -128,3 +128,51 @@ describe('upsertUserFromAuth (proposer)', () => {
     expect(user.is_drep).toBe(false);
   });
 });
+
+describe('upsertUserFromAuth (spo)', () => {
+  it('inserts a new spo user keyed by poolId with pool_id set and is_spo true', async () => {
+    const poolId = `pool1-insert-spo-${NOW}`;
+    const user = await upsertUserFromAuth(db(), {
+      poolId,
+      roles: ['spo'],
+      now: NOW,
+    });
+
+    expect(user.id).toBe(poolId);
+    expect(user.pool_id).toBe(poolId);
+    expect(user.is_spo).toBe(true);
+    expect(user.is_drep).toBe(false);
+    expect(user.is_cc).toBe(false);
+    expect(user.drep_id).toBeNull();
+    expect(user.stake_addr).toBeNull();
+    expect(user.role).toBe('member');
+    expect(user.created_at).toBe(NOW);
+  });
+
+  it('re-auth keeps created_at and updates last_verified_at', async () => {
+    const poolId = `pool1-reauth-spo-${NOW}`;
+    await upsertUserFromAuth(db(), { poolId, roles: ['spo'], now: NOW });
+    const updated = await upsertUserFromAuth(db(), { poolId, roles: ['spo'], now: NOW + 600 });
+    expect(updated.created_at).toBe(NOW);
+    expect(updated.last_verified_at).toBe(NOW + 600);
+    expect(updated.is_spo).toBe(true);
+  });
+});
+
+describe('upsertUserFromAuth (cc)', () => {
+  it('inserts a new cc user keyed by ccCred with cc_cred set and is_cc true', async () => {
+    const ccCred = `cc_cold1-insert-cc-${NOW}`;
+    const user = await upsertUserFromAuth(db(), {
+      ccCred,
+      roles: ['cc'],
+      now: NOW,
+    });
+
+    expect(user.id).toBe(ccCred);
+    expect(user.cc_cred).toBe(ccCred);
+    expect(user.is_cc).toBe(true);
+    expect(user.is_drep).toBe(false);
+    expect(user.is_spo).toBe(false);
+    expect(user.is_proposer).toBe(false);
+  });
+});

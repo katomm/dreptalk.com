@@ -100,13 +100,17 @@ export async function getUsersByIds(db: D1Database, ids: string[]): Promise<Map<
   return result;
 }
 
+/** A writer role proven on-chain at login. */
+export type AuthRole = 'drep' | 'proposer' | 'spo' | 'cc';
+
 /**
  * Upserts a user from an auth event.
  *
- * id = drepId ?? stakeAddr (at least one must be provided).
+ * id = drepId ?? stakeAddr ?? poolId ?? ccCred (at least one must be provided);
+ * each on-chain credential is its own account in v1 (no cross-credential merge).
  * On INSERT: sets all known fields, created_at and last_verified_at = now.
  * On CONFLICT: updates last_verified_at, ORs in new role flags,
- *   sets drep_id/stake_addr if not already set (COALESCE).
+ *   sets the credential strings if not already set (COALESCE).
  *   created_at is never overwritten.
  *
  * Returns the resulting row via getUserById.
@@ -116,18 +120,22 @@ export async function upsertUserFromAuth(
   args: {
     drepId?: string;
     stakeAddr?: string;
-    roles: ('drep' | 'proposer')[];
+    poolId?: string;
+    ccCred?: string;
+    roles: AuthRole[];
     now: number;
   },
 ): Promise<User> {
-  const { drepId, stakeAddr, roles, now } = args;
-  const id = drepId ?? stakeAddr;
+  const { drepId, stakeAddr, poolId, ccCred, roles, now } = args;
+  const id = drepId ?? stakeAddr ?? poolId ?? ccCred;
   if (!id) {
-    throw new Error('upsertUserFromAuth: either drepId or stakeAddr must be provided');
+    throw new Error('upsertUserFromAuth: at least one credential (drepId, stakeAddr, poolId, ccCred) must be provided');
   }
 
   const isDrep = roles.includes('drep') ? 1 : 0;
   const isProposer = roles.includes('proposer') ? 1 : 0;
+  const isSpo = roles.includes('spo') ? 1 : 0;
+  const isCc = roles.includes('cc') ? 1 : 0;
 
   // Single INSERT ... ON CONFLICT upsert.
   // On conflict: OR in new role flags, COALESCE to keep existing credential strings,
@@ -135,16 +143,20 @@ export async function upsertUserFromAuth(
   await db
     .prepare(
       `INSERT INTO users
-         (id, drep_id, stake_addr, is_drep, is_proposer, role, status, created_at, last_verified_at)
-       VALUES (?, ?, ?, ?, ?, 'member', 'active', ?, ?)
+         (id, drep_id, stake_addr, pool_id, cc_cred, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          last_verified_at = excluded.last_verified_at,
          is_drep          = is_drep | excluded.is_drep,
          is_proposer      = is_proposer | excluded.is_proposer,
+         is_spo           = is_spo | excluded.is_spo,
+         is_cc            = is_cc | excluded.is_cc,
          drep_id          = COALESCE(drep_id, excluded.drep_id),
-         stake_addr       = COALESCE(stake_addr, excluded.stake_addr)`,
+         stake_addr       = COALESCE(stake_addr, excluded.stake_addr),
+         pool_id          = COALESCE(pool_id, excluded.pool_id),
+         cc_cred          = COALESCE(cc_cred, excluded.cc_cred)`,
     )
-    .bind(id, drepId ?? null, stakeAddr ?? null, isDrep, isProposer, now, now)
+    .bind(id, drepId ?? null, stakeAddr ?? null, poolId ?? null, ccCred ?? null, isDrep, isProposer, isSpo, isCc, now, now)
     .run();
 
   const user = await getUserById(db, id);

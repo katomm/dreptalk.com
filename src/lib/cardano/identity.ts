@@ -3,6 +3,7 @@
 import { blake2b224 } from '../crypto/blake.js';
 import { encodeBech32, decodeBech32 } from '../crypto/bech32.js';
 import { bytesEqual } from '../crypto/bytes.js';
+import { bytesToHex } from '../crypto/hex.js';
 
 // CIP-129 header byte for DRep key hash credentials.
 const DREP_KEY_HEADER = 0x22;
@@ -28,6 +29,18 @@ export function drepIdFromKeyHash(keyHash: Uint8Array): string {
  */
 export function drepIdFromPubKey(pubKey: Uint8Array): string {
   return drepIdFromKeyHash(blake2b224(pubKey));
+}
+
+/**
+ * Returns the hex-encoded Blake2b-224 hash of a raw Ed25519 public key.
+ *
+ * This is the credential hash format Koios stores as `cc_hot_hex` in the
+ * /committee_info response: a CC hot key is an ordinary Ed25519 key, and its
+ * credential is blake2b-224(pubkey). Used to match a CC member's signing key
+ * against the authorized committee hot credentials.
+ */
+export function ccHotKeyHashHex(pubKey: Uint8Array): string {
+  return bytesToHex(blake2b224(pubKey));
 }
 
 /**
