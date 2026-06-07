@@ -12,6 +12,8 @@ Astro (SSR) on Cloudflare Workers, with D1 and KV. A standalone cron worker inge
 
 Moderation is community-first: any on-chain writer (DRep, SPO, CC member, or proposer) can flag a post, and a post is hidden behind a placeholder once three distinct writers have flagged it. Every writer is a wallet-verified governance participant, and registering as a DRep locks a refundable 500 ADA deposit, so coordinated abuse is expensive and this lightweight check is expected to be enough in early operation; the post author and moderators can still read a hidden post. Moderators and admins can be granted by stake address through the `MODERATORS` env value (comma-separated `stakeAddress` or `stakeAddress:role`, role `admin` or `moderator`), empty by default: they sign in with the normal stake-key wallet flow, and the allowlist only adds the moderation role.
 
+On-chain values (governance tallies and status, DRep profiles, per-post vote badges) are synced on crons and are cached, not live; every place they appear shows an "as of" time. The exact cadences live in one place, `src/lib/freshness.ts`, and are published at `/docs/data-freshness`.
+
 The legal pages (`/imprint`, `/privacy`) read the operator and contact details from env so they stay out of the repository: `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_ADDRESS` (separate lines with `|`), `LEGAL_CONTACT_EMAIL`, optional `LEGAL_RESPONSIBLE_PERSON`, `LEGAL_PHONE`, `LEGAL_VAT_ID`. Set them in `.dev.vars` locally and as Worker vars in production.
 
 ## Local development

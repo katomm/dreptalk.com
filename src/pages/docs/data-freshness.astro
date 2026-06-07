@@ -1,0 +1,50 @@
+---
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import { FRESHNESS } from '@/lib/freshness.js';
+
+// Public docs; cache at the edge but keep it reasonably fresh if cadences change.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+---
+
+<Layout
+  title="Data freshness - DRepTalk"
+  description="How often DRepTalk refreshes on-chain values: governance tallies, DRep profiles, and vote badges. Cached, not live."
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Data freshness</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.5rem;">Data freshness</h1>
+  <p style="color:var(--muted);max-width:60ch;line-height:1.6;">
+    DRepTalk reads on-chain data (governance tallies and status, DRep profiles, vote badges)
+    on a schedule, not on every page load. That keeps the platform fast and cheap to run.
+    It also means these values are <strong>cached, not live</strong>: each one is shown with an
+    explicit &ldquo;as of&rdquo; time, and we never claim it is live. Forum posts themselves
+    are never delayed. Here is how often each thing updates.
+  </p>
+
+  <div style="overflow-x:auto;margin-top:1.5rem;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.9375rem;">
+      <thead>
+        <tr style="text-align:left;border-bottom:2px solid var(--border);">
+          <th style="padding:0.6rem 0.75rem 0.6rem 0;">Data</th>
+          <th style="padding:0.6rem 0.75rem;white-space:nowrap;">Refresh</th>
+          <th style="padding:0.6rem 0 0.6rem 0.75rem;">Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {FRESHNESS.map((row) => (
+          <tr style="border-bottom:1px solid var(--border);vertical-align:top;">
+            <td style="padding:0.6rem 0.75rem 0.6rem 0;font-weight:500;">{row.label}</td>
+            <td style="padding:0.6rem 0.75rem;color:var(--muted);white-space:nowrap;">{row.refresh}</td>
+            <td style="padding:0.6rem 0 0.6rem 0.75rem;color:var(--muted);">{row.notes}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</Layout>
