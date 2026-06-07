@@ -10,7 +10,8 @@ import FlagButton from '@/components/FlagButton.tsx';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
 import { getFlaggedPostIds } from '@/lib/db/postFlags.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
-import { isWriter, isModerator } from '@/lib/auth/roles.js';
+import { isWriter } from '@/lib/auth/roles.js';
+import { postViewerContext } from '@/lib/forum/postVisibility.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
@@ -66,11 +67,10 @@ const now = Date.now();
 const user = Astro.locals.user;
 const showComposer = !!user && !!topic && !topic.locked;
 
-// Community-flag viewer context. Only on-chain writers can flag; the author and
-// moderators can still read a hidden post (others see a placeholder). The set of
-// posts the viewer already flagged is loaded in one batched query (no N+1).
+// Community-flag viewer context. Only on-chain writers can flag, so the set of
+// posts the viewer already flagged is loaded (one batched query, no N+1) only
+// for writers. Per-post flag/visibility policy lives in postViewerContext.
 const viewerIsWriter = !!user && isWriter(user.roles);
-const viewerIsMod = !!user && isModerator(user.roles);
 const flaggedPostIds =
   db && user && viewerIsWriter && posts.length
     ? await getFlaggedPostIds(db, user.id, posts.map((p) => p.id))
@@ -173,11 +173,7 @@ const breadcrumbLd = topic
             ? topicAuthor
             : describe(post.author_id);
 
-        const isOwnPost = !!user && post.author_id === user.id;
-        // The author and moderators still read a hidden post; others see a placeholder.
-        const canSeeContent = !post.hidden || viewerIsMod || isOwnPost;
-        // Writers can flag any post that is not their own and not system-authored.
-        const canFlag = viewerIsWriter && !isOwnPost && !author.isSystem;
+        const { canSeeContent, canFlag } = postViewerContext(post, user, !!author.isSystem);
 
         return (
           <article style="border-top:1px solid var(--border);padding:1.25rem 0;" id={`post-${post.id}`}>
@@ -194,6 +190,7 @@ const breadcrumbLd = topic
                   postId={post.id}
                   initialFlagged={flaggedPostIds.has(post.id)}
                   initialCount={post.flag_count}
+                  initialHidden={post.hidden}
                 />
               )}
             </div>

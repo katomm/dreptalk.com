@@ -28,12 +28,19 @@ function recomputeStmt(db: D1Database, postId: string, threshold: number): D1Pre
     .bind(postId, threshold);
 }
 
-/** Reads the post's materialized flag state after a recompute. */
-async function readState(db: D1Database, postId: string): Promise<FlagState> {
-  const row = await db
-    .prepare('SELECT flag_count, hidden FROM posts WHERE id = ?')
-    .bind(postId)
-    .first<{ flag_count: number; hidden: number }>();
+/**
+ * Runs the flag mutation, the recompute, and the state read-back as one batched
+ * transaction (a single D1 round-trip), then returns the post's new flag state.
+ */
+async function applyAndRead(
+  db: D1Database,
+  mutate: D1PreparedStatement,
+  postId: string,
+  threshold: number,
+): Promise<FlagState> {
+  const read = db.prepare('SELECT flag_count, hidden FROM posts WHERE id = ?').bind(postId);
+  const results = await db.batch([mutate, recomputeStmt(db, postId, threshold), read]);
+  const row = results[2]?.results?.[0] as { flag_count: number; hidden: number } | undefined;
   return { flagCount: row?.flag_count ?? 0, hidden: row?.hidden === 1 };
 }
 
@@ -52,8 +59,7 @@ export async function flagPost(
     .prepare('INSERT OR IGNORE INTO post_flags (post_id, flagger_id, created_at) VALUES (?, ?, ?)')
     .bind(postId, flaggerId, now);
 
-  await db.batch([insert, recomputeStmt(db, postId, threshold)]);
-  return readState(db, postId);
+  return applyAndRead(db, insert, postId, threshold);
 }
 
 /**
@@ -71,8 +77,7 @@ export async function unflagPost(
     .prepare('DELETE FROM post_flags WHERE post_id = ? AND flagger_id = ?')
     .bind(postId, flaggerId);
 
-  await db.batch([remove, recomputeStmt(db, postId, threshold)]);
-  return readState(db, postId);
+  return applyAndRead(db, remove, postId, threshold);
 }
 
 /**

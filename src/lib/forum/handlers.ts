@@ -225,38 +225,27 @@ function flagResult(state: FlagState, flagged: boolean): HandlerResult {
 }
 
 /**
- * Records a community flag on a post. After 3 distinct writers flag it, the post
- * is hidden. Idempotent: re-flagging by the same writer does not change the count.
- * Unexpected errors return 500 without leaking internal details.
+ * Shared flag/unflag flow. `flag` true records a community flag (after 3 distinct
+ * writers flag a post it is hidden); `flag` false withdraws the caller's flag,
+ * un-hiding the post if the count drops below the threshold. Flagging is
+ * idempotent per writer. Unexpected errors return 500 without leaking detail.
  */
-export async function handleFlagPost(input: FlagPostInput): Promise<HandlerResult> {
+async function handleFlagToggle(input: FlagPostInput, flag: boolean): Promise<HandlerResult> {
   try {
     const gate = await authorizeFlag(input);
     if ('fail' in gate) return gate.fail;
 
-    const state = await flagPost(input.db, {
-      postId: input.postId,
-      flaggerId: gate.user.id,
-      now: input.now,
-    });
-    return flagResult(state, true);
+    const state = flag
+      ? await flagPost(input.db, { postId: input.postId, flaggerId: gate.user.id, now: input.now })
+      : await unflagPost(input.db, { postId: input.postId, flaggerId: gate.user.id });
+    return flagResult(state, flag);
   } catch {
     return { status: 500, json: { ok: false, error: 'internal error' } };
   }
 }
 
-/**
- * Withdraws the caller's flag from a post. If the distinct count drops below the
- * threshold, the post un-hides. Unexpected errors return 500.
- */
-export async function handleUnflagPost(input: FlagPostInput): Promise<HandlerResult> {
-  try {
-    const gate = await authorizeFlag(input);
-    if ('fail' in gate) return gate.fail;
+export const handleFlagPost = (input: FlagPostInput): Promise<HandlerResult> =>
+  handleFlagToggle(input, true);
 
-    const state = await unflagPost(input.db, { postId: input.postId, flaggerId: gate.user.id });
-    return flagResult(state, false);
-  } catch {
-    return { status: 500, json: { ok: false, error: 'internal error' } };
-  }
-}
+export const handleUnflagPost = (input: FlagPostInput): Promise<HandlerResult> =>
+  handleFlagToggle(input, false);

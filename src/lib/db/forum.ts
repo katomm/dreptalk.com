@@ -273,14 +273,17 @@ export async function getPostsByTopic(
 }
 
 /**
- * Returns a single post by id (including its body), or null if missing.
- * Used by the flag handler to authorize the action against the post's author.
+ * Returns a single post by id, or null if missing. The 20KB body_md is excluded
+ * (like getPostsByTopic): the flag handler only needs author_id/deleted/hidden.
  */
 export async function getPostById(db: D1Database, postId: string): Promise<Post | null> {
   const row = await db
-    .prepare('SELECT * FROM posts WHERE id = ?')
+    .prepare(
+      `SELECT id, topic_id, author_id, body_html, reaction_count, flag_count, hidden, edited_at, deleted, created_at
+       FROM posts WHERE id = ?`,
+    )
     .bind(postId)
-    .first<PostRow>();
+    .first<PostRowNoBody>();
   return row ? rowToPost(row) : null;
 }
 
