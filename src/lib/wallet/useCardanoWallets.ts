@@ -57,10 +57,11 @@ export function listCardanoWallets(cardano: unknown): CardanoWalletInfo[] {
 /**
  * useCardanoWallets
  *
- * React hook: enumerates available Cardano wallets from window.cardano on
- * mount. Returns the list, the currently selected wallet key, and a setter.
- * Initial selection is the first wallet in the list (same behavior as the
- * former inline useEffect in WalletLogin).
+ * React hook: enumerates available Cardano wallets from window.cardano. Wallet
+ * extensions inject window.cardano asynchronously, often AFTER React mounts, so a
+ * single check on mount frequently finds nothing. This re-scans on a short
+ * interval (and on window load) until wallets appear, then keeps the list current
+ * within a brief window. Returns the list, the selected key, and a setter.
  */
 export function useCardanoWallets(): {
   wallets: CardanoWalletInfo[];
@@ -71,10 +72,31 @@ export function useCardanoWallets(): {
   const [selected, setSelected] = useState<string>('');
 
   useEffect(() => {
-    const cardano = (window as unknown as { cardano?: unknown }).cardano;
-    const found = listCardanoWallets(cardano);
-    setWallets(found);
-    if (found.length > 0) setSelected(found[0].key);
+    const scan = () => {
+      const found = listCardanoWallets((window as unknown as { cardano?: unknown }).cardano);
+      setWallets(found);
+      // Keep a valid selection: preserve the user's pick, else default to the first.
+      setSelected((cur) => (cur && found.some((w) => w.key === cur) ? cur : found[0]?.key ?? ''));
+      return found.length;
+    };
+
+    scan();
+    // Re-scan every 300ms for ~6s to catch extensions that inject late (and more
+    // than one that injects at different times); cheap and bounded.
+    let tries = 0;
+    const interval = setInterval(() => {
+      tries++;
+      scan();
+      if (tries >= 20) clearInterval(interval);
+    }, 300);
+    // Some extensions only finish injecting at window 'load'.
+    const onLoad = () => scan();
+    window.addEventListener('load', onLoad);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('load', onLoad);
+    };
   }, []);
 
   return { wallets, selected, setSelected };

@@ -149,7 +149,7 @@ const isActive = (href: string) =>
         <nav class="site-footer__links" aria-label="Footer">
           <a href="/privacy">Privacy</a>
           <a href="/imprint">Imprint</a>
-          <a href="/docs/data-freshness">Data freshness</a>
+          <a href="/docs">Docs</a>
           <a
             class="site-footer__github"
             href="https://github.com/katomm/dreptalk.com"
@@ -162,7 +162,6 @@ const isActive = (href: string) =>
             </svg>
           </a>
         </nav>
-        <p class="site-footer__copy">© {new Date().getFullYear()} DRepTalk</p>
       </div>
     </footer>
 
@@ -211,6 +210,11 @@ const isActive = (href: string) =>
         height: 38px;
         width: auto;
         display: block;
+        /* The mark's radial burst sits in the upper part of the artwork while a
+           faint stem extends below, so its bounding box centers lower than the
+           visual cluster. Nudge down ~10% of its own height to optically center
+           the burst with the wordmark. Percentage scales to header and footer. */
+        transform: translateY(10%);
       }
       .brand__word {
         font-family: var(--font-display);
@@ -219,12 +223,6 @@ const isActive = (href: string) =>
         letter-spacing: -0.01em;
         color: var(--fg);
         line-height: 1;
-      }
-      /* The mark artwork is top-heavy (dense cluster high, faint tail low), so it
-         reads as floating above the wordmark even though the flex boxes are
-         centered. Nudge the header mark down a touch to optically center it. */
-      .site-header .brand__mark {
-        transform: translateY(2px);
       }
 
       .site-nav {
@@ -378,12 +376,6 @@ const isActive = (href: string) =>
       .site-footer__github {
         display: inline-flex;
         align-items: center;
-      }
-      .site-footer__copy {
-        margin: 0;
-        color: var(--muted);
-        font-size: 0.85rem;
-        width: 100%;
       }
 
       /* ---- Responsive --------------------------------------------------- */
