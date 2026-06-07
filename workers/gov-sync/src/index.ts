@@ -12,7 +12,8 @@
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
 import { bytesToHex } from '../../../src/lib/crypto/hex.js';
-import { syncGovernanceActions, type SyncResult } from '../../../src/lib/governance/sync.js';
+import { syncGovernanceActions } from '../../../src/lib/governance/sync.js';
+import { syncGovernanceTallies, syncGovernanceVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps, type DrepSyncResult } from '../../../src/lib/dreps/sync.js';
 
 interface Env {
@@ -33,15 +34,25 @@ function buildKoios(env: Env) {
   return { koios, network };
 }
 
-async function runGovernanceSync(env: Env): Promise<SyncResult> {
+// Governance cycle: discover new actions, refresh tallies + lifecycle for active
+// actions every cycle, and refresh the larger per-post vote lists hourly only.
+async function runGovernanceSync(env: Env): Promise<void> {
   const { koios, network } = buildKoios(env);
-  return syncGovernanceActions({
-    koios,
-    db: env.DB,
-    network,
-    now: Date.now(),
-    rand: randSuffix,
-  });
+  const now = Date.now();
+
+  const disc = await syncGovernanceActions({ koios, db: env.DB, network, now, rand: randSuffix });
+  console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
+
+  const tip = await koios.tip();
+  const tally = await syncGovernanceTallies({ koios, db: env.DB, currentEpoch: tip.epoch_no, now });
+  console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
+
+  // Vote lists are larger and per-post badges do not need 15-min freshness, so
+  // refresh them only at the top of the hour (the cron fires every 15 min).
+  if (new Date(now).getUTCMinutes() < 15) {
+    const votes = await syncGovernanceVotes({ koios, db: env.DB, now });
+    console.log(`[gov-votes] actions=${votes.actions} votes=${votes.votes} failed=${votes.failed}`);
+  }
 }
 
 async function runDrepSync(env: Env): Promise<DrepSyncResult> {
@@ -67,10 +78,9 @@ export default {
         console.error('[drep-sync] run failed', err);
       }
     } else {
-      // Default: governance-action sync (*/15 * * * *).
+      // Default: governance-action sync (*/15 * * * *). Logs each phase itself.
       try {
-        const r = await runGovernanceSync(env);
-        console.log(`[gov-sync] total=${r.total} created=${r.created} skipped=${r.skipped} failed=${r.failed}`);
+        await runGovernanceSync(env);
       } catch (err) {
         console.error('[gov-sync] run failed', err);
       }
