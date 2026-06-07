@@ -202,6 +202,19 @@ export async function getSyncableGovernanceActions(db: D1Database): Promise<Gove
   return rows.map(rowToGovernanceAction);
 }
 
+/**
+ * Returns every governance action. The table holds one row per on-chain action
+ * (low hundreds), so this is a single param-less query, used by the sorted
+ * governance-actions list (which would otherwise exceed D1's bound-parameter cap
+ * with a large IN clause).
+ */
+export async function getAllGovernanceActions(db: D1Database): Promise<GovernanceAction[]> {
+  const rows = (
+    await db.prepare('SELECT * FROM governance_actions').all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
 /** Batch-loads governance actions by topic id (no N+1 when rendering a list). */
 export async function getGovernanceActionsByTopicIds(
   db: D1Database,

@@ -8,7 +8,7 @@ import NotFound from '@/components/NotFound.astro';
 import TopicRow from '@/components/TopicRow.astro';
 import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory, getAllTopicsByCategory, type Topic } from '@/lib/db/forum.js';
-import { getGovernanceActionsByTopicIds, type GovernanceAction } from '@/lib/db/governance.js';
+import { getAllGovernanceActions, type GovernanceAction } from '@/lib/db/governance.js';
 import { parseGovSort, sortGovActionTopics, GOV_SORTS, type GovActionTopic } from '@/lib/governance/sort.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { parsePage, pageToOffset, cacheControlFor, SITE_ORIGIN } from '@/lib/forum/view.js';
@@ -41,12 +41,15 @@ let govTotal = 0;
 
 if (category && db) {
   if (isGovernanceCategory) {
-    // The action set is small, so load all, join with their actions, sort in
-    // memory by the selected mode, then page. Two queries, no N+1.
-    const all = await getAllTopicsByCategory(db, category.slug);
-    const actions = await getGovernanceActionsByTopicIds(db, all.map((t) => t.id));
+    // The action set is small, so load all topics and all actions (param-less,
+    // under D1's bound-parameter cap), join, sort in memory, then page. No N+1.
+    const [all, allActions] = await Promise.all([
+      getAllTopicsByCategory(db, category.slug),
+      getAllGovernanceActions(db),
+    ]);
+    const actionByTopic = new Map(allActions.filter((a) => a.topicId).map((a) => [a.topicId!, a]));
     const rows: GovActionTopic[] = all
-      .map((t) => ({ topic: t, action: actions.get(t.id) }))
+      .map((t) => ({ topic: t, action: actionByTopic.get(t.id) }))
       .filter((r): r is GovActionTopic => !!r.action);
     const sorted = sortGovActionTopics(rows, sort, now);
     govTotal = sorted.length;

@@ -6,6 +6,7 @@ import {
   buildInsertGovernanceAction,
   getGovernanceActionByTopicId,
   getSyncableGovernanceActions,
+  getAllGovernanceActions,
   getGovernanceActionsByTopicIds,
   updateGovernanceTallyAndStatus,
   type NewGovernanceAction,
@@ -99,6 +100,17 @@ describe('updateGovernanceTallyAndStatus', () => {
     expect(got!.tallyEpoch).toBe(293);
     expect(got!.decidedEpoch).toBe(291);
     expect(got!.tallySyncedAt).toBe(NOW + 5);
+  });
+});
+
+describe('getAllGovernanceActions', () => {
+  it('returns every action in one param-less query', async () => {
+    const a = await insertAction();
+    const b = await insertAction();
+    const all = await getAllGovernanceActions(db());
+    const ids = all.map((x) => x.id);
+    expect(ids).toContain(a.id);
+    expect(ids).toContain(b.id);
   });
 });
 
