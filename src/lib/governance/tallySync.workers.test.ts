@@ -71,6 +71,17 @@ describe('deriveStatus', () => {
     expect(deriveStatus(lifeRow('x', { ratified_epoch: 300 }), ga, 290)).toBe('ratified');
     expect(deriveStatus(lifeRow('x', { dropped_epoch: 300 }), ga, 290)).toBe('dropped');
   });
+  it('labels an expired-then-dropped action as expired (expiry is the real outcome)', () => {
+    // The chain marks a timed-out action expired, then drops it the next epoch,
+    // so both epochs are set; expiry must win over the dropped bookkeeping.
+    expect(deriveStatus(lifeRow('x', { expired_epoch: 300, dropped_epoch: 301 }), ga, 305)).toBe('expired');
+  });
+  it('closes an info action instead of expiring/dropping it (it can never enact)', () => {
+    const info = { type: 'InfoAction', expiryEpoch: 294 } as never;
+    expect(deriveStatus(lifeRow('x', { expired_epoch: 300, dropped_epoch: 301 }), info, 305)).toBe('closed');
+    expect(deriveStatus(lifeRow('x'), info, 295)).toBe('closed'); // expiry fallback
+    expect(deriveStatus(lifeRow('x'), info, 290)).toBe('active'); // still open
+  });
   it('expires by epoch when no terminal epoch', () => {
     expect(deriveStatus(lifeRow('x'), ga, 295)).toBe('expired');
     expect(deriveStatus(lifeRow('x'), ga, 290)).toBe('active');

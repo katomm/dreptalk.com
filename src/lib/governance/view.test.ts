@@ -31,6 +31,9 @@ describe('statusBadge', () => {
     expect(statusBadge('dropped').tone).toBe('negative');
     expect(statusBadge('expired').tone).toBe('neutral');
   });
+  it('labels a closed info action neutrally', () => {
+    expect(statusBadge('closed')).toEqual({ label: 'Closed', tone: 'neutral' });
+  });
   it('capitalizes an unknown status', () => {
     expect(statusBadge('weird')).toEqual({ label: 'Weird', tone: 'neutral' });
   });
