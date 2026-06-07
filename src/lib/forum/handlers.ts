@@ -50,9 +50,14 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
   try {
     const { user, body, db, rateKv, now } = input;
 
-    // 1. Auth check.
+    // 1. Auth check: must be authenticated and hold an on-chain writer role.
+    // Reading is public; posting is reserved for verified DReps/SPOs/CC/proposers
+    // (same gate as flagging). Moderation roles alone do not grant write access.
     if (!user) {
       return { status: 401, json: { ok: false, error: 'unauthorized' } };
+    }
+    if (!isWriter(user.roles)) {
+      return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
 
     // 2. Rate limit: 5 topics per 600s per user.
@@ -134,9 +139,13 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
   try {
     const { user, topicId, body, db, rateKv, now } = input;
 
-    // 1. Auth check.
+    // 1. Auth check: must be authenticated and hold an on-chain writer role
+    // (same gate as topic creation and flagging).
     if (!user) {
       return { status: 401, json: { ok: false, error: 'unauthorized' } };
+    }
+    if (!isWriter(user.roles)) {
+      return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
 
     // 2. Rate limit: 20 posts per 600s per user.
