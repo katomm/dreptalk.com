@@ -4,12 +4,22 @@
 
 import { issueNonce, consumeNonce } from './nonce.js';
 import { verifyCip8 } from './cose.js';
-import { isHex, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
+import { verifyEd25519 } from '../crypto/ed25519.js';
+import { hexToBytes } from '../crypto/hex.js';
+import {
+  isHex,
+  isHexExact,
+  MAX_PAYLOAD_LEN,
+  MAX_KEY_HEX_LEN,
+  MAX_SIG_HEX_LEN,
+  RAW_SIG_HEX_LEN,
+  RAW_PUBKEY_HEX_LEN,
+} from '../validation/input.js';
 import type { ModeratorRole } from '../../../config/moderators.js';
-import { drepIdFromPubKey, stakeAddressFromPubKey } from '../cardano/identity.js';
-import { resolveDRep, resolveProposer } from './resolveRole.js';
+import { drepIdFromPubKey, stakeAddressFromPubKey, ccHotKeyHashHex } from '../cardano/identity.js';
+import { resolveDRep, resolveProposer, resolveSpo, resolveCc } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
-import { upsertUserFromAuth } from '../db/users.js';
+import { upsertUserFromAuth, type AuthRole } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import type { CardanoNetwork } from '../config/network.js';
 
@@ -59,7 +69,10 @@ export async function handleChallenge(input: ChallengeInput): Promise<ChallengeR
 export interface VerifyBody {
   payload: string;
   signatureHex: string;
-  keyHex: string;
+  // COSE_Key, present for the CIP-8 wallet flow (drep / proposer).
+  keyHex?: string;
+  // Raw 32-byte Ed25519 public key (hex), present for the paste flow (spo / cc).
+  publicKeyHex?: string;
   role: string;
 }
 
@@ -106,43 +119,59 @@ export async function handleVerify(input: VerifyInput, deps?: VerifyDeps): Promi
 }
 
 async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Promise<VerifyResult> {
-  const { body, nonceKv, sessionKv, db, koios, network, now, secure } = input;
-  const consumeNonceFn = deps?.consumeNonce ?? consumeNonce;
-  const getModeratorRole = deps?.getModeratorRole ?? (() => null);
+  const { body } = input;
 
-  // Step 1: Validate body shape.
+  // Step 1: Validate the fields common to both flows.
   if (
     !body ||
     typeof body.payload !== 'string' ||
     typeof body.signatureHex !== 'string' ||
-    typeof body.keyHex !== 'string' ||
     typeof body.role !== 'string'
   ) {
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
-  if (body.role !== 'drep' && body.role !== 'proposer') {
+  const role = body.role;
+  if (role !== 'drep' && role !== 'proposer' && role !== 'spo' && role !== 'cc') {
+    return { status: 400, json: { ok: false, error: 'invalid request' } };
+  }
+  if (body.payload.length > MAX_PAYLOAD_LEN) {
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
 
-  // Step 1b: Bound and format-check the untrusted fields before any hex decode
-  // or crypto. This is a public, unauthenticated endpoint, so reject oversized
-  // or non-hex key/signature input cheaply instead of letting it reach the
-  // decoder and verifier.
+  // DRep and Proposer prove identity with a CIP-8 wallet signature; SPO (Calidus)
+  // and CC members paste a raw Ed25519 signature produced by cardano-signer.
+  if (role === 'drep' || role === 'proposer') {
+    return await verifyWalletCip8(role, input, deps);
+  }
+  return await verifyRawEd25519(role, input, deps);
+}
+
+/** DRep / Proposer login: CIP-8 COSE signature from a CIP-30 wallet. */
+async function verifyWalletCip8(
+  role: 'drep' | 'proposer',
+  input: VerifyInput,
+  deps?: VerifyDeps,
+): Promise<VerifyResult> {
+  const { body, nonceKv, koios, network, now } = input;
+  const consumeNonceFn = deps?.consumeNonce ?? consumeNonce;
+  const getModeratorRole = deps?.getModeratorRole ?? (() => null);
+
+  // Bound and format-check the untrusted fields before any hex decode or crypto.
   if (
-    body.payload.length > MAX_PAYLOAD_LEN ||
+    typeof body.keyHex !== 'string' ||
     !isHex(body.keyHex, MAX_KEY_HEX_LEN) ||
     !isHex(body.signatureHex, MAX_SIG_HEX_LEN)
   ) {
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
 
-  // Step 2: Consume nonce (single-use, unexpired).
+  // Consume nonce (single-use, unexpired).
   const nonceValid = await consumeNonceFn(nonceKv, body.payload, { now });
   if (!nonceValid) {
     return { status: 401, json: { ok: false, error: 'invalid or expired nonce' } };
   }
 
-  // Step 3: Verify CIP-8 signature.
+  // Verify CIP-8 signature.
   const verifyResult = await verifyCip8({
     signatureHex: body.signatureHex,
     keyHex: body.keyHex,
@@ -154,14 +183,13 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
 
   const { pubKey, addressBytes } = verifyResult;
 
-  // Step 4: Header byte validation.
+  // Header byte validation.
   if (addressBytes.length === 0) {
     return { status: 401, json: { ok: false, error: 'invalid address in signature' } };
   }
   const headerByte = addressBytes[0];
 
-  if (body.role === 'proposer') {
-    // Require reward-address header matching the network.
+  if (role === 'proposer') {
     const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
     if (headerByte !== expectedHeader) {
       return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
@@ -173,58 +201,132 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
     }
   }
 
-  // Step 5: Derive identity from pubKey.
+  // Derive identity from the verified pubKey, then resolve authorization via
+  // Koios and (for the stake-key path) the moderator allowlist.
+  const grantedRoles: AuthRole[] = [];
+  let modRole: ModeratorRole | null = null;
   let drepId: string | undefined;
   let stakeAddr: string | undefined;
 
-  if (body.role === 'drep') {
+  if (role === 'drep') {
     drepId = drepIdFromPubKey(pubKey);
-  } else {
-    stakeAddr = stakeAddressFromPubKey(pubKey, network);
-  }
-
-  // Step 6: Resolve authorization via Koios and the moderator allowlist.
-  // Only the roles actually proven on-chain are granted; moderator status comes
-  // from the config allowlist (keyed by the derived stake address).
-  const grantedRoles: ('drep' | 'proposer')[] = [];
-  let modRole: ModeratorRole | null = null;
-
-  if (body.role === 'drep') {
-    const resolution = await resolveDRep(koios, drepId!);
+    const resolution = await resolveDRep(koios, drepId);
     if (!resolution.isDrep) {
       return { status: 401, json: { ok: false, error: 'not an active DRep' } };
     }
     grantedRoles.push('drep');
   } else {
-    const resolution = await resolveProposer(koios, stakeAddr!);
-    modRole = getModeratorRole(stakeAddr!);
+    stakeAddr = stakeAddressFromPubKey(pubKey, network);
+    const resolution = await resolveProposer(koios, stakeAddr);
+    modRole = getModeratorRole(stakeAddr);
     if (!resolution.isProposer && !modRole) {
       return { status: 401, json: { ok: false, error: 'not a proposer or moderator' } };
     }
     if (resolution.isProposer) grantedRoles.push('proposer');
   }
 
-  // Step 7: Upsert user with the on-chain roles actually granted (a moderator
-  // who is neither DRep nor proposer is stored as a plain member row).
+  return finishLogin(input, { drepId, stakeAddr, grantedRoles, modRole });
+}
+
+/** SPO (Calidus) / CC member login: raw Ed25519 signature pasted by the user. */
+async function verifyRawEd25519(
+  role: 'spo' | 'cc',
+  input: VerifyInput,
+  deps?: VerifyDeps,
+): Promise<VerifyResult> {
+  const { body, nonceKv, koios, now } = input;
+  const consumeNonceFn = deps?.consumeNonce ?? consumeNonce;
+
+  // Raw Ed25519: signature is exactly 64 bytes, public key exactly 32 bytes.
+  if (
+    typeof body.publicKeyHex !== 'string' ||
+    !isHexExact(body.signatureHex, RAW_SIG_HEX_LEN) ||
+    !isHexExact(body.publicKeyHex, RAW_PUBKEY_HEX_LEN)
+  ) {
+    return { status: 400, json: { ok: false, error: 'invalid request' } };
+  }
+
+  // Consume nonce (single-use, unexpired).
+  const nonceValid = await consumeNonceFn(nonceKv, body.payload, { now });
+  if (!nonceValid) {
+    return { status: 401, json: { ok: false, error: 'invalid or expired nonce' } };
+  }
+
+  // Verify the detached signature over the exact nonce payload. Identity is
+  // derived only from the verified public key, never claimed by the client.
+  const pubKey = hexToBytes(body.publicKeyHex);
+  const sig = hexToBytes(body.signatureHex);
+  const msg = new TextEncoder().encode(body.payload);
+  const sigResult = await verifyEd25519(sig, msg, pubKey);
+  if (!sigResult.ok) {
+    return { status: 401, json: { ok: false, error: 'signature verification failed' } };
+  }
+
+  const grantedRoles: AuthRole[] = [];
+  let poolId: string | undefined;
+  let ccCred: string | undefined;
+
+  if (role === 'spo') {
+    const resolution = await resolveSpo(koios, body.publicKeyHex.toLowerCase());
+    if (!resolution.isSpo) {
+      return { status: 401, json: { ok: false, error: 'not an active SPO' } };
+    }
+    grantedRoles.push('spo');
+    poolId = resolution.poolId;
+  } else {
+    const hotKeyHashHex = ccHotKeyHashHex(pubKey);
+    const resolution = await resolveCc(koios, hotKeyHashHex);
+    if (!resolution.isCc) {
+      return { status: 401, json: { ok: false, error: 'not an authorized CC member' } };
+    }
+    grantedRoles.push('cc');
+    // Account identity is the stable cold credential where available; fall back
+    // to the hot credential the member signed with.
+    ccCred = resolution.ccColdId ?? resolution.ccHotId;
+  }
+
+  return finishLogin(input, { poolId, ccCred, grantedRoles, modRole: null });
+}
+
+/**
+ * Shared login tail: upsert the user with the credentials and on-chain roles
+ * proven this login, then mint a session. The moderator role is re-evaluated
+ * from the allowlist on every login and is not persisted on the user row.
+ */
+async function finishLogin(
+  input: VerifyInput,
+  args: {
+    drepId?: string;
+    stakeAddr?: string;
+    poolId?: string;
+    ccCred?: string;
+    grantedRoles: AuthRole[];
+    modRole: ModeratorRole | null;
+  },
+): Promise<VerifyResult> {
+  const { db, sessionKv, now, secure } = input;
+  const { drepId, stakeAddr, poolId, ccCred, grantedRoles, modRole } = args;
+
   const user = await upsertUserFromAuth(db, {
     drepId,
     stakeAddr,
+    poolId,
+    ccCred,
     roles: grantedRoles,
     now: Math.floor(now ?? Date.now() / 1000),
   });
 
-  // Step 8: Create session. The moderator role is re-evaluated from the
-  // allowlist on every login and is not persisted on the user row.
   const roles: string[] = [];
   if (user.is_drep) roles.push('drep');
   if (user.is_proposer) roles.push('proposer');
+  if (user.is_spo) roles.push('spo');
+  if (user.is_cc) roles.push('cc');
   if (modRole) roles.push(modRole);
   if (roles.length === 0) roles.push('member');
 
   const token = await createSession(sessionKv, { id: user.id, roles }, { now });
   const setCookie = buildSessionCookie(token, { secure });
 
-  // Step 9: Return success.
   return {
     status: 200,
     json: { ok: true, user: { id: user.id, roles } },

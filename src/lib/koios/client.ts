@@ -154,6 +154,48 @@ const proposalVoteRowSchema = z
 
 export type ProposalVoteRow = z.infer<typeof proposalVoteRowSchema>;
 
+// One row of /pool_calidus_keys. Koios already applies the CIP-151 highest-nonce
+// and revocation rules, exposing only the currently valid key per pool with
+// `registered: true`. calidus_pub_key is the raw 32-byte Ed25519 public key (hex)
+// used to authenticate. Extra fields (nonce, bytes, tx_hash, ...) are tolerated.
+const poolCalidusKeyRowSchema = z
+  .object({
+    pool_id_bech32: z.string(),
+    calidus_pub_key: z.string(),
+    calidus_id_bech32: z.string(),
+    registered: z.boolean(),
+    pool_status: z.string(),
+  })
+  .passthrough();
+
+export type PoolCalidusKeyRow = z.infer<typeof poolCalidusKeyRowSchema>;
+
+// One member of the constitutional committee from /committee_info. cc_hot_hex is
+// the raw 28-byte credential hash (= blake2b224 of the hot key for key-based
+// members). cc_hot_has_script distinguishes key vs native-script credentials.
+const committeeMemberSchema = z
+  .object({
+    status: z.string(),
+    cc_hot_id: z.string().nullable(),
+    cc_cold_id: z.string().nullable(),
+    cc_hot_hex: z.string().nullable(),
+    cc_cold_hex: z.string().nullable(),
+    expiration_epoch: z.number().nullable(),
+    cc_hot_has_script: z.boolean().nullable(),
+    cc_cold_has_script: z.boolean().nullable(),
+  })
+  .passthrough();
+
+export type CommitteeMember = z.infer<typeof committeeMemberSchema>;
+
+// /committee_info returns a single-row array describing the current committee,
+// whose `members` array holds the cold/hot credentials. Tolerant of extras.
+const committeeInfoRowSchema = z
+  .object({
+    members: z.array(committeeMemberSchema),
+  })
+  .passthrough();
+
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
@@ -261,6 +303,27 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/proposal_votes?_proposal_id=${encodeURIComponent(proposalId)}&limit=${limit}&offset=${offset}`;
       const data = await request(path, { method: 'GET' });
       return z.array(proposalVoteRowSchema).parse(data);
+    },
+
+    // Calidus-key lookup (SPO auth flow): resolves a raw Ed25519 calidus public
+    // key (hex) to its pool. Koios returns only the currently valid registration
+    // (highest nonce, not revoked) with `registered: true`. Returns null when the
+    // key is not a registered calidus key on this network.
+    async poolCalidusKey(calidusPubKeyHex: string): Promise<PoolCalidusKeyRow | null> {
+      const path =
+        `/pool_calidus_keys?calidus_pub_key=eq.${encodeURIComponent(calidusPubKeyHex)}` +
+        `&select=pool_id_bech32,calidus_pub_key,calidus_id_bech32,registered,pool_status`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(poolCalidusKeyRowSchema).parse(data)[0] ?? null;
+    },
+
+    // Constitutional committee membership (CC auth flow): returns the current
+    // committee members with their cold/hot credentials. Empty array when there
+    // is no committee row.
+    async committeeInfo(): Promise<CommitteeMember[]> {
+      const data = await request('/committee_info', { method: 'GET' });
+      const row = z.array(committeeInfoRowSchema).parse(data)[0];
+      return row?.members ?? [];
     },
   };
 }

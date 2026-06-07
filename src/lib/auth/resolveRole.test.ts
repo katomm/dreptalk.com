@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDRep, resolveProposer } from './resolveRole';
-import type { DrepInfo, AccountInfo } from '../koios/client';
+import { resolveDRep, resolveProposer, resolveSpo, resolveCc } from './resolveRole';
+import type { DrepInfo, AccountInfo, PoolCalidusKeyRow, CommitteeMember } from '../koios/client';
 
 // Minimal fake koios client: only the methods under test need to be present.
 type FakeKoios = {
   drepInfo: (id: string) => Promise<DrepInfo | null>;
   accountInfo: (addr: string) => Promise<AccountInfo | null>;
   proposalsByReturnAddress: (addr: string) => Promise<Array<{ proposal_id: string; return_address: string; proposal_type: string }>>;
+  poolCalidusKey: (pubKeyHex: string) => Promise<PoolCalidusKeyRow | null>;
+  committeeInfo: () => Promise<CommitteeMember[]>;
 };
 
 function makeKoios(overrides: Partial<FakeKoios> = {}): FakeKoios {
@@ -14,12 +16,43 @@ function makeKoios(overrides: Partial<FakeKoios> = {}): FakeKoios {
     drepInfo: () => Promise.resolve(null),
     accountInfo: () => Promise.resolve(null),
     proposalsByReturnAddress: () => Promise.resolve([]),
+    poolCalidusKey: () => Promise.resolve(null),
+    committeeInfo: () => Promise.resolve([]),
     ...overrides,
   };
 }
 
 const DREP_ID = 'drep1ygfpzwl3u0r7e5dm6z7gz8afyw60rv5lnmtgcnw4nnrrzrdmytsk';
 const STAKE_ADDR = 'stake1uxpdrerp9wrxunfh6ukyv5267j70fzxgw0fr3z8zeac5vyqhf9jhy';
+const CALIDUS_PUBKEY = '200bff1edb79e633786f7f1bc2989d61db7cb1211e6a55b6efc5b6203ff711dd';
+const POOL_ID = 'pool10dtwvn64akqjdtn9d4pd2mnhpxfgp76hvsfkgmfwugrsxef3y2p';
+const CC_HOT_HEX = 'be4b5ca31023088940eb952d01bd365af0c32d13e99e3c06929ef89c';
+const CC_HOT_ID = 'cc_hot1qwlykh9rzq3s3z2qaw2j6qdaxed0psedz05eu0qxj20038qc7zdu7';
+
+function calidusRow(overrides: Partial<PoolCalidusKeyRow> = {}): PoolCalidusKeyRow {
+  return {
+    pool_id_bech32: POOL_ID,
+    calidus_pub_key: CALIDUS_PUBKEY,
+    calidus_id_bech32: 'calidus15xdvep33kxuvep5h6h0vqzarsc5f4khre4lr7ptv8qefs2s0vtnj6',
+    registered: true,
+    pool_status: 'registered',
+    ...overrides,
+  };
+}
+
+function ccMember(overrides: Partial<CommitteeMember> = {}): CommitteeMember {
+  return {
+    status: 'authorized',
+    cc_hot_id: CC_HOT_ID,
+    cc_cold_id: 'cc_cold1zvcxrfwegfn9ls72cmfchty3cnczwtztc2e48eyxxwnrw3cwfypz8',
+    cc_hot_hex: CC_HOT_HEX,
+    cc_cold_hex: '3061a5d942665fc3cac6d38bac91c4f0272c4bc2b353e48633a63747',
+    expiration_epoch: 242,
+    cc_hot_has_script: false,
+    cc_cold_has_script: false,
+    ...overrides,
+  };
+}
 
 function drepFixture(overrides: Partial<DrepInfo> = {}): DrepInfo {
   return {
@@ -123,5 +156,113 @@ describe('resolveProposer', () => {
 
     expect(result.isProposer).toBe(false);
     expect(result.proposalIds).toEqual([]);
+  });
+});
+
+// --- resolveSpo (Calidus) ---
+
+describe('resolveSpo', () => {
+  it('returns isSpo true with the pool id when the calidus key resolves to a registered pool', async () => {
+    const koios = makeKoios({ poolCalidusKey: () => Promise.resolve(calidusRow()) });
+    const result = await resolveSpo(koios, CALIDUS_PUBKEY);
+    expect(result.isSpo).toBe(true);
+    expect(result.poolId).toBe(POOL_ID);
+  });
+
+  it('returns isSpo false when the calidus key is unknown (null)', async () => {
+    const koios = makeKoios({ poolCalidusKey: () => Promise.resolve(null) });
+    const result = await resolveSpo(koios, CALIDUS_PUBKEY);
+    expect(result.isSpo).toBe(false);
+    expect(result.poolId).toBeUndefined();
+  });
+
+  it('returns isSpo false when the registration is revoked (registered=false)', async () => {
+    const koios = makeKoios({ poolCalidusKey: () => Promise.resolve(calidusRow({ registered: false })) });
+    const result = await resolveSpo(koios, CALIDUS_PUBKEY);
+    expect(result.isSpo).toBe(false);
+  });
+
+  it('returns isSpo false when the pool itself is not registered (e.g. retired)', async () => {
+    const koios = makeKoios({ poolCalidusKey: () => Promise.resolve(calidusRow({ pool_status: 'retired' })) });
+    const result = await resolveSpo(koios, CALIDUS_PUBKEY);
+    expect(result.isSpo).toBe(false);
+  });
+
+  it('defense in depth: returns isSpo false when Koios returns a row for a different pubkey', async () => {
+    // A misbehaving or cached Koios response whose calidus_pub_key does not match
+    // the queried key must not grant SPO status.
+    const koios = makeKoios({
+      poolCalidusKey: () => Promise.resolve(calidusRow({ calidus_pub_key: 'deadbeef'.repeat(8) })),
+    });
+    const result = await resolveSpo(koios, CALIDUS_PUBKEY);
+    expect(result.isSpo).toBe(false);
+  });
+
+  it('matches case-insensitively on the pubkey hex', async () => {
+    const koios = makeKoios({
+      poolCalidusKey: () => Promise.resolve(calidusRow({ calidus_pub_key: CALIDUS_PUBKEY.toUpperCase() })),
+    });
+    const result = await resolveSpo(koios, CALIDUS_PUBKEY);
+    expect(result.isSpo).toBe(true);
+    expect(result.poolId).toBe(POOL_ID);
+  });
+});
+
+// --- resolveCc (committee hot key) ---
+
+describe('resolveCc', () => {
+  it('returns isCc true with the hot/cold ids for an authorized key-based member', async () => {
+    const koios = makeKoios({ committeeInfo: () => Promise.resolve([ccMember()]) });
+    const result = await resolveCc(koios, CC_HOT_HEX);
+    expect(result.isCc).toBe(true);
+    expect(result.ccHotId).toBe(CC_HOT_ID);
+  });
+
+  it('returns isCc false when the hash is not in the committee', async () => {
+    const koios = makeKoios({ committeeInfo: () => Promise.resolve([ccMember({ cc_hot_hex: 'aa'.repeat(28) })]) });
+    const result = await resolveCc(koios, CC_HOT_HEX);
+    expect(result.isCc).toBe(false);
+  });
+
+  it('returns isCc false when the matching member is not authorized', async () => {
+    const koios = makeKoios({
+      committeeInfo: () => Promise.resolve([ccMember({ status: 'not_authorized' })]),
+    });
+    const result = await resolveCc(koios, CC_HOT_HEX);
+    expect(result.isCc).toBe(false);
+  });
+
+  it('returns isCc false when the matching credential is a native script (not key-based)', async () => {
+    // v1 supports key-based credentials only; script CC hot credentials are rejected.
+    const koios = makeKoios({
+      committeeInfo: () => Promise.resolve([ccMember({ cc_hot_has_script: true })]),
+    });
+    const result = await resolveCc(koios, CC_HOT_HEX);
+    expect(result.isCc).toBe(false);
+  });
+
+  it('returns isCc false when there is no committee at all (empty)', async () => {
+    const koios = makeKoios({ committeeInfo: () => Promise.resolve([]) });
+    const result = await resolveCc(koios, CC_HOT_HEX);
+    expect(result.isCc).toBe(false);
+  });
+
+  it('matches case-insensitively on the credential hash', async () => {
+    const koios = makeKoios({
+      committeeInfo: () => Promise.resolve([ccMember({ cc_hot_hex: CC_HOT_HEX.toUpperCase() })]),
+    });
+    const result = await resolveCc(koios, CC_HOT_HEX);
+    expect(result.isCc).toBe(true);
+  });
+
+  it('returns isCc false when a matched member has no usable credential id (both null)', async () => {
+    // Defense in depth: an authorized, key-based member must expose at least one
+    // credential id for the account identity; otherwise reject rather than mint a
+    // session with no stable id.
+    const koios = makeKoios({
+      committeeInfo: () => Promise.resolve([ccMember({ cc_hot_id: null, cc_cold_id: null })]),
+    });
+    const result = await resolveCc(koios, CC_HOT_HEX);
+    expect(result.isCc).toBe(false);
   });
 });

@@ -7,8 +7,9 @@ import { env } from 'cloudflare:test';
 import { createTopic, getTopicBySlug } from '../db/forum.js';
 import { handleCreateTopic, handleCreatePost } from './handlers.js';
 
-// Stable fake user with writer role.
-const WRITER = { id: 'user-writer-001', roles: ['writer'] };
+// Stable fake user with a real on-chain writer role (drep). 'writer' is not a
+// real role; posting is gated by isWriter() which only accepts drep/spo/cc/proposer.
+const WRITER = { id: 'user-writer-001', roles: ['drep'] };
 
 // Shared DB and KV accessors.
 const db = () => env.DB;
@@ -16,6 +17,88 @@ const rateKv = () => env.NONCES;
 
 // Fixed timestamp to keep tests deterministic.
 const NOW = 1_750_000_000_000;
+
+// ---------------------------------------------------------------------------
+// Posting works for every on-chain writer role (drep, spo, cc, proposer)
+// ---------------------------------------------------------------------------
+
+describe('posting works for each writer role', () => {
+  const roles = ['drep', 'spo', 'cc', 'proposer'] as const;
+
+  for (const role of roles) {
+    it(`a ${role} can create a topic and reply to it`, async () => {
+      const user = { id: `writer-${role}-001`, roles: [role] };
+
+      const topicRes = await handleCreateTopic({
+        user,
+        body: { categorySlug: 'general', title: `Hello from a ${role}`, bodyMd: `A post by a ${role}.` },
+        db: db(),
+        rateKv: rateKv(),
+        now: NOW,
+      });
+      expect(topicRes.status).toBe(201);
+      const { slug } = topicRes.json as { ok: boolean; slug: string };
+
+      const topicRow = await db().prepare('SELECT id FROM topics WHERE slug = ?').bind(slug).first<{ id: string }>();
+      expect(topicRow).not.toBeNull();
+
+      const replyRes = await handleCreatePost({
+        user,
+        topicId: topicRow!.id,
+        body: { bodyMd: `A reply by a ${role}.` },
+        db: db(),
+        rateKv: rateKv(),
+        now: NOW + 1,
+      });
+      expect(replyRes.status).toBe(201);
+    });
+  }
+
+  it('an unauthenticated request cannot create a topic', async () => {
+    const res = await handleCreateTopic({
+      user: null,
+      body: { categorySlug: 'general', title: 'Should be blocked', bodyMd: 'nope' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('a non-writer authenticated user (moderator-only) cannot create a topic', async () => {
+    const res = await handleCreateTopic({
+      user: { id: 'mod-only-user', roles: ['moderator'] },
+      body: { categorySlug: 'general', title: 'Mod tries to post', bodyMd: 'should be 403' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('a non-writer authenticated user (member) cannot reply', async () => {
+    // Create a topic first as a writer.
+    const topicRes = await handleCreateTopic({
+      user: { id: 'writer-for-reply-gate', roles: ['drep'] },
+      body: { categorySlug: 'general', title: 'Topic for reply gate test', bodyMd: 'body' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW,
+    });
+    const { slug } = topicRes.json as { slug: string };
+    const topicRow = await db().prepare('SELECT id FROM topics WHERE slug = ?').bind(slug).first<{ id: string }>();
+
+    const res = await handleCreatePost({
+      user: { id: 'member-only-user', roles: ['member'] },
+      topicId: topicRow!.id,
+      body: { bodyMd: 'member should not reply' },
+      db: db(),
+      rateKv: rateKv(),
+      now: NOW + 1,
+    });
+    expect(res.status).toBe(403);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // handleCreateTopic
@@ -208,7 +291,7 @@ describe('handleCreateTopic: body validation', () => {
 describe('handleCreateTopic: rate limiting', () => {
   it('returns 429 on the 6th topic creation within 600s window', async () => {
     // Use a unique user ID so this test does not share state with others.
-    const rateUser = { id: `rate-topic-user-${Date.now()}`, roles: ['writer'] };
+    const rateUser = { id: `rate-topic-user-${Date.now()}`, roles: ['drep'] };
 
     const makeReq = (n: number) =>
       handleCreateTopic({
@@ -413,7 +496,7 @@ describe('handleCreateTopic: whitespace body', () => {
 describe('handleCreatePost: rate limiting', () => {
   it('returns 429 on the 21st reply within 600s window', async () => {
     // Use a unique user ID so this test does not share state with others.
-    const rateUser = { id: `rate-post-user-${Date.now()}`, roles: ['writer'] };
+    const rateUser = { id: `rate-post-user-${Date.now()}`, roles: ['drep'] };
 
     // Create a topic to reply to (use WRITER so the topic user is separate).
     const { topic } = await createTopic(db(), {
