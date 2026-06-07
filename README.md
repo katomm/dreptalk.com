@@ -12,6 +12,8 @@ Astro (SSR) on Cloudflare Workers, with D1 and KV. A standalone cron worker inge
 
 Moderators and admins are granted by stake address through the `MODERATORS` env value (comma-separated `stakeAddress` or `stakeAddress:role`, role `admin` or `moderator`); empty by default. They sign in with the normal stake-key wallet flow; the allowlist only adds the moderation role.
 
+The legal pages (`/imprint`, `/privacy`) read the operator and contact details from env so they stay out of the repository: `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_ADDRESS` (separate lines with `|`), `LEGAL_CONTACT_EMAIL`, optional `LEGAL_RESPONSIBLE_PERSON`, `LEGAL_PHONE`, `LEGAL_VAT_ID`. Set them in `.dev.vars` locally and as Worker vars in production.
+
 ## Local development
 
 Requires Node 20+. Local and preview run against the Cardano preprod testnet; set `CARDANO_NETWORK=preprod` in `.dev.vars`.

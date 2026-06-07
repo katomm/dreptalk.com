@@ -1,0 +1,173 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import { getLegalInfo } from '@/lib/legal';
+
+// SSR so the controller contact can be read from the runtime environment.
+export const prerender = false;
+
+const legal = getLegalInfo();
+const lastUpdated = '7 June 2026';
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+---
+<Layout
+  title="Privacy Policy - DRepTalk"
+  description="How DRepTalk handles your data. Wallet-based, data-minimal, no tracking."
+  noindex={true}
+>
+  <article class="legal">
+    <h1>Privacy Policy</h1>
+    <p class="legal__meta">Last updated: {lastUpdated}</p>
+
+    <p>
+      DRepTalk is a wallet-authenticated forum for Cardano governance, built around
+      data minimization. We use no passwords, no email accounts, and no third-party
+      advertising or cross-site tracking. This policy explains what we process and
+      your rights under the GDPR.
+    </p>
+
+    <h2>Controller</h2>
+    <p>
+      The controller responsible for data processing on this site is:<br />
+      {legal.operatorName}<br />
+      {legal.addressLines.map((line) => (<>{line}<br /></>))}
+      Email: <a href={`mailto:${legal.email}`}>{legal.email}</a>
+    </p>
+
+    <h2>What we process, and why</h2>
+
+    <h3>Wallet sign-in and identity</h3>
+    <p>
+      Authentication is non-custodial. You prove control of a Cardano wallet by signing
+      a one-time message; we never receive, request, or store private keys, and there
+      is no password. When you sign in, we store your public on-chain identifier (for
+      example your DRep ID or stake address) and the on-chain role it proves (DRep, SPO,
+      Constitutional Committee member, or proposer) in order to grant posting access.
+      Legal basis: Art. 6(1)(b) GDPR (providing the service you request) and (f)
+      (legitimate interest in operating a forum with verifiable on-chain roles).
+    </p>
+
+    <h3>Content you publish</h3>
+    <p>
+      Topics, posts, and reactions you create are public and are stored, attributed to
+      your public on-chain identifier. Legal basis: Art. 6(1)(b) and (f) GDPR.
+    </p>
+
+    <h3>Session cookie</h3>
+    <p>
+      We set one strictly necessary cookie to keep you signed in. We set no advertising
+      or tracking cookies, so no consent banner is required. Legal basis: Art. 6(1)(f)
+      GDPR and &sect; 25(2) TDDDG (strictly necessary).
+    </p>
+
+    <h3>Server logs and security</h3>
+    <p>
+      Our hosting and security provider (Cloudflare) processes connection data such as
+      your IP address to deliver the site, defend against abuse, and rate-limit
+      requests. These are retained only briefly. Legal basis: Art. 6(1)(f) GDPR
+      (security and reliable operation).
+    </p>
+
+    <h3>Analytics</h3>
+    <p>
+      When enabled, the site uses Cloudflare Web Analytics, a privacy-preserving,
+      cookieless tool that collects only aggregate metrics. It does not use cookies,
+      does not fingerprint you, and does not track you across sites. Legal basis:
+      Art. 6(1)(f) GDPR.
+    </p>
+
+    <h3>Public blockchain data</h3>
+    <p>
+      To verify your role and to show governance information and DRep profiles, we read
+      public data from the Cardano blockchain through the Koios API. We do not transmit
+      personal data to Koios beyond public on-chain identifiers. Profile details (name,
+      description, image) that DReps publish on-chain via CIP-119 are displayed here;
+      profile images are served through our own cache, so your browser does not contact
+      third-party image hosts.
+    </p>
+
+    <h2>Recipients and processors</h2>
+    <p>
+      We do not sell your data and use no third-party advertising or tracking. We rely
+      on:
+    </p>
+    <ul>
+      <li>Cloudflare, Inc.: hosting, content delivery, security, and cookieless analytics, under a data processing agreement.</li>
+      <li>Koios: a public, read-only Cardano data API; we send only public on-chain identifiers.</li>
+    </ul>
+
+    <h2>International transfers</h2>
+    <p>
+      Some processing (for example over Cloudflare's global network) may take place
+      outside the EU/EEA, safeguarded by the EU Standard Contractual Clauses.
+    </p>
+
+    <h2>Retention</h2>
+    <p>
+      Account data is kept while your account is active. Public content remains part of
+      the forum record unless you or a moderator removes it. Connection and security
+      logs are kept only briefly. Data written to the public Cardano blockchain (for
+      example a DRep registration you submit) is outside our control and cannot be
+      deleted by us.
+    </p>
+
+    <h2>Your rights</h2>
+    <p>
+      Under the GDPR you have the right of access (Art. 15), rectification (Art. 16),
+      erasure (Art. 17), restriction (Art. 18), data portability (Art. 20), and
+      objection (Art. 21), and the right to lodge a complaint with a supervisory
+      authority. To exercise these, contact us at
+      <a href={`mailto:${legal.email}`}>{legal.email}</a>. We can remove your forum
+      account and content, but we cannot alter or erase data recorded on the public
+      blockchain.
+    </p>
+
+    <h2>Automated decision-making</h2>
+    <p>We do not use automated decision-making or profiling within the meaning of Art. 22 GDPR.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>We may update this policy; the current version is always available on this page.</p>
+  </article>
+
+  <style>
+    .legal {
+      max-width: 46rem;
+      margin: 0 auto;
+      padding: 1rem 0 4rem;
+      line-height: 1.7;
+    }
+    .legal h1 {
+      font-size: clamp(1.6rem, 4vw, 2.2rem);
+      margin: 0 0 0.25rem;
+    }
+    .legal__meta {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin: 0 0 1.5rem;
+    }
+    .legal h2 {
+      font-size: 1.15rem;
+      margin: 2rem 0 0.5rem;
+    }
+    .legal h3 {
+      font-size: 1rem;
+      margin: 1.25rem 0 0.35rem;
+    }
+    .legal p,
+    .legal li {
+      color: var(--fg);
+    }
+    .legal p {
+      margin: 0 0 1rem;
+    }
+    .legal ul {
+      margin: 0 0 1rem;
+      padding-left: 1.25rem;
+    }
+    .legal li {
+      margin: 0 0 0.35rem;
+    }
+    .legal a {
+      color: var(--accent);
+    }
+  </style>
+</Layout>
