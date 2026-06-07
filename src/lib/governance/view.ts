@@ -1,9 +1,8 @@
 // Pure presentation helpers for governance actions: readable type, ADA
-// formatting, explorer links, status badges, epoch countdown, tally bars, and
-// vote tones. No I/O; all deterministic and unit-tested. Shared by the gov-sync
-// first-post composer and the thread header / list rows.
-
-import { cardanoscanBase, type CardanoNetwork } from '../config/network.js';
+// formatting, status badges, epoch countdown, tally bars, and vote tones. No I/O;
+// all deterministic and unit-tested. Shared by the gov-sync first-post composer
+// and the thread header / list rows. Explorer links live in config/network.ts
+// (governanceActionUrl), since they are network-aware.
 
 // Cardano epochs are 5 days on both mainnet and preprod; used for the countdown.
 const EPOCH_DAYS = 5;
@@ -19,11 +18,6 @@ export function formatAda(lovelace: string | null | undefined): string | null {
   const n = Number(lovelace);
   if (!Number.isFinite(n)) return null;
   return `${(n / 1_000_000).toLocaleString('en-US')} ADA`;
-}
-
-/** Cardanoscan governance-action URL (preprod has a live instance). */
-export function explorerUrl(network: CardanoNetwork, proposalId: string): string {
-  return `${cardanoscanBase(network)}/govAction/${proposalId}`;
 }
 
 export type StatusTone = 'active' | 'positive' | 'negative' | 'neutral';

@@ -25,24 +25,24 @@ const CONFIGS: Record<CardanoNetwork, NetworkConfig> = {
   },
 };
 
-// Cardanoscan base URLs per network.
-const CARDANOSCAN_BASE: Record<CardanoNetwork, string> = {
-  mainnet: 'https://cardanoscan.io',
-  preprod: 'https://preprod.cardanoscan.io',
-};
+// The Cardano Foundation explorer landing page lets each user pick their own
+// preferred explorer, so we link through it instead of hard-coding a single one
+// (more neutral). mainnet is the default and needs no parameter; other networks
+// are passed as a query param. https://github.com/cardano-foundation/cf-explorer-landing
+const EXPLORER_BASE = 'https://explorer.cardano.org';
 
-/** Returns the Cardanoscan URL for a transaction hash on the given network. */
-export function txExplorerUrl(network: CardanoNetwork, txHash: string): string {
-  return `${CARDANOSCAN_BASE[network]}/transaction/${txHash}`;
+function explorerNetworkSuffix(network: CardanoNetwork): string {
+  return network === 'mainnet' ? '' : `&network=${network}`;
 }
 
-/**
- * Returns the Cardanoscan base URL for a given network.
- * Use txExplorerUrl for transaction links; this is exposed for callers that
- * need the root (e.g. governance-action links built with a different path).
- */
-export function cardanoscanBase(network: CardanoNetwork): string {
-  return CARDANOSCAN_BASE[network];
+/** Neutral explorer-landing URL for a transaction hash on the given network. */
+export function txExplorerUrl(network: CardanoNetwork, txHash: string): string {
+  return `${EXPLORER_BASE}/transaction?id=${encodeURIComponent(txHash)}${explorerNetworkSuffix(network)}`;
+}
+
+/** Neutral explorer-landing URL for a governance action (bech32 gov_action id). */
+export function governanceActionUrl(network: CardanoNetwork, proposalId: string): string {
+  return `${EXPLORER_BASE}/governance-action?id=${encodeURIComponent(proposalId)}${explorerNetworkSuffix(network)}`;
 }
 
 // Defaults to mainnet when unset so production needs no variable.

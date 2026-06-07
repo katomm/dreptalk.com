@@ -4,14 +4,13 @@
 // collapsible rationale. All values come from D1 (synced on a cron); they are
 // shown with an explicit "as of" time and never claimed to be live.
 import type { GovernanceAction } from '@/lib/db/governance.js';
-import type { CardanoNetwork } from '@/lib/config/network.js';
+import { governanceActionUrl, type CardanoNetwork } from '@/lib/config/network.js';
 import {
   statusBadge,
   readableType,
   formatAda,
   epochCountdown,
   tallyBar,
-  explorerUrl,
   fmtPct,
   TONE_COLORS,
   type TallyBar as TallyData,
@@ -58,12 +57,12 @@ const tallies = [
     </span>
     {action.proposalId && (
       <a
-        href={explorerUrl(network, action.proposalId)}
+        href={governanceActionUrl(network, action.proposalId)}
         rel="noopener noreferrer"
         target="_blank"
         style="font-size:0.8125rem;color:var(--accent);margin-left:auto;"
       >
-        View on Cardanoscan
+        View in explorer
       </a>
     )}
   </div>

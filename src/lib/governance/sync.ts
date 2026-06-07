@@ -4,8 +4,8 @@
 // run. Tallies, lifecycle status, and vote badges are a later sync phase.
 
 import type { ProposalListRow } from '../koios/client.js';
-import type { CardanoNetwork } from '../config/network.js';
-import { readableType, formatAda, explorerUrl } from './view.js';
+import { governanceActionUrl, type CardanoNetwork } from '../config/network.js';
+import { readableType, formatAda } from './view.js';
 import { fetchAnchorMetadata } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
 import { createTopic } from '../db/forum.js';
@@ -50,7 +50,7 @@ function composeFirstPostMd(p: ProposalListRow, abstract: string | null, network
   if (dep) lines.push(`- Deposit: ${dep}`);
   if (p.proposed_epoch != null) lines.push(`- Submitted: epoch ${p.proposed_epoch}`);
   if (p.expiration != null) lines.push(`- Expires: epoch ${p.expiration}`);
-  lines.push('', `[View on Cardanoscan](${explorerUrl(network, p.proposal_id)})`);
+  lines.push('', `[View in explorer](${governanceActionUrl(network, p.proposal_id)})`);
   return lines.join('\n');
 }
 
