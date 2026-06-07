@@ -120,6 +120,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
         batchWith: (topicId) => [
           buildInsertGovernanceAction(db, {
             id,
+            proposalId: p.proposal_id,
             type: p.proposal_type,
             title: meta?.title ?? null,
             abstract: meta?.abstract ?? null,
