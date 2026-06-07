@@ -28,6 +28,8 @@ export interface Post {
   body_html: string;
   reaction_count: number;
   flag_count: number;
+  /** True once enough distinct writers flagged it; rendered as a placeholder. */
+  hidden: boolean;
   edited_at: number | null;
   deleted: boolean;
   created_at: number;
@@ -58,6 +60,7 @@ interface PostRow {
   body_html: string;
   reaction_count: number;
   flag_count: number;
+  hidden: number;
   edited_at: number | null;
   deleted: number;
   created_at: number;
@@ -96,6 +99,7 @@ function rowToPost(row: PostRow | PostRowNoBody): Post {
     body_html: row.body_html,
     reaction_count: row.reaction_count,
     flag_count: row.flag_count,
+    hidden: row.hidden === 1,
     edited_at: row.edited_at,
     deleted: row.deleted === 1,
     created_at: row.created_at,
@@ -194,6 +198,7 @@ export async function createTopic(
     body_html: bodyHtml,
     reaction_count: 0,
     flag_count: 0,
+    hidden: 0,
     edited_at: null,
     deleted: 0,
     created_at: now,
@@ -241,6 +246,8 @@ export async function getTopicsByCategory(
 
 /**
  * Returns non-deleted posts for the given topic, ordered by created_at ascending.
+ * Hidden posts ARE returned (unlike deleted ones): the view renders them as a
+ * placeholder so the community-flag outcome is visible in the thread.
  * Default limit 50, capped at 100. offset >= 0.
  */
 export async function getPostsByTopic(
@@ -253,7 +260,7 @@ export async function getPostsByTopic(
 
   const rows = await db
     .prepare(
-      `SELECT id, topic_id, author_id, body_html, reaction_count, flag_count, edited_at, deleted, created_at
+      `SELECT id, topic_id, author_id, body_html, reaction_count, flag_count, hidden, edited_at, deleted, created_at
        FROM posts
        WHERE topic_id = ? AND deleted = 0
        ORDER BY created_at ASC
@@ -263,6 +270,21 @@ export async function getPostsByTopic(
     .all<PostRowNoBody>();
 
   return (rows.results ?? []).map(rowToPost);
+}
+
+/**
+ * Returns a single post by id, or null if missing. The 20KB body_md is excluded
+ * (like getPostsByTopic): the flag handler only needs author_id/deleted/hidden.
+ */
+export async function getPostById(db: D1Database, postId: string): Promise<Post | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, topic_id, author_id, body_html, reaction_count, flag_count, hidden, edited_at, deleted, created_at
+       FROM posts WHERE id = ?`,
+    )
+    .bind(postId)
+    .first<PostRowNoBody>();
+  return row ? rowToPost(row) : null;
 }
 
 /**
@@ -323,6 +345,7 @@ export async function createPost(
     body_html: bodyHtml,
     reaction_count: 0,
     flag_count: 0,
+    hidden: 0,
     edited_at: null,
     deleted: 0,
     created_at: now,
