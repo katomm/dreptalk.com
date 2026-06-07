@@ -1,0 +1,74 @@
+---
+// One topic row, reused by the forum overview (cross-category) and the category
+// view. Optionally renders author identity, a category badge (cross-category
+// context), and governance enrichment (status badge + DRep mini-tally + countdown).
+import type { Topic } from '@/lib/db/forum.js';
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import type { Category } from '../../config/categories.js';
+import AuthorIdentity from './AuthorIdentity.astro';
+import TallyBar from './TallyBar.astro';
+import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
+import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
+
+interface Props {
+  topic: Topic;
+  now: number;
+  author?: AuthorDescriptor;
+  category?: Category;
+  governance?: GovernanceAction;
+}
+
+const { topic, now, author, category, governance } = Astro.props;
+
+const gaBadge = governance ? statusBadge(governance.status) : null;
+const gaBar = governance ? tallyBar(governance.drepYesPct, governance.drepNoPct) : null;
+const gaCountdown = governance ? epochCountdown(governance.expiryEpoch, governance.tallyEpoch) : null;
+---
+
+<div style="border-bottom:1px solid var(--border);padding:0.875rem 0;display:flex;gap:0.75rem;align-items:baseline;">
+  {topic.pinned && (
+    <span aria-hidden="true" title="Pinned" style="flex-shrink:0;color:var(--accent);font-size:0.8125rem;">&#128204;</span>
+  )}
+  {topic.locked && (
+    <span aria-hidden="true" title="Locked" style="flex-shrink:0;color:var(--muted);font-size:0.8125rem;">&#128274;</span>
+  )}
+
+  <div style="flex:1;min-width:0;">
+    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+      <a href={`/t/${topic.slug}`} style="font-weight:500;text-decoration:none;color:var(--fg);">
+        {topic.title}
+      </a>
+      {category && (
+        <a
+          href={`/c/${category.slug}`}
+          style="font-size:0.6875rem;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:0.05rem 0.4rem;text-decoration:none;"
+        >
+          {category.name}
+        </a>
+      )}
+      {gaBadge && (
+        <span style={`font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:#fff;background:${TONE_COLORS[gaBadge.tone]};border-radius:0.25rem;padding:0.05rem 0.4rem;`}>
+          {gaBadge.label}
+        </span>
+      )}
+    </div>
+
+    <div style="font-size:0.8125rem;color:var(--muted);margin-top:0.3rem;display:flex;gap:0.5rem 0.75rem;align-items:center;flex-wrap:wrap;">
+      {author ? <AuthorIdentity author={author} size={20} /> : <span>by {truncateId(topic.author_id)}</span>}
+      <span>{topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}</span>
+      <span>{formatRelativeTime(topic.last_post_at, now)}</span>
+      {gaCountdown && <span>{gaCountdown}</span>}
+    </div>
+
+    {gaBar && (
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.4rem;max-width:320px;">
+        <span style="font-size:0.6875rem;color:var(--muted);flex-shrink:0;">DRep</span>
+        <div style="flex:1;">
+          <TallyBar bar={gaBar} height={6} />
+        </div>
+        <span style="font-size:0.6875rem;color:var(--muted);flex-shrink:0;">{fmtPct(gaBar.yes)} yes</span>
+      </div>
+    )}
+  </div>
+</div>

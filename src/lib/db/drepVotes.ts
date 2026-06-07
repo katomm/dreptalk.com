@@ -1,0 +1,62 @@
+/// <reference types="@cloudflare/workers-types" />
+// Parameterized D1 access for drep_votes (on-chain votes that drive per-post badges).
+// All queries use .prepare().bind(); never string-concatenated SQL.
+
+export interface VoteInput {
+  voterRole: string;
+  voterId: string;
+  voterHex: string | null;
+  vote: string;
+}
+
+// Bound parameters per row in the upsert; stays well under the SQLite limit.
+const UPSERT_CHUNK = 100;
+
+/**
+ * Upserts on-chain votes for one governance action (INSERT OR REPLACE on the
+ * (ga_id, voter_id) primary key), chunked. Returns the number of rows written.
+ */
+export async function upsertVotes(
+  db: D1Database,
+  gaId: string,
+  votes: VoteInput[],
+  now: number,
+): Promise<number> {
+  if (votes.length === 0) return 0;
+
+  for (let i = 0; i < votes.length; i += UPSERT_CHUNK) {
+    const chunk = votes.slice(i, i + UPSERT_CHUNK);
+    const stmts = chunk.map((v) =>
+      db
+        .prepare(
+          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, synced_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, now),
+    );
+    await db.batch(stmts);
+  }
+  return votes.length;
+}
+
+/**
+ * Returns the votes on one action keyed by voter id, for the per-post badge.
+ * The thread view matches each post author's drep_id / pool_id / cc_cred here.
+ */
+export async function getVotesByGaId(
+  db: D1Database,
+  gaId: string,
+): Promise<Map<string, { role: string; vote: string }>> {
+  const rows = (
+    await db
+      .prepare('SELECT voter_id, voter_role, vote FROM drep_votes WHERE ga_id = ?')
+      .bind(gaId)
+      .all<{ voter_id: string; voter_role: string; vote: string }>()
+  ).results ?? [];
+
+  const map = new Map<string, { role: string; vote: string }>();
+  for (const r of rows) {
+    map.set(r.voter_id, { role: r.voter_role, vote: r.vote });
+  }
+  return map;
+}

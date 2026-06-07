@@ -1,0 +1,106 @@
+---
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import JsonLd from '@/components/JsonLd.astro';
+import TopicRow from '@/components/TopicRow.astro';
+import { getLatestTopicsAcrossCategories, getCategoryStats } from '@/lib/db/forum.js';
+import { getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
+import { loadAuthorIdentities } from '@/lib/forum/author.js';
+import { getCategories, getCategory, GOVERNANCE_CATEGORY_SLUG } from '../../config/categories.js';
+import { cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { env } from 'cloudflare:workers';
+
+const db = env.DB as D1Database | undefined;
+const now = Date.now();
+
+const categories = getCategories();
+
+// Category stats and the latest-topics list are independent; load them together.
+const [stats, latest] = db
+  ? await Promise.all([getCategoryStats(db), getLatestTopicsAcrossCategories(db, { limit: 20 })])
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), []];
+
+// Then the author identities and the governance actions for the listed topics,
+// both depending only on `latest` and independent of each other (one query each).
+const govTopicIds = latest.filter((t) => t.category_slug === GOVERNANCE_CATEGORY_SLUG).map((t) => t.id);
+const [identities, govByTopic] = await Promise.all([
+  db ? loadAuthorIdentities(db, latest.map((t) => t.author_id)) : Promise.resolve(null),
+  db && govTopicIds.length ? getGovernanceActionsByTopicIds(db, govTopicIds) : Promise.resolve(new Map()),
+]);
+
+Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
+
+const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
+const breadcrumbLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: siteOrigin + '/' },
+    { '@type': 'ListItem', position: 2, name: 'Discussions', item: siteOrigin + '/discussions' },
+  ],
+};
+---
+
+<Layout title="Discussions - DRepTalk" description="Cardano governance discussion: browse categories and the latest activity across the forum.">
+  <JsonLd data={breadcrumbLd} />
+
+  <h1 style="margin:0 0 1.25rem;">Discussions</h1>
+
+  <div class="discussions-grid">
+    <section aria-label="Categories">
+      <h2 style="font-size:0.8125rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin:0 0 0.75rem;">Categories</h2>
+      <div style="display:flex;flex-direction:column;">
+        {categories.map((c) => {
+          const s = stats.get(c.slug);
+          return (
+            <a href={`/c/${c.slug}`} style="border-bottom:1px solid var(--border);padding:0.75rem 0;text-decoration:none;color:inherit;display:block;">
+              <div style="display:flex;align-items:center;gap:0.5rem;">
+                <span aria-hidden="true" style={`width:0.5rem;height:0.5rem;border-radius:999px;flex-shrink:0;background:${c.kind === 'governance' ? 'var(--accent)' : 'var(--muted)'};`}></span>
+                <span style="font-weight:600;color:var(--fg);">{c.name}</span>
+                <span style="margin-left:auto;font-size:0.8125rem;color:var(--muted);">{s?.topicCount ?? 0}</span>
+              </div>
+              <p style="margin:0.3rem 0 0 1rem;font-size:0.8125rem;color:var(--muted);">{c.description}</p>
+              {s?.lastPostAt && (
+                <p style="margin:0.2rem 0 0 1rem;font-size:0.75rem;color:var(--muted);">Last activity {formatRelativeTime(s.lastPostAt, now)}</p>
+              )}
+            </a>
+          );
+        })}
+      </div>
+    </section>
+
+    <section aria-label="Latest activity">
+      <h2 style="font-size:0.8125rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin:0 0 0.75rem;">Latest activity</h2>
+      {latest.length === 0 ? (
+        <p style="color:var(--muted);">No topics yet.</p>
+      ) : (
+        <div>
+          {latest.map((t) => (
+            <TopicRow
+              topic={t}
+              now={now}
+              author={identities ? identities.describe(t.author_id) : undefined}
+              category={getCategory(t.category_slug)}
+              governance={govByTopic.get(t.id)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  </div>
+</Layout>
+
+<style>
+  .discussions-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  @media (min-width: 820px) {
+    .discussions-grid {
+      grid-template-columns: 20rem 1fr;
+      gap: 2.5rem;
+    }
+  }
+</style>

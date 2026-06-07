@@ -113,6 +113,47 @@ const proposalListRowSchema = z
 
 export type ProposalListRow = z.infer<typeof proposalListRowSchema>;
 
+// Voting summary for one proposal. Counts are votes_cast; the *_pct fields are
+// power-weighted for DRep/pool and count-weighted for committee (as Koios
+// computes them). Tolerant of nulls and extra fields.
+const votingSummarySchema = z
+  .object({
+    proposal_type: z.string().optional(),
+    epoch_no: z.number().nullable().optional(),
+    drep_yes_votes_cast: z.number().nullable().optional(),
+    drep_no_votes_cast: z.number().nullable().optional(),
+    drep_abstain_votes_cast: z.number().nullable().optional(),
+    drep_yes_pct: z.number().nullable().optional(),
+    drep_no_pct: z.number().nullable().optional(),
+    pool_yes_votes_cast: z.number().nullable().optional(),
+    pool_no_votes_cast: z.number().nullable().optional(),
+    pool_abstain_votes_cast: z.number().nullable().optional(),
+    pool_yes_pct: z.number().nullable().optional(),
+    pool_no_pct: z.number().nullable().optional(),
+    committee_yes_votes_cast: z.number().nullable().optional(),
+    committee_no_votes_cast: z.number().nullable().optional(),
+    committee_abstain_votes_cast: z.number().nullable().optional(),
+    committee_yes_pct: z.number().nullable().optional(),
+    committee_no_pct: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+export type VotingSummary = z.infer<typeof votingSummarySchema>;
+
+// One on-chain vote on a proposal. voter_id is the CIP-129 drep id / pool id /
+// cc cred; vote is Yes / No / Abstain.
+const proposalVoteRowSchema = z
+  .object({
+    voter_role: z.string(),
+    voter_id: z.string(),
+    voter_hex: z.string().nullable().optional(),
+    vote: z.string(),
+    block_time: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+export type ProposalVoteRow = z.infer<typeof proposalVoteRowSchema>;
+
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
@@ -206,6 +247,20 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/drep_list?limit=${limit}&offset=${offset}`;
       const data = await request(path, { method: 'GET' });
       return z.array(drepListRowSchema).parse(data);
+    },
+
+    // Power-weighted tally summary for one governance action (bech32 proposal id).
+    async proposalVotingSummary(proposalId: string): Promise<VotingSummary | null> {
+      const path = `/proposal_voting_summary?_proposal_id=${encodeURIComponent(proposalId)}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(votingSummarySchema).parse(data)[0] ?? null;
+    },
+
+    // Individual on-chain votes on one governance action (paginated).
+    async proposalVotes(proposalId: string, limit = 1000, offset = 0): Promise<ProposalVoteRow[]> {
+      const path = `/proposal_votes?_proposal_id=${encodeURIComponent(proposalId)}&limit=${limit}&offset=${offset}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(proposalVoteRowSchema).parse(data);
     },
   };
 }

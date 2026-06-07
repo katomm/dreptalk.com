@@ -5,9 +5,12 @@ import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
-import { getCategory, isDiscussion } from '../../../config/categories.js';
+import TopicRow from '@/components/TopicRow.astro';
+import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory } from '@/lib/db/forum.js';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
+import { loadAuthorIdentities } from '@/lib/forum/author.js';
+import { parsePage, pageToOffset, cacheControlFor, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
@@ -28,6 +31,17 @@ const offset = pageToOffset(page, PAGE_SIZE);
 const topics = category && db
   ? await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset })
   : [];
+
+// Batch author identities for the page's topics, and (for the governance
+// category) the governance actions for the enriched rows. Both depend only on
+// `topics` and are independent, so load them together. One query each, no N+1.
+const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
+const [identities, govByTopic] = await Promise.all([
+  db && topics.length ? loadAuthorIdentities(db, topics.map((t) => t.author_id)) : Promise.resolve(null),
+  db && isGovernanceCategory && topics.length
+    ? getGovernanceActionsByTopicIds(db, topics.map((t) => t.id))
+    : Promise.resolve(new Map()),
+]);
 
 if (!notFound) {
   Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
@@ -90,28 +104,12 @@ const breadcrumbLd = {
     ) : (
       <div style="display:flex;flex-direction:column;gap:0;">
         {topics.map((topic) => (
-          <div style="border-bottom:1px solid var(--border);padding:0.875rem 0;display:flex;gap:0.75rem;align-items:baseline;">
-            {topic.pinned && (
-              <span style="font-size:0.75rem;background:var(--accent);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;flex-shrink:0;">
-                pinned
-              </span>
-            )}
-            <div style="flex:1;min-width:0;">
-              <a
-                href={`/t/${topic.slug}`}
-                style="font-weight:500;text-decoration:none;color:var(--fg);"
-              >
-                {topic.title}
-              </a>
-              <div style="font-size:0.8125rem;color:var(--muted);margin-top:0.2rem;">
-                by {truncateId(topic.author_id)}
-                <span style="margin:0 0.4rem;">&middot;</span>
-                {topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}
-                <span style="margin:0 0.4rem;">&middot;</span>
-                last activity {formatRelativeTime(topic.last_post_at, now)}
-              </div>
-            </div>
-          </div>
+          <TopicRow
+            topic={topic}
+            now={now}
+            author={identities ? identities.describe(topic.author_id) : undefined}
+            governance={govByTopic.get(topic.id)}
+          />
         ))}
       </div>
     )}

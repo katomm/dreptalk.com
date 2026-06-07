@@ -7,6 +7,8 @@
 // number of distinct flaggers and posts.hidden is set when that count reaches the
 // threshold, so the hidden state is always consistent with the flags table.
 
+import { sqlPlaceholders } from './sql.js';
+
 // Distinct flaggers required to hide a post. Kept low on purpose: every flagger
 // is a wallet-verified on-chain writer, so few flags signal real consensus.
 export const FLAG_HIDE_THRESHOLD = 3;
@@ -91,7 +93,7 @@ export async function getFlaggedPostIds(
 ): Promise<Set<string>> {
   if (postIds.length === 0) return new Set();
 
-  const placeholders = postIds.map(() => '?').join(', ');
+  const placeholders = sqlPlaceholders(postIds);
   const rows = (
     await db
       .prepare(

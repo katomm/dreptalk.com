@@ -5,7 +5,7 @@
 
 import type { ProposalListRow } from '../koios/client.js';
 import type { CardanoNetwork } from '../config/network.js';
-import { cardanoscanBase } from '../config/network.js';
+import { readableType, formatAda, explorerUrl } from './view.js';
 import { fetchAnchorMetadata } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
 import { createTopic } from '../db/forum.js';
@@ -33,24 +33,6 @@ export interface GovSyncDeps {
   fetchImpl?: typeof fetch;
 }
 
-/** "TreasuryWithdrawals" -> "Treasury Withdrawals". */
-function readableType(type: string): string {
-  return type.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
-}
-
-function formatDeposit(lovelace: string | null | undefined): string | null {
-  if (!lovelace) return null;
-  const n = Number(lovelace);
-  if (!Number.isFinite(n)) return null;
-  return `${(n / 1_000_000).toLocaleString('en-US')} ADA`;
-}
-
-function explorerUrl(network: CardanoNetwork, proposalId: string): string {
-  // Cardanoscan has a live preprod instance with stable /govAction routes;
-  // GovTool's preprod host was unreliable.
-  return `${cardanoscanBase(network)}/govAction/${proposalId}`;
-}
-
 /**
  * Composes the first post as Markdown. Everything (including the untrusted
  * abstract and return address) is rendered through renderMarkdown, whose xss
@@ -64,7 +46,7 @@ function composeFirstPostMd(p: ProposalListRow, abstract: string | null, network
     '',
   ];
   if (p.return_address) lines.push(`- Proposer return address: \`${p.return_address}\``);
-  const dep = formatDeposit(p.deposit);
+  const dep = formatAda(p.deposit);
   if (dep) lines.push(`- Deposit: ${dep}`);
   if (p.proposed_epoch != null) lines.push(`- Submitted: epoch ${p.proposed_epoch}`);
   if (p.expiration != null) lines.push(`- Expires: epoch ${p.expiration}`);
@@ -120,6 +102,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
         batchWith: (topicId) => [
           buildInsertGovernanceAction(db, {
             id,
+            proposalId: p.proposal_id,
             type: p.proposal_type,
             title: meta?.title ?? null,
             abstract: meta?.abstract ?? null,
