@@ -56,16 +56,18 @@ export function deriveStatus(
   ga: GovernanceAction,
   currentEpoch: number | null,
 ): string {
+  // Info actions have no on-chain effect: they can never be ratified or enacted,
+  // so when their voting window ends they are 'closed', not 'expired'/'dropped'.
+  const isInfo = ga.type === 'InfoAction';
   if (life?.enacted_epoch != null) return 'enacted';
   if (life?.ratified_epoch != null) return 'ratified';
-  // An action that times out is marked expired, then removed (dropped) from the
-  // proposal set the next epoch, so most expired actions carry BOTH epochs.
-  // Expiry is the meaningful outcome, so it wins; 'dropped' alone means the action
-  // was pruned WITHOUT expiring (e.g. a competing action of the same type was enacted).
-  if (life?.expired_epoch != null) return 'expired';
-  if (life?.dropped_epoch != null) return 'dropped';
+  // A timed-out action is marked expired, then removed (dropped) the next epoch,
+  // so most carry BOTH epochs; expiry is the real outcome and wins over dropped.
+  // 'dropped' alone means pruned WITHOUT expiring (e.g. a sibling action was enacted).
+  if (life?.expired_epoch != null) return isInfo ? 'closed' : 'expired';
+  if (life?.dropped_epoch != null) return isInfo ? 'closed' : 'dropped';
   const expiry = ga.expiryEpoch ?? life?.expiration ?? null;
-  if (expiry != null && currentEpoch != null && currentEpoch > expiry) return 'expired';
+  if (expiry != null && currentEpoch != null && currentEpoch > expiry) return isInfo ? 'closed' : 'expired';
   return 'active';
 }
 
