@@ -1,0 +1,50 @@
+---
+export const prerender = false;
+
+import HelpLayout from '@/layouts/HelpLayout.astro';
+---
+
+<HelpLayout
+  title="Signing in - DRepTalk"
+  description="Who can sign in to DRepTalk and with which keys: DReps via their DRep key (CIP-95) and proposers via their reward address. No password, no transaction, no fees."
+  crumb="Signing in"
+>
+  <p style="color:var(--muted);max-width:62ch;line-height:1.6;">
+    DRepTalk has no passwords and no accounts to create. You sign in with your Cardano
+    wallet by signing a one-time challenge, which proves you control an on-chain
+    governance identity. Signing in is <strong>non-custodial</strong>: it is a message
+    signature, not a transaction, so there is nothing to send and no fees, and the server
+    never sees your private keys. There are two ways to sign in today, and each uses a
+    different key from your wallet.
+  </p>
+
+  <section style="margin-top:1.75rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">DReps</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Pick the <strong>DRep</strong> role and connect a CIP-95 capable wallet
+      (for example Lace, Eternl, or Typhon). You sign with your <strong>DRep key</strong>.
+      We derive your DRep ID from that signature and confirm on-chain that it belongs to a
+      registered, active DRep. Script-based DReps are not supported yet. If your wallet is
+      not yet a registered DRep, you can <a href="/drep">register as a DRep</a> first.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Proposers</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Pick the <strong>Proposer</strong> role. You sign with your wallet's
+      <strong>reward (stake) address</strong>, and we confirm on-chain that this address
+      submitted at least one governance action. Use the same wallet that submitted the
+      action. Listed moderators can also sign in through this flow.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">What signing in does not do</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      It never moves your funds, never submits a transaction, and never asks for a seed
+      phrase or private key. If your wallet ever prompts you to approve a transaction or a
+      payment to sign in, stop: that is not how DRepTalk works.
+    </p>
+  </section>
+</HelpLayout>

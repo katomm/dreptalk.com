@@ -1,24 +1,15 @@
 ---
 export const prerender = false;
 
-import Layout from '@/layouts/Layout.astro';
+import HelpLayout from '@/layouts/HelpLayout.astro';
 import { FRESHNESS } from '@/lib/freshness.js';
-
-// Public docs; cache at the edge but keep it reasonably fresh if cadences change.
-Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 
-<Layout
+<HelpLayout
   title="Data freshness - DRepTalk"
   description="How often DRepTalk refreshes on-chain values: governance tallies, DRep profiles, and vote badges. Cached, not live."
+  crumb="Data freshness"
 >
-  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
-    <a href="/">DRepTalk</a>
-    <span style="margin:0 0.375rem;">/</span>
-    <span>Data freshness</span>
-  </nav>
-
-  <h1 style="margin:0 0 0.5rem;">Data freshness</h1>
   <p style="color:var(--muted);max-width:60ch;line-height:1.6;">
     DRepTalk reads on-chain data (governance tallies and status, DRep profiles, vote badges)
     on a schedule, not on every page load. That keeps the platform fast and cheap to run.
@@ -47,4 +38,4 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       </tbody>
     </table>
   </div>
-</Layout>
+</HelpLayout>
