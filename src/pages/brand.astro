@@ -50,18 +50,19 @@ const swatchGroups = [
       <h2 id="logo-heading">Logo</h2>
       <div class="brand__cards">
         <figure class="logo-card logo-card--light">
-          <img src="/logo.png" alt="DRepTalk logo on a light background" width="200" height="144" />
+          <img src="/logo.svg" alt="DRepTalk logo on a light background" width="160" height="160" />
         </figure>
         <figure class="logo-card logo-card--dark">
-          <img src="/logo.png" alt="DRepTalk logo on a dark background" width="200" height="144" />
+          <img src="/logo.svg" alt="DRepTalk logo on a dark background" width="160" height="160" />
         </figure>
         <figure class="logo-card logo-card--grad">
-          <span class="logo-card__wordmark">DRep<span>Talk</span></span>
+          <img class="logo-card__mono" src="/logo-mono.svg" alt="DRepTalk logo on the brand gradient" width="160" height="160" />
         </figure>
       </div>
       <div class="brand__downloads">
+        <a class="btn btn-secondary" href="/logo.svg" download="dreptalk-logo.svg">Logo SVG</a>
+        <a class="btn btn-secondary" href="/logo-mark.svg" download="dreptalk-mark.svg">Mark SVG</a>
         <a class="btn btn-secondary" href="/logo.png" download="dreptalk-logo.png">Logo PNG</a>
-        <a class="btn btn-secondary" href="/logo-mark.png" download="dreptalk-mark.png">Mark PNG</a>
       </div>
     </section>
 
@@ -196,15 +197,10 @@ const swatchGroups = [
   .logo-card--grad {
     background: var(--grad);
   }
-  .logo-card__wordmark {
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.75rem;
-    color: #fff;
-    letter-spacing: -0.01em;
-  }
-  .logo-card__wordmark span {
-    color: rgba(255, 255, 255, 0.82);
+  .logo-card__mono {
+    /* logo-mono.svg uses currentColor and renders black as a standalone image;
+       flip it to white so the mark reads on the brand gradient. */
+    filter: brightness(0) invert(1);
   }
 
   .brand__downloads {

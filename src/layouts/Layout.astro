@@ -50,6 +50,7 @@ const isActive = (href: string) =>
     <link rel="canonical" href={canonical} />
     {noindex && <meta name="robots" content="noindex" />}
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" />
     <link rel="apple-touch-icon" href="/logo-96.png" />
     <link
       rel="preload"
@@ -87,7 +88,7 @@ const isActive = (href: string) =>
     <header class="site-header">
       <div class="site-header__inner container">
         <a class="brand" href="/" aria-label="DRepTalk home">
-          <img class="brand__mark" src="/logo-mark.png" alt="" width="34" height="38" />
+          <img class="brand__mark" src="/logo-mark.svg" alt="" width="38" height="38" />
           <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
         </a>
 
@@ -140,7 +141,7 @@ const isActive = (href: string) =>
       <div class="site-footer__inner container">
         <div class="site-footer__brand">
           <a class="brand" href="/" aria-label="DRepTalk home">
-            <img class="brand__mark" src="/logo-mark.png" alt="" width="32" height="36" />
+            <img class="brand__mark" src="/logo-mark.svg" alt="" width="34" height="34" />
             <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
           </a>
           <p class="site-footer__tagline">A calmer, accountable home for Cardano governance.</p>
@@ -208,11 +209,6 @@ const isActive = (href: string) =>
         height: 38px;
         width: auto;
         display: block;
-        /* The mark's radial burst sits in the upper part of the artwork while a
-           faint stem extends below, so its bounding box centers lower than the
-           visual cluster. Nudge down ~10% of its own height to optically center
-           the burst with the wordmark. Percentage scales to header and footer. */
-        transform: translateY(10%);
       }
       .brand__word {
         font-family: var(--font-display);
