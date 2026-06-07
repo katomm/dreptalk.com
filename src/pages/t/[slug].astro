@@ -6,11 +6,8 @@ import JsonLd from '@/components/JsonLd.astro';
 import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
-import type { AuthorDescriptor } from '@/components/AuthorIdentity.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
-import { getUsersByIds } from '@/lib/db/users.js';
-import { getDrepsByIds } from '@/lib/db/dreps.js';
-import { GOV_SYNC_AUTHOR } from '@/lib/governance/sync.js';
+import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
@@ -38,67 +35,23 @@ const posts = topic && db
 const category = topic ? getCategory(topic.category_slug) : undefined;
 
 // Resolve author identities for the topic header and every post on this page in
-// exactly two batched queries: one over the users table, one over the dreps
-// table (only for users that carry a drep_id). No per-post lookups (no N+1).
+// exactly two batched queries (users, then dreps). No per-post lookups (no N+1).
 const isGovernanceTopic = topic?.source === 'governance';
 
-// Distinct author ids across the topic and its posts. The system author
-// (gov-sync) is excluded from the DB lookups; it renders as a neutral identity.
-const authorIds = [
-  ...new Set(
-    [topic?.author_id, ...posts.map((p) => p.author_id)].filter(
-      (id): id is string => !!id && id !== GOV_SYNC_AUTHOR,
-    ),
-  ),
-];
+const identities = db
+  ? await loadAuthorIdentities(db, [topic?.author_id, ...posts.map((p) => p.author_id)])
+  : null;
 
-const usersById = db && authorIds.length ? await getUsersByIds(db, authorIds) : new Map();
-
-const drepIds = [
-  ...new Set(
-    [...usersById.values()]
-      .map((u) => u.drep_id)
-      .filter((id): id is string => !!id),
-  ),
-];
-
-const drepsById = db && drepIds.length ? await getDrepsByIds(db, drepIds) : new Map();
-
-// Builds the presentational descriptor for one author id. Pure mapping over the
-// already-batched users/dreps maps; performs no I/O.
-function describeAuthor(authorId: string): AuthorDescriptor {
-  if (authorId === GOV_SYNC_AUTHOR) {
-    return { authorId, displayName: 'System', isSystem: true };
-  }
-
-  const u = usersById.get(authorId);
-  const drep = u?.drep_id ? drepsById.get(u.drep_id) : undefined;
-
-  const badges: string[] = [];
-  if (u?.is_drep) badges.push('DRep');
-  if (u?.is_spo) badges.push('SPO');
-  if (u?.is_cc) badges.push('CC');
-  if (u?.is_proposer) badges.push('Proposer');
-  // Forum role badge shown in addition to the on-chain role(s).
-  if (u?.role === 'admin') badges.push('Admin');
-  else if (u?.role === 'moderator' || u?.role === 'mod') badges.push('Moderator');
-
-  return {
-    authorId,
-    displayName: drep?.name ?? u?.display_name ?? truncateId(authorId),
-    drepId: u?.drep_id ?? null,
-    hasImage: !!drep?.imageUrl,
-    badges,
-  };
-}
+const describe = (authorId: string): AuthorDescriptor =>
+  identities ? identities.describe(authorId) : { authorId, displayName: truncateId(authorId) };
 
 // The first post of a governance-sourced topic carries the system identity even
 // if its author_id is not literally gov-sync.
-const topicAuthor: AuthorDescriptor = isGovernanceTopic && topic
-  ? { authorId: topic.author_id, displayName: 'System', isSystem: true }
-  : topic
-    ? describeAuthor(topic.author_id)
-    : { authorId: '', displayName: '' };
+const topicAuthor: AuthorDescriptor = topic
+  ? isGovernanceTopic
+    ? systemAuthor(topic.author_id)
+    : describe(topic.author_id)
+  : { authorId: '', displayName: '' };
 
 if (!notFound) {
   Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
@@ -205,7 +158,7 @@ const breadcrumbLd = topic
         const author =
           isGovernanceTopic && page === 1 && i === 0
             ? topicAuthor
-            : describeAuthor(post.author_id);
+            : describe(post.author_id);
         return (
           <article style="border-top:1px solid var(--border);padding:1.25rem 0;" id={`post-${post.id}`}>
             <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;">

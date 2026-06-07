@@ -41,8 +41,8 @@ function countingProfileFetch() {
   return { fetchImpl, calls: () => calls };
 }
 
-// Fake Koios: drepList returns the supplied pages by offset; drepInfo returns
-// the rows whose drep_id is in the requested chunk.
+// Fake Koios: drepList returns the supplied pages by offset; drepInfoBatch
+// returns the rows whose drep_id is in the requested chunk.
 function fakeKoios(opts: {
   pages: DrepListRow[][];
   infoById: Map<string, DrepInfoRow>;
@@ -56,7 +56,7 @@ function fakeKoios(opts: {
         const pageIndex = offset / 1000;
         return opts.pages[pageIndex] ?? [];
       },
-      async drepInfo(ids: string[]): Promise<DrepInfoRow[]> {
+      async drepInfoBatch(ids: string[]): Promise<DrepInfoRow[]> {
         return ids
           .map((id) => opts.infoById.get(id))
           .filter((r): r is DrepInfoRow => r != null);

@@ -11,6 +11,7 @@
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
+import { bytesToHex } from '../../../src/lib/crypto/hex.js';
 import { syncGovernanceActions, type SyncResult } from '../../../src/lib/governance/sync.js';
 import { syncDreps, type DrepSyncResult } from '../../../src/lib/dreps/sync.js';
 
@@ -22,21 +23,18 @@ interface Env {
 
 /** Short random hex for topic slug suffixes. */
 function randSuffix(): string {
-  const b = crypto.getRandomValues(new Uint8Array(4));
-  return Array.from(b)
-    .map((x) => x.toString(16).padStart(2, '0'))
-    .join('');
+  return bytesToHex(crypto.getRandomValues(new Uint8Array(4)));
 }
 
-/** Builds a Koios client from env bindings. Shared by both sync paths. */
-function buildKoiosClient(env: Env) {
-  const { koiosBaseUrl } = resolveNetwork(env.CARDANO_NETWORK ?? null);
-  return createKoiosClient({ baseUrl: koiosBaseUrl, token: env.KOIOS_API_KEY || undefined });
+/** Resolves the network and a Koios client from env bindings. Shared by both paths. */
+function buildKoios(env: Env) {
+  const { network, koiosBaseUrl } = resolveNetwork(env.CARDANO_NETWORK ?? null);
+  const koios = createKoiosClient({ baseUrl: koiosBaseUrl, token: env.KOIOS_API_KEY || undefined });
+  return { koios, network };
 }
 
 async function runGovernanceSync(env: Env): Promise<SyncResult> {
-  const { network } = resolveNetwork(env.CARDANO_NETWORK ?? null);
-  const koios = buildKoiosClient(env);
+  const { koios, network } = buildKoios(env);
   return syncGovernanceActions({
     koios,
     db: env.DB,
@@ -47,7 +45,7 @@ async function runGovernanceSync(env: Env): Promise<SyncResult> {
 }
 
 async function runDrepSync(env: Env): Promise<DrepSyncResult> {
-  const koios = buildKoiosClient(env);
+  const { koios } = buildKoios(env);
   return syncDreps({ koios, db: env.DB, fetchImpl: fetch, now: Date.now() });
 }
 

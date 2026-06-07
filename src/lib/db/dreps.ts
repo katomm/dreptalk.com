@@ -160,27 +160,3 @@ export async function upsertDrep(
     )
     .run();
 }
-
-// Minimal row shape for the sync-state query (avoids repeating the inline type).
-interface SyncStateRow {
-  drep_id: string;
-  anchor_hash: string | null;
-}
-
-/**
- * Returns a Map of drep_id to stored anchor hash for every row in the dreps table.
- * Used by the sync worker to skip re-fetching CIP-119 anchors whose hash has not changed.
- */
-export async function getSyncState(
-  db: D1Database,
-): Promise<Map<string, { anchorHash: string | null }>> {
-  const rows = (
-    await db.prepare('SELECT drep_id, anchor_hash FROM dreps').all<SyncStateRow>()
-  ).results ?? [];
-
-  const result = new Map<string, { anchorHash: string | null }>();
-  for (const row of rows) {
-    result.set(row.drep_id, { anchorHash: row.anchor_hash });
-  }
-  return result;
-}

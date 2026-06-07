@@ -1,9 +1,9 @@
 // DReps D1 access tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
-// Exercises upsertDrep, getDrepById, getDrepsByIds, getSyncState against the
+// Exercises upsertDrep, getDrepById, getDrepsByIds against the
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, getSyncState, upsertDrep } from './dreps.js';
+import { getDrepById, getDrepsByIds, upsertDrep } from './dreps.js';
 
 const db = () => env.DB;
 
@@ -137,29 +137,5 @@ describe('getDrepsByIds', () => {
     const result = await getDrepsByIds(db(), ['drep1-none-a', 'drep1-none-b']);
     expect(result).toBeInstanceOf(Map);
     expect(result.size).toBe(0);
-  });
-});
-
-describe('getSyncState', () => {
-  it('returns a Map of drep_id to anchor_hash for all stored rows', async () => {
-    const idA = `${DREP_A}-sync-a`;
-    const idB = `${DREP_A}-sync-b`;
-    await upsertDrep(db(), { ...BASE_ARGS, drepId: idA, anchorHash: 'aaaa' });
-    await upsertDrep(db(), { ...BASE_ARGS, drepId: idB, anchorHash: null });
-
-    const state = await getSyncState(db());
-
-    expect(state).toBeInstanceOf(Map);
-    expect(state.has(idA)).toBe(true);
-    expect(state.has(idB)).toBe(true);
-    expect(state.get(idA)!.anchorHash).toBe('aaaa');
-    expect(state.get(idB)!.anchorHash).toBeNull();
-  });
-
-  it('returns an empty Map when the table is empty', async () => {
-    // Use a fresh DB per test file, but other tests have inserted rows.
-    // Just verify the return type is always a Map.
-    const state = await getSyncState(db());
-    expect(state).toBeInstanceOf(Map);
   });
 });

@@ -10,20 +10,8 @@
 // proxy 404s at request time, the background simply does not paint and the
 // initials show through. Same-origin (/api/avatar/<id>), covered by the CSP.
 
-export interface AuthorDescriptor {
-  /** The raw post/topic author_id. */
-  authorId: string;
-  /** Display name: the DRep name when known, else a truncated id. */
-  displayName: string;
-  /** drep id when this author has a synced on-chain DRep, used for the avatar URL. */
-  drepId?: string | null;
-  /** True when the drep has a synced CIP-119 image URL to attempt via the proxy. */
-  hasImage?: boolean;
-  /** On-chain / forum roles to surface as badges. */
-  badges?: string[];
-  /** System author (gov-sync / governance source first post): neutral identity, no avatar lookup. */
-  isSystem?: boolean;
-}
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+export type { AuthorDescriptor };
 
 interface Props {
   author: AuthorDescriptor;

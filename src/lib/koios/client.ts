@@ -158,31 +158,28 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     return z.array(schema).parse(data)[0] ?? null;
   }
 
-  // Overloaded drepInfo: single-drep lookup (auth flow) returns DrepInfo | null;
-  // batch lookup (sync flow) returns DrepInfoRow[].
-  async function drepInfoImpl(arg: string): Promise<DrepInfo | null>;
-  async function drepInfoImpl(arg: string[]): Promise<DrepInfoRow[]>;
-  async function drepInfoImpl(arg: string | string[]): Promise<DrepInfo | null | DrepInfoRow[]> {
-    if (Array.isArray(arg)) {
-      // Return early for an empty list to avoid a pointless API round-trip.
-      if (arg.length === 0) return [];
-      const data = await request('/drep_info', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ _drep_ids: arg }),
-      });
-      return z.array(drepInfoRowSchema).parse(data);
-    }
-    return postSingleRow('/drep_info', '_drep_ids', arg, drepInfoSchema);
-  }
-
   return {
     async tip(): Promise<Tip> {
       const data = await request('/tip', { method: 'GET' });
       return tipSchema.parse(data)[0];
     },
 
-    drepInfo: drepInfoImpl,
+    // Single-drep lookup (auth flow): returns the basic DrepInfo or null.
+    async drepInfo(drepId: string): Promise<DrepInfo | null> {
+      return postSingleRow('/drep_info', '_drep_ids', drepId, drepInfoSchema);
+    },
+
+    // Batch lookup (sync flow): returns the full DrepInfoRow (incl. anchor +
+    // voting power) for every id. Empty input short-circuits the round-trip.
+    async drepInfoBatch(drepIds: string[]): Promise<DrepInfoRow[]> {
+      if (drepIds.length === 0) return [];
+      const data = await request('/drep_info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _drep_ids: drepIds }),
+      });
+      return z.array(drepInfoRowSchema).parse(data);
+    },
 
     async accountInfo(stakeAddress: string): Promise<AccountInfo | null> {
       return postSingleRow('/account_info', '_stake_addresses', stakeAddress, accountInfoSchema);

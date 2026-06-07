@@ -102,7 +102,7 @@ describe('createKoiosClient.drepList', () => {
   });
 });
 
-// --- drepInfo (batch) ---
+// --- drepInfoBatch ---
 
 const drepInfoRowFixture: DrepInfoRow = {
   drep_id: DREP_ID,
@@ -117,7 +117,7 @@ const drepInfoRowFixture: DrepInfoRow = {
   meta_hash: 'cafebabe1234',
 };
 
-describe('createKoiosClient.drepInfo (batch)', () => {
+describe('createKoiosClient.drepInfoBatch', () => {
   it('POSTs _drep_ids to /drep_info and parses a full row', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([drepInfoRowFixture]));
     const client = createKoiosClient({
@@ -125,7 +125,7 @@ describe('createKoiosClient.drepInfo (batch)', () => {
       fetchImpl,
     });
 
-    const result = await client.drepInfo([DREP_ID]);
+    const result = await client.drepInfoBatch([DREP_ID]);
 
     expect(result).toHaveLength(1);
     expect(result[0].drep_id).toBe(DREP_ID);
@@ -166,7 +166,7 @@ describe('createKoiosClient.drepInfo (batch)', () => {
       fetchImpl,
     });
 
-    const result = await client.drepInfo([DREP_ID]);
+    const result = await client.drepInfoBatch([DREP_ID]);
 
     expect(result).toHaveLength(1);
     expect(result[0].deposit).toBeNull();
@@ -183,7 +183,7 @@ describe('createKoiosClient.drepInfo (batch)', () => {
       fetchImpl,
     });
 
-    const result = await client.drepInfo([]);
+    const result = await client.drepInfoBatch([]);
 
     expect(result).toEqual([]);
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -197,7 +197,7 @@ describe('createKoiosClient.drepInfo (batch)', () => {
       fetchImpl,
     });
 
-    await client.drepInfo([DREP_ID]);
+    await client.drepInfoBatch([DREP_ID]);
 
     const headers = fetchImpl.mock.calls[0][1].headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer my-secret');
@@ -211,7 +211,7 @@ describe('createKoiosClient.drepInfo (batch)', () => {
       fetchImpl,
     });
 
-    const result = await client.drepInfo([DREP_ID]);
+    const result = await client.drepInfoBatch([DREP_ID]);
     expect(result[0]).toMatchObject(drepInfoRowFixture);
   });
 
@@ -222,6 +222,6 @@ describe('createKoiosClient.drepInfo (batch)', () => {
       fetchImpl,
     });
 
-    await expect(client.drepInfo([DREP_ID])).rejects.toThrow(/koios request failed: 500/i);
+    await expect(client.drepInfoBatch([DREP_ID])).rejects.toThrow(/koios request failed: 500/i);
   });
 });

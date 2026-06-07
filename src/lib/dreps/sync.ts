@@ -29,7 +29,7 @@ export interface DrepSyncResult {
 export interface DrepSyncDeps {
   koios: {
     drepList(limit: number, offset: number): Promise<DrepListRow[]>;
-    drepInfo(ids: string[]): Promise<DrepInfoRow[]>;
+    drepInfoBatch(ids: string[]): Promise<DrepInfoRow[]>;
   };
   db: D1Database;
   now: number;
@@ -38,15 +38,12 @@ export interface DrepSyncDeps {
 }
 
 // The profile + anchor fields resolved for one DRep before the change check.
-interface ResolvedProfile {
-  name: string | null;
-  bio: string | null;
-  imageUrl: string | null;
-  links: { label: string; uri: string }[] | null;
-  anchorUrl: string | null;
-  anchorHash: string | null;
-  anchorStatus: string;
-}
+// A subset of Drep: exactly the fields resolveProfile owns (chain-derived fields
+// like status/votingPower are filled later by buildRow).
+type ResolvedProfile = Pick<
+  Drep,
+  'name' | 'bio' | 'imageUrl' | 'links' | 'anchorUrl' | 'anchorHash' | 'anchorStatus'
+>;
 
 /** Splits an array into fixed-size chunks. */
 function chunk<T>(items: T[], size: number): T[][] {
@@ -222,9 +219,12 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   let failed = 0;
 
   for (const chunkIds of chunk(ids, CHUNK_SIZE)) {
-    // One batched Koios lookup and one batched D1 read per chunk (no N+1).
-    const infoRows = await koios.drepInfo(chunkIds);
-    const existing = await getDrepsByIds(db, chunkIds);
+    // One batched Koios lookup and one batched D1 read per chunk (no N+1). The
+    // two are independent (outbound HTTP vs local D1), so run them together.
+    const [infoRows, existing] = await Promise.all([
+      koios.drepInfoBatch(chunkIds),
+      getDrepsByIds(db, chunkIds),
+    ]);
 
     for (const info of infoRows) {
       try {
