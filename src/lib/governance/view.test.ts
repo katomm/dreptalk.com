@@ -21,6 +21,9 @@ describe('readableType / formatAda', () => {
 });
 
 describe('statusBadge', () => {
+  it('shows a freshly discovered (pending) action as neutral, not active', () => {
+    expect(statusBadge('pending')).toEqual({ label: 'Pending', tone: 'neutral' });
+  });
   it('maps known statuses to tones', () => {
     expect(statusBadge('active').tone).toBe('active');
     expect(statusBadge('enacted').tone).toBe('positive');

@@ -35,10 +35,13 @@ export interface NewGovernanceAction {
 export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceAction): D1PreparedStatement {
   return db
     .prepare(
+      // status starts 'pending' (discovered, not yet verified). The tally/lifecycle
+      // sync sets the real status (active / enacted / expired / dropped). Showing a
+      // freshly discovered action as 'active' before we have checked would mislead.
       `INSERT OR IGNORE INTO governance_actions
          (id, proposal_id, type, title, abstract, rationale_html, anchor_url, anchor_hash, anchor_status,
           return_address, deposit, submitted_epoch, expiry_epoch, status, topic_id, created_at, last_synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
     )
     .bind(
       a.id,
@@ -182,11 +185,15 @@ export async function getGovernanceActionByTopicId(
   return row ? rowToGovernanceAction(row) : null;
 }
 
-/** Returns every still-active governance action (the tally/vote sync target). */
-export async function getActiveGovernanceActions(db: D1Database): Promise<GovernanceAction[]> {
+/**
+ * Returns the governance actions the tally/vote sync should process: those still
+ * 'active' and those 'pending' (discovered but not yet verified). Terminal actions
+ * (ratified / enacted / expired / dropped) are frozen and excluded.
+ */
+export async function getSyncableGovernanceActions(db: D1Database): Promise<GovernanceAction[]> {
   const rows = (
     await db
-      .prepare("SELECT * FROM governance_actions WHERE status = 'active'")
+      .prepare("SELECT * FROM governance_actions WHERE status IN ('active', 'pending')")
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
