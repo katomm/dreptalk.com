@@ -1,0 +1,83 @@
+---
+import Layout from '@/layouts/Layout.astro';
+
+// Astro serves this for any unmatched route. noindex so it stays out of search.
+---
+<Layout
+  title="Page not found - DRepTalk"
+  description="The page you were looking for could not be found."
+  noindex={true}
+>
+  <section class="notfound">
+    <p class="notfound__code grad-text reveal" style="--reveal-delay:0ms" aria-hidden="true">404</p>
+    <h1 class="notfound__title reveal" style="--reveal-delay:60ms">Page not found</h1>
+    <p class="notfound__lead reveal" style="--reveal-delay:120ms">
+      This page is not on the ballot. The link may have expired, or the page moved.
+    </p>
+    <div class="notfound__actions reveal" style="--reveal-delay:180ms">
+      <a class="btn btn-primary" href="/">Back to home</a>
+      <a class="btn btn-secondary" href="/c/governance-actions">Governance actions</a>
+    </div>
+    <p class="notfound__links reveal" style="--reveal-delay:240ms">
+      or <a href="/drep">register as a DRep</a> &middot; <a href="/login">sign in</a>
+    </p>
+  </section>
+
+  <style>
+    .notfound {
+      position: relative;
+      max-width: 40rem;
+      margin: 0 auto;
+      padding: 4rem 0 6rem;
+      text-align: center;
+    }
+    /* Soft brand-gradient glow behind the code, echoing the home hero. */
+    .notfound::before {
+      content: '';
+      position: absolute;
+      top: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(26rem, 80%);
+      height: 14rem;
+      background: var(--grad);
+      filter: blur(80px);
+      opacity: 0.16;
+      z-index: -1;
+      pointer-events: none;
+    }
+    .notfound__code {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: clamp(5rem, 18vw, 9rem);
+      line-height: 1;
+      letter-spacing: -0.02em;
+      margin: 0;
+    }
+    .notfound__title {
+      font-size: clamp(1.5rem, 4vw, 2.25rem);
+      margin: 0.25rem 0 0;
+    }
+    .notfound__lead {
+      color: var(--muted);
+      font-size: 1.0625rem;
+      line-height: 1.6;
+      margin: 1rem auto 2rem;
+      max-width: 32rem;
+    }
+    .notfound__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+    .notfound__links {
+      margin-top: 1.5rem;
+      font-size: 0.9375rem;
+      color: var(--muted);
+    }
+    .notfound__links a {
+      color: var(--accent);
+    }
+  </style>
+</Layout>
