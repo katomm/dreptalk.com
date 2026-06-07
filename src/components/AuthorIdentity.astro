@@ -1,0 +1,117 @@
+---
+// Inline author identity for a forum post or topic header: avatar, display name,
+// and a small role badge. This is a pure presentational component; it never
+// queries the database. The page resolves all author data in a single batch and
+// passes a ready descriptor in, so batching stays in one place (no N+1).
+//
+// CSP note: the strict CSP forbids inline scripts and event-handler attributes,
+// so there is no onerror fallback. The avatar is layered: the initials are the
+// base, and the proxied image is an overlay background-image. If the avatar
+// proxy 404s at request time, the background simply does not paint and the
+// initials show through. Same-origin (/api/avatar/<id>), covered by the CSP.
+
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+export type { AuthorDescriptor };
+
+interface Props {
+  author: AuthorDescriptor;
+  /** Avatar edge length in px. Default 28. */
+  size?: number;
+}
+
+const { author, size = 28 } = Astro.props;
+const { displayName, drepId, hasImage, badges = [], isSystem = false } = author;
+
+// First letter for the placeholder; falls back to "?" for empty names.
+const initial = (displayName.trim()[0] ?? '?').toUpperCase();
+
+// Overlay the proxied avatar only when a synced drep image URL exists.
+const showImage = !isSystem && !!drepId && !!hasImage;
+---
+
+<span class="author-identity" style={`--avatar-size:${size}px;`}>
+  <span
+    class:list={['author-identity__avatar', { 'author-identity__avatar--system': isSystem }]}
+    aria-hidden="true"
+  >
+    <span class="author-identity__initial">{isSystem ? 'S' : initial}</span>
+    {showImage && (
+      <span
+        class="author-identity__img"
+        style={`background-image:url(/api/avatar/${drepId})`}
+      ></span>
+    )}
+  </span>
+
+  <span class="author-identity__name">{displayName}</span>
+
+  {badges.map((badge) => (
+    <span class="author-identity__badge">{badge}</span>
+  ))}
+</span>
+
+<style>
+  .author-identity {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .author-identity__avatar {
+    position: relative;
+    width: var(--avatar-size);
+    height: var(--avatar-size);
+    flex-shrink: 0;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    border: 1px solid var(--border);
+  }
+  .author-identity__avatar--system {
+    background: var(--surface);
+  }
+
+  /* The initials sit at the base; the image overlay covers them when it loads. */
+  .author-identity__initial {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(var(--avatar-size) * 0.46);
+    font-weight: 600;
+    line-height: 1;
+    color: var(--accent);
+    user-select: none;
+  }
+  .author-identity__avatar--system .author-identity__initial {
+    color: var(--muted);
+  }
+
+  /* Proxied avatar as a background so a 404 falls through to the initials. */
+  .author-identity__img {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+
+  .author-identity__name {
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .author-identity__badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 999px;
+    padding: 0.15rem 0.4rem;
+  }
+</style>

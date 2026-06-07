@@ -56,6 +56,39 @@ const proposalSchema = z.object({
 
 export type Proposal = z.infer<typeof proposalSchema>;
 
+// DrepListRow schema: minimal fields returned by GET /drep_list.
+// The registered field indicates whether the DRep has an active registration.
+const drepListRowSchema = z
+  .object({
+    drep_id: z.string(),
+    hex: z.string(),
+    has_script: z.boolean(),
+    registered: z.boolean(),
+  })
+  .passthrough();
+
+export type DrepListRow = z.infer<typeof drepListRowSchema>;
+
+// DrepInfoRow schema: full shape returned by POST /drep_info (batch).
+// Includes anchor fields (meta_url, meta_hash) for CIP-119 metadata resolution
+// and voting power amount. All nullable fields follow the live Koios response.
+const drepInfoRowSchema = z
+  .object({
+    drep_id: z.string(),
+    hex: z.string(),
+    has_script: z.boolean(),
+    drep_status: z.string(),
+    deposit: z.string().nullable(),
+    active: z.boolean(),
+    expires_epoch_no: z.number().nullable(),
+    amount: z.string().nullable(),
+    meta_url: z.string().nullable(),
+    meta_hash: z.string().nullable(),
+  })
+  .passthrough();
+
+export type DrepInfoRow = z.infer<typeof drepInfoRowSchema>;
+
 // Full /proposal_list row. Only the fields gov-sync needs are required; the rest
 // is tolerated. meta_url/meta_hash drive the off-chain anchor fetch and its
 // mandatory hash verification.
@@ -131,8 +164,21 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return tipSchema.parse(data)[0];
     },
 
+    // Single-drep lookup (auth flow): returns the basic DrepInfo or null.
     async drepInfo(drepId: string): Promise<DrepInfo | null> {
       return postSingleRow('/drep_info', '_drep_ids', drepId, drepInfoSchema);
+    },
+
+    // Batch lookup (sync flow): returns the full DrepInfoRow (incl. anchor +
+    // voting power) for every id. Empty input short-circuits the round-trip.
+    async drepInfoBatch(drepIds: string[]): Promise<DrepInfoRow[]> {
+      if (drepIds.length === 0) return [];
+      const data = await request('/drep_info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _drep_ids: drepIds }),
+      });
+      return z.array(drepInfoRowSchema).parse(data);
     },
 
     async accountInfo(stakeAddress: string): Promise<AccountInfo | null> {
@@ -152,6 +198,14 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/proposal_list?limit=${limit}&order=proposed_epoch.desc`;
       const data = await request(path, { method: 'GET' });
       return z.array(proposalListRowSchema).parse(data);
+    },
+
+    // Enumerates all DReps. Koios paginates at 1000 rows; callers may
+    // page through by incrementing offset in steps of limit.
+    async drepList(limit = 1000, offset = 0): Promise<DrepListRow[]> {
+      const path = `/drep_list?limit=${limit}&offset=${offset}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(drepListRowSchema).parse(data);
     },
   };
 }

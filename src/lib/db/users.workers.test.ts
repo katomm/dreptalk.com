@@ -2,7 +2,7 @@
 // Exercises upsertUserFromAuth and getUserById against the real miniflare D1 binding.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getUserById, upsertUserFromAuth } from './users.js';
+import { getUserById, getUsersByIds, upsertUserFromAuth } from './users.js';
 
 const db = () => env.DB;
 const NOW = 1_700_000_000;
@@ -88,6 +88,27 @@ describe('getUserById', () => {
     expect(typeof user!.is_spo).toBe('boolean');
     expect(user!.is_cc).toBe(false);
     expect(typeof user!.is_cc).toBe('boolean');
+  });
+});
+
+describe('getUsersByIds', () => {
+  it('returns an empty Map for empty input without querying', async () => {
+    const result = await getUsersByIds(db(), []);
+    expect(result.size).toBe(0);
+  });
+
+  it('batch-fetches multiple users keyed by id and skips unknown ids', async () => {
+    const a = `batch-a-${NOW}`;
+    const b = `batch-b-${NOW}`;
+    await upsertUserFromAuth(db(), { drepId: a, roles: ['drep'], now: NOW });
+    await upsertUserFromAuth(db(), { stakeAddr: b, roles: ['proposer'], now: NOW });
+
+    const result = await getUsersByIds(db(), [a, b, `missing-${NOW}`]);
+
+    expect(result.size).toBe(2);
+    expect(result.get(a)?.is_drep).toBe(true);
+    expect(result.get(b)?.is_proposer).toBe(true);
+    expect(result.has(`missing-${NOW}`)).toBe(false);
   });
 });
 
