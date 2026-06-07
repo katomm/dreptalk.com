@@ -96,6 +96,7 @@ export interface GovernanceAction {
   ccNoPct: number | null;
   tallyEpoch: number | null;
   tallySyncedAt: number | null;
+  decidedEpoch: number | null;
   topicId: string | null;
   createdAt: number;
   lastSyncedAt: number;
@@ -131,6 +132,7 @@ interface GovernanceActionRow {
   cc_no_pct: number | null;
   tally_epoch: number | null;
   tally_synced_at: number | null;
+  decided_epoch: number | null;
   topic_id: string | null;
   created_at: number;
   last_synced_at: number;
@@ -167,6 +169,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     ccNoPct: r.cc_no_pct,
     tallyEpoch: r.tally_epoch,
     tallySyncedAt: r.tally_synced_at,
+    decidedEpoch: r.decided_epoch,
     topicId: r.topic_id,
     createdAt: r.created_at,
     lastSyncedAt: r.last_synced_at,
@@ -195,6 +198,19 @@ export async function getSyncableGovernanceActions(db: D1Database): Promise<Gove
     await db
       .prepare("SELECT * FROM governance_actions WHERE status IN ('active', 'pending')")
       .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/**
+ * Returns every governance action. The table holds one row per on-chain action
+ * (low hundreds), so this is a single param-less query, used by the sorted
+ * governance-actions list (which would otherwise exceed D1's bound-parameter cap
+ * with a large IN clause).
+ */
+export async function getAllGovernanceActions(db: D1Database): Promise<GovernanceAction[]> {
+  const rows = (
+    await db.prepare('SELECT * FROM governance_actions').all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
 }
@@ -235,6 +251,8 @@ export type GovernanceTally = Pick<
 export type GovernanceTallyUpdate = GovernanceTally & {
   id: string;
   status: string;
+  // Epoch the action was decided (terminal), or null while active/pending.
+  decidedEpoch: number | null;
   tallySyncedAt: number;
   now: number;
 };
@@ -252,7 +270,7 @@ export async function updateGovernanceTallyAndStatus(
              cc_yes = ?, cc_no = ?, cc_abstain = ?,
              drep_yes_pct = ?, drep_no_pct = ?, spo_yes_pct = ?, spo_no_pct = ?,
              cc_yes_pct = ?, cc_no_pct = ?,
-             tally_epoch = ?, tally_synced_at = ?, last_synced_at = ?
+             tally_epoch = ?, decided_epoch = ?, tally_synced_at = ?, last_synced_at = ?
        WHERE id = ?`,
     )
     .bind(
@@ -273,6 +291,7 @@ export async function updateGovernanceTallyAndStatus(
       u.ccYesPct,
       u.ccNoPct,
       u.tallyEpoch,
+      u.decidedEpoch,
       u.tallySyncedAt,
       u.now,
       u.id,

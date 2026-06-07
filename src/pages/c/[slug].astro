@@ -7,8 +7,9 @@ import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import TopicRow from '@/components/TopicRow.astro';
 import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
-import { getTopicsByCategory } from '@/lib/db/forum.js';
-import { getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
+import { getTopicsByCategory, getAllTopicsByCategory, type Topic } from '@/lib/db/forum.js';
+import { getAllGovernanceActions, type GovernanceAction } from '@/lib/db/governance.js';
+import { parseGovSort, sortGovActionTopics, GOV_SORTS, type GovActionTopic } from '@/lib/governance/sort.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { parsePage, pageToOffset, cacheControlFor, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
@@ -27,35 +28,59 @@ const db = env.DB as D1Database | undefined;
 const PAGE_SIZE = 30;
 const page = parsePage(Astro.url.searchParams.get('page'));
 const offset = pageToOffset(page, PAGE_SIZE);
+const now = Date.now();
 
-const topics = category && db
-  ? await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset })
-  : [];
-
-// Batch author identities for the page's topics, and (for the governance
-// category) the governance actions for the enriched rows. Both depend only on
-// `topics` and are independent, so load them together. One query each, no N+1.
 const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
-const [identities, govByTopic] = await Promise.all([
-  db && topics.length ? loadAuthorIdentities(db, topics.map((t) => t.author_id)) : Promise.resolve(null),
-  db && isGovernanceCategory && topics.length
-    ? getGovernanceActionsByTopicIds(db, topics.map((t) => t.id))
-    : Promise.resolve(new Map()),
-]);
+// Governance actions get their own sort modes (a DRep wants trending / closing
+// soon, not the newest submission); discussion categories stay activity-ordered.
+const sort = parseGovSort(Astro.url.searchParams.get('sort'));
+
+let topics: Topic[] = [];
+let govByTopic = new Map<string, GovernanceAction>();
+let govTotal = 0;
+
+if (category && db) {
+  if (isGovernanceCategory) {
+    // The action set is small, so load all topics and all actions (param-less,
+    // under D1's bound-parameter cap), join, sort in memory, then page. No N+1.
+    const [all, allActions] = await Promise.all([
+      getAllTopicsByCategory(db, category.slug),
+      getAllGovernanceActions(db),
+    ]);
+    const actionByTopic = new Map(allActions.filter((a) => a.topicId).map((a) => [a.topicId!, a]));
+    const rows: GovActionTopic[] = all
+      .map((t) => ({ topic: t, action: actionByTopic.get(t.id) }))
+      .filter((r): r is GovActionTopic => !!r.action);
+    const sorted = sortGovActionTopics(rows, sort, now);
+    govTotal = sorted.length;
+    const pageRows = sorted.slice(offset, offset + PAGE_SIZE);
+    topics = pageRows.map((r) => r.topic);
+    govByTopic = new Map(pageRows.map((r) => [r.topic.id, r.action]));
+  } else {
+    topics = await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset });
+  }
+}
+
+const identities = db && topics.length ? await loadAuthorIdentities(db, topics.map((t) => t.author_id)) : null;
 
 if (!notFound) {
   Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 }
 
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
-const now = Date.now();
 
 // Show composer only for authenticated users on discussion (non-governance) categories.
 const user = Astro.locals.user;
 const showComposer = !!user && !!category && isDiscussion(category.slug);
 
 const prevPage = page > 1 ? page - 1 : null;
-const nextPage = topics.length === PAGE_SIZE ? page + 1 : null;
+const nextPage = isGovernanceCategory
+  ? (offset + PAGE_SIZE < govTotal ? page + 1 : null)
+  : (topics.length === PAGE_SIZE ? page + 1 : null);
+
+// Page links preserve the active sort for the governance category.
+const pageHref = (p: number) =>
+  isGovernanceCategory ? `/c/${category!.slug}?sort=${sort}&page=${p}` : `/c/${category!.slug}?page=${p}`;
 
 const breadcrumbLd = {
   '@context': 'https://schema.org',
@@ -107,6 +132,20 @@ const breadcrumbLd = {
       </div>
     </div>
 
+    {isGovernanceCategory && (
+      <nav aria-label="Sort" style="display:flex;gap:0.25rem;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:1.25rem;">
+        {GOV_SORTS.map((s) => (
+          <a
+            href={`/c/${category.slug}?sort=${s.mode}`}
+            aria-current={s.mode === sort ? 'page' : undefined}
+            style={`padding:0.5rem 0.75rem;font-size:0.875rem;text-decoration:none;border-bottom:2px solid ${s.mode === sort ? 'var(--accent)' : 'transparent'};color:${s.mode === sort ? 'var(--fg)' : 'var(--muted)'};font-weight:${s.mode === sort ? '600' : '400'};`}
+          >
+            {s.label}
+          </a>
+        ))}
+      </nav>
+    )}
+
     {topics.length === 0 ? (
       <p style="color:var(--muted);">No topics yet in this category.</p>
     ) : (
@@ -125,10 +164,10 @@ const breadcrumbLd = {
     {(prevPage || nextPage) && (
       <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
         {prevPage && (
-          <a href={`/c/${category.slug}?page=${prevPage}`}>Previous page</a>
+          <a href={pageHref(prevPage)}>Previous page</a>
         )}
         {nextPage && (
-          <a href={`/c/${category.slug}?page=${nextPage}`}>Next page</a>
+          <a href={pageHref(nextPage)}>Next page</a>
         )}
       </nav>
     )}
