@@ -1,13 +1,14 @@
-// Tally + lifecycle sync for governance actions, ACTIVE ONLY. Each cycle, for
-// every action still marked active: fetch its power-weighted vote summary, derive
-// its lifecycle status from the proposal_list epoch fields, and persist both.
-// Once an action reaches a terminal status (ratified / enacted / dropped /
-// expired) it leaves the active set and is no longer polled (its final tallies
-// stay). Per-action failures are isolated. Batched, parameterized, lean.
+// Tally + lifecycle sync for governance actions that are not yet finalized
+// (status 'active' or 'pending'). Each cycle, for every such action: fetch its
+// power-weighted vote summary, derive its lifecycle status from the proposal_list
+// epoch fields, and persist both. A 'pending' action (freshly discovered, not yet
+// verified) becomes 'active' or a terminal status here. Once an action reaches a
+// terminal status (ratified / enacted / dropped / expired) it is frozen and no
+// longer polled (its final tallies stay). Per-action failures are isolated.
 
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
 import {
-  getActiveGovernanceActions,
+  getSyncableGovernanceActions,
   updateGovernanceTallyAndStatus,
   type GovernanceAction,
   type GovernanceTally,
@@ -89,7 +90,7 @@ function tallyFields(s: VotingSummary | null): GovernanceTally {
 export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallySyncResult> {
   const { koios, db, currentEpoch, now } = deps;
 
-  const active = await getActiveGovernanceActions(db);
+  const active = await getSyncableGovernanceActions(db);
   if (active.length === 0) return { active: 0, updated: 0, frozen: 0, failed: 0 };
 
   // One proposal_list read gives lifecycle epochs for every action this cycle.
@@ -128,7 +129,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
 export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncResult> {
   const { koios, db, now } = deps;
 
-  const active = await getActiveGovernanceActions(db);
+  const active = await getSyncableGovernanceActions(db);
   let votes = 0;
   let failed = 0;
   let actions = 0;

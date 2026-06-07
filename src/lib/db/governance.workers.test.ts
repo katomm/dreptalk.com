@@ -5,7 +5,7 @@ import { env } from 'cloudflare:test';
 import {
   buildInsertGovernanceAction,
   getGovernanceActionByTopicId,
-  getActiveGovernanceActions,
+  getSyncableGovernanceActions,
   getGovernanceActionsByTopicIds,
   updateGovernanceTallyAndStatus,
   type NewGovernanceAction,
@@ -46,7 +46,8 @@ describe('getGovernanceActionByTopicId', () => {
     expect(got).not.toBeNull();
     expect(got!.id).toBe(a.id);
     expect(got!.proposalId).toBe(a.proposalId);
-    expect(got!.status).toBe('active');
+    // A freshly discovered action is 'pending' until a sync verifies it.
+    expect(got!.status).toBe('pending');
     expect(got!.expiryEpoch).toBe(294);
     expect(got!.drepYesPct).toBeNull();
   });
@@ -56,9 +57,9 @@ describe('getGovernanceActionByTopicId', () => {
   });
 });
 
-describe('getActiveGovernanceActions', () => {
-  it('includes active actions and excludes frozen ones', async () => {
-    const active = await insertAction();
+describe('getSyncableGovernanceActions', () => {
+  it('includes pending/active actions and excludes frozen ones', async () => {
+    const pending = await insertAction();
     const frozen = await insertAction();
     await updateGovernanceTallyAndStatus(db(), {
       id: frozen.id,
@@ -71,9 +72,9 @@ describe('getActiveGovernanceActions', () => {
       tallyEpoch: 295, tallySyncedAt: NOW, now: NOW,
     });
 
-    const rows = await getActiveGovernanceActions(db());
+    const rows = await getSyncableGovernanceActions(db());
     const ids = rows.map((r) => r.id);
-    expect(ids).toContain(active.id);
+    expect(ids).toContain(pending.id);
     expect(ids).not.toContain(frozen.id);
   });
 });
