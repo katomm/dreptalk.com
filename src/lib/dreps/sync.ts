@@ -22,9 +22,9 @@ const CHUNK_SIZE = 100;
 // only needs to cover the window between hosting the CIP-119 doc and the
 // registration landing on-chain (after which every sync enumerates the DRep
 // before the GC runs, protecting it permanently). That window is seconds in the
-// normal flow, hours at worst (slow signing, mempool), so 48h is a generous
+// normal flow, hours at worst (slow signing, mempool), so 24h is a generous
 // margin while still cleaning up abandoned/junk rows quickly.
-const METADATA_GC_GRACE_SEC = 48 * 60 * 60;
+const METADATA_GC_GRACE_SEC = 24 * 60 * 60;
 
 export interface DrepSyncResult {
   total: number;

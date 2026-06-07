@@ -15,6 +15,13 @@ const HOP_BY_HOP = new Set([
   'upgrade',
 ]);
 
+// GET endpoints the EvolutionSDK provider reads while building DRep txs:
+// epoch_params (protocol parameters) and asset_addresses (resolve a unit).
+// These are the only Koios GETs that flow through this proxy; every server-side
+// read uses createKoiosClient against Koios directly, not this route. Explicit
+// allowlist: deny everything not on it, mirroring the POST policy below.
+const ALLOWED_GET_PATHS = new Set(['epoch_params', 'asset_addresses']);
+
 // POST endpoints the EvolutionSDK provider calls for bulk reads.
 // Explicit allowlist: deny everything not on it.
 const ALLOWED_POST_PATHS = new Set([
@@ -102,8 +109,17 @@ async function proxyRequest(request: Request, subPath: string): Promise<Response
 }
 
 export const GET: APIRoute = async ({ request, params }) => {
+  const subPath = (params.path as string | undefined) ?? '';
+
+  // Deny-by-default: only the explicit read endpoints above are permitted.
+  if (!ALLOWED_GET_PATHS.has(subPath)) {
+    return new Response(JSON.stringify({ error: 'forbidden' }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
   try {
-    const subPath = (params.path as string | undefined) ?? '';
     return await proxyRequest(request, subPath);
   } catch {
     return new Response(JSON.stringify({ error: 'upstream request failed' }), {
