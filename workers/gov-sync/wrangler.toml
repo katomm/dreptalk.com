@@ -11,9 +11,11 @@ database_name = "dreptalk"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "../../migrations"
 
-# Cron cadence: every 15 minutes (governance actions are low-frequency).
+# Two cron triggers:
+#   */15 * * * *  governance actions (low-frequency, fast)
+#   0 */6 * * *   DRep sync (heavy: enumerates all DReps, runs every 6 h)
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "0 */6 * * *"]
 
 # CARDANO_NETWORK is intentionally NOT set here: unset defaults to mainnet in
 # production. For local preprod runs, set it in workers/gov-sync/.dev.vars
