@@ -42,6 +42,9 @@ export function statusBadge(status: string): StatusBadge {
       return { label: 'Dropped', tone: 'negative' };
     case 'expired':
       return { label: 'Expired', tone: 'neutral' };
+    case 'closed':
+      // An info action's voting window ended; info actions can never enact.
+      return { label: 'Closed', tone: 'neutral' };
     default:
       return { label: status.charAt(0).toUpperCase() + status.slice(1), tone: 'neutral' };
   }
