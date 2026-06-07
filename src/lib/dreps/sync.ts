@@ -18,9 +18,13 @@ const PAGE_SIZE = 1000;
 // Chunk size for drep_info batch lookups and the matching D1 read. Bounds the
 // Koios POST body, the IN-clause read, and the SQLite bound-parameter limit.
 const CHUNK_SIZE = 100;
-// Grace period before hosted metadata for an unregistered drep id is GC'd. Long
-// enough that a DRep can host its CIP-119 doc and then submit its registration tx.
-const METADATA_GC_GRACE_SEC = 14 * 24 * 60 * 60;
+// Grace period before hosted metadata for an unregistered drep id is GC'd. It
+// only needs to cover the window between hosting the CIP-119 doc and the
+// registration landing on-chain (after which every sync enumerates the DRep
+// before the GC runs, protecting it permanently). That window is seconds in the
+// normal flow, hours at worst (slow signing, mempool), so 48h is a generous
+// margin while still cleaning up abandoned/junk rows quickly.
+const METADATA_GC_GRACE_SEC = 48 * 60 * 60;
 
 export interface DrepSyncResult {
   total: number;
