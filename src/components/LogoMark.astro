@@ -7,16 +7,13 @@
 // is no adjacent wordmark to clash with.
 //
 // Size and color come in as an inline `style` because Astro scoped styles do
-// not reach a child component's root element (the parent's .brand__mark rule
-// would never match this svg).
+// not reach a child component's root element.
 interface Props {
-  class?: string;
   style?: string;
 }
-const { class: className, style } = Astro.props;
+const { style } = Astro.props;
 ---
 <svg
-  class={className}
   style={style}
   viewBox="0 0 72 72"
   role="img"
