@@ -1,0 +1,81 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import { getLegalInfo } from '@/lib/legal';
+
+// SSR so the operator details can be read from the runtime environment.
+export const prerender = false;
+
+const legal = getLegalInfo();
+// Legal pages are a deployment constant; cache them at the edge.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+---
+<Layout title="Imprint - DRepTalk" description="Imprint and operator information for DRepTalk." noindex={true}>
+  <article class="legal">
+    <h1>Imprint</h1>
+
+    <h2>Information pursuant to &sect; 5 DDG</h2>
+    <p>
+      {legal.operatorName}<br />
+      {legal.addressLines.map((line) => (<>{line}<br /></>))}
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Email: <a href={`mailto:${legal.email}`}>{legal.email}</a>
+      {legal.phone && (<><br />Phone: {legal.phone}</>)}
+    </p>
+
+    {legal.vatId && (
+      <>
+        <h2>VAT identification number</h2>
+        <p>VAT ID pursuant to &sect; 27a German VAT Act: {legal.vatId}</p>
+      </>
+    )}
+
+    <h2>Responsible for the content pursuant to &sect; 18 (2) MStV</h2>
+    <p>
+      {legal.responsiblePerson}<br />
+      {legal.addressLines.map((line) => (<>{line}<br /></>))}
+    </p>
+
+    <h2>About this site</h2>
+    <p>
+      DRepTalk is a non-commercial, open-source forum for Cardano governance. It is
+      non-custodial: it never receives, requests, or stores private keys, and sign-in
+      is done by signing a one-time message with your wallet.
+    </p>
+
+    <h2>Liability for content and links</h2>
+    <p>
+      Forum content is created by users and reflects their own opinions. We are not
+      obliged to monitor transmitted or stored third-party information. Our site links
+      to external websites over whose content we have no influence; responsibility for
+      linked content lies with its respective operator. On-chain data shown here is
+      read from the public Cardano blockchain and is outside our control.
+    </p>
+  </article>
+
+  <style>
+    .legal {
+      max-width: 46rem;
+      margin: 0 auto;
+      padding: 1rem 0 4rem;
+      line-height: 1.7;
+    }
+    .legal h1 {
+      font-size: clamp(1.6rem, 4vw, 2.2rem);
+      margin: 0 0 1.5rem;
+    }
+    .legal h2 {
+      font-size: 1.15rem;
+      margin: 2rem 0 0.5rem;
+    }
+    .legal p {
+      color: var(--fg);
+      margin: 0 0 1rem;
+    }
+    .legal a {
+      color: var(--accent);
+    }
+  </style>
+</Layout>
