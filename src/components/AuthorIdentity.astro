@@ -5,9 +5,10 @@
 // passes a ready descriptor in, so batching stays in one place (no N+1).
 //
 // CSP note: the strict CSP forbids inline scripts and event-handler attributes,
-// so there is no onerror/onload fallback. When a synced drep image is expected
-// the <img> is rendered (proxied via /api/avatar/<drepId>); otherwise a static
-// initials placeholder is shown.
+// so there is no onerror fallback. The avatar is layered: the initials are the
+// base, and the proxied image is an overlay background-image. If the avatar
+// proxy 404s at request time, the background simply does not paint and the
+// initials show through. Same-origin (/api/avatar/<id>), covered by the CSP.
 
 export interface AuthorDescriptor {
   /** The raw post/topic author_id. */
@@ -16,7 +17,7 @@ export interface AuthorDescriptor {
   displayName: string;
   /** drep id when this author has a synced on-chain DRep, used for the avatar URL. */
   drepId?: string | null;
-  /** True when the drep has a synced CIP-119 image and the avatar proxy can serve it. */
+  /** True when the drep has a synced CIP-119 image URL to attempt via the proxy. */
   hasImage?: boolean;
   /** On-chain / forum roles to surface as badges. */
   badges?: string[];
@@ -33,32 +34,26 @@ interface Props {
 const { author, size = 28 } = Astro.props;
 const { displayName, drepId, hasImage, badges = [], isSystem = false } = author;
 
-// First letter for the placeholder circle; falls back to "?" for empty names.
+// First letter for the placeholder; falls back to "?" for empty names.
 const initial = (displayName.trim()[0] ?? '?').toUpperCase();
 
-// Render the proxied avatar only when a synced drep image is expected.
+// Overlay the proxied avatar only when a synced drep image URL exists.
 const showImage = !isSystem && !!drepId && !!hasImage;
 ---
 
 <span class="author-identity" style={`--avatar-size:${size}px;`}>
-  {showImage ? (
-    <img
-      class="author-identity__avatar"
-      src={`/api/avatar/${drepId}`}
-      width={size}
-      height={size}
-      loading="lazy"
-      decoding="async"
-      alt=""
-    />
-  ) : (
-    <span
-      class:list={['author-identity__avatar', 'author-identity__placeholder', { 'author-identity__placeholder--system': isSystem }]}
-      aria-hidden="true"
-    >
-      {isSystem ? 'S' : initial}
-    </span>
-  )}
+  <span
+    class:list={['author-identity__avatar', { 'author-identity__avatar--system': isSystem }]}
+    aria-hidden="true"
+  >
+    <span class="author-identity__initial">{isSystem ? 'S' : initial}</span>
+    {showImage && (
+      <span
+        class="author-identity__img"
+        style={`background-image:url(/api/avatar/${drepId})`}
+      ></span>
+    )}
+  </span>
 
   <span class="author-identity__name">{displayName}</span>
 
@@ -75,30 +70,43 @@ const showImage = !isSystem && !!drepId && !!hasImage;
   }
 
   .author-identity__avatar {
+    position: relative;
     width: var(--avatar-size);
     height: var(--avatar-size);
-    border-radius: 999px;
     flex-shrink: 0;
-    object-fit: cover;
-    background: var(--surface);
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
     border: 1px solid var(--border);
   }
+  .author-identity__avatar--system {
+    background: var(--surface);
+  }
 
-  .author-identity__placeholder {
-    display: inline-flex;
+  /* The initials sit at the base; the image overlay covers them when it loads. */
+  .author-identity__initial {
+    position: absolute;
+    inset: 0;
+    display: flex;
     align-items: center;
     justify-content: center;
     font-size: calc(var(--avatar-size) * 0.46);
     font-weight: 600;
     line-height: 1;
     color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
     user-select: none;
   }
-
-  .author-identity__placeholder--system {
+  .author-identity__avatar--system .author-identity__initial {
     color: var(--muted);
-    background: var(--surface);
+  }
+
+  /* Proxied avatar as a background so a 404 falls through to the initials. */
+  .author-identity__img {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
   }
 
   .author-identity__name {
