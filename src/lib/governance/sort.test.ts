@@ -1,12 +1,8 @@
-import { describe, it, expect, test } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   parseGovSort,
   sortGovActionTopics,
   trendingScore,
-  parseGovStatus,
-  filterByStatus,
-  countByStatus,
-  GOV_STATUSES,
   type GovActionTopic,
 } from './sort.js';
 
@@ -100,53 +96,4 @@ describe('trendingScore', () => {
     const old = row({ id: 'o', postCount: 5, votes: 3, lastPostAt: NOW - 20 * DAY });
     expect(trendingScore(recent, NOW)).toBeGreaterThan(trendingScore(old, NOW));
   });
-});
-
-// Helper for status-filter tests: minimal GovActionTopic with a given status.
-const mk = (status: string, id = status): GovActionTopic =>
-  row({ id, status, submittedEpoch: 1 });
-
-test('parseGovStatus defaults to all and rejects unknown', () => {
-  expect(parseGovStatus(null)).toBe('all');
-  expect(parseGovStatus('nope')).toBe('all');
-  expect(parseGovStatus('active')).toBe('active');
-});
-
-test('filterByStatus maps tabs to lifecycle statuses', () => {
-  const rows = [
-    mk('active'),
-    mk('pending'),
-    mk('enacted'),
-    mk('ratified'),
-    mk('expired'),
-    mk('closed'),
-    mk('dropped'),
-  ];
-  expect(filterByStatus(rows, 'all').length).toBe(7);
-  expect(filterByStatus(rows, 'active').map((r) => r.action.status)).toEqual(['active']);
-  expect(filterByStatus(rows, 'enacted').map((r) => r.action.status).sort()).toEqual(['enacted', 'ratified']);
-  expect(filterByStatus(rows, 'expired').map((r) => r.action.status).sort()).toEqual(['closed', 'dropped', 'expired']);
-});
-
-test('GOV_STATUSES has no Upcoming and All is first', () => {
-  expect(GOV_STATUSES.map((s) => s.mode)).toEqual(['all', 'active', 'enacted', 'expired']);
-});
-
-test('countByStatus tallies every tab in one pass, matching filterByStatus', () => {
-  const rows = [
-    mk('active', 'a1'),
-    mk('active', 'a2'),
-    mk('pending', 'p1'),
-    mk('enacted', 'e1'),
-    mk('ratified', 'r1'),
-    mk('expired', 'x1'),
-    mk('closed', 'c1'),
-    mk('dropped', 'd1'),
-  ];
-  const counts = countByStatus(rows);
-  expect(counts).toEqual({ all: 8, active: 2, enacted: 2, expired: 3 });
-  // pending is counted only under all, exactly like filterByStatus excludes it from every tab
-  expect(counts.active).toBe(filterByStatus(rows, 'active').length);
-  expect(counts.enacted).toBe(filterByStatus(rows, 'enacted').length);
-  expect(counts.expired).toBe(filterByStatus(rows, 'expired').length);
 });

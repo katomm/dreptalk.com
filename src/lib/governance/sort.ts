@@ -27,52 +27,6 @@ export interface GovActionTopic {
   action: GovernanceAction;
 }
 
-export type GovStatusFilter = 'all' | 'active' | 'enacted' | 'expired';
-
-export const GOV_STATUSES: readonly { mode: GovStatusFilter; label: string }[] = [
-  { mode: 'all', label: 'All' },
-  { mode: 'active', label: 'Active' },
-  { mode: 'enacted', label: 'Enacted' },
-  { mode: 'expired', label: 'Expired' },
-];
-
-const STATUS_VALID = new Set<string>(GOV_STATUSES.map((s) => s.mode));
-
-// Which lifecycle statuses each tab includes. `pending` shows only under All
-// (it is "discovered, not yet verified" and is promoted to active by the sync).
-const STATUS_GROUPS: Record<Exclude<GovStatusFilter, 'all'>, ReadonlySet<string>> = {
-  active: new Set(['active']),
-  enacted: new Set(['enacted', 'ratified']),
-  expired: new Set(['expired', 'closed', 'dropped']),
-};
-
-/** Parses the ?status= param; defaults to 'all'. */
-export function parseGovStatus(value: string | null): GovStatusFilter {
-  return value && STATUS_VALID.has(value) ? (value as GovStatusFilter) : 'all';
-}
-
-/** Filters rows to the tab's status group ('all' passes everything through). */
-export function filterByStatus(rows: GovActionTopic[], status: GovStatusFilter): GovActionTopic[] {
-  if (status === 'all') return rows;
-  const group = STATUS_GROUPS[status];
-  return rows.filter((r) => group.has(r.action.status));
-}
-
-/**
- * Counts rows per status tab in a single pass, derived from STATUS_GROUPS so the
- * counts cannot drift from filterByStatus when the tab mapping changes.
- */
-export function countByStatus(rows: GovActionTopic[]): Record<GovStatusFilter, number> {
-  const counts: Record<GovStatusFilter, number> = { all: rows.length, active: 0, enacted: 0, expired: 0 };
-  for (const r of rows) {
-    const s = r.action.status;
-    if (STATUS_GROUPS.active.has(s)) counts.active++;
-    else if (STATUS_GROUPS.enacted.has(s)) counts.enacted++;
-    else if (STATUS_GROUPS.expired.has(s)) counts.expired++;
-  }
-  return counts;
-}
-
 /** Total on-chain votes cast across all roles (null-safe). */
 function totalVotes(a: GovernanceAction): number {
   return [a.drepYes, a.drepNo, a.drepAbstain, a.spoYes, a.spoNo, a.spoAbstain, a.ccYes, a.ccNo, a.ccAbstain]
@@ -103,7 +57,7 @@ const ascKey = (e: number | null) => e ?? Number.MAX_SAFE_INTEGER;
  *  - closing: soonest expiry first, nulls last.
  *  - ratified: most recently decided first, nulls last.
  *
- * Status filtering is handled separately by filterByStatus before calling here.
+ * Operates over the full action set; ordering only, no filtering.
  */
 export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: number): GovActionTopic[] {
   switch (mode) {
