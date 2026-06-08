@@ -41,6 +41,8 @@ curl "http://localhost:8787/__scheduled?cron=0+*/6+*+*+*"      # DRep profiles +
 
 It polls Koios (preprod locally, per `CARDANO_NETWORK`) and writes to D1. Stake Participation on the governance overview needs the DRep run (it fills `dreps.voting_power`); the voted share also needs the vote run. The cron expressions mirror `src/lib/freshness.ts`.
 
+The first DRep run is the painful one without a `KOIOS_API_KEY`: it enumerates every DRep from an empty database, which is rate-limit heavy on anonymous Koios and may stall or partially fail. Set `KOIOS_API_KEY` in `.dev.vars` before the first run; the same token works on every network (see [Deployment](#deployment)). Subsequent runs are incremental and much lighter.
+
 ## Deployment
 
 Production runs on mainnet at [dreptalk.com](https://dreptalk.com) (`www` redirects to the apex). A full preprod mirror runs at [preprod.dreptalk.com](https://preprod.dreptalk.com) for testing governance flows against the preprod testnet. The mirror is a separate worker (`dreptalk-com-preprod`) with its own D1 database and KV namespaces so preprod DReps, governance and logins never mix with mainnet. It also runs its own copy of the gov-sync cron worker (`dreptalk-gov-sync-preprod`) against preprod Koios. Because it sets `CARDANO_NETWORK=preprod`, the middleware tags every response `X-Robots-Tag: noindex, nofollow` so the mirror stays out of search indexes.
