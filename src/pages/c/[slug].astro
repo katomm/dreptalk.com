@@ -22,10 +22,10 @@ import {
   type GovStatusFilter,
   type GovSort,
 } from '@/lib/governance/sort.js';
-import { getTotalDrepVotingPower, getVotedPowerByGaIds } from '@/lib/db/stakeParticipation.js';
+import { getActiveDrepStake, getVotedPowerByGaIds } from '@/lib/db/stakeParticipation.js';
 import { stakeParticipation, type StakeParticipation } from '@/lib/governance/view.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
-import { parsePage, pageToOffset, cacheControlFor, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
@@ -60,6 +60,10 @@ let govTotal = 0;
 let pageRows: GovActionTopic[] = [];
 let stakeByTopic = new Map<string, StakeParticipation | null>();
 let statusCounts: Record<GovStatusFilter, number> = { all: 0, active: 0, enacted: 0, expired: 0 };
+// Freshness of the cached on-chain numbers shown on this page (ms; null when
+// nothing to disclose). Stake from the dreps sync, sentiment from per-action tallies.
+let stakeAsOf: number | null = null;
+let tallyAsOf: number | null = null;
 
 if (category && db) {
   if (isGovernanceCategory) {
@@ -84,12 +88,20 @@ if (category && db) {
     // Stake participation: exactly one total-power query and one batched
     // voted-power query for just this page's actions (no per-row queries).
     const gaIds = pageRows.map((r) => r.action.id);
-    const [totalPower, votedByGa] = await Promise.all([
-      getTotalDrepVotingPower(db),
-      getVotedPowerByGaIds(db, gaIds),
-    ]);
-    stakeByTopic = new Map(
-      pageRows.map((r) => [r.topic.id, stakeParticipation(votedByGa.get(r.action.id) ?? 0, totalPower)]),
+    if (gaIds.length > 0) {
+      const [stake, votedByGa] = await Promise.all([
+        getActiveDrepStake(db),
+        getVotedPowerByGaIds(db, gaIds),
+      ]);
+      stakeAsOf = stake.asOf;
+      stakeByTopic = new Map(
+        pageRows.map((r) => [r.topic.id, stakeParticipation(votedByGa.get(r.action.id) ?? 0, stake.total)]),
+      );
+    }
+    // Sentiment staleness comes from the per-action tally sync time (in memory, no query).
+    tallyAsOf = pageRows.reduce<number | null>(
+      (mx, r) => (r.action.tallySyncedAt != null && (mx == null || r.action.tallySyncedAt > mx) ? r.action.tallySyncedAt : mx),
+      null,
     );
   } else {
     topics = await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset });
@@ -221,6 +233,7 @@ const breadcrumbLd = {
       pageRows.length === 0 ? (
         <p style="color:var(--muted);">No governance actions in this view.</p>
       ) : (
+        <>
         <div class="ga-list" data-metric={metric}>
           <div class="ga-list__head">
             <span>Governance Action</span>
@@ -238,6 +251,15 @@ const breadcrumbLd = {
             />
           ))}
         </div>
+        {/* Disclose how stale the cached on-chain numbers are, per active metric.
+           Same formatter and phrasing as the GA thread header; never claimed live. */}
+        {metric === 'stake' && stakeAsOf != null && (
+          <p class="ga-asof">Stake data as of {formatRelativeTime(stakeAsOf, now)}. Cached, not live.</p>
+        )}
+        {metric === 'sentiment' && tallyAsOf != null && (
+          <p class="ga-asof">Tallies as of {formatRelativeTime(tallyAsOf, now)}. Cached, not live.</p>
+        )}
+        </>
       )
     ) : topics.length === 0 ? (
       <p style="color:var(--muted);">No topics yet in this category.</p>
@@ -402,5 +424,12 @@ const breadcrumbLd = {
     .ga-list__head {
       display: none;
     }
+  }
+
+  /* Staleness footnote: the cached on-chain numbers are never live. */
+  .ga-asof {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin: 0.75rem 0 0;
   }
 </style>

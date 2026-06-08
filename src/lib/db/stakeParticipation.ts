@@ -6,12 +6,16 @@
 
 import { sqlPlaceholders } from './sql.js';
 
-/** Total voting power (lovelace) across active DReps; 0 when unsynced. */
-export async function getTotalDrepVotingPower(db: D1Database): Promise<number> {
+/**
+ * Total active-DRep voting power (lovelace) and the freshness of that cached
+ * number, in one read. `asOf` is the most recent active-DRep sync time (ms), or
+ * null when no active DReps are synced (MAX over zero rows is NULL).
+ */
+export async function getActiveDrepStake(db: D1Database): Promise<{ total: number; asOf: number | null }> {
   const row = await db
-    .prepare("SELECT COALESCE(SUM(CAST(voting_power AS INTEGER)), 0) AS total FROM dreps WHERE active = 1")
-    .first<{ total: number }>();
-  return row?.total ?? 0;
+    .prepare("SELECT COALESCE(SUM(CAST(voting_power AS INTEGER)), 0) AS total, MAX(last_synced_at) AS asOf FROM dreps WHERE active = 1")
+    .first<{ total: number; asOf: number | null }>();
+  return { total: row?.total ?? 0, asOf: row?.asOf ?? null };
 }
 
 /** Map of ga_id to summed DRep voting power that voted on it (any vote). */
