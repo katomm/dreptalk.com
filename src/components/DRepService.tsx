@@ -289,9 +289,14 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
             <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>
               {phase.action === 'retire' ? 'Retirement submitted' : 'Registration submitted'}
             </p>
-            <p style={{ margin: '0 0 0.5rem' }}>
+            <p style={{ margin: '0 0 0.5rem', overflowWrap: 'anywhere' }}>
               Transaction:{' '}
-              <a href={txExplorerUrl(network, phase.txHash)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+              <a
+                href={txExplorerUrl(network, phase.txHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--accent)', wordBreak: 'break-all' }}
+              >
                 {phase.txHash}
               </a>
             </p>
