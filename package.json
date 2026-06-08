@@ -11,7 +11,8 @@
     "typecheck": "astro check",
     "test": "vitest run --workspace vitest.workspace.ts",
     "test:watch": "vitest --workspace vitest.workspace.ts",
-    "sync:dev": "wrangler dev --config workers/gov-sync/wrangler.toml --test-scheduled --persist-to .wrangler/state --var CARDANO_NETWORK:preprod --port 8787"
+    "sync:dev": "wrangler dev --config workers/gov-sync/wrangler.toml --test-scheduled --persist-to .wrangler/state --var CARDANO_NETWORK:preprod --port 8787",
+    "deploy": "wrangler deploy && node scripts/preprod-config.mjs && wrangler deploy -c dist/server/wrangler.preprod.json && wrangler deploy -c workers/gov-sync/wrangler.toml && wrangler deploy -c workers/gov-sync/wrangler.toml --env preprod"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.0.0",

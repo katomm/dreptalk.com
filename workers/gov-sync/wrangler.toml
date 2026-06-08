@@ -23,3 +23,25 @@ crons = ["*/15 * * * *", "0 * * * *", "0 */6 * * *"]
 # production. For local preprod runs, set it in workers/gov-sync/.dev.vars
 # (gitignored) or pass --var CARDANO_NETWORK:preprod. KOIOS_API_KEY is an
 # optional secret for higher rate limits.
+
+# ---------------------------------------------------------------------------
+# Preprod cron worker (dreptalk-gov-sync-preprod): mirrors the mainnet sync but
+# polls preprod Koios and writes to the preprod D1, feeding preprod.dreptalk.com.
+# Same cron cadence as mainnet. Deployed with
+# `wrangler deploy -c workers/gov-sync/wrangler.toml --env preprod`.
+# Triggers and bindings are not inherited from the top level, so they repeat.
+# ---------------------------------------------------------------------------
+[env.preprod]
+name = "dreptalk-gov-sync-preprod"
+
+[env.preprod.vars]
+CARDANO_NETWORK = "preprod"
+
+[[env.preprod.d1_databases]]
+binding = "DB"
+database_name = "dreptalk-preprod"
+database_id = "adf2310b-b1c1-415a-b900-28dd56277cbb"
+migrations_dir = "../../migrations"
+
+[env.preprod.triggers]
+crons = ["*/15 * * * *", "0 * * * *", "0 */6 * * *"]
