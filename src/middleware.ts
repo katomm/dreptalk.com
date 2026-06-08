@@ -5,6 +5,7 @@ import { defineMiddleware } from 'astro:middleware';
 import { env } from 'cloudflare:workers';
 import { parseSessionToken, getSession } from './lib/auth/session.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
+import { currentNetwork } from './lib/api/response.js';
 
 export const onRequest = defineMiddleware(async (context, next) => {
   // Canonical host: permanently redirect www to the apex so clients and search
@@ -37,9 +38,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
   applySecurityHeaders(response.headers);
   relaxStyleSrc(response.headers);
   // Keep the preprod mirror (preprod.dreptalk.com) out of search indexes so it
-  // never competes with mainnet or surfaces test data. The preprod worker is
-  // the only one with CARDANO_NETWORK=preprod.
-  if (env?.CARDANO_NETWORK === 'preprod') {
+  // never competes with mainnet or surfaces test data. currentNetwork() is the
+  // single source of truth for the active network (and fails closed on an
+  // unknown CARDANO_NETWORK value).
+  if (currentNetwork().network === 'preprod') {
     response.headers.set('X-Robots-Tag', 'noindex, nofollow');
   }
   return response;
