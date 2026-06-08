@@ -73,6 +73,9 @@ export default function OfflineLogin({ role }: { role: OfflineRole }) {
     const result = await loginOffline({ role, payload, pastedText: pasted });
     if (result.ok && result.user) {
       setState({ status: 'success', userId: result.user.id, roles: result.user.roles });
+      // Navigate to the discussions feed; the full page load lets the SSR header
+      // pick up the new session cookie and render the signed-in state.
+      window.location.assign('/discussions');
     } else {
       setState({ status: 'error', payload, message: friendlyError(result.error, role) });
     }

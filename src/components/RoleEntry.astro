@@ -1,13 +1,20 @@
 ---
-// Role-aware sign-in control. The primary action enters as a DRep; the chevron
-// reveals the other on-chain writing roles. Reading the forum is public, this
-// only gates who can post. SPO (Calidus key) and CC-member sign-in use the
-// offline paste flow; proposer uses the wallet flow. Built on a native <details>
+// Role-aware sign-in control. When signed out, the primary action enters as a
+// DRep and the chevron reveals the other on-chain writing roles. When signed in
+// (Astro.locals.user is set by the middleware), it shows the role badge and a
+// Logout control instead. Reading the forum is public, this only gates who can
+// post. SPO (Calidus key) and CC-member sign-in use the offline paste flow;
+// proposer uses the wallet flow. Built on a native <details> and a plain <form>
 // so it needs no client JS (the strict CSP forbids inline scripts).
+import { roleLabels } from '@/lib/auth/roles';
+import { truncateId } from '@/lib/forum/view';
+
 interface Props {
   layout?: 'split' | 'flat';
 }
 const { layout = 'split' } = Astro.props;
+
+const user = Astro.locals.user;
 
 // Roles revealed beyond the primary "Enter as DRep" action. Order follows the
 // product framing; entries without an href are not implemented yet.
@@ -17,6 +24,42 @@ const moreRoles: Array<{ label: string; href?: string }> = [
   { label: 'Enter as proposer', href: '/login?role=proposer' },
 ];
 ---
+
+{user ? (
+  <div class:list={['role-entry', 'role-entry--signedin', `role-entry--${layout}`]}>
+    {/* Reuse the split-pill: the primary shows a generic "Signed in" status, the
+        chevron dropdown shows the (shortened) identity and Log out. */}
+    <span class="btn btn-primary role-entry__main role-entry__account" title={`Signed in as ${roleLabels(user.roles).join(', ')}`}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+      Signed in
+    </span>
+
+    {layout === 'split' ? (
+      <details class="role-entry__more">
+        <summary class="role-entry__toggle" aria-label="Account menu">
+          <svg class="role-entry__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </summary>
+        <div class="role-entry__menu" role="menu">
+          <span class="role-entry__identity" title={user.id}>{truncateId(user.id, 22)}</span>
+          <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
+            <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
+          </form>
+        </div>
+      </details>
+    ) : (
+      <div class="role-entry__list" role="menu">
+        <span class="role-entry__identity" title={user.id}>{truncateId(user.id, 22)}</span>
+        <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
+          <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
+        </form>
+      </div>
+    )}
+  </div>
+) : (
 
 <div class:list={['role-entry', `role-entry--${layout}`]}>
   <a class="btn btn-primary role-entry__main" href="/login">
@@ -68,7 +111,8 @@ const moreRoles: Array<{ label: string; href?: string }> = [
       </div>
     </details>
   )}
-</div>
+  </div>
+)}
 
 <style>
   .role-entry {
@@ -210,5 +254,40 @@ const moreRoles: Array<{ label: string; href?: string }> = [
   }
   .role-entry__more-flat[open] .role-entry__chev {
     transform: rotate(180deg);
+  }
+
+  /* Signed-in: reuse the split-pill. The account label is a non-interactive
+     primary; the chevron opens the Log out menu. */
+  .role-entry__account {
+    cursor: default;
+    gap: 0.4rem;
+  }
+  /* The signed-in identity sits above Log out in the dropdown, shortened and
+     monospaced, with the full id in the title for hover. */
+  .role-entry__identity {
+    display: block;
+    padding: 0.5rem 0.7rem 0.45rem;
+    font-size: 0.8rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+    word-break: break-all;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 0.15rem;
+  }
+  /* Log out is a <form> button rendered as a menu item; reset native button
+     chrome and let it fill the menu row (the form itself is display:contents). */
+  .role-entry__logout-form {
+    display: contents;
+  }
+  button.role-entry__item {
+    width: 100%;
+    font: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  button.role-entry__item:hover {
+    background: var(--surface);
+    color: var(--accent);
   }
 </style>
