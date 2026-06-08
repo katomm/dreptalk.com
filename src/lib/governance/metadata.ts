@@ -15,15 +15,22 @@ import { bytesToHex } from '../crypto/hex.js';
 import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
 
-export const MAX_ANCHOR_BYTES = 100_000;
+// Upper bound on the anchor document we download and hash-verify. Real mainnet
+// CIP-108 proposals reach ~1.2MB because the rationale can embed long markdown
+// (and occasionally images); a 100KB cap dropped those entirely, losing even the
+// title. The stored fields stay bounded (title/abstract/rationale are capped on
+// extraction), so this only widens the fetch + hash-verify, not what we persist.
+export const MAX_ANCHOR_BYTES = 2_000_000;
 export const ANCHOR_FETCH_TIMEOUT_MS = 8_000;
 
 /**
  * Version of the metadata-extraction logic. Bump this constant when the
  * extractor is changed so that existing rows (stored at a lower version) are
- * re-fetched and re-extracted by the backfill on the next sync run.
+ * re-fetched and re-extracted by the backfill on the next sync run. Bumped to 2
+ * when MAX_ANCHOR_BYTES was raised, so actions previously marked too-large get
+ * their title backfilled.
  */
-export const META_EXTRACT_VERSION = 1;
+export const META_EXTRACT_VERSION = 2;
 const MAX_TITLE_LEN = 300;
 const MAX_ABSTRACT_LEN = 1_000;
 const MAX_RATIONALE_LEN = 20_000;

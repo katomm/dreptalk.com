@@ -72,6 +72,24 @@ describe('fetchAnchorMetadata', () => {
     expect(res.status).toBe('too-large');
   });
 
+  it('accepts a document larger than the old 100KB limit (real proposals reach ~1MB)', async () => {
+    // Several mainnet CIP-108 proposals (e.g. "Cardano Vision 2026") have a long
+    // rationale that pushes the doc just over 100KB; the title must still extract.
+    const bigDoc = {
+      '@context': {},
+      hashAlgorithm: 'blake2b-256',
+      body: { title: 'Large Proposal', abstract: 'A', rationale: 'x'.repeat(150_000) },
+    };
+    const json = jsonOf(bigDoc);
+    expect(json.length).toBeGreaterThan(100_000); // over the previous cap
+    expect(json.length).toBeLessThan(MAX_ANCHOR_BYTES); // within the raised cap
+    const res = await fetchAnchorMetadata('https://example.com/m.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.status).toBe('ok');
+    expect(res.metadata?.title).toBe('Large Proposal');
+  });
+
   it('rejects a non-JSON/text content type', async () => {
     const json = jsonOf(doc);
     const res = await fetchAnchorMetadata('https://example.com/x', hashOf(json), {
