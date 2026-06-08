@@ -1,7 +1,8 @@
 ---
 // Rich header for a governance-action thread: type, lifecycle status, proposer,
-// deposit, epochs + countdown, power-weighted DRep/SPO/CC tally bars, and a
-// collapsible rationale. All values come from D1 (synced on a cron); they are
+// deposit, epochs + countdown, power-weighted DRep/SPO/CC tally bars, and the
+// rationale (full when short, clamped preview + expand when long). All values
+// come from D1 (synced on a cron); they are
 // shown with an explicit "as of" time and never claimed to be live.
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import { governanceActionUrl, type CardanoNetwork } from '@/lib/config/network.js';
@@ -32,6 +33,12 @@ const badgeColor = TONE_COLORS[badge.tone];
 const deposit = formatAda(action.deposit);
 const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
 const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
+
+// Long rationales get a clamped preview + CSS-only expand; short ones render in
+// full (a "show more" toggle on a two-line rationale would be noise). Heuristic
+// on the rendered text length, since CSS cannot measure height server-side.
+const rationaleText = action.rationaleHtml ? action.rationaleHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '';
+const isLongRationale = rationaleText.length > 500;
 
 interface TallyEntry {
   label: string;
@@ -104,9 +111,15 @@ const tallies = [
   {action.rationaleHtml && (
     <div class="ga-rationale">
       <div class="ga-rationale__label">Motivation &amp; rationale</div>
-      <input type="checkbox" id="ga-rationale-more" class="ga-rationale__cb" aria-hidden="true" tabindex="-1" />
-      <div class="prose ga-rationale__body" set:html={action.rationaleHtml} />
-      <label for="ga-rationale-more" class="ga-rationale__toggle"></label>
+      {isLongRationale ? (
+        <>
+          <input type="checkbox" id="ga-rationale-more" class="ga-rationale__cb" aria-hidden="true" tabindex="-1" />
+          <div class="prose ga-rationale__body" set:html={action.rationaleHtml} />
+          <label for="ga-rationale-more" class="ga-rationale__toggle"></label>
+        </>
+      ) : (
+        <div class="prose" style="font-size:0.9375rem;" set:html={action.rationaleHtml} />
+      )}
     </div>
   )}
 </section>
