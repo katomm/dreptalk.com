@@ -2,7 +2,7 @@
 // Non-custodial: the server never sees a private key; the wallet extension signs and submits.
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
-import { Anchor, Client, Credential, Transaction, Url, mainnet, preprod } from '@evolution-sdk/evolution';
+import { Anchor, Client, Credential, KeyHash, Transaction, Url, mainnet, preprod } from '@evolution-sdk/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -79,6 +79,41 @@ function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletAp
     .withCip30(walletApi);
 }
 
+// The concrete EvolutionSDK tx-builder type our flows operate on (derived from
+// makeClient so we never re-declare the SDK's param shapes). Each op returns the
+// same builder, so the chain below is the SINGLE place addSigner (the DRep key
+// as a required signer, which the fee depends on) is declared. Tests pass a
+// recording stub cast to this type to assert the signer is declared.
+type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
+
+/**
+ * Queues the reg_drep certificate, the DRep-key required signer, and the CIP-20
+ * attribution tag onto a tx builder. The addSigner call is mandatory: the
+ * reg_drep certificate is witnessed by the DRep key (which controls no input),
+ * and EvolutionSDK only sizes the fee for input + native-script + declared
+ * signers, so without it the fee is one vkey witness short.
+ */
+export function queueRegisterDrepOps(
+  txb: DrepTxBuilder,
+  parts: { drepCredential: Credential.Credential; anchor: Anchor.Anchor; drepKeyHash: Uint8Array },
+): DrepTxBuilder {
+  return txb
+    .registerDRep({ drepCredential: parts.drepCredential, anchor: parts.anchor })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+/** Like queueRegisterDrepOps, for the unreg_drep (retire) certificate. */
+export function queueDeregisterDrepOps(
+  txb: DrepTxBuilder,
+  parts: { drepCredential: Credential.Credential; drepKeyHash: Uint8Array },
+): DrepTxBuilder {
+  return txb
+    .deregisterDRep({ drepCredential: parts.drepCredential })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
 /**
  * Builds, signs, and submits a Conway reg_drep certificate transaction.
  *
@@ -98,11 +133,11 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
 
-  const built = await client
-    .newTx()
-    .registerDRep({ drepCredential, anchor })
-    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
-    .build();
+  const built = await queueRegisterDrepOps(client.newTx(), {
+    drepCredential,
+    anchor,
+    drepKeyHash: opts.drepKeyHash,
+  }).build();
 
   const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
   const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
@@ -130,11 +165,10 @@ export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
 
-  const built = await client
-    .newTx()
-    .deregisterDRep({ drepCredential })
-    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
-    .build();
+  const built = await queueDeregisterDrepOps(client.newTx(), {
+    drepCredential,
+    drepKeyHash: opts.drepKeyHash,
+  }).build();
 
   const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
   const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);

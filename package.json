@@ -11,6 +11,7 @@
     "typecheck": "astro check",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:live": "DREPTALK_LIVE=1 vitest run src/lib/governance/drepTx.live.test.ts",
     "sync:dev": "wrangler dev --config workers/gov-sync/wrangler.toml --test-scheduled --persist-to .wrangler/state --var CARDANO_NETWORK:preprod --port 8787",
     "deploy": "wrangler deploy && node scripts/preprod-config.mjs && wrangler deploy -c dist/server/wrangler.preprod.json && wrangler deploy -c workers/gov-sync/wrangler.toml && wrangler deploy -c workers/gov-sync/wrangler.toml --env preprod"
   },
