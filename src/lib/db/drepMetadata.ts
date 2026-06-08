@@ -3,8 +3,11 @@
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 // Tracks the exact JSON bytes and their blake2b-256 hash that we serve for a DRep.
 // The chain is the source of truth for registration state; this table is hosting-only.
-
-import { sqlPlaceholders } from './sql.js';
+//
+// Content-addressed: the table is keyed by (drep_id, hash). A write can never
+// overwrite a different document under the same drep id (different content ->
+// different hash -> different row), so the unauthenticated hosting endpoint
+// cannot be used to clobber a legitimate DRep's served bytes.
 
 export interface DrepMetadata {
   drepId: string;
@@ -35,9 +38,10 @@ function rowToDrepMetadata(row: DrepMetadataRow): DrepMetadata {
 }
 
 /**
- * Inserts or replaces the metadata row for a DRep.
- * Uses INSERT OR REPLACE so re-registration updates all fields atomically.
- * All values are bound via parameterized statement; no string-interpolated SQL.
+ * Inserts the content-addressed metadata row for a DRep.
+ * Uses INSERT OR IGNORE keyed by (drep_id, hash): re-posting identical content
+ * is an idempotent no-op, and a different document is a new row that never
+ * overwrites the existing one. All values are bound; no string-interpolated SQL.
  */
 export async function putDrepMetadata(
   db: D1Database,
@@ -51,7 +55,7 @@ export async function putDrepMetadata(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT OR REPLACE INTO drep_metadata (drep_id, body, hash, name, created_at)
+      `INSERT OR IGNORE INTO drep_metadata (drep_id, body, hash, name, created_at)
        VALUES (?, ?, ?, ?, ?)`,
     )
     .bind(args.drepId, args.body, args.hash, args.name, args.createdAt)
@@ -59,19 +63,23 @@ export async function putDrepMetadata(
 }
 
 /**
- * Returns the metadata row for the given DRep id, or null if not found.
+ * Returns the content-addressed metadata row for (drepId, hash), or null.
+ * This is the authoritative read for serving the document at its anchor URL:
+ * the bytes returned hash to `hash`, which is what the on-chain anchor commits to.
  * Parameterized SELECT; no string-interpolated SQL.
  */
-export async function getDrepMetadata(
+export async function getDrepMetadataByHash(
   db: D1Database,
   drepId: string,
+  hash: string,
 ): Promise<DrepMetadata | null> {
   const row = await db
-    .prepare('SELECT * FROM drep_metadata WHERE drep_id = ?')
-    .bind(drepId)
+    .prepare('SELECT * FROM drep_metadata WHERE drep_id = ? AND hash = ?')
+    .bind(drepId, hash)
     .first<DrepMetadataRow>();
   return row ? rowToDrepMetadata(row) : null;
 }
+
 
 /**
  * Garbage-collects hosted DRep metadata that is no longer wanted: rows older
@@ -102,17 +110,19 @@ export async function gcDrepMetadata(
         .all<{ drep_id: string; hash: string }>()
     ).results ?? [];
 
-  const toDelete = rows
-    .filter((r) => !args.registeredIds.has(r.drep_id) && !args.keepHashes.has(r.hash.toLowerCase()))
-    .map((r) => r.drep_id);
+  const toDelete = rows.filter(
+    (r) => !args.registeredIds.has(r.drep_id) && !args.keepHashes.has(r.hash.toLowerCase()),
+  );
 
-  // Delete in bounded batches to respect the SQLite bound-parameter limit.
-  for (let i = 0; i < toDelete.length; i += 50) {
-    const batch = toDelete.slice(i, i + 50);
-    await db
-      .prepare(`DELETE FROM drep_metadata WHERE drep_id IN (${sqlPlaceholders(batch)})`)
-      .bind(...batch)
-      .run();
+  // Delete by the exact (drep_id, hash) pair: under content-addressing a single
+  // drep id may have both a kept (referenced) row and a junk row, so deleting by
+  // drep_id alone would wrongly remove the referenced one. One batch, not N round trips.
+  if (toDelete.length > 0) {
+    await db.batch(
+      toDelete.map((r) =>
+        db.prepare('DELETE FROM drep_metadata WHERE drep_id = ? AND hash = ?').bind(r.drep_id, r.hash),
+      ),
+    );
   }
 
   return { scanned: rows.length, deleted: toDelete.length };

@@ -61,6 +61,10 @@ function makeDRepApi(overrides?: Partial<WalletApi>): WalletApi {
     })),
     cip95: {
       getPubDRepKey: vi.fn(async () => FAKE_DREP_PUBKEY),
+      signData: vi.fn(async (_addr: string, _payloadHex: string) => ({
+        signature: FAKE_SIG,
+        key: FAKE_KEY,
+      })),
     },
     ...overrides,
   };
@@ -75,7 +79,7 @@ describe('loginWithWallet: proposer happy path', () => {
     const fetchMock = makeFetch(FAKE_PAYLOAD, true);
     const api = makeProposerApi();
 
-    const result = await loginWithWallet(api, 'proposer', { fetchImpl: fetchMock as unknown as typeof fetch });
+    const result = await loginWithWallet(api, 'proposer', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
 
     expect(result.ok).toBe(true);
     expect(result.user).toEqual(FAKE_USER);
@@ -105,7 +109,7 @@ describe('loginWithWallet: proposer happy path', () => {
     const fetchMock = makeFetch(FAKE_PAYLOAD, true);
     const api = makeProposerApi();
 
-    await loginWithWallet(api, 'proposer', { fetchImpl: fetchMock as unknown as typeof fetch });
+    await loginWithWallet(api, 'proposer', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
 
     const signCall = (api.signData as ReturnType<typeof vi.fn>).mock.calls[0];
     const payloadHex = signCall[1] as string;
@@ -119,40 +123,67 @@ describe('loginWithWallet: proposer happy path', () => {
   });
 });
 
-describe('loginWithWallet: drep happy path', () => {
-  it('uses the Blake2b-224 key hash of the DRep pubkey as signing addr', async () => {
-    // Use a separate fetch that returns the drep user.
-    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => {
-      const url = _url.toString();
-      if (url.includes('challenge')) {
-        return new Response(JSON.stringify({ payload: FAKE_PAYLOAD }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
-      return new Response(JSON.stringify({ ok: true, user: FAKE_USER_DREP }), {
+function makeDRepFetch() {
+  return vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => {
+    const url = _url.toString();
+    if (url.includes('challenge')) {
+      return new Response(JSON.stringify({ payload: FAKE_PAYLOAD }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
+    }
+    return new Response(JSON.stringify({ ok: true, user: FAKE_USER_DREP }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
     });
+  });
+}
+
+describe('loginWithWallet: drep happy path', () => {
+  it('signs a CIP-19 type-6 enterprise address via cip95.signData', async () => {
+    const fetchMock = makeDRepFetch();
     const api = makeDRepApi();
 
-    const result = await loginWithWallet(api, 'drep', { fetchImpl: fetchMock as unknown as typeof fetch });
+    const result = await loginWithWallet(api, 'drep', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
 
     expect(result.ok).toBe(true);
     expect(result.user).toEqual(FAKE_USER_DREP);
 
-    // The signing address must be the 28-byte Blake2b-224 hash of the pubkey (56 hex chars).
-    const signCall = (api.signData as ReturnType<typeof vi.fn>).mock.calls[0];
+    // CIP-95 signData is preferred and receives the type-6 enterprise address:
+    // 29 bytes (58 hex), preprod header 0x60, not the reward address.
+    const signCall = (api.cip95!.signData as ReturnType<typeof vi.fn>).mock.calls[0];
     const addrUsed = signCall[0] as string;
-    expect(addrUsed).toHaveLength(56); // 28 bytes = 56 hex chars
-    // Must not be the reward address.
+    expect(addrUsed).toHaveLength(58);
+    expect(addrUsed.slice(0, 2)).toBe('60');
     expect(addrUsed).not.toBe(FAKE_REWARD_ADDR);
+    // The base signData must not be used when cip95.signData exists.
+    expect(api.signData).not.toHaveBeenCalled();
 
-    // Verify body role is drep.
     const verifyCall = fetchMock.mock.calls.find(([url]) => url.toString().includes('verify'));
     const body = JSON.parse(verifyCall![1]!.body as string) as Record<string, string>;
     expect(body.role).toBe('drep');
+  });
+
+  it('uses the mainnet enterprise header 0x61 on mainnet', async () => {
+    const fetchMock = makeDRepFetch();
+    const api = makeDRepApi();
+
+    await loginWithWallet(api, 'drep', 'mainnet', { fetchImpl: fetchMock as unknown as typeof fetch });
+
+    const signCall = (api.cip95!.signData as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect((signCall[0] as string).slice(0, 2)).toBe('61');
+  });
+
+  it('falls back to base signData when cip95.signData is absent', async () => {
+    const fetchMock = makeDRepFetch();
+    const api = makeDRepApi({ cip95: { getPubDRepKey: vi.fn(async () => FAKE_DREP_PUBKEY) } });
+
+    const result = await loginWithWallet(api, 'drep', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
+
+    expect(result.ok).toBe(true);
+    const signCall = (api.signData as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(signCall[0] as string).toHaveLength(58);
+    expect((signCall[0] as string).slice(0, 2)).toBe('60');
   });
 });
 
@@ -165,7 +196,7 @@ describe('loginWithWallet: drep without CIP-95', () => {
       signData: vi.fn(async () => ({ signature: FAKE_SIG, key: FAKE_KEY })),
     };
 
-    const result = await loginWithWallet(api, 'drep', { fetchImpl: fetchMock as unknown as typeof fetch });
+    const result = await loginWithWallet(api, 'drep', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('CIP-95');
@@ -183,7 +214,7 @@ describe('loginWithWallet: wallet signData rejection', () => {
       }),
     });
 
-    const result = await loginWithWallet(api, 'proposer', { fetchImpl: fetchMock as unknown as typeof fetch });
+    const result = await loginWithWallet(api, 'proposer', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
 
     expect(result.ok).toBe(false);
   });
@@ -194,7 +225,7 @@ describe('loginWithWallet: verify 401', () => {
     const fetchMock = makeFetch(FAKE_PAYLOAD, false, 401);
     const api = makeProposerApi();
 
-    const result = await loginWithWallet(api, 'proposer', { fetchImpl: fetchMock as unknown as typeof fetch });
+    const result = await loginWithWallet(api, 'proposer', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();

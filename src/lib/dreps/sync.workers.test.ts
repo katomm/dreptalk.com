@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { syncDreps } from './sync.js';
 import { getDrepById } from '../db/dreps.js';
-import { putDrepMetadata, getDrepMetadata } from '../db/drepMetadata.js';
+import { putDrepMetadata, getDrepMetadataByHash } from '../db/drepMetadata.js';
 import type { DrepListRow, DrepInfoRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
@@ -278,8 +278,8 @@ describe('syncDreps', () => {
     const result = await syncDreps({ koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
 
     expect(result.gcDeleted).toBeGreaterThanOrEqual(1);
-    expect(await getDrepMetadata(env.DB, reg)).not.toBeNull(); // registered -> kept
-    expect(await getDrepMetadata(env.DB, junk)).toBeNull(); // unregistered junk -> deleted
+    expect(await getDrepMetadataByHash(env.DB, reg, 'a'.repeat(64))).not.toBeNull(); // registered -> kept
+    expect(await getDrepMetadataByHash(env.DB, junk, 'b'.repeat(64))).toBeNull(); // unregistered junk -> deleted
   });
 
   it('does NOT garbage-collect when the enumeration is empty (transient empty drep_list)', async () => {
@@ -293,7 +293,7 @@ describe('syncDreps', () => {
 
     expect(result.total).toBe(0);
     expect(result.gcDeleted).toBe(0);
-    expect(await getDrepMetadata(env.DB, orphan)).not.toBeNull(); // preserved
+    expect(await getDrepMetadataByHash(env.DB, orphan, 'c'.repeat(64))).not.toBeNull(); // preserved
   });
 
   it('skips DReps that are not registered', async () => {

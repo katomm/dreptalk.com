@@ -5,6 +5,8 @@ import {
   drepIdFromPubKey,
   stakeAddressFromPubKey,
   keyHashMatchesAddress,
+  isDrepCredentialAddress,
+  drepCredentialAddress,
   cip105ToCip129,
   ccHotKeyHashHex,
 } from './identity.js';
@@ -97,6 +99,22 @@ describe('keyHashMatchesAddress', () => {
     expect(keyHashMatchesAddress(pubKey, addrBytes)).toBe(true);
   });
 
+  it('returns true for a bare 28-byte DRep key hash (no header byte)', () => {
+    // CIP-95 wallets may emit the bare 28-byte DRep key hash (CIP PR #897,
+    // cardano-signer) in the COSE address header. blake2b224(drep pubkey)
+    // equals the 28 bytes after the 0x22 header in the fixture drep address.
+    const pubKey = hexToBytes(DREP_VECTOR.expectedPubKeyHex);
+    const bareHash = hexToBytes(DREP_VECTOR.expectedDrepAddrHex.slice(2));
+    expect(bareHash.length).toBe(28);
+    expect(keyHashMatchesAddress(pubKey, bareHash)).toBe(true);
+  });
+
+  it('returns false for a bare 28-byte hash that does not match the pubkey', () => {
+    const pubKey = hexToBytes(STAKE_VECTOR.expectedPubKeyHex);
+    const wrongHash = hexToBytes(DREP_VECTOR.expectedDrepAddrHex.slice(2));
+    expect(keyHashMatchesAddress(pubKey, wrongHash)).toBe(false);
+  });
+
   describe('base address (57 bytes, header 0x00)', () => {
     // The fixture stake key hash is blake2b224(expectedPubKeyHex),
     // which equals bytes[1..29] of the fixture reward address (addressHex).
@@ -122,6 +140,68 @@ describe('keyHashMatchesAddress', () => {
       baseAddrNoMatch.fill(0x22, 29, 57); // stake slot: all 0x22 (wrong)
       expect(keyHashMatchesAddress(pubKey, baseAddrNoMatch)).toBe(false);
     });
+  });
+});
+
+describe('isDrepCredentialAddress', () => {
+  // The 28-byte DRep key hash (everything after the 0x22 header in the fixture).
+  const drepKeyHash = hexToBytes(DREP_VECTOR.expectedDrepAddrHex.slice(2));
+
+  function withHeader(header: number): Uint8Array {
+    const out = new Uint8Array(29);
+    out[0] = header;
+    out.set(drepKeyHash, 1);
+    return out;
+  }
+
+  it('accepts a bare 28-byte key hash', () => {
+    expect(isDrepCredentialAddress(drepKeyHash)).toBe(true);
+  });
+
+  it('accepts a 29-byte CIP-19 type-6 enterprise address (preprod header 0x60)', () => {
+    expect(isDrepCredentialAddress(withHeader(0x60))).toBe(true);
+  });
+
+  it('accepts a 29-byte CIP-19 type-6 enterprise address (mainnet header 0x61)', () => {
+    expect(isDrepCredentialAddress(withHeader(0x61))).toBe(true);
+  });
+
+  it('rejects the CIP-129 0x22 governance-id encoding (not a COSE address form)', () => {
+    expect(isDrepCredentialAddress(hexToBytes(DREP_VECTOR.expectedDrepAddrHex))).toBe(false);
+  });
+
+  it('rejects a reward address (header 0xe0)', () => {
+    expect(isDrepCredentialAddress(hexToBytes(STAKE_VECTOR.addressHex))).toBe(false);
+  });
+
+  it('rejects a 57-byte base address', () => {
+    expect(isDrepCredentialAddress(new Uint8Array(57))).toBe(false);
+  });
+
+  it('rejects an empty address', () => {
+    expect(isDrepCredentialAddress(new Uint8Array(0))).toBe(false);
+  });
+});
+
+describe('drepCredentialAddress', () => {
+  const keyHash = hexToBytes(DREP_VECTOR.expectedDrepAddrHex.slice(2));
+
+  it('builds a preprod type-6 enterprise address (header 0x60) as hex', () => {
+    const addr = drepCredentialAddress(keyHash, 'preprod');
+    expect(addr).toBe('60' + DREP_VECTOR.expectedDrepAddrHex.slice(2));
+    expect(addr.length).toBe(58); // 29 bytes
+  });
+
+  it('builds a mainnet type-6 enterprise address (header 0x61) as hex', () => {
+    const addr = drepCredentialAddress(keyHash, 'mainnet');
+    expect(addr).toBe('61' + DREP_VECTOR.expectedDrepAddrHex.slice(2));
+  });
+
+  it('produces an address accepted by isDrepCredentialAddress and bound to the pubkey', () => {
+    const pubKey = hexToBytes(DREP_VECTOR.expectedPubKeyHex);
+    const addrBytes = hexToBytes(drepCredentialAddress(keyHash, 'preprod'));
+    expect(isDrepCredentialAddress(addrBytes)).toBe(true);
+    expect(keyHashMatchesAddress(pubKey, addrBytes)).toBe(true);
   });
 });
 

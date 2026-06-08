@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import vectors from './__fixtures__/cip8-vectors.json';
+import { makeCoseSignature, type6Address } from './__fixtures__/makeCose.js';
 import { handleChallenge, handleVerify, handleLogout } from './handlers.js';
 import { issueNonce } from './nonce.js';
 import { getSession } from './session.js';
@@ -178,20 +179,23 @@ describe('handleVerify: happy path (proposer)', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleVerify: happy path (drep)', () => {
-  it('returns 200 and inserts a drep user row for the drep fixture', async () => {
-    const fixturePayload = drepVector.payloadUtf8;
-    await preloadNonce(env.NONCES, fixturePayload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+  it('returns 200 and inserts a drep user row for a real type-6 DRep signature', async () => {
+    const payload = 'dreptalk:dreptalk.com:drep-happy-nonce:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
 
-    // Pre-derive the drepId the handler will compute so fake koios can match it.
-    // We cannot call drepIdFromPubKey here directly without importing; instead we
-    // accept any drep_id in the fake koios since the test only cares about the
-    // overall flow. The fake returns isDrep=true for any id.
+    // A CIP-95 wallet signs with the DRep key over a CIP-19 type-6 enterprise
+    // address (preprod header 0x60 + the 28-byte DRep key hash). The fake koios
+    // accepts any drep id, so the test exercises the full verify + gate flow.
+    const seed = new Uint8Array(32).fill(9);
+    const { keyHash } = makeCoseSignature({ seed, payload, addressBytes: new Uint8Array(28) });
+    const cose = makeCoseSignature({ seed, payload, addressBytes: type6Address(keyHash, 'preprod') });
+
     const result = await handleVerify({
       body: {
-        payload: fixturePayload,
-        signatureHex: drepVector.signatureHex,
-        keyHex: drepVector.keyHex,
+        payload,
+        signatureHex: cose.signatureHex,
+        keyHex: cose.keyHex,
         role: 'drep',
       },
       nonceKv: env.NONCES,
@@ -224,6 +228,42 @@ describe('handleVerify: happy path (drep)', () => {
     const row = await getUserById(env.DB, json.user.id);
     expect(row).not.toBeNull();
     expect(row!.is_drep).toBe(true);
+  });
+
+  it('accepts a bare 28-byte DRep key hash address form', async () => {
+    const payload = 'dreptalk:dreptalk.com:drep-bare-nonce:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+
+    const seed = new Uint8Array(32).fill(10);
+    const { keyHash } = makeCoseSignature({ seed, payload, addressBytes: new Uint8Array(28) });
+    const cose = makeCoseSignature({ seed, payload, addressBytes: keyHash });
+
+    const result = await handleVerify({
+      body: { payload, signatureHex: cose.signatureHex, keyHex: cose.keyHex, role: 'drep' },
+      nonceKv: env.NONCES,
+      sessionKv: env.SESSIONS,
+      db: env.DB,
+      koios: {
+        drepInfo: async (id: string) => ({
+          drep_id: id,
+          hex: 'cc',
+          has_script: false,
+          drep_status: 'registered',
+          active: true,
+          deposit: '500000000',
+          expires_epoch_no: null,
+        }),
+        accountInfo: async () => null,
+        proposalsByReturnAddress: async () => [],
+      },
+      network: 'preprod',
+      now: 1_700_000_100,
+      secure: false,
+    }, { consumeNonce: consumeOverride });
+
+    expect(result.status).toBe(200);
+    expect((result.json as { ok: boolean }).ok).toBe(true);
   });
 });
 
@@ -669,9 +709,9 @@ describe('handleVerify: moderator allowlist', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleVerify: reject wrong address type for role', () => {
-  it('rejects stake-key fixture (header 0xe0) when role=drep (expects 0x22)', async () => {
-    // The stake-key fixture has a reward address header (0xe0).
-    // Asking for role=drep requires header 0x22.
+  it('rejects stake-key fixture (header 0xe0) when role=drep', async () => {
+    // The stake-key fixture has a reward address header (0xe0), which is not a
+    // DRep credential (type-6 0x60/0x61 or bare key hash), so role=drep is rejected.
     const fixturePayload = stakeVector.payloadUtf8;
     await preloadNonce(env.NONCES, fixturePayload);
     const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
@@ -692,7 +732,7 @@ describe('handleVerify: reject wrong address type for role', () => {
       secure: false,
     }, { consumeNonce: consumeOverride });
 
-    // Should fail with 401 because header 0xe0 != 0x22 (DRep key-hash).
+    // Should fail with 401: a reward address (0xe0) is not a DRep credential.
     expect(result.status).toBe(401);
   });
 

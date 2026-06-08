@@ -16,7 +16,7 @@ import {
   RAW_PUBKEY_HEX_LEN,
 } from '../validation/input.js';
 import type { ModeratorRole } from '../../../config/moderators.js';
-import { drepIdFromPubKey, stakeAddressFromPubKey, ccHotKeyHashHex } from '../cardano/identity.js';
+import { drepIdFromPubKey, stakeAddressFromPubKey, ccHotKeyHashHex, isDrepCredentialAddress } from '../cardano/identity.js';
 import { resolveDRep, resolveProposer, resolveSpo, resolveCc } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
 import { upsertUserFromAuth, type AuthRole } from '../db/users.js';
@@ -30,13 +30,6 @@ import type { CardanoNetwork } from '../config/network.js';
 // CIP-19 reward address header: testnet (preprod) = 0xe0, mainnet = 0xe1.
 const REWARD_ADDR_PREPROD = 0xe0;
 const REWARD_ADDR_MAINNET = 0xe1;
-
-// CIP-129 DRep key-hash credential header byte = 0x22.
-// Pinned from the drep-key-valid fixture:
-//   addressHex "22af4e07977b6c2683c065e17ec1ea0421ac7c2fc579f9dd98ff8e2f82"
-//   first byte = 0x22 = CIP-129 DRep key-hash on testnet.
-// The same header is used on mainnet for key-hash DRep credentials.
-const DREP_KEYHASH_HEADER = 0x22;
 
 // ---------------------------------------------------------------------------
 // Challenge handler
@@ -183,22 +176,22 @@ async function verifyWalletCip8(
 
   const { pubKey, addressBytes } = verifyResult;
 
-  // Header byte validation.
+  // Address-form validation. Proposer signs with a reward address; DRep signs
+  // with a CIP-95 DRep credential in the COSE address header: a CIP-19 type-6
+  // (enterprise) address (0x60 preprod / 0x61 mainnet + key hash) or the bare
+  // 28-byte key hash. The identity is bound separately via drepIdFromPubKey.
   if (addressBytes.length === 0) {
     return { status: 401, json: { ok: false, error: 'invalid address in signature' } };
   }
-  const headerByte = addressBytes[0];
 
   if (role === 'proposer') {
     const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
-    if (headerByte !== expectedHeader) {
+    if (addressBytes[0] !== expectedHeader) {
       return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
     }
-  } else {
-    // role === 'drep': require CIP-129 DRep key-hash header = 0x22.
-    if (headerByte !== DREP_KEYHASH_HEADER) {
-      return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
-    }
+  } else if (!isDrepCredentialAddress(addressBytes)) {
+    // role === 'drep'
+    return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
   }
 
   // Derive identity from the verified pubKey, then resolve authorization via

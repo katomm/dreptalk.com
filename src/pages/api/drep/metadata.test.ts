@@ -102,15 +102,15 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 //
-// Writing now requires proof of control of the DRep key (a CIP-8 signature over
-// a fresh challenge). The full happy path is covered, with a real DRep fixture,
+// Hosting is unauthenticated (authenticity is bound on-chain by syncDreps) and
+// content-addressed. The full store + build logic is covered, against real D1,
 // in src/lib/governance/drepMetadataHandler.workers.test.ts. The route tests
-// below cover the gates that need no valid signature: rate limiting, malformed
-// input, and the rejection of a well-formed body that omits the proof.
+// below cover the wiring: a well-formed body stores and returns 200, plus the
+// gates that need no signature (malformed input, rate limiting).
 // ---------------------------------------------------------------------------
 
-describe('POST /api/drep/metadata: proof of control required', () => {
-  it('returns 400 and stores nothing when a well-formed body omits the signature', async () => {
+describe('POST /api/drep/metadata: stores a well-formed document', () => {
+  it('returns 200 with a content-addressed url + hash and writes the row', async () => {
     const ctx = makeCtx({
       drepId: VALID_DREP_ID,
       name: 'Alice Cardano',
@@ -120,8 +120,15 @@ describe('POST /api/drep/metadata: proof of control required', () => {
 
     const res = await POST(ctx);
 
-    expect(res.status).toBe(400);
-    expect(fakeDb.lastBound).toBeNull();
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { url: string; hash: string };
+    expect(json.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(json.url).toBe(`${ORIGIN}/drep/${VALID_DREP_ID}/${json.hash}.json`);
+
+    // The INSERT bound the content-addressed row: [drepId, body, hash, name, createdAt].
+    expect(fakeDb.lastBound).not.toBeNull();
+    expect(fakeDb.lastBound![0]).toBe(VALID_DREP_ID);
+    expect(fakeDb.lastBound![2]).toBe(json.hash);
   });
 });
 
