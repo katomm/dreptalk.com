@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { parseGovSort, sortGovActionTopics, trendingScore, type GovActionTopic } from './sort.js';
+import { describe, it, expect, test } from 'vitest';
+import {
+  parseGovSort,
+  sortGovActionTopics,
+  trendingScore,
+  parseGovStatus,
+  filterByStatus,
+  GOV_STATUSES,
+  type GovActionTopic,
+} from './sort.js';
 
 const NOW = 1_800_000_000_000;
 const DAY = 86_400_000;
@@ -52,34 +60,36 @@ describe('sortGovActionTopics', () => {
     expect(ids(sortGovActionTopics(rows, 'new', NOW))).toEqual(['newest', 'mid', 'old']);
   });
 
-  it('closing: only active with an expiry, soonest first', () => {
+  it('closing: soonest expiry first, nulls last, all statuses included', () => {
     const rows = [
       row({ id: 'far', status: 'active', expiryEpoch: 400 }),
       row({ id: 'soon', status: 'active', expiryEpoch: 360 }),
       row({ id: 'no-expiry', status: 'active', expiryEpoch: null }),
       row({ id: 'enacted', status: 'enacted', expiryEpoch: 350 }),
     ];
-    expect(ids(sortGovActionTopics(rows, 'closing', NOW))).toEqual(['soon', 'far']);
+    // enacted(350) < soon(360) < far(400) < no-expiry(null, pushed to end)
+    expect(ids(sortGovActionTopics(rows, 'closing', NOW))).toEqual(['enacted', 'soon', 'far', 'no-expiry']);
   });
 
-  it('ratified: only ratified/enacted, most recently decided first', () => {
+  it('ratified: most recently decided first, nulls last, all statuses included', () => {
     const rows = [
       row({ id: 'active', status: 'active' }),
       row({ id: 'older', status: 'enacted', decidedEpoch: 500 }),
       row({ id: 'recent', status: 'ratified', decidedEpoch: 520 }),
     ];
-    expect(ids(sortGovActionTopics(rows, 'ratified', NOW))).toEqual(['recent', 'older']);
+    // recent(520) > older(500) > active(null, pushed to end)
+    expect(ids(sortGovActionTopics(rows, 'ratified', NOW))).toEqual(['recent', 'older', 'active']);
   });
 
-  it('trending: only active, recent + engaged ranks above stale', () => {
+  it('trending: fresh+engaged ranks above stale, all statuses included', () => {
     const rows = [
       row({ id: 'stale-busy', status: 'active', postCount: 50, lastPostAt: NOW - 30 * DAY }),
       row({ id: 'fresh-busy', status: 'active', postCount: 20, votes: 10, lastPostAt: NOW - 1000 }),
-      row({ id: 'enacted', status: 'enacted', postCount: 99, lastPostAt: NOW }),
+      row({ id: 'enacted', status: 'enacted', postCount: 1, lastPostAt: NOW - 60 * DAY }),
     ];
     const out = ids(sortGovActionTopics(rows, 'trending', NOW));
-    expect(out).not.toContain('enacted'); // not active
-    expect(out[0]).toBe('fresh-busy'); // recency lifts it above the stale-but-busy one
+    expect(out).toContain('enacted'); // pure ordering: all rows present
+    expect(out.indexOf('fresh-busy')).toBeLessThan(out.indexOf('stale-busy')); // recency lifts it
   });
 });
 
@@ -89,4 +99,34 @@ describe('trendingScore', () => {
     const old = row({ id: 'o', postCount: 5, votes: 3, lastPostAt: NOW - 20 * DAY });
     expect(trendingScore(recent, NOW)).toBeGreaterThan(trendingScore(old, NOW));
   });
+});
+
+// Helper for status-filter tests: minimal GovActionTopic with a given status.
+const mk = (status: string, id = status): GovActionTopic =>
+  row({ id, status, submittedEpoch: 1 });
+
+test('parseGovStatus defaults to all and rejects unknown', () => {
+  expect(parseGovStatus(null)).toBe('all');
+  expect(parseGovStatus('nope')).toBe('all');
+  expect(parseGovStatus('active')).toBe('active');
+});
+
+test('filterByStatus maps tabs to lifecycle statuses', () => {
+  const rows = [
+    mk('active'),
+    mk('pending'),
+    mk('enacted'),
+    mk('ratified'),
+    mk('expired'),
+    mk('closed'),
+    mk('dropped'),
+  ];
+  expect(filterByStatus(rows, 'all').length).toBe(7);
+  expect(filterByStatus(rows, 'active').map((r) => r.action.status)).toEqual(['active']);
+  expect(filterByStatus(rows, 'enacted').map((r) => r.action.status).sort()).toEqual(['enacted', 'ratified']);
+  expect(filterByStatus(rows, 'expired').map((r) => r.action.status).sort()).toEqual(['closed', 'dropped', 'expired']);
+});
+
+test('GOV_STATUSES has no Upcoming and All is first', () => {
+  expect(GOV_STATUSES.map((s) => s.mode)).toEqual(['all', 'active', 'enacted', 'expired']);
 });
