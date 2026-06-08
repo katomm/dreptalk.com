@@ -28,14 +28,18 @@ Requires Node 20+. Local and preview run against the Cardano preprod testnet; se
 
 ### Running a governance sync locally
 
-Governance Actions are ingested by a standalone Cloudflare cron worker at `workers/gov-sync` that shares the app's D1 database. To trigger one sync run locally:
+On-chain data is ingested by a standalone Cloudflare cron worker at `workers/gov-sync` that shares the app's D1 database. It has three cron triggers, and the worker dispatches on the cron expression, so to run a specific sync locally you pass that expression to `/__scheduled`. Start the worker once, then trigger the run you need:
 
 ```sh
-npm run sync:dev                          # start the worker (wrangler dev, scheduled enabled)
-curl "http://localhost:8787/__scheduled"  # trigger a single sync run
+npm run sync:dev                                       # terminal 1: start the worker (wrangler dev, scheduled enabled)
+
+# terminal 2: trigger a single run. Keep the * inside quotes so the shell does not expand them.
+curl "http://localhost:8787/__scheduled"                       # governance actions + tallies (default */15 cron)
+curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"        # per-post DRep vote lists (hourly cron)
+curl "http://localhost:8787/__scheduled?cron=0+*/6+*+*+*"      # DRep profiles + voting power (6-hourly cron)
 ```
 
-It polls Koios for new governance actions (preprod locally, per `CARDANO_NETWORK`) and writes them to D1. The worker ships with the governance ingestion milestone.
+It polls Koios (preprod locally, per `CARDANO_NETWORK`) and writes to D1. Stake Participation on the governance overview needs the DRep run (it fills `dreps.voting_power`); the voted share also needs the vote run. The cron expressions mirror `src/lib/freshness.ts`.
 
 ## Status
 
