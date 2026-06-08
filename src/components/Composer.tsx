@@ -249,7 +249,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
       </div>
 
       <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
-        Markdown is supported. Links, bold, italics, lists, and code blocks are allowed.
+        Use the toolbar or type Markdown directly: headings, bold, italics, links, quotes, lists, and code.
       </p>
 
       {error && (
