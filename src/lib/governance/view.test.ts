@@ -7,6 +7,8 @@ import {
   tallyBar,
   voteTone,
   fmtPct,
+  formatAdaShort,
+  stakeParticipation,
 } from './view.js';
 
 describe('readableType / formatAda', () => {
@@ -75,5 +77,23 @@ describe('voteTone', () => {
     expect(voteTone('Yes')).toBe('positive');
     expect(voteTone('no')).toBe('negative');
     expect(voteTone('Abstain')).toBe('neutral');
+  });
+});
+
+describe('stakeParticipation / formatAdaShort', () => {
+  it('formatAdaShort rounds lovelace to B/M/K ADA', () => {
+    expect(formatAdaShort(3_210_000_000_000_000)).toBe('3.21B ₳');
+    expect(formatAdaShort(1_840_000_000_000_000)).toBe('1.84B ₳');
+    expect(formatAdaShort(12_400_000_000_000)).toBe('12.4M ₳');   // M branch
+    expect(formatAdaShort(950_000_000_000)).toBe('950K ₳');        // K branch
+    expect(formatAdaShort(0)).toBe('0 ₳');
+  });
+
+  it('stakeParticipation returns pct + parts, null when total is 0', () => {
+    expect(stakeParticipation(0, 0)).toBeNull();
+    const s = stakeParticipation(3_210_000_000_000_000, 6_660_000_000_000_000)!;
+    expect(s.pct).toBeCloseTo(48.2, 1);
+    expect(s.votedLabel).toBe('3.21B ₳');
+    expect(s.totalLabel).toBe('6.66B ₳');
   });
 });

@@ -115,3 +115,27 @@ export const TONE_BAR_COLORS = {
 export function fmtPct(n: number): string {
   return `${n.toFixed(n > 0 && n < 1 ? 2 : 0)}%`;
 }
+
+/** Compact ADA from lovelace: "3.21B ₳" / "12.4M ₳" / "950K ₳" / "0 ₳". */
+export function formatAdaShort(lovelace: number): string {
+  const ada = lovelace / 1_000_000;
+  const sym = '₳';
+  if (ada >= 1_000_000_000) return `${(ada / 1_000_000_000).toFixed(2)}B ${sym}`;
+  if (ada >= 1_000_000) return `${(ada / 1_000_000).toFixed(1)}M ${sym}`;
+  if (ada >= 1_000) return `${Math.round(ada / 1_000)}K ${sym}`;
+  return `${Math.round(ada)} ${sym}`;
+}
+
+export interface StakeParticipation {
+  pct: number;          // 0..100
+  votedLabel: string;   // "3.21B ₳"
+  totalLabel: string;   // "6.66B ₳"
+}
+
+/** Turnout from voted vs total DRep voting power (lovelace). Null if no total. */
+export function stakeParticipation(votedLovelace: number, totalLovelace: number): StakeParticipation | null {
+  if (!Number.isFinite(totalLovelace) || totalLovelace <= 0) return null;
+  if (!Number.isFinite(votedLovelace)) return null;
+  const pct = Math.min(100, Math.max(0, (votedLovelace / totalLovelace) * 100));
+  return { pct, votedLabel: formatAdaShort(votedLovelace), totalLabel: formatAdaShort(totalLovelace) };
+}
