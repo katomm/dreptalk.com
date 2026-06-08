@@ -77,9 +77,11 @@ export function deriveStatus(
     Null when there is no summary or the power fields are absent (older Koios). */
 function votedPower(s: VotingSummary | null): number | null {
   if (!s) return null;
-  const parts = [s.drep_active_yes_vote_power, s.drep_active_no_vote_power, s.drep_active_abstain_vote_power];
-  if (parts.every((p) => p == null)) return null;
-  return parts.reduce<number>((sum, p) => sum + (p ? Number(p) : 0), 0);
+  const yes = s.drep_active_yes_vote_power;
+  const no = s.drep_active_no_vote_power;
+  const abstain = s.drep_active_abstain_vote_power;
+  if (yes == null && no == null && abstain == null) return null;
+  return (yes == null ? 0 : Number(yes)) + (no == null ? 0 : Number(no)) + (abstain == null ? 0 : Number(abstain));
 }
 
 /** Maps a Koios voting summary onto the tally-update fields (null-tolerant). */

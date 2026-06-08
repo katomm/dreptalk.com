@@ -74,16 +74,17 @@ if (category && db) {
     govTotal = sorted.length;
     pageRows = sorted.slice(offset, offset + PAGE_SIZE);
     topics = pageRows.map((r) => r.topic);
-    // Stake participation: one total-power query; voted power comes from the
-    // stored per-action field (populated by tally sync and backfill).
-    if (pageRows.length > 0) {
+    // Stake participation: voted power is the stored per-action field (populated
+    // by tally sync and backfill). Only query total power when at least one shown
+    // action has it; otherwise every cell is a dash and the query plus the "as of"
+    // label would be wasted.
+    if (pageRows.some((r) => r.action.drepVotedPower != null)) {
       const stake = await getActiveDrepStake(db);
       stakeAsOf = stake.asOf;
       stakeByTopic = new Map(
         pageRows.map((r) => [
           r.topic.id,
-          // No tally yet (drep_voted_power null) -> dash; a stored value (even 0)
-          // is real turnout. Power comes from the action's stored voted power.
+          // No tally yet (drep_voted_power null) -> dash; a stored value (even 0) is real turnout.
           r.action.drepVotedPower == null ? null : stakeParticipation(r.action.drepVotedPower, stake.total),
         ]),
       );
