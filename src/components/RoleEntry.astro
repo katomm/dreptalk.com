@@ -1,13 +1,19 @@
 ---
-// Role-aware sign-in control. The primary action enters as a DRep; the chevron
-// reveals the other on-chain writing roles. Reading the forum is public, this
-// only gates who can post. SPO (Calidus key) and CC-member sign-in use the
-// offline paste flow; proposer uses the wallet flow. Built on a native <details>
+// Role-aware sign-in control. When signed out, the primary action enters as a
+// DRep and the chevron reveals the other on-chain writing roles. When signed in
+// (Astro.locals.user is set by the middleware), it shows the role badge and a
+// Logout control instead. Reading the forum is public, this only gates who can
+// post. SPO (Calidus key) and CC-member sign-in use the offline paste flow;
+// proposer uses the wallet flow. Built on a native <details> and a plain <form>
 // so it needs no client JS (the strict CSP forbids inline scripts).
+import { roleLabel, roleLabels } from '@/lib/auth/roles';
+
 interface Props {
   layout?: 'split' | 'flat';
 }
 const { layout = 'split' } = Astro.props;
+
+const user = Astro.locals.user;
 
 // Roles revealed beyond the primary "Enter as DRep" action. Order follows the
 // product framing; entries without an href are not implemented yet.
@@ -17,6 +23,20 @@ const moreRoles: Array<{ label: string; href?: string }> = [
   { label: 'Enter as proposer', href: '/login?role=proposer' },
 ];
 ---
+
+{user ? (
+  <div class:list={['role-entry', 'role-entry--signedin', `role-entry--${layout}`]}>
+    <span class="role-entry__badge" title={`Signed in as ${roleLabels(user.roles).join(', ')}`}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+      <span class="role-entry__role">{roleLabel(user.roles)}</span>
+    </span>
+    <form method="POST" action="/api/auth/logout" class="role-entry__logout">
+      <button type="submit" class="role-entry__logout-btn">Log out</button>
+    </form>
+  </div>
+) : (
 
 <div class:list={['role-entry', `role-entry--${layout}`]}>
   <a class="btn btn-primary role-entry__main" href="/login">
@@ -68,7 +88,8 @@ const moreRoles: Array<{ label: string; href?: string }> = [
       </div>
     </details>
   )}
-</div>
+  </div>
+)}
 
 <style>
   .role-entry {
@@ -210,5 +231,59 @@ const moreRoles: Array<{ label: string; href?: string }> = [
   }
   .role-entry__more-flat[open] .role-entry__chev {
     transform: rotate(180deg);
+  }
+
+  /* Signed-in state: role badge + Logout. Desktop (split) is an inline row. */
+  .role-entry--split.role-entry--signedin {
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .role-entry__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: var(--radius);
+    white-space: nowrap;
+  }
+  .role-entry__logout {
+    display: inline-flex;
+    margin: 0;
+  }
+  .role-entry__logout-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .role-entry__logout-btn:hover {
+    color: var(--fg);
+    border-color: var(--fg);
+    background: var(--surface);
+  }
+
+  /* Signed-in on the mobile menu (flat): stack full-width. */
+  .role-entry--flat.role-entry--signedin {
+    gap: 0.4rem;
+  }
+  .role-entry--flat .role-entry__badge {
+    justify-content: center;
+  }
+  .role-entry--flat .role-entry__logout,
+  .role-entry--flat .role-entry__logout-btn {
+    width: 100%;
+  }
+  .role-entry--flat .role-entry__logout-btn {
+    justify-content: center;
   }
 </style>

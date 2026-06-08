@@ -92,6 +92,9 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
 
     if (result.ok && result.user) {
       setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });
+      // Navigate to the discussions feed; the full page load lets the SSR header
+      // pick up the new session cookie and render the signed-in state.
+      window.location.assign('/discussions');
     } else {
       setLoginState({ status: 'error', message: friendlyLoginError(result.error, role) });
     }

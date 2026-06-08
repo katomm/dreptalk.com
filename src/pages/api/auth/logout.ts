@@ -4,6 +4,9 @@ import { handleLogout } from '@/lib/auth/handlers';
 
 export const prerender = false;
 
+// The header's Logout control is a plain <form method="POST"> (the strict CSP
+// forbids inline scripts), so on success we clear the session cookie and send a
+// 303 redirect to the home page rather than a JSON body.
 export const POST: APIRoute = async ({ request }) => {
   const sessionKv = env.SESSIONS as KVNamespace | undefined;
 
@@ -17,10 +20,10 @@ export const POST: APIRoute = async ({ request }) => {
   const cookieHeader = request.headers.get('Cookie');
   const result = await handleLogout({ sessionKv, cookieHeader });
 
-  return new Response(JSON.stringify(result.json), {
-    status: result.status,
+  return new Response(null, {
+    status: 303,
     headers: {
-      'content-type': 'application/json',
+      location: '/',
       'set-cookie': result.setCookie,
     },
   });

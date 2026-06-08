@@ -21,3 +21,32 @@ export function isWriter(roles: readonly string[]): boolean {
 export function isModerator(roles: readonly string[]): boolean {
   return roles.some((r) => (MODERATOR_ROLES as readonly string[]).includes(r));
 }
+
+// Human-readable labels for the header's signed-in badge.
+const ROLE_DISPLAY: Record<string, string> = {
+  drep: 'DRep',
+  spo: 'SPO',
+  cc: 'CC',
+  proposer: 'Proposer',
+  admin: 'Admin',
+  moderator: 'Moderator',
+  member: 'Member',
+};
+
+// Badge priority: the governance identity role comes first (it answers "who you
+// are"), then moderation privileges, then the plain member fallback.
+const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'admin', 'moderator', 'member'] as const;
+
+/**
+ * Display labels for the roles a session holds, in priority order. Unknown role
+ * strings are ignored; an empty/unknown set falls back to ['Member'].
+ */
+export function roleLabels(roles: readonly string[]): string[] {
+  const known = ROLE_PRIORITY.filter((r) => roles.includes(r)).map((r) => ROLE_DISPLAY[r]);
+  return known.length > 0 ? known : [ROLE_DISPLAY.member];
+}
+
+/** The single highest-priority display label for a session's roles (the header badge). */
+export function roleLabel(roles: readonly string[]): string {
+  return roleLabels(roles)[0];
+}
