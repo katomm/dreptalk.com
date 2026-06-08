@@ -32,22 +32,30 @@ function randSuffix(): string {
 /** Resolves the network and a Koios client from env bindings. Shared by all paths. */
 function buildKoios(env: Env) {
   const { network, koiosBaseUrl } = resolveNetwork(env.CARDANO_NETWORK ?? null);
-  // Retry transient Koios failures: proposal_voting_summary 504s/times-out under
-  // load, and a dropped call silently leaves an action unsynced.
+  // proposal_voting_summary / proposal_votes are heavy aggregations that can take
+  // 10-25s when Koios is under load. The default 10s timeout drops them and the
+  // action never syncs, so wait longer here and retry once for a genuine transient
+  // failure. The per-run limits below bound the worst-case wall time.
   const koios = createKoiosClient({
     baseUrl: koiosBaseUrl,
     token: env.KOIOS_API_KEY || undefined,
-    retries: 2,
-    retryDelayMs: 300,
+    timeoutMs: 25_000,
+    retries: 1,
+    retryDelayMs: 500,
   });
   return { koios, network };
 }
 
-// Per-run tally budget: Koios cannot serve a summary call for every syncable
-// action in one burst, so each run tallies at most this many (stale-first), paced
-// apart, and the backlog drains over a few runs.
-const TALLY_LIMIT = 15;
+// Per-run tally budget: each run tallies at most this many (stale-first), paced
+// apart, and the backlog drains over a few runs. Kept small so that even when
+// every Koios call runs to the 25s timeout the run stays well within cron limits.
+const TALLY_LIMIT = 12;
 const TALLY_PACE_MS = 200;
+
+// Per-run vote-sync budget: proposal_votes is paginated and heavier than the tally
+// summary, so the hourly vote sync is bounded and paced the same way.
+const VOTE_LIMIT = 12;
+const VOTE_PACE_MS = 200;
 
 // Discover new actions, then refresh tallies + lifecycle for active actions.
 async function runGovernanceSync(env: Env): Promise<void> {
@@ -82,7 +90,13 @@ async function runGovernanceSync(env: Env): Promise<void> {
 // larger and per-post badges do not need 15-minute freshness.
 async function runVoteSync(env: Env): Promise<void> {
   const { koios } = buildKoios(env);
-  const r = await syncGovernanceVotes({ koios, db: env.DB, now: Date.now() });
+  const r = await syncGovernanceVotes({
+    koios,
+    db: env.DB,
+    now: Date.now(),
+    limit: VOTE_LIMIT,
+    paceMs: VOTE_PACE_MS,
+  });
   console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
 }
 
