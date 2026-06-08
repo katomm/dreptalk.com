@@ -1,0 +1,89 @@
+---
+import { statusBadge, epochCountdown, fmtPct, tallyBar, TONE_COLORS, readableType } from '@/lib/governance/view.js';
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { Topic } from '@/lib/db/forum.js';
+import type { StakeParticipation } from '@/lib/governance/view.js';
+import TallyBar from './TallyBar.astro';
+
+interface Props {
+  topic: Topic;
+  action: GovernanceAction;
+  proposer?: string;       // resolved display name or truncated address
+  stake: StakeParticipation | null;
+  currentEpoch: number | null;
+  href: string;
+}
+const { topic, action, proposer, stake, currentEpoch, href } = Astro.props;
+const badge = statusBadge(action.status);
+const bar = tallyBar(action.drepYesPct, action.drepNoPct);
+const drepsVoted = (action.drepYes ?? 0) + (action.drepNo ?? 0) + (action.drepAbstain ?? 0);
+const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
+const countdown = epochCountdown(action.expiryEpoch, currentEpoch);
+---
+<a class="garow" href={href} style={`--c-pos:${TONE_COLORS.positive};--c-neg:${TONE_COLORS.negative};`}>
+  <div class="garow__main">
+    <p class="garow__title">{action.title ?? topic.title}
+      <span class={`badge badge--${badge.tone}`}>{badge.label}</span></p>
+    {action.abstract && <p class="garow__desc">{action.abstract}</p>}
+    <p class="garow__meta">{proposer ?? 'Unknown'} &middot; {readableType(action.type)}{action.submittedEpoch != null && <> &middot; Epoch {action.submittedEpoch}</>}</p>
+  </div>
+
+  <div class="garow__metric">
+    <!-- Stake participation (shown when the page toggle is in stake mode) -->
+    <div class="metric metric--stake">
+      {stake ? (
+        <>
+          <span class="metric__pct">{fmtPct(stake.pct)}</span>
+          <span class="metric__sub">{stake.votedLabel} of {stake.totalLabel}</span>
+          <div class="track" aria-hidden="true"><span class="fill" style={`width:${stake.pct}%;background:var(--accent)`}></span></div>
+        </>
+      ) : <span class="metric__sub">-</span>}
+    </div>
+    <!-- Community sentiment (shown when the page toggle is in sentiment mode) -->
+    <div class="metric metric--sentiment">
+      {bar ? (
+        <>
+          <span class="metric__sub">For {fmtPct(bar.yes)} &middot; Against {fmtPct(bar.no)} &middot; Abstain {fmtPct(bar.abstain)}</span>
+          <TallyBar bar={bar} height={7} />
+        </>
+      ) : <span class="metric__sub">-</span>}
+    </div>
+  </div>
+
+  <div class="garow__dreps">
+    <span class="garow__strong">{drepsVoted} DReps</span>
+    <span class="garow__sub">{comments} comments</span>
+  </div>
+  <div class="garow__time">
+    {countdown ? <span class="garow__strong garow__accent">{countdown}</span> : <span class="garow__sub">{badge.label}</span>}
+  </div>
+</a>
+
+<style>
+  .garow { display:grid; grid-template-columns:2.6fr 1.6fr 1.1fr 1.3fr; gap:18px; align-items:center;
+    padding:16px 18px; border-bottom:1px solid var(--border); text-decoration:none; color:var(--fg); }
+  .garow:hover { background:var(--surface); }
+  .garow__title { font-weight:700; font-size:0.95rem; margin:0 0 3px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .garow__desc { color:var(--muted); font-size:0.8rem; margin:0 0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .garow__meta { color:var(--muted); font-size:0.75rem; margin:0; }
+  .metric__pct { font-weight:700; font-size:1rem; }
+  .metric__sub { color:var(--muted); font-size:0.72rem; display:block; }
+  .track { display:flex; height:7px; border-radius:999px; overflow:hidden; background:var(--border); margin-top:6px; }
+  .fill { height:100%; }
+  .garow__strong { font-weight:600; font-size:0.85rem; display:block; }
+  .garow__sub { color:var(--muted); font-size:0.75rem; display:block; }
+  .garow__accent { color:var(--accent); }
+  .badge { font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; padding:2px 7px; border-radius:999px; }
+  .badge--active { background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); }
+  .badge--positive { background:color-mix(in srgb, var(--c-pos) 14%, transparent); color:var(--c-pos); }
+  .badge--neutral { background:var(--surface-2); color:var(--muted); }
+  .badge--negative { background:color-mix(in srgb, var(--c-neg) 14%, transparent); color:var(--c-neg); }
+  /* default: show stake, hide sentiment when no ancestor sets data-metric */
+  :global(:not([data-metric])) .metric--sentiment { display:none; }
+  /* toggle visibility: the page sets data-metric on the list container */
+  :global([data-metric='stake']) .metric--sentiment,
+  :global([data-metric='sentiment']) .metric--stake { display:none; }
+  @media (max-width:720px) {
+    .garow { grid-template-columns:1fr; gap:8px; }
+  }
+</style>
