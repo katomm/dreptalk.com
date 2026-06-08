@@ -17,7 +17,13 @@
  */
 
 import { parse as markedParse } from 'marked';
-import { FilterXSS } from 'xss';
+// xss is CommonJS and does `exports = module.exports = filterXSS` before attaching
+// its named exports, so the CJS-to-ESM lexer in the Workers test pool's esbuild does
+// not hoist them and a named `{ FilterXSS }` import resolves to undefined. The default
+// export is the module.exports object with FilterXSS attached, so reach it through that.
+import xssModule from 'xss';
+
+const { FilterXSS } = xssModule as unknown as typeof import('xss');
 
 // Strict allowlist: structural/text tags only, no presentational attributes.
 // Attributes not listed are stripped automatically by the sanitizer.
