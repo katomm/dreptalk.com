@@ -9,13 +9,14 @@ import TopicRow from '@/components/TopicRow.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
 import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory, getAllTopicsByCategory, type Topic } from '@/lib/db/forum.js';
-import { getAllGovernanceActions, type GovernanceAction } from '@/lib/db/governance.js';
+import { getAllGovernanceActions } from '@/lib/db/governance.js';
 import {
   parseGovSort,
   sortGovActionTopics,
   GOV_SORTS,
   parseGovStatus,
   filterByStatus,
+  countByStatus,
   GOV_STATUSES,
   type GovActionTopic,
   type GovStatusFilter,
@@ -53,14 +54,12 @@ const metric: 'stake' | 'sentiment' =
   Astro.url.searchParams.get('metric') === 'sentiment' ? 'sentiment' : 'stake';
 
 let topics: Topic[] = [];
-let govByTopic = new Map<string, GovernanceAction>();
 let govTotal = 0;
 // Governance overview state: the joined+filtered+paged rows plus the per-page
 // stake-participation map and tab counts. Empty for non-governance categories.
 let pageRows: GovActionTopic[] = [];
 let stakeByTopic = new Map<string, StakeParticipation | null>();
 let statusCounts: Record<GovStatusFilter, number> = { all: 0, active: 0, enacted: 0, expired: 0 };
-let currentEpoch: number | null = null;
 
 if (category && db) {
   if (isGovernanceCategory) {
@@ -76,12 +75,7 @@ if (category && db) {
       .map((t) => ({ topic: t, action: actionByTopic.get(t.id) }))
       .filter((r): r is GovActionTopic => !!r.action);
     // Tab counts over the full (unpaged) set; computed before filtering/paging.
-    statusCounts = {
-      all: rows.length,
-      active: filterByStatus(rows, 'active').length,
-      enacted: filterByStatus(rows, 'enacted').length,
-      expired: filterByStatus(rows, 'expired').length,
-    };
+    statusCounts = countByStatus(rows);
     const filtered = filterByStatus(rows, status);
     const sorted = sortGovActionTopics(filtered, sort, now);
     govTotal = sorted.length;
@@ -97,7 +91,6 @@ if (category && db) {
     stakeByTopic = new Map(
       pageRows.map((r) => [r.topic.id, stakeParticipation(votedByGa.get(r.action.id) ?? 0, totalPower)]),
     );
-    currentEpoch = pageRows[0]?.action.tallyEpoch ?? null;
   } else {
     topics = await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset });
   }
@@ -241,7 +234,6 @@ const breadcrumbLd = {
               action={r.action}
               proposer={identities ? identities.describe(r.topic.author_id).displayName : undefined}
               stake={stakeByTopic.get(r.topic.id) ?? null}
-              currentEpoch={currentEpoch}
               href={`/t/${r.topic.slug}`}
             />
           ))}
@@ -256,7 +248,6 @@ const breadcrumbLd = {
             topic={topic}
             now={now}
             author={identities ? identities.describe(topic.author_id) : undefined}
-            governance={govByTopic.get(topic.id)}
           />
         ))}
       </div>

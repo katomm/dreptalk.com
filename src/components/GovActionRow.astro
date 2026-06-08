@@ -10,15 +10,14 @@ interface Props {
   action: GovernanceAction;
   proposer?: string;       // resolved display name or truncated address
   stake: StakeParticipation | null;
-  currentEpoch: number | null;
   href: string;
 }
-const { topic, action, proposer, stake, currentEpoch, href } = Astro.props;
+const { topic, action, proposer, stake, href } = Astro.props;
 const badge = statusBadge(action.status);
 const bar = tallyBar(action.drepYesPct, action.drepNoPct);
 const drepsVoted = (action.drepYes ?? 0) + (action.drepNo ?? 0) + (action.drepAbstain ?? 0);
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
-const countdown = epochCountdown(action.expiryEpoch, currentEpoch);
+const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
 ---
 <a class="garow" href={href} style={`--c-pos:${TONE_COLORS.positive};--c-neg:${TONE_COLORS.negative};`}>
   <div class="garow__main">

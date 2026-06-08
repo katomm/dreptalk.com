@@ -5,6 +5,7 @@ import {
   trendingScore,
   parseGovStatus,
   filterByStatus,
+  countByStatus,
   GOV_STATUSES,
   type GovActionTopic,
 } from './sort.js';
@@ -129,4 +130,23 @@ test('filterByStatus maps tabs to lifecycle statuses', () => {
 
 test('GOV_STATUSES has no Upcoming and All is first', () => {
   expect(GOV_STATUSES.map((s) => s.mode)).toEqual(['all', 'active', 'enacted', 'expired']);
+});
+
+test('countByStatus tallies every tab in one pass, matching filterByStatus', () => {
+  const rows = [
+    mk('active', 'a1'),
+    mk('active', 'a2'),
+    mk('pending', 'p1'),
+    mk('enacted', 'e1'),
+    mk('ratified', 'r1'),
+    mk('expired', 'x1'),
+    mk('closed', 'c1'),
+    mk('dropped', 'd1'),
+  ];
+  const counts = countByStatus(rows);
+  expect(counts).toEqual({ all: 8, active: 2, enacted: 2, expired: 3 });
+  // pending is counted only under all, exactly like filterByStatus excludes it from every tab
+  expect(counts.active).toBe(filterByStatus(rows, 'active').length);
+  expect(counts.enacted).toBe(filterByStatus(rows, 'enacted').length);
+  expect(counts.expired).toBe(filterByStatus(rows, 'expired').length);
 });
