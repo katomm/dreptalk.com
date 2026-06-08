@@ -7,6 +7,18 @@ export interface KoiosClientOptions {
   timeoutMs?: number;
 }
 
+/** Error for any non-2xx Koios response; carries the HTTP status for callers. */
+export class KoiosHttpError extends Error {
+  constructor(public readonly status: number) {
+    super(`koios request failed: ${status}`);
+    this.name = 'KoiosHttpError';
+  }
+}
+
+// Koios caps the /drep_info POST body. Send sub-batches under that cap; the
+// client halves and retries on a 413, so even a lower cap still completes.
+const DREP_INFO_MAX = 50;
+
 const tipSchema = z
   .array(
     z.object({
@@ -219,7 +231,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
         signal: controller.signal,
       });
       if (!res.ok) {
-        throw new Error(`koios request failed: ${res.status}`);
+        throw new KoiosHttpError(res.status);
       }
       return await res.json();
     } finally {
@@ -241,6 +253,27 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     return z.array(schema).parse(data)[0] ?? null;
   }
 
+  // Fetches /drep_info for a sub-batch, halving and retrying on a 413 (Koios
+  // body cap) down to a single id, which is the same call the auth flow uses.
+  async function drepInfoChunk(drepIds: string[]): Promise<DrepInfoRow[]> {
+    try {
+      const data = await request('/drep_info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _drep_ids: drepIds }),
+      });
+      return z.array(drepInfoRowSchema).parse(data);
+    } catch (err) {
+      if (drepIds.length > 1 && err instanceof KoiosHttpError && err.status === 413) {
+        const mid = Math.ceil(drepIds.length / 2);
+        const head = await drepInfoChunk(drepIds.slice(0, mid));
+        const tail = await drepInfoChunk(drepIds.slice(mid));
+        return [...head, ...tail];
+      }
+      throw err;
+    }
+  }
+
   return {
     async tip(): Promise<Tip> {
       const data = await request('/tip', { method: 'GET' });
@@ -253,15 +286,16 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     },
 
     // Batch lookup (sync flow): returns the full DrepInfoRow (incl. anchor +
-    // voting power) for every id. Empty input short-circuits the round-trip.
+    // voting power) for every id, fetched in sub-batches that respect Koios's
+    // /drep_info POST body cap (see DREP_INFO_MAX and drepInfoChunk's 413
+    // fallback). Empty input short-circuits the round-trip.
     async drepInfoBatch(drepIds: string[]): Promise<DrepInfoRow[]> {
       if (drepIds.length === 0) return [];
-      const data = await request('/drep_info', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ _drep_ids: drepIds }),
-      });
-      return z.array(drepInfoRowSchema).parse(data);
+      const out: DrepInfoRow[] = [];
+      for (let i = 0; i < drepIds.length; i += DREP_INFO_MAX) {
+        out.push(...(await drepInfoChunk(drepIds.slice(i, i + DREP_INFO_MAX))));
+      }
+      return out;
     },
 
     async accountInfo(stakeAddress: string): Promise<AccountInfo | null> {

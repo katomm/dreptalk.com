@@ -224,4 +224,37 @@ describe('createKoiosClient.drepInfoBatch', () => {
 
     await expect(client.drepInfoBatch([DREP_ID])).rejects.toThrow(/koios request failed: 500/i);
   });
+
+  it('splits the batch and retries when Koios answers 413 (payload too large)', async () => {
+    const ids = ['drep1a', 'drep1b', 'drep1c', 'drep1d', 'drep1e'];
+    // Simulate a Koios body cap: any POST with more than one id is rejected 413.
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init.body as string) as { _drep_ids: string[] };
+      if (body._drep_ids.length > 1) return jsonResponse({}, 413);
+      return jsonResponse([{ ...drepInfoRowFixture, drep_id: body._drep_ids[0] }]);
+    });
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    const result = await client.drepInfoBatch(ids);
+
+    // Every id is still resolved, despite the cap forcing a split down to singles.
+    expect(result.map((r) => r.drep_id).sort()).toEqual([...ids].sort());
+  });
+
+  it('does not split or retry on a non-413 error', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    await expect(client.drepInfoBatch(['drep1a', 'drep1b'])).rejects.toThrow(/koios request failed: 500/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('KoiosHttpError', () => {
+  it('carries the HTTP status from a failed request', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    await expect(client.drepList()).rejects.toMatchObject({ status: 503 });
+  });
 });
