@@ -84,7 +84,13 @@ if (category && db) {
       ]);
       stakeAsOf = stake.asOf;
       stakeByTopic = new Map(
-        pageRows.map((r) => [r.topic.id, stakeParticipation(votedByGa.get(r.action.id) ?? 0, stake.total)]),
+        pageRows.map((r) => {
+          // The vote sync stores per-voter rows only for active actions, so an
+          // action absent from votedByGa has no synced turnout data: render a
+          // dash rather than a misleading 0%. A present (even 0) value is real.
+          const voted = votedByGa.get(r.action.id);
+          return [r.topic.id, voted === undefined ? null : stakeParticipation(voted, stake.total)];
+        }),
       );
     }
     // Sentiment staleness comes from the per-action tally sync time (in memory, no query).
