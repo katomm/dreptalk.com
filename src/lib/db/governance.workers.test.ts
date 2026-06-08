@@ -5,7 +5,6 @@ import { env } from 'cloudflare:test';
 import {
   buildInsertGovernanceAction,
   getGovernanceActionByTopicId,
-  getSyncableGovernanceActions,
   getStaleSyncableActions,
   getAllGovernanceActions,
   getGovernanceActionsByTopicIds,
@@ -61,29 +60,6 @@ describe('getGovernanceActionByTopicId', () => {
 
   it('returns null for an unknown topic', async () => {
     expect(await getGovernanceActionByTopicId(db(), 'nope')).toBeNull();
-  });
-});
-
-describe('getSyncableGovernanceActions', () => {
-  it('includes pending/active actions and excludes frozen ones', async () => {
-    const pending = await insertAction();
-    const frozen = await insertAction();
-    await updateGovernanceTallyAndStatus(db(), {
-      id: frozen.id,
-      status: 'expired',
-      drepYes: null, drepNo: null, drepAbstain: null,
-      spoYes: null, spoNo: null, spoAbstain: null,
-      ccYes: null, ccNo: null, ccAbstain: null,
-      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
-      ccYesPct: null, ccNoPct: null,
-      drepVotedPower: null,
-      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
-    });
-
-    const rows = await getSyncableGovernanceActions(db());
-    const ids = rows.map((r) => r.id);
-    expect(ids).toContain(pending.id);
-    expect(ids).not.toContain(frozen.id);
   });
 });
 

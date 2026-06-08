@@ -205,6 +205,26 @@ describe('syncGovernanceVotes', () => {
     const map2 = await getVotesByGaId(db(), a.id);
     expect(map2.size).toBe(map.size);
   });
+
+  it('bounds the per-run work by the limit', async () => {
+    const a = await insertActive(400);
+    const b = await insertActive(400);
+    const c = await insertActive(400);
+    const koios = {
+      async proposalVotes(pid: string, _limit?: number, offset?: number): Promise<ProposalVoteRow[]> {
+        return (offset ?? 0) === 0
+          ? [{ voter_role: 'DRep', voter_id: `drep_${pid}`, voter_hex: 'aa', vote: 'Yes' }]
+          : [];
+      },
+    };
+
+    const r = await syncGovernanceVotes({ koios, db: db(), now: NOW, limit: 2 });
+    expect(r.actions).toBe(2);
+
+    // Exactly two of the three actions have votes stored this run; the third waits.
+    const sizes = await Promise.all([a, b, c].map((x) => getVotesByGaId(db(), x.id)));
+    expect(sizes.filter((m) => m.size > 0).length).toBe(2);
+  });
 });
 
 describe('backfillVotedPower', () => {

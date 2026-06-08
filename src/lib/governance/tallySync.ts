@@ -8,7 +8,6 @@
 
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
 import {
-  getSyncableGovernanceActions,
   getStaleSyncableActions,
   updateGovernanceTallyAndStatus,
   getActionsNeedingVotedPower,
@@ -18,10 +17,12 @@ import {
 } from '../db/governance.js';
 import { upsertVotes, type VoteInput } from '../db/drepVotes.js';
 
-// Max actions a single tally run processes when the caller does not specify one.
-// Koios's proposal_voting_summary 504s/times-out under a large burst, so a run
-// stays small and stale-first ordering drains the backlog over several runs.
+// Max actions a single tally/vote run processes when the caller does not specify
+// one. Koios is latency-limited under a large burst (proposal_voting_summary and
+// proposal_votes 504/time out), so a run stays small and stale-first ordering
+// drains the backlog over several runs.
 const DEFAULT_TALLY_LIMIT = 25;
+const DEFAULT_VOTE_LIMIT = 25;
 
 export interface TallySyncResult {
   active: number;
@@ -54,6 +55,10 @@ export interface VoteSyncDeps {
   koios: { proposalVotes(proposalId: string, limit?: number, offset?: number): Promise<ProposalVoteRow[]> };
   db: D1Database;
   now: number;
+  /** Max actions to vote-sync this run. Bounds the Koios burst; defaults to DEFAULT_VOTE_LIMIT. */
+  limit?: number;
+  /** Delay between actions (ms) so a run does not burst Koios. Default 0. */
+  paceMs?: number;
 }
 
 // Koios pages proposal_votes at 1000 rows; loop while a full page comes back.
@@ -213,15 +218,20 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
 }
 
 export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncResult> {
-  const { koios, db, now } = deps;
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0 } = deps;
 
-  const active = await getSyncableGovernanceActions(db);
+  // Same bounded, stale-first strategy as the tally sync: proposal_votes is even
+  // heavier (paginated per action), so a run must not fetch every action at once.
+  // Ordering is by tally recency (vote sync has no dedicated timestamp); in steady
+  // state the active set fits under the limit, so every action is covered each run.
+  const active = await getStaleSyncableActions(db, limit);
   let votes = 0;
   let failed = 0;
   let actions = 0;
 
-  for (const ga of active) {
+  for (const [i, ga] of active.entries()) {
     if (!ga.proposalId) continue;
+    if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     actions++;
     try {
       const collected: VoteInput[] = [];

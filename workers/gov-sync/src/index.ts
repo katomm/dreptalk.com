@@ -49,6 +49,11 @@ function buildKoios(env: Env) {
 const TALLY_LIMIT = 15;
 const TALLY_PACE_MS = 200;
 
+// Per-run vote-sync budget: proposal_votes is paginated and heavier than the tally
+// summary, so the hourly vote sync is bounded and paced the same way.
+const VOTE_LIMIT = 15;
+const VOTE_PACE_MS = 200;
+
 // Discover new actions, then refresh tallies + lifecycle for active actions.
 async function runGovernanceSync(env: Env): Promise<void> {
   const { koios, network } = buildKoios(env);
@@ -82,7 +87,13 @@ async function runGovernanceSync(env: Env): Promise<void> {
 // larger and per-post badges do not need 15-minute freshness.
 async function runVoteSync(env: Env): Promise<void> {
   const { koios } = buildKoios(env);
-  const r = await syncGovernanceVotes({ koios, db: env.DB, now: Date.now() });
+  const r = await syncGovernanceVotes({
+    koios,
+    db: env.DB,
+    now: Date.now(),
+    limit: VOTE_LIMIT,
+    paceMs: VOTE_PACE_MS,
+  });
   console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
 }
 

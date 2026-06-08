@@ -205,27 +205,14 @@ export async function getGovernanceActionByTopicId(
 }
 
 /**
- * Returns the governance actions the tally/vote sync should process: those still
- * 'active' and those 'pending' (discovered but not yet verified). Terminal actions
- * (ratified / enacted / expired / dropped) are frozen and excluded.
- */
-export async function getSyncableGovernanceActions(db: D1Database): Promise<GovernanceAction[]> {
-  const rows = (
-    await db
-      .prepare("SELECT * FROM governance_actions WHERE status IN ('active', 'pending')")
-      .all<GovernanceActionRow>()
-  ).results ?? [];
-  return rows.map(rowToGovernanceAction);
-}
-
-/**
- * Returns syncable actions ordered for incremental, budget-bounded tallying:
+ * Returns syncable actions (status 'active' or 'pending'; terminal actions are
+ * frozen and excluded) ordered for incremental, budget-bounded syncing:
  * never-synced rows first (tally_synced_at NULL), then the least-recently-synced,
- * capped by `limit`. The tally sync uses this instead of the unordered set so a
- * run always makes forward progress on the backlog. Koios's proposal_voting_summary
- * is a heavy aggregation that returns 504/timeout under a large burst, so a run
- * must stay small and prioritise what has never been synced; otherwise the same
- * front rows are re-synced every run and never-synced ones at the tail starve.
+ * capped by `limit`. Both the tally and vote syncs use this so a run always makes
+ * forward progress on the backlog. Koios is latency-limited under a large burst
+ * (proposal_voting_summary 504s/times-out), so a run must stay small and
+ * prioritise what has never been synced; otherwise the same front rows are
+ * re-synced every run and never-synced ones at the tail starve.
  */
 export async function getStaleSyncableActions(db: D1Database, limit: number): Promise<GovernanceAction[]> {
   const rows = (
