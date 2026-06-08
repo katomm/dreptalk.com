@@ -2,6 +2,7 @@
 import Layout from '@/layouts/Layout.astro';
 import WalletLogin from '@/components/WalletLogin.tsx';
 import OfflineLogin from '@/components/OfflineLogin.tsx';
+import { currentNetwork } from '@/lib/api/response';
 
 export const prerender = false;
 
@@ -10,6 +11,10 @@ export const prerender = false;
 // the flow (the server re-validates the role independently).
 const roleParam = Astro.url.searchParams.get('role');
 const offlineRole = roleParam === 'spo' || roleParam === 'cc' ? roleParam : null;
+
+// Resolve the deployment network (CARDANO_NETWORK, defaults mainnet) so the DRep
+// island builds the correct CIP-19 type-6 address header when signing.
+const network = currentNetwork().network;
 ---
 <Layout
   title="Sign in - DRepTalk"
@@ -25,7 +30,7 @@ const offlineRole = roleParam === 'spo' || roleParam === 'cc' ? roleParam : null
         one-time challenge to prove ownership of your DRep or reward address. No password
         required, no transaction, no fees.
       </p>
-      <WalletLogin client:load />
+      <WalletLogin network={network} client:load />
     </>
   )}
 </Layout>

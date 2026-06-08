@@ -11,6 +11,11 @@ export const DREP_KEY_HEADER = 0x22;
 const REWARD_TESTNET_HEADER = 0xe0;
 // CIP-19 header byte for mainnet reward addresses (stake).
 const REWARD_MAINNET_HEADER = 0xe1;
+// CIP-19 type-6 (enterprise) header bytes: high nibble 0b0110, low nibble is
+// the network tag (0 testnet, 1 mainnet). CIP-95 reuses this form to carry the
+// DRep key hash when signing data with the DRep key.
+const ENTERPRISE_TESTNET_HEADER = 0x60;
+const ENTERPRISE_MAINNET_HEADER = 0x61;
 
 /**
  * Encodes a 28-byte DRep key hash as a CIP-129 bech32 drep1 address.
@@ -74,6 +79,12 @@ export function stakeAddressFromPubKey(pubKey: Uint8Array, network: 'mainnet' | 
 export function keyHashMatchesAddress(pubKey: Uint8Array, addressBytes: Uint8Array): boolean {
   const keyHash = blake2b224(pubKey);
 
+  if (addressBytes.length === 28) {
+    // Bare credential key hash, no header byte. Some CIP-95 wallets emit the
+    // DRep key hash this way in the COSE address header (CIP PR #897).
+    return bytesEqual(keyHash, addressBytes);
+  }
+
   if (addressBytes.length === 29) {
     // Reward/enterprise address: bytes[1..29] is the key hash.
     return bytesEqual(keyHash, addressBytes.slice(1, 29));
@@ -104,6 +115,39 @@ export function keyHashMatchesAddress(pubKey: Uint8Array, addressBytes: Uint8Arr
   }
 
   return false;
+}
+
+/**
+ * Returns true when addressBytes is a DRep-key credential as it appears in a
+ * CIP-8 / COSE protected-header "address" field for a CIP-95 DRep signature.
+ *
+ * Per CIP-95, signing with the DRep key uses a CIP-19 type-6 (enterprise)
+ * address: header byte high nibble 0b0110 (0x60 testnet, 0x61 mainnet) followed
+ * by the 28-byte DRep key hash. Some wallets emit the bare 28-byte key hash with
+ * no header byte (CIP PR #897, cardano-signer). Both forms are accepted.
+ *
+ * This is NOT the CIP-129 governance id (header 0x22), which is a bech32
+ * identifier encoding and never appears in a COSE address field. A reward
+ * address (0xe0/0xe1) or a base address (57 bytes) is also rejected: the binding
+ * to the DRep identity is done separately via drepIdFromPubKey(pubKey).
+ */
+export function isDrepCredentialAddress(addressBytes: Uint8Array): boolean {
+  if (addressBytes.length === 28) return true;
+  if (addressBytes.length === 29) return (addressBytes[0] >> 4) === 0b0110;
+  return false;
+}
+
+/**
+ * Builds the hex-encoded CIP-19 type-6 (enterprise) address for a 28-byte DRep
+ * key hash, to pass as the `addr` argument to a wallet's signData when signing
+ * with the DRep key (CIP-95). Header byte 0x60 on testnet/preprod, 0x61 on
+ * mainnet, followed by the key hash.
+ */
+export function drepCredentialAddress(keyHash: Uint8Array, network: 'mainnet' | 'preprod'): string {
+  const payload = new Uint8Array(29);
+  payload[0] = network === 'mainnet' ? ENTERPRISE_MAINNET_HEADER : ENTERPRISE_TESTNET_HEADER;
+  payload.set(keyHash, 1);
+  return bytesToHex(payload);
 }
 
 /**

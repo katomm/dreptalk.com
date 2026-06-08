@@ -1,31 +1,30 @@
-// Node-mode tests for GET /drep/[drepId]/metadata.json
-// Uses a fake D1 whose .prepare().bind().first() returns a stored row or null.
+// Node-mode tests for GET /drep/[drepId]/[hash].json
+// Uses a fake D1 whose .prepare().bind(drepId, hash).first() returns a row or null.
 import { describe, it, expect } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// vi.hoisted: fake D1 that can serve one row or null based on a known id.
+// vi.hoisted: fake D1 that serves one row keyed by (drepId, hash) or null.
 // ---------------------------------------------------------------------------
 
 const KNOWN_ID = 'drep1yyqw67szjkwns4vfqvnk0v8r20zy5qmv3hge2qlxm0s3apgsp3qsk6j5t4';
+const KNOWN_HASH = 'a'.repeat(64);
 
 // The stored body is the verbatim JSON string that was persisted.
 // It must be returned byte-for-byte: do not parse/re-serialize.
-const STORED_BODY = '{"@context":{"CIP119":"https://github.com/cardano-foundation/CIPs/blob/master/CIP-0119/README.md#","body":{"@id":"CIP119:body","@context":{"bio":"CIP119:bio","title":"CIP119:title","references":{"@id":"CIP119:references","@container":"@set"},"doesNotParticipateInGovernance":"CIP119:doesNotParticipateInGovernance"}}},"body":{"bio":"Testing governance.","title":"Alice Cardano","references":[{"@type":"Other","label":"Personal site","uri":"https://alice.example.com"}]}}';
+const STORED_BODY = '{"@context":{"CIP119":"https://github.com/cardano-foundation/CIPs/blob/master/CIP-0119/README.md#"},"body":{"givenName":"Alice Cardano","objectives":"Testing governance.","references":[]}}';
 
-// vi.hoisted so the mock factory can reference fakeDb before import.
 import { vi } from 'vitest';
 
 const { fakeDb } = vi.hoisted(() => {
-  // Parameterized fake: .prepare().bind(id).first() returns a row if id matches.
   const db = {
     prepare: (_sql: string) => ({
-      bind: (id: unknown) => ({
+      bind: (drepId: unknown, hash: unknown) => ({
         first: async <T>(): Promise<T | null> => {
-          if (id === KNOWN_ID) {
+          if (drepId === KNOWN_ID && hash === KNOWN_HASH) {
             return {
               drep_id: KNOWN_ID,
               body: STORED_BODY,
-              hash: 'abc123',
+              hash: KNOWN_HASH,
               name: 'Alice Cardano',
               created_at: 1700000000,
             } as T;
@@ -46,16 +45,16 @@ vi.mock('cloudflare:workers', () => ({
 }));
 
 // Import after mock is registered.
-import { GET } from './[drepId]/metadata.json.js';
+import { GET } from './[drepId]/[hash].json.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeCtx(drepId: string) {
-  const url = new URL(`https://dreptalk.com/drep/${drepId}/metadata.json`);
+function makeCtx(drepId: string, hash: string) {
+  const url = new URL(`https://dreptalk.com/drep/${drepId}/${hash}.json`);
   return {
-    params: { drepId },
+    params: { drepId, hash },
     request: new Request(url),
     locals: {} as App.Locals,
     props: {},
@@ -80,36 +79,34 @@ function makeCtx(drepId: string) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('GET /drep/[drepId]/metadata.json: known id', () => {
+describe('GET /drep/[drepId]/[hash].json: known (id, hash)', () => {
   it('returns 200 with the verbatim stored body', async () => {
-    const ctx = makeCtx(KNOWN_ID);
-    const res = await GET(ctx);
-
+    const res = await GET(makeCtx(KNOWN_ID, KNOWN_HASH));
     expect(res.status).toBe(200);
-    const text = await res.text();
-    // Body must be exactly the stored string, not re-serialized.
-    expect(text).toBe(STORED_BODY);
+    expect(await res.text()).toBe(STORED_BODY);
   });
 
   it('sets content-type: application/json', async () => {
-    const ctx = makeCtx(KNOWN_ID);
-    const res = await GET(ctx);
+    const res = await GET(makeCtx(KNOWN_ID, KNOWN_HASH));
     expect(res.headers.get('content-type')).toBe('application/json');
   });
 
   it('sets immutable cache-control', async () => {
-    const ctx = makeCtx(KNOWN_ID);
-    const res = await GET(ctx);
+    const res = await GET(makeCtx(KNOWN_ID, KNOWN_HASH));
     const cc = res.headers.get('cache-control') ?? '';
     expect(cc).toContain('immutable');
     expect(cc).toContain('max-age=31536000');
   });
 });
 
-describe('GET /drep/[drepId]/metadata.json: unknown id', () => {
-  it('returns 404 for an unknown drep id', async () => {
-    const ctx = makeCtx('drep1unknown99999999999999');
-    const res = await GET(ctx);
+describe('GET /drep/[drepId]/[hash].json: not found / invalid', () => {
+  it('returns 404 for an unknown (id, hash)', async () => {
+    const res = await GET(makeCtx(KNOWN_ID, 'b'.repeat(64)));
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 for a malformed hash (not 64 hex) without touching the db', async () => {
+    const res = await GET(makeCtx(KNOWN_ID, 'not-a-hash'));
     expect(res.status).toBe(404);
   });
 });

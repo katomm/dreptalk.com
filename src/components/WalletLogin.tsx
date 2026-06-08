@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import type { CardanoNetwork } from '@/lib/config/network.js';
 
 type LoginState =
   | { status: 'idle' }
@@ -47,7 +48,13 @@ function friendlyLoginError(error: string | undefined, role: 'drep' | 'proposer'
   return /[.!?]$/.test(msg) ? msg : `${msg}.`;
 }
 
-export default function WalletLogin() {
+interface WalletLoginProps {
+  // Resolved at build time from the .astro shell; defaults to preprod. Drives
+  // the CIP-19 type-6 DRep address header (0x60 preprod / 0x61 mainnet).
+  network?: CardanoNetwork;
+}
+
+export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
   const { wallets, selected: selectedWallet, setSelected: setSelectedWallet } = useCardanoWallets();
   const [role, setRole] = useState<'drep' | 'proposer'>('drep');
   const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
@@ -81,7 +88,7 @@ export default function WalletLogin() {
 
     setLoginState({ status: 'awaiting-signature' });
 
-    const result = await loginWithWallet(api, role);
+    const result = await loginWithWallet(api, role, network);
 
     if (result.ok && result.user) {
       setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });

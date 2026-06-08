@@ -1,9 +1,9 @@
 // POST /api/drep/metadata
 //
-// Hosts a DRep's CIP-119 metadata document and returns the stable URL +
-// blake2b-256 hash the client embeds as the on-chain anchor. Writing requires
-// proof of control of the DRep key (a CIP-8 signature over a fresh challenge):
-// see handleDrepMetadata. The server never receives private keys.
+// Hosts a DRep's CIP-119 metadata document and returns the content-addressed URL
+// + blake2b-256 hash the client embeds as the on-chain anchor. Hosting is
+// unauthenticated (authenticity is bound on-chain by syncDreps); writes are
+// content-addressed so they cannot clobber, and bounded per IP by the rate limit.
 
 import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
@@ -47,7 +47,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const result = await handleDrepMetadata({
     body,
-    nonceKv,
     db,
     origin: new URL(request.url).origin,
     now: Date.now(),

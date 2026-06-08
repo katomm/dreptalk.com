@@ -1,45 +1,39 @@
 /// <reference types="@cloudflare/workers-types" />
-// Proof-of-control handler for hosting CIP-119 DRep metadata.
+// Hosting handler for CIP-119 DRep metadata documents.
 //
-// Hosting is unauthenticated by nature (a DRep hosts its metadata BEFORE the
-// on-chain registration that references it, so there is no session yet). To stop
-// anyone from writing or overwriting metadata for an arbitrary drep id, the
-// submitter must prove control of the DRep key: they sign a fresh challenge with
-// the DRep key (CIP-8, the same signature the login flow uses), and we require
-// the drep id derived from that key to equal the submitted one. Storage of junk
-// rows for self-generated keys is bounded separately by the sync GC.
+// Hosting is unauthenticated by design: a DRep hosts its metadata BEFORE the
+// on-chain registration that references it, so there is no session and no
+// anchor yet. Authenticity is bound on-chain, not here: syncDreps later reads
+// the DRep's on-chain anchor { url, dataHash } and only displays a document
+// whose blake2b-256 matches dataHash (see lib/governance/metadata.ts). The
+// hosting table is just a CDN; it never confers trust.
+//
+// Storage is content-addressed (drep_id, hash) with INSERT OR IGNORE, so an
+// unauthenticated write can neither overwrite a legitimate document nor be used
+// to clobber another DRep's served bytes. Junk rows for unanchored ids are
+// bounded by the route's per-IP rate limit and the sync GC.
 
 import { z } from 'zod';
-import { verifyCip8 } from '../auth/cose.js';
-import { consumeNonce as defaultConsumeNonce } from '../auth/nonce.js';
-import { drepIdFromPubKey, DREP_KEY_HEADER } from '../cardano/identity.js';
-import { isHex, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
 import { buildDrepMetadata } from './drepMetadata.js';
 import { putDrepMetadata } from '../db/drepMetadata.js';
 
 // CIP-129 DRep id: bech32 with "drep1" prefix.
 const DREP_ID_RE = /^drep1[0-9a-z]{10,120}$/;
 
+// Generous upper bounds purely to reject pathological payloads cheaply; the
+// canonical per-field caps are enforced by buildDrepMetadata.
 const bodySchema = z.object({
   drepId: z.string().regex(DREP_ID_RE, 'invalid drep id'),
-  name: z.string(),
-  bio: z.string(),
-  links: z.array(z.string()).max(20),
-  payload: z.string(),
-  signatureHex: z.string(),
-  keyHex: z.string(),
+  name: z.string().max(1000),
+  bio: z.string().max(20000),
+  links: z.array(z.string().max(2100)).max(20),
 });
 
 export interface DrepMetadataInput {
   body: unknown;
-  nonceKv: KVNamespace;
   db: D1Database;
   origin: string;
   now: number; // milliseconds
-}
-
-export interface DrepMetadataDeps {
-  consumeNonce?: (kv: KVNamespace, payload: string, opts?: { now?: number }) => Promise<boolean>;
 }
 
 export interface DrepMetadataResult {
@@ -48,62 +42,28 @@ export interface DrepMetadataResult {
 }
 
 /** Never throws; unexpected errors become a generic 500. */
-export async function handleDrepMetadata(
-  input: DrepMetadataInput,
-  deps?: DrepMetadataDeps,
-): Promise<DrepMetadataResult> {
+export async function handleDrepMetadata(input: DrepMetadataInput): Promise<DrepMetadataResult> {
   try {
-    return await handleInternal(input, deps);
+    return await handleInternal(input);
   } catch {
     return { status: 500, json: { error: 'internal error' } };
   }
 }
 
-async function handleInternal(input: DrepMetadataInput, deps?: DrepMetadataDeps): Promise<DrepMetadataResult> {
-  const consume = deps?.consumeNonce ?? defaultConsumeNonce;
-
+async function handleInternal(input: DrepMetadataInput): Promise<DrepMetadataResult> {
   const parsed = bodySchema.safeParse(input.body);
   if (!parsed.success) {
     return { status: 400, json: { error: parsed.error.issues[0]?.message ?? 'invalid input' } };
   }
-  const { drepId, name, bio, links, payload, signatureHex, keyHex } = parsed.data;
-
-  // Bound the untrusted hex/payload fields before any decode or crypto.
-  if (
-    payload.length > MAX_PAYLOAD_LEN ||
-    !isHex(keyHex, MAX_KEY_HEX_LEN) ||
-    !isHex(signatureHex, MAX_SIG_HEX_LEN)
-  ) {
-    return { status: 400, json: { error: 'invalid input' } };
-  }
-
-  // Consume the single-use challenge (seconds for the age check).
-  const nonceOk = await consume(input.nonceKv, payload, { now: Math.floor(input.now / 1000) });
-  if (!nonceOk) {
-    return { status: 401, json: { error: 'invalid or expired challenge' } };
-  }
-
-  // Verify the CIP-8 signature and require a DRep key-hash credential.
-  const verified = await verifyCip8({ signatureHex, keyHex, expectedPayload: payload });
-  if (!verified.ok || !verified.pubKey || !verified.addressBytes) {
-    return { status: 401, json: { error: 'signature verification failed' } };
-  }
-  if (verified.addressBytes.length === 0 || verified.addressBytes[0] !== DREP_KEY_HEADER) {
-    return { status: 401, json: { error: 'not a DRep key signature' } };
-  }
-
-  // Proof of control: the drep id derived from the verified key must match the
-  // submitted one. Use the derived id for storage and the URL (never trust the
-  // client's claim).
-  const derivedDrepId = drepIdFromPubKey(verified.pubKey);
-  if (derivedDrepId !== drepId) {
-    return { status: 403, json: { error: 'key does not control this drep id' } };
-  }
+  const { drepId, name, bio, links } = parsed.data;
 
   const m = buildDrepMetadata({ name, bio, links });
-  const url = `${input.origin}/drep/${derivedDrepId}/metadata.json`;
+
+  // Content-addressed URL: the hash is in the path, so the bytes served at this
+  // URL never change, and a different document gets a different URL.
+  const url = `${input.origin}/drep/${drepId}/${m.hash}.json`;
   await putDrepMetadata(input.db, {
-    drepId: derivedDrepId,
+    drepId,
     body: m.body,
     hash: m.hash,
     name: m.name,

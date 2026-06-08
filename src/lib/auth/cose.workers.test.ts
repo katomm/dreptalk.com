@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { decode, encode } from 'cborg';
 import vectors from './__fixtures__/cip8-vectors.json';
+import { makeCoseSignature, type6Address } from './__fixtures__/makeCose.js';
 import { verifyCip8 } from './cose.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 
@@ -169,6 +170,42 @@ describe('verifyCip8 (drep-key-valid fixture)', () => {
     expect(result.ok).toBe(true);
     expect(result.pubKey).toBeInstanceOf(Uint8Array);
     expect(bytesToHex(result.pubKey!)).toBe(drepVector.expectedPubKeyHex);
+  });
+});
+
+describe('verifyCip8 (real DRep signatures, as a CIP-95 wallet produces)', () => {
+  const PAYLOAD = 'dreptalk:dreptalk.com:real-drep-nonce:1700000000';
+  const SEED = new Uint8Array(32).fill(7);
+
+  it('accepts a CIP-19 type-6 enterprise address (preprod header 0x60)', async () => {
+    const keyHash = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: new Uint8Array(28) }).keyHash;
+    const cose = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: type6Address(keyHash, 'preprod') });
+    const result = await verifyCip8({ signatureHex: cose.signatureHex, keyHex: cose.keyHex, expectedPayload: PAYLOAD });
+    if (!result.ok) throw new Error(`verifyCip8 failed: ${result.reason}`);
+    expect(result.addressBytes![0]).toBe(0x60);
+    expect(bytesToHex(result.pubKey!)).toBe(bytesToHex(cose.pubKey));
+  });
+
+  it('accepts a CIP-19 type-6 enterprise address (mainnet header 0x61)', async () => {
+    const keyHash = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: new Uint8Array(28) }).keyHash;
+    const cose = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: type6Address(keyHash, 'mainnet') });
+    const result = await verifyCip8({ signatureHex: cose.signatureHex, keyHex: cose.keyHex, expectedPayload: PAYLOAD });
+    if (!result.ok) throw new Error(`verifyCip8 failed: ${result.reason}`);
+    expect(result.addressBytes![0]).toBe(0x61);
+  });
+
+  it('accepts a bare 28-byte DRep key hash (no header byte)', async () => {
+    const keyHash = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: new Uint8Array(28) }).keyHash;
+    const cose = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: keyHash });
+    const result = await verifyCip8({ signatureHex: cose.signatureHex, keyHex: cose.keyHex, expectedPayload: PAYLOAD });
+    if (!result.ok) throw new Error(`verifyCip8 failed: ${result.reason}`);
+    expect(result.addressBytes!.length).toBe(28);
+  });
+
+  it('rejects when the address key hash does not match the signing key', async () => {
+    const cose = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: type6Address(new Uint8Array(28).fill(0xaa), 'preprod') });
+    const result = await verifyCip8({ signatureHex: cose.signatureHex, keyHex: cose.keyHex, expectedPayload: PAYLOAD });
+    expect(result.ok).toBe(false);
   });
 });
 
