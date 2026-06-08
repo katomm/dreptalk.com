@@ -7,6 +7,16 @@ import { parseSessionToken, getSession } from './lib/auth/session.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
 
 export const onRequest = defineMiddleware(async (context, next) => {
+  // Canonical host: permanently redirect www to the apex so clients and search
+  // engines consolidate on https://dreptalk.com. Runs first to skip the session
+  // KV read on the redirect. Other hosts (apex, workers.dev, localhost) fall
+  // through untouched.
+  const url = new URL(context.request.url);
+  if (url.hostname === 'www.dreptalk.com') {
+    url.hostname = 'dreptalk.com';
+    return context.redirect(url.toString(), 301);
+  }
+
   // Default to unauthenticated.
   context.locals.user = null;
 

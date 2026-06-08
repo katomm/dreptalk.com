@@ -3,6 +3,18 @@ main = "@astrojs/cloudflare/entrypoints/server"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Custom domains. wrangler deploy provisions the DNS records and edge TLS
+# certificates from the dreptalk.com zone (already active in this account).
+# Both hostnames must reach the worker; www is redirected to the apex in
+# src/middleware.ts so the canonical host stays https://dreptalk.com.
+[[routes]]
+pattern = "dreptalk.com"
+custom_domain = true
+
+[[routes]]
+pattern = "www.dreptalk.com"
+custom_domain = true
+
 # Workers Static Assets: the Astro client build output (dist/client) is served
 # as static assets, with the SSR worker handling everything else. The adapter
 # emits the SSR bundle under dist/server and merges this config at build time.
