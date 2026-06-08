@@ -45,6 +45,9 @@ const summary: VotingSummary = {
   drep_abstain_votes_cast: 1,
   drep_yes_pct: 0.01,
   drep_no_pct: 99.99,
+  drep_active_yes_vote_power: '29497454745',
+  drep_active_no_vote_power: '3536695673892',
+  drep_active_abstain_vote_power: '0',
   pool_yes_votes_cast: 0,
   pool_no_votes_cast: 0,
   pool_abstain_votes_cast: 0,
@@ -53,13 +56,16 @@ const summary: VotingSummary = {
   committee_abstain_votes_cast: 0,
 };
 
-function fakeTallyKoios(lifecycle: ProposalListRow[]) {
+// 29497454745 + 3536695673892 + 0
+const SUMMED_VOTED_POWER = 3566193128637;
+
+function fakeTallyKoios(lifecycle: ProposalListRow[], s: VotingSummary | null = summary) {
   return {
     async proposalList(): Promise<ProposalListRow[]> {
       return lifecycle;
     },
     async proposalVotingSummary(): Promise<VotingSummary | null> {
-      return summary;
+      return s;
     },
   };
 }
@@ -102,7 +108,27 @@ describe('syncGovernanceTallies', () => {
     expect(got!.status).toBe('active');
     expect(got!.drepNoPct).toBeCloseTo(99.99);
     expect(got!.drepNo).toBe(5);
+    expect(got!.drepVotedPower).toBe(SUMMED_VOTED_POWER);
     expect(got!.tallySyncedAt).toBe(NOW + 10);
+  });
+
+  it('stores null voted power when the summary lacks the active vote-power fields', async () => {
+    const a = await insertActive(400);
+    const bare: VotingSummary = {
+      proposal_type: 'TreasuryWithdrawals',
+      epoch_no: 293,
+      drep_yes_votes_cast: 2,
+      drep_no_votes_cast: 5,
+      drep_abstain_votes_cast: 1,
+    };
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)], bare),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 10,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.drepVotedPower).toBeNull();
   });
 
   it('freezes an action past its expiry and drops it from the active set', async () => {

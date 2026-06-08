@@ -94,6 +94,7 @@ export interface GovernanceAction {
   spoNoPct: number | null;
   ccYesPct: number | null;
   ccNoPct: number | null;
+  drepVotedPower: number | null;
   tallyEpoch: number | null;
   tallySyncedAt: number | null;
   decidedEpoch: number | null;
@@ -130,6 +131,7 @@ interface GovernanceActionRow {
   spo_no_pct: number | null;
   cc_yes_pct: number | null;
   cc_no_pct: number | null;
+  drep_voted_power: number | null;
   tally_epoch: number | null;
   tally_synced_at: number | null;
   decided_epoch: number | null;
@@ -167,6 +169,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     spoNoPct: r.spo_no_pct,
     ccYesPct: r.cc_yes_pct,
     ccNoPct: r.cc_no_pct,
+    drepVotedPower: r.drep_voted_power,
     tallyEpoch: r.tally_epoch,
     tallySyncedAt: r.tally_synced_at,
     decidedEpoch: r.decided_epoch,
@@ -245,6 +248,7 @@ export type GovernanceTally = Pick<
   | 'spoYes' | 'spoNo' | 'spoAbstain'
   | 'ccYes' | 'ccNo' | 'ccAbstain'
   | 'drepYesPct' | 'drepNoPct' | 'spoYesPct' | 'spoNoPct' | 'ccYesPct' | 'ccNoPct'
+  | 'drepVotedPower'
   | 'tallyEpoch'
 >;
 
@@ -270,6 +274,7 @@ export async function updateGovernanceTallyAndStatus(
              cc_yes = ?, cc_no = ?, cc_abstain = ?,
              drep_yes_pct = ?, drep_no_pct = ?, spo_yes_pct = ?, spo_no_pct = ?,
              cc_yes_pct = ?, cc_no_pct = ?,
+             drep_voted_power = ?,
              tally_epoch = ?, decided_epoch = ?, tally_synced_at = ?, last_synced_at = ?
        WHERE id = ?`,
     )
@@ -290,6 +295,7 @@ export async function updateGovernanceTallyAndStatus(
       u.spoNoPct,
       u.ccYesPct,
       u.ccNoPct,
+      u.drepVotedPower,
       u.tallyEpoch,
       u.decidedEpoch,
       u.tallySyncedAt,
