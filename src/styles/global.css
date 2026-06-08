@@ -39,6 +39,18 @@
   --c-pos: #15692e;
   --c-neg: #b1281c;
 
+  /* Governance action type pills. Each hue paints both the text and (at ~14%)
+     the pill background, like the status badges. Mid-tone values chosen to stay
+     legible over their tint on --bg; the dark theme lifts them below. */
+  --gov-constitution: #7c3aed;
+  --gov-treasury: #15692e;
+  --gov-parameter: #2563c9;
+  --gov-info: #5b54d6;
+  --gov-hardfork: #b45309;
+  --gov-committee: #0f766e;
+  --gov-noconfidence: #b1281c;
+  --gov-other: var(--muted);
+
   /* Shape */
   --radius: 14px;
   --radius-lg: 20px;
@@ -80,6 +92,16 @@ html[data-theme='dark'] {
      over their 14% tint on the dark bg they reach ~6.7:1 / ~5.8:1 (WCAG AA). */
   --c-pos: #5cb88a;
   --c-neg: #e07d75;
+
+  /* Same gov-type hues, lifted for legibility over their tint on the deep bg. */
+  --gov-constitution: #c4b5fd;
+  --gov-treasury: #5cb88a;
+  --gov-parameter: #7fb0f5;
+  --gov-info: #a5a0f0;
+  --gov-hardfork: #e0a458;
+  --gov-committee: #5ec5b8;
+  --gov-noconfidence: #e07d75;
+  --gov-other: var(--muted);
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.5), 0 22px 48px rgba(0, 0, 0, 0.55);

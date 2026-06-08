@@ -5,12 +5,13 @@
 // come from D1 (synced on a cron); they are
 // shown with an explicit "as of" time and never claimed to be live.
 import type { GovernanceAction } from '@/lib/db/governance.js';
-import { governanceActionUrl, type CardanoNetwork } from '@/lib/config/network.js';
+import { governanceActionUrl, resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 import {
   statusBadge,
   readableType,
   formatAda,
   epochCountdown,
+  formatEpochDate,
   tallyBar,
   fmtPct,
   TONE_COLORS,
@@ -32,6 +33,8 @@ const badgeColor = TONE_COLORS[badge.tone];
 
 const deposit = formatAda(action.deposit);
 const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
+// Calendar date of the expiry epoch boundary, shown next to the epoch number.
+const expiryDate = action.expiryEpoch != null ? formatEpochDate(epochStartUnix(action.expiryEpoch, resolveNetwork(network))) : null;
 const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
 
 // Long rationales get a clamped preview + CSS-only expand; short ones render in
@@ -78,7 +81,7 @@ const tallies = [
     {action.returnAddress && <span>Proposer: <code>{truncateId(action.returnAddress, 22)}</code></span>}
     {deposit && <span>Deposit: {deposit}</span>}
     {action.submittedEpoch != null && <span>Submitted: epoch {action.submittedEpoch}</span>}
-    {action.expiryEpoch != null && <span>Expiry: epoch {action.expiryEpoch}</span>}
+    {action.expiryEpoch != null && <span>Expiry: epoch {action.expiryEpoch}{expiryDate && <> ({expiryDate})</>}</span>}
     {countdown && <span>{countdown}</span>}
   </div>
 

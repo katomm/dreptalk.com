@@ -4,11 +4,14 @@ import {
   formatAda,
   statusBadge,
   epochCountdown,
+  epochDaysLeft,
   tallyBar,
   voteTone,
   fmtPct,
   formatAdaShort,
   stakeParticipation,
+  formatEpochDate,
+  govTypeTone,
 } from './view.js';
 
 describe('readableType / formatAda', () => {
@@ -53,6 +56,16 @@ describe('epochCountdown', () => {
   });
 });
 
+describe('epochDaysLeft', () => {
+  it('returns whole days to a future expiry, null when past or unknown', () => {
+    expect(epochDaysLeft(294, 290)).toBe(20);
+    expect(epochDaysLeft(290, 290)).toBeNull();
+    expect(epochDaysLeft(290, 295)).toBeNull();
+    expect(epochDaysLeft(null, 290)).toBeNull();
+    expect(epochDaysLeft(294, null)).toBeNull();
+  });
+});
+
 describe('tallyBar', () => {
   it('derives abstain as the remainder and clamps', () => {
     expect(tallyBar(0.01, 99.99)).toEqual({ yes: 0.01, no: 99.99, abstain: 0 });
@@ -69,6 +82,32 @@ describe('fmtPct', () => {
     expect(fmtPct(0)).toBe('0%');
     expect(fmtPct(99.99)).toBe('100%');
     expect(fmtPct(30)).toBe('30%');
+  });
+});
+
+describe('formatEpochDate', () => {
+  it('formats a unix-seconds epoch boundary as a UTC short date', () => {
+    expect(formatEpochDate(1596059091)).toBe('Jul 29, 2020'); // mainnet epoch 208 boundary
+    expect(formatEpochDate(1655769600)).toBe('Jun 21, 2022'); // preprod epoch 0 boundary
+  });
+});
+
+describe('govTypeTone', () => {
+  it('maps known governance action types to a color tone', () => {
+    expect(govTypeTone('NewConstitution')).toBe('constitution');
+    expect(govTypeTone('TreasuryWithdrawals')).toBe('treasury');
+    expect(govTypeTone('ParameterChange')).toBe('parameter');
+    expect(govTypeTone('InfoAction')).toBe('info');
+    expect(govTypeTone('HardForkInitiation')).toBe('hardfork');
+    expect(govTypeTone('NewCommittee')).toBe('committee');
+    expect(govTypeTone('NoConfidence')).toBe('noconfidence');
+  });
+  it('is case- and spacing-insensitive', () => {
+    expect(govTypeTone('treasury withdrawals')).toBe('treasury');
+    expect(govTypeTone('Hard Fork Initiation')).toBe('hardfork');
+  });
+  it('falls back to other for unknown types', () => {
+    expect(govTypeTone('SomethingElse')).toBe('other');
   });
 });
 

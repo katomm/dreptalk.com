@@ -6,7 +6,15 @@ export interface NetworkConfig {
   addrPrefix: string;
   stakePrefix: string;
   networkId: number;
+  // A known epoch boundary, used to turn an epoch number into a calendar date
+  // (e.g. "voting ends on ..."). Cardano epochs are a fixed length, so one
+  // verified anchor plus EPOCH_LENGTH_SECONDS pins every other boundary.
+  epochAnchor: { epoch: number; unixSeconds: number };
 }
+
+// Both networks run 5-day epochs (same fact as EPOCH_DAYS in governance/view.ts,
+// expressed in seconds here for boundary math).
+const EPOCH_LENGTH_SECONDS = 5 * 24 * 60 * 60; // 432000
 
 const CONFIGS: Record<CardanoNetwork, NetworkConfig> = {
   mainnet: {
@@ -15,6 +23,8 @@ const CONFIGS: Record<CardanoNetwork, NetworkConfig> = {
     addrPrefix: 'addr',
     stakePrefix: 'stake',
     networkId: 1,
+    // Shelley start: epoch 208 began 2020-07-29T21:44:51Z.
+    epochAnchor: { epoch: 208, unixSeconds: 1596059091 },
   },
   preprod: {
     network: 'preprod',
@@ -22,8 +32,19 @@ const CONFIGS: Record<CardanoNetwork, NetworkConfig> = {
     addrPrefix: 'addr_test',
     stakePrefix: 'stake_test',
     networkId: 0,
+    // preprod system start: epoch 0 began 2022-06-21T00:00:00Z.
+    epochAnchor: { epoch: 0, unixSeconds: 1655769600 },
   },
 };
+
+/**
+ * Unix-seconds timestamp of the start of the given epoch, derived from the
+ * network's verified anchor and the fixed epoch length. Pure and deterministic;
+ * the calendar formatting lives in governance/view.ts (formatEpochDate).
+ */
+export function epochStartUnix(epoch: number, cfg: NetworkConfig): number {
+  return cfg.epochAnchor.unixSeconds + (epoch - cfg.epochAnchor.epoch) * EPOCH_LENGTH_SECONDS;
+}
 
 // The Cardano Foundation explorer landing page lets each user pick their own
 // preferred explorer, so we link through it instead of hard-coding a single one
