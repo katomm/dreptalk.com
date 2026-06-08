@@ -81,11 +81,13 @@ const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
   .badge--positive { background:color-mix(in srgb, var(--c-pos) 14%, transparent); color:var(--c-pos); }
   .badge--neutral { background:var(--surface-2); color:var(--muted); }
   .badge--negative { background:color-mix(in srgb, var(--c-neg) 14%, transparent); color:var(--c-neg); }
-  /* default: show stake, hide sentiment when no ancestor sets data-metric */
-  :global(:not([data-metric])) .metric--sentiment { display:none; }
-  /* toggle visibility: the page sets data-metric on the list container */
-  :global([data-metric='stake']) .metric--sentiment,
+  /* The metric column shows one block at a time. Stake is the default; the page
+     sets data-metric='sentiment' on the list container to switch. The default
+     lives on the element itself: a bare :not([data-metric]) ancestor selector
+     would always match (e.g. body has no data-metric) and hide sentiment always. */
+  .metric--sentiment { display:none; }
   :global([data-metric='sentiment']) .metric--stake { display:none; }
+  :global([data-metric='sentiment']) .metric--sentiment { display:block; }
   @media (max-width:720px) {
     .garow { grid-template-columns:1fr; gap:8px; }
   }
