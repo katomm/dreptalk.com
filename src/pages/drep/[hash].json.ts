@@ -1,9 +1,11 @@
-// GET /drep/[drepId]/[hash].json
+// GET /drep/[hash].json
 //
 // Serves the hosted CIP-119 DRep metadata document at the content-addressed URL
-// the on-chain anchor points to. The stored body is returned verbatim (no
-// parse/re-stringify) so the served bytes match the anchor hash exactly. The URL
-// embeds the hash, so the bytes are immutable for a given URL.
+// the on-chain anchor points to. The drep id is not in the path: the on-chain
+// anchor url field is capped at 128 chars (CIP-100), so only the hash is used.
+// The stored body is returned verbatim (no parse/re-stringify) so the served
+// bytes match the anchor hash exactly; the URL embeds the hash, so the bytes are
+// immutable for a given URL.
 
 import type { APIRoute } from 'astro';
 import { runtimeEnv } from '@/lib/api/response';
@@ -15,9 +17,9 @@ export const prerender = false;
 const HASH_RE = /^[0-9a-f]{64}$/;
 
 export const GET: APIRoute = async ({ params, locals }) => {
-  const { drepId, hash } = params;
+  const { hash } = params;
 
-  if (!drepId || !hash || !HASH_RE.test(hash)) {
+  if (!hash || !HASH_RE.test(hash)) {
     return new Response('not found', { status: 404 });
   }
 
@@ -28,7 +30,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
     return new Response('service unavailable', { status: 503 });
   }
 
-  const row = await getDrepMetadataByHash(db, drepId, hash);
+  const row = await getDrepMetadataByHash(db, hash);
 
   if (!row) {
     return new Response('not found', { status: 404 });

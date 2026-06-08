@@ -7,7 +7,7 @@ import { buildRegisterDrepParts } from './drepTx.js';
 
 // Deterministic test fixtures.
 const DREP_KEY_HASH = new Uint8Array(28).fill(0xab); // 28-byte blake2b-224 placeholder
-const ANCHOR_URL = 'https://dreptalk.com/drep/example/0000000000000000000000000000000000000000000000000000000000000000.json';
+const ANCHOR_URL = 'https://dreptalk.com/drep/0000000000000000000000000000000000000000000000000000000000000000.json';
 // 64 hex chars = 32 bytes, a valid blake2b-256 placeholder.
 const ANCHOR_HASH_HEX = 'ab'.repeat(32);
 

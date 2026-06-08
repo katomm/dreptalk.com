@@ -35,12 +35,20 @@ describe('handleDrepMetadata: content-addressed hosting', () => {
     expect(result.status).toBe(200);
     const json = result.json as { url: string; hash: string };
     expect(json.hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(json.url).toBe(`${ORIGIN}/drep/${DREP_ID}/${json.hash}.json`);
+    expect(json.url).toBe(`${ORIGIN}/drep/${json.hash}.json`);
 
-    const row = await getDrepMetadataByHash(env.DB, DREP_ID, json.hash);
+    const row = await getDrepMetadataByHash(env.DB, json.hash);
     expect(row).not.toBeNull();
     expect(row!.hash).toBe(json.hash);
     expect(row!.name).toBe('Fixture DRep');
+  });
+
+  it('returns an anchor url within the on-chain 128-character limit', async () => {
+    // The on-chain anchor url field is bounded to 128 chars (CIP-100). The drep
+    // id (~63 chars) plus a 64-char hash would overflow, so the id is not in the url.
+    const result = await handleDrepMetadata(baseInput());
+    const json = result.json as { url: string };
+    expect(json.url.length).toBeLessThanOrEqual(128);
   });
 
   it('returns the same hash as buildDrepMetadata over the same inputs', async () => {

@@ -63,19 +63,20 @@ export async function putDrepMetadata(
 }
 
 /**
- * Returns the content-addressed metadata row for (drepId, hash), or null.
- * This is the authoritative read for serving the document at its anchor URL:
- * the bytes returned hash to `hash`, which is what the on-chain anchor commits to.
+ * Returns the content-addressed metadata row for a hash, or null. This is the
+ * authoritative read for serving the document at its anchor URL (which embeds
+ * only the hash, not the drep id): the bytes returned hash to `hash`, which is
+ * what the on-chain anchor commits to. Identical content may be hosted by more
+ * than one drep (same hash); any matching row serves the same bytes, so LIMIT 1.
  * Parameterized SELECT; no string-interpolated SQL.
  */
 export async function getDrepMetadataByHash(
   db: D1Database,
-  drepId: string,
   hash: string,
 ): Promise<DrepMetadata | null> {
   const row = await db
-    .prepare('SELECT * FROM drep_metadata WHERE drep_id = ? AND hash = ?')
-    .bind(drepId, hash)
+    .prepare('SELECT * FROM drep_metadata WHERE hash = ? LIMIT 1')
+    .bind(hash)
     .first<DrepMetadataRow>();
   return row ? rowToDrepMetadata(row) : null;
 }
