@@ -28,8 +28,16 @@
   /* Brand */
   --accent: #6d28d9;
   --accent-fg: #ffffff;
+  /* Text on a solid --accent fill (segmented controls, etc). White on the
+     dark-purple light accent is ~6.8:1, well past WCAG AA. */
+  --on-accent: #ffffff;
   --accent-hover: #5b21b6;
   --grad: linear-gradient(120deg, #8b5cf6 0%, #3b82f6 50%, #2dd4bf 100%);
+
+  /* Positive/negative badge text. As text over their own 14% tint on --bg these
+     reach ~5.5:1 / ~5.2:1 (WCAG AA); the brighter old values fell below 4.5:1. */
+  --c-pos: #15692e;
+  --c-neg: #b1281c;
 
   /* Shape */
   --radius: 14px;
@@ -61,9 +69,17 @@ html[data-theme='dark'] {
 
   --accent: #a78bfa;
   --accent-fg: #14101c;
+  /* Deep violet-black on the light-lavender dark accent is ~6.9:1; white here
+     would be only ~2:1 and fail AA. */
+  --on-accent: #14101c;
   --accent-hover: #b9a3fb;
   /* Same hues, slightly lifted for legibility on the deep violet-black bg. */
   --grad: linear-gradient(120deg, #a78bfa 0%, #60a5fa 50%, #5eead4 100%);
+
+  /* Badge text in dark mode reuses the pastel tally palette (TONE_BAR_COLORS);
+     over their 14% tint on the dark bg they reach ~6.7:1 / ~5.8:1 (WCAG AA). */
+  --c-pos: #5cb88a;
+  --c-neg: #e07d75;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.5), 0 22px 48px rgba(0, 0, 0, 0.55);

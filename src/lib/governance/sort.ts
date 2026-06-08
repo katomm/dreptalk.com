@@ -51,28 +51,24 @@ const descKey = (e: number | null) => e ?? -1;
 const ascKey = (e: number | null) => e ?? Number.MAX_SAFE_INTEGER;
 
 /**
- * Filters and orders governance-action topics for the given mode (pure):
- *  - trending: active only, by the blended score (default).
- *  - new: all, newest submission first.
- *  - closing: active with an expiry, soonest expiry first.
- *  - ratified: ratified/enacted, most recently decided first.
+ * Orders governance-action topics for the given sort mode (pure, no filtering):
+ *  - trending: by blended engagement+recency score (default).
+ *  - new: newest submission first.
+ *  - closing: soonest expiry first, nulls last.
+ *  - ratified: most recently decided first, nulls last.
+ *
+ * Operates over the full action set; ordering only, no filtering.
  */
 export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: number): GovActionTopic[] {
   switch (mode) {
     case 'new':
       return [...rows].sort((a, b) => descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch));
     case 'closing':
-      return rows
-        .filter((r) => r.action.status === 'active' && r.action.expiryEpoch != null)
-        .sort((a, b) => ascKey(a.action.expiryEpoch) - ascKey(b.action.expiryEpoch));
+      return [...rows].sort((a, b) => ascKey(a.action.expiryEpoch) - ascKey(b.action.expiryEpoch));
     case 'ratified':
-      return rows
-        .filter((r) => r.action.status === 'ratified' || r.action.status === 'enacted')
-        .sort((a, b) => descKey(b.action.decidedEpoch) - descKey(a.action.decidedEpoch));
+      return [...rows].sort((a, b) => descKey(b.action.decidedEpoch) - descKey(a.action.decidedEpoch));
     case 'trending':
     default:
-      return rows
-        .filter((r) => r.action.status === 'active')
-        .sort((a, b) => trendingScore(b, now) - trendingScore(a, now));
+      return [...rows].sort((a, b) => trendingScore(b, now) - trendingScore(a, now));
   }
 }

@@ -6,12 +6,21 @@ import JsonLd from '@/components/JsonLd.astro';
 import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import TopicRow from '@/components/TopicRow.astro';
+import GovActionRow from '@/components/GovActionRow.astro';
 import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory, getAllTopicsByCategory, type Topic } from '@/lib/db/forum.js';
-import { getAllGovernanceActions, type GovernanceAction } from '@/lib/db/governance.js';
-import { parseGovSort, sortGovActionTopics, GOV_SORTS, type GovActionTopic } from '@/lib/governance/sort.js';
+import { getAllGovernanceActions } from '@/lib/db/governance.js';
+import {
+  parseGovSort,
+  sortGovActionTopics,
+  GOV_SORTS,
+  type GovActionTopic,
+  type GovSort,
+} from '@/lib/governance/sort.js';
+import { getActiveDrepStake, getVotedPowerByGaIds } from '@/lib/db/stakeParticipation.js';
+import { stakeParticipation, type StakeParticipation } from '@/lib/governance/view.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
-import { parsePage, pageToOffset, cacheControlFor, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
@@ -34,10 +43,20 @@ const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
 // Governance actions get their own sort modes (a DRep wants trending / closing
 // soon, not the newest submission); discussion categories stay activity-ordered.
 const sort = parseGovSort(Astro.url.searchParams.get('sort'));
+// Which metric column to show (stake by default).
+const metric: 'stake' | 'sentiment' =
+  Astro.url.searchParams.get('metric') === 'sentiment' ? 'sentiment' : 'stake';
 
 let topics: Topic[] = [];
-let govByTopic = new Map<string, GovernanceAction>();
 let govTotal = 0;
+// Governance overview state: the joined+sorted+paged rows plus the per-page
+// stake-participation map. Empty for non-governance categories.
+let pageRows: GovActionTopic[] = [];
+let stakeByTopic = new Map<string, StakeParticipation | null>();
+// Freshness of the cached on-chain numbers shown on this page (ms; null when
+// nothing to disclose). Stake from the dreps sync, sentiment from per-action tallies.
+let stakeAsOf: number | null = null;
+let tallyAsOf: number | null = null;
 
 if (category && db) {
   if (isGovernanceCategory) {
@@ -53,9 +72,26 @@ if (category && db) {
       .filter((r): r is GovActionTopic => !!r.action);
     const sorted = sortGovActionTopics(rows, sort, now);
     govTotal = sorted.length;
-    const pageRows = sorted.slice(offset, offset + PAGE_SIZE);
+    pageRows = sorted.slice(offset, offset + PAGE_SIZE);
     topics = pageRows.map((r) => r.topic);
-    govByTopic = new Map(pageRows.map((r) => [r.topic.id, r.action]));
+    // Stake participation: exactly one total-power query and one batched
+    // voted-power query for just this page's actions (no per-row queries).
+    const gaIds = pageRows.map((r) => r.action.id);
+    if (gaIds.length > 0) {
+      const [stake, votedByGa] = await Promise.all([
+        getActiveDrepStake(db),
+        getVotedPowerByGaIds(db, gaIds),
+      ]);
+      stakeAsOf = stake.asOf;
+      stakeByTopic = new Map(
+        pageRows.map((r) => [r.topic.id, stakeParticipation(votedByGa.get(r.action.id) ?? 0, stake.total)]),
+      );
+    }
+    // Sentiment staleness comes from the per-action tally sync time (in memory, no query).
+    tallyAsOf = pageRows.reduce<number | null>(
+      (mx, r) => (r.action.tallySyncedAt != null && (mx == null || r.action.tallySyncedAt > mx) ? r.action.tallySyncedAt : mx),
+      null,
+    );
   } else {
     topics = await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset });
   }
@@ -78,9 +114,17 @@ const nextPage = isGovernanceCategory
   ? (offset + PAGE_SIZE < govTotal ? page + 1 : null)
   : (topics.length === PAGE_SIZE ? page + 1 : null);
 
-// Page links preserve the active sort for the governance category.
+// Page links preserve the active sort and metric for the governance category so
+// paging stays within the selected view.
 const pageHref = (p: number) =>
-  isGovernanceCategory ? `/c/${category!.slug}?sort=${sort}&page=${p}` : `/c/${category!.slug}?page=${p}`;
+  isGovernanceCategory
+    ? `/c/${category!.slug}?sort=${sort}&metric=${metric}&page=${p}`
+    : `/c/${category!.slug}?page=${p}`;
+
+// Governance control links (sort tabs, metric toggle) share the same query string
+// and only vary one param; this keeps them in sync and resets to page 1.
+const ctrlHref = (o: { sort?: GovSort; metric?: 'stake' | 'sentiment' }) =>
+  `/c/${category!.slug}?sort=${o.sort ?? sort}&metric=${o.metric ?? metric}`;
 
 const breadcrumbLd = {
   '@context': 'https://schema.org',
@@ -133,20 +177,81 @@ const breadcrumbLd = {
     </div>
 
     {isGovernanceCategory && (
-      <nav aria-label="Sort" style="display:flex;gap:0.25rem;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:1.25rem;">
-        {GOV_SORTS.map((s) => (
-          <a
-            href={`/c/${category.slug}?sort=${s.mode}`}
-            aria-current={s.mode === sort ? 'page' : undefined}
-            style={`padding:0.5rem 0.75rem;font-size:0.875rem;text-decoration:none;border-bottom:2px solid ${s.mode === sort ? 'var(--accent)' : 'transparent'};color:${s.mode === sort ? 'var(--fg)' : 'var(--muted)'};font-weight:${s.mode === sort ? '600' : '400'};`}
-          >
-            {s.label}
-          </a>
-        ))}
-      </nav>
+      <div class="ga-controls">
+        <nav class="ga-tabs" aria-label="Sort">
+          {GOV_SORTS.map((s) => (
+            <a
+              class="ga-tab"
+              aria-current={s.mode === sort ? 'true' : undefined}
+              href={ctrlHref({ sort: s.mode })}
+            >
+              {s.label}
+            </a>
+          ))}
+        </nav>
+        <div class="ga-controls__right">
+          <div class="ga-toggle" role="group" aria-label="Metric">
+            <a
+              class={`ga-toggle__opt ${metric === 'stake' ? 'on' : ''}`}
+              aria-current={metric === 'stake' ? 'true' : undefined}
+              href={ctrlHref({ metric: 'stake' })}
+            >
+              Stake Participation
+            </a>
+            <a
+              class={`ga-toggle__opt ${metric === 'sentiment' ? 'on' : ''}`}
+              aria-current={metric === 'sentiment' ? 'true' : undefined}
+              href={ctrlHref({ metric: 'sentiment' })}
+            >
+              Community Sentiment
+            </a>
+          </div>
+        </div>
+      </div>
     )}
 
-    {topics.length === 0 ? (
+    {isGovernanceCategory ? (
+      pageRows.length === 0 ? (
+        <p style="color:var(--muted);">No governance actions in this view.</p>
+      ) : (
+        <>
+        <div class="ga-list" data-metric={metric}>
+          <div class="ga-list__head">
+            <span>Governance Action</span>
+            <span>{metric === 'stake' ? 'Stake Participation' : 'Community Sentiment'}</span>
+            <span>DRep Participation</span>
+            {/* The Time Left header doubles as a sort shortcut for Closing Soon
+               (soonest expiry first); it mirrors the Closing Soon tab's state. */}
+            <a
+              class="ga-list__sortlink"
+              href={ctrlHref({ sort: 'closing' })}
+              aria-current={sort === 'closing' ? 'true' : undefined}
+              aria-label="Sort by soonest closing"
+            >
+              Time Left{sort === 'closing' && <span class="ga-list__caret" aria-hidden="true">↑</span>}
+            </a>
+          </div>
+          {pageRows.map((r) => (
+            <GovActionRow
+              topic={r.topic}
+              action={r.action}
+              proposer={identities ? identities.describe(r.topic.author_id).displayName : undefined}
+              stake={stakeByTopic.get(r.topic.id) ?? null}
+              href={`/t/${r.topic.slug}`}
+            />
+          ))}
+        </div>
+        {/* Disclose how stale the cached on-chain numbers are, per active metric.
+           Same formatter and phrasing as the GA thread header; never claimed live. */}
+        {metric === 'stake' && stakeAsOf != null && (
+          <p class="ga-asof">Stake data as of {formatRelativeTime(stakeAsOf, now)}. Cached, not live.</p>
+        )}
+        {metric === 'sentiment' && tallyAsOf != null && (
+          <p class="ga-asof">Tallies as of {formatRelativeTime(tallyAsOf, now)}. Cached, not live.</p>
+        )}
+        </>
+      )
+    ) : topics.length === 0 ? (
       <p style="color:var(--muted);">No topics yet in this category.</p>
     ) : (
       <div style="display:flex;flex-direction:column;gap:0;">
@@ -155,7 +260,6 @@ const breadcrumbLd = {
             topic={topic}
             now={now}
             author={identities ? identities.describe(topic.author_id) : undefined}
-            governance={govByTopic.get(topic.id)}
           />
         ))}
       </div>
@@ -180,3 +284,129 @@ const breadcrumbLd = {
     )}
   </Layout>
 )}
+
+<style>
+  /* Governance overview controls: sort tabs on the left, metric toggle on the
+     right. Wrap onto stacked rows on narrow screens. */
+  .ga-controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .ga-controls__right {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+  }
+
+  /* Sort tabs as calm pills; the active one is emphasized. */
+  .ga-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+  .ga-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.85rem;
+    text-decoration: none;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    transition: color 0.12s, background 0.12s, border-color 0.12s;
+  }
+  .ga-tab:hover {
+    color: var(--fg);
+  }
+  .ga-tab[aria-current='true'] {
+    color: var(--fg);
+    background: var(--surface-2);
+    border-color: var(--fg);
+    font-weight: 600;
+  }
+
+  /* Metric toggle as a segmented control; the active option uses --accent. */
+  .ga-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .ga-toggle__opt {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8rem;
+    text-decoration: none;
+    color: var(--muted);
+    background: var(--surface);
+    transition: color 0.12s, background 0.12s;
+  }
+  .ga-toggle__opt + .ga-toggle__opt {
+    border-left: 1px solid var(--border);
+  }
+  .ga-toggle__opt:hover {
+    color: var(--fg);
+  }
+  .ga-toggle__opt.on {
+    color: var(--on-accent);
+    background: var(--accent);
+  }
+
+  /* The list and its header row. The header grid MUST match GovActionRow's
+     row grid (columns, gap, horizontal padding) so the labels align. */
+  .ga-list {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+  }
+  .ga-list__head {
+    display: grid;
+    grid-template-columns: 2.6fr 1.6fr 1.1fr 1.3fr;
+    gap: 18px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  /* The Time Left header is a sort shortcut; it inherits the calm header look and
+     gets emphasized when its sort (Closing Soon) is active. */
+  .ga-list__sortlink {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.12s;
+  }
+  .ga-list__sortlink:hover {
+    color: var(--fg);
+  }
+  .ga-list__sortlink[aria-current='true'] {
+    color: var(--fg);
+  }
+  .ga-list__caret {
+    font-size: 0.9em;
+  }
+  /* Rows collapse to a single column below 720px, so the header would no longer
+     align; hide it there. */
+  @media (max-width: 720px) {
+    .ga-list__head {
+      display: none;
+    }
+  }
+
+  /* Staleness footnote: the cached on-chain numbers are never live. */
+  .ga-asof {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin: 0.75rem 0 0;
+  }
+</style>
