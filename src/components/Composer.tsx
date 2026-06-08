@@ -1,5 +1,17 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { submitComposer } from '@/lib/forum/composer.js';
+import { applyMarkdown, type MarkdownAction } from '@/lib/forum/markdownToolbar.js';
+
+// Toolbar buttons: label is what shows in the button, title is the tooltip.
+const TOOLBAR: { action: MarkdownAction; label: string; title: string }[] = [
+  { action: 'bold', label: 'B', title: 'Bold' },
+  { action: 'italic', label: 'I', title: 'Italic' },
+  { action: 'heading', label: 'H', title: 'Heading' },
+  { action: 'link', label: '\u{1F517}', title: 'Link' },
+  { action: 'quote', label: '”', title: 'Quote' },
+  { action: 'list', label: '•', title: 'List' },
+  { action: 'code', label: '<>', title: 'Code' },
+];
 
 interface ComposerProps {
   mode: 'topic' | 'post';
@@ -15,6 +27,30 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Selection to restore after a toolbar edit re-renders the textarea.
+  const pendingSelRef = useRef<{ start: number; end: number } | null>(null);
+
+  // Apply a toolbar action to the current textarea selection.
+  const runAction = useCallback(
+    (action: MarkdownAction) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const next = applyMarkdown({ text: bodyMd, start: el.selectionStart, end: el.selectionEnd }, action);
+      pendingSelRef.current = { start: next.start, end: next.end };
+      setBodyMd(next.text);
+    },
+    [bodyMd],
+  );
+
+  // Restore focus and selection after a toolbar edit updates the value.
+  useLayoutEffect(() => {
+    const sel = pendingSelRef.current;
+    if (!sel || !textareaRef.current) return;
+    pendingSelRef.current = null;
+    textareaRef.current.focus();
+    textareaRef.current.setSelectionRange(sel.start, sel.end);
+  }, [bodyMd]);
 
   const fetchPreview = useCallback(async (md: string) => {
     if (!md.trim()) {
@@ -145,10 +181,51 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
             }}
           />
         ) : (
-          <textarea
-            id="composer-body"
-            value={bodyMd}
-            onChange={(e) => setBodyMd(e.target.value)}
+          <>
+            <div
+              role="toolbar"
+              aria-label="Markdown formatting"
+              style={{
+                display: 'flex',
+                gap: '0.25rem',
+                marginBottom: '0.375rem',
+                flexWrap: 'wrap',
+              }}
+            >
+              {TOOLBAR.map(({ action, label, title }) => (
+                <button
+                  key={action}
+                  type="button"
+                  title={title}
+                  aria-label={title}
+                  disabled={submitting}
+                  // Keep textarea focus/selection: prevent the button stealing it on mousedown.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => runAction(action)}
+                  style={{
+                    minWidth: '2rem',
+                    height: '2rem',
+                    padding: '0 0.5rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.375rem',
+                    background: 'var(--bg)',
+                    color: 'var(--fg)',
+                    fontSize: '0.875rem',
+                    fontWeight: action === 'bold' ? 700 : 500,
+                    fontStyle: action === 'italic' ? 'italic' : 'normal',
+                    cursor: submitting ? 'not-allowed' : 'pointer',
+                    lineHeight: 1,
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              ref={textareaRef}
+              id="composer-body"
+              value={bodyMd}
+              onChange={(e) => setBodyMd(e.target.value)}
             placeholder="Write your message in Markdown..."
             maxLength={20000}
             required
@@ -163,10 +240,11 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
               color: 'var(--fg)',
               fontSize: '0.9375rem',
               lineHeight: '1.6',
-              resize: 'vertical',
-              fontFamily: 'inherit',
-            }}
-          />
+                resize: 'vertical',
+                fontFamily: 'inherit',
+              }}
+            />
+          </>
         )}
       </div>
 
