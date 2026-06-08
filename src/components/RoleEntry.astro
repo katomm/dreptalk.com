@@ -6,7 +6,8 @@
 // post. SPO (Calidus key) and CC-member sign-in use the offline paste flow;
 // proposer uses the wallet flow. Built on a native <details> and a plain <form>
 // so it needs no client JS (the strict CSP forbids inline scripts).
-import { roleLabel, roleLabels } from '@/lib/auth/roles';
+import { roleLabels } from '@/lib/auth/roles';
+import { truncateId } from '@/lib/forum/view';
 
 interface Props {
   layout?: 'split' | 'flat';
@@ -26,13 +27,13 @@ const moreRoles: Array<{ label: string; href?: string }> = [
 
 {user ? (
   <div class:list={['role-entry', 'role-entry--signedin', `role-entry--${layout}`]}>
-    {/* Reuse the split-pill: the primary shows the signed-in role, the chevron
-        dropdown holds Log out (where the role list sits when signed out). */}
+    {/* Reuse the split-pill: the primary shows a generic "Signed in" status, the
+        chevron dropdown shows the (shortened) identity and Log out. */}
     <span class="btn btn-primary role-entry__main role-entry__account" title={`Signed in as ${roleLabels(user.roles).join(', ')}`}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M20 6 9 17l-5-5" />
       </svg>
-      {roleLabel(user.roles)}
+      Signed in
     </span>
 
     {layout === 'split' ? (
@@ -43,6 +44,7 @@ const moreRoles: Array<{ label: string; href?: string }> = [
           </svg>
         </summary>
         <div class="role-entry__menu" role="menu">
+          <span class="role-entry__identity" title={user.id}>{truncateId(user.id, 22)}</span>
           <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
             <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
           </form>
@@ -50,6 +52,7 @@ const moreRoles: Array<{ label: string; href?: string }> = [
       </details>
     ) : (
       <div class="role-entry__list" role="menu">
+        <span class="role-entry__identity" title={user.id}>{truncateId(user.id, 22)}</span>
         <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
           <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
         </form>
@@ -258,6 +261,18 @@ const moreRoles: Array<{ label: string; href?: string }> = [
   .role-entry__account {
     cursor: default;
     gap: 0.4rem;
+  }
+  /* The signed-in identity sits above Log out in the dropdown, shortened and
+     monospaced, with the full id in the title for hover. */
+  .role-entry__identity {
+    display: block;
+    padding: 0.5rem 0.7rem 0.45rem;
+    font-size: 0.8rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+    word-break: break-all;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 0.15rem;
   }
   /* Log out is a <form> button rendered as a menu item; reset native button
      chrome and let it fill the menu row (the form itself is display:contents). */

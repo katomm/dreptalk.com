@@ -39,14 +39,10 @@ const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'admin', 'moderator', 'm
 
 /**
  * Display labels for the roles a session holds, in priority order. Unknown role
- * strings are ignored; an empty/unknown set falls back to ['Member'].
+ * strings are ignored; an empty/unknown set falls back to ['Member']. Used for
+ * the header's "Signed in as ..." hover title.
  */
 export function roleLabels(roles: readonly string[]): string[] {
   const known = ROLE_PRIORITY.filter((r) => roles.includes(r)).map((r) => ROLE_DISPLAY[r]);
   return known.length > 0 ? known : [ROLE_DISPLAY.member];
-}
-
-/** The single highest-priority display label for a session's roles (the header badge). */
-export function roleLabel(roles: readonly string[]): string {
-  return roleLabels(roles)[0];
 }
