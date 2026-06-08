@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # npm dependencies (single root package.json).
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Batch low-risk updates into one PR so routine bumps do not fragment into
+      # many tiny PRs. Major bumps still arrive individually so they get review.
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+  # GitHub Actions used by the CI workflow.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
