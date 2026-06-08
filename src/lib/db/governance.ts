@@ -24,6 +24,8 @@ export interface NewGovernanceAction {
   deposit: string | null;
   submittedEpoch: number | null;
   expiryEpoch: number | null;
+  /** Metadata-extraction version used when writing title/abstract/rationale_html. */
+  metaVersion: number;
   topicId: string;
   now: number;
 }
@@ -40,8 +42,8 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       // freshly discovered action as 'active' before we have checked would mislead.
       `INSERT OR IGNORE INTO governance_actions
          (id, proposal_id, type, title, abstract, rationale_html, anchor_url, anchor_hash, anchor_status,
-          return_address, deposit, submitted_epoch, expiry_epoch, status, topic_id, created_at, last_synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+          return_address, deposit, submitted_epoch, expiry_epoch, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       a.id,
@@ -57,6 +59,7 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       a.deposit,
       a.submittedEpoch,
       a.expiryEpoch,
+      a.metaVersion,
       a.topicId,
       a.now,
       a.now,
@@ -73,6 +76,8 @@ export interface GovernanceAction {
   title: string | null;
   abstract: string | null;
   rationaleHtml: string | null;
+  anchorUrl: string | null;
+  anchorHash: string | null;
   anchorStatus: string;
   returnAddress: string | null;
   deposit: string | null;
@@ -98,6 +103,8 @@ export interface GovernanceAction {
   tallyEpoch: number | null;
   tallySyncedAt: number | null;
   decidedEpoch: number | null;
+  /** Metadata-extraction version stored with this row's title/abstract/rationale_html. */
+  metaVersion: number;
   topicId: string | null;
   createdAt: number;
   lastSyncedAt: number;
@@ -110,6 +117,8 @@ interface GovernanceActionRow {
   title: string | null;
   abstract: string | null;
   rationale_html: string | null;
+  anchor_url: string | null;
+  anchor_hash: string | null;
   anchor_status: string;
   return_address: string | null;
   deposit: string | null;
@@ -135,6 +144,7 @@ interface GovernanceActionRow {
   tally_epoch: number | null;
   tally_synced_at: number | null;
   decided_epoch: number | null;
+  meta_version: number;
   topic_id: string | null;
   created_at: number;
   last_synced_at: number;
@@ -148,6 +158,8 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     title: r.title,
     abstract: r.abstract,
     rationaleHtml: r.rationale_html,
+    anchorUrl: r.anchor_url,
+    anchorHash: r.anchor_hash,
     anchorStatus: r.anchor_status,
     returnAddress: r.return_address,
     deposit: r.deposit,
@@ -173,6 +185,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     tallyEpoch: r.tally_epoch,
     tallySyncedAt: r.tally_synced_at,
     decidedEpoch: r.decided_epoch,
+    metaVersion: r.meta_version,
     topicId: r.topic_id,
     createdAt: r.created_at,
     lastSyncedAt: r.last_synced_at,
@@ -263,6 +276,39 @@ export async function getActionsNeedingVotedPower(db: D1Database, limit: number)
 /** Surgically sets only drep_voted_power for one action (leaves status/tally untouched). */
 export async function updateVotedPower(db: D1Database, id: string, votedPower: number): Promise<void> {
   await db.prepare('UPDATE governance_actions SET drep_voted_power = ? WHERE id = ?').bind(votedPower, id).run();
+}
+
+/** Actions whose stored metadata predates the current extractor and have an anchor to re-read. */
+export async function getActionsNeedingMetaReextract(
+  db: D1Database,
+  currentVersion: number,
+  limit: number,
+): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM governance_actions
+         WHERE anchor_url IS NOT NULL AND meta_version < ?
+         LIMIT ?`,
+      )
+      .bind(currentVersion, limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/** Updates an action's extracted metadata fields and bumps its meta_version. */
+export async function updateActionMetadata(
+  db: D1Database,
+  id: string,
+  m: { title: string | null; abstract: string | null; rationaleHtml: string | null; metaVersion: number },
+): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, meta_version = ? WHERE id = ?',
+    )
+    .bind(m.title, m.abstract, m.rationaleHtml, m.metaVersion, id)
+    .run();
 }
 
 // The tally + pct + epoch fields a sync writes: a subset of GovernanceAction, so

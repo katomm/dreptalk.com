@@ -11,6 +11,8 @@ import {
   updateGovernanceTallyAndStatus,
   getActionsNeedingVotedPower,
   updateVotedPower,
+  getActionsNeedingMetaReextract,
+  updateActionMetadata,
   type NewGovernanceAction,
 } from './governance.js';
 
@@ -34,6 +36,7 @@ async function insertAction(over: Partial<NewGovernanceAction> = {}): Promise<Ne
     deposit: '100000000000',
     submittedEpoch: 287,
     expiryEpoch: 294,
+    metaVersion: 0,
     topicId: `topic-${seq}`,
     now: NOW,
     ...over,
@@ -237,5 +240,93 @@ describe('updateVotedPower', () => {
     expect(got!.status).toBe('ratified');
     // Other tally fields must be unchanged.
     expect(got!.drepYes).toBe(4);
+  });
+});
+
+describe('getActionsNeedingMetaReextract', () => {
+  it('returns only actions with anchor_url set and meta_version below currentVersion', async () => {
+    // Stale: has anchor and meta_version 0.
+    const stale = await insertAction({ anchorUrl: 'https://example.com/doc.json', anchorHash: 'abc', metaVersion: 0 });
+    // Already current: same anchor but meta_version matches currentVersion.
+    const current = await insertAction({ anchorUrl: 'https://example.com/doc2.json', anchorHash: 'def', metaVersion: 1 });
+    // No anchor: must be excluded regardless of meta_version.
+    const noAnchor = await insertAction({ anchorUrl: null, anchorHash: null, metaVersion: 0 });
+
+    const candidates = await getActionsNeedingMetaReextract(db(), 1, 100);
+    const ids = candidates.map((c) => c.id);
+    expect(ids).toContain(stale.id);
+    expect(ids).not.toContain(current.id);
+    expect(ids).not.toContain(noAnchor.id);
+  });
+
+  it('respects the limit parameter', async () => {
+    // Insert two stale rows.
+    await insertAction({ anchorUrl: 'https://example.com/x1.json', anchorHash: 'h1', metaVersion: 0 });
+    await insertAction({ anchorUrl: 'https://example.com/x2.json', anchorHash: 'h2', metaVersion: 0 });
+
+    const one = await getActionsNeedingMetaReextract(db(), 1, 1);
+    expect(one.length).toBe(1);
+  });
+
+  it('returns an empty list when all actions are current or anchor-less', async () => {
+    await insertAction({ anchorUrl: 'https://example.com/y.json', anchorHash: 'hh', metaVersion: 1 });
+    await insertAction({ anchorUrl: null, anchorHash: null, metaVersion: 0 });
+
+    const candidates = await getActionsNeedingMetaReextract(db(), 1, 100);
+    // Any rows from this test iteration are already current or anchor-less.
+    for (const c of candidates) {
+      expect(c.metaVersion).toBeLessThan(1);
+      expect(c.anchorUrl).not.toBeNull();
+    }
+  });
+});
+
+describe('updateActionMetadata', () => {
+  it('writes title/abstract/rationale_html and meta_version without touching other columns', async () => {
+    const a = await insertAction({ metaVersion: 0 });
+    // Give the action a non-default status to verify surgical update.
+    await updateGovernanceTallyAndStatus(db(), {
+      id: a.id,
+      status: 'active',
+      drepYes: 7, drepNo: 2, drepAbstain: 1,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: null,
+      tallyEpoch: 300, decidedEpoch: null, tallySyncedAt: NOW, now: NOW,
+    });
+
+    await updateActionMetadata(db(), a.id, {
+      title: 'Updated Title',
+      abstract: 'New abstract with newlines.',
+      rationaleHtml: '<p>Rationale paragraph.</p>',
+      metaVersion: 1,
+    });
+
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.title).toBe('Updated Title');
+    expect(got!.abstract).toBe('New abstract with newlines.');
+    expect(got!.rationaleHtml).toBe('<p>Rationale paragraph.</p>');
+    expect(got!.metaVersion).toBe(1);
+    // Surgical: status and tallies must be unchanged.
+    expect(got!.status).toBe('active');
+    expect(got!.drepYes).toBe(7);
+    expect(got!.tallyEpoch).toBe(300);
+  });
+
+  it('allows null metadata fields (legitimately empty anchor doc)', async () => {
+    const a = await insertAction({ metaVersion: 0 });
+    await updateActionMetadata(db(), a.id, {
+      title: null,
+      abstract: null,
+      rationaleHtml: null,
+      metaVersion: 1,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.title).toBeNull();
+    expect(got!.abstract).toBeNull();
+    expect(got!.rationaleHtml).toBeNull();
+    expect(got!.metaVersion).toBe(1);
   });
 });

@@ -21,7 +21,7 @@ async function insertActive(expiryEpoch: number | null) {
     buildInsertGovernanceAction(db(), {
       id, proposalId, type: 'TreasuryWithdrawals', title: 't', abstract: null, rationaleHtml: null,
       anchorUrl: null, anchorHash: null, anchorStatus: 'ok', returnAddress: 'stake_x',
-      deposit: '100000000000', submittedEpoch: 287, expiryEpoch, topicId, now: NOW,
+      deposit: '100000000000', submittedEpoch: 287, expiryEpoch, metaVersion: 0, topicId, now: NOW,
     }),
   ]);
   return { id, proposalId, topicId, txHash: `gtx${seq}` };

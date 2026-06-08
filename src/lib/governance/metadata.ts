@@ -17,6 +17,13 @@ import { renderMarkdown } from '../markdown.js';
 
 export const MAX_ANCHOR_BYTES = 100_000;
 export const ANCHOR_FETCH_TIMEOUT_MS = 8_000;
+
+/**
+ * Version of the metadata-extraction logic. Bump this constant when the
+ * extractor is changed so that existing rows (stored at a lower version) are
+ * re-fetched and re-extracted by the backfill on the next sync run.
+ */
+export const META_EXTRACT_VERSION = 1;
 const MAX_TITLE_LEN = 300;
 const MAX_ABSTRACT_LEN = 1_000;
 const MAX_RATIONALE_LEN = 20_000;
