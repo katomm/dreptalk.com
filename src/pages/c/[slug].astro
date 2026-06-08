@@ -202,14 +202,14 @@ const breadcrumbLd = {
               aria-current={metric === 'stake' ? 'true' : undefined}
               href={ctrlHref({ metric: 'stake' })}
             >
-              Stake Participation
+              Participation
             </a>
             <a
               class={`ga-toggle__opt ${metric === 'sentiment' ? 'on' : ''}`}
               aria-current={metric === 'sentiment' ? 'true' : undefined}
               href={ctrlHref({ metric: 'sentiment' })}
             >
-              Community Sentiment
+              Sentiment
             </a>
           </div>
         </div>
@@ -224,8 +224,8 @@ const breadcrumbLd = {
         <div class="ga-list" data-metric={metric}>
           <div class="ga-list__head">
             <span>Governance Action</span>
-            <span>{metric === 'stake' ? 'Stake Participation' : 'Community Sentiment'}</span>
-            <span>DRep Participation</span>
+            <span>{metric === 'stake' ? 'Participation' : 'Sentiment'}</span>
+            <span>Activity</span>
             {/* The Time Left header doubles as a sort shortcut for Closing Soon
                (soonest expiry first); it mirrors the Closing Soon tab's state. */}
             <a
