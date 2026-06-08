@@ -30,8 +30,9 @@ export interface StatusBadge {
 export function statusBadge(status: string): StatusBadge {
   switch (status) {
     case 'pending':
-      // Discovered but not yet verified by a sync; neutral, not a confident "Active".
-      return { label: 'Pending', tone: 'neutral' };
+      // Discovered on-chain but its status/tallies are not synced yet; shown as
+      // "Syncing" (our own sync state, not an on-chain status), neutral.
+      return { label: 'Syncing', tone: 'neutral' };
     case 'active':
       return { label: 'Active', tone: 'active' };
     case 'ratified':

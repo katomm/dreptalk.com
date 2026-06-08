@@ -19,6 +19,9 @@ const summaryFixture = {
   drep_abstain_votes_cast: 1,
   drep_yes_pct: 0.01,
   drep_no_pct: 99.99,
+  drep_active_yes_vote_power: '29497454745',
+  drep_active_no_vote_power: '3536695673892',
+  drep_active_abstain_vote_power: '0',
   pool_yes_votes_cast: 0,
   pool_no_votes_cast: 0,
   pool_abstain_votes_cast: 0,
@@ -41,6 +44,9 @@ describe('createKoiosClient.proposalVotingSummary', () => {
     expect(r!.drep_no_pct).toBeCloseTo(99.99);
     expect(r!.drep_yes_votes_cast).toBe(1);
     expect(r!.committee_no_pct).toBe(100);
+    expect(r!.drep_active_yes_vote_power).toBe('29497454745');
+    expect(r!.drep_active_no_vote_power).toBe('3536695673892');
+    expect(r!.drep_active_abstain_vote_power).toBe('0');
 
     const url = fetchImpl.mock.calls[0][0] as string;
     expect(url).toContain('/proposal_voting_summary?_proposal_id=');

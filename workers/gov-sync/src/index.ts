@@ -15,7 +15,7 @@ import { createKoiosClient } from '../../../src/lib/koios/client.js';
 import { bytesToHex } from '../../../src/lib/crypto/hex.js';
 import { CRON_VOTE_SYNC, CRON_DREP_SYNC } from '../../../src/lib/freshness.js';
 import { syncGovernanceActions } from '../../../src/lib/governance/sync.js';
-import { syncGovernanceTallies, syncGovernanceVotes } from '../../../src/lib/governance/tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps } from '../../../src/lib/dreps/sync.js';
 
 interface Env {
@@ -50,6 +50,9 @@ async function runGovernanceSync(env: Env): Promise<void> {
 
   const tally = await syncGovernanceTallies({ koios, db: env.DB, currentEpoch: tip.epoch_no, now });
   console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
+
+  const backfill = await backfillVotedPower({ koios, db: env.DB, limit: 25 });
+  console.log(`[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`);
 }
 
 // Refresh the per-post vote lists (active actions only). Hourly: vote lists are

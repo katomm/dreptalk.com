@@ -17,7 +17,7 @@ import {
   type GovActionTopic,
   type GovSort,
 } from '@/lib/governance/sort.js';
-import { getActiveDrepStake, getVotedPowerByGaIds } from '@/lib/db/stakeParticipation.js';
+import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { stakeParticipation, type StakeParticipation } from '@/lib/governance/view.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
@@ -74,23 +74,19 @@ if (category && db) {
     govTotal = sorted.length;
     pageRows = sorted.slice(offset, offset + PAGE_SIZE);
     topics = pageRows.map((r) => r.topic);
-    // Stake participation: exactly one total-power query and one batched
-    // voted-power query for just this page's actions (no per-row queries).
-    const gaIds = pageRows.map((r) => r.action.id);
-    if (gaIds.length > 0) {
-      const [stake, votedByGa] = await Promise.all([
-        getActiveDrepStake(db),
-        getVotedPowerByGaIds(db, gaIds),
-      ]);
+    // Stake participation: voted power is the stored per-action field (populated
+    // by tally sync and backfill). Only query total power when at least one shown
+    // action has it; otherwise every cell is a dash and the query plus the "as of"
+    // label would be wasted.
+    if (pageRows.some((r) => r.action.drepVotedPower != null)) {
+      const stake = await getActiveDrepStake(db);
       stakeAsOf = stake.asOf;
       stakeByTopic = new Map(
-        pageRows.map((r) => {
-          // The vote sync stores per-voter rows only for active actions, so an
-          // action absent from votedByGa has no synced turnout data: render a
-          // dash rather than a misleading 0%. A present (even 0) value is real.
-          const voted = votedByGa.get(r.action.id);
-          return [r.topic.id, voted === undefined ? null : stakeParticipation(voted, stake.total)];
-        }),
+        pageRows.map((r) => [
+          r.topic.id,
+          // No tally yet (drep_voted_power null) -> dash; a stored value (even 0) is real turnout.
+          r.action.drepVotedPower == null ? null : stakeParticipation(r.action.drepVotedPower, stake.total),
+        ]),
       );
     }
     // Sentiment staleness comes from the per-action tally sync time (in memory, no query).

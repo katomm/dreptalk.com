@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
 import { getVotesByGaId } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower } from './tallySync.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
 
 const db = () => env.DB;
@@ -45,6 +45,9 @@ const summary: VotingSummary = {
   drep_abstain_votes_cast: 1,
   drep_yes_pct: 0.01,
   drep_no_pct: 99.99,
+  drep_active_yes_vote_power: '29497454745',
+  drep_active_no_vote_power: '3536695673892',
+  drep_active_abstain_vote_power: '0',
   pool_yes_votes_cast: 0,
   pool_no_votes_cast: 0,
   pool_abstain_votes_cast: 0,
@@ -53,13 +56,16 @@ const summary: VotingSummary = {
   committee_abstain_votes_cast: 0,
 };
 
-function fakeTallyKoios(lifecycle: ProposalListRow[]) {
+// 29497454745 + 3536695673892 + 0
+const SUMMED_VOTED_POWER = 3566193128637;
+
+function fakeTallyKoios(lifecycle: ProposalListRow[], s: VotingSummary | null = summary) {
   return {
     async proposalList(): Promise<ProposalListRow[]> {
       return lifecycle;
     },
     async proposalVotingSummary(): Promise<VotingSummary | null> {
-      return summary;
+      return s;
     },
   };
 }
@@ -102,7 +108,27 @@ describe('syncGovernanceTallies', () => {
     expect(got!.status).toBe('active');
     expect(got!.drepNoPct).toBeCloseTo(99.99);
     expect(got!.drepNo).toBe(5);
+    expect(got!.drepVotedPower).toBe(SUMMED_VOTED_POWER);
     expect(got!.tallySyncedAt).toBe(NOW + 10);
+  });
+
+  it('stores null voted power when the summary lacks the active vote-power fields', async () => {
+    const a = await insertActive(400);
+    const bare: VotingSummary = {
+      proposal_type: 'TreasuryWithdrawals',
+      epoch_no: 293,
+      drep_yes_votes_cast: 2,
+      drep_no_votes_cast: 5,
+      drep_abstain_votes_cast: 1,
+    };
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)], bare),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 10,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.drepVotedPower).toBeNull();
   });
 
   it('freezes an action past its expiry and drops it from the active set', async () => {
@@ -154,5 +180,106 @@ describe('syncGovernanceVotes', () => {
     await syncGovernanceVotes({ koios, db: db(), now: NOW + 1 });
     const map2 = await getVotesByGaId(db(), a.id);
     expect(map2.size).toBe(map.size);
+  });
+});
+
+describe('backfillVotedPower', () => {
+  // Seed a terminal action (no drep_voted_power yet) and return its ids.
+  async function insertTerminal(status: string) {
+    const ga = await insertActive(290);
+    // Freeze it to the given terminal status with null voted power.
+    await db()
+      .prepare(
+        `UPDATE governance_actions
+           SET status = ?, drep_voted_power = NULL
+         WHERE id = ?`,
+      )
+      .bind(status, ga.id)
+      .run();
+    return ga;
+  }
+
+  it('fills drep_voted_power for terminal actions without touching status', async () => {
+    const expired = await insertTerminal('expired');
+    const enacted = await insertTerminal('enacted');
+    // Active: must NOT be backfilled (still null after the run).
+    const active = await insertActive(400);
+
+    const koios = {
+      async proposalVotingSummary(_pid: string): Promise<VotingSummary | null> {
+        return summary;
+      },
+    };
+
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    expect(result.scanned).toBe(2);
+    expect(result.updated).toBe(2);
+    expect(result.failed).toBe(0);
+
+    const gotExpired = await getGovernanceActionByTopicId(db(), expired.topicId);
+    expect(gotExpired!.drepVotedPower).toBe(SUMMED_VOTED_POWER);
+    expect(gotExpired!.status).toBe('expired');
+
+    const gotEnacted = await getGovernanceActionByTopicId(db(), enacted.topicId);
+    expect(gotEnacted!.drepVotedPower).toBe(SUMMED_VOTED_POWER);
+    expect(gotEnacted!.status).toBe('enacted');
+
+    // Active action must remain untouched.
+    const gotActive = await getGovernanceActionByTopicId(db(), active.topicId);
+    expect(gotActive!.drepVotedPower).toBeNull();
+  });
+
+  it('respects the limit so cron tick stays within budget', async () => {
+    const t1 = await insertTerminal('dropped');
+    const t2 = await insertTerminal('dropped');
+    void t1; void t2;
+
+    const koios = {
+      async proposalVotingSummary(_pid: string): Promise<VotingSummary | null> {
+        return summary;
+      },
+    };
+
+    const result = await backfillVotedPower({ koios, db: db(), limit: 1 });
+    expect(result.scanned).toBe(1);
+    expect(result.updated).toBe(1);
+  });
+
+  it('returns scanned=0 on the second run when all actions are filled', async () => {
+    const t = await insertTerminal('expired');
+    const koios = {
+      async proposalVotingSummary(_pid: string): Promise<VotingSummary | null> {
+        return summary;
+      },
+    };
+
+    await backfillVotedPower({ koios, db: db(), limit: 10 });
+    const second = await backfillVotedPower({ koios, db: db(), limit: 10 });
+
+    // The terminal from this test is now filled; it falls out of the candidate set.
+    const got = await getGovernanceActionByTopicId(db(), t.topicId);
+    expect(got!.drepVotedPower).toBe(SUMMED_VOTED_POWER);
+    // scanned must be 0 for the actions seeded in this test (they are all filled).
+    expect(second.scanned).toBe(0);
+  });
+
+  it('counts a failed Koios call in failed and continues', async () => {
+    const t = await insertTerminal('ratified');
+    let calls = 0;
+    const koios = {
+      async proposalVotingSummary(_pid: string): Promise<VotingSummary | null> {
+        calls++;
+        throw new Error('koios down');
+      },
+    };
+
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    // Scanned includes the candidate; failed counts the error; updated stays 0.
+    expect(result.scanned).toBeGreaterThanOrEqual(1);
+    expect(result.failed).toBeGreaterThanOrEqual(1);
+    expect(calls).toBeGreaterThanOrEqual(1);
+    // The action remains unfilled.
+    const got = await getGovernanceActionByTopicId(db(), t.topicId);
+    expect(got!.drepVotedPower).toBeNull();
   });
 });
