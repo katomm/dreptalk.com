@@ -12,7 +12,7 @@ interface Props {
 const { bar, height = 8 } = Astro.props;
 ---
 
-<div style={`display:flex;height:${height}px;border-radius:999px;overflow:hidden;background:var(--border);`}>
+<div aria-hidden="true" style={`display:flex;height:${height}px;border-radius:999px;overflow:hidden;background:var(--border);`}>
   <div style={`width:${bar.yes}%;background:${TONE_BAR_COLORS.positive};`}></div>
   <div style={`width:${bar.no}%;background:${TONE_BAR_COLORS.negative};`}></div>
   <div style={`width:${bar.abstain}%;background:${TONE_BAR_COLORS.neutral};`}></div>

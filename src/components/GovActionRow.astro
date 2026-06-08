@@ -1,5 +1,5 @@
 ---
-import { statusBadge, epochCountdown, fmtPct, tallyBar, TONE_COLORS, readableType } from '@/lib/governance/view.js';
+import { statusBadge, epochCountdown, fmtPct, tallyBar, readableType } from '@/lib/governance/view.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { Topic } from '@/lib/db/forum.js';
 import type { StakeParticipation } from '@/lib/governance/view.js';
@@ -19,7 +19,7 @@ const drepsVoted = (action.drepYes ?? 0) + (action.drepNo ?? 0) + (action.drepAb
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
 const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
 ---
-<a class="garow" href={href} style={`--c-pos:${TONE_COLORS.positive};--c-neg:${TONE_COLORS.negative};`}>
+<a class="garow" href={href}>
   <div class="garow__main">
     <p class="garow__title">{action.title ?? topic.title}
       <span class={`badge badge--${badge.tone}`}>{badge.label}</span></p>
@@ -43,6 +43,7 @@ const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
       {bar ? (
         <>
           <span class="metric__sub">For {fmtPct(bar.yes)} &middot; Against {fmtPct(bar.no)} &middot; Abstain {fmtPct(bar.abstain)}</span>
+          {/* The sentiment bar's pastel palette lives in TallyBar (TONE_BAR_COLORS); do not inline colors here without it. */}
           <TallyBar bar={bar} height={7} />
         </>
       ) : <span class="metric__sub">-</span>}

@@ -204,12 +204,14 @@ const breadcrumbLd = {
           <div class="ga-toggle" role="group" aria-label="Metric">
             <a
               class={`ga-toggle__opt ${metric === 'stake' ? 'on' : ''}`}
+              aria-current={metric === 'stake' ? 'true' : undefined}
               href={ctrlHref({ metric: 'stake' })}
             >
               Stake Participation
             </a>
             <a
               class={`ga-toggle__opt ${metric === 'sentiment' ? 'on' : ''}`}
+              aria-current={metric === 'sentiment' ? 'true' : undefined}
               href={ctrlHref({ metric: 'sentiment' })}
             >
               Community Sentiment
@@ -219,6 +221,7 @@ const breadcrumbLd = {
             {GOV_SORTS.map((s) => (
               <a
                 class={`ga-sort__opt ${s.mode === sort ? 'on' : ''}`}
+                aria-current={s.mode === sort ? 'true' : undefined}
                 href={ctrlHref({ sort: s.mode })}
               >
                 {s.label}
