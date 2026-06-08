@@ -2,7 +2,7 @@
 // Non-custodial: the server never sees a private key; the wallet extension signs and submits.
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
-import { Anchor, Client, Credential, Transaction, Url, mainnet, preprod } from '@evolution-sdk/evolution';
+import { Anchor, Client, Credential, KeyHash, Transaction, Url, mainnet, preprod } from '@evolution-sdk/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -98,9 +98,17 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
 
+  // The reg_drep certificate must be witnessed by the DRep key, which controls
+  // no transaction input. EvolutionSDK only auto-counts witnesses for inputs and
+  // native scripts, so without declaring this signer the fee estimate is one
+  // vkey witness (~100 bytes, ~4400 lovelace) short and the node rejects the tx
+  // with "Insufficient fee". addSigner adds it to required_signers so the fee
+  // accounts for it (gov.tools relies on CSL doing this implicitly; Evolution
+  // requires it explicitly).
   const built = await client
     .newTx()
     .registerDRep({ drepCredential, anchor })
+    .addSigner({ keyHash: KeyHash.fromBytes(opts.drepKeyHash) })
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
     .build();
 
@@ -130,9 +138,13 @@ export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
 
+  // Like registerDRep: the unreg_drep certificate is witnessed by the DRep key
+  // (no input), so it must be declared as a required signer or the fee falls
+  // short by one vkey witness.
   const built = await client
     .newTx()
     .deregisterDRep({ drepCredential })
+    .addSigner({ keyHash: KeyHash.fromBytes(opts.drepKeyHash) })
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
     .build();
 
