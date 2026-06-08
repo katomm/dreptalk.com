@@ -9,8 +9,8 @@
     "build": "astro build",
     "preview": "astro build && wrangler dev",
     "typecheck": "astro check",
-    "test": "vitest run --workspace vitest.workspace.ts",
-    "test:watch": "vitest --workspace vitest.workspace.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "sync:dev": "wrangler dev --config workers/gov-sync/wrangler.toml --test-scheduled --persist-to .wrangler/state --var CARDANO_NETWORK:preprod --port 8787",
     "deploy": "wrangler deploy && node scripts/preprod-config.mjs && wrangler deploy -c dist/server/wrangler.preprod.json && wrangler deploy -c workers/gov-sync/wrangler.toml && wrangler deploy -c workers/gov-sync/wrangler.toml --env preprod"
   },
@@ -31,12 +31,15 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.0",
-    "@cloudflare/vitest-pool-workers": "^0.12.21",
+    "@cloudflare/vitest-pool-workers": "^0.16.13",
     "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0",
-    "wrangler": "^4.0.0"
+    "vitest": "^4.1.0",
+    "wrangler": "^4.98.0"
+  },
+  "overrides": {
+    "yaml": "^2.9.0"
   }
 }
