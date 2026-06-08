@@ -220,7 +220,16 @@ const breadcrumbLd = {
             <span>Governance Action</span>
             <span>{metric === 'stake' ? 'Stake Participation' : 'Community Sentiment'}</span>
             <span>DRep Participation</span>
-            <span>Time Left</span>
+            {/* The Time Left header doubles as a sort shortcut for Closing Soon
+               (soonest expiry first); it mirrors the Closing Soon tab's state. */}
+            <a
+              class="ga-list__sortlink"
+              href={ctrlHref({ sort: 'closing' })}
+              aria-current={sort === 'closing' ? 'true' : undefined}
+              aria-label="Sort by soonest closing"
+            >
+              Time Left{sort === 'closing' && <span class="ga-list__caret" aria-hidden="true">↑</span>}
+            </a>
           </div>
           {pageRows.map((r) => (
             <GovActionRow
@@ -366,6 +375,25 @@ const breadcrumbLd = {
     letter-spacing: 0.04em;
     color: var(--muted);
     font-weight: 600;
+  }
+  /* The Time Left header is a sort shortcut; it inherits the calm header look and
+     gets emphasized when its sort (Closing Soon) is active. */
+  .ga-list__sortlink {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.12s;
+  }
+  .ga-list__sortlink:hover {
+    color: var(--fg);
+  }
+  .ga-list__sortlink[aria-current='true'] {
+    color: var(--fg);
+  }
+  .ga-list__caret {
+    font-size: 0.9em;
   }
   /* Rows collapse to a single column below 720px, so the header would no longer
      align; hide it there. */
