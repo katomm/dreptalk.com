@@ -26,15 +26,35 @@ const moreRoles: Array<{ label: string; href?: string }> = [
 
 {user ? (
   <div class:list={['role-entry', 'role-entry--signedin', `role-entry--${layout}`]}>
-    <span class="role-entry__badge" title={`Signed in as ${roleLabels(user.roles).join(', ')}`}>
+    {/* Reuse the split-pill: the primary shows the signed-in role, the chevron
+        dropdown holds Log out (where the role list sits when signed out). */}
+    <span class="btn btn-primary role-entry__main role-entry__account" title={`Signed in as ${roleLabels(user.roles).join(', ')}`}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M20 6 9 17l-5-5" />
       </svg>
-      <span class="role-entry__role">{roleLabel(user.roles)}</span>
+      {roleLabel(user.roles)}
     </span>
-    <form method="POST" action="/api/auth/logout" class="role-entry__logout">
-      <button type="submit" class="role-entry__logout-btn">Log out</button>
-    </form>
+
+    {layout === 'split' ? (
+      <details class="role-entry__more">
+        <summary class="role-entry__toggle" aria-label="Account menu">
+          <svg class="role-entry__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </summary>
+        <div class="role-entry__menu" role="menu">
+          <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
+            <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
+          </form>
+        </div>
+      </details>
+    ) : (
+      <div class="role-entry__list" role="menu">
+        <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
+          <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
+        </form>
+      </div>
+    )}
   </div>
 ) : (
 
@@ -233,57 +253,26 @@ const moreRoles: Array<{ label: string; href?: string }> = [
     transform: rotate(180deg);
   }
 
-  /* Signed-in state: role badge + Logout. Desktop (split) is an inline row. */
-  .role-entry--split.role-entry--signedin {
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .role-entry__badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.4rem 0.7rem;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    border-radius: var(--radius);
-    white-space: nowrap;
-  }
-  .role-entry__logout {
-    display: inline-flex;
-    margin: 0;
-  }
-  .role-entry__logout-btn {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.9375rem;
-    font-weight: 500;
-    color: var(--muted);
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
-  }
-  .role-entry__logout-btn:hover {
-    color: var(--fg);
-    border-color: var(--fg);
-    background: var(--surface);
-  }
-
-  /* Signed-in on the mobile menu (flat): stack full-width. */
-  .role-entry--flat.role-entry--signedin {
+  /* Signed-in: reuse the split-pill. The account label is a non-interactive
+     primary; the chevron opens the Log out menu. */
+  .role-entry__account {
+    cursor: default;
     gap: 0.4rem;
   }
-  .role-entry--flat .role-entry__badge {
-    justify-content: center;
+  /* Log out is a <form> button rendered as a menu item; reset native button
+     chrome and let it fill the menu row (the form itself is display:contents). */
+  .role-entry__logout-form {
+    display: contents;
   }
-  .role-entry--flat .role-entry__logout,
-  .role-entry--flat .role-entry__logout-btn {
+  button.role-entry__item {
     width: 100%;
+    font: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
   }
-  .role-entry--flat .role-entry__logout-btn {
-    justify-content: center;
+  button.role-entry__item:hover {
+    background: var(--surface);
+    color: var(--accent);
   }
 </style>
