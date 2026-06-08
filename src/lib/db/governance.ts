@@ -240,6 +240,31 @@ export async function getGovernanceActionsByTopicIds(
   return map;
 }
 
+/**
+ * Terminal actions still missing their voted-power backfill. Active/pending
+ * actions get drep_voted_power from the normal tally, so they are excluded here.
+ * Bounded by `limit` so a cron tick stays within Koios/subrequest budgets.
+ */
+export async function getActionsNeedingVotedPower(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM governance_actions
+         WHERE proposal_id IS NOT NULL AND drep_voted_power IS NULL
+           AND status NOT IN ('active', 'pending')
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/** Surgically sets only drep_voted_power for one action (leaves status/tally untouched). */
+export async function updateVotedPower(db: D1Database, id: string, votedPower: number): Promise<void> {
+  await db.prepare('UPDATE governance_actions SET drep_voted_power = ? WHERE id = ?').bind(votedPower, id).run();
+}
+
 // The tally + pct + epoch fields a sync writes: a subset of GovernanceAction, so
 // the field list lives in exactly one place (no drift with tallyFields()).
 export type GovernanceTally = Pick<

@@ -10,6 +10,8 @@ import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/c
 import {
   getSyncableGovernanceActions,
   updateGovernanceTallyAndStatus,
+  getActionsNeedingVotedPower,
+  updateVotedPower,
   type GovernanceAction,
   type GovernanceTally,
 } from '../db/governance.js';
@@ -148,6 +150,45 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
   }
 
   return { active: active.length, updated, frozen, failed };
+}
+
+export interface VotedPowerBackfillResult {
+  scanned: number;
+  updated: number;
+  failed: number;
+}
+
+export interface VotedPowerBackfillDeps {
+  koios: { proposalVotingSummary(proposalId: string): Promise<VotingSummary | null> };
+  db: D1Database;
+  /** Max actions to backfill this run (bounds Koios calls per cron tick). */
+  limit: number;
+}
+
+/**
+ * One-time, self-limiting backfill: fills drep_voted_power for terminal actions
+ * that predate the column, by re-reading only the Koios voting summary (no status
+ * change). Once an action is filled it drops out of the candidate set.
+ */
+export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<VotedPowerBackfillResult> {
+  const { koios, db, limit } = deps;
+  const candidates = await getActionsNeedingVotedPower(db, limit);
+  let updated = 0;
+  let failed = 0;
+  for (const ga of candidates) {
+    if (!ga.proposalId) continue;
+    try {
+      const summary = await koios.proposalVotingSummary(ga.proposalId);
+      const vp = votedPower(summary);
+      if (vp != null) {
+        await updateVotedPower(db, ga.id, vp);
+        updated++;
+      }
+    } catch {
+      failed++;
+    }
+  }
+  return { scanned: candidates.length, updated, failed };
 }
 
 export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncResult> {

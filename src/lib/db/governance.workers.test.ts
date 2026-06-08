@@ -9,6 +9,8 @@ import {
   getAllGovernanceActions,
   getGovernanceActionsByTopicIds,
   updateGovernanceTallyAndStatus,
+  getActionsNeedingVotedPower,
+  updateVotedPower,
   type NewGovernanceAction,
 } from './governance.js';
 
@@ -130,5 +132,110 @@ describe('getGovernanceActionsByTopicIds', () => {
   it('returns an empty map for empty input', async () => {
     const map = await getGovernanceActionsByTopicIds(db(), []);
     expect(map.size).toBe(0);
+  });
+});
+
+describe('getActionsNeedingVotedPower', () => {
+  it('returns only terminal actions with proposal_id and null drep_voted_power', async () => {
+    // Terminal action with null power: should be returned.
+    const terminal = await insertAction();
+    await updateGovernanceTallyAndStatus(db(), {
+      id: terminal.id,
+      status: 'expired',
+      drepYes: 3, drepNo: 1, drepAbstain: 0,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: null,
+      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+    });
+
+    // Active action: excluded (active/pending are handled by normal tally).
+    const active = await insertAction();
+
+    // Terminal but already filled: excluded.
+    const filled = await insertAction();
+    await updateGovernanceTallyAndStatus(db(), {
+      id: filled.id,
+      status: 'enacted',
+      drepYes: 2, drepNo: 0, drepAbstain: 0,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: 999_000_000,
+      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+    });
+
+    const candidates = await getActionsNeedingVotedPower(db(), 10);
+    const ids = candidates.map((c) => c.id);
+    expect(ids).toContain(terminal.id);
+    expect(ids).not.toContain(active.id);
+    expect(ids).not.toContain(filled.id);
+  });
+
+  it('respects the limit parameter', async () => {
+    // Insert two terminal actions with null power.
+    const t1 = await insertAction();
+    const t2 = await insertAction();
+    for (const id of [t1.id, t2.id]) {
+      await updateGovernanceTallyAndStatus(db(), {
+        id,
+        status: 'dropped',
+        drepYes: null, drepNo: null, drepAbstain: null,
+        spoYes: null, spoNo: null, spoAbstain: null,
+        ccYes: null, ccNo: null, ccAbstain: null,
+        drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+        ccYesPct: null, ccNoPct: null,
+        drepVotedPower: null,
+        tallyEpoch: 296, decidedEpoch: 296, tallySyncedAt: NOW, now: NOW,
+      });
+    }
+    const one = await getActionsNeedingVotedPower(db(), 1);
+    expect(one.length).toBe(1);
+  });
+
+  it('excludes actions without a proposal_id', async () => {
+    const noPid = await insertAction({ proposalId: null });
+    await updateGovernanceTallyAndStatus(db(), {
+      id: noPid.id,
+      status: 'expired',
+      drepYes: null, drepNo: null, drepAbstain: null,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: null,
+      tallyEpoch: 296, decidedEpoch: 296, tallySyncedAt: NOW, now: NOW,
+    });
+    const candidates = await getActionsNeedingVotedPower(db(), 10);
+    expect(candidates.map((c) => c.id)).not.toContain(noPid.id);
+  });
+});
+
+describe('updateVotedPower', () => {
+  it('sets drep_voted_power without touching status', async () => {
+    const a = await insertAction();
+    await updateGovernanceTallyAndStatus(db(), {
+      id: a.id,
+      status: 'ratified',
+      drepYes: 4, drepNo: 0, drepAbstain: 0,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: null,
+      tallyEpoch: 297, decidedEpoch: 297, tallySyncedAt: NOW, now: NOW,
+    });
+
+    await updateVotedPower(db(), a.id, 5_000_000_000);
+
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.drepVotedPower).toBe(5_000_000_000);
+    // Status must not have been touched.
+    expect(got!.status).toBe('ratified');
+    // Other tally fields must be unchanged.
+    expect(got!.drepYes).toBe(4);
   });
 });
