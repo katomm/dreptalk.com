@@ -1,5 +1,14 @@
 ---
-import { statusBadge, epochCountdown, fmtPct, tallyBar, readableType } from '@/lib/governance/view.js';
+import {
+  statusBadge,
+  epochDaysLeft,
+  fmtPct,
+  tallyBar,
+  readableType,
+  formatEpochDate,
+  govTypeTone,
+} from '@/lib/governance/view.js';
+import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { Topic } from '@/lib/db/forum.js';
 import type { StakeParticipation } from '@/lib/governance/view.js';
@@ -10,84 +19,141 @@ interface Props {
   action: GovernanceAction;
   proposer?: string;       // resolved display name or truncated address
   stake: StakeParticipation | null;
+  network: CardanoNetwork;
   href: string;
 }
-const { topic, action, proposer, stake, href } = Astro.props;
+const { topic, action, proposer, stake, network, href } = Astro.props;
 const badge = statusBadge(action.status);
+const typeTone = govTypeTone(action.type);
 const bar = tallyBar(action.drepYesPct, action.drepNoPct);
 const drepsVoted = (action.drepYes ?? 0) + (action.drepNo ?? 0) + (action.drepAbstain ?? 0);
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
-const countdown = epochCountdown(action.expiryEpoch, action.tallyEpoch);
+const daysLeft = epochDaysLeft(action.expiryEpoch, action.tallyEpoch);
+// Calendar date of the expiry epoch boundary (when voting closes). Only shown
+// while voting is still open; once past, the status badge carries the outcome.
+const votingEnds =
+  daysLeft != null && action.expiryEpoch != null
+    ? formatEpochDate(epochStartUnix(action.expiryEpoch, resolveNetwork(network)))
+    : null;
 ---
 <a class="garow" href={href}>
   <div class="garow__main">
+    <span class="pill" style={`--ph:var(--gov-${typeTone})`}>{readableType(action.type)}</span>
     <p class="garow__title">{action.title ?? topic.title}
       <span class={`badge badge--${badge.tone}`}>{badge.label}</span></p>
     {action.abstract && <p class="garow__desc">{action.abstract}</p>}
-    <p class="garow__meta">{proposer ?? 'Unknown'} &middot; {readableType(action.type)}{action.submittedEpoch != null && <> &middot; Epoch {action.submittedEpoch}</>}</p>
+    <p class="garow__meta">{proposer ?? 'Unknown'}{action.submittedEpoch != null && <> &middot; Epoch {action.submittedEpoch}</>}</p>
   </div>
 
-  <div class="garow__metric">
-    <!-- Stake participation (shown when the page toggle is in stake mode) -->
-    <div class="metric metric--stake">
-      {stake ? (
-        <>
-          <span class="metric__pct">{fmtPct(stake.pct)}</span>
-          <span class="metric__sub">{stake.votedLabel} of {stake.totalLabel}</span>
-          <div class="track" aria-hidden="true"><span class="fill" style={`width:${stake.pct}%;background:var(--accent)`}></span></div>
-        </>
-      ) : <span class="metric__sub">-</span>}
-    </div>
-    <!-- Community sentiment (shown when the page toggle is in sentiment mode) -->
-    <div class="metric metric--sentiment">
-      {bar ? (
-        <>
-          <span class="metric__sub">For {fmtPct(bar.yes)} &middot; Against {fmtPct(bar.no)} &middot; Abstain {fmtPct(bar.abstain)}</span>
-          {/* The sentiment bar's pastel palette lives in TallyBar (TONE_BAR_COLORS); do not inline colors here without it. */}
-          <TallyBar bar={bar} height={7} />
-        </>
-      ) : <span class="metric__sub">-</span>}
-    </div>
+  <!-- Stake participation. On wide screens it sits beside sentiment; below the
+       layout breakpoint only the metric chosen by the page toggle is shown. -->
+  <div class="metric garow__metric--stake">
+    {stake ? (
+      <>
+        <span class="metric__pct">{fmtPct(stake.pct)}</span>
+        <span class="metric__sub">{stake.votedLabel} of {stake.totalLabel}</span>
+        <span class="metric__cap">voting stake represented</span>
+        <div class="track" aria-hidden="true"><span class="fill" style={`width:${stake.pct}%;background:var(--accent)`}></span></div>
+      </>
+    ) : <span class="metric__sub">-</span>}
   </div>
 
-  <div class="garow__dreps">
-    <span class="garow__strong">{drepsVoted} DReps</span>
-    <span class="garow__sub">{comments} comments</span>
+  <!-- Community sentiment, led by the share in support. -->
+  <div class="metric garow__metric--sentiment">
+    {bar ? (
+      <>
+        <span class="metric__pct">{fmtPct(bar.yes)} <span class="metric__pctword">support</span></span>
+        <span class="metric__sub">{fmtPct(bar.no)} against &middot; {fmtPct(bar.abstain)} abstain</span>
+        {/* The sentiment bar's pastel palette lives in TallyBar (TONE_BAR_COLORS); do not inline colors here without it. */}
+        <TallyBar bar={bar} height={7} />
+      </>
+    ) : <span class="metric__sub">-</span>}
   </div>
+
+  <div class="garow__activity">
+    <span class="garow__actline">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span class="garow__strong">{drepsVoted} DReps</span>
+    </span>
+    <span class="garow__sub garow__actcap">participating</span>
+    <span class="garow__actline">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      <span class="garow__sub">{comments} comments</span>
+    </span>
+  </div>
+
   <div class="garow__time">
-    {countdown ? <span class="garow__strong garow__accent">{countdown}</span> : <span class="garow__sub">{badge.label}</span>}
+    <div class="garow__timebody">
+      {daysLeft != null ? (
+        <>
+          <span class="garow__timehead">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span class="garow__strong garow__accent">~{daysLeft} days left</span>
+          </span>
+          {votingEnds && <span class="garow__sub">Voting ends {votingEnds}</span>}
+          {action.expiryEpoch != null && <span class="garow__sub">(Epoch {action.expiryEpoch})</span>}
+        </>
+      ) : <span class="garow__sub">{badge.label}</span>}
+    </div>
+    <svg class="garow__chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
   </div>
 </a>
 
 <style>
-  .garow { display:grid; grid-template-columns:2.6fr 1.6fr 1.1fr 1.3fr; gap:18px; align-items:center;
+  /* Five columns on wide screens: action, stake, sentiment, activity, time.
+     The header grid in c/[slug].astro mirrors this at every breakpoint. */
+  .garow { display:grid; grid-template-columns:2.2fr 1.2fr 1.3fr 0.95fr 1.35fr; gap:18px; align-items:start;
     padding:16px 18px; border-bottom:1px solid var(--border); text-decoration:none; color:var(--fg); }
   .garow:hover { background:var(--surface); }
   /* Let the cell shrink below its content width so the abstract truncates with an
      ellipsis instead of stretching the row into one endless line. */
   .garow__main { min-width:0; }
+  .pill { display:inline-block; font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
+    padding:3px 8px; border-radius:999px; margin:0 0 6px;
+    background:color-mix(in srgb, var(--ph) 14%, transparent); color:var(--ph); }
   .garow__title { font-weight:700; font-size:0.95rem; margin:0 0 3px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .garow__desc { color:var(--muted); font-size:0.8rem; margin:0 0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .garow__meta { color:var(--muted); font-size:0.75rem; margin:0; }
-  .metric__pct { font-weight:700; font-size:1rem; }
+
+  .metric { min-width:0; }
+  .metric__pct { font-weight:700; font-size:1.05rem; display:block; margin:0 0 2px; }
+  /* Turnout is neutral; the share in support reuses the positive tally tone. */
+  .garow__metric--sentiment .metric__pct { color:var(--c-pos); }
+  .metric__pctword { font-weight:600; font-size:0.8rem; color:var(--muted); }
   .metric__sub { color:var(--muted); font-size:0.72rem; display:block; }
+  .metric__cap { color:var(--muted); font-size:0.7rem; display:block; margin-top:1px; }
   .track { display:flex; height:7px; border-radius:999px; overflow:hidden; background:var(--border); margin-top:6px; }
   .fill { height:100%; }
-  .garow__strong { font-weight:600; font-size:0.85rem; display:block; }
-  .garow__sub { color:var(--muted); font-size:0.75rem; display:block; }
+
+  .garow__activity { display:flex; flex-direction:column; gap:3px; }
+  .garow__actline { display:inline-flex; align-items:center; gap:6px; }
+  .garow__actline svg { color:var(--muted); }
+  .garow__actcap { margin-left:20px; }
+  .garow__strong { font-weight:600; font-size:0.85rem; }
+  .garow__sub { color:var(--muted); font-size:0.75rem; }
+
+  .garow__time { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .garow__timebody { display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .garow__timehead { display:inline-flex; align-items:center; gap:6px; }
+  .garow__timehead svg { color:var(--accent); }
   .garow__accent { color:var(--accent); }
+  .garow__chevron { color:var(--muted); flex:none; }
+
   .badge { font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; padding:2px 7px; border-radius:999px; }
   .badge--active { background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); }
   .badge--positive { background:color-mix(in srgb, var(--c-pos) 14%, transparent); color:var(--c-pos); }
   .badge--neutral { background:var(--surface-2); color:var(--muted); }
   .badge--negative { background:color-mix(in srgb, var(--c-neg) 14%, transparent); color:var(--c-neg); }
-  /* The metric column shows one block at a time. Stake is the default; the page
-     sets data-metric='sentiment' on the list container to switch. The default
-     lives on the element itself: a bare :not([data-metric]) ancestor selector
-     would always match (e.g. body has no data-metric) and hide sentiment always. */
-  .metric--sentiment { display:none; }
-  :global([data-metric='sentiment']) .metric--stake { display:none; }
-  :global([data-metric='sentiment']) .metric--sentiment { display:block; }
+
+  /* Below the wide breakpoint there is no room for both metrics, so we fall back
+     to four columns and show only the one the page toggle selects (data-metric
+     on an ancestor). Stake is the default; sentiment swaps in. */
+  @media (max-width:1000px) {
+    .garow { grid-template-columns:2.6fr 1.6fr 1.1fr 1.3fr; }
+    .garow__metric--sentiment { display:none; }
+    :global([data-metric='sentiment']) .garow__metric--stake { display:none; }
+    :global([data-metric='sentiment']) .garow__metric--sentiment { display:block; }
+  }
   @media (max-width:720px) {
     .garow { grid-template-columns:1fr; gap:8px; }
   }

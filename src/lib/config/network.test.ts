@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveNetwork, txExplorerUrl, governanceActionUrl } from './network';
+import { resolveNetwork, txExplorerUrl, governanceActionUrl, epochStartUnix } from './network';
 
 describe('explorer links (neutral cardano-foundation landing)', () => {
   it('links a governance action with no network param on mainnet', () => {
@@ -53,5 +53,21 @@ describe('resolveNetwork', () => {
 
   it('throws on an unknown explicit value', () => {
     expect(() => resolveNetwork('testnet')).toThrow(/invalid CARDANO_NETWORK/i);
+  });
+});
+
+describe('epochStartUnix', () => {
+  it('returns the mainnet Shelley anchor at its anchor epoch', () => {
+    // mainnet epoch 208 boundary = 2020-07-29T21:44:51Z = unix 1596059091.
+    expect(epochStartUnix(208, resolveNetwork('mainnet'))).toBe(1596059091);
+  });
+  it('advances 5 days (432000s) per epoch on mainnet', () => {
+    expect(epochStartUnix(209, resolveNetwork('mainnet'))).toBe(1596059091 + 432000);
+    expect(epochStartUnix(206, resolveNetwork('mainnet'))).toBe(1596059091 - 2 * 432000);
+  });
+  it('uses the preprod genesis anchor at epoch 0', () => {
+    // preprod system start = 2022-06-21T00:00:00Z = unix 1655769600.
+    expect(epochStartUnix(0, resolveNetwork('preprod'))).toBe(1655769600);
+    expect(epochStartUnix(2, resolveNetwork('preprod'))).toBe(1655769600 + 2 * 432000);
   });
 });

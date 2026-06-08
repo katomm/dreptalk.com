@@ -57,10 +57,20 @@ export function statusBadge(status: string): StatusBadge {
  * (the status badge then carries the outcome).
  */
 export function epochCountdown(expiryEpoch: number | null, currentEpoch: number | null): string | null {
+  const days = epochDaysLeft(expiryEpoch, currentEpoch);
+  if (days == null) return null;
+  return `~${days} days left (epoch ${expiryEpoch})`;
+}
+
+/**
+ * Whole days until an action's expiry epoch, against the epoch at the last tally
+ * sync. Null when unknown or already past. The bare number powers the list row's
+ * "~N days left" headline (the date and epoch are shown separately there).
+ */
+export function epochDaysLeft(expiryEpoch: number | null, currentEpoch: number | null): number | null {
   if (expiryEpoch == null || currentEpoch == null) return null;
   if (expiryEpoch <= currentEpoch) return null;
-  const days = (expiryEpoch - currentEpoch) * EPOCH_DAYS;
-  return `~${days} days left (epoch ${expiryEpoch})`;
+  return (expiryEpoch - currentEpoch) * EPOCH_DAYS;
 }
 
 export interface TallyBar {
@@ -111,6 +121,46 @@ export const TONE_BAR_COLORS = {
   negative: '#e07d75',
   neutral: 'var(--muted)',
 } as const;
+
+// One formatter, reused everywhere, so epoch dates read identically in the list
+// row and the thread header. UTC keeps it deterministic (no server-timezone
+// drift); epoch boundaries are themselves defined in UTC.
+const EPOCH_DATE_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+/** "Jul 29, 2020" from a unix-seconds timestamp (see network.ts epochStartUnix). */
+export function formatEpochDate(unixSeconds: number): string {
+  return EPOCH_DATE_FMT.format(new Date(unixSeconds * 1000));
+}
+
+// Color tone per governance action type, for the pastel category pill on list
+// rows. Matched on a normalized (lowercase, despaced) form so it survives both
+// the raw on-chain type ("TreasuryWithdrawals") and a readable one.
+export type GovTypeTone =
+  | 'constitution'
+  | 'treasury'
+  | 'parameter'
+  | 'info'
+  | 'hardfork'
+  | 'committee'
+  | 'noconfidence'
+  | 'other';
+
+export function govTypeTone(type: string): GovTypeTone {
+  const t = type.toLowerCase().replace(/[^a-z]/g, '');
+  if (t.includes('constitution')) return 'constitution';
+  if (t.includes('treasury')) return 'treasury';
+  if (t.includes('parameter')) return 'parameter';
+  if (t.includes('info')) return 'info';
+  if (t.includes('hardfork')) return 'hardfork';
+  if (t.includes('committee')) return 'committee';
+  if (t.includes('confidence')) return 'noconfidence';
+  return 'other';
+}
 
 /** Formats a tally percentage: two decimals for tiny non-zero values, else whole. */
 export function fmtPct(n: number): string {

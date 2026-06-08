@@ -21,10 +21,13 @@ import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { stakeParticipation, type StakeParticipation } from '@/lib/governance/view.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { currentNetwork } from '@/lib/api/response.js';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
 const category = slug ? getCategory(slug) : undefined;
+// Active network, passed to each row so it can turn an expiry epoch into a date.
+const network = currentNetwork().network;
 
 const notFound = !category;
 if (notFound) {
@@ -217,10 +220,14 @@ const breadcrumbLd = {
         <p style="color:var(--muted);">No governance actions in this view.</p>
       ) : (
         <>
-        <div class="ga-list" data-metric={metric}>
+        {/* data-metric drives which single metric shows below the wide breakpoint
+           (for both the rows and the staleness notes); it is inert when wide. */}
+        <div class="ga-wrap" data-metric={metric}>
+        <div class="ga-list">
           <div class="ga-list__head">
             <span>Governance Action</span>
-            <span>{metric === 'stake' ? 'Participation' : 'Sentiment'}</span>
+            <span class="ga-head__metric ga-head__metric--stake">Participation</span>
+            <span class="ga-head__metric ga-head__metric--sentiment">Sentiment</span>
             <span>Activity</span>
             {/* The Time Left header doubles as a sort shortcut for Closing Soon
                (soonest expiry first); it mirrors the Closing Soon tab's state. */}
@@ -239,18 +246,21 @@ const breadcrumbLd = {
               action={r.action}
               proposer={identities ? identities.describe(r.topic.author_id).displayName : undefined}
               stake={stakeByTopic.get(r.topic.id) ?? null}
+              network={network}
               href={`/t/${r.topic.slug}`}
             />
           ))}
         </div>
-        {/* Disclose how stale the cached on-chain numbers are, per active metric.
-           Same formatter and phrasing as the GA thread header; never claimed live. */}
-        {metric === 'stake' && stakeAsOf != null && (
-          <p class="ga-asof">Stake data as of {formatRelativeTime(stakeAsOf, now)}. Cached, not live.</p>
+        {/* Disclose how stale the cached on-chain numbers are. Both notes render
+           when wide (both metrics visible); narrow screens hide the inactive one
+           via data-metric. Same formatter/phrasing as the GA thread header. */}
+        {stakeAsOf != null && (
+          <p class="ga-asof ga-asof--stake">Stake data as of {formatRelativeTime(stakeAsOf, now)}. Cached, not live.</p>
         )}
-        {metric === 'sentiment' && tallyAsOf != null && (
-          <p class="ga-asof">Tallies as of {formatRelativeTime(tallyAsOf, now)}. Cached, not live.</p>
+        {tallyAsOf != null && (
+          <p class="ga-asof ga-asof--sentiment">Tallies as of {formatRelativeTime(tallyAsOf, now)}. Cached, not live.</p>
         )}
+        </div>
         </>
       )
     ) : topics.length === 0 ? (
@@ -368,7 +378,7 @@ const breadcrumbLd = {
   }
   .ga-list__head {
     display: grid;
-    grid-template-columns: 2.6fr 1.6fr 1.1fr 1.3fr;
+    grid-template-columns: 2.2fr 1.2fr 1.3fr 0.95fr 1.35fr;
     gap: 18px;
     padding: 10px 18px;
     border-bottom: 1px solid var(--border);
@@ -397,6 +407,36 @@ const breadcrumbLd = {
   .ga-list__caret {
     font-size: 0.9em;
   }
+  /* Wide screens show both metric columns, so the toggle (which only chooses one)
+     is redundant; the rows show both regardless. It returns below the breakpoint. */
+  @media (min-width: 1001px) {
+    .ga-controls__right {
+      display: none;
+    }
+  }
+
+  /* Below the wide breakpoint the header drops to four columns and shows only the
+     metric the toggle selects, mirroring the rows (data-metric on .ga-wrap). */
+  @media (max-width: 1000px) {
+    .ga-list__head {
+      grid-template-columns: 2.6fr 1.6fr 1.1fr 1.3fr;
+    }
+    /* Header label and staleness note share the toggle: stake shows by default,
+       sentiment swaps in. Grouped so the two targets never drift apart. */
+    .ga-head__metric--sentiment,
+    .ga-asof--sentiment {
+      display: none;
+    }
+    [data-metric='sentiment'] .ga-head__metric--stake,
+    [data-metric='sentiment'] .ga-asof--stake {
+      display: none;
+    }
+    [data-metric='sentiment'] .ga-head__metric--sentiment,
+    [data-metric='sentiment'] .ga-asof--sentiment {
+      display: block;
+    }
+  }
+
   /* Rows collapse to a single column below 720px, so the header would no longer
      align; hide it there. */
   @media (max-width: 720px) {
