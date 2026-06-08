@@ -219,6 +219,32 @@ export async function getSyncableGovernanceActions(db: D1Database): Promise<Gove
 }
 
 /**
+ * Returns syncable actions ordered for incremental, budget-bounded tallying:
+ * never-synced rows first (tally_synced_at NULL), then the least-recently-synced,
+ * capped by `limit`. The tally sync uses this instead of the unordered set so a
+ * run always makes forward progress on the backlog. Koios's proposal_voting_summary
+ * is a heavy aggregation that returns 504/timeout under a large burst, so a run
+ * must stay small and prioritise what has never been synced; otherwise the same
+ * front rows are re-synced every run and never-synced ones at the tail starve.
+ */
+export async function getStaleSyncableActions(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        // `tally_synced_at IS NOT NULL` sorts NULL (never-synced) first; then
+        // oldest tally first; expiry breaks ties deterministically.
+        `SELECT * FROM governance_actions
+         WHERE status IN ('active', 'pending')
+         ORDER BY tally_synced_at IS NOT NULL, tally_synced_at ASC, expiry_epoch ASC
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/**
  * Returns every governance action. The table holds one row per on-chain action
  * (low hundreds), so this is a single param-less query, used by the sorted
  * governance-actions list (which would otherwise exceed D1's bound-parameter cap

@@ -9,6 +9,7 @@
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
 import {
   getSyncableGovernanceActions,
+  getStaleSyncableActions,
   updateGovernanceTallyAndStatus,
   getActionsNeedingVotedPower,
   updateVotedPower,
@@ -16,6 +17,11 @@ import {
   type GovernanceTally,
 } from '../db/governance.js';
 import { upsertVotes, type VoteInput } from '../db/drepVotes.js';
+
+// Max actions a single tally run processes when the caller does not specify one.
+// Koios's proposal_voting_summary 504s/times-out under a large burst, so a run
+// stays small and stale-first ordering drains the backlog over several runs.
+const DEFAULT_TALLY_LIMIT = 25;
 
 export interface TallySyncResult {
   active: number;
@@ -38,6 +44,10 @@ export interface TallySyncDeps {
   db: D1Database;
   currentEpoch: number | null;
   now: number;
+  /** Max actions to tally this run. Bounds the Koios burst; defaults to DEFAULT_TALLY_LIMIT. */
+  limit?: number;
+  /** Delay between per-action Koios calls (ms) so a run does not burst Koios. Default 0. */
+  paceMs?: number;
 }
 
 export interface VoteSyncDeps {
@@ -108,9 +118,11 @@ function tallyFields(s: VotingSummary | null): GovernanceTally {
 }
 
 export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallySyncResult> {
-  const { koios, db, currentEpoch, now } = deps;
+  const { koios, db, currentEpoch, now, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
 
-  const active = await getSyncableGovernanceActions(db);
+  // Stale-first + capped: never-synced actions go first, so the backlog drains
+  // over several runs instead of the same front rows being re-synced each time.
+  const active = await getStaleSyncableActions(db, limit);
   if (active.length === 0) return { active: 0, updated: 0, frozen: 0, failed: 0 };
 
   // One proposal_list read gives lifecycle epochs for every action this cycle.
@@ -123,7 +135,10 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
   let frozen = 0;
   let failed = 0;
 
-  for (const ga of active) {
+  for (const [i, ga] of active.entries()) {
+    // Space out the Koios calls so a run does not hammer proposal_voting_summary
+    // (a heavy aggregation that 504s under a burst). No delay before the first.
+    if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     try {
       const life = lifecycle.get(ga.id);
       const status = deriveStatus(life, ga, currentEpoch);
@@ -146,8 +161,11 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
 
       updated++;
       if (status !== 'active') frozen++;
-    } catch {
+    } catch (err) {
+      // Isolated per-action failure (commonly a Koios 504/timeout). Log it instead
+      // of swallowing silently, so a recurring failure is visible in the cron logs.
       failed++;
+      console.warn(`[gov-tally] action ${ga.id} failed:`, err);
     }
   }
 
@@ -186,8 +204,9 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
         await updateVotedPower(db, ga.id, vp);
         updated++;
       }
-    } catch {
+    } catch (err) {
       failed++;
+      console.warn(`[gov-backfill] action ${ga.id} failed:`, err);
     }
   }
   return { scanned: candidates.length, updated, failed };
@@ -214,8 +233,9 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
         if (page.length < VOTES_PAGE) break;
       }
       votes += await upsertVotes(db, ga.id, collected, now);
-    } catch {
+    } catch (err) {
       failed++;
+      console.warn(`[gov-votes] action ${ga.id} failed:`, err);
     }
   }
 

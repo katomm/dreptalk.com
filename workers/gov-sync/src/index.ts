@@ -32,9 +32,22 @@ function randSuffix(): string {
 /** Resolves the network and a Koios client from env bindings. Shared by all paths. */
 function buildKoios(env: Env) {
   const { network, koiosBaseUrl } = resolveNetwork(env.CARDANO_NETWORK ?? null);
-  const koios = createKoiosClient({ baseUrl: koiosBaseUrl, token: env.KOIOS_API_KEY || undefined });
+  // Retry transient Koios failures: proposal_voting_summary 504s/times-out under
+  // load, and a dropped call silently leaves an action unsynced.
+  const koios = createKoiosClient({
+    baseUrl: koiosBaseUrl,
+    token: env.KOIOS_API_KEY || undefined,
+    retries: 2,
+    retryDelayMs: 300,
+  });
   return { koios, network };
 }
+
+// Per-run tally budget: Koios cannot serve a summary call for every syncable
+// action in one burst, so each run tallies at most this many (stale-first), paced
+// apart, and the backlog drains over a few runs.
+const TALLY_LIMIT = 15;
+const TALLY_PACE_MS = 200;
 
 // Discover new actions, then refresh tallies + lifecycle for active actions.
 async function runGovernanceSync(env: Env): Promise<void> {
@@ -48,7 +61,14 @@ async function runGovernanceSync(env: Env): Promise<void> {
   ]);
   console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
 
-  const tally = await syncGovernanceTallies({ koios, db: env.DB, currentEpoch: tip.epoch_no, now });
+  const tally = await syncGovernanceTallies({
+    koios,
+    db: env.DB,
+    currentEpoch: tip.epoch_no,
+    now,
+    limit: TALLY_LIMIT,
+    paceMs: TALLY_PACE_MS,
+  });
   console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
 
   const backfill = await backfillVotedPower({ koios, db: env.DB, limit: 25 });

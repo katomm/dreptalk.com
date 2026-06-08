@@ -76,6 +76,66 @@ describe('createKoiosClient.tip', () => {
   });
 });
 
+describe('createKoiosClient retry', () => {
+  it('retries a transient 5xx then succeeds', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({}, 503))
+      .mockResolvedValueOnce(jsonResponse([{ epoch_no: 7, block_no: 8, abs_slot: 9 }]));
+    const client = createKoiosClient({
+      baseUrl: 'https://api.koios.rest/api/v1', fetchImpl, retries: 2, retryDelayMs: 0,
+    });
+
+    const tip = await client.tip();
+
+    expect(tip.epoch_no).toBe(7);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a network/timeout error then succeeds', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockResolvedValueOnce(jsonResponse([{ epoch_no: 1, block_no: 1, abs_slot: 1 }]));
+    const client = createKoiosClient({
+      baseUrl: 'https://api.koios.rest/api/v1', fetchImpl, retries: 1, retryDelayMs: 0,
+    });
+
+    const tip = await client.tip();
+
+    expect(tip.epoch_no).toBe(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT retry a 4xx client error', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 400));
+    const client = createKoiosClient({
+      baseUrl: 'https://api.koios.rest/api/v1', fetchImpl, retries: 3, retryDelayMs: 0,
+    });
+
+    await expect(client.tip()).rejects.toThrow(/koios request failed: 400/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after exhausting retries on a persistent 504', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 504));
+    const client = createKoiosClient({
+      baseUrl: 'https://api.koios.rest/api/v1', fetchImpl, retries: 2, retryDelayMs: 0,
+    });
+
+    await expect(client.tip()).rejects.toThrow(/koios request failed: 504/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(3); // 1 initial + 2 retries
+  });
+
+  it('does not retry by default (retries: 0)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    await expect(client.tip()).rejects.toThrow(/koios request failed: 503/i);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
 // --- drepInfo ---
 
 const DREP_ID = 'drep1ygfpzwl3u0r7e5dm6z7gz8afyw60rv5lnmtgcnw4nnrrzrdmytsk';

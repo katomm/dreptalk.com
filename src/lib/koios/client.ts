@@ -5,6 +5,10 @@ export interface KoiosClientOptions {
   token?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** Retry transient failures (5xx / 429 / network / timeout) this many times. Default 0. */
+  retries?: number;
+  /** Base delay between retries in ms, scaled linearly by attempt. Default 300. */
+  retryDelayMs?: number;
 }
 
 /** Error for any non-2xx Koios response; carries the HTTP status for callers. */
@@ -215,7 +219,18 @@ export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
 
-  async function request(
+  const retries = opts.retries ?? 0;
+  const retryDelayMs = opts.retryDelayMs ?? 300;
+
+  // A failure is worth retrying only when it is transient: a 5xx/429 from Koios,
+  // or a network/timeout error (which surfaces as a non-KoiosHttpError). Client
+  // errors (4xx) would fail identically on retry, so they are not retried.
+  function isTransient(err: unknown): boolean {
+    if (err instanceof KoiosHttpError) return err.status >= 500 || err.status === 429;
+    return true;
+  }
+
+  async function attempt(
     path: string,
     init: { method: string; headers?: Record<string, string>; body?: string },
   ): Promise<unknown> {
@@ -239,6 +254,24 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return await res.json();
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  // Retries transient failures with a linear backoff. Koios's proposal_voting_summary
+  // is a heavy aggregation that returns 504/timeout under a burst of requests, so the
+  // gov-sync cron opts into a couple of retries; the interactive auth flow leaves
+  // retries at 0 (fail fast).
+  async function request(
+    path: string,
+    init: { method: string; headers?: Record<string, string>; body?: string },
+  ): Promise<unknown> {
+    for (let i = 0; ; i++) {
+      try {
+        return await attempt(path, init);
+      } catch (err) {
+        if (i >= retries || !isTransient(err)) throw err;
+        if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (i + 1)));
+      }
     }
   }
 
