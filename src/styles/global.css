@@ -28,6 +28,9 @@
   /* Brand */
   --accent: #6d28d9;
   --accent-fg: #ffffff;
+  /* Text on a solid --accent fill (segmented controls, etc). White on the
+     dark-purple light accent is ~6.8:1, well past WCAG AA. */
+  --on-accent: #ffffff;
   --accent-hover: #5b21b6;
   --grad: linear-gradient(120deg, #8b5cf6 0%, #3b82f6 50%, #2dd4bf 100%);
 
@@ -61,6 +64,9 @@ html[data-theme='dark'] {
 
   --accent: #a78bfa;
   --accent-fg: #14101c;
+  /* Deep violet-black on the light-lavender dark accent is ~6.9:1; white here
+     would be only ~2:1 and fail AA. */
+  --on-accent: #14101c;
   --accent-hover: #b9a3fb;
   /* Same hues, slightly lifted for legibility on the deep violet-black bg. */
   --grad: linear-gradient(120deg, #a78bfa 0%, #60a5fa 50%, #5eead4 100%);
