@@ -16,6 +16,22 @@ export default defineConfig({
     sessionKVBindingName: 'SESSIONS',
   }),
   integrations: [react()],
+  vite: {
+    // Pin React to a single instance. Astro's React islands load the renderer's
+    // React through Vite's optimized deps (the ?v= query), while a component's
+    // own `import { useState } from 'react'` can resolve to a second,
+    // non-optimized copy when Vite re-optimizes mid-session (e.g. after editing
+    // source files during `npm run dev`). Two React copies means an island's
+    // useState reads a null dispatcher and the island crashes on hydration
+    // ("Cannot read properties of null (reading 'useState')"), so it silently
+    // disappears. dedupe forces one copy; optimizeDeps.include keeps React
+    // pre-bundled consistently so renderer and islands share it. The production
+    // build is unaffected (Rollup already bundles a single React).
+    resolve: { dedupe: ['react', 'react-dom'] },
+    optimizeDeps: {
+      include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+    },
+  },
   security: {
     // Content Security Policy for SSR responses. With the Cloudflare adapter,
     // Astro emits the policy as a real Content-Security-Policy response header
