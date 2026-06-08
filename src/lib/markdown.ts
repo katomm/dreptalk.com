@@ -21,6 +21,8 @@ import { FilterXSS } from 'xss';
 
 // Strict allowlist: structural/text tags only, no presentational attributes.
 // Attributes not listed are stripped automatically by the sanitizer.
+// GFM table tags (table, thead, tbody, tr, th, td) are included so that
+// tables in CIP-108 rationale markdown render correctly.
 const ALLOWED_TAGS: Record<string, string[]> = {
   p: [],
   br: [],
@@ -41,6 +43,13 @@ const ALLOWED_TAGS: Record<string, string[]> = {
   // target, name, class, id, style, on* are all omitted and therefore stripped.
   a: ['href', 'rel'],
   hr: [],
+  // GFM tables: no attributes allowed (marked emits align as style= which we strip).
+  table: [],
+  thead: [],
+  tbody: [],
+  tr: [],
+  th: [],
+  td: [],
 };
 
 const sanitizer = new FilterXSS({

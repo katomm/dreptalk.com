@@ -257,4 +257,22 @@ describe('renderMarkdown - correctness (positive cases)', () => {
     const out = renderMarkdown('Hello world');
     expect(out).toContain('Hello world');
   });
+
+  it('renders GFM table with table/tr/td/th elements surviving sanitization', () => {
+    const md = '| Col A | Col B |\n| ----- | ----- |\n| val 1 | val 2 |';
+    const out = renderMarkdown(md);
+    expect(out).toContain('<table>');
+    expect(out).toContain('<tr>');
+    expect(out).toContain('<td>');
+    expect(out).toContain('val 1');
+    expect(out).toContain('val 2');
+  });
+
+  it('keeps script tags stripped even when table markdown is present', () => {
+    const md = '| A |\n| - |\n| <script>alert(1)</script> |';
+    const out = renderMarkdown(md);
+    expect(out).toContain('<table>');
+    assertInert(out, 'table with embedded script');
+    expect(out).not.toContain('alert(1)');
+  });
 });

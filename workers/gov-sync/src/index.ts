@@ -14,7 +14,7 @@ import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
 import { bytesToHex } from '../../../src/lib/crypto/hex.js';
 import { CRON_VOTE_SYNC, CRON_DREP_SYNC } from '../../../src/lib/freshness.js';
-import { syncGovernanceActions } from '../../../src/lib/governance/sync.js';
+import { syncGovernanceActions, backfillActionMetadata } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps } from '../../../src/lib/dreps/sync.js';
 
@@ -53,6 +53,9 @@ async function runGovernanceSync(env: Env): Promise<void> {
 
   const backfill = await backfillVotedPower({ koios, db: env.DB, limit: 25 });
   console.log(`[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`);
+
+  const metaBackfill = await backfillActionMetadata({ db: env.DB, now: Date.now(), fetchImpl: fetch, limit: 10 });
+  console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
 }
 
 // Refresh the per-post vote lists (active actions only). Hourly: vote lists are

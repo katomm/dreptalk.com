@@ -271,6 +271,28 @@ main.container {
 .prose img {
   border-radius: var(--radius);
 }
+/* GFM tables in rendered markdown */
+.prose table {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875em;
+  margin: 0 0 1rem;
+}
+.prose th,
+.prose td {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+.prose th {
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 /* ==========================================================================
    Callout / admonition. Reusable box for inline messages (errors, warnings,
