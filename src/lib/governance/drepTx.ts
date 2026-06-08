@@ -79,6 +79,41 @@ function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletAp
     .withCip30(walletApi);
 }
 
+// The concrete EvolutionSDK tx-builder type our flows operate on (derived from
+// makeClient so we never re-declare the SDK's param shapes). Each op returns the
+// same builder, so the chain below is the SINGLE place addSigner (the DRep key
+// as a required signer, which the fee depends on) is declared. Tests pass a
+// recording stub cast to this type to assert the signer is declared.
+type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
+
+/**
+ * Queues the reg_drep certificate, the DRep-key required signer, and the CIP-20
+ * attribution tag onto a tx builder. The addSigner call is mandatory: the
+ * reg_drep certificate is witnessed by the DRep key (which controls no input),
+ * and EvolutionSDK only sizes the fee for input + native-script + declared
+ * signers, so without it the fee is one vkey witness short.
+ */
+export function queueRegisterDrepOps(
+  txb: DrepTxBuilder,
+  parts: { drepCredential: Credential.Credential; anchor: Anchor.Anchor; drepKeyHash: Uint8Array },
+): DrepTxBuilder {
+  return txb
+    .registerDRep({ drepCredential: parts.drepCredential, anchor: parts.anchor })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+/** Like queueRegisterDrepOps, for the unreg_drep (retire) certificate. */
+export function queueDeregisterDrepOps(
+  txb: DrepTxBuilder,
+  parts: { drepCredential: Credential.Credential; drepKeyHash: Uint8Array },
+): DrepTxBuilder {
+  return txb
+    .deregisterDRep({ drepCredential: parts.drepCredential })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
 /**
  * Builds, signs, and submits a Conway reg_drep certificate transaction.
  *
@@ -98,19 +133,11 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
 
-  // The reg_drep certificate must be witnessed by the DRep key, which controls
-  // no transaction input. EvolutionSDK only auto-counts witnesses for inputs and
-  // native scripts, so without declaring this signer the fee estimate is one
-  // vkey witness (~100 bytes, ~4400 lovelace) short and the node rejects the tx
-  // with "Insufficient fee". addSigner adds it to required_signers so the fee
-  // accounts for it (gov.tools relies on CSL doing this implicitly; Evolution
-  // requires it explicitly).
-  const built = await client
-    .newTx()
-    .registerDRep({ drepCredential, anchor })
-    .addSigner({ keyHash: KeyHash.fromBytes(opts.drepKeyHash) })
-    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
-    .build();
+  const built = await queueRegisterDrepOps(client.newTx(), {
+    drepCredential,
+    anchor,
+    drepKeyHash: opts.drepKeyHash,
+  }).build();
 
   const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
   const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
@@ -138,15 +165,10 @@ export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
 
-  // Like registerDRep: the unreg_drep certificate is witnessed by the DRep key
-  // (no input), so it must be declared as a required signer or the fee falls
-  // short by one vkey witness.
-  const built = await client
-    .newTx()
-    .deregisterDRep({ drepCredential })
-    .addSigner({ keyHash: KeyHash.fromBytes(opts.drepKeyHash) })
-    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
-    .build();
+  const built = await queueDeregisterDrepOps(client.newTx(), {
+    drepCredential,
+    drepKeyHash: opts.drepKeyHash,
+  }).build();
 
   const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
   const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
