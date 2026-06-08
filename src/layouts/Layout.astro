@@ -105,7 +105,6 @@ const isActive = (href: string) =>
 
         <div class="header-actions">
           <ThemeToggle />
-          <a class="site-nav__signin" href="/login">Sign in</a>
           <div class="header-actions__cta">
             <RoleEntry />
           </div>
@@ -126,7 +125,6 @@ const isActive = (href: string) =>
                   aria-current={isActive(link.href) ? 'page' : undefined}
                 >{link.label}</a>
               ))}
-              <a class="mobile-menu__link" href="/login">Sign in</a>
               <RoleEntry layout="flat" />
             </div>
           </details>
@@ -252,19 +250,6 @@ const isActive = (href: string) =>
         display: inline-flex;
         align-items: center;
       }
-      .site-nav__signin {
-        color: var(--fg);
-        text-decoration: none;
-        font-size: 0.9375rem;
-        font-weight: 500;
-        padding: 0.45rem 0.5rem;
-        border-radius: var(--radius-sm);
-        transition: color 0.15s ease;
-      }
-      .site-nav__signin:hover {
-        color: var(--accent);
-      }
-
       /* ---- Mobile menu -------------------------------------------------- */
       .mobile-menu {
         display: none;
@@ -369,7 +354,6 @@ const isActive = (href: string) =>
       /* ---- Responsive --------------------------------------------------- */
       @media (max-width: 820px) {
         .site-nav,
-        .site-nav__signin,
         .header-actions__cta {
           display: none;
         }

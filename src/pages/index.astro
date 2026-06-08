@@ -4,22 +4,35 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import RoleEntry from '@/components/RoleEntry.astro';
-import { getCategories, GOVERNANCE_CATEGORY_SLUG } from '../../config/categories.js';
-import { cacheControlFor } from '@/lib/forum/view.js';
+import TopicRow from '@/components/TopicRow.astro';
+import { getCategories, getCategory, GOVERNANCE_CATEGORY_SLUG } from '../../config/categories.js';
+import { getCategoryStats, getLatestTopicsAcrossCategories } from '@/lib/db/forum.js';
+import { getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
+import { loadAuthorIdentities } from '@/lib/forum/author.js';
+import { cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 
 const db = env.DB as D1Database | undefined;
+const now = Date.now();
 
-// One parameterless query to get topic counts per category.
-const countRows = db
-  ? (
-      await db
-        .prepare('SELECT category_slug, COUNT(*) AS n FROM topics WHERE deleted = 0 GROUP BY category_slug')
-        .all<{ category_slug: string; n: number }>()
-    ).results ?? []
-  : [];
+// Category stats and the latest 4 topics are independent; load them together.
+const [stats, latest] = db
+  ? await Promise.all([
+      getCategoryStats(db),
+      getLatestTopicsAcrossCategories(db, { limit: 4 }),
+    ])
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), []];
 
-const countMap = new Map<string, number>(countRows.map((r) => [r.category_slug, r.n]));
+// Author identities and governance actions depend only on `latest`.
+const govTopicIds = latest
+  .filter((t) => t.category_slug === GOVERNANCE_CATEGORY_SLUG)
+  .map((t) => t.id);
+const [identities, govByTopic] = await Promise.all([
+  db ? loadAuthorIdentities(db, latest.map((t) => t.author_id)) : Promise.resolve(null),
+  db && govTopicIds.length
+    ? getGovernanceActionsByTopicIds(db, govTopicIds)
+    : Promise.resolve(new Map()),
+]);
 
 const categories = getCategories();
 
@@ -48,16 +61,6 @@ const breadcrumbLd = {
     },
   ],
 };
-
-// A small set of gradient tints so each category dot reads distinctly while
-// staying inside the brand's violet/blue/mint range.
-const dotGradients: Record<string, string> = {
-  'governance-actions': 'linear-gradient(135deg, #8b5cf6, #6d28d9)',
-  constitution: 'linear-gradient(135deg, #6366f1, #3b82f6)',
-  budget: 'linear-gradient(135deg, #3b82f6, #22d3ee)',
-  general: 'linear-gradient(135deg, #a78bfa, #f0abfc)',
-};
-const defaultDot = 'var(--grad)';
 
 // Hero feature rows: each is a small icon plus a title and supporting line.
 const heroFeatures = [
@@ -119,7 +122,6 @@ const heroFeatures = [
 
       <div class="hero__cta reveal" style="--reveal-delay:180ms">
         <RoleEntry />
-        <a class="hero__learn" href="#categories">Learn more about DRepTalk</a>
       </div>
     </div>
 
@@ -178,38 +180,57 @@ const heroFeatures = [
 
   <section id="categories" class="categories" aria-labelledby="categories-heading">
     <div class="categories__head">
-      <h2 id="categories-heading">Discussion categories</h2>
-      <p>Browse the standing spaces where DReps debate governance between actions.</p>
+      <div class="categories__head-row">
+        <h2 id="categories-heading">Discussions</h2>
+        <a class="categories__view-all" href="/discussions">View all discussions</a>
+      </div>
+      <p>Browse categories and the latest activity across the forum.</p>
     </div>
-    <div class="cards">
-      {categories.map((cat, i) => (
-        <a
-          class="card reveal"
-          href={`/c/${cat.slug}`}
-          style={`--reveal-delay:${260 + i * 50}ms`}
-        >
-          <span
-            class="card__dot"
-            style={`background:${dotGradients[cat.slug] ?? defaultDot}`}
-            aria-hidden="true"
-          ></span>
-          <div class="card__body">
-            <div class="card__head">
-              <h3 class="card__name">{cat.name}</h3>
-              {cat.slug === GOVERNANCE_CATEGORY_SLUG && (
-                <span class="card__badge">auto</span>
-              )}
-            </div>
-            <p class="card__desc">{cat.description}</p>
-            <div class="card__foot">
-              <span class="card__count">
-                {countMap.get(cat.slug) ?? 0} {(countMap.get(cat.slug) ?? 0) === 1 ? 'topic' : 'topics'}
-              </span>
-              <span class="card__view">View</span>
-            </div>
+
+    <div class="discussions-grid">
+      <section aria-label="Categories">
+        <h3 class="section-label">Categories</h3>
+        <div style="display:flex;flex-direction:column;">
+          {categories.map((c) => {
+            const s = stats.get(c.slug);
+            return (
+              <a href={`/c/${c.slug}`} style="border-bottom:1px solid var(--border);padding:0.75rem 0;text-decoration:none;color:inherit;display:block;">
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                  <span aria-hidden="true" style={`width:0.5rem;height:0.5rem;border-radius:999px;flex-shrink:0;background:${c.kind === 'governance' ? 'var(--accent)' : 'var(--muted)'};`}></span>
+                  <span style="font-weight:600;color:var(--fg);">{c.name}</span>
+                  <span style="margin-left:auto;font-size:0.8125rem;color:var(--muted);">{s?.topicCount ?? 0}</span>
+                </div>
+                <p style="margin:0.3rem 0 0 1rem;font-size:0.8125rem;color:var(--muted);">{c.description}</p>
+                {s?.lastPostAt && (
+                  <p style="margin:0.2rem 0 0 1rem;font-size:0.75rem;color:var(--muted);">Last activity {formatRelativeTime(s.lastPostAt, now)}</p>
+                )}
+              </a>
+            );
+          })}
+        </div>
+      </section>
+
+      <section aria-label="Latest activity">
+        <h3 class="section-label">Latest activity</h3>
+        {latest.length === 0 ? (
+          <p style="color:var(--muted);">No topics yet.</p>
+        ) : (
+          <div>
+            {latest.map((t) => (
+              <TopicRow
+                topic={t}
+                now={now}
+                author={identities ? identities.describe(t.author_id) : undefined}
+                category={getCategory(t.category_slug)}
+                governance={govByTopic.get(t.id)}
+              />
+            ))}
           </div>
-        </a>
-      ))}
+        )}
+        <div class="view-all-row">
+          <a class="view-all-link" href="/discussions">View all discussions</a>
+        </div>
+      </section>
     </div>
   </section>
 </Layout>
@@ -292,15 +313,6 @@ const heroFeatures = [
     gap: 1.25rem;
     align-items: center;
     flex-wrap: wrap;
-  }
-  .hero__learn {
-    color: var(--accent);
-    text-decoration: none;
-    font-size: 0.9375rem;
-    font-weight: 600;
-  }
-  .hero__learn:hover {
-    text-decoration: underline;
   }
 
   /* ---- Hero visual (network of participants around a governance action) -- */
@@ -475,102 +487,77 @@ const heroFeatures = [
     text-decoration: underline;
   }
 
-  /* ---- Categories ----------------------------------------------------- */
+  /* ---- Categories + discussions overview ------------------------------ */
   .categories {
     scroll-margin-top: 5rem;
   }
   .categories__head {
     margin-bottom: 1.25rem;
   }
-  .categories__head h2 {
+  .categories__head-row {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .categories__head-row h2 {
     font-size: clamp(1.4rem, 3vw, 1.85rem);
     font-weight: 700;
     margin: 0;
+  }
+  .categories__view-all {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-left: auto;
+  }
+  .categories__view-all:hover {
+    text-decoration: underline;
   }
   .categories__head p {
     margin: 0.4rem 0 0;
     color: var(--muted);
     font-size: 0.975rem;
   }
-  .cards {
+
+  /* Two-column grid matching the /discussions layout. */
+  .discussions-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 1rem;
+    grid-template-columns: 1fr;
+    gap: 2rem;
   }
-  .card {
-    display: flex;
-    gap: 0.9rem;
-    padding: 1.25rem;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
-    text-decoration: none;
-    color: inherit;
-    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  @media (min-width: 820px) {
+    .discussions-grid {
+      grid-template-columns: 20rem 1fr;
+      gap: 2.5rem;
+    }
   }
-  .card:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-lg);
-    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-  }
-  .card__dot {
-    flex-shrink: 0;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    margin-top: 0.35rem;
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
-  }
-  .card__body {
-    min-width: 0;
-    width: 100%;
-  }
-  .card__head {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .card__name {
-    font-size: 1.0625rem;
-    font-weight: 600;
-    margin: 0;
-    line-height: 1.25;
-    color: var(--fg);
-  }
-  .card__badge {
-    font-size: 0.65rem;
-    font-weight: 600;
+
+  /* Uppercase section labels matching /discussions style. */
+  .section-label {
+    font-size: 0.8125rem;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-    border-radius: 999px;
-    padding: 0.1rem 0.45rem;
-    line-height: 1.4;
-  }
-  .card__desc {
-    margin: 0.35rem 0 0.75rem;
+    letter-spacing: 0.04em;
     color: var(--muted);
-    font-size: 0.9rem;
-    line-height: 1.5;
-  }
-  .card__foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-  .card__count {
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--muted);
-  }
-  .card__view {
-    font-size: 0.8125rem;
+    margin: 0 0 0.75rem;
     font-weight: 600;
+  }
+
+  /* "View all" row under the activity list. */
+  .view-all-row {
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--border);
+    margin-top: 0.25rem;
+  }
+  .view-all-link {
     color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .view-all-link:hover {
+    text-decoration: underline;
   }
 
   /* ---- Responsive ----------------------------------------------------- */
@@ -587,6 +574,7 @@ const heroFeatures = [
     }
   }
   @media (max-width: 560px) {
+    .hero__visual { display: none; }
     .announce {
       flex-wrap: wrap;
     }
