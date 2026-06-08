@@ -154,6 +154,30 @@ describe('syncGovernanceTallies', () => {
     expect(stillActive).toBe('expired');
     expect(again).toBeDefined();
   });
+
+  it('processes never-synced actions first and respects the per-run limit', async () => {
+    const a = await insertActive(400);
+    const b = await insertActive(400);
+    const c = await insertActive(400);
+    const lifecycle = [lifeRow(a.txHash), lifeRow(b.txHash), lifeRow(c.txHash)];
+
+    // limit 2: only two of the three never-synced actions are tallied this run.
+    const r1 = await syncGovernanceTallies({
+      koios: fakeTallyKoios(lifecycle), db: db(), currentEpoch: 293, now: NOW + 10, limit: 2,
+    });
+    expect(r1.active).toBe(2);
+    expect(r1.updated).toBe(2);
+    const afterRun1 = await Promise.all([a, b, c].map((x) => getGovernanceActionByTopicId(db(), x.topicId)));
+    expect(afterRun1.filter((g) => g!.tallySyncedAt != null).length).toBe(2);
+
+    // Next run picks up the remaining never-synced one (stale-first), draining the backlog.
+    const r2 = await syncGovernanceTallies({
+      koios: fakeTallyKoios(lifecycle), db: db(), currentEpoch: 293, now: NOW + 20, limit: 1,
+    });
+    expect(r2.updated).toBe(1);
+    const afterRun2 = await Promise.all([a, b, c].map((x) => getGovernanceActionByTopicId(db(), x.topicId)));
+    expect(afterRun2.filter((g) => g!.tallySyncedAt != null).length).toBe(3);
+  });
 });
 
 describe('syncGovernanceVotes', () => {

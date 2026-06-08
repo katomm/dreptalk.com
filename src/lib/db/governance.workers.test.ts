@@ -6,6 +6,7 @@ import {
   buildInsertGovernanceAction,
   getGovernanceActionByTopicId,
   getSyncableGovernanceActions,
+  getStaleSyncableActions,
   getAllGovernanceActions,
   getGovernanceActionsByTopicIds,
   updateGovernanceTallyAndStatus,
@@ -81,6 +82,57 @@ describe('getSyncableGovernanceActions', () => {
 
     const rows = await getSyncableGovernanceActions(db());
     const ids = rows.map((r) => r.id);
+    expect(ids).toContain(pending.id);
+    expect(ids).not.toContain(frozen.id);
+  });
+});
+
+describe('getStaleSyncableActions', () => {
+  // Sets a row's tally_synced_at (and status active) so it counts as "synced".
+  const markSynced = (id: string, tallySyncedAt: number) =>
+    updateGovernanceTallyAndStatus(db(), {
+      id, status: 'active',
+      drepYes: null, drepNo: null, drepAbstain: null,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: null,
+      tallyEpoch: 295, decidedEpoch: null, tallySyncedAt, now: tallySyncedAt,
+    });
+
+  it('orders never-synced first, then least-recently-synced, capped by limit', async () => {
+    // Two never-synced (tally_synced_at NULL); among them expiry ascending wins.
+    const neverLate = await insertAction({ expiryEpoch: 700 });
+    const neverEarly = await insertAction({ expiryEpoch: 600 });
+    // Two already-synced active actions with different sync times.
+    const syncedOld = await insertAction();
+    const syncedNew = await insertAction();
+    await markSynced(syncedOld.id, NOW - 1000);
+    await markSynced(syncedNew.id, NOW);
+
+    const all = await getStaleSyncableActions(db(), 10);
+    expect(all.map((r) => r.id)).toEqual([neverEarly.id, neverLate.id, syncedOld.id, syncedNew.id]);
+
+    // Limit caps the result and keeps the highest-priority (never-synced) rows.
+    const top2 = await getStaleSyncableActions(db(), 2);
+    expect(top2.map((r) => r.id)).toEqual([neverEarly.id, neverLate.id]);
+  });
+
+  it('excludes frozen (terminal) actions', async () => {
+    const pending = await insertAction();
+    const frozen = await insertAction();
+    await updateGovernanceTallyAndStatus(db(), {
+      id: frozen.id, status: 'expired',
+      drepYes: null, drepNo: null, drepAbstain: null,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: null,
+      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+    });
+    const ids = (await getStaleSyncableActions(db(), 10)).map((r) => r.id);
     expect(ids).toContain(pending.id);
     expect(ids).not.toContain(frozen.id);
   });
