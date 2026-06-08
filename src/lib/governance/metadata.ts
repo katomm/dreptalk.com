@@ -12,7 +12,7 @@
 
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
-import { sanitizeExternalText } from '../validation/input.js';
+import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
 
 export const MAX_ANCHOR_BYTES = 100_000;
@@ -76,10 +76,11 @@ function extractCip108(doc: unknown): AnchorMetadata {
   const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
   const title = sanitizeExternalText(str(body.title), MAX_TITLE_LEN);
-  const abstract = sanitizeExternalText(str(body.abstract), MAX_ABSTRACT_LEN);
+  // abstract and rationale are prose; use multiline sanitizer so Markdown structure survives.
+  const abstract = sanitizeExternalMultiline(str(body.abstract), MAX_ABSTRACT_LEN);
   // motivation/rationale may carry Markdown; render through the hardened
   // sanitizer (marked + xss). Cap length before rendering.
-  const rationaleRaw = sanitizeExternalText(str(body.rationale) || str(body.motivation), MAX_RATIONALE_LEN);
+  const rationaleRaw = sanitizeExternalMultiline(str(body.rationale) || str(body.motivation), MAX_RATIONALE_LEN);
 
   return {
     title: title || null,

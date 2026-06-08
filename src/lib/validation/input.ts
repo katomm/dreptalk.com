@@ -53,3 +53,20 @@ export function sanitizeExternalText(s: string, maxLen: number): string {
   }
   return out.trim().slice(0, maxLen);
 }
+
+/**
+ * Like sanitizeExternalText but for multi-line prose (CIP-108 rationale/abstract):
+ * preserves newlines and tabs (so Markdown structure survives), normalizes line
+ * endings to \n, collapses 3+ blank lines to one, strips other control chars,
+ * trims, and caps length. Still rendered through the hardened markdown sanitizer.
+ */
+export function sanitizeExternalMultiline(s: string, maxLen: number): string {
+  const normalized = s.replace(/\r\n?/g, '\n');
+  let out = '';
+  for (const ch of normalized) {
+    const code = ch.codePointAt(0);
+    if (code === 10 || code === 9) { out += ch; continue; } // keep newline + tab
+    if (code !== undefined && !isControlCode(code)) out += ch;
+  }
+  return out.replace(/\n{3,}/g, '\n\n').trim().slice(0, maxLen);
+}

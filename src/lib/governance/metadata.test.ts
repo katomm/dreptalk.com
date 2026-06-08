@@ -8,6 +8,17 @@ const doc = {
   hashAlgorithm: 'blake2b-256',
   body: { title: 'Treasury Withdrawal', abstract: 'Fund tooling', rationale: 'We need **tools**.' },
 };
+
+// A doc with multi-line rationale containing markdown structure.
+const mdDoc = {
+  '@context': {},
+  hashAlgorithm: 'blake2b-256',
+  body: {
+    title: 'Governance Proposal',
+    abstract: 'First paragraph.\n\nSecond paragraph.',
+    rationale: '## Impact\n\nThis is important.\n\n- item a\n- item b',
+  },
+};
 const jsonOf = (o: unknown) => JSON.stringify(o);
 // Hash the UTF-8 bytes of the body string; Response(string) yields the same
 // bytes via arrayBuffer(), so this matches what fetchAnchorMetadata hashes.
@@ -88,5 +99,32 @@ describe('fetchAnchorMetadata', () => {
     });
     expect(fetched).toBe('https://ipfs.io/ipfs/QmCidExample/meta.json');
     expect(res.status).toBe('ok');
+  });
+
+  it('preserves markdown structure in rationale (headings, paragraphs, lists)', async () => {
+    const json = jsonOf(mdDoc);
+    const res = await fetchAnchorMetadata('https://example.com/md.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.status).toBe('ok');
+    // The rationaleHtml must contain rendered markdown elements, not a raw blob.
+    expect(res.metadata?.rationaleHtml).toContain('<h2>');
+    expect(res.metadata?.rationaleHtml).toContain('<p>');
+    expect(res.metadata?.rationaleHtml).toContain('<ul>');
+    expect(res.metadata?.rationaleHtml).toContain('<li>');
+    // Must not contain literal unrendered markdown syntax.
+    expect(res.metadata?.rationaleHtml).not.toContain('## Impact');
+    expect(res.metadata?.rationaleHtml).not.toContain('- item a');
+  });
+
+  it('preserves newlines in abstract (multi-paragraph abstract)', async () => {
+    const json = jsonOf(mdDoc);
+    const res = await fetchAnchorMetadata('https://example.com/md.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.status).toBe('ok');
+    // The stored abstract string must retain the paragraph-separating newline.
+    expect(res.metadata?.abstract).toContain('\n');
+    expect(res.metadata?.abstract).toBe('First paragraph.\n\nSecond paragraph.');
   });
 });
