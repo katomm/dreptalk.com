@@ -1,5 +1,6 @@
 ---
 import Layout from '@/layouts/Layout.astro';
+import LogoMark from '@/components/LogoMark.astro';
 
 export const prerender = true;
 
@@ -56,7 +57,7 @@ const swatchGroups = [
           <img src="/logo.svg" alt="DRepTalk logo on a dark background" width="160" height="160" />
         </figure>
         <figure class="logo-card logo-card--grad">
-          <img class="logo-card__mono" src="/logo-mono.svg" alt="DRepTalk logo on the brand gradient" width="160" height="160" />
+          <LogoMark style="width:70%;height:auto;color:#fff" />
         </figure>
       </div>
       <div class="brand__downloads">
@@ -196,11 +197,6 @@ const swatchGroups = [
   }
   .logo-card--grad {
     background: var(--grad);
-  }
-  .logo-card__mono {
-    /* logo-mono.svg uses currentColor and renders black as a standalone image;
-       flip it to white so the mark reads on the brand gradient. */
-    filter: brightness(0) invert(1);
   }
 
   .brand__downloads {

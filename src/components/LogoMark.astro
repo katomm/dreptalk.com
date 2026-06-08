@@ -1,0 +1,56 @@
+---
+// The DRepTalk burst mark as inline SVG so it inherits `currentColor` (an
+// external <img> cannot). Used where the mark sits next to the "DRepTalk"
+// wordmark (header, footer) painted in --muted, leaving the "Talk" gradient as
+// the only accent, and on the brand gradient card painted white. The favicon
+// and the large brand cards keep the full-color gradient logo.svg, where there
+// is no adjacent wordmark to clash with.
+//
+// Size and color come in as an inline `style` because Astro scoped styles do
+// not reach a child component's root element.
+interface Props {
+  style?: string;
+}
+const { style } = Astro.props;
+---
+<svg
+  style={style}
+  viewBox="0 0 72 72"
+  role="img"
+  aria-label="DRepTalk"
+  fill="currentColor"
+>
+  <g stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+    <line x1="36" y1="27.5" x2="36" y2="19.5" />
+    <line x1="42" y1="30" x2="47.7" y2="24.3" />
+    <line x1="44.5" y1="36" x2="52.5" y2="36" />
+    <line x1="42" y1="42" x2="47.7" y2="47.7" />
+    <line x1="36" y1="44.5" x2="36" y2="52.5" />
+    <line x1="30" y1="42" x2="24.3" y2="47.7" />
+    <line x1="27.5" y1="36" x2="19.5" y2="36" />
+    <line x1="30" y1="30" x2="24.3" y2="24.3" />
+  </g>
+  <circle cx="36" cy="15" r="4" />
+  <circle cx="50.85" cy="21.15" r="4" />
+  <circle cx="57" cy="36" r="4" />
+  <circle cx="50.85" cy="50.85" r="4" />
+  <circle cx="36" cy="57" r="4" />
+  <circle cx="21.15" cy="50.85" r="4" />
+  <circle cx="15" cy="36" r="4" />
+  <circle cx="21.15" cy="21.15" r="4" />
+  <circle cx="47.1" cy="9.2" r="2" />
+  <circle cx="62.8" cy="24.9" r="2" />
+  <circle cx="62.8" cy="47.1" r="2" />
+  <circle cx="47.1" cy="62.8" r="2" />
+  <circle cx="24.9" cy="62.8" r="2" />
+  <circle cx="9.2" cy="47.1" r="2" />
+  <circle cx="9.2" cy="24.9" r="2" />
+  <circle cx="24.9" cy="9.2" r="2" />
+  <circle cx="36" cy="36" r="7" />
+</svg>
+
+<style>
+  svg {
+    display: block;
+  }
+</style>

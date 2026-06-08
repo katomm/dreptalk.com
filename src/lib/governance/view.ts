@@ -102,6 +102,15 @@ export const TONE_COLORS: Record<StatusTone, string> = {
   neutral: 'var(--muted)',
 };
 
+// Softer fills for the stacked tally bar. Here the tone paints a large surface
+// rather than text or a white-on-color badge, so it can be gentler than the
+// saturated tones above without hurting legibility.
+export const TONE_BAR_COLORS = {
+  positive: '#5cb88a',
+  negative: '#e07d75',
+  neutral: 'var(--muted)',
+} as const;
+
 /** Formats a tally percentage: two decimals for tiny non-zero values, else whole. */
 export function fmtPct(n: number): string {
   return `${n.toFixed(n > 0 && n < 1 ? 2 : 0)}%`;

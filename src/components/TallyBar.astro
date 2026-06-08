@@ -1,7 +1,8 @@
 ---
 // A single yes/no/abstain tally bar. Reused by the governance header (full size)
-// and the topic-row mini-tally. Colors come from the shared tone palette.
-import { TONE_COLORS, type TallyBar } from '@/lib/governance/view.js';
+// and the topic-row mini-tally. Fills come from the softer bar palette so the
+// large colored surfaces read calmly; the saturated TONE_COLORS stay for badges.
+import { TONE_BAR_COLORS, type TallyBar } from '@/lib/governance/view.js';
 
 interface Props {
   bar: TallyBar;
@@ -12,7 +13,7 @@ const { bar, height = 8 } = Astro.props;
 ---
 
 <div style={`display:flex;height:${height}px;border-radius:999px;overflow:hidden;background:var(--border);`}>
-  <div style={`width:${bar.yes}%;background:${TONE_COLORS.positive};`}></div>
-  <div style={`width:${bar.no}%;background:${TONE_COLORS.negative};`}></div>
-  <div style={`width:${bar.abstain}%;background:${TONE_COLORS.neutral};`}></div>
+  <div style={`width:${bar.yes}%;background:${TONE_BAR_COLORS.positive};`}></div>
+  <div style={`width:${bar.no}%;background:${TONE_BAR_COLORS.negative};`}></div>
+  <div style={`width:${bar.abstain}%;background:${TONE_BAR_COLORS.neutral};`}></div>
 </div>

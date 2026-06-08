@@ -3,6 +3,7 @@ import '@/styles/global.css';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import RoleEntry from '@/components/RoleEntry.astro';
 import JsonLd from '@/components/JsonLd.astro';
+import LogoMark from '@/components/LogoMark.astro';
 import { currentNetwork } from '@/lib/api/response';
 
 interface Props {
@@ -88,7 +89,7 @@ const isActive = (href: string) =>
     <header class="site-header">
       <div class="site-header__inner container">
         <a class="brand" href="/" aria-label="DRepTalk home">
-          <img class="brand__mark" src="/logo-mark.svg" alt="" width="38" height="38" />
+          <LogoMark style="height:38px;width:38px;color:var(--muted)" />
           <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
         </a>
 
@@ -141,7 +142,7 @@ const isActive = (href: string) =>
       <div class="site-footer__inner container">
         <div class="site-footer__brand">
           <a class="brand" href="/" aria-label="DRepTalk home">
-            <img class="brand__mark" src="/logo-mark.svg" alt="" width="34" height="34" />
+            <LogoMark style="height:34px;width:34px;color:var(--muted)" />
             <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
           </a>
           <p class="site-footer__tagline">A calmer, accountable home for Cardano governance.</p>
@@ -201,21 +202,17 @@ const isActive = (href: string) =>
       .brand {
         display: inline-flex;
         align-items: center;
-        gap: 0.55rem;
+        gap: 0.4rem;
         text-decoration: none;
         flex-shrink: 0;
-      }
-      .brand__mark {
-        height: 38px;
-        width: auto;
-        display: block;
       }
       .brand__word {
         font-family: var(--font-display);
         font-weight: 600;
         font-size: 1.25rem;
         letter-spacing: -0.01em;
-        color: var(--fg);
+        /* "DRep" muted like the mark; only "Talk" (.grad-text) keeps the gradient. */
+        color: var(--muted);
         line-height: 1;
       }
 
@@ -342,9 +339,6 @@ const isActive = (href: string) =>
         flex-direction: column;
         gap: 0.5rem;
         margin-right: auto;
-      }
-      .site-footer__brand .brand__mark {
-        height: 34px;
       }
       .site-footer__brand .brand__word {
         font-size: 1.1rem;
