@@ -1,13 +1,13 @@
-// Node-mode tests for GET /drep/[drepId]/[hash].json
-// Uses a fake D1 whose .prepare().bind(drepId, hash).first() returns a row or null.
+// Node-mode tests for GET /drep/[hash].json
+// Uses a fake D1 whose .prepare().bind(hash).first() returns a row or null.
 import { describe, it, expect } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// vi.hoisted: fake D1 that serves one row keyed by (drepId, hash) or null.
+// vi.hoisted: fake D1 that serves one row keyed by hash or null.
 // ---------------------------------------------------------------------------
 
-const KNOWN_ID = 'drep1yyqw67szjkwns4vfqvnk0v8r20zy5qmv3hge2qlxm0s3apgsp3qsk6j5t4';
 const KNOWN_HASH = 'a'.repeat(64);
+const KNOWN_ID = 'drep1yyqw67szjkwns4vfqvnk0v8r20zy5qmv3hge2qlxm0s3apgsp3qsk6j5t4';
 
 // The stored body is the verbatim JSON string that was persisted.
 // It must be returned byte-for-byte: do not parse/re-serialize.
@@ -18,9 +18,9 @@ import { vi } from 'vitest';
 const { fakeDb } = vi.hoisted(() => {
   const db = {
     prepare: (_sql: string) => ({
-      bind: (drepId: unknown, hash: unknown) => ({
+      bind: (hash: unknown) => ({
         first: async <T>(): Promise<T | null> => {
-          if (drepId === KNOWN_ID && hash === KNOWN_HASH) {
+          if (hash === KNOWN_HASH) {
             return {
               drep_id: KNOWN_ID,
               body: STORED_BODY,
@@ -45,16 +45,16 @@ vi.mock('cloudflare:workers', () => ({
 }));
 
 // Import after mock is registered.
-import { GET } from './[drepId]/[hash].json.js';
+import { GET } from './[hash].json.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeCtx(drepId: string, hash: string) {
-  const url = new URL(`https://dreptalk.com/drep/${drepId}/${hash}.json`);
+function makeCtx(hash: string) {
+  const url = new URL(`https://dreptalk.com/drep/${hash}.json`);
   return {
-    params: { drepId, hash },
+    params: { hash },
     request: new Request(url),
     locals: {} as App.Locals,
     props: {},
@@ -79,34 +79,34 @@ function makeCtx(drepId: string, hash: string) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('GET /drep/[drepId]/[hash].json: known (id, hash)', () => {
+describe('GET /drep/[hash].json: known hash', () => {
   it('returns 200 with the verbatim stored body', async () => {
-    const res = await GET(makeCtx(KNOWN_ID, KNOWN_HASH));
+    const res = await GET(makeCtx(KNOWN_HASH));
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(STORED_BODY);
   });
 
   it('sets content-type: application/json', async () => {
-    const res = await GET(makeCtx(KNOWN_ID, KNOWN_HASH));
+    const res = await GET(makeCtx(KNOWN_HASH));
     expect(res.headers.get('content-type')).toBe('application/json');
   });
 
   it('sets immutable cache-control', async () => {
-    const res = await GET(makeCtx(KNOWN_ID, KNOWN_HASH));
+    const res = await GET(makeCtx(KNOWN_HASH));
     const cc = res.headers.get('cache-control') ?? '';
     expect(cc).toContain('immutable');
     expect(cc).toContain('max-age=31536000');
   });
 });
 
-describe('GET /drep/[drepId]/[hash].json: not found / invalid', () => {
-  it('returns 404 for an unknown (id, hash)', async () => {
-    const res = await GET(makeCtx(KNOWN_ID, 'b'.repeat(64)));
+describe('GET /drep/[hash].json: not found / invalid', () => {
+  it('returns 404 for an unknown hash', async () => {
+    const res = await GET(makeCtx('b'.repeat(64)));
     expect(res.status).toBe(404);
   });
 
   it('returns 404 for a malformed hash (not 64 hex) without touching the db', async () => {
-    const res = await GET(makeCtx(KNOWN_ID, 'not-a-hash'));
+    const res = await GET(makeCtx('not-a-hash'));
     expect(res.status).toBe(404);
   });
 });

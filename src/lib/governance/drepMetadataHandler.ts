@@ -60,8 +60,10 @@ async function handleInternal(input: DrepMetadataInput): Promise<DrepMetadataRes
   const m = buildDrepMetadata({ name, bio, links });
 
   // Content-addressed URL: the hash is in the path, so the bytes served at this
-  // URL never change, and a different document gets a different URL.
-  const url = `${input.origin}/drep/${drepId}/${m.hash}.json`;
+  // URL never change, and a different document gets a different URL. The drep id
+  // is deliberately NOT in the path: the on-chain anchor url field is capped at
+  // 128 chars (CIP-100), and a drep id (~63) plus a 64-char hash would overflow.
+  const url = `${input.origin}/drep/${m.hash}.json`;
   await putDrepMetadata(input.db, {
     drepId,
     body: m.body,

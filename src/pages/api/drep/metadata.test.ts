@@ -123,7 +123,7 @@ describe('POST /api/drep/metadata: stores a well-formed document', () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { url: string; hash: string };
     expect(json.hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(json.url).toBe(`${ORIGIN}/drep/${VALID_DREP_ID}/${json.hash}.json`);
+    expect(json.url).toBe(`${ORIGIN}/drep/${json.hash}.json`);
 
     // The INSERT bound the content-addressed row: [drepId, body, hash, name, createdAt].
     expect(fakeDb.lastBound).not.toBeNull();

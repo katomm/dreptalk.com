@@ -278,8 +278,8 @@ describe('syncDreps', () => {
     const result = await syncDreps({ koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
 
     expect(result.gcDeleted).toBeGreaterThanOrEqual(1);
-    expect(await getDrepMetadataByHash(env.DB, reg, 'a'.repeat(64))).not.toBeNull(); // registered -> kept
-    expect(await getDrepMetadataByHash(env.DB, junk, 'b'.repeat(64))).toBeNull(); // unregistered junk -> deleted
+    expect(await getDrepMetadataByHash(env.DB, 'a'.repeat(64))).not.toBeNull(); // registered -> kept
+    expect(await getDrepMetadataByHash(env.DB, 'b'.repeat(64))).toBeNull(); // unregistered junk -> deleted
   });
 
   it('does NOT garbage-collect when the enumeration is empty (transient empty drep_list)', async () => {
@@ -293,7 +293,7 @@ describe('syncDreps', () => {
 
     expect(result.total).toBe(0);
     expect(result.gcDeleted).toBe(0);
-    expect(await getDrepMetadataByHash(env.DB, orphan, 'c'.repeat(64))).not.toBeNull(); // preserved
+    expect(await getDrepMetadataByHash(env.DB, 'c'.repeat(64))).not.toBeNull(); // preserved
   });
 
   it('skips DReps that are not registered', async () => {
