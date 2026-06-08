@@ -36,6 +36,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const response = await next();
   applySecurityHeaders(response.headers);
   relaxStyleSrc(response.headers);
+  // Keep the preprod mirror (preprod.dreptalk.com) out of search indexes so it
+  // never competes with mainnet or surfaces test data. The preprod worker is
+  // the only one with CARDANO_NETWORK=preprod.
+  if (env?.CARDANO_NETWORK === 'preprod') {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+  }
   return response;
 });
 

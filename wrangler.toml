@@ -38,3 +38,14 @@ id = "2e999274a29a41319b3e1214653b4fee"
 [[kv_namespaces]]
 binding = "NONCES"
 id = "9b7873fb79c04d6eb34ec2fb2170a30b"
+
+# ---------------------------------------------------------------------------
+# Preprod app environment is NOT defined here as a [env.preprod] block. The
+# @astrojs/cloudflare adapter regenerates the deploy config at build time
+# (dist/server/wrangler.json) from the top level only and drops [env.*]
+# bindings, so `wrangler deploy --env preprod` would ship the preprod worker
+# with these mainnet D1/KV bindings. Instead, scripts/preprod-config.mjs
+# derives a preprod config from the generated one (preprod worker name, D1, KV,
+# route and CARDANO_NETWORK=preprod), and `npm run deploy` deploys it. The
+# gov-sync worker has no adapter, so it uses a normal [env.preprod] block.
+# ---------------------------------------------------------------------------

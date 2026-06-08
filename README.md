@@ -41,6 +41,12 @@ curl "http://localhost:8787/__scheduled?cron=0+*/6+*+*+*"      # DRep profiles +
 
 It polls Koios (preprod locally, per `CARDANO_NETWORK`) and writes to D1. Stake Participation on the governance overview needs the DRep run (it fills `dreps.voting_power`); the voted share also needs the vote run. The cron expressions mirror `src/lib/freshness.ts`.
 
+## Deployment
+
+Production runs on mainnet at [dreptalk.com](https://dreptalk.com) (`www` redirects to the apex). A full preprod mirror runs at [preprod.dreptalk.com](https://preprod.dreptalk.com) for testing governance flows against the preprod testnet. The mirror is a separate worker (`dreptalk-com-preprod`) defined as the `preprod` environment in `wrangler.toml`, with its own D1 database and KV namespaces so preprod DReps, governance and logins never mix with mainnet. It also runs its own copy of the gov-sync cron worker (`dreptalk-gov-sync-preprod`) against preprod Koios. Because it sets `CARDANO_NETWORK=preprod`, the middleware tags every response `X-Robots-Tag: noindex` so the mirror stays out of search indexes.
+
+`npm run deploy` ships all four workers in one step: the app and the cron worker, each to mainnet and to preprod. Both environments build from the same source; only `CARDANO_NETWORK`, the bindings and the route differ. Custom domains and their TLS certificates are provisioned automatically from the `dreptalk.com` zone on deploy. The preprod worker vars (`LEGAL_*`, optional `KOIOS_API_KEY`) are set the same way as mainnet. Schema changes are applied per database with `wrangler d1 migrations apply DB --remote` (add `--env preprod` for the mirror).
+
 ## Status
 
 Early development.
