@@ -77,6 +77,15 @@ export async function getUserById(db: D1Database, id: string): Promise<User | nu
   return row ? rowToUser(row) : null;
 }
 
+/** Returns the user row whose drep_id matches, or null. Uses idx_users_drep_id. */
+export async function getUserByDrepId(db: D1Database, drepId: string): Promise<User | null> {
+  const row = await db
+    .prepare('SELECT * FROM users WHERE drep_id = ? LIMIT 1')
+    .bind(drepId)
+    .first<UserRow>();
+  return row ? rowToUser(row) : null;
+}
+
 /**
  * Fetches multiple users by id in a single query (no N+1).
  * Builds a parameterized IN clause from the id list.

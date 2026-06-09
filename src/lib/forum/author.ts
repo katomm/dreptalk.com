@@ -21,6 +21,8 @@ export interface AuthorDescriptor {
   drepId?: string | null;
   /** True when the drep has a synced CIP-119 image URL to attempt via the proxy. */
   hasImage?: boolean;
+  /** Stable seed for the identicon fallback: the DRep credential hex when known, else the author id. */
+  identiconSeed?: string;
   /** On-chain / forum roles to surface as badges. */
   badges?: string[];
   /** System author (governance source): neutral identity, no avatar lookup. */
@@ -70,6 +72,7 @@ export function describeAuthor(
     displayName: drep?.name ?? u?.display_name ?? truncateId(authorId),
     drepId: u?.drep_id ?? null,
     hasImage: !!drep?.imageUrl,
+    identiconSeed: drep?.hex ?? authorId,
     badges: roleBadges(u),
   };
 }

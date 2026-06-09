@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, excerptFromHtml } from './view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, excerptFromHtml, formatAda, cacheControlForSynced } from './view.js';
 
 // ---------------------------------------------------------------------------
 // serializeJsonLd
@@ -244,5 +244,31 @@ describe('excerptFromHtml', () => {
 
   it('handles empty input', () => {
     expect(excerptFromHtml('')).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatAda
+// ---------------------------------------------------------------------------
+
+describe('formatAda', () => {
+  it('formats lovelace as whole ADA with a symbol and thousands separators', () => {
+    expect(formatAda('5000000000')).toBe('5,000 ₳');
+  });
+  it('treats null as zero', () => {
+    expect(formatAda(null)).toBe('0 ₳');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cacheControlForSynced
+// ---------------------------------------------------------------------------
+
+describe('cacheControlForSynced', () => {
+  it('caches anonymous sync-driven pages longer than the 30s thread default', () => {
+    expect(cacheControlForSynced(null)).toBe('public, s-maxage=300');
+  });
+  it('never caches for logged-in users', () => {
+    expect(cacheControlForSynced({ id: 'u' })).toBe('private, no-store');
   });
 });

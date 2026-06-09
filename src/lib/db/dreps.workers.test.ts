@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, upsertDrep } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, upsertDrep } from './dreps.js';
 
 const db = () => env.DB;
 
@@ -137,5 +137,16 @@ describe('getDrepsByIds', () => {
     const result = await getDrepsByIds(db(), ['drep1-none-a', 'drep1-none-b']);
     expect(result).toBeInstanceOf(Map);
     expect(result.size).toBe(0);
+  });
+});
+
+describe('listIndexableDrepIds', () => {
+  it('includes DReps with metadata and excludes thin ones', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1named', name: 'Named' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1thin', name: null, bio: null });
+
+    const ids = await listIndexableDrepIds(db());
+    expect(ids).toContain('drep1named');
+    expect(ids).not.toContain('drep1thin');
   });
 });

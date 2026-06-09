@@ -1,0 +1,14 @@
+cardenticon
+Copyright 2026 cardenticon contributors
+
+This project is derived from hashicon (https://github.com/emeraldpay/hashicon)
+Copyright 2018-2022 EmeraldPay, Inc
+Licensed under the Apache License, Version 2.0
+
+Changes from the original hashicon:
+- Rewritten renderer to output SVG strings instead of HTML Canvas
+- Added Cardano bech32 address decoding (addr1, stake1, addr_test1, stake_test1)
+- Removed external dependencies (@stablelib/blake2s, js-sha3)
+- Uses credential hashes from Cardano addresses directly instead of re-hashing
+- Added fallback hash (cyrb128) for arbitrary string inputs
+- Dual ESM/CJS package with TypeScript declarations
