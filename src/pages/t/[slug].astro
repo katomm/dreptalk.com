@@ -7,12 +7,15 @@ import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import FlagButton from '@/components/FlagButton.tsx';
-import GovernanceHeader from '@/components/GovernanceHeader.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
+import GaTabs from '@/components/ga/GaTabs.astro';
+import GaOverview from '@/components/ga/GaOverview.astro';
+import GaDiscussion from '@/components/ga/GaDiscussion.astro';
+import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
 import { getFlaggedPostIds } from '@/lib/db/postFlags.js';
 import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
-import { threadOgImage } from '@/lib/governance/view.js';
+import { threadOgImage, stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
 import { getVotesByGaId } from '@/lib/db/drepVotes.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { isWriter } from '@/lib/auth/roles.js';
@@ -20,6 +23,9 @@ import { postViewerContext } from '@/lib/forum/postVisibility.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { parseGaTab } from '@/lib/governance/tab.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
@@ -90,6 +96,31 @@ const [govAction, flaggedPostIds] = await Promise.all([
     : Promise.resolve(new Set<string>()),
 ]);
 const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string }>();
+
+// Governance detail page extras: tab, protocol params, stake participation, tally.
+const tab = parseGaTab(Astro.url.searchParams.get('tab'));
+
+// Only compute these for governance topics with a synced action.
+const [params, activeDrepStake] = isGovernanceTopic && govAction && db
+  ? await Promise.all([
+      getProtocolParams(db),
+      // Stake participation is only meaningful for DRep-led types. SPO-led types
+      // (hard fork) do not show DRep turnout, mirroring the list page logic.
+      isSpoLedType(govAction.type) ? Promise.resolve(null) : getActiveDrepStake(db),
+    ])
+  : [null, null];
+
+const stake =
+  govAction && activeDrepStake && govAction.drepVotedPower != null
+    ? stakeParticipation(govAction.drepVotedPower, activeDrepStake.total)
+    : null;
+
+const tally = govAction ? overviewTally(govAction) : null;
+
+// Number of CC members who voted (honest quorum proxy).
+const ccSize = govAction
+  ? (govAction.ccYes ?? 0) + (govAction.ccNo ?? 0) + (govAction.ccAbstain ?? 0)
+  : 0;
 
 const prevPage = page > 1 ? page - 1 : null;
 const nextPage = posts.length === PAGE_SIZE ? page + 1 : null;
@@ -184,77 +215,143 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
       </div>
     </div>
 
-    {govAction && page === 1 && (
-      <GovernanceHeader action={govAction} network={network} now={now} />
-    )}
-
-    <div style="display:flex;flex-direction:column;gap:0;">
-      {posts.map((post, i) => {
-        // The opening post of a governance-sourced topic (page 1, index 0) shows
-        // the System identity even when its author_id is not literally gov-sync.
-        const author =
-          isGovernanceTopic && page === 1 && i === 0
-            ? topicAuthor
-            : describe(post.author_id);
-
-        const { canSeeContent, canFlag } = postViewerContext(post, user, !!author.isSystem);
-        // Per-post vote badge: match the author's DRep id to the on-chain votes.
-        const authorVote = author.drepId ? govVotes.get(author.drepId) : undefined;
-
-        return (
-          <article style="border-top:1px solid var(--border);padding:1.25rem 0;" id={`post-${post.id}`}>
-            <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-              <AuthorIdentity author={author} />
-              {authorVote && <VoteBadge vote={authorVote.vote} />}
-              <span>{formatRelativeTime(post.created_at, now)}</span>
-              {post.edited_at && <span>(edited)</span>}
-              {post.hidden && canSeeContent && (
-                <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
-              )}
-              {canFlag && (
-                <FlagButton
-                  client:visible
-                  postId={post.id}
-                  initialFlagged={flaggedPostIds.has(post.id)}
-                  initialCount={post.flag_count}
-                  initialHidden={post.hidden}
-                />
-              )}
-            </div>
-            {canSeeContent ? (
-              <div class="prose" set:html={post.body_html} />
+    {isGovernanceTopic && govAction ? (
+      // Two-column tabbed layout for governance actions.
+      <>
+        <GaTabs
+          slug={topic.slug}
+          active={tab}
+          commentCount={Math.max(0, topic.post_count - 1)}
+        />
+        <div class="ga-detail-layout">
+          <div class="ga-detail-layout__main">
+            {tab === 'discussion' ? (
+              <GaDiscussion
+                topic={topic}
+                posts={posts}
+                govVotes={govVotes}
+                user={user}
+                topicAuthor={topicAuthor}
+                describe={describe}
+                flaggedPostIds={flaggedPostIds}
+                isGovernanceTopic={isGovernanceTopic}
+                page={page}
+                prevPage={prevPage}
+                nextPage={nextPage}
+                now={now}
+              />
             ) : (
-              <p style="margin:0;color:var(--muted);font-style:italic;font-size:0.9375rem;">
-                This post was hidden after being flagged by the community.
-              </p>
+              <GaOverview
+                action={govAction}
+                stake={stake}
+                tally={tally}
+                now={now}
+              />
             )}
-          </article>
-        );
-      })}
-    </div>
+          </div>
+          <div class="ga-detail-layout__sidebar">
+            <GaSidebar
+              action={govAction}
+              params={params}
+              ccSize={ccSize}
+              network={network}
+            />
+          </div>
+        </div>
+      </>
+    ) : (
+      // Non-governance topics: single-column thread, unchanged.
+      <>
+        <div style="display:flex;flex-direction:column;gap:0;">
+          {posts.map((post, i) => {
+            const author =
+              isGovernanceTopic && page === 1 && i === 0
+                ? topicAuthor
+                : describe(post.author_id);
 
-    {(prevPage || nextPage) && (
-      <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
-        {prevPage && (
-          <a href={`/t/${topic.slug}?page=${prevPage}`}>Previous page</a>
+            const { canSeeContent, canFlag } = postViewerContext(post, user, !!author.isSystem);
+            const authorVote = author.drepId ? govVotes.get(author.drepId) : undefined;
+
+            return (
+              <article style="border-top:1px solid var(--border);padding:1.25rem 0;" id={`post-${post.id}`}>
+                <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+                  <AuthorIdentity author={author} />
+                  {authorVote && <VoteBadge vote={authorVote.vote} />}
+                  <span>{formatRelativeTime(post.created_at, now)}</span>
+                  {post.edited_at && <span>(edited)</span>}
+                  {post.hidden && canSeeContent && (
+                    <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
+                  )}
+                  {canFlag && (
+                    <FlagButton
+                      client:visible
+                      postId={post.id}
+                      initialFlagged={flaggedPostIds.has(post.id)}
+                      initialCount={post.flag_count}
+                      initialHidden={post.hidden}
+                    />
+                  )}
+                </div>
+                {canSeeContent ? (
+                  <div class="prose" set:html={post.body_html} />
+                ) : (
+                  <p style="margin:0;color:var(--muted);font-style:italic;font-size:0.9375rem;">
+                    This post was hidden after being flagged by the community.
+                  </p>
+                )}
+              </article>
+            );
+          })}
+        </div>
+
+        {(prevPage || nextPage) && (
+          <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
+            {prevPage && (
+              <a href={`/t/${topic.slug}?page=${prevPage}`}>Previous page</a>
+            )}
+            {nextPage && (
+              <a href={`/t/${topic.slug}?page=${nextPage}`}>Next page</a>
+            )}
+          </nav>
         )}
-        {nextPage && (
-          <a href={`/t/${topic.slug}?page=${nextPage}`}>Next page</a>
+
+        {topic.locked && (
+          <p style="margin-top:2rem;padding:0.875rem 1rem;border:1px solid var(--border);border-radius:0.375rem;color:var(--muted);font-size:0.875rem;">
+            This topic is locked and no longer accepts new replies.
+          </p>
         )}
-      </nav>
-    )}
 
-    {topic.locked && (
-      <p style="margin-top:2rem;padding:0.875rem 1rem;border:1px solid var(--border);border-radius:0.375rem;color:var(--muted);font-size:0.875rem;">
-        This topic is locked and no longer accepts new replies.
-      </p>
-    )}
-
-    {showComposer && (
-      <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
-        <h2 style="margin:0 0 1rem;font-size:1.125rem;">Reply</h2>
-        <Composer client:load mode="post" topicId={topic.id} />
-      </section>
+        {showComposer && (
+          <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
+            <h2 style="margin:0 0 1rem;font-size:1.125rem;">Reply</h2>
+            <Composer client:load mode="post" topicId={topic.id} />
+          </section>
+        )}
+      </>
     )}
   </Layout>
 )}
+
+<style>
+  /* Two-column layout: main content on the left, sidebar on the right.
+     Single column on mobile (sidebar stacks below). */
+  .ga-detail-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 2rem;
+    align-items: start;
+  }
+  .ga-detail-layout__sidebar {
+    position: sticky;
+    top: 1.5rem;
+  }
+  @media (max-width: 900px) {
+    .ga-detail-layout {
+      grid-template-columns: 1fr;
+    }
+    .ga-detail-layout__sidebar {
+      position: static;
+      order: -1;
+    }
+  }
+</style>

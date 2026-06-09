@@ -1,0 +1,195 @@
+---
+// Sidebar card: voting window, on-chain thresholds, and per-body results.
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { ProtocolParams } from '@/lib/db/protocolParams.js';
+import { evaluateThresholds } from '@/lib/governance/thresholds.js';
+import { fmtPct, formatEpochDate } from '@/lib/governance/view.js';
+import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
+
+interface Props {
+  action: GovernanceAction;
+  params: ProtocolParams | null;
+  ccSize: number;
+  network: CardanoNetwork;
+}
+
+const { action, params, ccSize, network } = Astro.props;
+const netCfg = resolveNetwork(network);
+
+const submittedDate = action.submittedEpoch != null
+  ? formatEpochDate(epochStartUnix(action.submittedEpoch, netCfg))
+  : null;
+const expiryDate = action.expiryEpoch != null
+  ? formatEpochDate(epochStartUnix(action.expiryEpoch, netCfg))
+  : null;
+
+// Threshold evaluation: empty array = InfoAction (no on-chain threshold).
+const results = params
+  ? evaluateThresholds(
+      {
+        type: action.type,
+        drepYesPct: action.drepYesPct,
+        spoYesPct: action.spoYesPct,
+        ccYesPct: action.ccYesPct,
+        ccSize,
+      },
+      params,
+    )
+  : null;
+
+// True when the type has no on-chain threshold (InfoAction).
+const noThreshold = results !== null && results.length === 0;
+---
+
+<div class="sidebar-card">
+  <p class="sidebar-card__title">Voting Information</p>
+
+  <!-- Voting window -->
+  <dl class="info-dl">
+    {action.submittedEpoch != null && (
+      <>
+        <dt>Start</dt>
+        <dd>Epoch {action.submittedEpoch}{submittedDate && <> ({submittedDate})</>}</dd>
+      </>
+    )}
+    {action.expiryEpoch != null && (
+      <>
+        <dt>End</dt>
+        <dd>Epoch {action.expiryEpoch}{expiryDate && <> ({expiryDate})</>}</dd>
+      </>
+    )}
+  </dl>
+
+  <!-- Threshold section -->
+  {noThreshold ? (
+    <p class="info-note">No on-chain threshold for this action type.</p>
+  ) : results === null ? (
+    <p class="info-note">Thresholds not yet available.</p>
+  ) : (
+    <div class="threshold-list">
+      {results.map((r) => (
+        <div class="threshold-row">
+          <div class="threshold-row__head">
+            <span class="threshold-row__body">{r.body}</span>
+            {r.met ? (
+              <span class="threshold-row__met threshold-row__met--yes">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                Met
+              </span>
+            ) : (
+              <span class="threshold-row__met threshold-row__met--no">Not met</span>
+            )}
+          </div>
+          <div class="threshold-row__values">
+            {r.thresholdPct != null && (
+              <span class="threshold-row__thr">Threshold: {fmtPct(r.thresholdPct)}</span>
+            )}
+            {r.yesPct != null && (
+              <span class="threshold-row__yes">Yes: {fmtPct(r.yesPct)}</span>
+            )}
+            {r.body === 'CC' && params?.committeeMinSize != null && (
+              <span class="threshold-row__cc">
+                {ccSize} of min {params.committeeMinSize} members
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+      {params?.epoch != null && (
+        <p class="info-footnote">Thresholds as of epoch {params.epoch}.</p>
+      )}
+    </div>
+  )}
+</div>
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+
+  .info-dl {
+    margin: 0 0 0.875rem;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.25rem 0.75rem;
+    font-size: 0.8125rem;
+  }
+  .info-dl dt {
+    color: var(--muted);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .info-dl dd {
+    margin: 0;
+    color: var(--fg);
+  }
+
+  .info-note {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  .threshold-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+  .threshold-row {
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+    font-size: 0.8125rem;
+  }
+  .threshold-row__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+  }
+  .threshold-row__body {
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .threshold-row__met {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .threshold-row__met--yes { color: #1a7f37; }
+  .threshold-row__met--no { color: var(--muted); }
+  .threshold-row__values {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+  .threshold-row__thr,
+  .threshold-row__yes,
+  .threshold-row__cc {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .threshold-row__yes { color: var(--fg); }
+
+  .info-footnote {
+    margin: 0.375rem 0 0;
+    font-size: 0.6875rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+</style>

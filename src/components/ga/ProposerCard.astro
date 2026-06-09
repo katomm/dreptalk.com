@@ -1,0 +1,34 @@
+---
+// Sidebar card: proposer identity (logo+name->website or identicon+address).
+import ProposerIdentity from '@/components/ProposerIdentity.astro';
+
+interface Props {
+  returnAddress: string | null;
+}
+
+const { returnAddress } = Astro.props;
+---
+
+{returnAddress && (
+  <div class="sidebar-card">
+    <p class="sidebar-card__title">Proposer</p>
+    <ProposerIdentity returnAddress={returnAddress} size={24} />
+  </div>
+)}
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+</style>
