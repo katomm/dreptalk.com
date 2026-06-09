@@ -214,15 +214,21 @@ export async function createTopic(
 
 /**
  * Overwrites a topic's post-date timestamps (created_at and last_post_at) and its
- * single system post's created_at, atomically. Used by the governance backfill to set
- * the post date to the on-chain submission time. Only safe for topics with no replies
- * (exactly one post); callers must guarantee that via post_count <= 1.
+ * first (system) post's created_at, atomically. Used by the governance backfill to set
+ * the post date to the on-chain submission time. The post update targets only the
+ * earliest post, so it is safe by construction even if a reply races in between the
+ * backfill's candidate read and this call: a reply always has a later created_at than
+ * the system post, so it is never the subquery's match and its timestamp is preserved.
  */
 export async function setTopicPostedAt(db: D1Database, topicId: string, postedAt: number): Promise<void> {
   await db.batch([
     db.prepare('UPDATE topics SET created_at = ?, last_post_at = ? WHERE id = ?').bind(postedAt, postedAt, topicId),
-    // Updates every post for the topic; safe only when post_count <= 1 (one system post).
-    db.prepare('UPDATE posts SET created_at = ? WHERE topic_id = ?').bind(postedAt, topicId),
+    // Stamps only the earliest (system) post; never a later reply.
+    db
+      .prepare(
+        'UPDATE posts SET created_at = ? WHERE id = (SELECT id FROM posts WHERE topic_id = ? ORDER BY created_at ASC LIMIT 1)',
+      )
+      .bind(postedAt, topicId),
   ]);
 }
 

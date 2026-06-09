@@ -378,4 +378,67 @@ describe('submission-date post stamping and backfill', () => {
       .first<{ created_at: number; last_post_at: number }>();
     expect(row).toEqual({ created_at: SYNC_TIME, last_post_at: SYNC_TIME });
   });
+
+  it('stamps only the system post, never a reply that raced the candidate read', async () => {
+    // TOCTOU race: the candidate SELECT observed post_count <= 1, but a user reply
+    // landed before the per-topic stamp ran. The stamp must touch only the
+    // system/first post, leaving the reply's timestamp intact. post_count is left at
+    // 1 to mimic the stale read even though two post rows already exist.
+    const SYNC_TIME = 1_700_000_000_000;
+    const REPLY_TIME = SYNC_TIME + 3_600_000; // one hour after the system post
+    const topicId = 'bf-topic-raced';
+    await env.DB.batch([
+      env.DB
+        .prepare(
+          `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
+           VALUES (?, 'governance-actions', 'gov-sync', 'governance', 'Raced', 'raced-bf3', 1, ?, ?)`,
+        )
+        .bind(topicId, REPLY_TIME, SYNC_TIME),
+      env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+           VALUES ('bf-post-sys', ?, 'gov-sync', 's', '<p>s</p>', ?)`,
+        )
+        .bind(topicId, SYNC_TIME),
+      env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+           VALUES ('bf-post-reply', ?, 'drep-user', 'r', '<p>r</p>', ?)`,
+        )
+        .bind(topicId, REPLY_TIME),
+      buildInsertGovernanceAction(env.DB, {
+        id: 'bf-action-raced',
+        proposalId: 'gov_action1bf3',
+        type: 'InfoAction',
+        title: null,
+        abstract: null,
+        rationaleHtml: null,
+        anchorUrl: null,
+        anchorHash: null,
+        anchorStatus: 'no-anchor',
+        returnAddress: null,
+        deposit: null,
+        submittedEpoch: 200,
+        expiryEpoch: null,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId,
+        now: SYNC_TIME,
+      }),
+    ]);
+
+    await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+
+    const sys = await env.DB
+      .prepare('SELECT created_at FROM posts WHERE id = ?')
+      .bind('bf-post-sys')
+      .first<{ created_at: number }>();
+    const reply = await env.DB
+      .prepare('SELECT created_at FROM posts WHERE id = ?')
+      .bind('bf-post-reply')
+      .first<{ created_at: number }>();
+    // The system/first post is stamped to the submission time...
+    expect(sys!.created_at).toBe(EPOCH_200_MS);
+    // ...but the racing reply keeps its original timestamp.
+    expect(reply!.created_at).toBe(REPLY_TIME);
+  });
 });
