@@ -91,6 +91,31 @@ describe('sortGovActionTopics', () => {
     expect(out).toContain('enacted'); // pure ordering: all rows present
     expect(out.indexOf('fresh-busy')).toBeLessThan(out.indexOf('stale-busy')); // recency lifts it
   });
+
+  it('trending: hot discussion > fresh submission > old vote-heavy action', () => {
+    const rows = [
+      row({ id: 'whale', status: 'active', votes: 2000, postCount: 1, lastPostAt: NOW - 40 * DAY }),
+      row({ id: 'fresh', status: 'active', votes: 0, postCount: 1, lastPostAt: NOW - 2 * DAY }),
+      row({ id: 'hot', status: 'active', votes: 50, postCount: 5, lastPostAt: NOW - 5 * DAY }),
+    ];
+    expect(ids(sortGovActionTopics(rows, 'trending', NOW))).toEqual(['hot', 'fresh', 'whale']);
+  });
+
+  it('trending: actions with no comments fall back to post-date (last_post_at) order', () => {
+    const rows = [
+      row({ id: 'older', status: 'active', votes: 0, postCount: 1, lastPostAt: NOW - 20 * DAY }),
+      row({ id: 'newer', status: 'active', votes: 0, postCount: 1, lastPostAt: NOW - 5 * DAY }),
+    ];
+    expect(ids(sortGovActionTopics(rows, 'trending', NOW))).toEqual(['newer', 'older']);
+  });
+
+  it('trending: equal scores break ties by newest submission epoch', () => {
+    const rows = [
+      row({ id: 'a', status: 'active', votes: 0, postCount: 1, lastPostAt: NOW - 5 * DAY, submittedEpoch: 300 }),
+      row({ id: 'b', status: 'active', votes: 0, postCount: 1, lastPostAt: NOW - 5 * DAY, submittedEpoch: 320 }),
+    ];
+    expect(ids(sortGovActionTopics(rows, 'trending', NOW))).toEqual(['b', 'a']);
+  });
 });
 
 describe('trendingScore', () => {
@@ -98,5 +123,18 @@ describe('trendingScore', () => {
     const recent = row({ id: 'r', postCount: 5, votes: 3, lastPostAt: NOW - 1000 });
     const old = row({ id: 'o', postCount: 5, votes: 3, lastPostAt: NOW - 20 * DAY });
     expect(trendingScore(recent, NOW)).toBeGreaterThan(trendingScore(old, NOW));
+  });
+
+  it('penalises a terminal action below an otherwise identical active one', () => {
+    const active = row({ id: 'active', status: 'active', votes: 10, postCount: 3, lastPostAt: NOW - 3 * DAY });
+    const enacted = row({ id: 'enacted', status: 'enacted', votes: 10, postCount: 3, lastPostAt: NOW - 3 * DAY });
+    expect(trendingScore(enacted, NOW)).toBeLessThan(trendingScore(active, NOW));
+    expect(trendingScore(enacted, NOW)).toBeCloseTo(trendingScore(active, NOW) * 0.15, 8);
+  });
+
+  it('log-damps vote totals so an old vote-heavy action loses to a fresh submission', () => {
+    const whale = row({ id: 'whale', status: 'active', votes: 2000, postCount: 1, lastPostAt: NOW - 40 * DAY });
+    const fresh = row({ id: 'fresh', status: 'active', votes: 0, postCount: 1, lastPostAt: NOW - 2 * DAY });
+    expect(trendingScore(fresh, NOW)).toBeGreaterThan(trendingScore(whale, NOW));
   });
 });
