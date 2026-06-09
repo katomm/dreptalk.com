@@ -21,7 +21,7 @@ function descriptorFor(v: ActionVoterRow): AuthorDescriptor {
     displayName: d?.name ?? v.voter_id,
     drepId: v.voter_id,
     hasImage: !!d?.imageUrl,
-    identiconSeed: d?.hex ?? v.hex ?? v.voter_id,
+    identiconSeed: d?.hex ?? v.hex ?? v.voter_hex ?? v.voter_id,
     badges: [],
   };
 }
@@ -36,9 +36,9 @@ function descriptorFor(v: ActionVoterRow): AuthorDescriptor {
         const ada = formatAda(v.voting_power);
         return (
           <li class="top-participants__row">
-            <a href={`/dreps/${v.voter_id}`} class="top-participants__identity">
+            <div class="top-participants__identity">
               <AuthorIdentity author={descriptor} size={22} />
-            </a>
+            </div>
             {ada && <span class="top-participants__power">{ada}</span>}
           </li>
         );
