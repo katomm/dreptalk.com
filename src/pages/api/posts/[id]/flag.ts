@@ -10,16 +10,16 @@ type FlagHandler = (input: FlagPostInput) => Promise<{ status: number; json: unk
 async function run(handler: FlagHandler, locals: App.Locals, postId: string): Promise<Response> {
   const env = runtimeEnv(locals);
   const db = env.DB as D1Database | undefined;
-  const rateKv = env.NONCES as KVNamespace | undefined;
+  const rateLimiter = env.RATE_LIMITER;
 
-  if (!db || !rateKv) {
+  if (!db || !rateLimiter) {
     return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
   }
   if (!postId) {
     return jsonResponse({ ok: false, error: 'missing post id' }, 400);
   }
 
-  const result = await handler({ user: locals.user, postId, db, rateKv, now: Date.now() });
+  const result = await handler({ user: locals.user, postId, db, rateLimiter, now: Date.now() });
   return jsonResponse(result.json, result.status);
 }
 

@@ -1,6 +1,6 @@
 // Global setup for Workers-runtime tests.
 // Applies D1 migrations before each test suite so every test starts with a fresh schema.
-import { env, applyD1Migrations } from 'cloudflare:test';
+import { env, applyD1Migrations, listDurableObjectIds, runInDurableObject } from 'cloudflare:test';
 import { beforeAll, beforeEach } from 'vitest';
 
 declare module 'cloudflare:test' {
@@ -10,6 +10,7 @@ declare module 'cloudflare:test' {
     DB: D1Database;
     SESSIONS: KVNamespace;
     NONCES: KVNamespace;
+    RATE_LIMITER: DurableObjectNamespace<import('./rateLimiterDO.js').RateLimiter>;
     TEST_D1_MIGRATIONS: string;
   }
 }
@@ -68,5 +69,12 @@ beforeEach(async () => {
   for (const ns of [env.SESSIONS, env.NONCES]) {
     const { keys } = await ns.list();
     await Promise.all(keys.map((k) => ns.delete(k.name)));
+  }
+
+  // Reset RateLimiter Durable Object storage so rate-limit windows never leak
+  // between tests (the manual analogue of the per-test rollback pool-workers 0.16
+  // dropped, the same reason D1 and KV are wiped above).
+  for (const id of await listDurableObjectIds(env.RATE_LIMITER)) {
+    await runInDurableObject(env.RATE_LIMITER.get(id), (_instance, state) => state.storage.deleteAll());
   }
 });

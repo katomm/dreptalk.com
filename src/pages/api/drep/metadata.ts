@@ -21,15 +21,15 @@ const RATE_WINDOW_SEC = 60;
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = runtimeEnv(locals as App.Locals);
   const db = env.DB as D1Database | undefined;
-  const nonceKv = env.NONCES as KVNamespace | undefined;
+  const rateLimiter = env.RATE_LIMITER;
 
-  if (!db || !nonceKv) {
+  if (!db || !rateLimiter) {
     return jsonResponse({ error: 'service unavailable' }, 503);
   }
 
   // Throttle per IP first (cheapest gate).
   const clientIp = clientIpFrom(request.headers);
-  const allowed = await checkRate(nonceKv, `drep-meta:${clientIp}`, {
+  const allowed = await checkRate(rateLimiter, `drep-meta:${clientIp}`, {
     max: RATE_MAX,
     windowSec: RATE_WINDOW_SEC,
     now: Date.now(),

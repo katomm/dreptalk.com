@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // file by vitest), so these refs are safe to use inside the factory.
 // ---------------------------------------------------------------------------
 
-const { fakeDb, fakeKV } = vi.hoisted(() => {
+const { fakeDb, fakeKV, fakeRateLimiter } = vi.hoisted(() => {
   // Fake D1: records the last .bind() arguments so tests can inspect what
   // was persisted without a real database.
   interface FakeD1 {
@@ -38,7 +38,26 @@ const { fakeDb, fakeKV } = vi.hoisted(() => {
     },
   };
 
-  return { fakeDb: db, fakeKV: kv };
+  // Fake RATE_LIMITER Durable Object namespace: a Map-backed fixed-window counter
+  // mirroring the real RateLimiter so the route's throttle works without workerd.
+  const rlStore = new Map<string, { start: number; count: number }>();
+  const rateLimiter = {
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      limit: async (opts: { max: number; windowSec: number; now: number }) => {
+        const prev = rlStore.get(id);
+        if (!prev || opts.now - prev.start >= opts.windowSec * 1000) {
+          rlStore.set(id, { start: opts.now, count: 1 });
+          return opts.max >= 1;
+        }
+        if (prev.count >= opts.max) return false;
+        prev.count += 1;
+        return true;
+      },
+    }),
+  };
+
+  return { fakeDb: db, fakeKV: kv, fakeRateLimiter: rateLimiter };
 });
 
 // Mock cloudflare:workers so the module resolves in the Node test environment.
@@ -46,6 +65,7 @@ vi.mock('cloudflare:workers', () => ({
   env: {
     DB: fakeDb,
     NONCES: fakeKV,
+    RATE_LIMITER: fakeRateLimiter,
   },
 }));
 

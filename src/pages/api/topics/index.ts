@@ -7,9 +7,9 @@ export const prerender = false;
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = runtimeEnv(locals as App.Locals);
   const db = env.DB as D1Database | undefined;
-  const rateKv = env.NONCES as KVNamespace | undefined;
+  const rateLimiter = env.RATE_LIMITER;
 
-  if (!db || !rateKv) {
+  if (!db || !rateLimiter) {
     return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
   }
 
@@ -24,7 +24,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     user: locals.user,
     body: body as { categorySlug: unknown; title: unknown; bodyMd: unknown },
     db,
-    rateKv,
+    rateLimiter,
     now: Date.now(),
   });
 

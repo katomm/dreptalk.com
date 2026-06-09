@@ -24,8 +24,8 @@ export function jsonResponse(
  * exposed as a module global via `cloudflare:workers`. The `locals` argument is
  * accepted for call-site compatibility but is no longer read.
  */
-export function runtimeEnv(_locals?: App.Locals): Record<string, unknown> {
-  return (workersEnv ?? {}) as unknown as Record<string, unknown>;
+export function runtimeEnv(_locals?: App.Locals): Cloudflare.Env {
+  return (workersEnv ?? {}) as Cloudflare.Env;
 }
 
 /**
