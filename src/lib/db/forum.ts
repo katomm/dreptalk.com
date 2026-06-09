@@ -142,6 +142,10 @@ export async function createTopic(
     bodyHtml: string;
     source?: 'user' | 'governance';
     now: number;
+    // Overrides the timestamp written to the topic's created_at/last_post_at and the
+    // first post's created_at. Defaults to `now`. The governance sync passes the
+    // on-chain submission time so a synced action's post date is its submission date.
+    postedAt?: number;
     rand: string;
     // Extra statements to commit atomically in the same batch as the topic and
     // first post (e.g. a governance_actions row). Receives the new topic id.
@@ -149,6 +153,7 @@ export async function createTopic(
   },
 ): Promise<{ topic: Topic; firstPost: Post }> {
   const { categorySlug, authorId, title, bodyMd, bodyHtml, source = 'user', now, rand, batchWith } = args;
+  const postedAt = args.postedAt ?? now;
   const slug = slugify(title, rand);
   const topicId = crypto.randomUUID();
   const postId = crypto.randomUUID();
@@ -159,7 +164,7 @@ export async function createTopic(
          (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     )
-    .bind(topicId, categorySlug, authorId, source, title, slug, now, now);
+    .bind(topicId, categorySlug, authorId, source, title, slug, postedAt, postedAt);
 
   const insertPost = db
     .prepare(
@@ -167,7 +172,7 @@ export async function createTopic(
          (id, topic_id, author_id, body_md, body_html, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .bind(postId, topicId, authorId, bodyMd, bodyHtml, now);
+    .bind(postId, topicId, authorId, bodyMd, bodyHtml, postedAt);
 
   const extra = batchWith ? batchWith(topicId) : [];
   await db.batch([insertTopic, insertPost, ...extra]);
@@ -186,8 +191,8 @@ export async function createTopic(
     deleted: 0,
     flag_count: 0,
     post_count: 1,
-    last_post_at: now,
-    created_at: now,
+    last_post_at: postedAt,
+    created_at: postedAt,
   });
 
   const firstPost = rowToPost({
@@ -201,7 +206,7 @@ export async function createTopic(
     hidden: 0,
     edited_at: null,
     deleted: 0,
-    created_at: now,
+    created_at: postedAt,
   });
 
   return { topic, firstPost };
