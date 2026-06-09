@@ -10,7 +10,7 @@ import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { handleFlagPost, handleUnflagPost } from './handlers.js';
 
 const db = () => env.DB;
-const rateKv = () => env.NONCES;
+const rateLimiter = () => env.RATE_LIMITER;
 const NOW = 1_752_000_000_000;
 
 const WRITER = { id: 'drep-writer-1', roles: ['drep'] };
@@ -33,7 +33,7 @@ async function newPost(authorId: string, source: 'user' | 'governance' = 'user')
 }
 
 function flagInput(user: { id: string; roles: string[] } | null, postId: string) {
-  return { user, postId, db: db(), rateKv: rateKv(), now: NOW };
+  return { user, postId, db: db(), rateLimiter: rateLimiter(), now: NOW };
 }
 
 describe('handleFlagPost: authorization', () => {

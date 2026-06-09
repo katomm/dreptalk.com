@@ -11,9 +11,9 @@ import { handleCreateTopic, handleCreatePost } from './handlers.js';
 // real role; posting is gated by isWriter() which only accepts drep/spo/cc/proposer.
 const WRITER = { id: 'user-writer-001', roles: ['drep'] };
 
-// Shared DB and KV accessors.
+// Shared DB and rate-limiter accessors.
 const db = () => env.DB;
-const rateKv = () => env.NONCES;
+const rateLimiter = () => env.RATE_LIMITER;
 
 // Fixed timestamp to keep tests deterministic.
 const NOW = 1_750_000_000_000;
@@ -33,7 +33,7 @@ describe('posting works for each writer role', () => {
         user,
         body: { categorySlug: 'general', title: `Hello from a ${role}`, bodyMd: `A post by a ${role}.` },
         db: db(),
-        rateKv: rateKv(),
+        rateLimiter: rateLimiter(),
         now: NOW,
       });
       expect(topicRes.status).toBe(201);
@@ -47,7 +47,7 @@ describe('posting works for each writer role', () => {
         topicId: topicRow!.id,
         body: { bodyMd: `A reply by a ${role}.` },
         db: db(),
-        rateKv: rateKv(),
+        rateLimiter: rateLimiter(),
         now: NOW + 1,
       });
       expect(replyRes.status).toBe(201);
@@ -59,7 +59,7 @@ describe('posting works for each writer role', () => {
       user: null,
       body: { categorySlug: 'general', title: 'Should be blocked', bodyMd: 'nope' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(res.status).toBe(401);
@@ -70,7 +70,7 @@ describe('posting works for each writer role', () => {
       user: { id: 'mod-only-user', roles: ['moderator'] },
       body: { categorySlug: 'general', title: 'Mod tries to post', bodyMd: 'should be 403' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(res.status).toBe(403);
@@ -82,7 +82,7 @@ describe('posting works for each writer role', () => {
       user: { id: 'writer-for-reply-gate', roles: ['drep'] },
       body: { categorySlug: 'general', title: 'Topic for reply gate test', bodyMd: 'body' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     const { slug } = topicRes.json as { slug: string };
@@ -93,7 +93,7 @@ describe('posting works for each writer role', () => {
       topicId: topicRow!.id,
       body: { bodyMd: 'member should not reply' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 1,
     });
     expect(res.status).toBe(403);
@@ -114,7 +114,7 @@ describe('handleCreateTopic: happy path', () => {
         bodyMd: '**hello world**',
       },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
 
@@ -141,7 +141,7 @@ describe('handleCreateTopic: happy path', () => {
         bodyMd: 'safe text <script>alert(1)</script> more text',
       },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 1,
     });
 
@@ -171,7 +171,7 @@ describe('handleCreateTopic: authorization', () => {
       user: null,
       body: { categorySlug: 'general', title: 'Test', bodyMd: 'body' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(401);
@@ -187,7 +187,7 @@ describe('handleCreateTopic: category rules', () => {
       user: WRITER,
       body: { categorySlug: 'does-not-exist', title: 'Test Topic', bodyMd: 'body' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(400);
@@ -198,7 +198,7 @@ describe('handleCreateTopic: category rules', () => {
       user: WRITER,
       body: { categorySlug: 'governance-actions', title: 'Governance Post', bodyMd: 'body' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(403);
@@ -213,7 +213,7 @@ describe('handleCreateTopic: title validation', () => {
       user: WRITER,
       body: { categorySlug: 'general', title: 'ab', bodyMd: 'body text' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(400);
@@ -224,7 +224,7 @@ describe('handleCreateTopic: title validation', () => {
       user: WRITER,
       body: { categorySlug: 'general', title: 'a'.repeat(201), bodyMd: 'body text' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(400);
@@ -235,7 +235,7 @@ describe('handleCreateTopic: title validation', () => {
       user: WRITER,
       body: { categorySlug: 'general', title: 'abc', bodyMd: 'body text' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 2,
     });
     expect(result.status).toBe(201);
@@ -246,7 +246,7 @@ describe('handleCreateTopic: title validation', () => {
       user: WRITER,
       body: { categorySlug: 'general', title: 'a'.repeat(200), bodyMd: 'body text' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 3,
     });
     expect(result.status).toBe(201);
@@ -259,7 +259,7 @@ describe('handleCreateTopic: body validation', () => {
       user: WRITER,
       body: { categorySlug: 'general', title: 'Valid Title', bodyMd: '' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(400);
@@ -270,7 +270,7 @@ describe('handleCreateTopic: body validation', () => {
       user: WRITER,
       body: { categorySlug: 'general', title: 'Valid Title', bodyMd: 'x'.repeat(20001) },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(400);
@@ -281,7 +281,7 @@ describe('handleCreateTopic: body validation', () => {
       user: WRITER,
       body: { categorySlug: 'general', title: 'Max Body', bodyMd: 'x'.repeat(20000) },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 4,
     });
     expect(result.status).toBe(201);
@@ -302,7 +302,7 @@ describe('handleCreateTopic: rate limiting', () => {
           bodyMd: 'some body text',
         },
         db: db(),
-        rateKv: rateKv(),
+        rateLimiter: rateLimiter(),
         now: NOW + n,
       });
 
@@ -340,7 +340,7 @@ describe('handleCreatePost: happy path', () => {
       topicId: topic.id,
       body: { bodyMd: '**reply text**' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 1000,
     });
 
@@ -361,7 +361,7 @@ describe('handleCreatePost: authorization', () => {
       topicId: 'any-topic-id',
       body: { bodyMd: 'reply' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(401);
@@ -392,7 +392,7 @@ describe('handleCreatePost: topic state errors', () => {
       topicId: topic.id,
       body: { bodyMd: 'reply to locked' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 1,
     });
 
@@ -405,7 +405,7 @@ describe('handleCreatePost: topic state errors', () => {
       topicId: 'non-existent-topic-id-xyz',
       body: { bodyMd: 'reply to nothing' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(404);
@@ -429,7 +429,7 @@ describe('handleCreatePost: body validation', () => {
       topicId: topic.id,
       body: { bodyMd: '' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 1,
     });
     expect(result.status).toBe(400);
@@ -451,7 +451,7 @@ describe('handleCreatePost: body validation', () => {
       topicId: topic.id,
       body: { bodyMd: 'x'.repeat(20001) },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 1,
     });
     expect(result.status).toBe(400);
@@ -473,7 +473,7 @@ describe('handleCreatePost: body validation', () => {
       topicId: topic.id,
       body: { bodyMd: '   ' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW + 1,
     });
     expect(result.status).toBe(400);
@@ -486,7 +486,7 @@ describe('handleCreateTopic: whitespace body', () => {
       user: WRITER,
       body: { categorySlug: 'general', title: 'Whitespace Body Topic', bodyMd: '   ' },
       db: db(),
-      rateKv: rateKv(),
+      rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(result.status).toBe(400);
@@ -515,7 +515,7 @@ describe('handleCreatePost: rate limiting', () => {
         topicId: topic.id,
         body: { bodyMd: `reply number ${n}` },
         db: db(),
-        rateKv: rateKv(),
+        rateLimiter: rateLimiter(),
         now: NOW + n,
       });
 

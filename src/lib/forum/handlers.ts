@@ -7,6 +7,7 @@ import { flagPost, unflagPost, type FlagState } from '../db/postFlags.js';
 import { renderMarkdown } from '../markdown.js';
 import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
+import type { RateLimiter } from '../rateLimiterDO.js';
 import { isWriter } from '../auth/roles.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { toBase64Url } from '../crypto/base64url.js';
@@ -34,7 +35,7 @@ export interface CreateTopicInput {
     bodyMd: unknown;
   };
   db: D1Database;
-  rateKv: KVNamespace;
+  rateLimiter: DurableObjectNamespace<RateLimiter>;
   now: number;
 }
 
@@ -48,7 +49,7 @@ export interface CreateTopicInput {
  */
 export async function handleCreateTopic(input: CreateTopicInput): Promise<HandlerResult> {
   try {
-    const { user, body, db, rateKv, now } = input;
+    const { user, body, db, rateLimiter, now } = input;
 
     // 1. Auth check: must be authenticated and hold an on-chain writer role.
     // Reading is public; posting is reserved for verified DReps/SPOs/CC/proposers
@@ -61,7 +62,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
     }
 
     // 2. Rate limit: 5 topics per 600s per user.
-    const allowed = await checkRate(rateKv, `topic:${user.id}`, { max: 5, windowSec: 600, now });
+    const allowed = await checkRate(rateLimiter, `topic:${user.id}`, { max: 5, windowSec: 600, now });
     if (!allowed) {
       return { status: 429, json: { ok: false, error: 'rate_limited' } };
     }
@@ -124,7 +125,7 @@ export interface CreatePostInput {
     bodyMd: unknown;
   };
   db: D1Database;
-  rateKv: KVNamespace;
+  rateLimiter: DurableObjectNamespace<RateLimiter>;
   now: number;
 }
 
@@ -137,7 +138,7 @@ export interface CreatePostInput {
  */
 export async function handleCreatePost(input: CreatePostInput): Promise<HandlerResult> {
   try {
-    const { user, topicId, body, db, rateKv, now } = input;
+    const { user, topicId, body, db, rateLimiter, now } = input;
 
     // 1. Auth check: must be authenticated and hold an on-chain writer role
     // (same gate as topic creation and flagging).
@@ -149,7 +150,7 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     }
 
     // 2. Rate limit: 20 posts per 600s per user.
-    const allowed = await checkRate(rateKv, `post:${user.id}`, { max: 20, windowSec: 600, now });
+    const allowed = await checkRate(rateLimiter, `post:${user.id}`, { max: 20, windowSec: 600, now });
     if (!allowed) {
       return { status: 429, json: { ok: false, error: 'rate_limited' } };
     }
@@ -188,7 +189,7 @@ export interface FlagPostInput {
   user: User | null;
   postId: string;
   db: D1Database;
-  rateKv: KVNamespace;
+  rateLimiter: DurableObjectNamespace<RateLimiter>;
   now: number;
 }
 
@@ -196,7 +197,7 @@ export interface FlagPostInput {
 async function authorizeFlag(
   input: FlagPostInput,
 ): Promise<{ user: User } | { fail: HandlerResult }> {
-  const { user, postId, db, rateKv, now } = input;
+  const { user, postId, db, rateLimiter, now } = input;
 
   // 1. Auth: only on-chain writers can flag.
   if (!user) {
@@ -207,7 +208,7 @@ async function authorizeFlag(
   }
 
   // 2. Rate limit toggles per user (30 per 600s).
-  const allowed = await checkRate(rateKv, `flag:${user.id}`, { max: 30, windowSec: 600, now });
+  const allowed = await checkRate(rateLimiter, `flag:${user.id}`, { max: 30, windowSec: 600, now });
   if (!allowed) {
     return { fail: { status: 429, json: { ok: false, error: 'rate_limited' } } };
   }

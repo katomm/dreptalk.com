@@ -19,8 +19,9 @@ export const POST: APIRoute = async ({ request }) => {
     const nonceKv = env.NONCES as KVNamespace | undefined;
     const sessionKv = env.SESSIONS as KVNamespace | undefined;
     const db = env.DB as D1Database | undefined;
+    const rateLimiter = env.RATE_LIMITER;
 
-    if (!nonceKv || !sessionKv || !db) {
+    if (!nonceKv || !sessionKv || !db || !rateLimiter) {
       return new Response(JSON.stringify({ ok: false, error: 'service unavailable' }), {
         status: 503,
         headers: { 'content-type': 'application/json' },
@@ -29,7 +30,7 @@ export const POST: APIRoute = async ({ request }) => {
 
     // Throttle per IP before any signature verification or Koios call.
     const clientIp = clientIpFrom(request.headers);
-    const allowed = await checkRate(nonceKv, `authvf:${clientIp}`, {
+    const allowed = await checkRate(rateLimiter, `authvf:${clientIp}`, {
       max: RATE_MAX,
       windowSec: RATE_WINDOW_SEC,
       now: Date.now(),

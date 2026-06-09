@@ -12,14 +12,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const env = runtimeEnv(locals as App.Locals);
-  const noncesKv = env.NONCES as KVNamespace | undefined;
+  const rateLimiter = env.RATE_LIMITER;
 
-  // Rate-limit KV is required; 503 when unbound so preview stays rate-limited.
-  if (!noncesKv) {
+  // The rate limiter is required; 503 when unbound so preview stays throttled.
+  if (!rateLimiter) {
     return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
   }
 
-  const allowed = await checkRate(noncesKv, `preview:${user.id}`, {
+  const allowed = await checkRate(rateLimiter, `preview:${user.id}`, {
     max: 60,
     windowSec: 60,
     now: Date.now(),

@@ -1,5 +1,7 @@
 name = "dreptalk-com"
-main = "@astrojs/cloudflare/entrypoints/server"
+# Custom entry (src/worker.ts) so the RateLimiter Durable Object class is exported
+# from this worker; it re-exports the DO and delegates SSR to the adapter's handle().
+main = "./src/worker.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
@@ -38,6 +40,16 @@ id = "2e999274a29a41319b3e1214653b4fee"
 [[kv_namespaces]]
 binding = "NONCES"
 id = "9b7873fb79c04d6eb34ec2fb2170a30b"
+
+# Atomic rate-limit counters. One Durable Object instance per rate-limit key, so a
+# key's increment is serialized and cannot be raced (unlike the prior KV counter).
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
 
 # ---------------------------------------------------------------------------
 # Preprod app environment is NOT defined here as a [env.preprod] block. The

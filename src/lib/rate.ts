@@ -1,40 +1,58 @@
 /// <reference types="@cloudflare/workers-types" />
-// Fixed-window rate-limit counter stored in KV.
-// Each key holds a plain decimal counter string with TTL = windowSec.
-// First call in a window sets the key; subsequent calls increment it.
-// Returns true (allowed) if count was below max before increment,
-// false (denied) if already at or above max.
+// Fixed-window rate limiter. The decision is a pure function (decideRate) and the
+// counting is atomic: checkRate routes each key to its RateLimiter Durable Object,
+// whose single-threaded read-modify-write cannot be raced. This replaces the old
+// KV counter, which was non-atomic and (worse) dropped its TTL on the first
+// increment, so a key that hit its limit once stayed blocked forever.
+
+// Type-only import (no runtime cycle): rateLimiterDO imports decideRate from here.
+import type { RateLimiter } from './rateLimiterDO.js';
+
+export interface RateWindow {
+  start: number;
+  count: number;
+}
 
 /**
- * Checks and increments a rate-limit counter in KV.
+ * Pure fixed-window decision: given the previous window state (or null) and the
+ * limit options, returns whether the request is allowed and the window state to
+ * persist. A new window opens on the first request or once windowSec has fully
+ * elapsed, so the counter always resets (the bug the KV version never fixed).
+ */
+export function decideRate(
+  prev: RateWindow | null,
+  opts: { max: number; windowSec: number; now: number },
+): { allowed: boolean; next: RateWindow } {
+  const { max, windowSec, now } = opts;
+  if (max < 1) {
+    return { allowed: false, next: prev ?? { start: now, count: 0 } };
+  }
+  if (prev === null || now - prev.start >= windowSec * 1000) {
+    return { allowed: true, next: { start: now, count: 1 } };
+  }
+  if (prev.count >= max) {
+    return { allowed: false, next: prev };
+  }
+  return { allowed: true, next: { start: prev.start, count: prev.count + 1 } };
+}
+
+/**
+ * Records one request against a rate-limit key and returns whether it is allowed.
+ * Each key maps to a dedicated RateLimiter Durable Object instance, so the
+ * count is incremented atomically and a concurrent burst cannot exceed max.
  *
- * @param kv - KV namespace to store counters in.
- * @param key - Logical key (e.g. "topic:user-id"). Stored internally as "rate:<key>".
+ * @param ns - The RATE_LIMITER Durable Object namespace.
+ * @param key - Logical key (e.g. "topic:user-id"); the DO instance is "rate:<key>".
  * @param opts.max - Maximum allowed requests per window.
- * @param opts.windowSec - Window length in seconds (used as KV TTL on first write).
- * @param opts.now - Current time in ms (accepted for testability, not used in logic).
+ * @param opts.windowSec - Window length in seconds.
+ * @param opts.now - Current time in ms (the window clock; passed by the caller).
  * @returns true if the request is allowed, false if the limit is exceeded.
  */
 export async function checkRate(
-  kv: KVNamespace,
+  ns: DurableObjectNamespace<RateLimiter>,
   key: string,
   opts: { max: number; windowSec: number; now: number },
 ): Promise<boolean> {
-  const { max, windowSec } = opts;
-  const kvKey = `rate:${key}`;
-
-  const existing = await kv.get(kvKey);
-  const parsed = parseInt(existing ?? '0', 10);
-  const current = Number.isFinite(parsed) ? parsed : 0;
-
-  if (current >= max) {
-    return false;
-  }
-
-  if (existing === null) {
-    await kv.put(kvKey, '1', { expirationTtl: windowSec });
-  } else {
-    await kv.put(kvKey, String(current + 1));
-  }
-  return true;
+  const stub = ns.get(ns.idFromName(`rate:${key}`));
+  return stub.limit(opts);
 }

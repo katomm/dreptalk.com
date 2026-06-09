@@ -8,7 +8,7 @@ The aim is a calmer, accountable home for governance discussion, away from the d
 
 ## Stack
 
-Astro (SSR) on Cloudflare Workers, with D1 and KV. A standalone cron worker ingests governance actions. Chain data via Koios, used anonymously by default; set `KOIOS_API_KEY` to send an authenticated key for higher rate limits. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
+Astro (SSR) on Cloudflare Workers, with D1, KV, and a Durable Object for atomic rate limiting. A standalone cron worker ingests governance actions. Chain data via Koios, used anonymously by default; set `KOIOS_API_KEY` to send an authenticated key for higher rate limits. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
 
 Moderation is community-first: any on-chain writer (DRep, SPO, CC member, or proposer) can flag a post, and a post is hidden behind a placeholder once three distinct writers have flagged it. Every writer is a wallet-verified governance participant, and registering as a DRep locks a refundable 500 ADA deposit, so coordinated abuse is expensive and this lightweight check is expected to be enough in early operation; the post author and moderators can still read a hidden post. Moderators and admins can be granted by stake address through the `MODERATORS` env value (comma-separated `stakeAddress` or `stakeAddress:role`, role `admin` or `moderator`), empty by default: they sign in with the normal stake-key wallet flow, and the allowlist only adds the moderation role.
 

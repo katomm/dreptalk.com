@@ -26,6 +26,7 @@ export default defineConfig(async () => {
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],
           kvNamespaces: ['SESSIONS', 'NONCES'],
+          durableObjects: { RATE_LIMITER: 'RateLimiter' },
           bindings: {
             // Pass serialized migration data so the setup file can apply them.
             TEST_D1_MIGRATIONS: JSON.stringify(migrations),

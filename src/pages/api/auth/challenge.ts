@@ -19,7 +19,8 @@ const HOST_RE = /^[a-zA-Z0-9.-]+(?::\d{1,5})?$/;
 
 export const POST: APIRoute = async ({ request }) => {
   const nonceKv = env.NONCES as KVNamespace | undefined;
-  if (!nonceKv) {
+  const rateLimiter = env.RATE_LIMITER;
+  if (!nonceKv || !rateLimiter) {
     return new Response(JSON.stringify({ ok: false, error: 'service unavailable' }), {
       status: 503,
       headers: { 'content-type': 'application/json' },
@@ -27,7 +28,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const clientIp = clientIpFrom(request.headers);
-  const allowed = await checkRate(nonceKv, `authch:${clientIp}`, {
+  const allowed = await checkRate(rateLimiter, `authch:${clientIp}`, {
     max: RATE_MAX,
     windowSec: RATE_WINDOW_SEC,
     now: Date.now(),
