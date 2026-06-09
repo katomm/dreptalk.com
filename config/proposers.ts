@@ -37,8 +37,8 @@ export const PROPOSERS: Proposer[] = [
     addresses: ['stake1uy5wxkqpezym2esqkgvw9yyqyd0rzuhkm206q6cddcxtqjgehj9ty'],
   },
   {
-    slug: 'hlabs',
-    name: 'HLabs',
+    slug: 'harmonic-labs',
+    name: 'Harmonic Labs',
     addresses: ['stake1u949rs3erz72xxsj6uye2k0whkcv909043ld6dnv504eqwc4a60sc'],
   },
   {
