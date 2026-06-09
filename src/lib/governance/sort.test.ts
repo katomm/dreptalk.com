@@ -57,15 +57,18 @@ describe('sortGovActionTopics', () => {
     expect(ids(sortGovActionTopics(rows, 'new', NOW))).toEqual(['newest', 'mid', 'old']);
   });
 
-  it('closing: soonest expiry first, nulls last, all statuses included', () => {
+  it('closing: open actions only, soonest expiry first, nulls last (excludes terminal)', () => {
     const rows = [
       row({ id: 'far', status: 'active', expiryEpoch: 400 }),
       row({ id: 'soon', status: 'active', expiryEpoch: 360 }),
-      row({ id: 'no-expiry', status: 'active', expiryEpoch: null }),
+      row({ id: 'no-expiry', status: 'pending', expiryEpoch: null }),
       row({ id: 'enacted', status: 'enacted', expiryEpoch: 350 }),
+      row({ id: 'expired', status: 'expired', expiryEpoch: 355 }),
+      row({ id: 'closed', status: 'closed', expiryEpoch: 358 }),
     ];
-    // enacted(350) < soon(360) < far(400) < no-expiry(null, pushed to end)
-    expect(ids(sortGovActionTopics(rows, 'closing', NOW))).toEqual(['enacted', 'soon', 'far', 'no-expiry']);
+    // terminal rows (enacted/expired/closed) are dropped even though their expiry is
+    // soonest; the open ones order by expiry asc, the null-expiry one last.
+    expect(ids(sortGovActionTopics(rows, 'closing', NOW))).toEqual(['soon', 'far', 'no-expiry']);
   });
 
   it('ratified: most recently decided first, nulls last, all statuses included', () => {

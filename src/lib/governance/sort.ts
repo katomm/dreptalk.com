@@ -5,6 +5,7 @@
 
 import type { Topic } from '../db/forum.js';
 import type { GovernanceAction } from '../db/governance.js';
+import { isTerminalStatus } from './view.js';
 
 export type GovSort = 'trending' | 'new' | 'closing' | 'ratified';
 
@@ -51,20 +52,23 @@ const descKey = (e: number | null) => e ?? -1;
 const ascKey = (e: number | null) => e ?? Number.MAX_SAFE_INTEGER;
 
 /**
- * Orders governance-action topics for the given sort mode (pure, no filtering):
+ * Orders governance-action topics for the given sort mode:
  *  - trending: by blended engagement+recency score (default).
  *  - new: newest submission first.
- *  - closing: soonest expiry first, nulls last.
+ *  - closing: open actions only (terminal ones have no time left), soonest expiry first, nulls last.
  *  - ratified: most recently decided first, nulls last.
  *
- * Operates over the full action set; ordering only, no filtering.
+ * All modes order the full set except 'closing', which also drops terminal actions
+ * (a "Closing Soon" list with already-closed actions in it is just wrong).
  */
 export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: number): GovActionTopic[] {
   switch (mode) {
     case 'new':
       return [...rows].sort((a, b) => descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch));
     case 'closing':
-      return [...rows].sort((a, b) => ascKey(a.action.expiryEpoch) - ascKey(b.action.expiryEpoch));
+      return rows
+        .filter((r) => !isTerminalStatus(r.action.status))
+        .sort((a, b) => ascKey(a.action.expiryEpoch) - ascKey(b.action.expiryEpoch));
     case 'ratified':
       return [...rows].sort((a, b) => descKey(b.action.decidedEpoch) - descKey(a.action.decidedEpoch));
     case 'trending':

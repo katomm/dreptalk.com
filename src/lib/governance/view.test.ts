@@ -3,6 +3,7 @@ import {
   readableType,
   formatAda,
   statusBadge,
+  isTerminalStatus,
   epochCountdown,
   epochDaysLeft,
   tallyBar,
@@ -41,6 +42,19 @@ describe('statusBadge', () => {
   });
   it('capitalizes an unknown status', () => {
     expect(statusBadge('weird')).toEqual({ label: 'Weird', tone: 'neutral' });
+  });
+});
+
+describe('isTerminalStatus', () => {
+  it('is true for frozen outcomes', () => {
+    for (const s of ['ratified', 'enacted', 'dropped', 'expired', 'closed']) {
+      expect(isTerminalStatus(s)).toBe(true);
+    }
+  });
+  it('is false for still-open and unknown statuses', () => {
+    expect(isTerminalStatus('active')).toBe(false);
+    expect(isTerminalStatus('pending')).toBe(false);
+    expect(isTerminalStatus('weird')).toBe(false);
   });
 });
 
