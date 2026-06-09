@@ -9,6 +9,7 @@ import { getDrepById } from '@/lib/db/dreps.js';
 import { getUserByDrepId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
+import { getDrepVotingHistory, countDrepVotes } from '@/lib/db/drepVotes.js';
 import { isIndexableProfile, influencePct } from '@/lib/drep/profile.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import {
@@ -25,16 +26,14 @@ if (!drep) {
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
-// Forum activity + total active power load together (independent reads).
+// Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const [posts, activeStake] = await Promise.all([
+const [posts, activeStake, votingHistory, votesCast] = await Promise.all([
   drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
   db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
+  drep && db ? getDrepVotingHistory(db, drep.drepId, { limit: 20 }) : Promise.resolve([]),
+  drep && db ? countDrepVotes(db, drep.drepId) : Promise.resolve(0),
 ]);
-
-// votesCast is 0 in PR1 (the voter_id index + backfill land in PR2); the gate
-// and the JSON-LD already account for it so PR2 only flips the number.
-const votesCast = 0;
 
 const hasMetadata = !!(drep?.name || drep?.bio);
 const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length, votesCast });
@@ -128,6 +127,23 @@ const personLd = drep
       )}
     </section>
 
-    {/* Voting history section is added in PR2. */}
+    <section style="margin-top:2rem;">
+      <h2 style="font-size:1.125rem;">Voting history <span style="color:var(--muted);font-weight:400;">({votesCast})</span></h2>
+      {votingHistory.length === 0 ? (
+        <p style="color:var(--muted);">No recorded on-chain votes.</p>
+      ) : (
+        <ul style="list-style:none;padding:0;display:flex;flex-direction:column;gap:0.5rem;">
+          {votingHistory.map((h) => (
+            <li style="display:flex;gap:0.75rem;align-items:center;border-top:1px solid var(--border);padding-top:0.5rem;">
+              <span style="font-weight:600;min-width:4rem;">{h.vote}</span>
+              {h.topic_slug
+                ? <a href={`/t/${h.topic_slug}`}>{h.title ?? h.ga_id}</a>
+                : <span>{h.title ?? h.ga_id}</span>}
+              <span style="color:var(--muted);font-size:0.8125rem;margin-left:auto;">{h.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   </Layout>
 )}
