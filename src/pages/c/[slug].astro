@@ -19,6 +19,7 @@ import {
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { stakeParticipation, overviewTally, type StakeParticipation } from '@/lib/governance/view.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
+import { proposerView } from '@/lib/identity/proposer.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { env } from 'cloudflare:workers';
@@ -254,16 +255,22 @@ const breadcrumbLd = {
               Time Left{sort === 'closing' && <span class="ga-list__caret" aria-hidden="true">↑</span>}
             </a>
           </div>
-          {pageRows.map((r) => (
-            <GovActionRow
-              topic={r.topic}
-              action={r.action}
-              proposer={identities ? identities.describe(r.topic.author_id).displayName : undefined}
-              stake={stakeByTopic.get(r.topic.id) ?? null}
-              network={network}
-              href={`/t/${r.topic.slug}`}
-            />
-          ))}
+          {pageRows.map((r) => {
+            const pv = proposerView(r.action.returnAddress);
+            const proposer = pv.kind === 'known' ? pv.name : pv.kind === 'unknown' ? pv.short : undefined;
+            const proposerIcon = pv.kind === 'known' ? (pv.icon ?? undefined) : undefined;
+            return (
+              <GovActionRow
+                topic={r.topic}
+                action={r.action}
+                proposer={proposer}
+                proposerIcon={proposerIcon}
+                stake={stakeByTopic.get(r.topic.id) ?? null}
+                network={network}
+                href={`/t/${r.topic.slug}`}
+              />
+            );
+          })}
         </div>
         {/* Disclose how stale the cached on-chain numbers are. Both notes render
            when wide (both metrics visible); narrow screens hide the inactive one

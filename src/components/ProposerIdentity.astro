@@ -1,0 +1,54 @@
+---
+import { proposerView } from '@/lib/identity/proposer.js';
+import { identiconSvg } from '@/lib/identity/identicon.js';
+
+interface Props {
+  /** The action's return_address (reward address), or null. */
+  returnAddress: string | null;
+  /** Icon/identicon edge length in px. Default 20. */
+  size?: number;
+}
+
+const { returnAddress, size = 20 } = Astro.props;
+const v = proposerView(returnAddress);
+
+// Identicon for an unknown proposer, or a known org that has no logo yet. Seeded
+// by the raw reward address (cardenticon decodes stake1... natively).
+const needsIdenticon = v.kind === 'unknown' || (v.kind === 'known' && !v.icon);
+const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, size) : null;
+---
+
+{v.kind === 'known' && (
+  <span class="proposer" style={`--s:${size}px`}>
+    {v.icon
+      ? <img class="proposer__logo" src={v.icon} alt="" width={size} height={size} loading="lazy" />
+      : <span class="proposer__icon" set:html={iconSvg} />}
+    {v.website
+      ? <a class="proposer__name" href={v.website} rel="noopener nofollow" target="_blank">{v.name}</a>
+      : <span class="proposer__name">{v.name}</span>}
+  </span>
+)}
+
+{v.kind === 'unknown' && (
+  <span class="proposer" style={`--s:${size}px`}>
+    <span class="proposer__icon" set:html={iconSvg} />
+    <code class="proposer__addr">{v.short}</code>
+  </span>
+)}
+
+<style>
+  .proposer { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .proposer__logo,
+  .proposer__icon {
+    width: var(--s);
+    height: var(--s);
+    flex-shrink: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    display: inline-block;
+  }
+  .proposer__icon :global(svg) { width: 100%; height: 100%; display: block; }
+  .proposer__name { font-weight: 600; color: var(--fg); text-decoration: none; }
+  a.proposer__name:hover { text-decoration: underline; }
+  .proposer__addr { font-size: 0.8125rem; color: var(--muted); }
+</style>

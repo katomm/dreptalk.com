@@ -1,0 +1,41 @@
+---
+export const prerender = false;
+
+import HelpLayout from '@/layouts/HelpLayout.astro';
+---
+
+<HelpLayout
+  title="Proposers - DRepTalk"
+  description="How DRepTalk identifies who proposed a governance action: a curated list of known organizations, with an identicon fallback for everyone else."
+  crumb="Proposers"
+>
+  <p style="color:var(--muted);max-width:60ch;line-height:1.6;">
+    Every governance action has a proposer, identified on-chain by the reward
+    (return) address that receives the action deposit back. DRepTalk shows that
+    proposer in two ways:
+  </p>
+  <ul style="color:var(--muted);max-width:60ch;line-height:1.6;">
+    <li>
+      <strong>Known organizations</strong> (such as Intersect, Input Output, the
+      Cardano Foundation, and others that propose regularly) are shown with their
+      name and logo. This is a list DRepTalk curates and maintains by matching the
+      action's reward address; it is not an on-chain verification of identity.
+    </li>
+    <li>
+      <strong>Everyone else</strong> is shown with a deterministic identicon
+      generated from the reward address, plus the address itself. The same address
+      always produces the same icon, so a recurring proposer is still recognizable
+      even before it is added to the curated list.
+    </li>
+  </ul>
+  <p style="color:var(--muted);max-width:60ch;line-height:1.6;">
+    The proposer shown is the on-chain submitter: the holder of the reward address
+    that posts and reclaims the action deposit. Some organizations, such as
+    Intersect, submit and administer many actions on behalf of various authors, so a
+    known label reflects who submitted an action, not necessarily who wrote it.
+  </p>
+  <p style="color:var(--muted);max-width:60ch;line-height:1.6;">
+    If you think a proposing organization should be on the known list, it can be
+    added over time.
+  </p>
+</HelpLayout>

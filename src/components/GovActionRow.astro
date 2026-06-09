@@ -18,11 +18,12 @@ interface Props {
   topic: Topic;
   action: GovernanceAction;
   proposer?: string;       // resolved display name or truncated address
+  proposerIcon?: string;   // bundled logo path for a known proposer
   stake: StakeParticipation | null;
   network: CardanoNetwork;
   href: string;
 }
-const { topic, action, proposer, stake, network, href } = Astro.props;
+const { topic, action, proposer, proposerIcon, stake, network, href } = Astro.props;
 const badge = statusBadge(action.status);
 const typeTone = govTypeTone(action.type);
 // Sentiment + voter count follow the action's leading role (SPO for hard fork,
@@ -48,7 +49,10 @@ const votingEnds =
     </span>
     <p class="garow__title">{action.title ?? topic.title}</p>
     {action.abstract && <p class="garow__desc">{action.abstract}</p>}
-    <p class="garow__meta">{proposer ?? 'Unknown'}{action.submittedEpoch != null && <> &middot; Epoch {action.submittedEpoch}</>}</p>
+    <p class="garow__meta">
+      {proposerIcon && <img class="garow__pico" src={proposerIcon} alt="" width="14" height="14" loading="lazy" />}
+      {proposer ?? 'Unknown'}{action.submittedEpoch != null && <> &middot; Epoch {action.submittedEpoch}</>}
+    </p>
   </div>
 
   <!-- Stake participation. On wide screens it sits beside sentiment; below the
@@ -122,6 +126,7 @@ const votingEnds =
   .garow__title { font-weight:700; font-size:0.95rem; margin:0 0 3px; }
   .garow__desc { color:var(--muted); font-size:0.8rem; margin:0 0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .garow__meta { color:var(--muted); font-size:0.75rem; margin:0; }
+  .garow__pico { vertical-align:-2px; margin-right:4px; border-radius:3px; }
 
   .metric { min-width:0; }
   .metric__pct { font-weight:700; font-size:1.05rem; display:block; margin:0 0 2px; }
