@@ -431,6 +431,32 @@ export async function getActionsNeedingMetaReextract(
   return rows.map(rowToGovernanceAction);
 }
 
+/**
+ * Finalised actions whose full per-voter vote list has never been synced
+ * (votes_synced_at IS NULL) and that have a proposal id to query. Active/pending
+ * actions are covered by the live vote sync, so they are excluded here. Bounded
+ * by `limit` so a cron tick stays within Koios/subrequest budgets.
+ */
+export async function getActionsNeedingVoteBackfill(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM governance_actions
+         WHERE status NOT IN ('active', 'pending')
+           AND proposal_id IS NOT NULL AND votes_synced_at IS NULL
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/** Marks an action's per-voter vote list as fully synced as of `now` (ms). */
+export async function markVotesSynced(db: D1Database, id: string, now: number): Promise<void> {
+  await db.prepare('UPDATE governance_actions SET votes_synced_at = ? WHERE id = ?').bind(now, id).run();
+}
+
 /** Updates an action's extracted metadata fields and bumps its meta_version. */
 export async function updateActionMetadata(
   db: D1Database,

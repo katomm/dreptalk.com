@@ -15,6 +15,8 @@ import {
   updateVotedPower,
   getActionsNeedingMetaReextract,
   updateActionMetadata,
+  getActionsNeedingVoteBackfill,
+  markVotesSynced,
   type NewGovernanceAction,
 } from './governance.js';
 import { getAllTopicsByCategory } from './forum.js';
@@ -544,5 +546,27 @@ describe('batchUpdateTrendingScores', () => {
     await seedGovRow({ topicId: 't1', actionId: 'a1', trendingScore: 5 });
     await batchUpdateTrendingScores(db(), []);
     expect((await getGovernanceActionByTopicId(db(), 't1'))!.trendingScore).toBe(5);
+  });
+});
+
+describe('getActionsNeedingVoteBackfill + markVotesSynced', () => {
+  async function insertAction(id: string, status: string, proposalId: string | null) {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES (?, 'InfoAction', ?, ?, NULL, 0, 0)`,
+    ).bind(id, status, proposalId).run();
+  }
+
+  it('returns finalised actions with a proposal id and no votes_synced_at, then excludes after marking', async () => {
+    await insertAction('fin1', 'enacted', 'prop1');   // candidate
+    await insertAction('act1', 'active', 'prop2');     // excluded: not finalised
+    await insertAction('fin2', 'expired', null);       // excluded: no proposal id
+
+    let c = await getActionsNeedingVoteBackfill(env.DB, 10);
+    expect(c.map((a) => a.id)).toEqual(['fin1']);
+
+    await markVotesSynced(env.DB, 'fin1', 12345);
+    c = await getActionsNeedingVoteBackfill(env.DB, 10);
+    expect(c).toEqual([]);
   });
 });

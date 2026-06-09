@@ -20,7 +20,7 @@ import {
   backfillGovTopicSubmittedAt,
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
-import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower } from '../../../src/lib/governance/tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps } from '../../../src/lib/dreps/sync.js';
 
 interface Env {
@@ -107,14 +107,14 @@ async function runGovernanceSync(env: Env): Promise<void> {
 // larger and per-post badges do not need 15-minute freshness.
 async function runVoteSync(env: Env): Promise<void> {
   const { koios } = buildKoios(env);
-  const r = await syncGovernanceVotes({
-    koios,
-    db: env.DB,
-    now: Date.now(),
-    limit: VOTE_LIMIT,
-    paceMs: VOTE_PACE_MS,
-  });
+  const now = Date.now();
+  const r = await syncGovernanceVotes({ koios, db: env.DB, now, limit: VOTE_LIMIT, paceMs: VOTE_PACE_MS });
   console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
+
+  // One-time historical fill for finalised actions never vote-synced. Small,
+  // paced budget so the hourly run stays light; drains over many hours.
+  const bf = await backfillFinalizedVotes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
+  console.log(`[gov-votes-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
 }
 
 async function runDrepSync(env: Env): Promise<void> {

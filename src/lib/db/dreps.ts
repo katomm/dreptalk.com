@@ -106,8 +106,8 @@ export async function getDrepsByIds(db: D1Database, ids: string[]): Promise<Map<
 
 /**
  * DRep ids whose profile is indexable per the SEO quality-gate: has on-chain
- * metadata (name/bio) or has authored a forum post. (A later change extends this
- * with "has on-chain votes".) Used by the sitemap and the per-profile robots gate.
+ * metadata (name/bio), has authored a forum post, or has recorded on-chain votes.
+ * Used by the sitemap and the per-profile robots gate.
  */
 export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
   const rows = (
@@ -118,11 +118,47 @@ export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
             OR EXISTS (
               SELECT 1 FROM users u JOIN posts p ON p.author_id = u.id
               WHERE u.drep_id = d.drep_id AND p.deleted = 0 AND p.hidden = 0
+            )
+            OR EXISTS (
+              SELECT 1 FROM drep_votes v WHERE v.voter_id = d.drep_id AND v.voter_role = 'DRep'
             )`,
       )
       .all<{ drep_id: string }>()
   ).results ?? [];
   return rows.map((r) => r.drep_id);
+}
+
+/**
+ * Directory listing: dreps ordered by numeric voting power desc, optionally
+ * active-only and/or name-filtered, paginated. ~2k rows total, so the CAST sort
+ * is cheap. Default limit 50, capped 100.
+ */
+export async function listDreps(
+  db: D1Database,
+  opts: { activeOnly?: boolean; query?: string; limit?: number; offset?: number },
+): Promise<Drep[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const where: string[] = [];
+  const binds: unknown[] = [];
+  if (opts.activeOnly) where.push('active = 1');
+  const q = opts.query?.trim();
+  if (q) {
+    where.push('name LIKE ?');
+    binds.push(`%${q}%`);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM dreps ${whereSql}
+         ORDER BY CAST(voting_power AS INTEGER) DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .bind(...binds, limit, offset)
+      .all<DrepRow>()
+  ).results ?? [];
+  return rows.map(rowToDrep);
 }
 
 /**

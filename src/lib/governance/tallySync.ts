@@ -12,6 +12,8 @@ import {
   updateGovernanceTallyAndStatus,
   getActionsNeedingVotedPower,
   updateVotedPower,
+  getActionsNeedingVoteBackfill,
+  markVotesSynced,
   type GovernanceAction,
   type GovernanceTally,
 } from '../db/governance.js';
@@ -243,11 +245,49 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
         if (page.length < VOTES_PAGE) break;
       }
       votes += await upsertVotes(db, ga.id, collected, now);
+      await markVotesSynced(db, ga.id, now);
     } catch (err) {
       failed++;
       console.warn(`[gov-votes] action ${ga.id} failed:`, err);
     }
   }
 
+  return { actions, votes, failed };
+}
+
+export interface VoteBackfillResult { actions: number; votes: number; failed: number; }
+
+/**
+ * One-time, self-limiting backfill of per-voter vote lists for finalised actions
+ * that predate our vote sync (votes_synced_at IS NULL). Pulls proposal_votes once
+ * per action (the lists are immutable after finalisation), upserts, and marks the
+ * action synced so it drops out of the candidate set. Bounded by `limit`.
+ */
+export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBackfillResult> {
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0 } = deps;
+  const candidates = await getActionsNeedingVoteBackfill(db, limit);
+  let votes = 0;
+  let failed = 0;
+  let actions = 0;
+  for (const [i, ga] of candidates.entries()) {
+    if (!ga.proposalId) continue;
+    if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
+    actions++;
+    try {
+      const collected: VoteInput[] = [];
+      for (let offset = 0; ; offset += VOTES_PAGE) {
+        const page = await koios.proposalVotes(ga.proposalId, VOTES_PAGE, offset);
+        for (const v of page) {
+          collected.push({ voterRole: v.voter_role, voterId: v.voter_id, voterHex: v.voter_hex ?? null, vote: v.vote });
+        }
+        if (page.length < VOTES_PAGE) break;
+      }
+      votes += await upsertVotes(db, ga.id, collected, now);
+      await markVotesSynced(db, ga.id, now);
+    } catch (err) {
+      failed++;
+      console.warn(`[gov-votes-backfill] action ${ga.id} failed:`, err);
+    }
+  }
   return { actions, votes, failed };
 }
