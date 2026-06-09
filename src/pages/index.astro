@@ -167,22 +167,21 @@ const heroFeatures = [
     </div>
   </section>
 
-  <aside class="announce reveal" style="--reveal-delay:220ms" aria-label="Governance, off X">
+  <aside class="announce reveal" style="--reveal-delay:220ms" aria-label="Open source">
     <span class="announce__icon" aria-hidden="true">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.78 1.2 1.78 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.2-3.1-.12-.3-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.75.11 3.05.75.81 1.2 1.84 1.2 3.1 0 4.43-2.69 5.41-5.25 5.69.41.36.78 1.05.78 2.12v3.14c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z" /></svg>
     </span>
     <div class="announce__text">
-      <strong class="announce__title">Governance, off <svg class="announce__x" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="X"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.66l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg></strong>
-      <span class="announce__body">DRepTalk is an open proof of concept: a calmer home for Cardano governance than the drama on X. Want to test something? Try <a class="announce__inline" href="https://preprod.dreptalk.com" rel="noopener" target="_blank">preprod.dreptalk.com</a>.</span>
+      <strong class="announce__title">Open source, by design</strong>
+      <span class="announce__body">DRepTalk is built in the open so the community can verify and shape it.</span>
     </div>
-    <a class="announce__link" href="https://github.com/katomm/dreptalk.com" rel="noopener" target="_blank">Contribute on GitHub</a>
+    <a class="announce__link" href="https://github.com/katomm/dreptalk.com" rel="noopener" target="_blank">View on GitHub</a>
   </aside>
 
   <section id="categories" class="categories" aria-labelledby="categories-heading">
     <div class="categories__head">
       <div class="categories__head-row">
         <h2 id="categories-heading">Discussions</h2>
-        <a class="categories__view-all" href="/discussions">View all discussions</a>
       </div>
       <p>Browse categories and the latest activity across the forum.</p>
     </div>
@@ -472,11 +471,6 @@ const heroFeatures = [
     font-size: 0.95rem;
     color: var(--fg);
   }
-  .announce__x {
-    width: 0.82em;
-    height: 0.82em;
-    vertical-align: -0.04em;
-  }
   .announce__body {
     color: var(--muted);
     font-size: 0.9rem;
@@ -491,15 +485,6 @@ const heroFeatures = [
   .announce__link:hover {
     text-decoration: underline;
   }
-  .announce__inline {
-    color: var(--accent);
-    text-decoration: none;
-    font-weight: 600;
-  }
-  .announce__inline:hover {
-    text-decoration: underline;
-  }
-
   /* ---- Categories + discussions overview ------------------------------ */
   .categories {
     scroll-margin-top: 5rem;
@@ -517,16 +502,6 @@ const heroFeatures = [
     font-size: clamp(1.4rem, 3vw, 1.85rem);
     font-weight: 700;
     margin: 0;
-  }
-  .categories__view-all {
-    color: var(--accent);
-    text-decoration: none;
-    font-size: 0.9rem;
-    font-weight: 600;
-    margin-left: auto;
-  }
-  .categories__view-all:hover {
-    text-decoration: underline;
   }
   .categories__head p {
     margin: 0.4rem 0 0;
