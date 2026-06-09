@@ -282,3 +282,27 @@ describe('GET /api/avatar/[drepId]: oversize body', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('GET /api/avatar/[drepId]: svg is rejected', () => {
+  it('returns 404 for image/svg+xml (script-bearing image vector)', async () => {
+    fakeDb._registry.set(VALID_DREP_ID, makeRow(VALID_DREP_ID, HTTPS_IMAGE_URL));
+    const mockFetch = vi.fn().mockResolvedValue(
+      fakeImageResponse('image/svg+xml', '<svg onload="alert(1)"></svg>'),
+    );
+    _setFetchImpl(mockFetch as unknown as typeof fetch);
+    const res = await GET(makeCtx(VALID_DREP_ID));
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/avatar/[drepId]: hardening headers', () => {
+  it('sets X-Content-Type-Options: nosniff on success', async () => {
+    fakeDb._registry.set(VALID_DREP_ID, makeRow(VALID_DREP_ID, HTTPS_IMAGE_URL));
+    _setFetchImpl(vi.fn().mockResolvedValue(
+      fakeImageResponse('image/png', new Uint8Array([0x89, 0x50, 0x4e, 0x47])),
+    ) as unknown as typeof fetch);
+    const res = await GET(makeCtx(VALID_DREP_ID));
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'");
+  });
+});

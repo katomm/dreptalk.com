@@ -10,11 +10,12 @@
 // Security hardening (the image URL is untrusted on-chain input):
 //   1. https-only: any other scheme is rejected before fetch (-> 404).
 //   2. Timeout via AbortController: 8 s.
-//   3. Content-type check: must start with "image/" (-> 404 otherwise).
+//   3. Content-type allowlist: only raster types (png/jpeg/webp/gif/avif); svg rejected.
 //   4. Size cap: 256 KB via content-length header check + body read cap.
 //   5. No client headers forwarded to the upstream (least privilege).
 //   6. No upstream headers leaked back except content-type.
-//   7. Any failure path -> 404, never 500.
+//   7. X-Content-Type-Options: nosniff + restrictive CSP on every response.
+//   8. Any failure path -> 404, never 500.
 
 import type { APIRoute } from 'astro';
 import { runtimeEnv } from '@/lib/api/response';
@@ -32,6 +33,10 @@ const FETCH_TIMEOUT_MS = 8_000;
 // Immutable cache: CDN caches for 7 days, browsers for 1 day.
 // The proxy URL is content-addressable by drepId, so long TTLs are safe.
 const CACHE_CONTROL = 'public, max-age=86400, s-maxage=604800, immutable';
+
+// Raster types only. SVG is rejected: it can carry <script> and would execute
+// in our origin on direct navigation to /api/avatar/:id.
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif'];
 
 // Injectable fetch: tests replace this before running.
 export let _fetchImpl: typeof fetch = globalThis.fetch;
@@ -100,9 +105,9 @@ export const GET: APIRoute = async ({ params, locals }) => {
 
   if (!upstream.ok) return NOT_FOUND;
 
-  // Content-type guard: must be an image. Reject JSON, HTML, etc.
-  const contentType = upstream.headers.get('content-type') ?? '';
-  if (!contentType.startsWith('image/')) return NOT_FOUND;
+  // Content-type guard: must be an allowlisted raster image. Rejects svg, json, html.
+  const contentType = (upstream.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+  if (!ALLOWED_TYPES.includes(contentType)) return NOT_FOUND;
 
   // Early-reject if content-length declares an oversize body.
   const declared = Number(upstream.headers.get('content-length'));
@@ -125,6 +130,8 @@ export const GET: APIRoute = async ({ params, locals }) => {
     headers: {
       'content-type': contentType,
       'cache-control': CACHE_CONTROL,
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "default-src 'none'",
     },
   });
 };
