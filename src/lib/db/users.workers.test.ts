@@ -2,7 +2,7 @@
 // Exercises upsertUserFromAuth and getUserById against the real miniflare D1 binding.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getUserById, getUsersByIds, upsertUserFromAuth } from './users.js';
+import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId } from './users.js';
 
 const db = () => env.DB;
 const NOW = 1_700_000_000;
@@ -174,5 +174,17 @@ describe('upsertUserFromAuth (cc)', () => {
     expect(user.is_drep).toBe(false);
     expect(user.is_spo).toBe(false);
     expect(user.is_proposer).toBe(false);
+  });
+});
+
+describe('getUserByDrepId', () => {
+  it('returns the user whose drep_id matches', async () => {
+    await upsertUserFromAuth(env.DB, { drepId: 'drep1find', roles: ['drep'], now: 1 });
+    const u = await getUserByDrepId(env.DB, 'drep1find');
+    expect(u?.drep_id).toBe('drep1find');
+  });
+
+  it('returns null when no user has that drep_id', async () => {
+    expect(await getUserByDrepId(env.DB, 'drep1none')).toBeNull();
   });
 });
