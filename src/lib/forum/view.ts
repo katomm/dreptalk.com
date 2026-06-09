@@ -92,3 +92,21 @@ export function formatRelativeTime(unixMs: number, nowMs: number): string {
   const diffYr = Math.floor(diffDay / 365);
   return `${diffYr}y ago`;
 }
+
+/**
+ * Formats a lovelace string as whole ADA with the ada symbol and thousands
+ * separators (rounded; profiles never do exact accounting). Null is treated as 0.
+ */
+export function formatAda(lovelace: string | null): string {
+  const ada = Math.round(Number(lovelace ?? 0) / 1_000_000);
+  return `${ada.toLocaleString('en-US')} ₳`;
+}
+
+/**
+ * Cache-Control for sync-driven anonymous pages (DRep profiles, directory).
+ * They change only on the drep-sync cron (~6h), not per request, so they take a
+ * longer edge TTL than the 30s forum threads. Logged-in users are never cached.
+ */
+export function cacheControlForSynced(user: unknown | null): string {
+  return user ? 'private, no-store' : 'public, s-maxage=300';
+}
