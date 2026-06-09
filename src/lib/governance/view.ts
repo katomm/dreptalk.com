@@ -182,16 +182,17 @@ export function fmtPct(n: number): string {
 export type VoterRole = 'DRep' | 'SPO';
 
 /**
- * True for action types where stake pool operators are a deciding voting body
- * under CIP-1694: hard-fork initiation, motions of no-confidence, and committee
- * updates (new committee / threshold / term). These lead the overview row with
- * the SPO tally; every other type leads with DRep. (CC-only co-deciders, like
- * treasury withdrawals or constitution updates, still lead with DRep, which is
- * the community signal; the CC tally stays in the detail header.)
+ * True for action types the overview leads with the SPO tally. Only hard-fork
+ * initiation qualifies: SPOs are the operational gatekeeper (they must run the
+ * new node version) and historically carried the decision while DReps were
+ * absent, so the SPO tally is the meaningful one. No-confidence and committee
+ * updates are also co-decided by SPOs under CIP-1694, but there the DRep tally is
+ * the richer community signal (and the only one with turnout data), so they lead
+ * with DRep and fall back to SPO via overviewTally only when DRep is empty. The
+ * full DRep + SPO + CC breakdown always lives in the detail header.
  */
 export function isSpoLedType(type: string): boolean {
-  const tone = govTypeTone(type);
-  return tone === 'hardfork' || tone === 'noconfidence' || tone === 'committee';
+  return govTypeTone(type) === 'hardfork';
 }
 
 // The per-role tally fields the overview picker reads. A subset of

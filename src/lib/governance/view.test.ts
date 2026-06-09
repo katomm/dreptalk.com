@@ -163,16 +163,24 @@ describe('isSpoLedType / overviewTally', () => {
     ...over,
   });
 
-  it('flags hard fork, no-confidence and committee as SPO-led', () => {
+  it('flags only the hard fork as SPO-led', () => {
     expect(isSpoLedType('HardForkInitiation')).toBe(true);
-    expect(isSpoLedType('NoConfidence')).toBe(true);
-    expect(isSpoLedType('NewCommittee')).toBe(true);
   });
-  it('leaves DRep-led types (treasury, parameter, constitution, info) DRep-led', () => {
+  it('leaves every other type DRep-led, incl. SPO co-decided no-confidence and committee', () => {
+    expect(isSpoLedType('NoConfidence')).toBe(false);
+    expect(isSpoLedType('NewCommittee')).toBe(false);
     expect(isSpoLedType('TreasuryWithdrawals')).toBe(false);
     expect(isSpoLedType('ParameterChange')).toBe(false);
     expect(isSpoLedType('NewConstitution')).toBe(false);
     expect(isSpoLedType('InfoAction')).toBe(false);
+  });
+
+  it('a no-confidence / committee action leads with its DRep tally', () => {
+    const noConf = overviewTally(make({ type: 'NoConfidence', drepYesPct: 70, drepNoPct: 30, drepYes: 5, drepNo: 2, drepAbstain: 0, spoYesPct: 0, spoNoPct: 0 }))!;
+    expect(noConf.role).toBe('DRep');
+    const committee = overviewTally(make({ type: 'NewCommittee', drepYesPct: 79, drepNoPct: 21, drepYes: 200, drepNo: 70, drepAbstain: 6, spoYesPct: 0, spoNoPct: 0 }))!;
+    expect(committee.role).toBe('DRep');
+    expect(committee.voted).toBe(276);
   });
 
   it('a DRep-led type with a DRep tally leads with DRep', () => {
