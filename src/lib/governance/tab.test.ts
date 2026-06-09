@@ -10,15 +10,16 @@ describe('parseGaTab', () => {
   it('accepts known tabs', () => {
     expect(parseGaTab('overview')).toBe('overview');
     expect(parseGaTab('discussion')).toBe('discussion');
+    expect(parseGaTab('positions')).toBe('positions');
   });
   it('falls back to overview for unknown', () => {
     expect(parseGaTab('nope')).toBe('overview');
-    expect(parseGaTab('positions')).toBe('overview'); // not shipped in PR1
+    expect(parseGaTab('onchain')).toBe('overview'); // not shipped yet
   });
 });
 
 describe('GA_TABS', () => {
-  it('lists the PR1 tabs in order', () => {
-    expect(GA_TABS.map((t) => t.id)).toEqual(['overview', 'discussion']);
+  it('lists the PR1+PR2 tabs in order', () => {
+    expect(GA_TABS.map((t) => t.id)).toEqual(['overview', 'discussion', 'positions']);
   });
 });
