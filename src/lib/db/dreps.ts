@@ -105,6 +105,27 @@ export async function getDrepsByIds(db: D1Database, ids: string[]): Promise<Map<
 }
 
 /**
+ * DRep ids whose profile is indexable per the SEO quality-gate: has on-chain
+ * metadata (name/bio) or has authored a forum post. (A later change extends this
+ * with "has on-chain votes".) Used by the sitemap and the per-profile robots gate.
+ */
+export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT d.drep_id AS drep_id FROM dreps d
+         WHERE d.name IS NOT NULL OR d.bio IS NOT NULL
+            OR EXISTS (
+              SELECT 1 FROM users u JOIN posts p ON p.author_id = u.id
+              WHERE u.drep_id = d.drep_id AND p.deleted = 0 AND p.hidden = 0
+            )`,
+      )
+      .all<{ drep_id: string }>()
+  ).results ?? [];
+  return rows.map((r) => r.drep_id);
+}
+
+/**
  * Inserts or replaces a drep row.
  * Uses INSERT OR REPLACE so re-syncing updates all fields atomically.
  * Booleans are stored as 0/1; links array is JSON-serialized or null.
