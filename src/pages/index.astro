@@ -3,7 +3,6 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
-import RoleEntry from '@/components/RoleEntry.astro';
 import TopicRow from '@/components/TopicRow.astro';
 import { getCategories, getCategory, GOVERNANCE_CATEGORY_SLUG } from '../../config/categories.js';
 import { getCategoryStats, getLatestTopicsAcrossCategories } from '@/lib/db/forum.js';
@@ -14,6 +13,7 @@ import { env } from 'cloudflare:workers';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
+const user = Astro.locals.user;
 
 // Category stats and the latest 4 topics are independent; load them together.
 const [stats, latest] = db
@@ -121,7 +121,8 @@ const heroFeatures = [
       </ul>
 
       <div class="hero__cta reveal" style="--reveal-delay:180ms">
-        <RoleEntry />
+        <a class="btn btn-primary" href="/c/governance-actions">Browse Governance Actions</a>
+        {!user && <a class="btn btn-secondary" href="/login">Enter as DRep</a>}
       </div>
     </div>
 
