@@ -51,6 +51,15 @@ export function statusBadge(status: string): StatusBadge {
   }
 }
 
+// Lifecycle statuses whose voting window is over and whose outcome is frozen. The
+// rest ('active', and the not-yet-synced 'pending') are still open and counting down.
+const TERMINAL_STATUSES = new Set(['ratified', 'enacted', 'dropped', 'expired', 'closed']);
+
+/** True when the action's voting window has ended (a frozen, terminal outcome). */
+export function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
 /**
  * Human countdown to an action's expiry epoch, computed against the epoch at the
  * last tally sync. Returns null when the epochs are unknown or already past
