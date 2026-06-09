@@ -14,7 +14,7 @@ import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
 import { bytesToHex } from '../../../src/lib/crypto/hex.js';
 import { CRON_VOTE_SYNC, CRON_DREP_SYNC } from '../../../src/lib/freshness.js';
-import { syncGovernanceActions, backfillActionMetadata } from '../../../src/lib/governance/sync.js';
+import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps } from '../../../src/lib/dreps/sync.js';
 
@@ -84,6 +84,12 @@ async function runGovernanceSync(env: Env): Promise<void> {
 
   const metaBackfill = await backfillActionMetadata({ db: env.DB, now: Date.now(), fetchImpl: fetch, limit: 10 });
   console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
+
+  // Correct post dates for existing no-reply governance topics (sync-time -> submission
+  // time). Idempotent: a no-op once corrected. The whole backlog is low hundreds, so
+  // one generous limit drains it in a single run.
+  const postDate = await backfillGovTopicSubmittedAt({ db: env.DB, network, limit: 500 });
+  console.log(`[gov-postdate-backfill] scanned=${postDate.scanned} updated=${postDate.updated}`);
 }
 
 // Refresh the per-post vote lists (active actions only). Hourly: vote lists are

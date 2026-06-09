@@ -286,6 +286,40 @@ export async function getActionsNeedingVotedPower(db: D1Database, limit: number)
   return rows.map(rowToGovernanceAction);
 }
 
+/** A no-reply governance topic plus the epoch needed to derive its submission time. */
+export interface GovTopicSubmittedAt {
+  topicId: string;
+  submittedEpoch: number;
+  createdAt: number;
+  lastPostAt: number;
+}
+
+/**
+ * Governance topics with no real replies (post_count <= 1) and a known submission
+ * epoch, for the post-date backfill. Sweeps our own tables (not the live Koios list),
+ * so the whole backlog is covered, including terminal actions Koios may no longer
+ * return. Bounded by `limit`.
+ */
+export async function getGovTopicsForSubmittedAtBackfill(
+  db: D1Database,
+  limit: number,
+): Promise<GovTopicSubmittedAt[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT t.id AS topicId, ga.submitted_epoch AS submittedEpoch,
+                t.created_at AS createdAt, t.last_post_at AS lastPostAt
+         FROM topics t
+         JOIN governance_actions ga ON ga.topic_id = t.id
+         WHERE t.source = 'governance' AND t.post_count <= 1 AND ga.submitted_epoch IS NOT NULL
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovTopicSubmittedAt>()
+  ).results ?? [];
+  return rows;
+}
+
 /** Surgically sets only drep_voted_power for one action (leaves status/tally untouched). */
 export async function updateVotedPower(db: D1Database, id: string, votedPower: number): Promise<void> {
   await db.prepare('UPDATE governance_actions SET drep_voted_power = ? WHERE id = ?').bind(votedPower, id).run();

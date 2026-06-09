@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { syncGovernanceActions, backfillActionMetadata } from './sync.js';
+import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt } from './sync.js';
 import { META_EXTRACT_VERSION } from './metadata.js';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
 import type { ProposalListRow } from '../koios/client.js';
@@ -257,5 +257,125 @@ describe('backfillActionMetadata', () => {
     const second = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 7, fetchImpl, limit: 10 });
     // The action inserted above is now current; it must not appear in scanned.
     expect(second.scanned).toBe(0);
+  });
+});
+
+describe('submission-date post stamping and backfill', () => {
+  const EPOCH_200_MS = 1742169600000; // epochStartUnix(200, preprod) * 1000
+
+  it('stamps a newly synced governance topic with the submission-epoch time', async () => {
+    let n = 0;
+    const rand = () => `rstamp${n++}`;
+    await syncGovernanceActions({
+      koios: fakeKoios([proposals[0]]), // proposed_epoch: 200
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_000_000, // deliberately != the epoch-200 time
+      rand,
+      fetchImpl: fetchOk,
+    });
+    const row = await env.DB
+      .prepare(
+        `SELECT t.created_at AS created_at, t.last_post_at AS last_post_at
+         FROM topics t JOIN governance_actions ga ON ga.topic_id = t.id
+         WHERE ga.id = ?`,
+      )
+      .bind(`${'aa'.repeat(32)}#0`)
+      .first<{ created_at: number; last_post_at: number }>();
+    expect(row).toEqual({ created_at: EPOCH_200_MS, last_post_at: EPOCH_200_MS });
+  });
+
+  it('corrects a no-reply governance topic to the submission time, then is a no-op', async () => {
+    const SYNC_TIME = 1_700_000_000_000;
+    const topicId = 'bf-topic-1';
+    const actionId = 'bf-action-1';
+    await env.DB.batch([
+      env.DB
+        .prepare(
+          `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
+           VALUES (?, 'governance-actions', 'gov-sync', 'governance', 'Backfill Me', 'backfill-me-bf1', 1, ?, ?)`,
+        )
+        .bind(topicId, SYNC_TIME, SYNC_TIME),
+      env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+           VALUES ('bf-post-1', ?, 'gov-sync', 'b', '<p>b</p>', ?)`,
+        )
+        .bind(topicId, SYNC_TIME),
+      buildInsertGovernanceAction(env.DB, {
+        id: actionId,
+        proposalId: 'gov_action1bf',
+        type: 'InfoAction',
+        title: null,
+        abstract: null,
+        rationaleHtml: null,
+        anchorUrl: null,
+        anchorHash: null,
+        anchorStatus: 'no-anchor',
+        returnAddress: null,
+        deposit: null,
+        submittedEpoch: 200,
+        expiryEpoch: null,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId,
+        now: SYNC_TIME,
+      }),
+    ]);
+
+    const r1 = await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+    expect(r1.updated).toBeGreaterThanOrEqual(1);
+
+    const fixed = await env.DB
+      .prepare(
+        `SELECT t.created_at AS tc, t.last_post_at AS tl, p.created_at AS pc
+         FROM topics t JOIN posts p ON p.topic_id = t.id WHERE t.id = ?`,
+      )
+      .bind(topicId)
+      .first<{ tc: number; tl: number; pc: number }>();
+    expect(fixed).toEqual({ tc: EPOCH_200_MS, tl: EPOCH_200_MS, pc: EPOCH_200_MS });
+
+    const r2 = await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+    expect(r2.updated).toBe(0);
+  });
+
+  it('never touches a governance topic that has real replies', async () => {
+    const SYNC_TIME = 1_700_000_000_000;
+    const topicId = 'bf-topic-replied';
+    await env.DB.batch([
+      // post_count is the denormalized reply counter; no post rows are needed to
+      // exercise the post_count <= 1 filter.
+      env.DB
+        .prepare(
+          `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
+           VALUES (?, 'governance-actions', 'gov-sync', 'governance', 'Has Replies', 'has-replies-bf2', 2, ?, ?)`,
+        )
+        .bind(topicId, SYNC_TIME, SYNC_TIME),
+      buildInsertGovernanceAction(env.DB, {
+        id: 'bf-action-replied',
+        proposalId: 'gov_action1bf2',
+        type: 'InfoAction',
+        title: null,
+        abstract: null,
+        rationaleHtml: null,
+        anchorUrl: null,
+        anchorHash: null,
+        anchorStatus: 'no-anchor',
+        returnAddress: null,
+        deposit: null,
+        submittedEpoch: 200,
+        expiryEpoch: null,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId,
+        now: SYNC_TIME,
+      }),
+    ]);
+
+    await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+
+    const row = await env.DB
+      .prepare('SELECT created_at, last_post_at FROM topics WHERE id = ?')
+      .bind(topicId)
+      .first<{ created_at: number; last_post_at: number }>();
+    expect(row).toEqual({ created_at: SYNC_TIME, last_post_at: SYNC_TIME });
   });
 });

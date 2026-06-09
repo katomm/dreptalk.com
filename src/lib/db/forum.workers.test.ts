@@ -149,6 +149,30 @@ describe('createTopic', () => {
     expect(topic.locked).toBe(false);
     expect(topic.deleted).toBe(false);
   });
+
+  it('uses postedAt for the topic and first-post timestamps when provided', async () => {
+    const POSTED = 1_650_000_000_000; // distinct from the `now` below
+    const { topic, firstPost } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: AUTHOR,
+      title: 'Backdated Topic',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: T1,
+      postedAt: POSTED,
+      rand: 'rpd1',
+    });
+    expect(topic.created_at).toBe(POSTED);
+    expect(topic.last_post_at).toBe(POSTED);
+    expect(firstPost.created_at).toBe(POSTED);
+
+    // Persisted, not just the returned object.
+    const stored = await db()
+      .prepare('SELECT created_at, last_post_at FROM topics WHERE id = ?')
+      .bind(topic.id)
+      .first<{ created_at: number; last_post_at: number }>();
+    expect(stored).toEqual({ created_at: POSTED, last_post_at: POSTED });
+  });
 });
 
 // ---- getTopicBySlug ---------------------------------------------------------
