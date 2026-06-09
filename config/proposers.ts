@@ -11,9 +11,45 @@ export interface Proposer {
   website?: string;    // optional https link
 }
 
-// Filled from the confirmed history analysis later. Safe to ship small/empty:
-// unmatched proposers fall back to an identicon + their address.
-export const PROPOSERS: Proposer[] = [];
+// Seeded from a one-time analysis of mainnet proposal_list (user-confirmed). The
+// return_address is largely a shared submitter/administrator address, so we only
+// label addresses that map to a single proposing org. The Intersect entry is the
+// governance-administration address: Intersect submits and administers many
+// actions on behalf of various authors, so it intentionally covers a broad range.
+// Unmatched proposers fall back to an identicon + their address. Logos go under
+// public/orgs/ (set `icon`); without one, a known org shows an identicon + name.
+export const PROPOSERS: Proposer[] = [
+  {
+    slug: 'intersect',
+    name: 'Intersect',
+    addresses: ['stake1uyvjdz9rxsfsmv44rtk75k2rqyqskrga96dgdfrqjvjjpwsefcjnp'],
+    website: 'https://www.intersectmbo.org',
+  },
+  {
+    slug: 'input-output',
+    name: 'Input Output',
+    addresses: ['stake1uy7ucfwsxtv36lz2drg4nw538xswshmg9pw8h2yzqd4qrzgzhyrsg'],
+    website: 'https://iohk.io',
+  },
+  {
+    slug: 'snek-foundation',
+    name: 'Snek Foundation',
+    addresses: ['stake1uy5wxkqpezym2esqkgvw9yyqyd0rzuhkm206q6cddcxtqjgehj9ty'],
+  },
+  {
+    slug: 'hlabs',
+    name: 'HLabs',
+    addresses: ['stake1u949rs3erz72xxsj6uye2k0whkcv909043ld6dnv504eqwc4a60sc'],
+  },
+  {
+    slug: 'pragma',
+    name: 'PRAGMA',
+    addresses: [
+      'stake179vw36vvvkmq32dfa002gtc8mk6v4zv2a74ppaxsz3dejhs72dh4z',
+      'stake17yyule028w4c2xy2rzsnzs22v4cvav3aljm5z76kz9hc9as0vfqh9',
+    ],
+  },
+];
 
 /** Lowercase + trim, so lookups are case/whitespace-insensitive. */
 function normalizeAddress(address: string): string {
