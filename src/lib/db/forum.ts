@@ -390,6 +390,46 @@ export async function getPostById(db: D1Database, postId: string): Promise<Post 
   return row ? rowToPost(row) : null;
 }
 
+/** A post by one author, with its topic's title and slug for linking on a profile. */
+export interface AuthorPost {
+  id: string;
+  topic_id: string;
+  topic_title: string;
+  topic_slug: string;
+  body_html: string;
+  created_at: number;
+}
+
+/**
+ * Posts authored by one user (newest first), joined to their topic for context
+ * and linking. Excludes deleted and hidden posts and posts in deleted topics.
+ * Uses idx_posts_author. Default limit 20, capped 50.
+ */
+export async function getPostsByAuthor(
+  db: D1Database,
+  authorId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<AuthorPost[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
+  const offset = Math.max(opts?.offset ?? 0, 0);
+
+  const rows = (
+    await db
+      .prepare(
+        `SELECT p.id, p.topic_id, t.title AS topic_title, t.slug AS topic_slug,
+                p.body_html, p.created_at
+         FROM posts p
+         JOIN topics t ON t.id = p.topic_id
+         WHERE p.author_id = ? AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0
+         ORDER BY p.created_at DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .bind(authorId, limit, offset)
+      .all<AuthorPost>()
+  ).results ?? [];
+  return rows;
+}
+
 /**
  * Creates a reply post in an existing topic.
  * Throws 'topic_not_found' if the topic does not exist or is deleted.

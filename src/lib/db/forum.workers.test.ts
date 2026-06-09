@@ -10,6 +10,7 @@ import {
   getTopicsByIds,
   getPostsByTopic,
   createPost,
+  getPostsByAuthor,
 } from './forum.js';
 
 const db = () => env.DB;
@@ -685,5 +686,28 @@ describe('getTopicsByIds', () => {
   it('returns an empty map for empty input', async () => {
     const map = await getTopicsByIds(db(), []);
     expect(map.size).toBe(0);
+  });
+});
+
+// ---- getPostsByAuthor -------------------------------------------------------
+
+describe('getPostsByAuthor', () => {
+  it('returns the author posts newest-first with topic title and slug', async () => {
+    const { topic } = await createTopic(env.DB, {
+      categorySlug: 'general', authorId: 'author-x', title: 'Hello World',
+      bodyMd: 'a', bodyHtml: '<p>a</p>', now: 1000, rand: 'aaaa',
+    });
+    await createPost(env.DB, { topicId: topic.id, authorId: 'author-x', bodyMd: 'b', bodyHtml: '<p>b</p>', now: 2000 });
+
+    const rows = await getPostsByAuthor(env.DB, 'author-x', { limit: 10, offset: 0 });
+    expect(rows.length).toBe(2);
+    expect(rows[0].created_at).toBe(2000); // newest first
+    expect(rows[0].topic_title).toBe('Hello World');
+    expect(rows[0].topic_slug).toBe(topic.slug);
+  });
+
+  it('excludes deleted and hidden posts', async () => {
+    const rows = await getPostsByAuthor(env.DB, 'nobody-here', { limit: 10, offset: 0 });
+    expect(rows).toEqual([]);
   });
 });
