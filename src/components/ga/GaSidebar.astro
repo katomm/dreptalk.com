@@ -13,14 +13,13 @@ interface Props {
   params: ProtocolParams | null;
   ccSize: number;
   network: CardanoNetwork;
-  now: number;
 }
 
-const { action, params, ccSize, network, now } = Astro.props;
+const { action, params, ccSize, network } = Astro.props;
 ---
 
 <aside class="ga-sidebar">
-  <ActionStatusCard action={action} network={network} now={now} />
+  <ActionStatusCard action={action} network={network} />
   <VotingInfoCard action={action} params={params} ccSize={ccSize} network={network} />
   <ProposerCard returnAddress={action.returnAddress} />
 </aside>

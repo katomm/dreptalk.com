@@ -7,7 +7,6 @@ import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import FlagButton from '@/components/FlagButton.tsx';
-import GovernanceHeader from '@/components/GovernanceHeader.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
@@ -256,7 +255,6 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
               params={params}
               ccSize={ccSize}
               network={network}
-              now={now}
             />
           </div>
         </div>
@@ -264,10 +262,6 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
     ) : (
       // Non-governance topics: single-column thread, unchanged.
       <>
-        {govAction && page === 1 && (
-          <GovernanceHeader action={govAction} network={network} now={now} />
-        )}
-
         <div style="display:flex;flex-direction:column;gap:0;">
           {posts.map((post, i) => {
             const author =
