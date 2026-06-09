@@ -12,6 +12,7 @@ import VoteBadge from '@/components/VoteBadge.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
 import { getFlaggedPostIds } from '@/lib/db/postFlags.js';
 import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
+import { threadOgImage } from '@/lib/governance/view.js';
 import { getVotesByGaId } from '@/lib/db/drepVotes.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { isWriter } from '@/lib/auth/roles.js';
@@ -146,6 +147,10 @@ const breadcrumbLd = topic
       ],
     }
   : null;
+
+// OG card: per governance-action type, a generic discussion card, or the site
+// default for a governance topic whose action has not synced yet.
+const ogImage = threadOgImage(govAction, isGovernanceTopic);
 ---
 
 {notFound ? (
@@ -154,6 +159,7 @@ const breadcrumbLd = topic
   <Layout
     title={`${topic.title} - DRepTalk`}
     description={metaDescription}
+    ogImage={ogImage}
   >
     {discussionLd && <JsonLd data={discussionLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}

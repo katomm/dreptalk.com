@@ -13,6 +13,8 @@ import {
   stakeParticipation,
   formatEpochDate,
   govTypeTone,
+  govActionOgImage,
+  threadOgImage,
   isSpoLedType,
   overviewTally,
   TERMINAL_STATUSES,
@@ -133,6 +135,30 @@ describe('govTypeTone', () => {
   });
   it('falls back to other for unknown types', () => {
     expect(govTypeTone('SomethingElse')).toBe('other');
+  });
+});
+
+describe('govActionOgImage', () => {
+  it('maps each known type to its per-type OG card', () => {
+    expect(govActionOgImage('TreasuryWithdrawals')).toBe('/og/gov-treasury.png');
+    expect(govActionOgImage('HardForkInitiation')).toBe('/og/gov-hardfork.png');
+    expect(govActionOgImage('InfoAction')).toBe('/og/gov-info.png');
+    expect(govActionOgImage('NoConfidence')).toBe('/og/gov-noconfidence.png');
+  });
+  it('falls back to the site OG image for unknown types', () => {
+    expect(govActionOgImage('SomethingElse')).toBe('/og.png');
+  });
+});
+
+describe('threadOgImage', () => {
+  it('uses the per-type card for a governance action', () => {
+    expect(threadOgImage({ type: 'TreasuryWithdrawals' }, true)).toBe('/og/gov-treasury.png');
+  });
+  it('uses the discussion card for a plain thread', () => {
+    expect(threadOgImage(null, false)).toBe('/og/discussion.png');
+  });
+  it('defers to the site default for a governance topic without a synced action', () => {
+    expect(threadOgImage(null, true)).toBeUndefined();
   });
 });
 

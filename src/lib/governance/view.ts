@@ -176,6 +176,25 @@ export function govTypeTone(type: string): GovTypeTone {
   return 'other';
 }
 
+// Per-type Open Graph image for a governance action, served from public/og/.
+// An unrecognized type ('other') has no dedicated card and falls back to the
+// site default OG image.
+export function govActionOgImage(type: string): string {
+  const tone = govTypeTone(type);
+  return tone === 'other' ? '/og.png' : `/og/gov-${tone}.png`;
+}
+
+// OG card for a forum thread: the per-type card for a governance action, the
+// generic discussion card for a plain thread, and undefined (so Layout uses the
+// site default) for a governance topic whose action row has not synced yet.
+export function threadOgImage(
+  govAction: { type: string } | null,
+  isGovernanceTopic: boolean,
+): string | undefined {
+  if (govAction) return govActionOgImage(govAction.type);
+  return isGovernanceTopic ? undefined : '/og/discussion.png';
+}
+
 /** Formats a tally percentage: two decimals for tiny non-zero values, else whole. */
 export function fmtPct(n: number): string {
   return `${n.toFixed(n > 0 && n < 1 ? 2 : 0)}%`;
