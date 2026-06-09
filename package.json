@@ -9,11 +9,22 @@
     "build": "astro build",
     "preview": "astro build && wrangler dev",
     "typecheck": "astro check",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:live": "DREPTALK_LIVE=1 vitest run src/lib/governance/drepTx.live.test.ts",
     "sync:dev": "wrangler dev --config workers/gov-sync/wrangler.toml --test-scheduled --persist-to .wrangler/state --var CARDANO_NETWORK:preprod --port 8787",
-    "deploy": "wrangler deploy && node scripts/preprod-config.mjs && wrangler deploy -c dist/server/wrangler.preprod.json && wrangler deploy -c workers/gov-sync/wrangler.toml && wrangler deploy -c workers/gov-sync/wrangler.toml --env preprod"
+    "deploy:app": "wrangler deploy",
+    "deploy:app:preprod": "node scripts/preprod-config.mjs && wrangler deploy -c dist/server/wrangler.preprod.json",
+    "deploy:sync": "wrangler deploy -c workers/gov-sync/wrangler.toml",
+    "deploy:sync:preprod": "wrangler deploy -c workers/gov-sync/wrangler.toml --env preprod",
+    "deploy:mainnet": "npm run deploy:app && npm run deploy:sync",
+    "deploy:preprod": "npm run deploy:app:preprod && npm run deploy:sync:preprod",
+    "deploy:all": "npm run deploy:mainnet && npm run deploy:preprod",
+    "deploy": "npm run deploy:all"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.0.0",
@@ -32,6 +43,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.0",
+    "@biomejs/biome": "^2.4.16",
     "@cloudflare/vitest-pool-workers": "^0.16.13",
     "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",

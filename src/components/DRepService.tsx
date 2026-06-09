@@ -349,6 +349,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
                 </select>
               </label>
               <button
+                type="button"
                 onClick={handleConnect}
                 disabled={busy}
                 style={{
@@ -390,6 +391,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
                   transaction is confirmed.
                 </p>
                 <button
+                  type="button"
                   onClick={() => void handleRetire(phase.identity)}
                   disabled={busy}
                   style={{
@@ -515,6 +517,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
                 {phase.message}
                 {' '}
                 <button
+                  type="button"
                   onClick={reset}
                   style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
                 >

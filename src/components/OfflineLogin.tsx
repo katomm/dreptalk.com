@@ -109,7 +109,7 @@ export default function OfflineLogin({ role }: { role: OfflineRole }) {
           <div className="callout__body">
             {state.message}
             <div style={{ marginTop: '0.6rem' }}>
-              <button onClick={loadChallenge} style={linkBtn}>Try again</button>
+              <button type="button" onClick={loadChallenge} style={linkBtn}>Try again</button>
             </div>
           </div>
         </div>
@@ -118,9 +118,9 @@ export default function OfflineLogin({ role }: { role: OfflineRole }) {
           <div>
             <div style={labelRow}>
               <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>1. Sign this challenge</span>
-              <button onClick={loadChallenge} disabled={busy} style={linkBtn}>Refresh</button>
+              <button type="button" onClick={loadChallenge} disabled={busy} style={linkBtn}>Refresh</button>
             </div>
-            <pre style={codeBlock} aria-label="cardano-signer command">{command}</pre>
+            <pre style={codeBlock}>{command}</pre>
             <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', margin: '0.4rem 0 0' }}>
               The challenge is valid for a few minutes. If it expires, hit Refresh.
             </p>
@@ -149,6 +149,7 @@ export default function OfflineLogin({ role }: { role: OfflineRole }) {
           )}
 
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={busy || pasted.trim().length === 0}
             style={{

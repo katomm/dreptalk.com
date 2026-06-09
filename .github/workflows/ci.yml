@@ -15,6 +15,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run lint
       - run: npm test
       # Gate: production dependencies must be free of high and critical vulnerabilities.
       # The deployed Workers runtime ships only the runtime deps (cborg, noble, blake, bech32, zod);
