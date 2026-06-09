@@ -1,0 +1,110 @@
+---
+// Sidebar card: related governance actions (same type or same proposer).
+// Renders nothing when the list is empty.
+import type { RelatedActionRow } from '@/lib/db/governance.js';
+import { readableType, statusBadge, TONE_COLORS } from '@/lib/governance/view.js';
+
+interface Props {
+  actions: RelatedActionRow[];
+}
+
+const { actions } = Astro.props;
+---
+
+{actions.length > 0 && (
+  <div class="sidebar-card">
+    <p class="sidebar-card__title">Related Actions</p>
+    <ul class="related-list">
+      {actions.map((a) => {
+        const badge = statusBadge(a.status);
+        const badgeColor = TONE_COLORS[badge.tone];
+        const displayTitle = a.title ?? readableType(a.type);
+        return (
+          <li class="related-item">
+            <a class="related-link" href={`/t/${a.topic_slug}`}>
+              <span class="related-title">{displayTitle}</span>
+              <span class="related-meta">
+                <span class="related-type">{readableType(a.type)}</span>
+                <span
+                  class="related-status"
+                  style={`background:${badgeColor};`}
+                >{badge.label}</span>
+              </span>
+            </a>
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+)}
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+
+  .related-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .related-item {
+    font-size: 0.8125rem;
+  }
+
+  .related-link {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    text-decoration: none;
+    color: inherit;
+  }
+  .related-link:hover .related-title {
+    text-decoration: underline;
+    color: var(--accent);
+  }
+
+  .related-title {
+    font-weight: 500;
+    color: var(--fg);
+    line-height: 1.35;
+  }
+
+  .related-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+  }
+
+  .related-type {
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  .related-status {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #fff;
+    border-radius: 0.2rem;
+    padding: 0.1rem 0.35rem;
+  }
+</style>

@@ -1,0 +1,202 @@
+---
+// History tab: lifecycle timeline for a governance action.
+// Milestones: Submitted, then either "Voting open until" (active) or terminal outcome.
+// Epochs are shown with their calendar date where known; dates are never invented.
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import { statusBadge, formatEpochDate, isTerminalStatus, TONE_COLORS } from '@/lib/governance/view.js';
+import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
+
+interface Props {
+  action: GovernanceAction;
+  network: CardanoNetwork;
+}
+
+const { action, network } = Astro.props;
+
+const noData = action.submittedEpoch == null;
+
+const netCfg = resolveNetwork(network);
+
+function epochLabel(epoch: number): string {
+  const date = formatEpochDate(epochStartUnix(epoch, netCfg));
+  return `Epoch ${epoch} (${date})`;
+}
+
+const terminal = isTerminalStatus(action.status);
+const badge = statusBadge(action.status);
+const badgeColor = TONE_COLORS[badge.tone];
+
+// Terminal milestone epoch: decidedEpoch if available, otherwise expiryEpoch.
+const terminalEpoch = action.decidedEpoch ?? action.expiryEpoch;
+
+interface Milestone {
+  label: string;
+  epoch: number | null;
+  epochLabel: string | null;
+  badgeLabel: string | null;
+  badgeColor: string | null;
+  isCurrent: boolean;
+}
+
+const milestones: Milestone[] = [];
+
+if (!noData) {
+  milestones.push({
+    label: 'Submitted',
+    epoch: action.submittedEpoch,
+    epochLabel: action.submittedEpoch != null ? epochLabel(action.submittedEpoch) : null,
+    badgeLabel: null,
+    badgeColor: null,
+    isCurrent: false,
+  });
+
+  if (!terminal) {
+    milestones.push({
+      label: action.expiryEpoch != null
+        ? `Voting open until epoch ${action.expiryEpoch}`
+        : 'Voting in progress',
+      epoch: action.expiryEpoch,
+      epochLabel: action.expiryEpoch != null ? epochLabel(action.expiryEpoch) : null,
+      badgeLabel: null,
+      badgeColor: null,
+      isCurrent: true,
+    });
+  } else {
+    milestones.push({
+      label: badge.label,
+      epoch: terminalEpoch,
+      epochLabel: terminalEpoch != null ? epochLabel(terminalEpoch) : null,
+      badgeLabel: badge.label,
+      badgeColor,
+      isCurrent: false,
+    });
+  }
+}
+---
+
+<div class="history-wrap">
+  {noData ? (
+    <p class="no-data">No lifecycle data yet.</p>
+  ) : (
+    <ol class="timeline">
+      {milestones.map((m) => (
+        <li class:list={['timeline__item', { 'timeline__item--current': m.isCurrent }]}>
+          <span class="timeline__dot"></span>
+          <div class="timeline__content">
+            {m.badgeLabel ? (
+              <span
+                class="timeline__badge"
+                style={`background:${m.badgeColor};`}
+              >{m.badgeLabel}</span>
+            ) : (
+              <span class="timeline__label">{m.label}</span>
+            )}
+            {m.epochLabel && (
+              <span class="timeline__epoch">{m.epochLabel}</span>
+            )}
+            {m.isCurrent && !m.epochLabel && m.epoch == null && (
+              <span class="timeline__epoch muted">Expiry epoch unknown</span>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  )}
+</div>
+
+<style>
+  .history-wrap {
+    padding: 0.25rem 0;
+  }
+
+  .no-data {
+    color: var(--muted);
+    font-size: 0.875rem;
+    margin: 0;
+  }
+
+  .timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .timeline__item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    position: relative;
+    padding-bottom: 1.5rem;
+  }
+
+  /* Vertical connector line between milestones */
+  .timeline__item:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 0.4375rem; /* center of the 0.875rem dot */
+    top: 0.875rem;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .timeline__item:last-child {
+    padding-bottom: 0;
+  }
+
+  .timeline__dot {
+    flex-shrink: 0;
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 50%;
+    background: var(--border);
+    border: 2px solid var(--surface);
+    box-shadow: 0 0 0 2px var(--border);
+    margin-top: 0.1875rem;
+  }
+
+  .timeline__item--current .timeline__dot {
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  .timeline__content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .timeline__label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .timeline__item--current .timeline__label {
+    color: var(--accent);
+  }
+
+  .timeline__badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #fff;
+    border-radius: 0.25rem;
+    padding: 0.175rem 0.45rem;
+    align-self: flex-start;
+  }
+
+  .timeline__epoch {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+</style>

@@ -1,0 +1,184 @@
+---
+// On-chain Data tab: raw on-chain fields for a governance action.
+// All nullable fields are skipped; never renders "null" or empty values.
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import { readableType, formatAda } from '@/lib/governance/view.js';
+import { resolveNetwork, epochStartUnix, governanceActionUrl, type CardanoNetwork } from '@/lib/config/network.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
+
+interface Props {
+  action: GovernanceAction;
+  network: CardanoNetwork;
+}
+
+const { action, network } = Astro.props;
+const netCfg = resolveNetwork(network);
+
+const explorerUrl = action.proposalId
+  ? governanceActionUrl(network, action.proposalId)
+  : null;
+
+const deposit = formatAda(action.deposit);
+
+const submittedDate = action.submittedEpoch != null
+  ? formatEpochDate(epochStartUnix(action.submittedEpoch, netCfg))
+  : null;
+const expiryDate = action.expiryEpoch != null
+  ? formatEpochDate(epochStartUnix(action.expiryEpoch, netCfg))
+  : null;
+const decidedDate = action.decidedEpoch != null
+  ? formatEpochDate(epochStartUnix(action.decidedEpoch, netCfg))
+  : null;
+---
+
+<div class="onchain-card">
+  <dl class="onchain-dl">
+    {action.proposalId != null && (
+      <>
+        <dt>Governance action id</dt>
+        <dd>
+          <span class="mono wrap">{action.proposalId}</span>
+          {explorerUrl && (
+            <a class="explorer-link" href={explorerUrl} target="_blank" rel="noopener noreferrer">
+              View on explorer
+            </a>
+          )}
+        </dd>
+      </>
+    )}
+
+    <dt>Type</dt>
+    <dd>{readableType(action.type)}</dd>
+
+    {deposit != null && (
+      <>
+        <dt>Deposit</dt>
+        <dd>{deposit}</dd>
+      </>
+    )}
+
+    {action.returnAddress != null && (
+      <>
+        <dt>Return address</dt>
+        <dd><span class="mono wrap">{action.returnAddress}</span></dd>
+      </>
+    )}
+
+    {action.submittedEpoch != null && (
+      <>
+        <dt>Submitted epoch</dt>
+        <dd>
+          {action.submittedEpoch}
+          {submittedDate && <span class="muted"> ({submittedDate})</span>}
+        </dd>
+      </>
+    )}
+
+    {action.expiryEpoch != null && (
+      <>
+        <dt>Expiry epoch</dt>
+        <dd>
+          {action.expiryEpoch}
+          {expiryDate && <span class="muted"> ({expiryDate})</span>}
+        </dd>
+      </>
+    )}
+
+    {action.decidedEpoch != null && (
+      <>
+        <dt>Decided epoch</dt>
+        <dd>
+          {action.decidedEpoch}
+          {decidedDate && <span class="muted"> ({decidedDate})</span>}
+        </dd>
+      </>
+    )}
+
+    {action.anchorUrl != null && (
+      <>
+        <dt>Metadata anchor</dt>
+        <dd>
+          <a href={action.anchorUrl} target="_blank" rel="noopener noreferrer" class="wrap">{action.anchorUrl}</a>
+        </dd>
+      </>
+    )}
+
+    {action.anchorHash != null && (
+      <>
+        <dt>Anchor hash</dt>
+        <dd><span class="mono wrap">{action.anchorHash}</span></dd>
+      </>
+    )}
+
+    {action.anchorStatus && action.anchorStatus !== '' && (
+      <>
+        <dt>Anchor status</dt>
+        <dd>{action.anchorStatus}</dd>
+      </>
+    )}
+  </dl>
+
+  <p class="sync-note">On-chain data, as of the last sync.</p>
+</div>
+
+<style>
+  .onchain-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1.125rem 1.25rem;
+    background: var(--surface);
+  }
+
+  .onchain-dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.375rem 1.25rem;
+    font-size: 0.8125rem;
+  }
+
+  .onchain-dl dt {
+    color: var(--muted);
+    font-weight: 600;
+    white-space: nowrap;
+    align-self: start;
+    padding-top: 0.05rem;
+  }
+
+  .onchain-dl dd {
+    margin: 0;
+    color: var(--fg);
+  }
+
+  .mono {
+    font-family: monospace;
+    font-size: 0.78rem;
+  }
+
+  .wrap {
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+
+  .explorer-link {
+    display: inline-block;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .explorer-link:hover {
+    text-decoration: underline;
+  }
+
+  .sync-note {
+    margin: 0.875rem 0 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+</style>
