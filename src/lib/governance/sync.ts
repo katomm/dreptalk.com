@@ -4,16 +4,17 @@
 // run. Tallies, lifecycle status, and vote badges are a later sync phase.
 
 import type { ProposalListRow } from '../koios/client.js';
-import { governanceActionUrl, type CardanoNetwork } from '../config/network.js';
+import { governanceActionUrl, epochStartUnix, resolveNetwork, type CardanoNetwork } from '../config/network.js';
 import { readableType, formatAda } from './view.js';
 import { fetchAnchorMetadata, META_EXTRACT_VERSION } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
-import { createTopic } from '../db/forum.js';
+import { createTopic, setTopicPostedAt } from '../db/forum.js';
 import {
   getKnownActionIds,
   buildInsertGovernanceAction,
   getActionsNeedingMetaReextract,
   updateActionMetadata,
+  getGovTopicsForSubmittedAtBackfill,
 } from '../db/governance.js';
 import { GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 
@@ -64,6 +65,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
 
   const proposals = await koios.proposalList();
   const known = await getKnownActionIds(db);
+  const cfg = resolveNetwork(network);
 
   let created = 0;
   let skipped = 0;
@@ -92,6 +94,10 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
       const bodyMd = composeFirstPostMd(p, meta?.abstract ?? null, network);
       const bodyHtml = renderMarkdown(bodyMd);
 
+      // Post date = on-chain submission time (epoch start; ~5-day granularity, always
+      // at or before the true submission). Falls back to now when the epoch is unknown.
+      const submittedAtMs = p.proposed_epoch != null ? epochStartUnix(p.proposed_epoch, cfg) * 1000 : now;
+
       // The governance_actions row is committed in the same atomic batch as the
       // topic and first post, so a partial write can never leave an orphan topic
       // (which the next run would re-create as a duplicate).
@@ -103,6 +109,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
         bodyHtml,
         source: 'governance',
         now,
+        postedAt: submittedAtMs,
         rand: rand(),
         batchWith: (topicId) => [
           buildInsertGovernanceAction(db, {
@@ -198,4 +205,39 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
   }
 
   return { scanned: candidates.length, updated, failed };
+}
+
+export interface SubmittedAtBackfillResult {
+  scanned: number;
+  updated: number;
+}
+
+export interface SubmittedAtBackfillDeps {
+  db: D1Database;
+  network: CardanoNetwork;
+  /** Max no-reply topics to inspect per run (bounds the sweep). */
+  limit: number;
+}
+
+/**
+ * Idempotent post-date backfill: for governance topics with no replies, sets the
+ * topic and its system post timestamps to the on-chain submission time derived from
+ * the stored submitted_epoch. Sweeps our own D1 (not the live Koios list), so the
+ * whole backlog is covered, including terminal actions. After the first corrected run
+ * it finds everything already at the submission time and updates nothing (no writes),
+ * so it is safe to call every sync. preprod and mainnet each self-correct against
+ * their own database the next time the worker runs there.
+ */
+export async function backfillGovTopicSubmittedAt(deps: SubmittedAtBackfillDeps): Promise<SubmittedAtBackfillResult> {
+  const { db, network, limit } = deps;
+  const cfg = resolveNetwork(network);
+  const candidates = await getGovTopicsForSubmittedAtBackfill(db, limit);
+  let updated = 0;
+  for (const c of candidates) {
+    const submittedAtMs = epochStartUnix(c.submittedEpoch, cfg) * 1000;
+    if (c.createdAt === submittedAtMs && c.lastPostAt === submittedAtMs) continue;
+    await setTopicPostedAt(db, c.topicId, submittedAtMs);
+    updated++;
+  }
+  return { scanned: candidates.length, updated };
 }
