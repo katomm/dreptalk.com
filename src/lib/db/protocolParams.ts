@@ -1,0 +1,70 @@
+/// <reference types="@cloudflare/workers-types" />
+// Single-row cache (id=1) of CIP-1694 voting thresholds + committee quorum,
+// synced from Koios by gov-sync. Parameterized SQL only.
+
+export interface ProtocolParams {
+  epoch: number | null;
+  dvtMotionNoConfidence: number | null;
+  dvtCommitteeNormal: number | null;
+  dvtCommitteeNoConfidence: number | null;
+  dvtUpdateConstitution: number | null;
+  dvtHardFork: number | null;
+  dvtPpNetwork: number | null;
+  dvtPpEconomic: number | null;
+  dvtPpTechnical: number | null;
+  dvtPpGov: number | null;
+  dvtTreasuryWithdrawal: number | null;
+  pvtMotionNoConfidence: number | null;
+  pvtCommitteeNormal: number | null;
+  pvtCommitteeNoConfidence: number | null;
+  pvtHardFork: number | null;
+  pvtSecurityGroup: number | null;
+  ccThreshold: number | null;
+  committeeMinSize: number | null;
+  syncedAt: number;
+}
+
+interface Row {
+  epoch: number | null;
+  dvt_motion_no_confidence: number | null; dvt_committee_normal: number | null;
+  dvt_committee_no_confidence: number | null; dvt_update_constitution: number | null;
+  dvt_hard_fork: number | null; dvt_pp_network: number | null; dvt_pp_economic: number | null;
+  dvt_pp_technical: number | null; dvt_pp_gov: number | null; dvt_treasury_withdrawal: number | null;
+  pvt_motion_no_confidence: number | null; pvt_committee_normal: number | null;
+  pvt_committee_no_confidence: number | null; pvt_hard_fork: number | null; pvt_security_group: number | null;
+  cc_threshold: number | null; committee_min_size: number | null; synced_at: number;
+}
+
+export async function getProtocolParams(db: D1Database): Promise<ProtocolParams | null> {
+  const r = await db.prepare('SELECT * FROM protocol_params WHERE id = 1').first<Row>();
+  if (!r) return null;
+  return {
+    epoch: r.epoch,
+    dvtMotionNoConfidence: r.dvt_motion_no_confidence, dvtCommitteeNormal: r.dvt_committee_normal,
+    dvtCommitteeNoConfidence: r.dvt_committee_no_confidence, dvtUpdateConstitution: r.dvt_update_constitution,
+    dvtHardFork: r.dvt_hard_fork, dvtPpNetwork: r.dvt_pp_network, dvtPpEconomic: r.dvt_pp_economic,
+    dvtPpTechnical: r.dvt_pp_technical, dvtPpGov: r.dvt_pp_gov, dvtTreasuryWithdrawal: r.dvt_treasury_withdrawal,
+    pvtMotionNoConfidence: r.pvt_motion_no_confidence, pvtCommitteeNormal: r.pvt_committee_normal,
+    pvtCommitteeNoConfidence: r.pvt_committee_no_confidence, pvtHardFork: r.pvt_hard_fork,
+    pvtSecurityGroup: r.pvt_security_group, ccThreshold: r.cc_threshold,
+    committeeMinSize: r.committee_min_size, syncedAt: r.synced_at,
+  };
+}
+
+export async function upsertProtocolParams(db: D1Database, p: ProtocolParams): Promise<void> {
+  await db.prepare(
+    `INSERT OR REPLACE INTO protocol_params
+       (id, epoch, dvt_motion_no_confidence, dvt_committee_normal, dvt_committee_no_confidence,
+        dvt_update_constitution, dvt_hard_fork, dvt_pp_network, dvt_pp_economic, dvt_pp_technical,
+        dvt_pp_gov, dvt_treasury_withdrawal, pvt_motion_no_confidence, pvt_committee_normal,
+        pvt_committee_no_confidence, pvt_hard_fork, pvt_security_group, cc_threshold,
+        committee_min_size, synced_at)
+     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    p.epoch, p.dvtMotionNoConfidence, p.dvtCommitteeNormal, p.dvtCommitteeNoConfidence,
+    p.dvtUpdateConstitution, p.dvtHardFork, p.dvtPpNetwork, p.dvtPpEconomic, p.dvtPpTechnical,
+    p.dvtPpGov, p.dvtTreasuryWithdrawal, p.pvtMotionNoConfidence, p.pvtCommitteeNormal,
+    p.pvtCommitteeNoConfidence, p.pvtHardFork, p.pvtSecurityGroup, p.ccThreshold,
+    p.committeeMinSize, p.syncedAt,
+  ).run();
+}
