@@ -15,7 +15,12 @@ interface Props {
 const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.png' } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const ogImageUrl = new URL(ogImage, Astro.site).href;
-const analyticsToken = import.meta.env.PUBLIC_CF_ANALYTICS_TOKEN;
+// Cloudflare Web Analytics beacon token. The token is public by design: the
+// beacon embeds it in the page HTML for every visitor, so it is committed here
+// instead of being configured per environment. Gated on import.meta.env.PROD so
+// local `astro dev` views are not counted; every production build (mainnet and
+// preprod, which share the build output) ships the beacon.
+const analyticsToken = import.meta.env.PROD ? 'ae56036d282048ea9265882a755721ff' : undefined;
 
 // Active Cardano network, used for the preprod testnet flag below.
 const net = currentNetwork();
