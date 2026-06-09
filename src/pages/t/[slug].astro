@@ -12,10 +12,12 @@ import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
 import GaDiscussion from '@/components/ga/GaDiscussion.astro';
 import GaPositions from '@/components/ga/GaPositions.astro';
+import GaOnchain from '@/components/ga/GaOnchain.astro';
+import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
 import { getFlaggedPostIds } from '@/lib/db/postFlags.js';
-import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
+import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { threadOgImage, stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
@@ -97,6 +99,16 @@ const [govAction, flaggedPostIds] = await Promise.all([
     ? getFlaggedPostIds(db, user.id, posts.map((p) => p.id))
     : Promise.resolve(new Set<string>()),
 ]);
+
+// Load related actions now that govAction is known (needs its id, type, returnAddress).
+const related: RelatedActionRow[] = isGovernanceTopic && govAction && db
+  ? await getRelatedActions(db, {
+      excludeId: govAction.id,
+      type: govAction.type,
+      returnAddress: govAction.returnAddress,
+      limit: 6,
+    })
+  : [];
 const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string }>();
 
 // Governance detail page extras: tab, protocol params, stake participation, tally.
@@ -273,6 +285,10 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                 pageSize={PAGE_SIZE}
                 slug={topic.slug}
               />
+            ) : tab === 'onchain' ? (
+              <GaOnchain action={govAction} network={network} />
+            ) : tab === 'history' ? (
+              <GaHistory action={govAction} network={network} />
             ) : (
               <GaOverview
                 action={govAction}
@@ -290,6 +306,7 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
               network={network}
               topVoters={topVoters}
               dreps={drepsMap}
+              related={related}
             />
           </div>
         </div>
