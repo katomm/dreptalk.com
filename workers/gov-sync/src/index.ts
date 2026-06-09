@@ -22,6 +22,7 @@ import {
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps } from '../../../src/lib/dreps/sync.js';
+import { syncDrepThresholds } from '../../../src/lib/dreps/thresholds.js';
 
 interface Env {
   DB: D1Database;
@@ -123,6 +124,15 @@ async function runDrepSync(env: Env): Promise<void> {
   console.log(
     `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} anchorsFetched=${r.anchorsFetched} failed=${r.failed}`,
   );
+
+  // Refresh the live DRep voting thresholds (lean: one extra Koios call per run).
+  // Non-fatal: a failure here must not fail the DRep sync that already succeeded.
+  try {
+    const wrote = await syncDrepThresholds({ koios, db: env.DB, now: Date.now() });
+    console.log(`[drep-thresholds] wrote=${wrote}`);
+  } catch (err) {
+    console.error('[drep-thresholds] refresh failed', err);
+  }
 }
 
 export default {
