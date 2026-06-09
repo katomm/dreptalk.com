@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt } from './sync.js';
+import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt, refreshTrendingScores } from './sync.js';
 import { META_EXTRACT_VERSION } from './metadata.js';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
 import type { ProposalListRow } from '../koios/client.js';
@@ -440,5 +440,81 @@ describe('submission-date post stamping and backfill', () => {
     expect(sys!.created_at).toBe(EPOCH_200_MS);
     // ...but the racing reply keeps its original timestamp.
     expect(reply!.created_at).toBe(REPLY_TIME);
+  });
+});
+
+describe('refreshTrendingScores', () => {
+  const GOV = 'governance-actions';
+  const DAY = 86_400_000;
+  const RNOW = 1_753_000_000_000;
+
+  // Seeds a governance topic + its action (no trending_score yet).
+  async function seed(topicId: string, actionId: string, o: { postCount?: number; lastPostAt?: number; deleted?: number } = {}): Promise<void> {
+    const lastPostAt = o.lastPostAt ?? RNOW;
+    await env.DB.batch([
+      env.DB
+        .prepare(
+          `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at, deleted)
+           VALUES (?, ?, 'gov-sync', 'governance', ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(topicId, GOV, `T ${topicId}`, `slug-${topicId}`, o.postCount ?? 1, lastPostAt, lastPostAt, o.deleted ?? 0),
+      buildInsertGovernanceAction(env.DB, {
+        id: actionId, proposalId: null, type: 'InfoAction', title: null, abstract: null, rationaleHtml: null,
+        anchorUrl: null, anchorHash: null, anchorStatus: 'no-anchor', returnAddress: null, deposit: null,
+        submittedEpoch: 200, expiryEpoch: null, metaVersion: META_EXTRACT_VERSION, topicId, now: RNOW,
+      }),
+    ]);
+  }
+
+  const scoreOf = async (topicId: string): Promise<number | null> =>
+    (await env.DB.prepare('SELECT trending_score AS s FROM governance_actions WHERE topic_id = ?').bind(topicId).first<{ s: number | null }>())?.s ?? null;
+
+  it('scores every listed action, then is a no-op on the second run', async () => {
+    await seed('t1', 'a1', { postCount: 1, lastPostAt: RNOW - 5 * DAY });
+    await seed('t2', 'a2', { postCount: 4, lastPostAt: RNOW - 1 * DAY });
+
+    const r1 = await refreshTrendingScores({ db: env.DB });
+    expect(r1.scanned).toBe(2);
+    expect(r1.updated).toBe(2);
+    expect(await scoreOf('t1')).not.toBeNull();
+    expect(await scoreOf('t2')).not.toBeNull();
+
+    // The second run recomputes identical scores, so only-changed writes nothing. This
+    // also proves the stored score equals trendingOrderKey exactly (else it would rewrite).
+    const r2 = await refreshTrendingScores({ db: env.DB });
+    expect(r2.scanned).toBe(2);
+    expect(r2.updated).toBe(0);
+  });
+
+  it('re-scores an action after a reply bumps post_count and last_post_at', async () => {
+    await seed('t1', 'a1', { postCount: 1, lastPostAt: RNOW - 10 * DAY });
+    await refreshTrendingScores({ db: env.DB });
+    const before = await scoreOf('t1');
+
+    // Simulate a reply: one more post, activity moves to (almost) now.
+    await env.DB.prepare('UPDATE topics SET post_count = 2, last_post_at = ? WHERE id = ?').bind(RNOW - 1 * DAY, 't1').run();
+
+    const r = await refreshTrendingScores({ db: env.DB });
+    expect(r.updated).toBe(1);
+    expect(await scoreOf('t1')).toBeGreaterThan(before!);
+  });
+
+  it('skips deleted topics and actions with no topic', async () => {
+    await seed('t-live', 'a-live');
+    await seed('t-del', 'a-del', { deleted: 1 });
+    // Action with no topic at all: getAllTopicsByCategory cannot resolve it, so it is skipped.
+    await env.DB
+      .prepare(
+        `INSERT INTO governance_actions (id, type, anchor_status, status, topic_id, created_at, last_synced_at)
+         VALUES ('a-orphan', 'InfoAction', 'no-anchor', 'active', NULL, ?, ?)`,
+      )
+      .bind(RNOW, RNOW)
+      .run();
+
+    const r = await refreshTrendingScores({ db: env.DB });
+    expect(r.scanned).toBe(3); // every action is scanned
+    expect(r.updated).toBe(1); // only the live, non-deleted, topic-backed one is scored
+    expect(await scoreOf('t-live')).not.toBeNull();
+    expect(await scoreOf('t-del')).toBeNull();
   });
 });

@@ -46,22 +46,50 @@ function totalVotes(a: GovernanceAction): number {
 const REPLY_WEIGHT = 3;
 const HALF_LIFE_DAYS = 7;
 const TERMINAL_PENALTY = 0.15;
+const HALF_LIFE_MS = HALF_LIFE_DAYS * 86_400_000;
 
 /**
- * Trending score for a governance action. Blends engagement (forum replies,
- * weighted, plus log-damped on-chain votes) with an exponential recency decay on the
- * last activity, then penalises terminal (decided) actions so they sink. With no
- * replies and no votes the score is just the recency term, so a brand-new action
+ * Engagement term: weighted forum replies plus log-damped on-chain votes. The tunable
+ * part of the heuristic, isolated so the trending order has a single definition.
+ */
+function engagementOf(row: GovActionTopic): number {
+  const replies = Math.max(0, row.topic.post_count - 1); // exclude the system first post
+  return replies * REPLY_WEIGHT + Math.log2(1 + totalVotes(row.action));
+}
+
+/**
+ * Canonical, time-invariant trending key. Stored on the row by the gov-sync cron so the
+ * list can be ordered and paged in the database instead of after loading every action.
+ * This is the single source of truth for trending order; trendingScore below is derived
+ * from it, so the in-memory sort and the materialized DB order cannot disagree.
+ *
+ * Blends engagement with recency and penalises terminal (decided) actions so they sink.
+ * With no replies and no votes the key is just the recency term, so a brand-new action
  * still surfaces and orders by its post date (which the sync sets to the on-chain
- * submission time). A simple, tunable heuristic.
+ * submission time). Ordering rows by this DESC is identical to ordering them by the live
+ * recency-decayed score for ANY now:
+ *
+ *   recency = 0.5^((now - lpa)/HALF_LIFE) = 2^(-now/HALF_LIFE) * 2^(lpa/HALF_LIFE)
+ *
+ * The 2^(-now/HALF_LIFE) factor is the same for every row at a given render, so it
+ * cancels in any comparison. Taking log2 of the surviving (1+engagement) * 2^(lpa/H)
+ * (and the *TERMINAL_PENALTY) gives the additive, clock-free form below; storing the log
+ * keeps 2^(lpa/H) (astronomically large) from overflowing float64.
+ */
+export function trendingOrderKey(row: GovActionTopic): number {
+  const key = Math.log2(1 + engagementOf(row)) + row.topic.last_post_at / HALF_LIFE_MS;
+  return isTerminalStatus(row.action.status) ? key + Math.log2(TERMINAL_PENALTY) : key;
+}
+
+/**
+ * Live trending score at a given clock, the inverse of trendingOrderKey's log transform:
+ * the stored key is log2(score) + now/HALF_LIFE_MS, so the score is 2^(key - now/H).
+ * Derived from the one ordering definition (used by the in-memory sort and its tests).
+ * Exact while last_post_at <= now (the contract: submission epochs are past, replies use
+ * the wall clock), so the old max(0, ageDays) recency clamp is neither possible nor needed.
  */
 export function trendingScore(row: GovActionTopic, now: number): number {
-  const replies = Math.max(0, row.topic.post_count - 1); // exclude the system first post
-  const engagement = replies * REPLY_WEIGHT + Math.log2(1 + totalVotes(row.action));
-  const ageDays = Math.max(0, (now - row.topic.last_post_at) / 86_400_000);
-  const recency = 0.5 ** (ageDays / HALF_LIFE_DAYS); // halves every HALF_LIFE_DAYS
-  const base = (1 + engagement) * recency;
-  return isTerminalStatus(row.action.status) ? base * TERMINAL_PENALTY : base;
+  return 2 ** (trendingOrderKey(row) - now / HALF_LIFE_MS);
 }
 
 // Epochs are positive; these sentinels push null epochs to the end of either order.

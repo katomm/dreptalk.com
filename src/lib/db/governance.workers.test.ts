@@ -8,6 +8,8 @@ import {
   getStaleSyncableActions,
   getAllGovernanceActions,
   getGovernanceActionsByTopicIds,
+  getGovernanceActionTopicIdsPage,
+  batchUpdateTrendingScores,
   updateGovernanceTallyAndStatus,
   getActionsNeedingVotedPower,
   updateVotedPower,
@@ -15,9 +17,63 @@ import {
   updateActionMetadata,
   type NewGovernanceAction,
 } from './governance.js';
+import { getAllTopicsByCategory } from './forum.js';
+import { sortGovActionTopics, trendingOrderKey, type GovActionTopic } from '../governance/sort.js';
+
+const GOV = 'governance-actions';
+
+// Seeds a governance topic and its action as one joined row, with full control over
+// the columns the list query orders and filters on. Bypasses the higher-level
+// builders so a test can set status/decided_epoch/trending_score directly.
+async function seedGovRow(o: {
+  topicId: string;
+  actionId: string;
+  categorySlug?: string;
+  deleted?: number;
+  postCount?: number;
+  lastPostAt?: number;
+  status?: string;
+  submittedEpoch?: number | null;
+  expiryEpoch?: number | null;
+  decidedEpoch?: number | null;
+  trendingScore?: number | null;
+  drepYes?: number | null;
+}): Promise<void> {
+  const categorySlug = o.categorySlug ?? GOV;
+  const deleted = o.deleted ?? 0;
+  const postCount = o.postCount ?? 1;
+  const lastPostAt = o.lastPostAt ?? NOW;
+  await db().batch([
+    db()
+      .prepare(
+        `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at, deleted)
+         VALUES (?, ?, 'gov-sync', 'governance', ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(o.topicId, categorySlug, `Title ${o.topicId}`, `slug-${o.topicId}`, postCount, lastPostAt, lastPostAt, deleted),
+    db()
+      .prepare(
+        `INSERT INTO governance_actions
+           (id, type, anchor_status, status, submitted_epoch, expiry_epoch, decided_epoch, drep_yes, trending_score, topic_id, created_at, last_synced_at)
+         VALUES (?, 'InfoAction', 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        o.actionId,
+        o.status ?? 'active',
+        o.submittedEpoch ?? null,
+        o.expiryEpoch ?? null,
+        o.decidedEpoch ?? null,
+        o.drepYes ?? null,
+        o.trendingScore ?? null,
+        o.topicId,
+        NOW,
+        NOW,
+      ),
+  ]);
+}
 
 const db = () => env.DB;
 const NOW = 1_753_000_000_000;
+const DAY = 86_400_000;
 
 let seq = 0;
 async function insertAction(over: Partial<NewGovernanceAction> = {}): Promise<NewGovernanceAction> {
@@ -356,5 +412,137 @@ describe('updateActionMetadata', () => {
     expect(got!.abstract).toBeNull();
     expect(got!.rationaleHtml).toBeNull();
     expect(got!.metaVersion).toBe(1);
+  });
+});
+
+describe('getGovernanceActionTopicIdsPage', () => {
+  it('trending: stored score desc, then submitted epoch desc, then topic id; NULL scores last', async () => {
+    await seedGovRow({ topicId: 't-low', actionId: 'a1', trendingScore: 10, submittedEpoch: 500 });
+    await seedGovRow({ topicId: 't-high', actionId: 'a2', trendingScore: 30, submittedEpoch: 500 });
+    await seedGovRow({ topicId: 't-mid', actionId: 'a3', trendingScore: 20, submittedEpoch: 500 });
+    // Equal score to t-mid: the newer submitted epoch wins the tiebreak.
+    await seedGovRow({ topicId: 't-tieB', actionId: 'a4', trendingScore: 20, submittedEpoch: 510 });
+    // No score yet (un-backfilled): sinks to the end despite the newest epoch.
+    await seedGovRow({ topicId: 't-null', actionId: 'a5', trendingScore: null, submittedEpoch: 999 });
+
+    const { topicIds, total } = await getGovernanceActionTopicIdsPage(db(), {
+      categorySlug: GOV,
+      sort: 'trending',
+      limit: 100,
+      offset: 0,
+    });
+    expect(topicIds).toEqual(['t-high', 't-tieB', 't-mid', 't-low', 't-null']);
+    expect(total).toBe(5);
+  });
+
+  it('new: newest submitted epoch first, NULL epochs last, all statuses', async () => {
+    await seedGovRow({ topicId: 't-300', actionId: 'a1', submittedEpoch: 300, status: 'enacted' });
+    await seedGovRow({ topicId: 't-320', actionId: 'a2', submittedEpoch: 320 });
+    await seedGovRow({ topicId: 't-310', actionId: 'a3', submittedEpoch: 310, status: 'expired' });
+    await seedGovRow({ topicId: 't-nil', actionId: 'a4', submittedEpoch: null });
+
+    const { topicIds } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'new', limit: 100, offset: 0 });
+    expect(topicIds).toEqual(['t-320', 't-310', 't-300', 't-nil']);
+  });
+
+  it('closing: open actions only, soonest expiry first, NULL expiry last, terminal excluded', async () => {
+    await seedGovRow({ topicId: 't-far', actionId: 'a1', status: 'active', expiryEpoch: 400 });
+    await seedGovRow({ topicId: 't-soon', actionId: 'a2', status: 'active', expiryEpoch: 360 });
+    await seedGovRow({ topicId: 't-noexp', actionId: 'a3', status: 'pending', expiryEpoch: null });
+    await seedGovRow({ topicId: 't-enacted', actionId: 'a4', status: 'enacted', expiryEpoch: 350 });
+    await seedGovRow({ topicId: 't-expired', actionId: 'a5', status: 'expired', expiryEpoch: 355 });
+
+    const { topicIds, total } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'closing', limit: 100, offset: 0 });
+    // Terminal rows are dropped even though their expiry is soonest; the count matches.
+    expect(topicIds).toEqual(['t-soon', 't-far', 't-noexp']);
+    expect(total).toBe(3);
+  });
+
+  it('ratified: most recently decided first, NULL decided last', async () => {
+    await seedGovRow({ topicId: 't-active', actionId: 'a1', status: 'active', decidedEpoch: null });
+    await seedGovRow({ topicId: 't-500', actionId: 'a2', status: 'enacted', decidedEpoch: 500 });
+    await seedGovRow({ topicId: 't-520', actionId: 'a3', status: 'ratified', decidedEpoch: 520 });
+
+    const { topicIds } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'ratified', limit: 100, offset: 0 });
+    expect(topicIds).toEqual(['t-520', 't-500', 't-active']);
+  });
+
+  it('paginates with limit/offset while total stays the full count', async () => {
+    for (let i = 0; i < 5; i++) {
+      await seedGovRow({ topicId: `t-${i}`, actionId: `a-${i}`, trendingScore: 100 - i, submittedEpoch: 500 });
+    }
+    const p1 = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'trending', limit: 2, offset: 0 });
+    expect(p1.topicIds).toEqual(['t-0', 't-1']);
+    expect(p1.total).toBe(5);
+    const p2 = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'trending', limit: 2, offset: 2 });
+    expect(p2.topicIds).toEqual(['t-2', 't-3']);
+    const p3 = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'trending', limit: 2, offset: 4 });
+    expect(p3.topicIds).toEqual(['t-4']);
+    expect(p3.total).toBe(5);
+  });
+
+  it('excludes deleted topics, other categories, and actions whose topic is missing', async () => {
+    await seedGovRow({ topicId: 't-ok', actionId: 'a-ok', trendingScore: 50 });
+    await seedGovRow({ topicId: 't-del', actionId: 'a-del', trendingScore: 99, deleted: 1 });
+    await seedGovRow({ topicId: 't-other', actionId: 'a-other', trendingScore: 99, categorySlug: 'general' });
+    // Action pointing at a non-existent topic: the inner join drops it.
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, anchor_status, status, trending_score, topic_id, created_at, last_synced_at)
+         VALUES ('a-orphan', 'InfoAction', 'no-anchor', 'active', 99, 'nope', ?, ?)`,
+      )
+      .bind(NOW, NOW)
+      .run();
+
+    const { topicIds, total } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'trending', limit: 100, offset: 0 });
+    expect(topicIds).toEqual(['t-ok']);
+    expect(total).toBe(1);
+  });
+
+  it('trending order matches the in-memory sortGovActionTopics oracle', async () => {
+    // A representative mixed set: whale (old, vote-heavy), fresh, hot discussion, a
+    // terminal action, and a quiet older one. Distinct scores, so the equivalence is
+    // unambiguous.
+    await seedGovRow({ topicId: 't-whale', actionId: 'w', status: 'active', postCount: 1, drepYes: 2000, lastPostAt: NOW - 40 * DAY, submittedEpoch: 500 });
+    await seedGovRow({ topicId: 't-fresh', actionId: 'f', status: 'active', postCount: 1, drepYes: 0, lastPostAt: NOW - 2 * DAY, submittedEpoch: 540 });
+    await seedGovRow({ topicId: 't-hot', actionId: 'h', status: 'active', postCount: 5, drepYes: 50, lastPostAt: NOW - 5 * DAY, submittedEpoch: 535 });
+    await seedGovRow({ topicId: 't-enacted', actionId: 'e', status: 'enacted', postCount: 3, drepYes: 10, lastPostAt: NOW - 3 * DAY, submittedEpoch: 520 });
+    await seedGovRow({ topicId: 't-quiet', actionId: 'q', status: 'active', postCount: 1, drepYes: 0, lastPostAt: NOW - 20 * DAY, submittedEpoch: 510 });
+
+    // Oracle = the old page path: load all, join, sort in memory.
+    const topics = await getAllTopicsByCategory(db(), GOV);
+    const actions = await getAllGovernanceActions(db());
+    const byTopic = new Map(actions.filter((a) => a.topicId).map((a) => [a.topicId!, a]));
+    const rows = topics
+      .map((t) => ({ topic: t, action: byTopic.get(t.id) }))
+      .filter((r): r is GovActionTopic => !!r.action);
+    const expected = sortGovActionTopics(rows, 'trending', NOW).map((r) => r.topic.id);
+
+    // Materialize the scores exactly as the cron will, then read the paged order back.
+    await batchUpdateTrendingScores(db(), rows.map((r) => ({ id: r.action.id, score: trendingOrderKey(r) })));
+    const { topicIds } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'trending', limit: 100, offset: 0 });
+
+    expect(topicIds).toEqual(expected);
+  });
+});
+
+describe('batchUpdateTrendingScores', () => {
+  it('writes scores and round-trips them exactly', async () => {
+    await seedGovRow({ topicId: 't1', actionId: 'a1', trendingScore: null });
+    await seedGovRow({ topicId: 't2', actionId: 'a2', trendingScore: null });
+
+    await batchUpdateTrendingScores(db(), [
+      { id: 'a1', score: 2893.5 },
+      { id: 'a2', score: 1234.0625 },
+    ]);
+
+    expect((await getGovernanceActionByTopicId(db(), 't1'))!.trendingScore).toBe(2893.5);
+    expect((await getGovernanceActionByTopicId(db(), 't2'))!.trendingScore).toBe(1234.0625);
+  });
+
+  it('is a no-op for an empty update list', async () => {
+    await seedGovRow({ topicId: 't1', actionId: 'a1', trendingScore: 5 });
+    await batchUpdateTrendingScores(db(), []);
+    expect((await getGovernanceActionByTopicId(db(), 't1'))!.trendingScore).toBe(5);
   });
 });

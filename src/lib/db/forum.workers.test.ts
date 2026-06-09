@@ -7,6 +7,7 @@ import {
   createTopic,
   getTopicBySlug,
   getTopicsByCategory,
+  getTopicsByIds,
   getPostsByTopic,
   createPost,
 } from './forum.js';
@@ -665,5 +666,24 @@ describe('getPostsByTopic pagination', () => {
 
     const posts = await getPostsByTopic(db(), topic.id);
     expect(posts.some(p => p.id === firstPost.id)).toBe(false);
+  });
+});
+
+// ---- getTopicsByIds ---------------------------------------------------------
+
+describe('getTopicsByIds', () => {
+  it('returns a map of the requested topics, skipping unknown ids', async () => {
+    const a = await createTopic(db(), { categorySlug: 'general', authorId: AUTHOR, title: 'Topic A', bodyMd: 'a', bodyHtml: '<p>a</p>', now: T1, rand: 'gi1' });
+    const b = await createTopic(db(), { categorySlug: 'general', authorId: AUTHOR, title: 'Topic B', bodyMd: 'b', bodyHtml: '<p>b</p>', now: T2, rand: 'gi2' });
+
+    const map = await getTopicsByIds(db(), [a.topic.id, b.topic.id, 'missing']);
+    expect(map.size).toBe(2);
+    expect(map.get(a.topic.id)!.title).toBe('Topic A');
+    expect(map.get(b.topic.id)!.slug).toBe(b.topic.slug);
+  });
+
+  it('returns an empty map for empty input', async () => {
+    const map = await getTopicsByIds(db(), []);
+    expect(map.size).toBe(0);
   });
 });
