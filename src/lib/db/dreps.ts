@@ -4,6 +4,7 @@
 // Stores on-chain DRep status and CIP-119 profile data synced from Koios.
 
 import { sqlPlaceholders } from './sql.js';
+import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 
 export interface Drep {
   drepId: string;
@@ -142,6 +143,9 @@ export async function listDreps(
   const where: string[] = [];
   const binds: unknown[] = [];
   if (opts.activeOnly) where.push('active = 1');
+  // Never list the predefined pseudo-DReps (always-abstain / always-no-confidence).
+  where.push(`drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`);
+  binds.push(...SPECIAL_DREP_IDS);
   const q = opts.query?.trim();
   if (q) {
     where.push('name LIKE ?');
@@ -218,4 +222,30 @@ export async function upsertDrep(
       args.createdAt,
     )
     .run();
+}
+
+export interface DrepPowerRow {
+  drepId: string;
+  name: string | null;
+  votingPower: string | null;
+}
+
+/**
+ * Active, non-special DReps with only the fields the concentration view needs,
+ * ordered by numeric voting power desc. No pagination: the whole active set
+ * (about 2k single-column rows) feeds one server-side aggregate, and the page
+ * is edge cached so only cold renders pay it.
+ */
+export async function listDrepsForConcentration(db: D1Database): Promise<DrepPowerRow[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT drep_id, name, voting_power FROM dreps
+         WHERE active = 1 AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})
+         ORDER BY CAST(voting_power AS INTEGER) DESC`,
+      )
+      .bind(...SPECIAL_DREP_IDS)
+      .all<{ drep_id: string; name: string | null; voting_power: string | null }>()
+  ).results ?? [];
+  return rows.map((r) => ({ drepId: r.drep_id, name: r.name, votingPower: r.voting_power }));
 }
