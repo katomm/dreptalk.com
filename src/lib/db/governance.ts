@@ -457,6 +457,41 @@ export async function markVotesSynced(db: D1Database, id: string, now: number): 
   await db.prepare('UPDATE governance_actions SET votes_synced_at = ? WHERE id = ?').bind(now, id).run();
 }
 
+/** A related governance action, with the topic slug for linking. */
+export interface RelatedActionRow {
+  id: string;
+  title: string | null;
+  type: string;
+  status: string;
+  topic_slug: string;
+}
+
+/**
+ * Related governance actions for the detail-page sidebar: same type or same
+ * proposer (return_address), excluding the current action, same-type first then
+ * most recent. Only actions that have a forum topic (so they are linkable).
+ */
+export async function getRelatedActions(
+  db: D1Database,
+  opts: { excludeId: string; type: string; returnAddress: string | null; limit?: number },
+): Promise<RelatedActionRow[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 6, 1), 20);
+  const rows = (
+    await db
+      .prepare(
+        `SELECT g.id AS id, g.title AS title, g.type AS type, g.status AS status, t.slug AS topic_slug
+         FROM governance_actions g
+         JOIN topics t ON t.id = g.topic_id
+         WHERE g.id != ? AND (g.type = ? OR (? IS NOT NULL AND g.return_address = ?))
+         ORDER BY (g.type = ?) DESC, g.submitted_epoch DESC
+         LIMIT ?`,
+      )
+      .bind(opts.excludeId, opts.type, opts.returnAddress, opts.returnAddress, opts.type, limit)
+      .all<RelatedActionRow>()
+  ).results ?? [];
+  return rows;
+}
+
 /** Updates an action's extracted metadata fields and bumps its meta_version. */
 export async function updateActionMetadata(
   db: D1Database,
