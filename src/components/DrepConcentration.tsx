@@ -40,13 +40,19 @@ export default function DrepConcentration(props: Props) {
   // Cumulative start offset per drawn arc (the muted remainder is skipped; the
   // background track circle shows through instead).
   let start = 0;
+  let topIdx = 0;
   const arcs = segments
     .filter((s) => s.kind !== 'remainder')
-    .map((s, i) => {
+    .map((s) => {
       const dash = (s.pct / 100) * C;
       const offset = -(start / 100) * C;
       start += s.pct;
-      return { dash, offset, tone: toneFor(s.kind, i) };
+      const tone = toneFor(s.kind, topIdx);
+      // Stable key: a top slice keys off its DRep id, the lone coalition-rest
+      // slice off its kind. No array index, so reordering never mis-reconciles.
+      const key = s.kind === 'top' ? topK[topIdx].drepId : s.kind;
+      if (s.kind === 'top') topIdx++;
+      return { dash, offset, tone, key };
     });
 
   // Threshold tick: a short radial line at the selected percent (top is 0%).
@@ -69,9 +75,9 @@ export default function DrepConcentration(props: Props) {
         <svg viewBox="0 0 200 200" width="200" height="200" aria-hidden="true">
           <circle cx="100" cy="100" r={R} fill="none" stroke="var(--border)" strokeWidth={STROKE} opacity="0.5" />
           <g transform="rotate(-90 100 100)">
-            {arcs.map((a, i) => (
+            {arcs.map((a) => (
               <circle
-                key={i}
+                key={a.key}
                 cx="100"
                 cy="100"
                 r={R}
@@ -130,7 +136,7 @@ export default function DrepConcentration(props: Props) {
           <li key={t.drepId} className="drep-conc__legend-item">
             <span className="drep-conc__swatch" style={{ background: topTone(i) }} aria-hidden="true" />
             <a href={`/dreps/${t.drepId}`} className="drep-conc__legend-name">{t.name ?? t.drepId}</a>
-            <span className="drep-conc__legend-pct">{t.pct}%</span>
+            <span className="drep-conc__legend-pct">{t.pct.toFixed(1)}%</span>
           </li>
         ))}
       </ol>
