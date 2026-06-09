@@ -1,0 +1,64 @@
+---
+// Tab bar for the governance-action detail page: Overview and Discussion.
+// Overview lives at /t/[slug]; Discussion appends ?tab=discussion.
+import { GA_TABS } from '@/lib/governance/tab.js';
+import type { GaTabId } from '@/lib/governance/tab.js';
+
+interface Props {
+  slug: string;
+  active: GaTabId;
+  commentCount: number;
+}
+
+const { slug, active, commentCount } = Astro.props;
+
+function tabHref(id: GaTabId): string {
+  return id === 'overview' ? `/t/${slug}` : `/t/${slug}?tab=${id}`;
+}
+
+function tabLabel(id: GaTabId, label: string): string {
+  if (id === 'discussion') return `${label} (${commentCount})`;
+  return label;
+}
+---
+
+<nav class="ga-tabbar" aria-label="Governance action sections">
+  {GA_TABS.map((tab) => (
+    <a
+      class={`ga-tabbar__tab${active === tab.id ? ' ga-tabbar__tab--active' : ''}`}
+      href={tabHref(tab.id)}
+      aria-current={active === tab.id ? 'page' : undefined}
+    >
+      {tabLabel(tab.id, tab.label)}
+    </a>
+  ))}
+</nav>
+
+<style>
+  .ga-tabbar {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 1.5rem;
+  }
+  .ga-tabbar__tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.625rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .ga-tabbar__tab:hover {
+    color: var(--fg);
+  }
+  .ga-tabbar__tab--active {
+    color: var(--fg);
+    font-weight: 700;
+    border-bottom-color: var(--accent);
+  }
+</style>
