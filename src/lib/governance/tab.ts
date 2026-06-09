@@ -1,6 +1,5 @@
-// Active-tab parsing for the governance detail page (?tab=). PR1 ships overview
-// + discussion; PR2 adds positions; onchain/history are added in later PRs (extend GA_TABS).
-export type GaTabId = 'overview' | 'discussion' | 'positions';
+// Active-tab parsing for the governance detail page (?tab=).
+export type GaTabId = 'overview' | 'discussion' | 'positions' | 'onchain' | 'history';
 
 export interface GaTabDef {
   id: GaTabId;
@@ -11,6 +10,8 @@ export const GA_TABS: GaTabDef[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'discussion', label: 'Discussion' },
   { id: 'positions', label: 'DRep Positions' },
+  { id: 'onchain', label: 'On-chain Data' },
+  { id: 'history', label: 'History' },
 ];
 
 /** Resolves the active tab from a ?tab= value; unknown or missing falls back to overview. */
