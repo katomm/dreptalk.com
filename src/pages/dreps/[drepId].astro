@@ -1,0 +1,133 @@
+---
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import JsonLd from '@/components/JsonLd.astro';
+import NotFound from '@/components/NotFound.astro';
+import { getDrepById } from '@/lib/db/dreps.js';
+import { getUserByDrepId } from '@/lib/db/users.js';
+import { getPostsByAuthor } from '@/lib/db/forum.js';
+import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
+import { isIndexableProfile, influencePct } from '@/lib/drep/profile.js';
+import { identiconSvg } from '@/lib/identity/identicon.js';
+import {
+  cacheControlForSynced, formatAda, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN,
+} from '@/lib/forum/view.js';
+
+const { drepId } = Astro.params;
+const db = env.DB as D1Database | undefined;
+
+const drep = drepId && db ? await getDrepById(db, drepId) : null;
+
+if (!drep) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+// Forum activity + total active power load together (independent reads).
+const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
+const [posts, activeStake] = await Promise.all([
+  drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
+  db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
+]);
+
+// votesCast is 0 in PR1 (the voter_id index + backfill land in PR2); the gate
+// and the JSON-LD already account for it so PR2 only flips the number.
+const votesCast = 0;
+
+const hasMetadata = !!(drep?.name || drep?.bio);
+const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length, votesCast });
+
+if (drep) {
+  Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+}
+
+const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
+const now = Date.now();
+const displayName = drep?.name ?? (drep ? truncateId(drep.drepId, 18) : '');
+const influence = drep ? influencePct(drep.votingPower, activeStake.total) : null;
+const iconSvg = drep ? identiconSvg(drep.hex ?? drep.drepId, 96) : '';
+const canonical = drep ? `${siteOrigin}/dreps/${drep.drepId}` : siteOrigin;
+
+const personLd = drep
+  ? {
+      '@context': 'https://schema.org',
+      '@type': 'Person',
+      name: displayName,
+      identifier: drep.drepId,
+      url: canonical,
+      ...(drep.bio ? { description: excerptFromHtml(drep.bio, 300) } : {}),
+      ...(drep.imageUrl ? { image: `${siteOrigin}/api/avatar/${drep.drepId}` } : {}),
+    }
+  : null;
+---
+
+{!drep ? (
+  <NotFound noun="DRep" />
+) : (
+  <Layout
+    title={`${displayName} - DRep on DRepTalk`}
+    description={drep.bio ? excerptFromHtml(drep.bio, 155) : `On-chain DRep profile and activity for ${displayName} on DRepTalk.`}
+    noindex={!indexable}
+  >
+    {personLd && <JsonLd data={personLd} />}
+
+    <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+      <a href="/">DRepTalk</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <a href="/dreps">DReps</a>
+    </nav>
+
+    <header style="display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem;">
+      <span style="width:96px;height:96px;border-radius:999px;overflow:hidden;flex-shrink:0;border:1px solid var(--border);position:relative;background:var(--surface);">
+        <span style="position:absolute;inset:0;" set:html={iconSvg} />
+        {drep.imageUrl && (
+          <span style={`position:absolute;inset:0;background:center/cover no-repeat url(/api/avatar/${drep.drepId});`}></span>
+        )}
+      </span>
+      <div>
+        <h1 style="margin:0 0 0.25rem;">{displayName}</h1>
+        <div style="font-size:0.8125rem;color:var(--muted);word-break:break-all;">{drep.drepId}</div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.8125rem;">
+          <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{drep.active ? 'Active' : drep.status}</span>
+          <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{formatAda(drep.votingPower)} voting power</span>
+          {influence != null && (
+            <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{influence.toFixed(2)}% influence</span>
+          )}
+        </div>
+      </div>
+    </header>
+
+    {drep.bio && <p style="color:var(--fg);max-width:65ch;">{drep.bio}</p>}
+
+    {drep.links && drep.links.length > 0 && (
+      <ul style="list-style:none;padding:0;display:flex;gap:1rem;flex-wrap:wrap;">
+        {drep.links.map((l) => (
+          <li><a href={l.uri} rel="nofollow noopener" target="_blank">{l.label}</a></li>
+        ))}
+      </ul>
+    )}
+
+    <p style="font-size:0.75rem;color:var(--muted);">On-chain data as of {formatRelativeTime(drep.lastSyncedAt, now)}.</p>
+
+    <section style="margin-top:2rem;">
+      <h2 style="font-size:1.125rem;">Forum activity</h2>
+      {posts.length === 0 ? (
+        <p style="color:var(--muted);">No forum posts yet.</p>
+      ) : (
+        <ul style="list-style:none;padding:0;display:flex;flex-direction:column;gap:0.75rem;">
+          {posts.map((p) => (
+            <li style="border-top:1px solid var(--border);padding-top:0.75rem;">
+              <a href={`/t/${p.topic_slug}#post-${p.id}`} style="font-weight:600;">{p.topic_title}</a>
+              <span style="color:var(--muted);font-size:0.8125rem;margin-left:0.5rem;">{formatRelativeTime(p.created_at, now)}</span>
+              <p style="margin:0.25rem 0 0;color:var(--muted);font-size:0.9375rem;">{excerptFromHtml(p.body_html, 160)}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+
+    {/* Voting history section is added in PR2. */}
+  </Layout>
+)}
