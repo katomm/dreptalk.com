@@ -3,7 +3,7 @@ import {
   statusBadge,
   epochDaysLeft,
   fmtPct,
-  tallyBar,
+  overviewTally,
   readableType,
   formatEpochDate,
   govTypeTone,
@@ -25,8 +25,12 @@ interface Props {
 const { topic, action, proposer, stake, network, href } = Astro.props;
 const badge = statusBadge(action.status);
 const typeTone = govTypeTone(action.type);
-const bar = tallyBar(action.drepYesPct, action.drepNoPct);
-const drepsVoted = (action.drepYes ?? 0) + (action.drepNo ?? 0) + (action.drepAbstain ?? 0);
+// Sentiment + voter count follow the action's leading role (SPO for hard fork,
+// no-confidence, committee; else DRep). The label is shown so the bar is never
+// ambiguous about whose votes it represents.
+const tally = overviewTally(action);
+const votedLabel = tally?.role === 'SPO' ? 'SPOs' : 'DReps';
+const votedCount = tally?.voted ?? 0;
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
 const daysLeft = epochDaysLeft(action.expiryEpoch, action.tallyEpoch);
 // Calendar date of the expiry epoch boundary (when voting closes). Only shown
@@ -60,14 +64,14 @@ const votingEnds =
     ) : <span class="metric__sub">-</span>}
   </div>
 
-  <!-- Community sentiment, led by the share in support. -->
+  <!-- Sentiment for the action's leading voter role, led by the share in support. -->
   <div class="metric garow__metric--sentiment">
-    {bar ? (
+    {tally ? (
       <>
-        <span class="metric__pct">{fmtPct(bar.yes)} <span class="metric__pctword">support</span></span>
-        <span class="metric__sub">{fmtPct(bar.no)} against &middot; {fmtPct(bar.abstain)} abstain</span>
+        <span class="metric__pct">{fmtPct(tally.bar.yes)} <span class="metric__pctword">{tally.role} support</span></span>
+        <span class="metric__sub">{fmtPct(tally.bar.no)} against &middot; {fmtPct(tally.bar.abstain)} abstain</span>
         {/* The sentiment bar's pastel palette lives in TallyBar (TONE_BAR_COLORS); do not inline colors here without it. */}
-        <TallyBar bar={bar} height={7} />
+        <TallyBar bar={tally.bar} height={7} />
       </>
     ) : <span class="metric__sub">-</span>}
   </div>
@@ -75,7 +79,7 @@ const votingEnds =
   <div class="garow__activity">
     <span class="garow__actline">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span class="garow__strong">{drepsVoted} DReps</span>
+      <span class="garow__strong">{votedCount} {votedLabel}</span>
     </span>
     <span class="garow__sub garow__actcap">participating</span>
     <span class="garow__actline">

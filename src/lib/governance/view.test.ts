@@ -13,6 +13,9 @@ import {
   stakeParticipation,
   formatEpochDate,
   govTypeTone,
+  isSpoLedType,
+  overviewTally,
+  type RoleTallyInput,
 } from './view.js';
 
 describe('readableType / formatAda', () => {
@@ -148,5 +151,53 @@ describe('stakeParticipation / formatAdaShort', () => {
     expect(s.pct).toBeCloseTo(48.2, 1);
     expect(s.votedLabel).toBe('3.21B ₳');
     expect(s.totalLabel).toBe('6.66B ₳');
+  });
+});
+
+describe('isSpoLedType / overviewTally', () => {
+  // Minimal builder: empty tallies, overridable per role.
+  const make = (over: Partial<RoleTallyInput>): RoleTallyInput => ({
+    type: 'TreasuryWithdrawals',
+    drepYesPct: null, drepNoPct: null, drepYes: null, drepNo: null, drepAbstain: null,
+    spoYesPct: null, spoNoPct: null, spoYes: null, spoNo: null, spoAbstain: null,
+    ...over,
+  });
+
+  it('flags hard fork, no-confidence and committee as SPO-led', () => {
+    expect(isSpoLedType('HardForkInitiation')).toBe(true);
+    expect(isSpoLedType('NoConfidence')).toBe(true);
+    expect(isSpoLedType('NewCommittee')).toBe(true);
+  });
+  it('leaves DRep-led types (treasury, parameter, constitution, info) DRep-led', () => {
+    expect(isSpoLedType('TreasuryWithdrawals')).toBe(false);
+    expect(isSpoLedType('ParameterChange')).toBe(false);
+    expect(isSpoLedType('NewConstitution')).toBe(false);
+    expect(isSpoLedType('InfoAction')).toBe(false);
+  });
+
+  it('a DRep-led type with a DRep tally leads with DRep', () => {
+    const t = overviewTally(make({ type: 'TreasuryWithdrawals', drepYesPct: 79, drepNoPct: 21, drepYes: 200, drepNo: 70, drepAbstain: 6 }))!;
+    expect(t.role).toBe('DRep');
+    expect(t.bar.yes).toBe(79);
+    expect(t.voted).toBe(276);
+  });
+  it('a hard fork with an SPO tally leads with SPO', () => {
+    const t = overviewTally(make({ type: 'HardForkInitiation', spoYesPct: 95, spoNoPct: 1, spoYes: 300, spoNo: 3, spoAbstain: 0, drepYesPct: 0, drepNoPct: 0 }))!;
+    expect(t.role).toBe('SPO');
+    expect(t.bar.yes).toBe(95);
+    expect(t.voted).toBe(303);
+  });
+  it('a hard fork with no SPO tally falls back to the DRep tally', () => {
+    const t = overviewTally(make({ type: 'HardForkInitiation', drepYesPct: 60, drepNoPct: 40, drepYes: 10, drepNo: 5, drepAbstain: 1 }))!;
+    expect(t.role).toBe('DRep');
+    expect(t.voted).toBe(16);
+  });
+  it('a DRep-led type with only an SPO tally falls back to SPO', () => {
+    const t = overviewTally(make({ type: 'ParameterChange', spoYesPct: 50, spoNoPct: 10, spoYes: 4, spoNo: 1, spoAbstain: 0 }))!;
+    expect(t.role).toBe('SPO');
+  });
+  it('returns null when neither role has a tally', () => {
+    expect(overviewTally(make({ type: 'HardForkInitiation' }))).toBeNull();
+    expect(overviewTally(make({ type: 'TreasuryWithdrawals' }))).toBeNull();
   });
 });
