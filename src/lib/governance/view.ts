@@ -53,11 +53,16 @@ export function statusBadge(status: string): StatusBadge {
 
 // Lifecycle statuses whose voting window is over and whose outcome is frozen. The
 // rest ('active', and the not-yet-synced 'pending') are still open and counting down.
-const TERMINAL_STATUSES = new Set(['ratified', 'enacted', 'dropped', 'expired', 'closed']);
+// Exported as the single source of truth: isTerminalStatus tests membership here, and
+// the Closing-Soon list query spreads it into a parameterized NOT IN filter, so the
+// in-memory and SQL definitions of "terminal" can never drift.
+export const TERMINAL_STATUSES = ['ratified', 'enacted', 'dropped', 'expired', 'closed'] as const;
+
+const TERMINAL_STATUS_SET = new Set<string>(TERMINAL_STATUSES);
 
 /** True when the action's voting window has ended (a frozen, terminal outcome). */
 export function isTerminalStatus(status: string): boolean {
-  return TERMINAL_STATUSES.has(status);
+  return TERMINAL_STATUS_SET.has(status);
 }
 
 /**

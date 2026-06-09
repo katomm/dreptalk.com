@@ -14,7 +14,12 @@ import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
 import { bytesToHex } from '../../../src/lib/crypto/hex.js';
 import { CRON_VOTE_SYNC, CRON_DREP_SYNC } from '../../../src/lib/freshness.js';
-import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt } from '../../../src/lib/governance/sync.js';
+import {
+  syncGovernanceActions,
+  backfillActionMetadata,
+  backfillGovTopicSubmittedAt,
+  refreshTrendingScores,
+} from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps } from '../../../src/lib/dreps/sync.js';
 
@@ -90,6 +95,12 @@ async function runGovernanceSync(env: Env): Promise<void> {
   // one generous limit drains it in a single run.
   const postDate = await backfillGovTopicSubmittedAt({ db: env.DB, network, limit: 500 });
   console.log(`[gov-postdate-backfill] scanned=${postDate.scanned} updated=${postDate.updated}`);
+
+  // Last: recompute the materialized trending sort key so the list page can order and
+  // page in the database. Runs after discovery, tallies, and the post-date backfill so
+  // it folds in everything this run changed. Only-changed writes; a no-op once settled.
+  const trending = await refreshTrendingScores({ db: env.DB });
+  console.log(`[gov-trending] scanned=${trending.scanned} updated=${trending.updated}`);
 }
 
 // Refresh the per-post vote lists (active actions only). Hourly: vote lists are

@@ -3,6 +3,8 @@
 // All queries use .prepare().bind(); never string-concatenated SQL.
 
 import { sqlPlaceholders } from './sql.js';
+import { TERMINAL_STATUSES } from '../governance/view.js';
+import type { GovSort } from '../governance/sort.js';
 
 /** Returns the set of governance-action ids already stored, for the sync diff. */
 export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
@@ -108,6 +110,8 @@ export interface GovernanceAction {
   topicId: string | null;
   createdAt: number;
   lastSyncedAt: number;
+  /** Materialized trending sort key (gov-sync cron); null until first refreshed. */
+  trendingScore: number | null;
 }
 
 interface GovernanceActionRow {
@@ -148,6 +152,7 @@ interface GovernanceActionRow {
   topic_id: string | null;
   created_at: number;
   last_synced_at: number;
+  trending_score: number | null;
 }
 
 function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
@@ -189,6 +194,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     topicId: r.topic_id,
     createdAt: r.created_at,
     lastSyncedAt: r.last_synced_at,
+    trendingScore: r.trending_score,
   };
 }
 
@@ -264,6 +270,87 @@ export async function getGovernanceActionsByTopicIds(
     if (row.topic_id) map.set(row.topic_id, rowToGovernanceAction(row));
   }
   return map;
+}
+
+// ORDER BY fragment per sort mode. These are constant strings chosen by a fixed switch
+// over the GovSort union (never user input), so interpolating them keeps the query
+// injection-safe while all actual values stay bound parameters. Every mode ends with
+// topic_id so equal-key ties are deterministic.
+function govPageOrderBy(sort: GovSort): string {
+  switch (sort) {
+    case 'new':
+      return 'ga.submitted_epoch DESC, ga.topic_id ASC';
+    case 'closing':
+      // expiry_epoch IS NULL sorts undated-but-open actions last (after the dated ones).
+      return 'ga.expiry_epoch IS NULL, ga.expiry_epoch ASC, ga.topic_id ASC';
+    case 'ratified':
+      return 'ga.decided_epoch DESC, ga.topic_id ASC';
+    default:
+      // trending (default): the cron-materialized score drives it; submitted_epoch then
+      // topic_id break ties, reproducing the in-memory sortGovActionTopics order exactly.
+      // NULL scores (not yet refreshed) sort last under DESC.
+      return 'ga.trending_score DESC, ga.submitted_epoch DESC, ga.topic_id ASC';
+  }
+}
+
+/**
+ * One page of governance-action topic ids for the list view, ordered and sliced in the
+ * database so the hot path is O(page size), not O(all actions). Inner-joins topics to
+ * actions (an action with no live, non-deleted topic in this category is never listed,
+ * matching the old in-memory filter), orders per the sort mode (trending reads the
+ * cron-materialized trending_score; the others read raw lifecycle-epoch columns), and
+ * returns the page's topic ids plus the full matching count for pagination. Closing-Soon
+ * drops terminal actions from both the page and the count.
+ *
+ * The caller hydrates the ids with getTopicsByIds + getGovernanceActionsByTopicIds (two
+ * batched IN queries, no N+1). limit is clamped to [1,100]; offset to >= 0.
+ */
+export async function getGovernanceActionTopicIdsPage(
+  db: D1Database,
+  opts: { categorySlug: string; sort: GovSort; limit: number; offset: number },
+): Promise<{ topicIds: string[]; total: number }> {
+  const limit = Math.min(Math.max(opts.limit, 1), 100);
+  const offset = Math.max(opts.offset, 0);
+
+  // Closing-Soon is the only mode that filters by status. The terminal set is bound
+  // (never interpolated) and shared with isTerminalStatus via TERMINAL_STATUSES, so the
+  // SQL and in-memory definitions of "terminal" cannot drift.
+  const terminalBinds = opts.sort === 'closing' ? [...TERMINAL_STATUSES] : [];
+  const terminalFilter =
+    opts.sort === 'closing' ? ` AND ga.status NOT IN (${sqlPlaceholders(terminalBinds)})` : '';
+  const base =
+    'FROM governance_actions ga JOIN topics t ON t.id = ga.topic_id ' +
+    `WHERE t.category_slug = ? AND t.deleted = 0${terminalFilter}`;
+
+  const [idResult, countRow] = await Promise.all([
+    db
+      .prepare(`SELECT ga.topic_id AS topic_id ${base} ORDER BY ${govPageOrderBy(opts.sort)} LIMIT ? OFFSET ?`)
+      .bind(opts.categorySlug, ...terminalBinds, limit, offset)
+      .all<{ topic_id: string }>(),
+    db
+      .prepare(`SELECT COUNT(*) AS n ${base}`)
+      .bind(opts.categorySlug, ...terminalBinds)
+      .first<{ n: number }>(),
+  ]);
+
+  return { topicIds: (idResult.results ?? []).map((r) => r.topic_id), total: countRow?.n ?? 0 };
+}
+
+/**
+ * Writes precomputed trending scores in one atomic batch (no-op when empty). Driven by
+ * the gov-sync cron's only-changed refresh, so the usual batch is small; the first run
+ * after a deploy writes the whole (low-hundreds) backlog in a single batch.
+ */
+export async function batchUpdateTrendingScores(
+  db: D1Database,
+  updates: readonly { id: string; score: number }[],
+): Promise<void> {
+  if (updates.length === 0) return;
+  await db.batch(
+    updates.map((u) =>
+      db.prepare('UPDATE governance_actions SET trending_score = ? WHERE id = ?').bind(u.score, u.id),
+    ),
+  );
 }
 
 /**

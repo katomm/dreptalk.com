@@ -3,6 +3,8 @@
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 // Callers are responsible for rendering/sanitizing markdown before passing bodyHtml.
 
+import { sqlPlaceholders } from './sql.js';
+
 export interface Topic {
   id: string;
   category_slug: string;
@@ -270,9 +272,9 @@ export async function getTopicsByCategory(
 }
 
 /**
- * Returns ALL non-deleted topics in a category (no pagination). Used by the
- * governance-actions list, which sorts in memory across the full set and is
- * bounded (low hundreds of actions). Do not use for high-volume categories.
+ * Returns ALL non-deleted topics in a category (no pagination). Bounded to low-volume
+ * categories: the gov-sync cron uses it (with getAllGovernanceActions) to recompute the
+ * governance trending scores off the hot path. Do not use for high-volume categories.
  */
 export async function getAllTopicsByCategory(db: D1Database, categorySlug: string): Promise<Topic[]> {
   const rows = await db
@@ -280,6 +282,21 @@ export async function getAllTopicsByCategory(db: D1Database, categorySlug: strin
     .bind(categorySlug)
     .all<TopicRow>();
   return (rows.results ?? []).map(rowToTopic);
+}
+
+/**
+ * Batch-loads topics by id into a Map (no N+1 when hydrating a precomputed id order,
+ * e.g. the database-ordered governance list page). Unknown ids are simply absent.
+ */
+export async function getTopicsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, Topic>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .prepare(`SELECT * FROM topics WHERE id IN (${sqlPlaceholders(ids)})`)
+    .bind(...ids)
+    .all<TopicRow>();
+  const map = new Map<string, Topic>();
+  for (const row of rows.results ?? []) map.set(row.id, rowToTopic(row));
+  return map;
 }
 
 /**

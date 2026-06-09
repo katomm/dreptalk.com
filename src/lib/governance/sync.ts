@@ -8,14 +8,17 @@ import { governanceActionUrl, epochStartMs, resolveNetwork, type CardanoNetwork 
 import { readableType, formatAda } from './view.js';
 import { fetchAnchorMetadata, META_EXTRACT_VERSION } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
-import { createTopic, setTopicPostedAt } from '../db/forum.js';
+import { createTopic, setTopicPostedAt, getAllTopicsByCategory } from '../db/forum.js';
 import {
   getKnownActionIds,
   buildInsertGovernanceAction,
   getActionsNeedingMetaReextract,
   updateActionMetadata,
   getGovTopicsForSubmittedAtBackfill,
+  getAllGovernanceActions,
+  batchUpdateTrendingScores,
 } from '../db/governance.js';
+import { trendingOrderKey } from './sort.js';
 import { GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 
 // System author for gov-sync-created threads.
@@ -240,4 +243,43 @@ export async function backfillGovTopicSubmittedAt(deps: SubmittedAtBackfillDeps)
     updated++;
   }
   return { scanned: candidates.length, updated };
+}
+
+export interface TrendingRefreshResult {
+  scanned: number;
+  updated: number;
+}
+
+/**
+ * Recomputes the materialized trending sort key for every governance action and writes
+ * back only the rows whose score changed (only-changed: a settled run writes nothing).
+ * Reuses the same two full reads the list page used to run per request, but off the hot
+ * path; the page now orders and pages by the stored key in the database.
+ *
+ * Run last in the 15-minute governance cron so it folds in this run's discoveries,
+ * tally/status updates, and post-date corrections. The score's inputs only move on the
+ * cron (votes, status) or on a forum reply (post_count, last_post_at), so the stored key
+ * stays as fresh as those already are, lagging a between-cron reply by at most one tick.
+ */
+export async function refreshTrendingScores(deps: { db: D1Database }): Promise<TrendingRefreshResult> {
+  const { db } = deps;
+  const [actions, topics] = await Promise.all([
+    getAllGovernanceActions(db),
+    getAllTopicsByCategory(db, GOVERNANCE_CATEGORY_SLUG),
+  ]);
+  const topicById = new Map(topics.map((t) => [t.id, t]));
+
+  const updates: { id: string; score: number }[] = [];
+  for (const action of actions) {
+    if (!action.topicId) continue; // an action with no topic is never listed
+    const topic = topicById.get(action.topicId);
+    if (!topic) continue; // topic deleted or not in the governance category: not listed
+    const score = trendingOrderKey({ topic, action });
+    // The REAL round-trips exactly, so === detects an unchanged score and skips the write.
+    if (action.trendingScore !== null && action.trendingScore === score) continue;
+    updates.push({ id: action.id, score });
+  }
+
+  await batchUpdateTrendingScores(db, updates);
+  return { scanned: actions.length, updated: updates.length };
 }

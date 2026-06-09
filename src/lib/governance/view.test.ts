@@ -15,6 +15,7 @@ import {
   govTypeTone,
   isSpoLedType,
   overviewTally,
+  TERMINAL_STATUSES,
   type RoleTallyInput,
 } from './view.js';
 
@@ -58,6 +59,13 @@ describe('isTerminalStatus', () => {
     expect(isTerminalStatus('active')).toBe(false);
     expect(isTerminalStatus('pending')).toBe(false);
     expect(isTerminalStatus('weird')).toBe(false);
+  });
+
+  it('TERMINAL_STATUSES is the single source isTerminalStatus draws from', () => {
+    // The list is also spread into the Closing-Soon SQL filter, so it must stay in
+    // lockstep with the predicate.
+    for (const s of TERMINAL_STATUSES) expect(isTerminalStatus(s)).toBe(true);
+    expect([...TERMINAL_STATUSES].sort()).toEqual(['closed', 'dropped', 'enacted', 'expired', 'ratified']);
   });
 });
 
