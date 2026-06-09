@@ -4,7 +4,9 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
 import { getVotesByGaId } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes } from './tallySync.js';
+import { getActionsNeedingVoteBackfill } from '../db/governance.js';
+import { getDrepVotingHistory } from '../db/drepVotes.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
 
 const db = () => env.DB;
@@ -325,5 +327,26 @@ describe('backfillVotedPower', () => {
     // The action remains unfilled.
     const got = await getGovernanceActionByTopicId(db(), t.topicId);
     expect(got!.drepVotedPower).toBeNull();
+  });
+});
+
+describe('backfillFinalizedVotes', () => {
+  it('pulls votes for a finalised action, writes them, and marks it synced', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaB', 'InfoAction', 'Old Action', 'enacted', 'propB', NULL, 0, 0)`,
+    ).run();
+
+    const koios = {
+      proposalVotes: async (_p: string, _l?: number, offset = 0) =>
+        offset === 0 ? [{ voter_role: 'DRep', voter_id: 'drepH', voter_hex: null, vote: 'Yes' }] : [],
+    };
+
+    const r = await backfillFinalizedVotes({ koios, db: env.DB, now: 999, limit: 10 });
+    expect(r.actions).toBe(1);
+    expect(r.votes).toBe(1);
+
+    expect(await getDrepVotingHistory(env.DB, 'drepH', {})).toHaveLength(1);
+    expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]); // now marked synced
   });
 });
