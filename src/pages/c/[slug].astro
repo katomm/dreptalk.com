@@ -18,7 +18,7 @@ import {
   type GovSort,
 } from '@/lib/governance/sort.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
-import { stakeParticipation, type StakeParticipation } from '@/lib/governance/view.js';
+import { stakeParticipation, overviewTally, type StakeParticipation } from '@/lib/governance/view.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
@@ -77,15 +77,19 @@ if (category && db) {
     govTotal = sorted.length;
     pageRows = sorted.slice(offset, offset + PAGE_SIZE);
     topics = pageRows.map((r) => r.topic);
-    // Stake participation: voted power is the stored per-action field (populated
-    // by tally sync and backfill). Only query total power when at least one shown
-    // action has it; otherwise every cell is a dash and the query plus the "as of"
-    // label would be wasted.
-    if (pageRows.some((r) => r.action.drepVotedPower != null)) {
+    // Stake participation is DRep turnout (voted DRep power / total DRep power);
+    // we have no SPO turnout, so only DRep-led rows get a value. SPO-led rows
+    // (hard fork, no-confidence, committee) leave the cell as a dash rather than
+    // showing a DRep turnout that does not match their SPO sentiment bar.
+    const stakeRows = pageRows.filter((r) => overviewTally(r.action)?.role !== 'SPO');
+    // Voted power is the stored per-action field (populated by tally sync and
+    // backfill). Only query total power when at least one shown row has it;
+    // otherwise every cell is a dash and the query plus "as of" label are wasted.
+    if (stakeRows.some((r) => r.action.drepVotedPower != null)) {
       const stake = await getActiveDrepStake(db);
       stakeAsOf = stake.asOf;
       stakeByTopic = new Map(
-        pageRows.map((r) => [
+        stakeRows.map((r) => [
           r.topic.id,
           // No tally yet (drep_voted_power null) -> dash; a stored value (even 0) is real turnout.
           r.action.drepVotedPower == null ? null : stakeParticipation(r.action.drepVotedPower, stake.total),

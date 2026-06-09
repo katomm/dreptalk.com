@@ -176,6 +176,68 @@ export function fmtPct(n: number): string {
   return `${n.toFixed(n > 0 && n < 1 ? 2 : 0)}%`;
 }
 
+// Which voter role leads a governance-action overview row. The detail header
+// always shows DRep + SPO + CC side by side; the compact row has space for one
+// tally, so we pick the role that actually decides the action.
+export type VoterRole = 'DRep' | 'SPO';
+
+/**
+ * True for action types the overview leads with the SPO tally. Only hard-fork
+ * initiation qualifies: SPOs are the operational gatekeeper (they must run the
+ * new node version) and historically carried the decision while DReps were
+ * absent, so the SPO tally is the meaningful one. No-confidence and committee
+ * updates are also co-decided by SPOs under CIP-1694, but there the DRep tally is
+ * the richer community signal (and the only one with turnout data), so they lead
+ * with DRep and fall back to SPO via overviewTally only when DRep is empty. The
+ * full DRep + SPO + CC breakdown always lives in the detail header.
+ */
+export function isSpoLedType(type: string): boolean {
+  return govTypeTone(type) === 'hardfork';
+}
+
+// The per-role tally fields the overview picker reads. A subset of
+// GovernanceAction, so the full action is assignable without a cast.
+export interface RoleTallyInput {
+  type: string;
+  drepYesPct: number | null;
+  drepNoPct: number | null;
+  drepYes: number | null;
+  drepNo: number | null;
+  drepAbstain: number | null;
+  spoYesPct: number | null;
+  spoNoPct: number | null;
+  spoYes: number | null;
+  spoNo: number | null;
+  spoAbstain: number | null;
+}
+
+export interface OverviewTally {
+  role: VoterRole;   // whose tally the row's sentiment + voter count represent
+  bar: TallyBar;
+  voted: number;     // voters of that role who cast yes/no/abstain
+}
+
+/**
+ * Picks which role's tally leads an overview row. SPO-led types (see
+ * isSpoLedType) prefer the SPO tally, all others prefer DRep; if the preferred
+ * role has no synced tally we fall back to the other. The fallback is what keeps
+ * a bootstrap-era hard fork (ratified by SPOs + CC while DReps cast nothing)
+ * from showing an empty DRep bar. Returns null when neither role has a tally.
+ */
+export function overviewTally(a: RoleTallyInput): OverviewTally | null {
+  const order: VoterRole[] = isSpoLedType(a.type) ? ['SPO', 'DRep'] : ['DRep', 'SPO'];
+  for (const role of order) {
+    const bar = role === 'SPO' ? tallyBar(a.spoYesPct, a.spoNoPct) : tallyBar(a.drepYesPct, a.drepNoPct);
+    if (!bar) continue;
+    const voted =
+      role === 'SPO'
+        ? (a.spoYes ?? 0) + (a.spoNo ?? 0) + (a.spoAbstain ?? 0)
+        : (a.drepYes ?? 0) + (a.drepNo ?? 0) + (a.drepAbstain ?? 0);
+    return { role, bar, voted };
+  }
+  return null;
+}
+
 /** Compact ADA from lovelace: "3.21B ₳" / "12.4M ₳" / "950K ₳" / "0 ₳". */
 export function formatAdaShort(lovelace: number): string {
   const ada = lovelace / 1_000_000;
