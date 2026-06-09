@@ -3,7 +3,7 @@
 // sync and stored in app_meta so the /dreps concentration view shows current,
 // not hardcoded, ratification thresholds. Reading falls back to known Conway
 // mainnet constants when the value has not been synced yet.
-import type { EpochParams } from '../koios/client.js';
+import { DVT_FIELDS, type EpochParams } from '../koios/client.js';
 import { getAppMeta, setAppMeta } from '../db/appMeta.js';
 
 export const APP_META_KEY = 'drep_vote_thresholds';
@@ -20,24 +20,11 @@ export interface StoredThresholds extends DrepThresholds {
   asOf: number;
 }
 
-const DVT_FIELDS = [
-  'dvt_motion_no_confidence',
-  'dvt_committee_normal',
-  'dvt_committee_no_confidence',
-  'dvt_update_to_constitution',
-  'dvt_hard_fork_initiation',
-  'dvt_p_p_network_group',
-  'dvt_p_p_economic_group',
-  'dvt_p_p_technical_group',
-  'dvt_p_p_gov_group',
-  'dvt_treasury_withdrawal',
-] as const;
-
 /** Builds the named threshold map and the distinct sorted markers from params. */
 export function thresholdsFromEpochParams(params: EpochParams): DrepThresholds {
   const thresholds: Record<string, number> = {};
   for (const f of DVT_FIELDS) {
-    const v = (params as Record<string, unknown>)[f];
+    const v = params[f];
     if (typeof v === 'number' && v > 0) thresholds[f] = v;
   }
   const markers = [...new Set(Object.values(thresholds))].sort((a, b) => a - b);

@@ -34,7 +34,9 @@ export default function DrepConcentration(props: Props) {
   const { topK, byPercent, drepCount, totalLabel, markersPct, defaultThresholdPct, thresholdsAsOf } = props;
   const [threshold, setThreshold] = useState(defaultThresholdPct);
 
-  const coalition = useMemo(() => coalitionAt(byPercent, threshold), [byPercent, threshold]);
+  // coalitionAt is a plain indexed lookup, so it is not worth memoizing; only the
+  // allocating buildSegments is.
+  const coalition = coalitionAt(byPercent, threshold);
   const segments = useMemo(() => buildSegments(topK, coalition), [topK, coalition]);
 
   // Cumulative start offset per drawn arc (the muted remainder is skipped; the

@@ -217,23 +217,27 @@ const committeeInfoRowSchema = z
 
 // Current-epoch protocol parameters: only the DRep voting threshold (dvt_*)
 // fields the concentration view needs. Fractions in 0..1. Tolerant of nulls and
-// of the many other params Koios returns.
-const epochParamsRowSchema = z
-  .object({
-    dvt_motion_no_confidence: z.number().nullable().optional(),
-    dvt_committee_normal: z.number().nullable().optional(),
-    dvt_committee_no_confidence: z.number().nullable().optional(),
-    dvt_update_to_constitution: z.number().nullable().optional(),
-    dvt_hard_fork_initiation: z.number().nullable().optional(),
-    dvt_p_p_network_group: z.number().nullable().optional(),
-    dvt_p_p_economic_group: z.number().nullable().optional(),
-    dvt_p_p_technical_group: z.number().nullable().optional(),
-    dvt_p_p_gov_group: z.number().nullable().optional(),
-    dvt_treasury_withdrawal: z.number().nullable().optional(),
-  })
-  .passthrough();
+// of the many other params Koios returns. The shape is named so the field list
+// (DVT_FIELDS) is derived from it and the two can never drift.
+const epochParamsShape = {
+  dvt_motion_no_confidence: z.number().nullable().optional(),
+  dvt_committee_normal: z.number().nullable().optional(),
+  dvt_committee_no_confidence: z.number().nullable().optional(),
+  dvt_update_to_constitution: z.number().nullable().optional(),
+  dvt_hard_fork_initiation: z.number().nullable().optional(),
+  dvt_p_p_network_group: z.number().nullable().optional(),
+  dvt_p_p_economic_group: z.number().nullable().optional(),
+  dvt_p_p_technical_group: z.number().nullable().optional(),
+  dvt_p_p_gov_group: z.number().nullable().optional(),
+  dvt_treasury_withdrawal: z.number().nullable().optional(),
+};
+const epochParamsRowSchema = z.object(epochParamsShape).passthrough();
 
 export type EpochParams = z.infer<typeof epochParamsRowSchema>;
+
+// The DRep voting-threshold field names, derived from the schema shape so the
+// threshold sync can enumerate them without maintaining a second list.
+export const DVT_FIELDS = Object.keys(epochParamsShape) as (keyof EpochParams)[];
 
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;

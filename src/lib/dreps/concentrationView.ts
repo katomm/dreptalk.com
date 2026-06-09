@@ -33,7 +33,7 @@ export function snapThreshold(value: number, markers: number[], tolerance = 2): 
  * the rest of the ring as the muted remainder. Percentages are shares of total.
  */
 export function buildSegments(topK: ConcentrationTop[], coalition: ConcentrationPoint): DonutSegment[] {
-  const inCoalition = topK.slice(0, Math.min(coalition.count, topK.length));
+  const inCoalition = topK.slice(0, coalition.count);
   const segments: DonutSegment[] = inCoalition.map((t) => ({ pct: t.pct, kind: 'top' }));
   const topSum = inCoalition.reduce((acc, t) => acc + t.pct, 0);
 

@@ -55,12 +55,15 @@ export function computeConcentration(dreps: ConcentrationInput[]): Concentration
     return { drepCount: sorted.length, totalLabel: formatAda('0'), topK: [], byPercent: emptyByPercent() };
   }
 
-  const topK = sorted.slice(0, TOP_K).map((d) => ({
-    drepId: d.drepId,
-    name: d.name,
-    powerLabel: formatAda(clampPositive(d.power).toString()),
-    pct: pctOf(clampPositive(d.power), total),
-  }));
+  const topK = sorted.slice(0, TOP_K).map((d) => {
+    const power = clampPositive(d.power);
+    return {
+      drepId: d.drepId,
+      name: d.name,
+      powerLabel: formatAda(power.toString()),
+      pct: pctOf(power, total),
+    };
+  });
 
   // Two-pointer over the sorted list: as the target percent rises, the minimum
   // coalition size is non-decreasing, so `idx` only ever advances.

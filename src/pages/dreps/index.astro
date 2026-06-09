@@ -17,9 +17,16 @@ const page = parsePage(Astro.url.searchParams.get('page'));
 const query = (Astro.url.searchParams.get('q') ?? '').slice(0, 64);
 const activeOnly = Astro.url.searchParams.get('all') !== '1';
 
-const dreps = db
-  ? await listDreps(db, { activeOnly, query, limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) })
-  : [];
+// The directory listing, the concentration aggregate, and the live thresholds
+// are independent reads; fetch them concurrently so a cold (uncached) render
+// pays one round-trip of latency, not three.
+const [dreps, concentrationRows, storedThresholds] = db
+  ? await Promise.all([
+      listDreps(db, { activeOnly, query, limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) }),
+      listDrepsForConcentration(db),
+      getDrepThresholds(db),
+    ])
+  : [[], [], null];
 
 // Voting power concentration: all active, non-special DReps as BigInt powers.
 // Parse lovelace defensively so a single malformed row cannot 500 the page
@@ -31,11 +38,9 @@ const toLovelace = (s: string | null): bigint => {
     return 0n;
   }
 };
-const concentrationRows = db ? await listDrepsForConcentration(db) : [];
 const concentration = computeConcentration(
   concentrationRows.map((r) => ({ drepId: r.drepId, name: r.name, power: toLovelace(r.votingPower) })),
 );
-const storedThresholds = db ? await getDrepThresholds(db) : null;
 const markersPct = (storedThresholds?.markers ?? DEFAULT_MARKERS).map((m) => Math.round(m * 100));
 const defaultThresholdPct = markersPct.includes(67) ? 67 : (markersPct[Math.floor(markersPct.length / 2)] ?? 67);
 const thresholdsAsOf = storedThresholds ? new Date(storedThresholds.asOf).toISOString().slice(0, 10) : null;
