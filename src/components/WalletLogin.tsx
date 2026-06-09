@@ -215,6 +215,7 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
                     {loginState.message}
                     <div style={{ marginTop: '0.6rem' }}>
                       <button
+                        type="button"
                         onClick={reset}
                         style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
                       >
@@ -233,6 +234,7 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
 
               {/* Connect button */}
               <button
+                type="button"
                 onClick={handleLogin}
                 disabled={busy}
                 style={{

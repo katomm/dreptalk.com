@@ -20,7 +20,6 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import vectors from './__fixtures__/cip8-vectors.json';
 import { makeCoseSignature, type6Address } from './__fixtures__/makeCose.js';
 import { handleChallenge, handleVerify, handleLogout } from './handlers.js';
-import { issueNonce } from './nonce.js';
 import { getSession } from './session.js';
 import { getUserById } from '../db/users.js';
 import { bytesToHex } from '../crypto/hex.js';
@@ -42,40 +41,6 @@ const stakeVector = vectors.vectors.find(v => v.label === 'stake-key-valid')!;
 const drepVector = vectors.vectors.find(v => v.label === 'drep-key-valid')!;
 
 // Fake koios clients.
-function koiosAcceptProposer(stakeAddr: string) {
-  return {
-    drepInfo: async () => null,
-    accountInfo: async () => null,
-    proposalsByReturnAddress: async (addr: string) => {
-      if (addr === stakeAddr) {
-        return [{ proposal_id: 'gov_action1test', return_address: addr, proposal_type: 'InfoAction' }];
-      }
-      return [];
-    },
-  };
-}
-
-function koiosAcceptDrep(expectedDrepId: string) {
-  return {
-    drepInfo: async (id: string) => {
-      if (id === expectedDrepId) {
-        return {
-          drep_id: id,
-          hex: 'aa',
-          has_script: false,
-          registered: true,
-          active: true,
-          deposit: '500000000',
-          expires_epoch_no: null,
-        };
-      }
-      return null;
-    },
-    accountInfo: async () => null,
-    proposalsByReturnAddress: async () => [],
-  };
-}
-
 function koiosRejectAll() {
   return {
     drepInfo: async () => null,
@@ -90,7 +55,7 @@ function koiosRejectAll() {
 // On subsequent calls, returns false (replay rejection).
 // ---------------------------------------------------------------------------
 
-function makeSingleUseNonceOverride(kv: KVNamespace, payload: string) {
+function makeSingleUseNonceOverride(_kv: KVNamespace, payload: string) {
   const sentinelKey = `fixture-nonce:${payload}`;
   return async (kvArg: KVNamespace, payloadArg: string): Promise<boolean> => {
     if (payloadArg !== payload) return false;

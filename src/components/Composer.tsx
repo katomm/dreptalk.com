@@ -44,6 +44,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
   );
 
   // Restore focus and selection after a toolbar edit updates the value.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: bodyMd is the intended re-run trigger (restore caret after the value updates), not read in the effect body
   useLayoutEffect(() => {
     const sel = pendingSelRef.current;
     if (!sel || !textareaRef.current) return;
@@ -167,9 +168,9 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
         </div>
 
         {showPreview ? (
-          <div
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: previewHtml is server-sanitized markdown (renderMarkdown in src/lib/markdown.ts, via /api/preview)
+          <div dangerouslySetInnerHTML={{ __html: previewHtml || '<p style="color:var(--muted)">Nothing to preview yet.</p>' }}
             className="prose"
-            dangerouslySetInnerHTML={{ __html: previewHtml || '<p style="color:var(--muted)">Nothing to preview yet.</p>' }}
             style={{
               minHeight: '7rem',
               padding: '0.5rem 0.75rem',

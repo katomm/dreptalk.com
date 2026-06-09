@@ -59,7 +59,7 @@ export function trendingScore(row: GovActionTopic, now: number): number {
   const replies = Math.max(0, row.topic.post_count - 1); // exclude the system first post
   const engagement = replies * REPLY_WEIGHT + Math.log2(1 + totalVotes(row.action));
   const ageDays = Math.max(0, (now - row.topic.last_post_at) / 86_400_000);
-  const recency = Math.pow(0.5, ageDays / HALF_LIFE_DAYS); // halves every HALF_LIFE_DAYS
+  const recency = 0.5 ** (ageDays / HALF_LIFE_DAYS); // halves every HALF_LIFE_DAYS
   const base = (1 + engagement) * recency;
   return isTerminalStatus(row.action.status) ? base * TERMINAL_PENALTY : base;
 }

@@ -78,6 +78,7 @@ const sanitizer = new FilterXSS({
       // Everything else (data:, javascript:, vbscript:, //, relative paths, ...) is
       // neutralized to an empty href. This closes the data:image/ bypass where
       // safeAttrValue would have passed data:image/svg+xml links through unchanged.
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional, strips ASCII control chars used to obfuscate schemes (e.g. "java\tscript:")
       const normalized = value.replace(/[\x00-\x20\x7F]+/g, '').toLowerCase();
       if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
         return `href="${value}"`;
