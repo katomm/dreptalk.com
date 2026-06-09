@@ -1,11 +1,12 @@
 ---
 // Sidebar column for the governance-action detail page: stacks status, voting
-// info, top DRep participants, and proposer cards.
+// info, top DRep participants, proposer, and related actions cards.
 import ActionStatusCard from './ActionStatusCard.astro';
 import VotingInfoCard from './VotingInfoCard.astro';
 import ProposerCard from './ProposerCard.astro';
 import TopParticipantsCard from './TopParticipantsCard.astro';
-import type { GovernanceAction } from '@/lib/db/governance.js';
+import RelatedActionsCard from './RelatedActionsCard.astro';
+import type { GovernanceAction, RelatedActionRow } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
@@ -18,9 +19,10 @@ interface Props {
   network: CardanoNetwork;
   topVoters: ActionVoterRow[];
   dreps: Map<string, Drep>;
+  related: RelatedActionRow[];
 }
 
-const { action, params, ccSize, network, topVoters, dreps } = Astro.props;
+const { action, params, ccSize, network, topVoters, dreps, related } = Astro.props;
 ---
 
 <aside class="ga-sidebar">
@@ -28,6 +30,7 @@ const { action, params, ccSize, network, topVoters, dreps } = Astro.props;
   <VotingInfoCard action={action} params={params} ccSize={ccSize} network={network} />
   <TopParticipantsCard voters={topVoters} dreps={dreps} />
   <ProposerCard returnAddress={action.returnAddress} />
+  <RelatedActionsCard actions={related} />
 </aside>
 
 <style>
