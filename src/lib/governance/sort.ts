@@ -89,15 +89,19 @@ export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: 
     case 'ratified':
       return [...rows].sort((a, b) => descKey(b.action.decidedEpoch) - descKey(a.action.decidedEpoch));
     case 'trending':
-    default:
-      // Score descending; ties (submissions cluster at 5-day epoch starts) break by
-      // newest submission, then topic id, so the order is fully deterministic.
-      return [...rows].sort((a, b) => {
-        const byScore = trendingScore(b, now) - trendingScore(a, now);
+    default: {
+      // Score each row once (a comparator would recompute it O(n log n) times), then
+      // order: score descending; ties (submissions cluster at 5-day epoch starts) break
+      // by newest submission, then topic id, so the order is fully deterministic.
+      const scored = rows.map((row) => ({ row, score: trendingScore(row, now) }));
+      scored.sort((a, b) => {
+        const byScore = b.score - a.score;
         if (byScore !== 0) return byScore;
-        const byEpoch = descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch);
+        const byEpoch = descKey(b.row.action.submittedEpoch) - descKey(a.row.action.submittedEpoch);
         if (byEpoch !== 0) return byEpoch;
-        return a.topic.id < b.topic.id ? -1 : a.topic.id > b.topic.id ? 1 : 0;
+        return a.row.topic.id.localeCompare(b.row.topic.id);
       });
+      return scored.map((s) => s.row);
+    }
   }
 }

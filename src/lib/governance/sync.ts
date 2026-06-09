@@ -4,7 +4,7 @@
 // run. Tallies, lifecycle status, and vote badges are a later sync phase.
 
 import type { ProposalListRow } from '../koios/client.js';
-import { governanceActionUrl, epochStartUnix, resolveNetwork, type CardanoNetwork } from '../config/network.js';
+import { governanceActionUrl, epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
 import { readableType, formatAda } from './view.js';
 import { fetchAnchorMetadata, META_EXTRACT_VERSION } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
@@ -96,7 +96,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
 
       // Post date = on-chain submission time (epoch start; ~5-day granularity, always
       // at or before the true submission). Falls back to now when the epoch is unknown.
-      const submittedAtMs = p.proposed_epoch != null ? epochStartUnix(p.proposed_epoch, cfg) * 1000 : now;
+      const submittedAtMs = p.proposed_epoch != null ? epochStartMs(p.proposed_epoch, cfg) : now;
 
       // The governance_actions row is committed in the same atomic batch as the
       // topic and first post, so a partial write can never leave an orphan topic
@@ -234,7 +234,7 @@ export async function backfillGovTopicSubmittedAt(deps: SubmittedAtBackfillDeps)
   const candidates = await getGovTopicsForSubmittedAtBackfill(db, limit);
   let updated = 0;
   for (const c of candidates) {
-    const submittedAtMs = epochStartUnix(c.submittedEpoch, cfg) * 1000;
+    const submittedAtMs = epochStartMs(c.submittedEpoch, cfg);
     if (c.createdAt === submittedAtMs && c.lastPostAt === submittedAtMs) continue;
     await setTopicPostedAt(db, c.topicId, submittedAtMs);
     updated++;
