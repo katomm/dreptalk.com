@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, upsertDrep } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep } from './dreps.js';
 import { upsertVotes } from './drepVotes.js';
 
 const db = () => env.DB;
@@ -156,5 +156,35 @@ describe('listIndexableDrepIds', () => {
     await upsertVotes(db(), 'ga-x', [{ voterRole: 'DRep', voterId: 'drep1voter', voterHex: null, vote: 'Yes' }], 1);
     const ids = await listIndexableDrepIds(db());
     expect(ids).toContain('drep1voter');
+  });
+});
+
+describe('listDreps', () => {
+  it('sorts by voting power desc and can filter to active only', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1big', votingPower: '9000000000', active: true });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1small', votingPower: '1000000000', active: true });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1off', votingPower: '5000000000', active: false });
+
+    const active = await listDreps(db(), { activeOnly: true, limit: 10, offset: 0 });
+    // Only check the three rows we control: active-only must exclude drep1off.
+    const activeFiltered = active.filter((d) =>
+      d.drepId === 'drep1big' || d.drepId === 'drep1small' || d.drepId === 'drep1off',
+    );
+    expect(activeFiltered.map((d) => d.drepId)).toEqual(['drep1big', 'drep1small']);
+
+    const all = await listDreps(db(), { activeOnly: false, limit: 10, offset: 0 });
+    // Among our three rows, power order should be big (9B) > off (5B) > small (1B).
+    const allFiltered = all.filter((d) =>
+      d.drepId === 'drep1big' || d.drepId === 'drep1small' || d.drepId === 'drep1off',
+    );
+    expect(allFiltered[0].drepId).toBe('drep1big');
+    expect(allFiltered[1].drepId).toBe('drep1off');
+    expect(allFiltered[2].drepId).toBe('drep1small');
+  });
+
+  it('filters by name search', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1q', name: 'Quasar Stake' });
+    const found = await listDreps(db(), { query: 'quasar', limit: 10, offset: 0 });
+    expect(found.some((d) => d.drepId === 'drep1q')).toBe(true);
   });
 });
