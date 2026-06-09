@@ -250,6 +250,32 @@ export async function getAllGovernanceActions(db: D1Database): Promise<Governanc
   return rows.map(rowToGovernanceAction);
 }
 
+/** The newest governance action plus its thread slug, for the homepage hero preview. */
+export interface LatestGovernanceAction {
+  action: GovernanceAction;
+  slug: string;
+}
+
+/**
+ * Returns the single newest titled governance action with a live topic, for the
+ * homepage hero card. One indexed LIMIT 1 query joined to topics for the thread
+ * slug; ordered by submission epoch (newest first), then discovery time as a
+ * tiebreak. Null when none exist yet (fresh deploy / local dev without sync).
+ */
+export async function getLatestGovernanceAction(db: D1Database): Promise<LatestGovernanceAction | null> {
+  const row = await db
+    .prepare(
+      `SELECT ga.*, t.slug AS slug
+         FROM governance_actions ga
+         JOIN topics t ON t.id = ga.topic_id
+        WHERE t.deleted = 0 AND ga.title IS NOT NULL
+        ORDER BY ga.submitted_epoch DESC, ga.created_at DESC
+        LIMIT 1`,
+    )
+    .first<GovernanceActionRow & { slug: string }>();
+  return row ? { action: rowToGovernanceAction(row), slug: row.slug } : null;
+}
+
 /** Batch-loads governance actions by topic id (no N+1 when rendering a list). */
 export async function getGovernanceActionsByTopicIds(
   db: D1Database,
