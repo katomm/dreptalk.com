@@ -215,6 +215,26 @@ const committeeInfoRowSchema = z
   })
   .passthrough();
 
+// Current-epoch protocol parameters: only the DRep voting threshold (dvt_*)
+// fields the concentration view needs. Fractions in 0..1. Tolerant of nulls and
+// of the many other params Koios returns.
+const epochParamsRowSchema = z
+  .object({
+    dvt_motion_no_confidence: z.number().nullable().optional(),
+    dvt_committee_normal: z.number().nullable().optional(),
+    dvt_committee_no_confidence: z.number().nullable().optional(),
+    dvt_update_to_constitution: z.number().nullable().optional(),
+    dvt_hard_fork_initiation: z.number().nullable().optional(),
+    dvt_p_p_network_group: z.number().nullable().optional(),
+    dvt_p_p_economic_group: z.number().nullable().optional(),
+    dvt_p_p_technical_group: z.number().nullable().optional(),
+    dvt_p_p_gov_group: z.number().nullable().optional(),
+    dvt_treasury_withdrawal: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+export type EpochParams = z.infer<typeof epochParamsRowSchema>;
+
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
@@ -359,6 +379,14 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/drep_list?limit=${limit}&offset=${offset}`;
       const data = await request(path, { method: 'GET' });
       return z.array(drepListRowSchema).parse(data);
+    },
+
+    // Latest-epoch protocol parameters. Used to read the live DRep voting
+    // thresholds (dvt_*) for the concentration view. Returns null on no rows.
+    async epochParams(): Promise<EpochParams | null> {
+      const path = '/epoch_params?order=epoch_no.desc&limit=1';
+      const data = await request(path, { method: 'GET' });
+      return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
     },
 
     // Power-weighted tally summary for one governance action (bech32 proposal id).
