@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { getDrepById, getDrepsByIds, listIndexableDrepIds, upsertDrep } from './dreps.js';
+import { upsertVotes } from './drepVotes.js';
 
 const db = () => env.DB;
 
@@ -148,5 +149,12 @@ describe('listIndexableDrepIds', () => {
     const ids = await listIndexableDrepIds(db());
     expect(ids).toContain('drep1named');
     expect(ids).not.toContain('drep1thin');
+  });
+
+  it('includes a DRep that has on-chain votes but no metadata', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1voter', name: null, bio: null });
+    await upsertVotes(db(), 'ga-x', [{ voterRole: 'DRep', voterId: 'drep1voter', voterHex: null, vote: 'Yes' }], 1);
+    const ids = await listIndexableDrepIds(db());
+    expect(ids).toContain('drep1voter');
   });
 });
