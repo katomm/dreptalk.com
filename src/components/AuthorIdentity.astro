@@ -5,12 +5,14 @@
 // passes a ready descriptor in, so batching stays in one place (no N+1).
 //
 // CSP note: the strict CSP forbids inline scripts and event-handler attributes,
-// so there is no onerror fallback. The avatar is layered: the initials are the
-// base, and the proxied image is an overlay background-image. If the avatar
-// proxy 404s at request time, the background simply does not paint and the
-// initials show through. Same-origin (/api/avatar/<id>), covered by the CSP.
+// so there is no onerror fallback. The avatar is layered: a deterministic
+// identicon SVG is the base (the system author shows a neutral "S" instead),
+// and the proxied image is an overlay background-image. If the avatar proxy
+// 404s at request time, the background simply does not paint and the identicon
+// shows through. Same-origin (/api/avatar/<id>), covered by the CSP.
 
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { identiconSvg } from '@/lib/identity/identicon.js';
 export type { AuthorDescriptor };
 
 interface Props {
@@ -22,11 +24,14 @@ interface Props {
 const { author, size = 28 } = Astro.props;
 const { displayName, drepId, hasImage, badges = [], isSystem = false } = author;
 
-// First letter for the placeholder; falls back to "?" for empty names.
-const initial = (displayName.trim()[0] ?? '?').toUpperCase();
-
 // Overlay the proxied avatar only when a synced drep image URL exists.
 const showImage = !isSystem && !!drepId && !!hasImage;
+
+// Same seed everywhere for a given author (DRep hex when known, else the id).
+const seed = author.identiconSeed ?? author.authorId;
+const iconSvg = isSystem ? null : identiconSvg(seed, size);
+// Author profile link only for DReps with a synced row (the page is /dreps/<drepId>).
+const profileHref = !isSystem && drepId ? `/dreps/${drepId}` : null;
 ---
 
 <span class="author-identity" style={`--avatar-size:${size}px;`}>
@@ -34,7 +39,9 @@ const showImage = !isSystem && !!drepId && !!hasImage;
     class:list={['author-identity__avatar', { 'author-identity__avatar--system': isSystem }]}
     aria-hidden="true"
   >
-    <span class="author-identity__initial">{isSystem ? 'S' : initial}</span>
+    {isSystem
+      ? <span class="author-identity__initial">S</span>
+      : <span class="author-identity__icon" set:html={iconSvg} />}
     {showImage && (
       <span
         class="author-identity__img"
@@ -43,7 +50,9 @@ const showImage = !isSystem && !!drepId && !!hasImage;
     )}
   </span>
 
-  <span class="author-identity__name">{displayName}</span>
+  {profileHref
+    ? <a class="author-identity__name author-identity__name--link" href={profileHref}>{displayName}</a>
+    : <span class="author-identity__name">{displayName}</span>}
 
   {badges.map((badge) => (
     <span class="author-identity__badge">{badge}</span>
@@ -114,4 +123,13 @@ const showImage = !isSystem && !!drepId && !!hasImage;
     border-radius: 999px;
     padding: 0.15rem 0.4rem;
   }
+
+  .author-identity__icon {
+    position: absolute;
+    inset: 0;
+    display: block;
+  }
+  .author-identity__icon :global(svg) { width: 100%; height: 100%; display: block; }
+  .author-identity__name--link { text-decoration: none; }
+  .author-identity__name--link:hover { text-decoration: underline; }
 </style>
