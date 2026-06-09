@@ -129,6 +129,39 @@ export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
 }
 
 /**
+ * Directory listing: dreps ordered by numeric voting power desc, optionally
+ * active-only and/or name-filtered, paginated. ~2k rows total, so the CAST sort
+ * is cheap. Default limit 50, capped 100.
+ */
+export async function listDreps(
+  db: D1Database,
+  opts: { activeOnly?: boolean; query?: string; limit?: number; offset?: number },
+): Promise<Drep[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const where: string[] = [];
+  const binds: unknown[] = [];
+  if (opts.activeOnly) where.push('active = 1');
+  const q = opts.query?.trim();
+  if (q) {
+    where.push('name LIKE ?');
+    binds.push(`%${q}%`);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM dreps ${whereSql}
+         ORDER BY CAST(voting_power AS INTEGER) DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .bind(...binds, limit, offset)
+      .all<DrepRow>()
+  ).results ?? [];
+  return rows.map(rowToDrep);
+}
+
+/**
  * Inserts or replaces a drep row.
  * Uses INSERT OR REPLACE so re-syncing updates all fields atomically.
  * Booleans are stored as 0/1; links array is JSON-serialized or null.
