@@ -89,6 +89,53 @@ export async function countDrepVotes(db: D1Database, voterId: string): Promise<n
   return row?.n ?? 0;
 }
 
+/** One DRep's vote on an action, with the joined identity fields for rendering + linking. */
+export interface ActionVoterRow {
+  voter_id: string;
+  vote: string;
+  voting_power: string | null;
+  hex: string | null;
+  image_url: string | null;
+}
+
+/**
+ * DRep votes (role 'DRep') on one action, joined to dreps for identity + power,
+ * ordered by voting power desc (unknown power last). Uses idx_drep_votes_voter via
+ * the ga_id filter on drep_votes. Default limit 50, capped 200.
+ */
+export async function getActionVoters(
+  db: D1Database,
+  gaId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<ActionVoterRow[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
+  const offset = Math.max(opts?.offset ?? 0, 0);
+  const rows = (
+    await db
+      .prepare(
+        `SELECT v.voter_id AS voter_id, v.vote AS vote,
+                d.voting_power AS voting_power, d.hex AS hex, d.image_url AS image_url
+         FROM drep_votes v
+         LEFT JOIN dreps d ON d.drep_id = v.voter_id
+         WHERE v.ga_id = ? AND v.voter_role = 'DRep'
+         ORDER BY (d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id
+         LIMIT ? OFFSET ?`,
+      )
+      .bind(gaId, limit, offset)
+      .all<ActionVoterRow>()
+  ).results ?? [];
+  return rows;
+}
+
+/** Count of DRep votes (role 'DRep') on one action. */
+export async function countActionVoters(db: D1Database, gaId: string): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ? AND voter_role = 'DRep'`)
+    .bind(gaId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 /**
  * Returns the votes on one action keyed by voter id, for the per-post badge.
  * The thread view matches each post author's drep_id / pool_id / cc_cred here.
