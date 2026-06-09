@@ -11,12 +11,14 @@ import VoteBadge from '@/components/VoteBadge.astro';
 import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
 import GaDiscussion from '@/components/ga/GaDiscussion.astro';
+import GaPositions from '@/components/ga/GaPositions.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
 import { getFlaggedPostIds } from '@/lib/db/postFlags.js';
 import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
 import { threadOgImage, stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
-import { getVotesByGaId } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { isWriter } from '@/lib/auth/roles.js';
 import { postViewerContext } from '@/lib/forum/postVisibility.js';
@@ -99,6 +101,27 @@ const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new 
 
 // Governance detail page extras: tab, protocol params, stake participation, tally.
 const tab = parseGaTab(Astro.url.searchParams.get('tab'));
+
+// Positions tab: paginated voter list. Top participants and total count are always
+// loaded (sidebar card + tab badge). Resolved in parallel; voter rows only on the
+// positions tab. DRep identities fetched once via a single getDrepsByIds call.
+const [topVoters, positionVoters, positionsTotal] = isGovernanceTopic && govAction && db
+  ? await Promise.all([
+      getActionVoters(db, govAction.id, { limit: 5 }),
+      tab === 'positions'
+        ? getActionVoters(db, govAction.id, { limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) })
+        : Promise.resolve([] as Awaited<ReturnType<typeof getActionVoters>>),
+      countActionVoters(db, govAction.id),
+    ])
+  : ([[], [], 0] as [ActionVoterRow[], ActionVoterRow[], number]);
+
+// Resolve DRep identities for both lists in a single batch query (no N+1).
+const voterIds = [
+  ...new Set([...topVoters.map((v) => v.voter_id), ...positionVoters.map((v) => v.voter_id)]),
+];
+const drepsMap = db && voterIds.length > 0
+  ? await getDrepsByIds(db, voterIds)
+  : new Map<string, Drep>();
 
 // Only compute these for governance topics with a synced action.
 const [params, activeDrepStake] = isGovernanceTopic && govAction && db
@@ -222,6 +245,7 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
           slug={topic.slug}
           active={tab}
           commentCount={Math.max(0, topic.post_count - 1)}
+          positionsCount={positionsTotal}
         />
         <div class="ga-detail-layout">
           <div class="ga-detail-layout__main">
@@ -240,6 +264,15 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                 nextPage={nextPage}
                 now={now}
               />
+            ) : tab === 'positions' ? (
+              <GaPositions
+                voters={positionVoters}
+                dreps={drepsMap}
+                total={positionsTotal}
+                page={page}
+                pageSize={PAGE_SIZE}
+                slug={topic.slug}
+              />
             ) : (
               <GaOverview
                 action={govAction}
@@ -255,6 +288,8 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
               params={params}
               ccSize={ccSize}
               network={network}
+              topVoters={topVoters}
+              dreps={drepsMap}
             />
           </div>
         </div>
