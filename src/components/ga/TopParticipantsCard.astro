@@ -1,0 +1,103 @@
+---
+// Sidebar card: top DRep participants (by voting power) for a governance action.
+// Renders nothing when the voter list is empty (action has no recorded votes yet).
+import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
+import type { Drep } from '@/lib/db/dreps.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { formatAda } from '@/lib/governance/view.js';
+
+interface Props {
+  voters: ActionVoterRow[];
+  dreps: Map<string, Drep>;
+}
+
+const { voters, dreps } = Astro.props;
+
+function descriptorFor(v: ActionVoterRow): AuthorDescriptor {
+  const d = dreps.get(v.voter_id);
+  return {
+    authorId: v.voter_id,
+    displayName: d?.name ?? v.voter_id,
+    drepId: v.voter_id,
+    hasImage: !!d?.imageUrl,
+    identiconSeed: d?.hex ?? v.hex ?? v.voter_id,
+    badges: [],
+  };
+}
+---
+
+{voters.length > 0 && (
+  <div class="sidebar-card">
+    <p class="sidebar-card__title">Top DRep Participants</p>
+    <ul class="top-participants__list">
+      {voters.map((v) => {
+        const descriptor = descriptorFor(v);
+        const ada = formatAda(v.voting_power);
+        return (
+          <li class="top-participants__row">
+            <a href={`/dreps/${v.voter_id}`} class="top-participants__identity">
+              <AuthorIdentity author={descriptor} size={22} />
+            </a>
+            {ada && <span class="top-participants__power">{ada}</span>}
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+)}
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+
+  .top-participants__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .top-participants__row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .top-participants__row:first-child {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .top-participants__identity {
+    text-decoration: none;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 0.8125rem;
+  }
+
+  .top-participants__power {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+</style>
