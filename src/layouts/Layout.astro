@@ -38,7 +38,7 @@ const pathname = Astro.url.pathname;
 const navLinks = [
   { label: 'Governance Actions', href: '/c/governance-actions' },
   { label: 'Discussions', href: '/discussions' },
-  { label: 'Help', href: '/help' },
+  { label: 'DReps', href: '/dreps' },
 ];
 // Highlight the link whose path prefixes the current page.
 const isActive = (href: string) =>
@@ -151,6 +151,7 @@ const isActive = (href: string) =>
           <p class="site-footer__tagline">A calmer, accountable home for Cardano governance.</p>
         </div>
         <nav class="site-footer__links" aria-label="Footer">
+          <a href="/help">Help</a>
           <a href="/privacy">Privacy</a>
           <a href="/imprint">Imprint</a>
           <a
