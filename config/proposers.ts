@@ -23,23 +23,27 @@ export const PROPOSERS: Proposer[] = [
     slug: 'intersect',
     name: 'Intersect',
     addresses: ['stake1uyvjdz9rxsfsmv44rtk75k2rqyqskrga96dgdfrqjvjjpwsefcjnp'],
+    icon: '/orgs/intersect.png',
     website: 'https://www.intersectmbo.org',
   },
   {
     slug: 'input-output',
     name: 'Input Output',
     addresses: ['stake1uy7ucfwsxtv36lz2drg4nw538xswshmg9pw8h2yzqd4qrzgzhyrsg'],
+    icon: '/orgs/inputoutput.jpg',
     website: 'https://iohk.io',
   },
   {
     slug: 'snek-foundation',
     name: 'Snek Foundation',
     addresses: ['stake1uy5wxkqpezym2esqkgvw9yyqyd0rzuhkm206q6cddcxtqjgehj9ty'],
+    icon: '/orgs/snek.jpg',
   },
   {
     slug: 'harmonic-labs',
     name: 'Harmonic Labs',
     addresses: ['stake1u949rs3erz72xxsj6uye2k0whkcv909043ld6dnv504eqwc4a60sc'],
+    icon: '/orgs/harmoniclabs.jpg',
   },
   {
     slug: 'pragma',
@@ -48,6 +52,7 @@ export const PROPOSERS: Proposer[] = [
       'stake179vw36vvvkmq32dfa002gtc8mk6v4zv2a74ppaxsz3dejhs72dh4z',
       'stake17yyule028w4c2xy2rzsnzs22v4cvav3aljm5z76kz9hc9as0vfqh9',
     ],
+    icon: '/orgs/pragma.jpg',
   },
 ];
 
