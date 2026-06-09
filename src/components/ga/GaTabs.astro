@@ -1,6 +1,6 @@
 ---
-// Tab bar for the governance-action detail page: Overview and Discussion.
-// Overview lives at /t/[slug]; Discussion appends ?tab=discussion.
+// Tab bar for the governance-action detail page: Overview, Discussion, DRep Positions.
+// Overview lives at /t/[slug]; other tabs append ?tab=<id>.
 import { GA_TABS } from '@/lib/governance/tab.js';
 import type { GaTabId } from '@/lib/governance/tab.js';
 
@@ -8,9 +8,11 @@ interface Props {
   slug: string;
   active: GaTabId;
   commentCount: number;
+  /** Total DRep votes on the action; shown as a count badge on the Positions tab. */
+  positionsCount?: number;
 }
 
-const { slug, active, commentCount } = Astro.props;
+const { slug, active, commentCount, positionsCount } = Astro.props;
 
 function tabHref(id: GaTabId): string {
   return id === 'overview' ? `/t/${slug}` : `/t/${slug}?tab=${id}`;
@@ -18,6 +20,7 @@ function tabHref(id: GaTabId): string {
 
 function tabLabel(id: GaTabId, label: string): string {
   if (id === 'discussion') return `${label} (${commentCount})`;
+  if (id === 'positions' && positionsCount != null) return `${label} (${positionsCount})`;
   return label;
 }
 ---
