@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { getCategories } from '../../config/categories.js';
+import { listIndexableDrepIds } from '../lib/db/dreps.js';
 
 export const prerender = false;
 
@@ -29,6 +30,9 @@ export const GET: APIRoute = async ({ site }) => {
     // last_post_at is stored in milliseconds (same as created_at).
     for (const row of rows) {
       entries.push({ path: `/t/${row.slug}`, lastmod: new Date(row.last_post_at).toISOString() });
+    }
+    for (const id of await listIndexableDrepIds(db)) {
+      entries.push({ path: `/dreps/${id}` });
     }
   }
 
