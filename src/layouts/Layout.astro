@@ -1,6 +1,7 @@
 ---
 import '@/styles/global.css';
 import ThemeToggle from '@/components/ThemeToggle.astro';
+import SearchTrigger from '@/components/search/SearchTrigger';
 import RoleEntry from '@/components/RoleEntry.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import LogoMark from '@/components/LogoMark.astro';
@@ -106,6 +107,7 @@ const isActive = (href: string) =>
         </nav>
 
         <div class="header-actions">
+          <SearchTrigger client:idle />
           <ThemeToggle />
           <div class="header-actions__cta">
             <RoleEntry />
