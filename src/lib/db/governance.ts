@@ -250,6 +250,32 @@ export async function getAllGovernanceActions(db: D1Database): Promise<Governanc
   return rows.map(rowToGovernanceAction);
 }
 
+/** The newest governance action plus its thread slug, for the homepage hero preview. */
+export interface LatestGovernanceAction {
+  action: GovernanceAction;
+  slug: string;
+}
+
+/**
+ * Returns the single newest titled governance action with a live topic, for the
+ * homepage hero card. One indexed LIMIT 1 query joined to topics for the thread
+ * slug; ordered by submission epoch (newest first), then discovery time as a
+ * tiebreak. Null when none exist yet (fresh deploy / local dev without sync).
+ */
+export async function getLatestGovernanceAction(db: D1Database): Promise<LatestGovernanceAction | null> {
+  const row = await db
+    .prepare(
+      `SELECT ga.*, t.slug AS slug
+         FROM governance_actions ga
+         JOIN topics t ON t.id = ga.topic_id
+        WHERE t.deleted = 0 AND ga.title IS NOT NULL
+        ORDER BY ga.submitted_epoch DESC, ga.created_at DESC
+        LIMIT 1`,
+    )
+    .first<GovernanceActionRow & { slug: string }>();
+  return row ? { action: rowToGovernanceAction(row), slug: row.slug } : null;
+}
+
 /** Batch-loads governance actions by topic id (no N+1 when rendering a list). */
 export async function getGovernanceActionsByTopicIds(
   db: D1Database,
@@ -455,6 +481,41 @@ export async function getActionsNeedingVoteBackfill(db: D1Database, limit: numbe
 /** Marks an action's per-voter vote list as fully synced as of `now` (ms). */
 export async function markVotesSynced(db: D1Database, id: string, now: number): Promise<void> {
   await db.prepare('UPDATE governance_actions SET votes_synced_at = ? WHERE id = ?').bind(now, id).run();
+}
+
+/** A related governance action, with the topic slug for linking. */
+export interface RelatedActionRow {
+  id: string;
+  title: string | null;
+  type: string;
+  status: string;
+  topic_slug: string;
+}
+
+/**
+ * Related governance actions for the detail-page sidebar: same type or same
+ * proposer (return_address), excluding the current action, same-type first then
+ * most recent. Only actions that have a forum topic (so they are linkable).
+ */
+export async function getRelatedActions(
+  db: D1Database,
+  opts: { excludeId: string; type: string; returnAddress: string | null; limit?: number },
+): Promise<RelatedActionRow[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 6, 1), 20);
+  const rows = (
+    await db
+      .prepare(
+        `SELECT g.id AS id, g.title AS title, g.type AS type, g.status AS status, t.slug AS topic_slug
+         FROM governance_actions g
+         JOIN topics t ON t.id = g.topic_id
+         WHERE g.id != ? AND (g.type = ? OR (? IS NOT NULL AND g.return_address = ?))
+         ORDER BY (g.type = ?) DESC, g.submitted_epoch DESC
+         LIMIT ?`,
+      )
+      .bind(opts.excludeId, opts.type, opts.returnAddress, opts.returnAddress, opts.type, limit)
+      .all<RelatedActionRow>()
+  ).results ?? [];
+  return rows;
 }
 
 /** Updates an action's extracted metadata fields and bumps its meta_version. */

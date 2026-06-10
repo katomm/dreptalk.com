@@ -62,7 +62,7 @@ npx wrangler secret put KOIOS_API_KEY --name dreptalk-gov-sync-preprod
 
 ## Status
 
-Early development.
+Live on mainnet and actively developed in the open.
 
 ## Feedback
 

@@ -209,17 +209,20 @@ export type CommitteeMember = z.infer<typeof committeeMemberSchema>;
 
 // /committee_info returns a single-row array describing the current committee,
 // whose `members` array holds the cold/hot credentials. Tolerant of extras.
+// quorum_numerator and quorum_denominator carry the CIP-1694 quorum threshold.
 const committeeInfoRowSchema = z
   .object({
     members: z.array(committeeMemberSchema),
+    quorum_numerator: z.number().nullable().optional(),
+    quorum_denominator: z.number().nullable().optional(),
   })
   .passthrough();
 
-// Current-epoch protocol parameters: only the DRep voting threshold (dvt_*)
-// fields the concentration view needs. Fractions in 0..1. Tolerant of nulls and
-// of the many other params Koios returns. The shape is named so the field list
-// (DVT_FIELDS) is derived from it and the two can never drift.
-const epochParamsShape = {
+// /epoch_params row: latest epoch protocol params with CIP-1694 voting
+// thresholds (dvt_*/pvt_*) and committee_min_size. All fields optional/nullable
+// because Koios only started populating them from the Chang hard fork onward.
+const epochParamsRowSchema = z.object({
+  epoch_no: z.number().nullable().optional(),
   dvt_motion_no_confidence: z.number().nullable().optional(),
   dvt_committee_normal: z.number().nullable().optional(),
   dvt_committee_no_confidence: z.number().nullable().optional(),
@@ -230,14 +233,15 @@ const epochParamsShape = {
   dvt_p_p_technical_group: z.number().nullable().optional(),
   dvt_p_p_gov_group: z.number().nullable().optional(),
   dvt_treasury_withdrawal: z.number().nullable().optional(),
-};
-const epochParamsRowSchema = z.object(epochParamsShape).passthrough();
+  pvt_motion_no_confidence: z.number().nullable().optional(),
+  pvt_committee_normal: z.number().nullable().optional(),
+  pvt_committee_no_confidence: z.number().nullable().optional(),
+  pvt_hard_fork_initiation: z.number().nullable().optional(),
+  pvtpp_security_group: z.number().nullable().optional(),
+  committee_min_size: z.number().nullable().optional(),
+}).passthrough();
 
-export type EpochParams = z.infer<typeof epochParamsRowSchema>;
-
-// The DRep voting-threshold field names, derived from the schema shape so the
-// threshold sync can enumerate them without maintaining a second list.
-export const DVT_FIELDS = Object.keys(epochParamsShape) as (keyof EpochParams)[];
+export type EpochParamsRow = z.infer<typeof epochParamsRowSchema>;
 
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -385,14 +389,6 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(drepListRowSchema).parse(data);
     },
 
-    // Latest-epoch protocol parameters. Used to read the live DRep voting
-    // thresholds (dvt_*) for the concentration view. Returns null on no rows.
-    async epochParams(): Promise<EpochParams | null> {
-      const path = '/epoch_params?order=epoch_no.desc&limit=1';
-      const data = await request(path, { method: 'GET' });
-      return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
-    },
-
     // Power-weighted tally summary for one governance action (bech32 proposal id).
     async proposalVotingSummary(proposalId: string): Promise<VotingSummary | null> {
       const path = `/proposal_voting_summary?_proposal_id=${encodeURIComponent(proposalId)}`;
@@ -426,6 +422,22 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const data = await request('/committee_info', { method: 'GET' });
       const row = z.array(committeeInfoRowSchema).parse(data)[0];
       return row?.members ?? [];
+    },
+
+    // The committee's quorum threshold as a fraction (numerator/denominator),
+    // or null when there is no committee or the fields are absent.
+    async committeeQuorum(): Promise<number | null> {
+      const data = await request('/committee_info', { method: 'GET' });
+      const row = z.array(committeeInfoRowSchema).parse(data)[0];
+      if (!row?.quorum_numerator || !row?.quorum_denominator) return null;
+      return row.quorum_numerator / row.quorum_denominator;
+    },
+
+    // Latest epoch's protocol params; carries the CIP-1694 voting thresholds
+    // (dvt_*/pvt_*) and committee_min_size. One row (limit 1, newest first).
+    async epochParams(): Promise<EpochParamsRow | null> {
+      const data = await request('/epoch_params?limit=1', { method: 'GET' });
+      return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
     },
   };
 }

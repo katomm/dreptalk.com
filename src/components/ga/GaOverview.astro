@@ -1,0 +1,76 @@
+---
+// Overview tab: stat cards + rationale block (lifted from GovernanceHeader).
+// The tally staleness note is kept here so the overview self-describes its data.
+import GaStatCards from './GaStatCards.astro';
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { StakeParticipation, OverviewTally } from '@/lib/governance/view.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+
+interface Props {
+  action: GovernanceAction;
+  stake: StakeParticipation | null;
+  tally: OverviewTally | null;
+  now: number;
+}
+
+const { action, stake, tally, now } = Astro.props;
+const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
+
+// Long rationale: clamp + CSS-only expand (same heuristic as GovernanceHeader).
+const rationaleText = action.rationaleHtml
+  ? action.rationaleHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  : '';
+const isLongRationale = rationaleText.length > 500;
+---
+
+<section class="ga-overview">
+  <GaStatCards stake={stake} tally={tally} />
+
+  {asOf && (
+    <p class="ga-overview__asof">Tallies as of {asOf}. Cached, not live.</p>
+  )}
+
+  {action.rationaleHtml && (
+    <div class="ga-rationale">
+      <p class="ga-rationale__label">Motivation &amp; rationale</p>
+      {isLongRationale ? (
+        <>
+          <input type="checkbox" id="ga-rationale-more" class="ga-rationale__cb" aria-hidden="true" tabindex="-1" />
+          <div class="prose ga-rationale__body" set:html={action.rationaleHtml} />
+          <label for="ga-rationale-more" class="ga-rationale__toggle"></label>
+        </>
+      ) : (
+        <div class="prose" style="font-size:0.9375rem;" set:html={action.rationaleHtml} />
+      )}
+    </div>
+  )}
+
+  {!action.rationaleHtml && (
+    <p class="ga-overview__empty">No rationale available for this action.</p>
+  )}
+</section>
+
+<style>
+  .ga-overview__asof {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin: 0 0 1rem;
+  }
+  .ga-overview__empty {
+    color: var(--muted);
+    font-style: italic;
+    font-size: 0.9375rem;
+    margin: 0;
+  }
+
+  /* Rationale block, lifted verbatim from GovernanceHeader.astro */
+  .ga-rationale { margin-top: 0.875rem; }
+  .ga-rationale__label { font-size: 0.8125rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.4rem; }
+  .ga-rationale__cb { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .ga-rationale__body { font-size: 0.9375rem; max-height: 9em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 65%, transparent); mask-image: linear-gradient(#000 65%, transparent); }
+  .ga-rationale__cb:checked ~ .ga-rationale__body { max-height: none; -webkit-mask-image: none; mask-image: none; }
+  .ga-rationale__toggle { display: inline-block; margin-top: 0.4rem; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; }
+  .ga-rationale__toggle::after { content: 'Show full rationale'; }
+  .ga-rationale__cb:checked ~ .ga-rationale__toggle::after { content: 'Show less'; }
+  .ga-rationale__cb:focus-visible ~ .ga-rationale__toggle { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+</style>

@@ -22,7 +22,7 @@ import {
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps } from '../../../src/lib/dreps/sync.js';
-import { syncDrepThresholds } from '../../../src/lib/dreps/thresholds.js';
+import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
 
 interface Env {
   DB: D1Database;
@@ -102,6 +102,48 @@ async function runGovernanceSync(env: Env): Promise<void> {
   // it folds in everything this run changed. Only-changed writes; a no-op once settled.
   const trending = await refreshTrendingScores({ db: env.DB });
   console.log(`[gov-trending] scanned=${trending.scanned} updated=${trending.updated}`);
+
+  // Refresh the cached CIP-1694 voting thresholds + committee quorum (used by the
+  // GA detail Voting Information card). Changes only via governance, so this is a
+  // cheap once-per-run call with an only-changed write.
+  try {
+    const [ep, ccq] = await Promise.all([koios.epochParams(), koios.committeeQuorum()]);
+    if (ep) {
+      const next = {
+        epoch: ep.epoch_no ?? null,
+        dvtMotionNoConfidence: ep.dvt_motion_no_confidence ?? null,
+        dvtCommitteeNormal: ep.dvt_committee_normal ?? null,
+        dvtCommitteeNoConfidence: ep.dvt_committee_no_confidence ?? null,
+        dvtUpdateConstitution: ep.dvt_update_to_constitution ?? null,
+        dvtHardFork: ep.dvt_hard_fork_initiation ?? null,
+        dvtPpNetwork: ep.dvt_p_p_network_group ?? null,
+        dvtPpEconomic: ep.dvt_p_p_economic_group ?? null,
+        dvtPpTechnical: ep.dvt_p_p_technical_group ?? null,
+        dvtPpGov: ep.dvt_p_p_gov_group ?? null,
+        dvtTreasuryWithdrawal: ep.dvt_treasury_withdrawal ?? null,
+        pvtMotionNoConfidence: ep.pvt_motion_no_confidence ?? null,
+        pvtCommitteeNormal: ep.pvt_committee_normal ?? null,
+        pvtCommitteeNoConfidence: ep.pvt_committee_no_confidence ?? null,
+        pvtHardFork: ep.pvt_hard_fork_initiation ?? null,
+        pvtSecurityGroup: ep.pvtpp_security_group ?? null,
+        ccThreshold: ccq,
+        committeeMinSize: ep.committee_min_size ?? null,
+        syncedAt: now,
+      };
+      const cur = await getProtocolParams(env.DB);
+      if (
+        !cur ||
+        cur.epoch !== next.epoch ||
+        cur.dvtTreasuryWithdrawal !== next.dvtTreasuryWithdrawal ||
+        cur.ccThreshold !== next.ccThreshold
+      ) {
+        await upsertProtocolParams(env.DB, next);
+      }
+      console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold}`);
+    }
+  } catch (err) {
+    console.warn('[gov-params] failed:', err);
+  }
 }
 
 // Refresh the per-post vote lists (active actions only). Hourly: vote lists are
@@ -124,15 +166,6 @@ async function runDrepSync(env: Env): Promise<void> {
   console.log(
     `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} anchorsFetched=${r.anchorsFetched} failed=${r.failed}`,
   );
-
-  // Refresh the live DRep voting thresholds (lean: one extra Koios call per run).
-  // Non-fatal: a failure here must not fail the DRep sync that already succeeded.
-  try {
-    const wrote = await syncDrepThresholds({ koios, db: env.DB, now: Date.now() });
-    console.log(`[drep-thresholds] wrote=${wrote}`);
-  } catch (err) {
-    console.error('[drep-thresholds] refresh failed', err);
-  }
 }
 
 export default {

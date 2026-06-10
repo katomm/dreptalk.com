@@ -1,0 +1,107 @@
+---
+// Sidebar card: lifecycle status pill + submitted/decided epochs with dates.
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import { statusBadge, formatEpochDate, TONE_COLORS } from '@/lib/governance/view.js';
+import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
+
+interface Props {
+  action: GovernanceAction;
+  network: CardanoNetwork;
+}
+
+const { action, network } = Astro.props;
+const badge = statusBadge(action.status);
+const badgeColor = TONE_COLORS[badge.tone];
+const netCfg = resolveNetwork(network);
+
+// Derive epoch dates only when an epoch is known; never invent dates.
+const submittedDate = action.submittedEpoch != null
+  ? formatEpochDate(epochStartUnix(action.submittedEpoch, netCfg))
+  : null;
+const expiryDate = action.expiryEpoch != null
+  ? formatEpochDate(epochStartUnix(action.expiryEpoch, netCfg))
+  : null;
+const decidedDate = action.decidedEpoch != null
+  ? formatEpochDate(epochStartUnix(action.decidedEpoch, netCfg))
+  : null;
+
+// Human description of the terminal outcome (the status tells us which).
+function decidedLabel(status: string): string {
+  if (status === 'enacted') return 'Enacted';
+  if (status === 'ratified') return 'Ratified';
+  if (status === 'expired') return 'Expired';
+  if (status === 'dropped') return 'Dropped';
+  if (status === 'closed') return 'Closed';
+  return 'Decided';
+}
+---
+
+<div class="sidebar-card">
+  <p class="sidebar-card__title">Status</p>
+  <div class="status-pill" style={`background:${badgeColor};`}>{badge.label}</div>
+
+  <dl class="status-dl">
+    {action.submittedEpoch != null && (
+      <>
+        <dt>Submitted</dt>
+        <dd>Epoch {action.submittedEpoch}{submittedDate && <> ({submittedDate})</>}</dd>
+      </>
+    )}
+    {action.expiryEpoch != null && (
+      <>
+        <dt>Voting ends</dt>
+        <dd>Epoch {action.expiryEpoch}{expiryDate && <> ({expiryDate})</>}</dd>
+      </>
+    )}
+    {action.decidedEpoch != null && (
+      <>
+        <dt>{decidedLabel(action.status)}</dt>
+        <dd>Epoch {action.decidedEpoch}{decidedDate && <> ({decidedDate})</>}</dd>
+      </>
+    )}
+  </dl>
+</div>
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+  .status-pill {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #fff;
+    border-radius: 0.25rem;
+    padding: 0.2rem 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .status-dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.25rem 0.75rem;
+    font-size: 0.8125rem;
+  }
+  .status-dl dt {
+    color: var(--muted);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .status-dl dd {
+    margin: 0;
+    color: var(--fg);
+  }
+</style>
