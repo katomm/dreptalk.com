@@ -156,11 +156,12 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
   // avatar store is https-only, so it is never fetched or stored.
   let imageUrl: string | null = null;
   const imgField = body.image;
+  const imgRecord = imgField && typeof imgField === 'object' ? asRecord(imgField) : null;
   const rawImageUrl =
     typeof imgField === 'string'
       ? imgField
-      : imgField && typeof imgField === 'object' && typeof asRecord(imgField).contentUrl === 'string'
-        ? (asRecord(imgField).contentUrl as string)
+      : typeof imgRecord?.contentUrl === 'string'
+        ? imgRecord.contentUrl
         : '';
   if (rawImageUrl) {
     const resolved = resolveAnchorUrl(rawImageUrl);

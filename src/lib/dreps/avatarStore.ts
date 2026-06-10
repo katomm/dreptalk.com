@@ -151,22 +151,28 @@ export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: numb
   const deleteLimit = deps.deleteLimit ?? 200;
   const referenced = await listReferencedImageHashes(deps.db);
 
+  // Collect deletable keys first (each page is scanned fully so `scanned` is
+  // accurate), then delete in batches: R2 accepts up to 1000 keys per call, so
+  // a full run costs one or two delete round-trips instead of one per object.
   let scanned = 0;
-  let deleted = 0;
+  const toDelete: string[] = [];
   let cursor: string | undefined;
   do {
     const page = await deps.bucket.list({ prefix: AVATAR_KEY_PREFIX, cursor });
     for (const obj of page.objects) {
       scanned++;
-      if (deleted >= deleteLimit) break;
+      if (toDelete.length >= deleteLimit) continue;
       const hash = obj.key.slice(AVATAR_KEY_PREFIX.length);
       if (referenced.has(hash)) continue;
       if (deps.nowMs - obj.uploaded.getTime() < AVATAR_GC_GRACE_MS) continue;
-      await deps.bucket.delete(obj.key);
-      deleted++;
+      toDelete.push(obj.key);
     }
     cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor && deleted < deleteLimit);
+  } while (cursor && toDelete.length < deleteLimit);
 
-  return { scanned, deleted };
+  for (let i = 0; i < toDelete.length; i += 1000) {
+    await deps.bucket.delete(toDelete.slice(i, i + 1000));
+  }
+
+  return { scanned, deleted: toDelete.length };
 }
