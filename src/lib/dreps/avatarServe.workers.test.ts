@@ -29,7 +29,7 @@ describe('serveAvatar', () => {
 
   it('404s on a malformed hash without touching the bucket', async () => {
     expect((await serveAvatar(bucket(), 'not-a-hash')).status).toBe(404);
-    expect((await serveAvatar(bucket(), ('8'.repeat(63)) + 'X')).status).toBe(404);
+    expect((await serveAvatar(bucket(), `${'8'.repeat(63)}X`)).status).toBe(404);
     expect((await serveAvatar(bucket(), undefined)).status).toBe(404);
   });
 
