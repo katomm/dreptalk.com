@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type React from 'react';
 import { matchStaticEntries } from '@/lib/search/staticEntries.js';
 import { parseSnippet, cleanMarkdownSnippet } from '@/lib/search/snippet.js';
@@ -175,6 +176,13 @@ export default function SearchPalette({ open, onClose, returnFocusRef }: Palette
 
   if (!open) return null;
 
+  // The island is mounted inside .site-header, which has backdrop-filter.
+  // backdrop-filter creates a new containing block for fixed-position descendants,
+  // so the overlay would be clipped to the header band instead of covering the
+  // viewport. Rendering through a portal to document.body escapes that containing
+  // block. The component is client-only and open starts false, so document.body
+  // is always available here.
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
     if (e.key === 'Escape') {
@@ -198,7 +206,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef }: Palette
 
   let lastGroup = '';
 
-  return (
+  return createPortal(
     <div
       onMouseDown={(e) => {
         // Ignore clicks on the scrollbar (within the last 16 px on the right).
@@ -286,6 +294,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef }: Palette
           })}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
