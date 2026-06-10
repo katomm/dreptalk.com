@@ -2,6 +2,8 @@
 
 Thanks for your interest in improving DRepTalk, a wallet-authenticated discussion forum for Cardano governance. Contributions of all sizes are welcome: bug reports, fixes, docs, and features.
 
+By taking part, you agree to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Reporting bugs and requesting features
 
 Open a [GitHub issue](https://github.com/katomm/dreptalk.com/issues/new). For bugs, include what you did, what you expected, and what happened, plus the network you were on (mainnet or preprod) and any console or server output.
