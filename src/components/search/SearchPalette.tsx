@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type React from 'react';
 import { matchStaticEntries } from '@/lib/search/staticEntries.js';
 import { parseSnippet, cleanMarkdownSnippet } from '@/lib/search/snippet.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
@@ -9,6 +10,7 @@ import type { SearchResponseBody } from '@/lib/search/handler.js';
 interface PaletteProps {
   open: boolean;
   onClose: () => void;
+  returnFocusRef?: React.RefObject<HTMLButtonElement | null>;
 }
 
 interface Row {
@@ -98,12 +100,17 @@ function Snippet({ raw }: { raw: string }) {
   );
 }
 
-export default function SearchPalette({ open, onClose }: PaletteProps) {
+export default function SearchPalette({ open, onClose, returnFocusRef }: PaletteProps) {
   const [q, setQ] = useState('');
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const prevOpenRef = useRef(false);
+
+  // Derive rows and clamped index early so effects below can reference them.
+  const rows = useMemo(() => buildRows(q, q.trim().length >= MIN_QUERY ? data : null), [q, data]);
+  const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 
   // Focus + scroll lock while open.
   useEffect(() => {
@@ -115,6 +122,20 @@ export default function SearchPalette({ open, onClose }: PaletteProps) {
       document.body.style.overflow = prev;
     };
   }, [open]);
+
+  // Scroll the active option into view when the selection changes.
+  useEffect(() => {
+    if (!open) return;
+    document.getElementById(`search-opt-${clampedActive}`)?.scrollIntoView({ block: 'nearest' });
+  }, [clampedActive, open]);
+
+  // Return focus to the trigger button when the palette closes.
+  useEffect(() => {
+    if (prevOpenRef.current && !open) {
+      returnFocusRef?.current?.focus();
+    }
+    prevOpenRef.current = open;
+  }, [open, returnFocusRef]);
 
   // Debounced fetch.
   useEffect(() => {
@@ -131,13 +152,19 @@ export default function SearchPalette({ open, onClose }: PaletteProps) {
         const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, { signal: ctrl.signal });
         if (!res.ok) {
           setError(true);
+          setData(null);
           return;
         }
-        setData((await res.json()) as SearchResponseBody);
+        const json = (await res.json()) as SearchResponseBody;
+        if (ctrl.signal.aborted) return;
+        setData(json);
         setError(false);
         setActive(0);
       } catch {
-        if (!ctrl.signal.aborted) setError(true);
+        if (!ctrl.signal.aborted) {
+          setError(true);
+          setData(null);
+        }
       }
     }, DEBOUNCE_MS);
     return () => {
@@ -146,12 +173,10 @@ export default function SearchPalette({ open, onClose }: PaletteProps) {
     };
   }, [q, open]);
 
-  const rows = useMemo(() => buildRows(q, q.trim().length >= MIN_QUERY ? data : null), [q, data]);
-  const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
-
   if (!open) return null;
 
   const onKeyDown = (e: KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
@@ -176,7 +201,8 @@ export default function SearchPalette({ open, onClose }: PaletteProps) {
   return (
     <div
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        // Ignore clicks on the scrollbar (within the last 16 px on the right).
+        if (e.target === e.currentTarget && e.clientX < document.documentElement.clientWidth - 16) onClose();
       }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, overflowY: 'auto', padding: '10vh 1rem 1rem' }}
     >
@@ -185,6 +211,11 @@ export default function SearchPalette({ open, onClose }: PaletteProps) {
         aria-modal="true"
         aria-label="Search"
         onKeyDown={onKeyDown}
+        onMouseDown={(e) => {
+          // Keep focus on the input when clicking palette chrome (headers, padding, empty state).
+          // Allow default for link clicks and the input itself so they work normally.
+          if (!(e.target as HTMLElement).closest('a, input')) e.preventDefault();
+        }}
         style={{ maxWidth: '40rem', margin: '0 auto', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}
       >
         <input
@@ -203,24 +234,24 @@ export default function SearchPalette({ open, onClose }: PaletteProps) {
           placeholder="Search governance actions, discussions, DReps..."
           style={{ width: '100%', padding: '0.9rem 1rem', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', color: 'inherit', font: 'inherit', outline: 'none', boxSizing: 'border-box' }}
         />
+        {error && (
+          <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+            Search is unavailable right now.
+          </p>
+        )}
+        {!error && rows.length === 0 && q.trim().length >= MIN_QUERY && (
+          <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+            No results for "{q.trim()}".
+          </p>
+        )}
         <div id="search-palette-listbox" role="listbox" aria-label="Search results" style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0.25rem 0' }}>
-          {error && (
-            <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-              Search is unavailable right now.
-            </p>
-          )}
-          {!error && rows.length === 0 && q.trim().length >= MIN_QUERY && (
-            <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-              No results for "{q.trim()}".
-            </p>
-          )}
           {rows.map((row, i) => {
             const header = row.group !== lastGroup ? row.group : null;
             lastGroup = row.group;
             return (
-              <div key={row.key}>
+              <div key={row.key} role="presentation">
                 {header && (
-                  <div aria-hidden="true" style={{ padding: '0.5rem 1rem 0.2rem', fontSize: '0.6875rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)' }}>
+                  <div role="presentation" style={{ padding: '0.5rem 1rem 0.2rem', fontSize: '0.6875rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)' }}>
                     {header}
                   </div>
                 )}

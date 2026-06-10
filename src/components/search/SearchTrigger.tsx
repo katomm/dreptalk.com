@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 
-const SearchPalette = lazy(() => import('./SearchPalette'));
+// A failed chunk load (e.g. stale HTML after a deploy) must not crash the island.
+const SearchPalette = lazy(() => import('./SearchPalette').catch(() => ({ default: () => null })));
 
 /**
  * Header search button + global shortcuts (Cmd/Ctrl+K, and "/" outside form
@@ -11,11 +12,15 @@ export default function SearchTrigger() {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [hint, setHint] = useState('');
+  const btnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    setHint(/Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl K');
+    // Show keyboard hint only for fine-pointer devices (mouse/trackpad, not touch).
+    if (window.matchMedia('(pointer: fine)').matches) {
+      setHint(/Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl K');
+    }
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setLoaded(true);
         setOpen((o) => !o);
@@ -23,7 +28,7 @@ export default function SearchTrigger() {
       }
       if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const t = e.target as HTMLElement | null;
-        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
         e.preventDefault();
         setLoaded(true);
         setOpen(true);
@@ -36,6 +41,7 @@ export default function SearchTrigger() {
   return (
     <>
       <button
+        ref={btnRef}
         type="button"
         aria-label="Search"
         onClick={() => {
@@ -64,7 +70,7 @@ export default function SearchTrigger() {
       </button>
       {loaded && (
         <Suspense fallback={null}>
-          <SearchPalette open={open} onClose={() => setOpen(false)} />
+          <SearchPalette open={open} onClose={() => setOpen(false)} returnFocusRef={btnRef} />
         </Suspense>
       )}
     </>
