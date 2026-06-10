@@ -1,10 +1,12 @@
 ---
 import '@/styles/global.css';
 import ThemeToggle from '@/components/ThemeToggle.astro';
+import SearchTrigger from '@/components/search/SearchTrigger';
 import RoleEntry from '@/components/RoleEntry.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import LogoMark from '@/components/LogoMark.astro';
 import { currentNetwork } from '@/lib/api/response';
+import { NAV_LINKS } from '@/lib/config/nav.js';
 
 interface Props {
   title: string;
@@ -35,11 +37,7 @@ const organizationLd = {
 };
 
 const pathname = Astro.url.pathname;
-const navLinks = [
-  { label: 'Governance Actions', href: '/c/governance-actions' },
-  { label: 'Discussions', href: '/discussions' },
-  { label: 'DReps', href: '/dreps' },
-];
+const navLinks = NAV_LINKS;
 // Highlight the link whose path prefixes the current page.
 const isActive = (href: string) =>
   pathname === href || pathname.startsWith(href + '/');
@@ -109,6 +107,7 @@ const isActive = (href: string) =>
         </nav>
 
         <div class="header-actions">
+          <SearchTrigger client:idle />
           <ThemeToggle />
           <div class="header-actions__cta">
             <RoleEntry />

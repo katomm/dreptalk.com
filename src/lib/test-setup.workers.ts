@@ -20,12 +20,16 @@ declare module 'cloudflare:test' {
 // captured once per test file and restored before each test (see beforeEach).
 let d1Seed: { table: string; rows: Record<string, unknown>[] }[] = [];
 
-// User tables only: excludes SQLite internals, Cloudflare internals, and the
-// migration-tracking table so resets never touch schema bookkeeping.
+// User tables only: excludes SQLite internals, Cloudflare internals, the
+// migration-tracking table, and the FTS5 virtual tables plus their shadow
+// tables. FTS tables cannot be cleared with a direct DELETE (external
+// content); deleting the source rows fires the sync triggers instead, which
+// empties the index correctly.
 async function userTables(): Promise<string[]> {
   const result = await env.DB.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table' " +
-      "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'd1_migrations'",
+      "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'd1_migrations' " +
+      "AND name NOT LIKE '%\\_fts' ESCAPE '\\' AND name NOT LIKE '%\\_fts\\_%' ESCAPE '\\'",
   ).all<{ name: string }>();
   return result.results.map((r) => r.name);
 }

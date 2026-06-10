@@ -14,7 +14,6 @@ import type { AuthorDescriptor } from '@/lib/forum/author.js';
 const db = env.DB as D1Database | undefined;
 const PAGE_SIZE = 50;
 const page = parsePage(Astro.url.searchParams.get('page'));
-const query = (Astro.url.searchParams.get('q') ?? '').slice(0, 64);
 const activeOnly = Astro.url.searchParams.get('all') !== '1';
 
 // The directory listing, the concentration aggregate, and the cached protocol
@@ -22,7 +21,7 @@ const activeOnly = Astro.url.searchParams.get('all') !== '1';
 // render pays one round-trip of latency, not three.
 const [dreps, concentrationRows, params] = db
   ? await Promise.all([
-      listDreps(db, { activeOnly, query, limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) }),
+      listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) }),
       listDrepsForConcentration(db),
       getProtocolParams(db),
     ])
@@ -62,7 +61,7 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
 
 const nextPage = dreps.length === PAGE_SIZE ? page + 1 : null;
 const prevPage = page > 1 ? page - 1 : null;
-const qs = (p: number) => `?page=${p}${query ? `&q=${encodeURIComponent(query)}` : ''}${activeOnly ? '' : '&all=1'}`;
+const qs = (p: number) => `?page=${p}${activeOnly ? '' : '&all=1'}`;
 
 const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
   authorId: d.drepId,
@@ -93,16 +92,8 @@ const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
     />
   )}
 
-  <form method="get" style="display:flex;gap:0.5rem;margin:1rem 0;flex-wrap:wrap;">
-    <input type="search" name="q" value={query} placeholder="Search by name" style="flex:1;min-width:12rem;padding:0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);" />
-    {!activeOnly && <input type="hidden" name="all" value="1" />}
-    <button type="submit">Search</button>
-  </form>
-
   <p style="font-size:0.8125rem;color:var(--muted);">
-    {activeOnly
-      ? <a href={`?all=1${query ? `&q=${encodeURIComponent(query)}` : ''}`}>Show all DReps</a>
-      : <a href={query ? `?q=${encodeURIComponent(query)}` : '?'}>Active only</a>}
+    {activeOnly ? <a href="?all=1">Show all DReps</a> : <a href="?">Active only</a>}
   </p>
 
   {dreps.length === 0 ? (
