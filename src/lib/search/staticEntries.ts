@@ -11,10 +11,17 @@ export interface StaticEntry {
   keywords: string;
 }
 
+// Extra search keywords for nav pages, keyed by href.
+const PAGE_KEYWORDS: Record<string, string> = {
+  '/dreps': 'delegate representatives directory voting power',
+  '/c/governance-actions': 'proposals votes ga',
+  '/discussions': 'forum topics threads',
+};
+
 export const STATIC_ENTRIES: readonly StaticEntry[] = [
   { group: 'Pages', label: 'Home', href: '/', keywords: 'home start dreptalk' },
-  ...NAV_LINKS.map((l): StaticEntry => ({ group: 'Pages', label: l.label, href: l.href, keywords: '' })),
-  { group: 'Pages', label: 'DReps', href: '/dreps', keywords: 'delegate representatives directory voting power' },
+  ...NAV_LINKS.map((l): StaticEntry => ({ group: 'Pages', label: l.label, href: l.href, keywords: PAGE_KEYWORDS[l.href] ?? '' })),
+  { group: 'Pages', label: 'Help', href: '/help', keywords: 'documentation guide faq' },
   ...HELP_ARTICLES.map((a): StaticEntry => ({ group: 'Help', label: a.title, href: a.href, keywords: a.text })),
 ];
 

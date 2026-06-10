@@ -19,4 +19,9 @@ describe('matchStaticEntries', () => {
   it('returns nothing for a no-match query', () => {
     expect(matchStaticEntries('zzzzzz')).toEqual([]);
   });
+
+  it('contains no duplicate hrefs', () => {
+    const hrefs = STATIC_ENTRIES.map((e) => e.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
 });
