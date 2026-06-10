@@ -67,10 +67,16 @@ describe('extractCip119Profile', () => {
     expect(profile.imageUrl).toBeNull();
   });
 
-  it('drops an ipfs: image URL (not an http(s) URL)', () => {
+  it('resolves an ipfs: image URL to the public gateway', () => {
     const doc = { body: { image: 'ipfs://QmSomeHash' } };
     const profile = extractCip119Profile(doc);
-    expect(profile.imageUrl).toBeNull();
+    expect(profile.imageUrl).toBe('https://ipfs.io/ipfs/QmSomeHash');
+  });
+
+  it('resolves an ipfs: contentUrl in an ImageObject to the gateway', () => {
+    const doc = { body: { image: { contentUrl: 'ipfs://QmOtherHash/avatar.png' } } };
+    const profile = extractCip119Profile(doc);
+    expect(profile.imageUrl).toBe('https://ipfs.io/ipfs/QmOtherHash/avatar.png');
   });
 
   it('keeps only http(s) references, dropping junk entries', () => {

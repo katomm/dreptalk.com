@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { syncDreps } from './sync.js';
-import { getDrepById } from '../db/dreps.js';
+import { getDrepById, upsertDrep } from '../db/dreps.js';
 import { putDrepMetadata, getDrepMetadataByHash } from '../db/drepMetadata.js';
 import type { DrepListRow, DrepInfoRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
@@ -313,5 +313,63 @@ describe('syncDreps', () => {
     expect(result.total).toBe(1); // only the registered DRep is counted
     expect(await getDrepById(env.DB, reg)).not.toBeNull();
     expect(await getDrepById(env.DB, unreg)).toBeNull();
+  });
+});
+
+describe('stored-avatar preservation', () => {
+  it('a re-sync write preserves image_content_hash and image_stored_url', async () => {
+    const drepId = 'drep1avatarkeep';
+    const anchorHash = 'f'.repeat(64);
+    // Seed: a synced row with a stored avatar and an ok anchor.
+    await upsertDrep(env.DB, {
+      drepId,
+      hex: 'cafe01',
+      hasScript: false,
+      status: 'registered',
+      active: true,
+      deposit: '500000000',
+      votingPower: '1000',
+      expiresEpochNo: 600,
+      name: 'Avatar Keeper',
+      bio: null,
+      imageUrl: 'https://example.com/keep.png',
+      imageContentHash: 'b'.repeat(64),
+      imageStoredUrl: 'https://example.com/keep.png',
+      links: null,
+      anchorUrl: 'https://example.com/keep.json',
+      anchorHash,
+      anchorStatus: 'ok',
+      lastSyncedAt: 1,
+      createdAt: 1,
+    });
+
+    // Fake koios: same DRep, unchanged anchor (reuse path; syncDreps gets no
+    // fetchImpl, so an accidental anchor fetch would throw and fail the test),
+    // but a changed voting power so hasChanged forces a write.
+    const seedListRow: DrepListRow = { drep_id: drepId, hex: 'cafe01', has_script: false, registered: true };
+    const seedInfoRow: DrepInfoRow = {
+      drep_id: drepId,
+      hex: 'cafe01',
+      has_script: false,
+      drep_status: 'registered',
+      deposit: '500000000',
+      active: true,
+      expires_epoch_no: 600,
+      amount: '2000',
+      meta_url: 'https://example.com/keep.json',
+      meta_hash: anchorHash,
+    };
+    const koios = {
+      drepList: async () => [seedListRow],
+      drepInfoBatch: async () => [seedInfoRow],
+    };
+
+    const result = await syncDreps({ koios, db: env.DB, now: 2_000 });
+    expect(result.updated).toBe(1);
+
+    const after = await getDrepById(env.DB, drepId);
+    expect(after!.votingPower).toBe('2000');
+    expect(after!.imageContentHash).toBe('b'.repeat(64));
+    expect(after!.imageStoredUrl).toBe('https://example.com/keep.png');
   });
 });

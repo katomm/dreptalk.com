@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
 
@@ -27,6 +27,8 @@ const BASE_ARGS = {
   name: 'Test DRep',
   bio: 'A DRep for testing purposes.',
   imageUrl: 'https://example.com/avatar.png',
+  imageContentHash: null,
+  imageStoredUrl: null,
   links: [
     { label: 'Website', uri: 'https://example.com' },
     { label: 'Twitter', uri: 'https://twitter.com/testdrep' },
@@ -110,6 +112,18 @@ describe('upsertDrep + getDrepById', () => {
   it('returns null for an unknown drep id', async () => {
     const result = await getDrepById(db(), 'drep1-definitely-does-not-exist-xyz');
     expect(result).toBeNull();
+  });
+
+  it('round-trips the stored-avatar columns', async () => {
+    await upsertDrep(db(), {
+      ...BASE_ARGS,
+      drepId: `${DREP_A}-stored`,
+      imageContentHash: 'a'.repeat(64),
+      imageStoredUrl: 'https://example.com/avatar.png',
+    });
+    const result = await getDrepById(db(), `${DREP_A}-stored`);
+    expect(result!.imageContentHash).toBe('a'.repeat(64));
+    expect(result!.imageStoredUrl).toBe('https://example.com/avatar.png');
   });
 });
 
@@ -211,5 +225,49 @@ describe('special DReps', () => {
     const ids = rows.map((r) => r.drepId);
     expect(ids).toEqual(['cbig', 'csmall']);
     expect(rows[0]).toEqual({ drepId: 'cbig', name: 'Big', votingPower: '300' });
+  });
+});
+
+describe('avatar store queries', () => {
+  it('listDrepsNeedingAvatar picks unstored and changed-source rows only', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-new', imageUrl: 'https://a.example/1.png', imageContentHash: null, imageStoredUrl: null });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-changed', imageUrl: 'https://a.example/2-new.png', imageContentHash: 'c'.repeat(64), imageStoredUrl: 'https://a.example/2-old.png' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-stored', imageUrl: 'https://a.example/3.png', imageContentHash: 'd'.repeat(64), imageStoredUrl: 'https://a.example/3.png' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-noimage', imageUrl: null, imageContentHash: null, imageStoredUrl: null });
+
+    const rows = await listDrepsNeedingAvatar(db(), 10);
+    const ids = rows.map((r) => r.drepId).sort();
+    expect(ids).toEqual(['av-changed', 'av-new']);
+    expect(rows.find((r) => r.drepId === 'av-new')!.imageUrl).toBe('https://a.example/1.png');
+  });
+
+  it('setDrepImageStored updates only the stored-avatar columns', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-set', imageUrl: 'https://a.example/s.png', imageContentHash: null, imageStoredUrl: null });
+    await setDrepImageStored(db(), 'av-set', 'e'.repeat(64), 'https://a.example/s.png');
+    const after = await getDrepById(db(), 'av-set');
+    expect(after!.imageContentHash).toBe('e'.repeat(64));
+    expect(after!.imageStoredUrl).toBe('https://a.example/s.png');
+    expect(after!.name).toBe(BASE_ARGS.name);
+  });
+
+  it('clearOrphanedImageStore nulls the columns when the source image is gone', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-orphan', imageUrl: null, imageContentHash: 'f'.repeat(64), imageStoredUrl: 'https://a.example/gone.png' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-live', imageUrl: 'https://a.example/live.png', imageContentHash: '1'.repeat(64), imageStoredUrl: 'https://a.example/live.png' });
+
+    const cleared = await clearOrphanedImageStore(db());
+    expect(cleared).toBe(1);
+    expect((await getDrepById(db(), 'av-orphan'))!.imageContentHash).toBeNull();
+    expect((await getDrepById(db(), 'av-live'))!.imageContentHash).toBe('1'.repeat(64));
+  });
+
+  it('listReferencedImageHashes returns the distinct non-null hash set', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-h1', imageContentHash: '2'.repeat(64), imageStoredUrl: 'u' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-h2', imageContentHash: '2'.repeat(64), imageStoredUrl: 'u' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-h3', imageContentHash: null, imageStoredUrl: null });
+
+    const set = await listReferencedImageHashes(db());
+    expect(set.has('2'.repeat(64))).toBe(true);
+    // DISTINCT dedupes the shared hash and the null row contributes nothing.
+    expect(set.size).toBe(1);
   });
 });

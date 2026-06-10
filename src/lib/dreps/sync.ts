@@ -186,6 +186,10 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     name: profile.name,
     bio: profile.bio,
     imageUrl: profile.imageUrl,
+    // The stored-avatar columns are owned by the avatar store pass, not by the
+    // chain sync: carry them over so an INSERT OR REPLACE never wipes them.
+    imageContentHash: existing?.imageContentHash ?? null,
+    imageStoredUrl: existing?.imageStoredUrl ?? null,
     links: profile.links,
     anchorUrl: profile.anchorUrl,
     anchorHash: profile.anchorHash,

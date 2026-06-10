@@ -17,6 +17,7 @@ declare namespace Cloudflare {
     SESSIONS?: KVNamespace;
     NONCES?: KVNamespace;
     RATE_LIMITER?: DurableObjectNamespace<import('./lib/rateLimiterDO.js').RateLimiter>;
+    AVATARS?: R2Bucket;
     CARDANO_NETWORK?: string;
     [key: string]: unknown;
   }

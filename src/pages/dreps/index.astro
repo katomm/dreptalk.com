@@ -71,7 +71,7 @@ const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
   // short form the forum author resolver uses for ids without a name.
   displayName: d.name ?? truncateId(d.drepId),
   drepId: d.drepId,
-  hasImage: !!d.imageUrl,
+  imageHash: d.imageContentHash,
   identiconSeed: d.hex ?? d.drepId,
   badges: [],
 });

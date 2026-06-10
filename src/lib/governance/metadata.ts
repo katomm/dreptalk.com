@@ -57,7 +57,11 @@ export type AnchorResult =
   | { status: 'ok'; metadata: AnchorMetadata }
   | { status: Exclude<AnchorStatus, 'ok'>; metadata: null };
 
-/** Resolves an on-chain anchor URL to an https URL, or null if unsupported. */
+/**
+ * Resolves an on-chain URL (anchor document or profile image) to a fetchable
+ * URL: http(s) passes through, ipfs://<cid>/<path> maps to the public gateway,
+ * anything else is unsupported (null).
+ */
 function resolveAnchorUrl(raw: string): string | null {
   let url: URL;
   try {
@@ -146,20 +150,22 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
     '';
   const bio = sanitizeExternalText(rawBio, MAX_PROFILE_BIO_LEN) || null;
 
-  // imageUrl: body.image may be a plain string URL or a CIP-119 ImageObject with contentUrl.
-  // Only http(s) URLs are kept; ipfs/data/javascript and other schemes are dropped.
+  // imageUrl: body.image may be a plain string URL or a CIP-119 ImageObject with
+  // contentUrl. http(s) is kept, ipfs:// resolves to the gateway, anything else
+  // (data:, javascript:, ...) is dropped. http:// survives extraction but the
+  // avatar store is https-only, so it is never fetched or stored.
   let imageUrl: string | null = null;
   const imgField = body.image;
-  if (typeof imgField === 'string') {
-    if (isHttpUrl(imgField)) {
-      imageUrl = imgField.slice(0, MAX_PROFILE_IMAGE_URL_LEN);
-    }
-  } else if (imgField && typeof imgField === 'object') {
-    const imgObj = asRecord(imgField);
-    const contentUrl = typeof imgObj.contentUrl === 'string' ? imgObj.contentUrl : '';
-    if (isHttpUrl(contentUrl)) {
-      imageUrl = contentUrl.slice(0, MAX_PROFILE_IMAGE_URL_LEN);
-    }
+  const imgRecord = imgField && typeof imgField === 'object' ? asRecord(imgField) : null;
+  const rawImageUrl =
+    typeof imgField === 'string'
+      ? imgField
+      : typeof imgRecord?.contentUrl === 'string'
+        ? imgRecord.contentUrl
+        : '';
+  if (rawImageUrl) {
+    const resolved = resolveAnchorUrl(rawImageUrl);
+    if (resolved) imageUrl = resolved.slice(0, MAX_PROFILE_IMAGE_URL_LEN);
   }
 
   // links: body.references is an array; keep only items with http(s) uri/url.

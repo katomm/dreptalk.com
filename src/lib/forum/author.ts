@@ -18,10 +18,10 @@ export interface AuthorDescriptor {
   authorId: string;
   /** Display name: the DRep name when known, else a truncated id. */
   displayName: string;
-  /** drep id when this author has a synced on-chain DRep, used for the avatar URL. */
+  /** drep id when this author has a synced on-chain DRep, used for the /dreps/<id> profile link. */
   drepId?: string | null;
-  /** True when the drep has a synced CIP-119 image URL to attempt via the proxy. */
-  hasImage?: boolean;
+  /** Content hash of the stored avatar in R2 (drives /api/avatar/<hash>), or null/absent when not stored. */
+  imageHash?: string | null;
   /** Stable seed for the identicon fallback: the DRep credential hex when known, else the author id. */
   identiconSeed?: string;
   /** On-chain / forum roles to surface as badges. */
@@ -72,7 +72,7 @@ export function describeAuthor(
     authorId,
     displayName: drep?.name ?? u?.display_name ?? truncateId(authorId),
     drepId: u?.drep_id ?? null,
-    hasImage: !!drep?.imageUrl,
+    imageHash: drep?.imageContentHash ?? null,
     identiconSeed: drep?.hex ?? authorId,
     badges: roleBadges(u),
   };
@@ -129,7 +129,7 @@ export function voterDescriptor(v: ActionVoterRow, dreps: Map<string, Drep>): Au
     authorId: v.voter_id,
     displayName: d?.name ?? truncateId(v.voter_id),
     drepId: v.voter_id,
-    hasImage: !!d?.imageUrl,
+    imageHash: d?.imageContentHash ?? null,
     identiconSeed: d?.hex ?? v.hex ?? v.voter_hex ?? v.voter_id,
     badges: [],
   };

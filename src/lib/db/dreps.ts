@@ -18,6 +18,10 @@ export interface Drep {
   name: string | null;
   bio: string | null;
   imageUrl: string | null;
+  /** sha256 (hex) of the stored avatar bytes in R2 (avatars/<hash>), or null when not stored. */
+  imageContentHash: string | null;
+  /** The source image_url last successfully downloaded into R2. */
+  imageStoredUrl: string | null;
   links: { label: string; uri: string }[] | null;
   anchorUrl: string | null;
   anchorHash: string | null;
@@ -39,6 +43,8 @@ interface DrepRow {
   name: string | null;
   bio: string | null;
   image_url: string | null;
+  image_content_hash: string | null;
+  image_stored_url: string | null;
   links: string | null;
   anchor_url: string | null;
   anchor_hash: string | null;
@@ -61,6 +67,8 @@ function rowToDrep(row: DrepRow): Drep {
     name: row.name,
     bio: row.bio,
     imageUrl: row.image_url,
+    imageContentHash: row.image_content_hash,
+    imageStoredUrl: row.image_stored_url,
     links: row.links != null ? (JSON.parse(row.links) as { label: string; uri: string }[]) : null,
     anchorUrl: row.anchor_url,
     anchorHash: row.anchor_hash,
@@ -184,6 +192,8 @@ export async function upsertDrep(
     name: string | null;
     bio: string | null;
     imageUrl: string | null;
+    imageContentHash: string | null;
+    imageStoredUrl: string | null;
     links: { label: string; uri: string }[] | null;
     anchorUrl: string | null;
     anchorHash: string | null;
@@ -198,9 +208,10 @@ export async function upsertDrep(
     .prepare(
       `INSERT OR REPLACE INTO dreps
          (drep_id, hex, has_script, status, active, deposit, voting_power,
-          expires_epoch_no, name, bio, image_url, links,
-          anchor_url, anchor_hash, anchor_status, last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          expires_epoch_no, name, bio, image_url, image_content_hash,
+          image_stored_url, links, anchor_url, anchor_hash, anchor_status,
+          last_synced_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       args.drepId,
@@ -214,6 +225,8 @@ export async function upsertDrep(
       args.name,
       args.bio,
       args.imageUrl,
+      args.imageContentHash,
+      args.imageStoredUrl,
       linksJson,
       args.anchorUrl,
       args.anchorHash,
@@ -222,6 +235,73 @@ export async function upsertDrep(
       args.createdAt,
     )
     .run();
+}
+
+export interface DrepAvatarSourceRow {
+  drepId: string;
+  imageUrl: string;
+}
+
+/**
+ * Work queue for the avatar store pass: DReps whose source image exists but is
+ * not yet stored, or whose source URL changed since it was stored. Ordered by
+ * drep_id for deterministic paging; capped by limit.
+ */
+export async function listDrepsNeedingAvatar(db: D1Database, limit: number): Promise<DrepAvatarSourceRow[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT drep_id, image_url FROM dreps
+         WHERE image_url IS NOT NULL
+           AND (image_stored_url IS NULL OR image_stored_url <> image_url)
+         ORDER BY drep_id
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<{ drep_id: string; image_url: string }>()
+  ).results ?? [];
+  return rows.map((r) => ({ drepId: r.drep_id, imageUrl: r.image_url }));
+}
+
+/**
+ * Records a successful store: the R2 content hash and the source URL it came
+ * from. image_stored_url is the idempotency key: listDrepsNeedingAvatar only
+ * re-selects a row once the on-chain image_url differs from it again.
+ */
+export async function setDrepImageStored(
+  db: D1Database,
+  drepId: string,
+  contentHash: string,
+  storedUrl: string,
+): Promise<void> {
+  await db
+    .prepare('UPDATE dreps SET image_content_hash = ?, image_stored_url = ? WHERE drep_id = ?')
+    .bind(contentHash, storedUrl, drepId)
+    .run();
+}
+
+/**
+ * Clears the stored-avatar columns for rows whose on-chain image disappeared,
+ * so the GC can reap the now-unreferenced R2 object. Returns rows cleared.
+ */
+export async function clearOrphanedImageStore(db: D1Database): Promise<number> {
+  const res = await db
+    .prepare(
+      `UPDATE dreps SET image_content_hash = NULL, image_stored_url = NULL
+       WHERE image_url IS NULL AND image_content_hash IS NOT NULL`,
+    )
+    .run();
+  return res.meta.changes ?? 0;
+}
+
+/** The set of content hashes still referenced by a dreps row (GC keep set). */
+export async function listReferencedImageHashes(db: D1Database): Promise<Set<string>> {
+  const rows = (
+    await db
+      .prepare('SELECT DISTINCT image_content_hash AS h FROM dreps WHERE image_content_hash IS NOT NULL')
+      .all<{ h: string }>()
+  ).results ?? [];
+  return new Set(rows.map((r) => r.h));
 }
 
 export interface DrepPowerRow {

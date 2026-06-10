@@ -22,10 +22,12 @@ import {
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps } from '../../../src/lib/dreps/sync.js';
+import { storeDrepAvatars, gcDrepAvatars } from '../../../src/lib/dreps/avatarStore.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
 
 interface Env {
   DB: D1Database;
+  AVATARS?: R2Bucket;
   CARDANO_NETWORK?: string;
   KOIOS_API_KEY?: string;
 }
@@ -166,6 +168,22 @@ async function runDrepSync(env: Env): Promise<void> {
   console.log(
     `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} anchorsFetched=${r.anchorsFetched} failed=${r.failed}`,
   );
+
+  // Store new/changed avatars in R2 and GC orphaned objects. Non-fatal: a
+  // failure here must not fail the DRep sync that already succeeded.
+  if (env.AVATARS) {
+    try {
+      const a = await storeDrepAvatars({ db: env.DB, bucket: env.AVATARS, fetchImpl: fetch });
+      console.log(`[drep-avatars] scanned=${a.scanned} stored=${a.stored} cleared=${a.cleared} failed=${a.failed}`);
+      const gc = await gcDrepAvatars({ db: env.DB, bucket: env.AVATARS, nowMs: Date.now() });
+      console.log(`[drep-avatars-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);
+    } catch (err) {
+      // warn, not error: non-fatal by design, matching the [gov-params] catch.
+      console.warn('[drep-avatars] pass failed:', err);
+    }
+  } else {
+    console.warn('[drep-avatars] AVATARS binding missing; skipping avatar store');
+  }
 }
 
 export default {

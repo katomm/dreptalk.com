@@ -10,6 +10,7 @@ declare module 'cloudflare:test' {
     DB: D1Database;
     SESSIONS: KVNamespace;
     NONCES: KVNamespace;
+    AVATARS: R2Bucket;
     RATE_LIMITER: DurableObjectNamespace<import('./rateLimiterDO.js').RateLimiter>;
     TEST_D1_MIGRATIONS: string;
   }
@@ -70,6 +71,11 @@ beforeEach(async () => {
     const { keys } = await ns.list();
     await Promise.all(keys.map((k) => ns.delete(k.name)));
   }
+
+  // Clear the R2 avatar bucket so each test starts with an empty bucket.
+  // R2 objects are not reset automatically by the workers pool.
+  const listed = await env.AVATARS.list();
+  await Promise.all(listed.objects.map((obj) => env.AVATARS.delete(obj.key)));
 
   // Reset RateLimiter Durable Object storage so rate-limit windows never leak
   // between tests (the manual analogue of the per-test rollback pool-workers 0.16
