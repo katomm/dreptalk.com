@@ -51,6 +51,11 @@ export function epochStartMs(epoch: number, cfg: NetworkConfig): number {
   return epochStartUnix(epoch, cfg) * 1000;
 }
 
+/** Epoch number containing the given unix-seconds timestamp. Inverse of epochStartUnix. */
+export function epochFromUnix(unixSeconds: number, cfg: NetworkConfig): number {
+  return cfg.epochAnchor.epoch + Math.floor((unixSeconds - cfg.epochAnchor.unixSeconds) / EPOCH_LENGTH_SECONDS);
+}
+
 // The Cardano Foundation explorer landing page lets each user pick their own
 // preferred explorer, so we link through it instead of hard-coding a single one
 // (more neutral). mainnet is the default and needs no parameter; other networks
