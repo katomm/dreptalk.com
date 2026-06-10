@@ -7,6 +7,8 @@ export interface VoteInput {
   voterId: string;
   voterHex: string | null;
   vote: string;
+  /** Rationale anchor on the vote (Koios proposal_votes.meta_url); null when none. */
+  metaUrl?: string | null;
 }
 
 // Bound parameters per row in the upsert; stays well under the SQLite limit.
@@ -29,10 +31,10 @@ export async function upsertVotes(
     const stmts = chunk.map((v) =>
       db
         .prepare(
-          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, synced_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, now),
+        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, now),
     );
     await db.batch(stmts);
   }
@@ -157,4 +159,90 @@ export async function getVotesByGaId(
     map.set(r.voter_id, { role: r.voter_role, vote: r.vote });
   }
   return map;
+}
+
+export interface DrepRationaleStats {
+  total: number;
+  without: number;
+  withRationale: number;
+}
+
+/**
+ * How often a DRep attached a rationale anchor to its vote vs not. "Without"
+ * means the vote carried no meta_url (NULL or empty string).
+ */
+export async function getDrepRationaleStats(db: D1Database, voterId: string): Promise<DrepRationaleStats> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN meta_url IS NULL OR meta_url = '' THEN 1 ELSE 0 END) AS without
+       FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep'`,
+    )
+    .bind(voterId)
+    .first<{ total: number; without: number }>();
+  const total = row?.total ?? 0;
+  const without = row?.without ?? 0;
+  return { total, without, withRationale: total - without };
+}
+
+export interface DrepVoteBreakdown {
+  yes: number;
+  no: number;
+  abstain: number;
+  total: number;
+}
+
+/**
+ * Yes / No / Abstain counts for a DRep (role 'DRep'), by raw vote count (1 action
+ * = 1 vote). One grouped scan over idx_drep_votes_voter. Any vote value other than
+ * Yes/No (e.g. Abstain) folds into abstain.
+ */
+export async function getDrepVoteBreakdown(db: D1Database, voterId: string): Promise<DrepVoteBreakdown> {
+  const rows = (
+    await db
+      .prepare(`SELECT vote, COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep' GROUP BY vote`)
+      .bind(voterId)
+      .all<{ vote: string; n: number }>()
+  ).results ?? [];
+  const out: DrepVoteBreakdown = { yes: 0, no: 0, abstain: 0, total: 0 };
+  for (const r of rows) {
+    const v = r.vote.toLowerCase();
+    if (v === 'yes') out.yes += r.n;
+    else if (v === 'no') out.no += r.n;
+    else out.abstain += r.n;
+    out.total += r.n;
+  }
+  return out;
+}
+
+export interface DrepParticipation {
+  eligible: number;
+  voted: number;
+}
+
+/**
+ * Participation over concluded governance actions the DRep could vote on.
+ *  - eligible: actions with a terminal decided_epoch whose voting window closed
+ *    at or after the DRep registered (COALESCE(expiry_epoch, decided_epoch) >= reg).
+ *  - voted: those the DRep cast any vote on (Yes/No/Abstain all count).
+ * Returns null when registeredEpoch is unknown (not yet backfilled), so the UI
+ * shows "pending" rather than a misleading 0%.
+ */
+export async function getDrepParticipation(
+  db: D1Database,
+  voterId: string,
+  registeredEpoch: number | null,
+): Promise<DrepParticipation | null> {
+  if (registeredEpoch == null) return null;
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS eligible, COUNT(v.ga_id) AS voted
+       FROM governance_actions g
+       LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'DRep'
+       WHERE g.decided_epoch IS NOT NULL
+         AND COALESCE(g.expiry_epoch, g.decided_epoch) >= ?`,
+    )
+    .bind(voterId, registeredEpoch)
+    .first<{ eligible: number; voted: number }>();
+  return { eligible: row?.eligible ?? 0, voted: row?.voted ?? 0 };
 }

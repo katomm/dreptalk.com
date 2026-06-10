@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveNetwork, txExplorerUrl, governanceActionUrl, epochStartUnix } from './network';
+import { resolveNetwork, txExplorerUrl, governanceActionUrl, epochStartUnix, epochFromUnix } from './network';
 
 describe('explorer links (neutral cardano-foundation landing)', () => {
   it('links a governance action with no network param on mainnet', () => {
@@ -69,5 +69,22 @@ describe('epochStartUnix', () => {
     // preprod system start = 2022-06-21T00:00:00Z = unix 1655769600.
     expect(epochStartUnix(0, resolveNetwork('preprod'))).toBe(1655769600);
     expect(epochStartUnix(2, resolveNetwork('preprod'))).toBe(1655769600 + 2 * 432000);
+  });
+});
+
+describe('epochFromUnix', () => {
+  it('is the inverse of epochStartUnix for both networks', () => {
+    for (const net of ['mainnet', 'preprod'] as const) {
+      const cfg = resolveNetwork(net);
+      for (const epoch of [cfg.epochAnchor.epoch, cfg.epochAnchor.epoch + 37, cfg.epochAnchor.epoch + 400]) {
+        expect(epochFromUnix(epochStartUnix(epoch, cfg), cfg)).toBe(epoch);
+      }
+    }
+  });
+
+  it('floors a mid-epoch timestamp to the epoch it falls in', () => {
+    const cfg = resolveNetwork('preprod');
+    const mid = epochStartUnix(12, cfg) + 3 * 24 * 60 * 60; // 3 days into epoch 12
+    expect(epochFromUnix(mid, cfg)).toBe(12);
   });
 });

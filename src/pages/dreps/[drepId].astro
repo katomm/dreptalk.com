@@ -5,11 +5,15 @@ import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
+import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import { getDrepById } from '@/lib/db/dreps.js';
 import { getUserByDrepId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
-import { getDrepVotingHistory, countDrepVotes } from '@/lib/db/drepVotes.js';
+import {
+  getDrepVotingHistory, countDrepVotes,
+  getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation,
+} from '@/lib/db/drepVotes.js';
 import { isIndexableProfile, influencePct } from '@/lib/drep/profile.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import {
@@ -28,11 +32,14 @@ if (!drep) {
 
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const [posts, activeStake, votingHistory, votesCast] = await Promise.all([
+const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation] = await Promise.all([
   drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
   db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
   drep && db ? getDrepVotingHistory(db, drep.drepId, { limit: 20 }) : Promise.resolve([]),
   drep && db ? countDrepVotes(db, drep.drepId) : Promise.resolve(0),
+  drep && db ? getDrepVoteBreakdown(db, drep.drepId) : Promise.resolve({ yes: 0, no: 0, abstain: 0, total: 0 }),
+  drep && db ? getDrepRationaleStats(db, drep.drepId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
+  drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : Promise.resolve(null),
 ]);
 
 const hasMetadata = !!(drep?.name || drep?.bio);
@@ -126,6 +133,8 @@ const personLd = drep
         </ul>
       )}
     </section>
+
+    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
 
     <section style="margin-top:2rem;">
       <h2 style="font-size:1.125rem;">Voting history <span style="color:var(--muted);font-weight:400;">({votesCast})</span></h2>
