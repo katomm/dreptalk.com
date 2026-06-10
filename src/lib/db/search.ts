@@ -35,6 +35,7 @@ export interface DrepHit {
   status: string;
   votingPower: string | null;
   snippet: string | null;
+  imageHash: string | null;
 }
 
 export interface SearchGroups {
@@ -79,7 +80,8 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
       // semantics. LIKE is ASCII case-insensitive and carries pattern-matching
       // we do not want here (it also failed in workerd with "LIKE or GLOB
       // pattern too complex" on full 65-char patterns).
-      // ORDER BY ga.id so a hash with multiple actions resolves to the lowest index.
+      // ORDER BY ga.id for a deterministic pick (lexicographic); multi-action
+      // transactions are rare and any stable pick is fine.
       stmt = db
         .prepare(
           `SELECT ga.id, ga.title, t.slug
@@ -160,6 +162,7 @@ interface DrepRow {
   name: string | null;
   status: string;
   voting_power: string | null;
+  image_content_hash: string | null;
   snip: string | null;
 }
 
@@ -212,7 +215,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
       .bind(match),
     db
       .prepare(
-        `SELECT d.drep_id, d.name, d.status, d.voting_power,
+        `SELECT d.drep_id, d.name, d.status, d.voting_power, d.image_content_hash,
                 snippet(dreps_fts, 1, char(1), char(2), '…', 12) AS snip
          FROM dreps_fts
          JOIN dreps d ON d.rowid = dreps_fts.rowid
@@ -291,6 +294,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
     status: d.status,
     votingPower: d.voting_power,
     snippet: d.snip,
+    imageHash: d.image_content_hash,
   }));
 
   return {

@@ -186,6 +186,7 @@ describe('searchAll', () => {
       name: 'Treasury Watcher',
       status: 'registered',
       votingPower: '5000000000',
+      imageHash: null,
     });
   });
 });

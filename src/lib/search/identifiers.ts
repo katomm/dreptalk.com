@@ -18,11 +18,8 @@ export function detectIdentifier(q: string): IdentifierQuery | null {
   }
   const hash = s.match(/^([0-9a-f]{64})(?:#(\d{1,6}))?$/);
   if (hash) {
-    // DB ids are "<txHash>#<index>"; a bare hash matches by prefix using
-    // SUBSTR for byte-exact, case-sensitive comparison without wildcard
-    // semantics. LIKE is ASCII case-insensitive and carries pattern-matching
-    // we do not want here (it also failed in workerd with "LIKE or GLOB
-    // pattern too complex" on full 65-char patterns).
+    // DB ids are "<txHash>#<index>"; a bare hash matches by SUBSTR prefix in
+    // lib/db/search.ts (see comment there for the SUBSTR-vs-LIKE rationale).
     return hash[2] != null
       ? { kind: 'gov-action', by: 'id', value: `${hash[1]}#${hash[2]}` }
       : { kind: 'gov-action', by: 'id-prefix', value: `${hash[1]}#` };

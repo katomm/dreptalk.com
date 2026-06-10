@@ -73,7 +73,7 @@ function buildRows(q: string, data: SearchResponseBody | null): Row[] {
       detail: formatAda(d.votingPower) ?? undefined,
       status: d.status,
       snippet: d.snippet,
-      avatar: `/api/avatar/${encodeURIComponent(d.drepId)}`,
+      ...(d.imageHash ? { avatar: `/api/avatar/${d.imageHash}` } : {}),
     });
   }
   for (const e of matchStaticEntries(q)) {
