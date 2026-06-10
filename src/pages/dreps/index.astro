@@ -91,7 +91,16 @@ for (const { value, label } of dvtSource) {
     else actionsByPct.set(pct, [label]);
   }
 }
-const markers = [...actionsByPct.entries()].sort((a, b) => a[0] - b[0]).map(([pct, actions]) => ({ pct, actions }));
+// The raw grouped list is exhaustive (67% alone gates six action types), which
+// reads as a wall of text in the marker hint. Collapse the busy thresholds to a
+// short, illustrative phrase; others fall through to their grouped labels.
+const MARKER_SUMMARY: Record<number, string> = {
+  67: 'Treasury withdrawal and some network parameters',
+};
+const markers = [...actionsByPct.entries()].sort((a, b) => a[0] - b[0]).map(([pct, actions]) => {
+  const summary = MARKER_SUMMARY[pct];
+  return { pct, actions: summary ? [summary] : actions };
+});
 const markersPct = markers.map((m) => m.pct);
 const defaultThresholdPct = markersPct.includes(67) ? 67 : (markersPct[Math.floor(markersPct.length / 2)] ?? 67);
 const thresholdsAsOf = params ? new Date(params.syncedAt).toISOString().slice(0, 10) : null;
