@@ -60,6 +60,8 @@ describe('governance_actions FTS triggers', () => {
       .prepare('UPDATE governance_actions SET drep_yes = 5, last_synced_at = ? WHERE id = ?')
       .bind(NOW + 1, GA_ID)
       .run();
+    // Tally-only update must not remove the row from the FTS index.
+    expect(await gaFtsMatch('"scoped"')).toEqual([GA_ID]);
     const meta = await db()
       .prepare('UPDATE governance_actions SET title = ? WHERE id = ?')
       .bind('Renamed for scope test', GA_ID)
@@ -98,5 +100,65 @@ describe('topics and posts FTS triggers', () => {
       .all();
     expect(topics.results).toHaveLength(1);
     expect(posts.results).toHaveLength(1);
+  });
+
+  it('follows update and drops delete for topics and posts', async () => {
+    // Seed a topic and a post with distinct ids to avoid collisions with other tests.
+    await db()
+      .prepare(
+        `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
+         VALUES ('top2', 'general', 'system', 'user', 'Original thread title', 'original-thread', 1, ?, ?)`,
+      )
+      .bind(NOW, NOW)
+      .run();
+    await db()
+      .prepare(
+        `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+         VALUES ('post2', 'top2', 'system', 'Original body content.', '<p>Original body content.</p>', ?)`,
+      )
+      .bind(NOW)
+      .run();
+
+    // UPDATE: rename the topic title and edit the post body.
+    await db()
+      .prepare('UPDATE topics SET title = ? WHERE id = ?')
+      .bind('Renamed thread title', 'top2')
+      .run();
+    await db()
+      .prepare('UPDATE posts SET body_md = ?, body_html = ? WHERE id = ?')
+      .bind('Edited body content.', '<p>Edited body content.</p>', 'post2')
+      .run();
+
+    // Old terms must no longer match after the update.
+    const oldTopic = await db()
+      .prepare('SELECT rowid FROM topics_fts WHERE topics_fts MATCH ?')
+      .bind('"original"')
+      .all();
+    const oldPost = await db()
+      .prepare('SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?')
+      .bind('"original"')
+      .all();
+    expect(oldTopic.results).toHaveLength(0);
+    expect(oldPost.results).toHaveLength(0);
+
+    // New terms must match after the update.
+    const newTopic = await db()
+      .prepare('SELECT rowid FROM topics_fts WHERE topics_fts MATCH ?')
+      .bind('"renamed"')
+      .all();
+    const newPost = await db()
+      .prepare('SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?')
+      .bind('"edited"')
+      .all();
+    expect(newTopic.results).toHaveLength(1);
+    expect(newPost.results).toHaveLength(1);
+
+    // DELETE: remove the post and verify its term is gone from posts_fts.
+    await db().prepare('DELETE FROM posts WHERE id = ?').bind('post2').run();
+    const deletedPost = await db()
+      .prepare('SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?')
+      .bind('"edited"')
+      .all();
+    expect(deletedPost.results).toHaveLength(0);
   });
 });
