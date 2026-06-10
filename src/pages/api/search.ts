@@ -1,3 +1,4 @@
+import { waitUntil } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { handleSearch, normalizeQuery } from '@/lib/search/handler';
@@ -28,6 +29,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const response = jsonResponse(body, 200, {
     'Cache-Control': `public, max-age=30, s-maxage=${CACHE_TTL_SECONDS}`,
   });
-  await cache.put(cacheKey, response.clone());
+  // Cache write happens after the response is sent; a miss must not pay for the put.
+  waitUntil(cache.put(cacheKey, response.clone()));
   return response;
 };
