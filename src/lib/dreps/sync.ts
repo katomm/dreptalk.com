@@ -190,6 +190,7 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     // chain sync: carry them over so an INSERT OR REPLACE never wipes them.
     imageContentHash: existing?.imageContentHash ?? null,
     imageStoredUrl: existing?.imageStoredUrl ?? null,
+    imageFetchFailedAt: existing?.imageFetchFailedAt ?? null,
     links: profile.links,
     anchorUrl: profile.anchorUrl,
     anchorHash: profile.anchorHash,

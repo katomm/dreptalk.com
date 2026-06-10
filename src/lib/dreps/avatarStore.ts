@@ -3,12 +3,14 @@
 // R2, content addressed by the sha256 of its bytes. Runs on the drep-sync cron.
 // The download hardening that used to run per request in the serve proxy
 // (https-only, timeout, type allowlist, size cap) runs here, once per image.
-// Failures leave the row unchanged so the next run retries; one bad avatar
-// never aborts the pass.
+// Failures stamp image_fetch_failed_at so broken sources rotate to the back of
+// the work queue instead of starving fresh rows; one bad avatar never aborts
+// the pass.
 import { bytesToHex } from '../crypto/hex.js';
 import {
   listDrepsNeedingAvatar,
   setDrepImageStored,
+  markDrepImageFetchFailed,
   clearOrphanedImageStore,
   listReferencedImageHashes,
 } from '../db/dreps.js';
@@ -29,6 +31,8 @@ export interface AvatarStoreDeps {
   fetchImpl?: typeof fetch;
   /** Max downloads per run; the backlog drains over successive cron runs. */
   limit?: number;
+  /** Failure stamp time (unix ms); defaults to Date.now(), injected for tests. */
+  nowMs?: number;
 }
 
 export interface AvatarStoreResult {
@@ -98,6 +102,7 @@ async function fetchValidatedImage(
 export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarStoreResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const limit = deps.limit ?? 25;
+  const nowMs = deps.nowMs ?? Date.now();
 
   // First null out rows whose on-chain image disappeared, so their objects
   // become unreferenced and the GC can reap them.
@@ -105,12 +110,12 @@ export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarSto
 
   const rows = await listDrepsNeedingAvatar(deps.db, limit);
   let stored = 0;
-  let failed = 0;
+  const failedIds: string[] = [];
   for (const row of rows) {
     try {
       const img = await fetchValidatedImage(row.imageUrl, fetchImpl);
       if (!img) {
-        failed++;
+        failedIds.push(row.drepId);
         continue;
       }
       const hash = await sha256Hex(img.bytes);
@@ -121,12 +126,16 @@ export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarSto
       await setDrepImageStored(deps.db, row.drepId, hash, row.imageUrl);
       stored++;
     } catch {
-      // Isolate per-DRep failures; the row stays unchanged and retries next run.
-      failed++;
+      // Isolate per-DRep failures; the stored columns stay unchanged.
+      failedIds.push(row.drepId);
     }
   }
 
-  return { scanned: rows.length, stored, cleared, failed };
+  // One batched stamp at the end of the pass: failed rows rotate behind fresh
+  // work in the next run's queue instead of being re-selected first forever.
+  await markDrepImageFetchFailed(deps.db, failedIds, nowMs);
+
+  return { scanned: rows.length, stored, cleared, failed: failedIds.length };
 }
 
 // Grace period before an unreferenced object is deleted. Covers the window

@@ -37,6 +37,7 @@ const BASE = {
   createdAt: 1,
   imageContentHash: null,
   imageStoredUrl: null,
+  imageFetchFailedAt: null,
 };
 
 describe('storeDrepAvatars', () => {
@@ -123,7 +124,7 @@ describe('storeDrepAvatars', () => {
     expect((await getDrepById(db(), 'st-declared'))!.imageContentHash).toBeNull();
   });
 
-  it('a fetch failure leaves the row unchanged for the next run', async () => {
+  it('a fetch failure leaves the stored columns unchanged for the next run', async () => {
     await upsertDrep(db(), { ...BASE, drepId: 'st-err', imageUrl: 'https://img.example/down.png' });
     const fetchImpl = (async () => {
       throw new Error('connection refused');
@@ -132,6 +133,41 @@ describe('storeDrepAvatars', () => {
     const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl });
     expect(r.failed).toBe(1);
     expect((await getDrepById(db(), 'st-err'))!.imageStoredUrl).toBeNull();
+  });
+
+  it('a failed download stamps the row with the run time', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-stamp', imageUrl: 'https://img.example/dead.png' });
+    const fetchImpl = (async () => {
+      throw new Error('host down');
+    }) as unknown as typeof fetch;
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, nowMs: 42_000 });
+    expect(r.failed).toBe(1);
+    expect((await getDrepById(db(), 'st-stamp'))!.imageFetchFailedAt).toBe(42_000);
+  });
+
+  it('a permanently failing source rotates back and cannot starve a fresh row', async () => {
+    // 'a-bad' sorts before 'z-new' by drep_id; with limit 1 and no rotation it
+    // would monopolize every run and 'z-new' would never be attempted.
+    await upsertDrep(db(), { ...BASE, drepId: 'a-bad', imageUrl: 'https://img.example/dead.png' });
+    await upsertDrep(db(), { ...BASE, drepId: 'z-new', imageUrl: 'https://img.example/ok.png' });
+    const fetchImpl = (async (url: RequestInfo | URL) => {
+      if (String(url).endsWith('dead.png')) throw new Error('host down');
+      return imageResponse(PNG_BYTES);
+    }) as unknown as typeof fetch;
+
+    const r1 = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, limit: 1, nowMs: 1_000 });
+    expect(r1.failed).toBe(1);
+
+    // Second run: the failure is stamped, so the never-attempted row goes first.
+    const r2 = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, limit: 1, nowMs: 2_000 });
+    expect(r2.stored).toBe(1);
+    expect((await getDrepById(db(), 'z-new'))!.imageStoredUrl).toBe('https://img.example/ok.png');
+
+    // Third run: only the broken row is left; it is retried, not blacklisted.
+    const r3 = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, limit: 1, nowMs: 3_000 });
+    expect(r3.failed).toBe(1);
+    expect((await getDrepById(db(), 'a-bad'))!.imageFetchFailedAt).toBe(3_000);
   });
 
   it('clears the stored columns when the source image disappeared', async () => {

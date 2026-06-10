@@ -317,7 +317,7 @@ describe('syncDreps', () => {
 });
 
 describe('stored-avatar preservation', () => {
-  it('a re-sync write preserves image_content_hash and image_stored_url', async () => {
+  it('a re-sync write preserves the avatar-store-owned columns', async () => {
     const drepId = 'drep1avatarkeep';
     const anchorHash = 'f'.repeat(64);
     // Seed: a synced row with a stored avatar and an ok anchor.
@@ -335,6 +335,7 @@ describe('stored-avatar preservation', () => {
       imageUrl: 'https://example.com/keep.png',
       imageContentHash: 'b'.repeat(64),
       imageStoredUrl: 'https://example.com/keep.png',
+      imageFetchFailedAt: 1234,
       links: null,
       anchorUrl: 'https://example.com/keep.json',
       anchorHash,
@@ -371,5 +372,6 @@ describe('stored-avatar preservation', () => {
     expect(after!.votingPower).toBe('2000');
     expect(after!.imageContentHash).toBe('b'.repeat(64));
     expect(after!.imageStoredUrl).toBe('https://example.com/keep.png');
+    expect(after!.imageFetchFailedAt).toBe(1234);
   });
 });
