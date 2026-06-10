@@ -19,9 +19,9 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
 // Clamp + CSS-only expand, but only for rationales that are genuinely a wall of
 // text, several times a normal post length (forum posts render unclamped). A
 // multi-paragraph rationale of a couple thousand characters reads better in one
-// piece than behind a "show full rationale" click. The clamp height (16em below)
-// stays well under what this many characters occupy, so the toggle is never a
-// no-op.
+// piece than behind a "show full rationale" click. The clamp height (32em below)
+// shows a couple of paragraphs before the fade, yet stays well under what a
+// 5000+ char wall occupies, so the toggle is never a no-op.
 const rationaleText = action.rationaleHtml
   ? action.rationaleHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   : '';
@@ -72,7 +72,7 @@ const isLongRationale = rationaleText.length > 5000;
   .ga-rationale { margin-top: 0.875rem; }
   .ga-rationale__label { font-size: 0.8125rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.4rem; }
   .ga-rationale__cb { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-  .ga-rationale__body { font-size: 0.9375rem; max-height: 16em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 72%, transparent); mask-image: linear-gradient(#000 72%, transparent); }
+  .ga-rationale__body { font-size: 0.9375rem; max-height: 32em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 80%, transparent); mask-image: linear-gradient(#000 80%, transparent); }
   .ga-rationale__cb:checked ~ .ga-rationale__body { max-height: none; -webkit-mask-image: none; mask-image: none; }
   .ga-rationale__toggle { display: inline-block; margin-top: 0.4rem; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; }
   .ga-rationale__toggle::after { content: 'Show full rationale'; }
