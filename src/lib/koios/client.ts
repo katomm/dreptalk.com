@@ -174,6 +174,19 @@ const proposalVoteRowSchema = z
 
 export type ProposalVoteRow = z.infer<typeof proposalVoteRowSchema>;
 
+// One row of /drep_updates: a DRep registration/deregistration/update event.
+// action is 'registered' | 'updated' | 'deregistered'; block_time is unix seconds.
+// Without a _drep_id filter the endpoint returns every DRep's updates, newest first.
+const drepUpdateRowSchema = z
+  .object({
+    drep_id: z.string(),
+    action: z.string(),
+    block_time: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+export type DrepUpdateRow = z.infer<typeof drepUpdateRowSchema>;
+
 // One row of /pool_calidus_keys. Koios already applies the CIP-151 highest-nonce
 // and revocation rules, exposing only the currently valid key per pool with
 // `registered: true`. calidus_pub_key is the raw 32-byte Ed25519 public key (hex)
@@ -402,6 +415,14 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/proposal_votes?_proposal_id=${encodeURIComponent(proposalId)}&limit=${limit}&offset=${offset}`;
       const data = await request(path, { method: 'GET' });
       return z.array(proposalVoteRowSchema).parse(data);
+    },
+
+    // DRep registration/update history (paginated). Unfiltered: returns every
+    // DRep's updates, newest first, used to backfill the earliest registration epoch.
+    async drepUpdates(limit = 1000, offset = 0): Promise<DrepUpdateRow[]> {
+      const path = `/drep_updates?limit=${limit}&offset=${offset}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(drepUpdateRowSchema).parse(data);
     },
 
     // Calidus-key lookup (SPO auth flow): resolves a raw Ed25519 calidus public
