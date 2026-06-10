@@ -16,11 +16,9 @@ interface Props {
 const { action, stake, tally, now } = Astro.props;
 const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
 
-// Clamp + CSS-only expand only when a rationale runs well past the length of a
-// normal forum post (which renders in full, unclamped). A short or medium
-// rationale reads better in one piece than behind a "show full rationale" click,
-// so the threshold is generous; the clamp height below stays comfortably under
-// what a threshold-length rationale occupies, so the toggle is never a no-op.
+// Clamp + CSS-only expand, but only for rationales well past a normal post
+// length (forum posts render unclamped). The clamp height (16em below) stays
+// under what 1500 chars occupy, so the toggle is never a no-op.
 const rationaleText = action.rationaleHtml
   ? action.rationaleHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   : '';
