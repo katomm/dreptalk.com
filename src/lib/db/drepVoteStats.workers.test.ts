@@ -30,3 +30,20 @@ describe('getDrepVoteBreakdown', () => {
     expect(await getDrepVoteBreakdown(env.DB, 'drepB')).toEqual({ yes: 2, no: 0, abstain: 1, total: 3 });
   });
 });
+
+describe('getDrepRationaleStats', () => {
+  it('counts votes with and without a rationale anchor (NULL or empty)', async () => {
+    await seedAction('r1', { decidedEpoch: 500, expiryEpoch: 499 });
+    await seedAction('r2', { decidedEpoch: 501, expiryEpoch: 500 });
+    await seedAction('r3', { decidedEpoch: 502, expiryEpoch: 501 });
+    await upsertVotes(env.DB, 'r1', vote('drepR', 'Yes', 'ipfs://x'), 1);
+    await upsertVotes(env.DB, 'r2', vote('drepR', 'No', ''), 1);
+    await upsertVotes(env.DB, 'r3', vote('drepR', 'No', null), 1);
+
+    expect(await getDrepRationaleStats(env.DB, 'drepR')).toEqual({ total: 3, without: 2, withRationale: 1 });
+  });
+
+  it('is all-zero for a DRep with no votes', async () => {
+    expect(await getDrepRationaleStats(env.DB, 'nobody')).toEqual({ total: 0, without: 0, withRationale: 0 });
+  });
+});

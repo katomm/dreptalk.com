@@ -161,6 +161,30 @@ export async function getVotesByGaId(
   return map;
 }
 
+export interface DrepRationaleStats {
+  total: number;
+  without: number;
+  withRationale: number;
+}
+
+/**
+ * How often a DRep attached a rationale anchor to its vote vs not. "Without"
+ * means the vote carried no meta_url (NULL or empty string).
+ */
+export async function getDrepRationaleStats(db: D1Database, voterId: string): Promise<DrepRationaleStats> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN meta_url IS NULL OR meta_url = '' THEN 1 ELSE 0 END) AS without
+       FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep'`,
+    )
+    .bind(voterId)
+    .first<{ total: number; without: number }>();
+  const total = row?.total ?? 0;
+  const without = row?.without ?? 0;
+  return { total, without, withRationale: total - without };
+}
+
 export interface DrepVoteBreakdown {
   yes: number;
   no: number;
