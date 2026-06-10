@@ -184,6 +184,7 @@ export async function listDreps(
  * sync write. ON CONFLICT DO UPDATE keeps the row identity stable so the
  * WHEN-guarded FTS trigger only fires when name/bio actually change.
  * Booleans are stored as 0/1; links array is JSON-serialized or null.
+ * created_at is pinned to the existing row on update: creation time is immutable at the DB layer.
  */
 export async function upsertDrep(
   db: D1Database,
@@ -239,7 +240,7 @@ export async function upsertDrep(
          anchor_hash = excluded.anchor_hash,
          anchor_status = excluded.anchor_status,
          last_synced_at = excluded.last_synced_at,
-         created_at = excluded.created_at`,
+         created_at = dreps.created_at`,
     )
     .bind(
       args.drepId,
