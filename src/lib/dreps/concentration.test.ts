@@ -8,8 +8,16 @@ describe('computeConcentration', () => {
     const c = computeConcentration([]);
     expect(c.drepCount).toBe(0);
     expect(c.topK).toEqual([]);
+    expect(c.totalPower).toBe('0');
     expect(c.byPercent).toHaveLength(101);
     expect(c.byPercent[100]).toEqual({ count: 0, cumPct: 0 });
+  });
+
+  it('exposes the summed active voting power as a lovelace string', () => {
+    const big = 9_000_000_000_000_000n; // > Number.MAX_SAFE_INTEGER
+    const c = computeConcentration([mk('a', big), mk('b', 1n), { drepId: 'c', name: 'c', power: -7n }]);
+    // Sum clamps the negative power to zero; total stays exact via BigInt.
+    expect(c.totalPower).toBe((big + 1n).toString());
   });
 
   it('computes pct and a single-DRep coalition for a dominant DRep', () => {

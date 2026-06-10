@@ -9,6 +9,7 @@ import {
   drepCredentialAddress,
   cip105ToCip129,
   ccHotKeyHashHex,
+  drepCredentialHexFromId,
 } from './identity.js';
 import { hexToBytes, bytesToHex } from '../crypto/hex.js';
 import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
@@ -188,13 +189,13 @@ describe('drepCredentialAddress', () => {
 
   it('builds a preprod type-6 enterprise address (header 0x60) as hex', () => {
     const addr = drepCredentialAddress(keyHash, 'preprod');
-    expect(addr).toBe('60' + DREP_VECTOR.expectedDrepAddrHex.slice(2));
+    expect(addr).toBe(`60${DREP_VECTOR.expectedDrepAddrHex.slice(2)}`);
     expect(addr.length).toBe(58); // 29 bytes
   });
 
   it('builds a mainnet type-6 enterprise address (header 0x61) as hex', () => {
     const addr = drepCredentialAddress(keyHash, 'mainnet');
-    expect(addr).toBe('61' + DREP_VECTOR.expectedDrepAddrHex.slice(2));
+    expect(addr).toBe(`61${DREP_VECTOR.expectedDrepAddrHex.slice(2)}`);
   });
 
   it('produces an address accepted by isDrepCredentialAddress and bound to the pubkey', () => {
@@ -246,5 +247,19 @@ describe('cip105ToCip129', () => {
     const legacy = encodeBech32('drep_vkh', hash);
     const result = cip105ToCip129(legacy);
     expect(result).toBe(drepIdFromKeyHash(hash));
+  });
+
+  it('drepCredentialHexFromId strips the CIP-129 header to the 28-byte hash', () => {
+    const hash = new Uint8Array(28).fill(0xab);
+    expect(drepCredentialHexFromId(drepIdFromKeyHash(hash))).toBe(bytesToHex(hash));
+  });
+
+  it('drepCredentialHexFromId returns the bare hash for a headerless CIP-105 id', () => {
+    const hash = new Uint8Array(28).fill(0x5c);
+    expect(drepCredentialHexFromId(encodeBech32('drep_vkh', hash))).toBe(bytesToHex(hash));
+  });
+
+  it('drepCredentialHexFromId returns null for an undecodable id', () => {
+    expect(drepCredentialHexFromId('not-a-bech32-id')).toBeNull();
   });
 });

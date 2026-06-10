@@ -14,12 +14,15 @@ import { blake2b224 } from '@/lib/crypto/blake.js';
 import { hexToBytes } from '@/lib/crypto/hex.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
-import { walletErrorDetail } from '@/lib/wallet/walletError.js';
+import { readableError } from '@/lib/wallet/walletError.js';
+import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 
 // The enabled wallet api is the CIP-30 surface plus the optional CIP-95
 // extension namespace. We intersect the structural Tx api (used by
-// registerDRep) with the cip95 reader we need to derive the DRep key.
+// registerDRep) with the cip95 reader we need to derive the DRep key, plus
+// getNetworkId for the network guard.
 type EnabledWalletApi = TxWalletApi & {
+  getNetworkId(): Promise<number>;
   cip95?: { getPubDRepKey(): Promise<string> };
 };
 
@@ -61,15 +64,6 @@ export function parseLinks(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-// Maps wallet/network failures to a readable sentence. Delegates detail
-// extraction to walletErrorDetail; applies sentence-case and punctuation here.
-function readableError(err: unknown): string {
-  const detail = walletErrorDetail(err) ?? '';
-  if (!detail) return 'Something went wrong. Please try again.';
-  const msg = detail.charAt(0).toUpperCase() + detail.slice(1);
-  return /[.!?]$/.test(msg) ? msg : `${msg}.`;
-}
-
 export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
@@ -97,6 +91,16 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
     let api: EnabledWalletApi;
     try {
       api = (await walletInfo.raw.enable({ extensions: [{ cip: 95 }] })) as unknown as EnabledWalletApi;
+    } catch (err) {
+      setPhase({ status: 'error', message: readableError(err) });
+      return;
+    }
+
+    // Catch a network mismatch (e.g. wallet on Mainnet, app on Preprod) before
+    // any tx is built, so the user gets a clear "switch your wallet" message
+    // rather than the cryptic SDK error at submit time.
+    try {
+      await assertWalletNetwork(api, network);
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
       return;

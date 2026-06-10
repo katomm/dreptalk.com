@@ -5,9 +5,13 @@ import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import DrepConcentration from '@/components/DrepConcentration.tsx';
+import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
 import { listDreps, listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { influencePct } from '@/lib/drep/profile.js';
+import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
+import { currentNetwork } from '@/lib/api/response';
 import { parsePage, pageToOffset, cacheControlForSynced, formatAda, truncateId } from '@/lib/forum/view.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 
@@ -41,21 +45,59 @@ const concentration = computeConcentration(
   concentrationRows.map((r) => ({ drepId: r.drepId, name: r.name, power: toLovelace(r.votingPower) })),
 );
 
-// Donut slider markers: the distinct DRep voting thresholds (dvt_* fractions)
-// from the cached protocol params. Fall back to the current Conway mainnet set
-// before the params have first synced.
-const DEFAULT_DREP_MARKERS = [0.6, 0.67, 0.75];
-const dvtFractions = params
+// The same total the donut uses (active, non-special), so a row's table share and
+// the concentration view agree. Number is exact enough for the percent display.
+const totalActivePower = Number(concentration.totalPower);
+
+// Donut slider markers: each DRep voting threshold (dvt_* fraction) paired with
+// the governance action it gates, grouped by rounded percent (several actions
+// share a threshold). Canonical Conway genesis defaults label the markers before
+// the protocol params have synced; synced params override them when present.
+const DEFAULT_DVT: { fraction: number; label: string }[] = [
+  { fraction: 0.67, label: 'No confidence' },
+  { fraction: 0.67, label: 'Committee (normal state)' },
+  { fraction: 0.6, label: 'Committee (no confidence)' },
+  { fraction: 0.75, label: 'Constitution update' },
+  { fraction: 0.6, label: 'Hard fork' },
+  { fraction: 0.67, label: 'Protocol params (network)' },
+  { fraction: 0.67, label: 'Protocol params (economic)' },
+  { fraction: 0.67, label: 'Protocol params (technical)' },
+  { fraction: 0.75, label: 'Protocol params (governance)' },
+  { fraction: 0.67, label: 'Treasury withdrawal' },
+];
+const syncedDvt: { value: number | null; label: string }[] = params
   ? [
-      params.dvtMotionNoConfidence, params.dvtCommitteeNormal, params.dvtCommitteeNoConfidence,
-      params.dvtUpdateConstitution, params.dvtHardFork, params.dvtPpNetwork, params.dvtPpEconomic,
-      params.dvtPpTechnical, params.dvtPpGov, params.dvtTreasuryWithdrawal,
-    ].filter((v): v is number => typeof v === 'number' && v > 0)
+      { value: params.dvtTreasuryWithdrawal, label: 'Treasury withdrawal' },
+      { value: params.dvtHardFork, label: 'Hard fork' },
+      { value: params.dvtUpdateConstitution, label: 'Constitution update' },
+      { value: params.dvtMotionNoConfidence, label: 'No confidence' },
+      { value: params.dvtCommitteeNormal, label: 'Committee (normal state)' },
+      { value: params.dvtCommitteeNoConfidence, label: 'Committee (no confidence)' },
+      { value: params.dvtPpNetwork, label: 'Protocol params (network)' },
+      { value: params.dvtPpEconomic, label: 'Protocol params (economic)' },
+      { value: params.dvtPpTechnical, label: 'Protocol params (technical)' },
+      { value: params.dvtPpGov, label: 'Protocol params (governance)' },
+    ]
   : [];
-const markerFractions = dvtFractions.length ? [...new Set(dvtFractions)].sort((a, b) => a - b) : DEFAULT_DREP_MARKERS;
-const markersPct = markerFractions.map((m) => Math.round(m * 100));
+const dvtSource = syncedDvt.some((d) => typeof d.value === 'number' && d.value > 0)
+  ? syncedDvt
+  : DEFAULT_DVT.map((d) => ({ value: d.fraction, label: d.label }));
+const actionsByPct = new Map<number, string[]>();
+for (const { value, label } of dvtSource) {
+  if (typeof value === 'number' && value > 0) {
+    const pct = Math.round(value * 100);
+    const list = actionsByPct.get(pct);
+    if (list) list.push(label);
+    else actionsByPct.set(pct, [label]);
+  }
+}
+const markers = [...actionsByPct.entries()].sort((a, b) => a[0] - b[0]).map(([pct, actions]) => ({ pct, actions }));
+const markersPct = markers.map((m) => m.pct);
 const defaultThresholdPct = markersPct.includes(67) ? 67 : (markersPct[Math.floor(markersPct.length / 2)] ?? 67);
 const thresholdsAsOf = params ? new Date(params.syncedAt).toISOString().slice(0, 10) : null;
+
+// The island uses the deployment's real network for the delegation tx + explorer links.
+const network = currentNetwork().network;
 
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
@@ -74,39 +116,105 @@ const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
   identiconSeed: d.hex ?? d.drepId,
   badges: [],
 });
+
+// The 28-byte DRep credential the delegation tx targets. Prefer the stored Koios
+// `hex`; fall back to deriving it from the drep id. Null disables the delegate
+// action for that row (it stays viewable/copyable).
+const credentialHexFor = (d: typeof dreps[number]): string | null =>
+  d.hex ?? drepCredentialHexFromId(d.drepId);
+
+// A row's share of the active voting power, formatted for the table. Sub-0.01%
+// rounds to "<0.01%" rather than a misleading "0.00%".
+const pctLabel = (pct: number): string => (pct < 0.01 ? '<0.01%' : `${pct.toFixed(2)}%`);
+
+// The largest DRep share, used to scale the row bars. A bar is drawn relative to
+// the leader (whose bar is full), not to an absolute 0..100% axis, so the bars
+// stay legible (top shares are only a few percent) and comparable across pages.
+const maxPct = concentration.topK[0]?.pct ?? 0;
+const barWidth = (pct: number): string => {
+  const w = maxPct > 0 ? Math.min((pct / maxPct) * 100, 100) : 0;
+  return `${w.toFixed(2)}%`;
+};
 ---
 
 <Layout title="DReps - DRepTalk" description="Browse Cardano DReps by voting power on DRepTalk.">
   <h1>DReps</h1>
+  <p class="dreps-intro">
+    Decentralized Representatives in Cardano governance, ranked by active voting power.
+    {concentration.drepCount > 0 && (
+      <> <a href="#concentration">See voting power concentration ↓</a></>
+    )}
+  </p>
 
   {concentration.drepCount > 0 && (
-    <DrepConcentration
-      client:visible
-      topK={concentration.topK}
-      byPercent={concentration.byPercent}
-      drepCount={concentration.drepCount}
-      totalLabel={concentration.totalLabel}
-      markersPct={markersPct}
-      defaultThresholdPct={defaultThresholdPct}
-      thresholdsAsOf={thresholdsAsOf}
-    />
+    <div class="drep-stats">
+      <div class="drep-stat">
+        <span class="drep-stat__label">Active DReps</span>
+        <span class="drep-stat__value">{concentration.drepCount.toLocaleString('en-US')}</span>
+      </div>
+      <div class="drep-stat">
+        <span class="drep-stat__label">Active voting power</span>
+        <span class="drep-stat__value">{concentration.totalLabel}</span>
+      </div>
+    </div>
   )}
 
-  <p style="font-size:0.8125rem;color:var(--muted);">
+  <p class="dreps-filter">
     {activeOnly ? <a href="?all=1">Show all DReps</a> : <a href="?">Active only</a>}
   </p>
 
   {dreps.length === 0 ? (
     <p style="color:var(--muted);">No DReps found.</p>
   ) : (
-    <ul style="list-style:none;padding:0;display:flex;flex-direction:column;gap:0.25rem;">
-      {dreps.map((d) => (
-        <li style="display:flex;align-items:center;gap:0.75rem;border-top:1px solid var(--border);padding:0.6rem 0;">
-          <AuthorIdentity author={descriptorFor(d)} />
-          <span style="margin-left:auto;color:var(--muted);font-size:0.875rem;">{formatAda(d.votingPower)}</span>
-        </li>
-      ))}
-    </ul>
+    <table class="drep-table">
+      <thead>
+        <tr>
+          <th scope="col">DRep</th>
+          <th scope="col" class="drep-table__power-h">Voting power</th>
+          <th scope="col" class="drep-table__actions-h">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {dreps.map((d) => {
+          const descriptor = descriptorFor(d);
+          const pct = influencePct(d.votingPower, totalActivePower);
+          const cred = credentialHexFor(d);
+          return (
+            <tr>
+              <td><AuthorIdentity author={descriptor} /></td>
+              <td class="drep-table__power">
+                <div class="drep-power">
+                  <span class="drep-power__ada">{formatAda(d.votingPower)}</span>
+                  {pct != null && (
+                    <span class="drep-power__bar" aria-hidden="true">
+                      <span class="drep-power__fill" style={`width:${barWidth(pct)}`}></span>
+                    </span>
+                  )}
+                  {pct != null && <span class="drep-power__pct">{pctLabel(pct)}</span>}
+                </div>
+              </td>
+              <td class="drep-table__actions">
+                <button
+                  type="button"
+                  class="drep-action-btn"
+                  data-drep-action
+                  data-drep-id={d.drepId}
+                  data-drep-name={descriptor.displayName}
+                  data-drep-cred={cred ?? ''}
+                  data-drep-script={d.hasScript ? '1' : '0'}
+                  aria-haspopup="menu"
+                  aria-label={`Actions for ${descriptor.displayName}`}
+                >
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                    <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   )}
 
   {(prevPage || nextPage) && (
@@ -115,4 +223,19 @@ const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
       {nextPage && <a href={qs(nextPage)}>Next</a>}
     </nav>
   )}
+
+  {concentration.drepCount > 0 && (
+    <DrepConcentration
+      client:visible
+      topK={concentration.topK}
+      byPercent={concentration.byPercent}
+      drepCount={concentration.drepCount}
+      totalLabel={concentration.totalLabel}
+      markers={markers}
+      defaultThresholdPct={defaultThresholdPct}
+      thresholdsAsOf={thresholdsAsOf}
+    />
+  )}
+
+  {dreps.length > 0 && <DrepActionsMenu client:idle network={network} />}
 </Layout>

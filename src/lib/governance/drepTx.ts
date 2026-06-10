@@ -2,7 +2,7 @@
 // Non-custodial: the server never sees a private key; the wallet extension signs and submits.
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
-import { Anchor, Client, Credential, KeyHash, Transaction, Url, mainnet, preprod } from '@evolution-sdk/evolution';
+import { Anchor, Client, Credential, DRep, KeyHash, ScriptHash, Transaction, Url, mainnet, preprod } from '@evolution-sdk/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -169,6 +169,106 @@ export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string
     drepCredential,
     drepKeyHash: opts.drepKeyHash,
   }).build();
+
+  const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
+  const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
+  const signedTxHex = Transaction.addVKeyWitnessesHex(unsignedTxHex, witnessSetHex);
+  const txHash = await opts.walletApi.submitTx(signedTxHex);
+
+  return { txHash };
+}
+
+/**
+ * Derives the delegator's stake credential from a CIP-30 reward address (hex).
+ * A reward address is 29 bytes: a header byte then the 28-byte credential. The
+ * header high nibble distinguishes a key credential (0b1110) from a script one
+ * (0b1111). Returns the SDK Credential plus the raw 28-byte hash, which the
+ * builder declares as a required signer so the fee covers the cert witness.
+ * Pure; exported for unit tests.
+ */
+export function stakeCredentialFromRewardAddress(rewardAddressHex: string): {
+  stakeCredential: Credential.Credential;
+  stakeKeyHash: Uint8Array;
+  isScript: boolean;
+} {
+  const bytes = hexToBytes(rewardAddressHex);
+  if (bytes.length !== 29) {
+    throw new Error('Unexpected reward address length; expected a 29-byte stake address.');
+  }
+  const isScript = (bytes[0] >> 4) === 0b1111;
+  const hash = bytes.slice(1, 29);
+  return {
+    stakeCredential: isScript ? Credential.makeScriptHash(hash) : Credential.makeKeyHash(hash),
+    stakeKeyHash: hash,
+    isScript,
+  };
+}
+
+/**
+ * Builds the DRep vote-delegation target from a DRep credential hash (hex) and
+ * whether it is script-controlled. The 28-byte hash is the same credential the
+ * dreps table stores (Koios `hex`); script-ness comes from `has_script`.
+ * Pure; exported for unit tests.
+ */
+export function buildDrepTarget(opts: { credentialHex: string; isScript: boolean }): DRep.DRep {
+  const bytes = hexToBytes(opts.credentialHex);
+  return opts.isScript
+    ? DRep.fromScriptHash(ScriptHash.fromBytes(bytes))
+    : DRep.fromKeyHash(KeyHash.fromBytes(bytes));
+}
+
+/**
+ * Queues the vote_deleg certificate, the stake-key required signer, and the
+ * CIP-20 attribution tag. Like reg_drep, the vote_deleg certificate is witnessed
+ * by a key (the stake key) that controls no input, and EvolutionSDK sizes the fee
+ * only for declared signers, so the stake key must be declared via addSigner or
+ * the fee falls one vkey witness short.
+ */
+export function queueDelegateVotesOps(
+  txb: DrepTxBuilder,
+  parts: { stakeCredential: Credential.Credential; drep: DRep.DRep; stakeKeyHash: Uint8Array },
+): DrepTxBuilder {
+  return txb
+    .delegateToDRep({ stakeCredential: parts.stakeCredential, drep: parts.drep })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.stakeKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+export interface DelegateVotesOpts {
+  /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
+  walletApi: WalletApi;
+  network: CardanoNetwork;
+  /** First reward address (hex) from the connected wallet's getRewardAddresses(). */
+  rewardAddressHex: string;
+  /** Target DRep credential hash (hex, 28 bytes) from the dreps table. */
+  drepCredentialHex: string;
+  /** Whether the target DRep is script-controlled (dreps.has_script). */
+  drepIsScript: boolean;
+  /** window.location.origin, used as the base for the /api/koios proxy. */
+  origin: string;
+}
+
+/**
+ * Builds, signs, and submits a Conway vote_deleg certificate that delegates the
+ * connected wallet's voting power to the target DRep.
+ *
+ * Non-custodial: the wallet signs and submits; the server is never involved in
+ * key operations. A CIP-20 attribution tag (label 674) is attached. Requires a
+ * live wallet and a reachable Koios provider; covered by the preprod e2e suite.
+ *
+ * Throws when the wallet's stake credential is script-controlled: that path
+ * needs a redeemer rather than a vkey signer and is out of scope here.
+ */
+export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ txHash: string }> {
+  const { stakeCredential, stakeKeyHash, isScript } = stakeCredentialFromRewardAddress(opts.rewardAddressHex);
+  if (isScript) {
+    throw new Error('This wallet uses a script-controlled stake credential, which is not supported for delegation.');
+  }
+  const drep = buildDrepTarget({ credentialHex: opts.drepCredentialHex, isScript: opts.drepIsScript });
+
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+
+  const built = await queueDelegateVotesOps(client.newTx(), { stakeCredential, drep, stakeKeyHash }).build();
 
   const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
   const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
