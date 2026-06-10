@@ -25,7 +25,7 @@ function isValidWalletEntry(
 ): v is CardanoWalletInfo['raw'] {
   if (!v || typeof v !== 'object') return false;
   const obj = v as Record<string, unknown>;
-  return typeof obj['enable'] === 'function' && typeof obj['name'] === 'string';
+  return typeof obj.enable === 'function' && typeof obj.name === 'string';
 }
 
 /**

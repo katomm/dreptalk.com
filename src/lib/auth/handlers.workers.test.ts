@@ -581,7 +581,7 @@ describe('handleVerify: reject bad signature', () => {
     const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
 
     // Flip last byte of signatureHex.
-    const badSig = stakeVector.signatureHex.slice(0, -2) + 'ff';
+    const badSig = `${stakeVector.signatureHex.slice(0, -2)}ff`;
 
     const result = await handleVerify({
       body: {

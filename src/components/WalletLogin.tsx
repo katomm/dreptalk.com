@@ -125,136 +125,134 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
           </p>
         </div>
       ) : (
-        <>
-          {wallets.length === 0 ? (
-            <p style={{ color: 'var(--muted)' }}>
-              No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {/* Wallet picker */}
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Wallet</span>
-                <select
-                  value={selectedWallet}
-                  onChange={(e) => setSelectedWallet(e.target.value)}
-                  disabled={busy}
-                  style={{
-                    padding: '0.5rem',
-                    border: '1px solid var(--border)',
-                    borderRadius: '0.375rem',
-                    background: 'var(--bg)',
-                    color: 'var(--fg)',
-                    fontSize: '1rem',
-                  }}
-                >
-                  {wallets.map((w) => (
-                    <option key={w.key} value={w.key}>
-                      {w.name}
-                      {w.supportsCip95 ? ' (CIP-95)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {/* Role toggle */}
-              <fieldset
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: '0.375rem',
-                  padding: '0.5rem 0.75rem',
-                  margin: 0,
-                }}
-              >
-                <legend style={{ fontSize: '0.875rem', fontWeight: 500, padding: '0 0.25rem' }}>
-                  Role
-                </legend>
-                <div style={{ display: 'flex', gap: '1.5rem' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="role"
-                      value="drep"
-                      checked={role === 'drep'}
-                      onChange={() => setRole('drep')}
-                      disabled={busy}
-                    />
-                    DRep
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="role"
-                      value="proposer"
-                      checked={role === 'proposer'}
-                      onChange={() => setRole('proposer')}
-                      disabled={busy}
-                    />
-                    Proposer
-                  </label>
-                </div>
-              </fieldset>
-
-              {/* Status message */}
-              {loginState.status === 'connecting' && (
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                  Connecting to wallet...
-                </p>
-              )}
-              {loginState.status === 'awaiting-signature' && (
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                  Please sign the login challenge in your wallet.
-                </p>
-              )}
-              {loginState.status === 'error' && (
-                <div className="callout callout--error" role="alert">
-                  <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  <div className="callout__body">
-                    {loginState.message}
-                    <div style={{ marginTop: '0.6rem' }}>
-                      <button
-                        type="button"
-                        onClick={reset}
-                        style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
-                      >
-                        Try again
-                      </button>
-                      {role === 'drep' && (
-                        <>
-                          <span style={{ color: 'var(--muted)', margin: '0 0.5rem' }}>or</span>
-                          <a href="/drep" style={{ color: 'var(--accent)' }}>register as a DRep</a>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Connect button */}
-              <button
-                type="button"
-                onClick={handleLogin}
+        wallets.length === 0 ? (
+          <p style={{ color: 'var(--muted)' }}>
+            No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {/* Wallet picker */}
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Wallet</span>
+              <select
+                value={selectedWallet}
+                onChange={(e) => setSelectedWallet(e.target.value)}
                 disabled={busy}
                 style={{
-                  padding: '0.625rem 1.25rem',
-                  background: 'var(--accent)',
-                  color: '#fff',
-                  border: 'none',
+                  padding: '0.5rem',
+                  border: '1px solid var(--border)',
                   borderRadius: '0.375rem',
+                  background: 'var(--bg)',
+                  color: 'var(--fg)',
                   fontSize: '1rem',
-                  fontWeight: 500,
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  opacity: busy ? 0.7 : 1,
-                  alignSelf: 'flex-start',
                 }}
               >
-                {busy ? 'Connecting...' : 'Connect and sign in'}
-              </button>
-            </div>
-          )}
-        </>
+                {wallets.map((w) => (
+                  <option key={w.key} value={w.key}>
+                    {w.name}
+                    {w.supportsCip95 ? ' (CIP-95)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* Role toggle */}
+            <fieldset
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: '0.375rem',
+                padding: '0.5rem 0.75rem',
+                margin: 0,
+              }}
+            >
+              <legend style={{ fontSize: '0.875rem', fontWeight: 500, padding: '0 0.25rem' }}>
+                Role
+              </legend>
+              <div style={{ display: 'flex', gap: '1.5rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="role"
+                    value="drep"
+                    checked={role === 'drep'}
+                    onChange={() => setRole('drep')}
+                    disabled={busy}
+                  />
+                  DRep
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="role"
+                    value="proposer"
+                    checked={role === 'proposer'}
+                    onChange={() => setRole('proposer')}
+                    disabled={busy}
+                  />
+                  Proposer
+                </label>
+              </div>
+            </fieldset>
+
+            {/* Status message */}
+            {loginState.status === 'connecting' && (
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                Connecting to wallet...
+              </p>
+            )}
+            {loginState.status === 'awaiting-signature' && (
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                Please sign the login challenge in your wallet.
+              </p>
+            )}
+            {loginState.status === 'error' && (
+              <div className="callout callout--error" role="alert">
+                <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <div className="callout__body">
+                  {loginState.message}
+                  <div style={{ marginTop: '0.6rem' }}>
+                    <button
+                      type="button"
+                      onClick={reset}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+                    >
+                      Try again
+                    </button>
+                    {role === 'drep' && (
+                      <>
+                        <span style={{ color: 'var(--muted)', margin: '0 0.5rem' }}>or</span>
+                        <a href="/drep" style={{ color: 'var(--accent)' }}>register as a DRep</a>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Connect button */}
+            <button
+              type="button"
+              onClick={handleLogin}
+              disabled={busy}
+              style={{
+                padding: '0.625rem 1.25rem',
+                background: 'var(--accent)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '0.375rem',
+                fontSize: '1rem',
+                fontWeight: 500,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                opacity: busy ? 0.7 : 1,
+                alignSelf: 'flex-start',
+              }}
+            >
+              {busy ? 'Connecting...' : 'Connect and sign in'}
+            </button>
+          </div>
+        )
       )}
     </div>
   );

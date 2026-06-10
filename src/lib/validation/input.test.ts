@@ -54,7 +54,7 @@ describe('sanitizeExternalText', () => {
   const NEL = String.fromCharCode(0x85); // a C1 control
 
   it('strips C0, DEL, and C1 control characters', () => {
-    expect(sanitizeExternalText('a' + NUL + 'b' + ESC + 'c' + DEL + 'd' + NEL + 'e', 100)).toBe('abcde');
+    expect(sanitizeExternalText(`a${NUL}b${ESC}c${DEL}d${NEL}e`, 100)).toBe('abcde');
   });
 
   it('trims surrounding whitespace', () => {
@@ -99,9 +99,9 @@ describe('sanitizeExternalMultiline', () => {
   });
 
   it('strips other control chars (NUL, DEL, C1) but not newline/tab', () => {
-    expect(sanitizeExternalMultiline('a' + NUL + 'b', 100)).toBe('ab');
-    expect(sanitizeExternalMultiline('a' + DEL + 'b', 100)).toBe('ab');
-    expect(sanitizeExternalMultiline('a' + NEL + 'b', 100)).toBe('ab');
+    expect(sanitizeExternalMultiline(`a${NUL}b`, 100)).toBe('ab');
+    expect(sanitizeExternalMultiline(`a${DEL}b`, 100)).toBe('ab');
+    expect(sanitizeExternalMultiline(`a${NEL}b`, 100)).toBe('ab');
     // Newline and tab survive
     expect(sanitizeExternalMultiline('a\nb\tc', 100)).toBe('a\nb\tc');
   });

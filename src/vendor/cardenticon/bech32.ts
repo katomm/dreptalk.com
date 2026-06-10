@@ -34,7 +34,7 @@ export function decodeBech32(str: string): Uint8Array {
 
   for (const ch of dataStr) {
     const idx = CHARSET.indexOf(ch);
-    if (idx === -1) throw new Error('Invalid bech32 character: ' + ch);
+    if (idx === -1) throw new Error(`Invalid bech32 character: ${ch}`);
     values.push(idx);
   }
 

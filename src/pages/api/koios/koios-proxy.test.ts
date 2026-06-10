@@ -83,8 +83,8 @@ describe('koios proxy: GET forwarding', () => {
       const authHeader =
         callInit.headers instanceof Headers
           ? callInit.headers.get('authorization')
-          : (callInit.headers as Record<string, string>)['authorization'] ??
-            (callInit.headers as Record<string, string>)['Authorization'];
+          : (callInit.headers as Record<string, string>).authorization ??
+            (callInit.headers as Record<string, string>).Authorization;
       expect(authHeader).toBe('Bearer test-token');
     } finally {
       delete process.env.KOIOS_API_KEY;

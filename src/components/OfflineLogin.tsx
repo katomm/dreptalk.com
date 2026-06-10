@@ -36,7 +36,7 @@ function friendlyError(error: string | undefined, role: OfflineRole): string {
   if (!e) return 'Login failed. Please try again.';
   if (e.includes('nonce')) return 'Your login challenge expired. Get a fresh challenge and sign it again.';
   if (e.includes('signature verification')) {
-    return 'We could not verify your signature. Make sure you signed the exact challenge with ' + ROLE_COPY[role].what + '.';
+    return `We could not verify your signature. Make sure you signed the exact challenge with ${ROLE_COPY[role].what}.`;
   }
   if (e.includes('not an active spo') || e.includes('not an authorized cc')) return ROLE_COPY[role].notMember;
   if (e.includes('invalid request')) return 'The pasted signature or key was not in the expected format.';

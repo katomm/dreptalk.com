@@ -93,7 +93,7 @@ describe('consumeNonce', () => {
 
   it('returns false for a payload with wrong prefix', async () => {
     const { payload } = await issueNonce(kv(), { domain: 'example.com' });
-    const wrongPrefix = 'othertalk' + payload.slice('dreptalk'.length);
+    const wrongPrefix = `othertalk${payload.slice('dreptalk'.length)}`;
     expect(await consumeNonce(kv(), wrongPrefix)).toBe(false);
   });
 

@@ -49,7 +49,7 @@ describe('truncateId', () => {
 
   it('uses default len of 16', () => {
     const long = 'a'.repeat(20);
-    expect(truncateId(long)).toBe('a'.repeat(16) + '...');
+    expect(truncateId(long)).toBe(`${'a'.repeat(16)}...`);
   });
 
   it('respects a custom len', () => {
@@ -237,7 +237,7 @@ describe('excerptFromHtml', () => {
   });
 
   it('truncates with an ellipsis past maxLen', () => {
-    const out = excerptFromHtml('<p>' + 'a '.repeat(20) + '</p>', 10);
+    const out = excerptFromHtml(`<p>${'a '.repeat(20)}</p>`, 10);
     expect(out.endsWith('...')).toBe(true);
     expect(out.length).toBeLessThanOrEqual(13);
   });
