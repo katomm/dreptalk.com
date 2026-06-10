@@ -143,12 +143,12 @@ export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
 
 /**
  * Directory listing: dreps ordered by numeric voting power desc, optionally
- * active-only and/or name-filtered, paginated. ~2k rows total, so the CAST sort
- * is cheap. Default limit 50, capped 100.
+ * active-only, paginated. ~2k rows total, so the CAST sort is cheap.
+ * Default limit 50, capped 100. Name search is handled by the global FTS palette.
  */
 export async function listDreps(
   db: D1Database,
-  opts: { activeOnly?: boolean; query?: string; limit?: number; offset?: number },
+  opts: { activeOnly?: boolean; limit?: number; offset?: number },
 ): Promise<Drep[]> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
   const offset = Math.max(opts.offset ?? 0, 0);
@@ -158,11 +158,6 @@ export async function listDreps(
   // Never list the predefined pseudo-DReps (always-abstain / always-no-confidence).
   where.push(`drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`);
   binds.push(...SPECIAL_DREP_IDS);
-  const q = opts.query?.trim();
-  if (q) {
-    where.push('name LIKE ?');
-    binds.push(`%${q}%`);
-  }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const rows = (
     await db

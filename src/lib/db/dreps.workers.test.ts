@@ -199,11 +199,6 @@ describe('listDreps', () => {
     expect(allFiltered[2].drepId).toBe('drep1small');
   });
 
-  it('filters by name search', async () => {
-    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1q', name: 'Quasar Stake' });
-    const found = await listDreps(db(), { query: 'quasar', limit: 10, offset: 0 });
-    expect(found.some((d) => d.drepId === 'drep1q')).toBe(true);
-  });
 });
 
 describe('special DReps', () => {
