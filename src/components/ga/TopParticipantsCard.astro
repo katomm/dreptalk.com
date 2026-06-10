@@ -4,7 +4,7 @@
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
-import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { voterDescriptor } from '@/lib/forum/author.js';
 import { formatAda } from '@/lib/governance/view.js';
 
 interface Props {
@@ -13,18 +13,6 @@ interface Props {
 }
 
 const { voters, dreps } = Astro.props;
-
-function descriptorFor(v: ActionVoterRow): AuthorDescriptor {
-  const d = dreps.get(v.voter_id);
-  return {
-    authorId: v.voter_id,
-    displayName: d?.name ?? v.voter_id,
-    drepId: v.voter_id,
-    hasImage: !!d?.imageUrl,
-    identiconSeed: d?.hex ?? v.hex ?? v.voter_hex ?? v.voter_id,
-    badges: [],
-  };
-}
 ---
 
 {voters.length > 0 && (
@@ -32,7 +20,7 @@ function descriptorFor(v: ActionVoterRow): AuthorDescriptor {
     <p class="sidebar-card__title">Top DRep Participants</p>
     <ul class="top-participants__list">
       {voters.map((v) => {
-        const descriptor = descriptorFor(v);
+        const descriptor = voterDescriptor(v, dreps);
         const ada = formatAda(v.voting_power);
         return (
           <li class="top-participants__row">

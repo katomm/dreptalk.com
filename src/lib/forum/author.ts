@@ -6,6 +6,7 @@
 
 import { getUsersByIds, type User } from '../db/users.js';
 import { getDrepsByIds, type Drep } from '../db/dreps.js';
+import type { ActionVoterRow } from '../db/drepVotes.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { truncateId } from './view.js';
 
@@ -113,5 +114,23 @@ export async function loadAuthorIdentities(
 
   return {
     describe: (authorId: string) => describeAuthor(authorId, usersById, drepsById),
+  };
+}
+
+/**
+ * Builds the descriptor for a governance-action voter row from the already-batched
+ * dreps map. Pure mapping, performs no I/O. A nameless DRep falls back to the
+ * truncated id so a full bech32 string never overruns a narrow row. Shared by the
+ * positions tab and the top-participants sidebar, which render identical rows.
+ */
+export function voterDescriptor(v: ActionVoterRow, dreps: Map<string, Drep>): AuthorDescriptor {
+  const d = dreps.get(v.voter_id);
+  return {
+    authorId: v.voter_id,
+    displayName: d?.name ?? truncateId(v.voter_id),
+    drepId: v.voter_id,
+    hasImage: !!d?.imageUrl,
+    identiconSeed: d?.hex ?? v.hex ?? v.voter_hex ?? v.voter_id,
+    badges: [],
   };
 }
