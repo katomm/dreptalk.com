@@ -21,7 +21,7 @@ import {
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
-import { syncDreps } from '../../../src/lib/dreps/sync.js';
+import { syncDreps, backfillRegisteredEpochs } from '../../../src/lib/dreps/sync.js';
 import { storeDrepAvatars, gcDrepAvatars } from '../../../src/lib/dreps/avatarStore.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
 
@@ -168,6 +168,17 @@ async function runDrepSync(env: Env): Promise<void> {
   console.log(
     `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} anchorsFetched=${r.anchorsFetched} failed=${r.failed}`,
   );
+
+  // Backfill registration epochs for any DReps still missing one (drives the
+  // participation stat). No-op once all are filled; only new DReps cost a page.
+  // Non-fatal: a Koios hiccup here must not skip the avatar pass that follows.
+  const cfg = resolveNetwork(env.CARDANO_NETWORK ?? null);
+  try {
+    const reg = await backfillRegisteredEpochs({ koios, db: env.DB, cfg });
+    console.log(`[drep-reg-backfill] missing=${reg.missing} resolved=${reg.resolved} pages=${reg.pages}`);
+  } catch (err) {
+    console.warn('[drep-reg-backfill] pass failed:', err);
+  }
 
   // Store new/changed avatars in R2 and GC orphaned objects. Non-fatal: a
   // failure here must not fail the DRep sync that already succeeded.
