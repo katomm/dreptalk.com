@@ -15,6 +15,8 @@ export interface Drep {
   deposit: string | null;
   votingPower: string | null;
   expiresEpochNo: number | null;
+  /** Epoch the DRep first registered (from /drep_updates), or null until backfilled. */
+  registeredEpoch: number | null;
   name: string | null;
   bio: string | null;
   imageUrl: string | null;
@@ -42,6 +44,7 @@ interface DrepRow {
   deposit: string | null;
   voting_power: string | null;
   expires_epoch_no: number | null;
+  registered_epoch: number | null;
   name: string | null;
   bio: string | null;
   image_url: string | null;
@@ -67,6 +70,7 @@ function rowToDrep(row: DrepRow): Drep {
     deposit: row.deposit,
     votingPower: row.voting_power,
     expiresEpochNo: row.expires_epoch_no,
+    registeredEpoch: row.registered_epoch,
     name: row.name,
     bio: row.bio,
     imageUrl: row.image_url,
@@ -344,6 +348,33 @@ export async function clearOrphanedImageStore(db: D1Database): Promise<number> {
     )
     .run();
   return res.meta.changes ?? 0;
+}
+
+/** DRep ids whose registration epoch has not been backfilled yet. */
+export async function listDrepIdsMissingRegisteredEpoch(db: D1Database): Promise<string[]> {
+  const rows = (
+    await db.prepare('SELECT drep_id FROM dreps WHERE registered_epoch IS NULL').all<{ drep_id: string }>()
+  ).results ?? [];
+  return rows.map((r) => r.drep_id);
+}
+
+/**
+ * Sets registered_epoch for the given DReps in one batch, only where it is still
+ * NULL (idempotent; never overwrites an already-resolved value). Returns the
+ * number of statements issued. No-op for an empty list.
+ */
+export async function setRegisteredEpochs(
+  db: D1Database,
+  entries: { drepId: string; epoch: number }[],
+): Promise<number> {
+  if (entries.length === 0) return 0;
+  const stmts = entries.map((e) =>
+    db
+      .prepare('UPDATE dreps SET registered_epoch = ? WHERE drep_id = ? AND registered_epoch IS NULL')
+      .bind(e.epoch, e.drepId),
+  );
+  await db.batch(stmts);
+  return entries.length;
 }
 
 /** The set of content hashes still referenced by a dreps row (GC keep set). */

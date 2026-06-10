@@ -183,6 +183,9 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     deposit: info.deposit,
     votingPower: info.amount,
     expiresEpochNo: info.expires_epoch_no,
+    // Owned by the registration-epoch backfill, not the chain sync: carry it over
+    // so a profile upsert never wipes a resolved value.
+    registeredEpoch: existing?.registeredEpoch ?? null,
     name: profile.name,
     bio: profile.bio,
     imageUrl: profile.imageUrl,
