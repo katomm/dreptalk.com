@@ -27,6 +27,8 @@ export interface ConcentrationPoint {
 export interface Concentration {
   drepCount: number;
   totalLabel: string;
+  /** Total active voting power in lovelace, as a string (exceeds Number range). */
+  totalPower: string;
   topK: ConcentrationTop[];
   byPercent: ConcentrationPoint[]; // length 101, index = percent 0..100
 }
@@ -52,7 +54,7 @@ export function computeConcentration(dreps: ConcentrationInput[]): Concentration
   const sorted = [...dreps].sort((a, b) => (a.power < b.power ? 1 : a.power > b.power ? -1 : 0));
   const total = sorted.reduce((acc, d) => acc + clampPositive(d.power), 0n);
   if (sorted.length === 0 || total <= 0n) {
-    return { drepCount: sorted.length, totalLabel: formatAda('0'), topK: [], byPercent: emptyByPercent() };
+    return { drepCount: sorted.length, totalLabel: formatAda('0'), totalPower: '0', topK: [], byPercent: emptyByPercent() };
   }
 
   const topK = sorted.slice(0, TOP_K).map((d) => {
@@ -78,5 +80,5 @@ export function computeConcentration(dreps: ConcentrationInput[]): Concentration
     byPercent[p] = { count: idx, cumPct: pctOf(cum, total) };
   }
 
-  return { drepCount: sorted.length, totalLabel: formatAda(total.toString()), topK, byPercent };
+  return { drepCount: sorted.length, totalLabel: formatAda(total.toString()), totalPower: total.toString(), topK, byPercent };
 }

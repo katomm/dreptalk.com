@@ -159,3 +159,20 @@ export function cip105ToCip129(drepVkh: string): string {
   return drepIdFromKeyHash(keyHash);
 }
 
+/**
+ * Extracts the 28-byte credential hash (hex) from a bech32 DRep id: a CIP-129
+ * drep1 (header byte + 28-byte hash) or a bare CIP-105 hash. Returns null when
+ * the id does not decode to a credential. Used to target a DRep for vote
+ * delegation when the stored Koios `hex` is absent.
+ */
+export function drepCredentialHexFromId(drepId: string): string | null {
+  try {
+    const { data } = decodeBech32(drepId);
+    if (data.length === 29) return bytesToHex(data.slice(1));
+    if (data.length === 28) return bytesToHex(data);
+    return null;
+  } catch {
+    return null;
+  }
+}
+

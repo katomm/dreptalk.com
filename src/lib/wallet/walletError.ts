@@ -17,3 +17,15 @@ export function walletErrorDetail(err: unknown): string | undefined {
     undefined;
   return detail || undefined;
 }
+
+/**
+ * Maps a CIP-30 wallet/network failure to a readable sentence: the detail
+ * sentence-cased and punctuated, or a generic fallback when none is available.
+ * Shared by the wallet-driven islands (login, DRep registration, delegation).
+ */
+export function readableError(err: unknown): string {
+  const detail = walletErrorDetail(err) ?? '';
+  if (!detail) return 'Something went wrong. Please try again.';
+  const msg = detail.charAt(0).toUpperCase() + detail.slice(1);
+  return /[.!?]$/.test(msg) ? msg : `${msg}.`;
+}

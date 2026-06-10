@@ -3,7 +3,14 @@
 // The full registerDRep function is covered by the preprod e2e suite (Phase B-11).
 
 import { describe, it, expect } from 'vitest';
-import { buildRegisterDrepParts, queueRegisterDrepOps, queueDeregisterDrepOps } from './drepTx.js';
+import {
+  buildRegisterDrepParts,
+  queueRegisterDrepOps,
+  queueDeregisterDrepOps,
+  buildDrepTarget,
+  stakeCredentialFromRewardAddress,
+  queueDelegateVotesOps,
+} from './drepTx.js';
 import { bytesToHex } from '../crypto/hex.js';
 
 // Deterministic test fixtures.
@@ -19,6 +26,7 @@ function makeBuilderRecorder() {
   const rec = {
     registerDRep(arg: unknown) { calls.push({ op: 'registerDRep', arg }); return rec; },
     deregisterDRep(arg: unknown) { calls.push({ op: 'deregisterDRep', arg }); return rec; },
+    delegateToDRep(arg: unknown) { calls.push({ op: 'delegateToDRep', arg }); return rec; },
     addSigner(arg: unknown) { calls.push({ op: 'addSigner', arg }); return rec; },
     attachMetadata(arg: unknown) { calls.push({ op: 'attachMetadata', arg }); return rec; },
   };
@@ -132,5 +140,62 @@ describe('queueDeregisterDrepOps (fee: DRep key required signer)', () => {
 
     expect(calls.some((c) => c.op === 'deregisterDRep')).toBe(true);
     expect(addSignerKeyHashHex(calls)).toBe(bytesToHex(DREP_KEY_HASH));
+  });
+});
+
+// Vote-delegation fixtures: a 28-byte DRep credential and a 28-byte stake hash.
+const DREP_CRED_HEX = 'cd'.repeat(28);
+const STAKE_HASH_HEX = 'ef'.repeat(28);
+
+describe('buildDrepTarget', () => {
+  it('builds a key-hash DRep target from a credential hash', () => {
+    const target = buildDrepTarget({ credentialHex: DREP_CRED_HEX, isScript: false });
+    expect((target as { _tag: string })._tag).toBe('KeyHashDRep');
+  });
+
+  it('builds a script-hash DRep target when the DRep is script-controlled', () => {
+    const target = buildDrepTarget({ credentialHex: DREP_CRED_HEX, isScript: true });
+    expect((target as { _tag: string })._tag).toBe('ScriptHashDRep');
+  });
+});
+
+describe('stakeCredentialFromRewardAddress', () => {
+  it('parses a key stake credential (header high nibble 0b1110)', () => {
+    const r = stakeCredentialFromRewardAddress(`e0${STAKE_HASH_HEX}`);
+    expect(r.isScript).toBe(false);
+    expect((r.stakeCredential as { _tag: string })._tag).toBe('KeyHash');
+    expect(bytesToHex(r.stakeKeyHash)).toBe(STAKE_HASH_HEX);
+  });
+
+  it('parses a script stake credential (header high nibble 0b1111)', () => {
+    const r = stakeCredentialFromRewardAddress(`f0${STAKE_HASH_HEX}`);
+    expect(r.isScript).toBe(true);
+    expect((r.stakeCredential as { _tag: string })._tag).toBe('ScriptHash');
+  });
+
+  it('throws on an address that is not 29 bytes', () => {
+    expect(() => stakeCredentialFromRewardAddress(`e0${'ef'.repeat(10)}`)).toThrow();
+  });
+});
+
+// Regression guard mirroring the reg_drep fee test: the vote_deleg certificate
+// is witnessed by the stake key (which controls no input), so the build chain
+// MUST declare it via addSigner or the fee falls one vkey witness short.
+describe('queueDelegateVotesOps (fee: stake key required signer)', () => {
+  it('queues the vote_deleg cert and declares the stake key as a required signer', () => {
+    const { stakeCredential, stakeKeyHash } = stakeCredentialFromRewardAddress(`e0${STAKE_HASH_HEX}`);
+    const drep = buildDrepTarget({ credentialHex: DREP_CRED_HEX, isScript: false });
+    const { rec, calls } = makeBuilderRecorder();
+
+    queueDelegateVotesOps(rec as Parameters<typeof queueDelegateVotesOps>[0], {
+      stakeCredential,
+      drep,
+      stakeKeyHash,
+    });
+
+    expect(calls.some((c) => c.op === 'delegateToDRep')).toBe(true);
+    expect(addSignerKeyHashHex(calls)).toBe(STAKE_HASH_HEX);
+    // The CIP-20 attribution tag (label 674) rides along, like register/retire.
+    expect(calls.some((c) => c.op === 'attachMetadata')).toBe(true);
   });
 });
