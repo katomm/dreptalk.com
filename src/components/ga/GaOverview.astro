@@ -16,11 +16,15 @@ interface Props {
 const { action, stake, tally, now } = Astro.props;
 const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
 
-// Long rationale: clamp + CSS-only expand (same heuristic as GovernanceHeader).
+// Clamp + CSS-only expand only when a rationale runs well past the length of a
+// normal forum post (which renders in full, unclamped). A short or medium
+// rationale reads better in one piece than behind a "show full rationale" click,
+// so the threshold is generous; the clamp height below stays comfortably under
+// what a threshold-length rationale occupies, so the toggle is never a no-op.
 const rationaleText = action.rationaleHtml
   ? action.rationaleHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   : '';
-const isLongRationale = rationaleText.length > 500;
+const isLongRationale = rationaleText.length > 1500;
 ---
 
 <section class="ga-overview">
@@ -63,11 +67,11 @@ const isLongRationale = rationaleText.length > 500;
     margin: 0;
   }
 
-  /* Rationale block, lifted verbatim from GovernanceHeader.astro */
+  /* Rationale block */
   .ga-rationale { margin-top: 0.875rem; }
   .ga-rationale__label { font-size: 0.8125rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.4rem; }
   .ga-rationale__cb { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-  .ga-rationale__body { font-size: 0.9375rem; max-height: 9em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 65%, transparent); mask-image: linear-gradient(#000 65%, transparent); }
+  .ga-rationale__body { font-size: 0.9375rem; max-height: 16em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 72%, transparent); mask-image: linear-gradient(#000 72%, transparent); }
   .ga-rationale__cb:checked ~ .ga-rationale__body { max-height: none; -webkit-mask-image: none; mask-image: none; }
   .ga-rationale__toggle { display: inline-block; margin-top: 0.4rem; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; }
   .ga-rationale__toggle::after { content: 'Show full rationale'; }
