@@ -27,6 +27,8 @@ const BASE_ARGS = {
   name: 'Test DRep',
   bio: 'A DRep for testing purposes.',
   imageUrl: 'https://example.com/avatar.png',
+  imageContentHash: null,
+  imageStoredUrl: null,
   links: [
     { label: 'Website', uri: 'https://example.com' },
     { label: 'Twitter', uri: 'https://twitter.com/testdrep' },
@@ -110,6 +112,18 @@ describe('upsertDrep + getDrepById', () => {
   it('returns null for an unknown drep id', async () => {
     const result = await getDrepById(db(), 'drep1-definitely-does-not-exist-xyz');
     expect(result).toBeNull();
+  });
+
+  it('round-trips the stored-avatar columns', async () => {
+    await upsertDrep(db(), {
+      ...BASE_ARGS,
+      drepId: `${DREP_A}-stored`,
+      imageContentHash: 'a'.repeat(64),
+      imageStoredUrl: 'https://example.com/avatar.png',
+    });
+    const result = await getDrepById(db(), `${DREP_A}-stored`);
+    expect(result!.imageContentHash).toBe('a'.repeat(64));
+    expect(result!.imageStoredUrl).toBe('https://example.com/avatar.png');
   });
 });
 

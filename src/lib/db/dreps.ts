@@ -18,6 +18,10 @@ export interface Drep {
   name: string | null;
   bio: string | null;
   imageUrl: string | null;
+  /** sha256 (hex) of the stored avatar bytes in R2 (avatars/<hash>), or null when not stored. */
+  imageContentHash: string | null;
+  /** The source image_url last successfully downloaded into R2. */
+  imageStoredUrl: string | null;
   links: { label: string; uri: string }[] | null;
   anchorUrl: string | null;
   anchorHash: string | null;
@@ -39,6 +43,8 @@ interface DrepRow {
   name: string | null;
   bio: string | null;
   image_url: string | null;
+  image_content_hash: string | null;
+  image_stored_url: string | null;
   links: string | null;
   anchor_url: string | null;
   anchor_hash: string | null;
@@ -61,6 +67,8 @@ function rowToDrep(row: DrepRow): Drep {
     name: row.name,
     bio: row.bio,
     imageUrl: row.image_url,
+    imageContentHash: row.image_content_hash,
+    imageStoredUrl: row.image_stored_url,
     links: row.links != null ? (JSON.parse(row.links) as { label: string; uri: string }[]) : null,
     anchorUrl: row.anchor_url,
     anchorHash: row.anchor_hash,
@@ -184,6 +192,8 @@ export async function upsertDrep(
     name: string | null;
     bio: string | null;
     imageUrl: string | null;
+    imageContentHash: string | null;
+    imageStoredUrl: string | null;
     links: { label: string; uri: string }[] | null;
     anchorUrl: string | null;
     anchorHash: string | null;
@@ -198,9 +208,10 @@ export async function upsertDrep(
     .prepare(
       `INSERT OR REPLACE INTO dreps
          (drep_id, hex, has_script, status, active, deposit, voting_power,
-          expires_epoch_no, name, bio, image_url, links,
-          anchor_url, anchor_hash, anchor_status, last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          expires_epoch_no, name, bio, image_url, image_content_hash,
+          image_stored_url, links, anchor_url, anchor_hash, anchor_status,
+          last_synced_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       args.drepId,
@@ -214,6 +225,8 @@ export async function upsertDrep(
       args.name,
       args.bio,
       args.imageUrl,
+      args.imageContentHash,
+      args.imageStoredUrl,
       linksJson,
       args.anchorUrl,
       args.anchorHash,
