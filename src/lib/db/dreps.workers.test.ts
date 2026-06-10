@@ -3,7 +3,8 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration } from './dreps.js';
+import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
 
 const db = () => env.DB;
@@ -186,5 +187,29 @@ describe('listDreps', () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1q', name: 'Quasar Stake' });
     const found = await listDreps(db(), { query: 'quasar', limit: 10, offset: 0 });
     expect(found.some((d) => d.drepId === 'drep1q')).toBe(true);
+  });
+});
+
+describe('special DReps', () => {
+  it('listDreps excludes the predefined pseudo-DReps', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drepreal', name: 'Real', votingPower: '100' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: SPECIAL_DREP_IDS[0], name: 'AbstainPseudo', votingPower: '999999999999' });
+
+    const rows = await listDreps(db(), { activeOnly: true, limit: 50, offset: 0 });
+    const ids = rows.map((r) => r.drepId);
+    expect(ids).toContain('drepreal');
+    expect(ids).not.toContain(SPECIAL_DREP_IDS[0]);
+  });
+
+  it('listDrepsForConcentration returns active non-special DReps ordered by power desc', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'cbig', name: 'Big', active: true, votingPower: '300' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'csmall', name: 'Small', active: true, votingPower: '100' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'cinactive', name: 'Inactive', active: false, votingPower: '500' });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: SPECIAL_DREP_IDS[1], name: 'NoConfPseudo', active: true, votingPower: '999' });
+
+    const rows = await listDrepsForConcentration(db());
+    const ids = rows.map((r) => r.drepId);
+    expect(ids).toEqual(['cbig', 'csmall']);
+    expect(rows[0]).toEqual({ drepId: 'cbig', name: 'Big', votingPower: '300' });
   });
 });

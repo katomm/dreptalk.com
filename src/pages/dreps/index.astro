@@ -4,7 +4,10 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
-import { listDreps } from '@/lib/db/dreps.js';
+import DrepConcentration from '@/components/DrepConcentration.tsx';
+import { listDreps, listDrepsForConcentration } from '@/lib/db/dreps.js';
+import { computeConcentration } from '@/lib/dreps/concentration.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { parsePage, pageToOffset, cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 
@@ -14,9 +17,46 @@ const page = parsePage(Astro.url.searchParams.get('page'));
 const query = (Astro.url.searchParams.get('q') ?? '').slice(0, 64);
 const activeOnly = Astro.url.searchParams.get('all') !== '1';
 
-const dreps = db
-  ? await listDreps(db, { activeOnly, query, limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) })
+// The directory listing, the concentration aggregate, and the cached protocol
+// params are independent reads; fetch them concurrently so a cold (uncached)
+// render pays one round-trip of latency, not three.
+const [dreps, concentrationRows, params] = db
+  ? await Promise.all([
+      listDreps(db, { activeOnly, query, limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) }),
+      listDrepsForConcentration(db),
+      getProtocolParams(db),
+    ])
+  : [[], [], null];
+
+// Voting power concentration: all active, non-special DReps as BigInt powers.
+// Parse lovelace defensively so a single malformed row cannot 500 the page
+// (Koios writes plain integer strings, but the column is untrusted text).
+const toLovelace = (s: string | null): bigint => {
+  try {
+    return BigInt(s ?? '0');
+  } catch {
+    return 0n;
+  }
+};
+const concentration = computeConcentration(
+  concentrationRows.map((r) => ({ drepId: r.drepId, name: r.name, power: toLovelace(r.votingPower) })),
+);
+
+// Donut slider markers: the distinct DRep voting thresholds (dvt_* fractions)
+// from the cached protocol params. Fall back to the current Conway mainnet set
+// before the params have first synced.
+const DEFAULT_DREP_MARKERS = [0.6, 0.67, 0.75];
+const dvtFractions = params
+  ? [
+      params.dvtMotionNoConfidence, params.dvtCommitteeNormal, params.dvtCommitteeNoConfidence,
+      params.dvtUpdateConstitution, params.dvtHardFork, params.dvtPpNetwork, params.dvtPpEconomic,
+      params.dvtPpTechnical, params.dvtPpGov, params.dvtTreasuryWithdrawal,
+    ].filter((v): v is number => typeof v === 'number' && v > 0)
   : [];
+const markerFractions = dvtFractions.length ? [...new Set(dvtFractions)].sort((a, b) => a - b) : DEFAULT_DREP_MARKERS;
+const markersPct = markerFractions.map((m) => Math.round(m * 100));
+const defaultThresholdPct = markersPct.includes(67) ? 67 : (markersPct[Math.floor(markersPct.length / 2)] ?? 67);
+const thresholdsAsOf = params ? new Date(params.syncedAt).toISOString().slice(0, 10) : null;
 
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
@@ -36,6 +76,19 @@ const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
 
 <Layout title="DReps - DRepTalk" description="Browse Cardano DReps by voting power on DRepTalk.">
   <h1>DReps</h1>
+
+  {concentration.drepCount > 0 && (
+    <DrepConcentration
+      client:visible
+      topK={concentration.topK}
+      byPercent={concentration.byPercent}
+      drepCount={concentration.drepCount}
+      totalLabel={concentration.totalLabel}
+      markersPct={markersPct}
+      defaultThresholdPct={defaultThresholdPct}
+      thresholdsAsOf={thresholdsAsOf}
+    />
+  )}
 
   <form method="get" style="display:flex;gap:0.5rem;margin:1rem 0;flex-wrap:wrap;">
     <input type="search" name="q" value={query} placeholder="Search by name" style="flex:1;min-width:12rem;padding:0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);" />
