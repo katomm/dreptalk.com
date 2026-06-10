@@ -85,8 +85,8 @@ const personLd = drep
           <span style={`position:absolute;inset:0;background:center/cover no-repeat url(/api/avatar/${drep.drepId});`}></span>
         )}
       </span>
-      <div>
-        <h1 style="margin:0 0 0.25rem;">{displayName}</h1>
+      <div style="min-width:0;">
+        <h1 style="margin:0 0 0.25rem;overflow-wrap:anywhere;">{displayName}</h1>
         <div style="font-size:0.8125rem;color:var(--muted);word-break:break-all;">{drep.drepId}</div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.8125rem;">
           <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{drep.active ? 'Active' : drep.status}</span>

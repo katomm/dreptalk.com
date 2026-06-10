@@ -64,6 +64,9 @@ const profileHref = !isSystem && drepId ? `/dreps/${drepId}` : null;
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
+    /* Let the identity shrink in a flex/grid row so a long name cannot push the
+       row past the viewport. The name itself breaks rather than overflowing. */
+    min-width: 0;
   }
 
   .author-identity__avatar {
@@ -109,6 +112,8 @@ const profileHref = !isSystem && drepId ? `/dreps/${drepId}` : null;
   .author-identity__name {
     font-weight: 600;
     color: var(--fg);
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .author-identity__badge {
