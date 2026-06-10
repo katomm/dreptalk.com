@@ -134,6 +134,32 @@ describe('searchAll', () => {
     expect(r.discussions).toHaveLength(0);
   });
 
+  it('excludes GA hits whose linked topic is soft-deleted', async () => {
+    await seedTopic({ id: 'gd1', title: 'Raise treasury cap', slug: 'ga-deleted-treasury', source: 'governance', categorySlug: 'governance-actions', deleted: 1 });
+    await seedGa({ id: GA1, proposalId: 'gov_action1del', title: 'Raise treasury cap', abstract: 'Lift the treasury limit.', topicId: 'gd1' });
+
+    const r = await searchAll(db(), '"treasury"*');
+    expect(r.governanceActions).toHaveLength(0);
+  });
+
+  it('returns a GA hit via discussion post match (fallback branch)', async () => {
+    await seedTopic({ id: 'gf1', title: 'Info action post-only', slug: 'ga-post-only', source: 'governance', categorySlug: 'governance-actions' });
+    await seedGa({ id: GA1, proposalId: 'gov_action1fb', title: 'Info Action Title', abstract: 'Nothing relevant here.', type: 'InfoAction', status: 'active', topicId: 'gf1' });
+    await seedPost({ id: 'pf1', topicId: 'gf1', body: 'treasury matters in this post.' });
+    await seedPost({ id: 'pf2', topicId: 'gf1', body: 'treasury mentioned again.' });
+
+    const r = await searchAll(db(), '"treasury"*');
+    expect(r.governanceActions).toHaveLength(1);
+    expect(r.governanceActions[0]).toMatchObject({
+      href: '/t/ga-post-only',
+      title: 'Info Action Title',
+      type: 'InfoAction',
+      status: 'active',
+      discussionMatches: 2,
+    });
+    expect(r.discussions).toHaveLength(0);
+  });
+
   it('caps every group at 5', async () => {
     for (let i = 0; i < 7; i++) {
       await seedTopic({ id: `t${i}`, title: `Treasury thread ${i}`, slug: `tt-${i}` });
@@ -169,7 +195,7 @@ describe('resolveIdentifier', () => {
     await seedGa({ id: GA1, proposalId: 'gov_action1one', title: null, topicId: 'gt1' });
     const exact = await resolveIdentifier(db(), { kind: 'gov-action', by: 'id', value: GA1 });
     expect(exact).toMatchObject({ kind: 'governance-action', href: '/t/ga-slug', label: GA1 });
-    const prefix = await resolveIdentifier(db(), { kind: 'gov-action', by: 'id-prefix', value: `${'a'.repeat(64)}#%` });
+    const prefix = await resolveIdentifier(db(), { kind: 'gov-action', by: 'id-prefix', value: `${'a'.repeat(64)}#` });
     expect(prefix).toMatchObject({ href: '/t/ga-slug' });
   });
 
@@ -184,6 +210,34 @@ describe('resolveIdentifier', () => {
 
     const viaHex = await resolveIdentifier(db(), { kind: 'drep', drepId: cip129 });
     expect(viaHex).toEqual({ kind: 'drep', href: '/dreps/drep1stored', label: 'Stored DRep' });
+  });
+
+  it('returns null when the GA topic is soft-deleted', async () => {
+    await seedTopic({ id: 'gd1', title: 'Deleted Topic', slug: 'del-slug', source: 'governance', deleted: 1 });
+    await seedGa({ id: GA1, proposalId: 'gov_action1deleted', title: 'Some Action', topicId: 'gd1' });
+
+    expect(await resolveIdentifier(db(), { kind: 'gov-action', by: 'proposal_id', value: 'gov_action1deleted' })).toBeNull();
+    expect(await resolveIdentifier(db(), { kind: 'gov-action', by: 'id', value: GA1 })).toBeNull();
+    expect(await resolveIdentifier(db(), { kind: 'gov-action', by: 'id-prefix', value: `${'a'.repeat(64)}#` })).toBeNull();
+  });
+
+  it('resolves a drep stored with drep_script flavor via CIP-129 bech32', async () => {
+    const hash = new Uint8Array(28).fill(0xcd);
+    const hex = 'cd'.repeat(28);
+    const cip129Script = encodeBech32('drep_script', new Uint8Array([0x23, ...hash]));
+    await upsertDrep(db(), drepArgs({ drepId: 'drep_script1stored', hex, hasScript: true, name: 'Script DRep' }));
+
+    const hit = await resolveIdentifier(db(), { kind: 'drep', drepId: cip129Script });
+    expect(hit).toEqual({ kind: 'drep', href: '/dreps/drep_script1stored', label: 'Script DRep' });
+  });
+
+  it('returns null for a 29-byte drep payload with an invalid CIP-129 header', async () => {
+    const hash = new Uint8Array(28).fill(0xab);
+    // 0x60 is a base address header byte, not a valid DRep credential header.
+    const wrongHeader = encodeBech32('drep', new Uint8Array([0x60, ...hash]));
+    await upsertDrep(db(), drepArgs({ drepId: 'drep1wronghdr', hex: 'ab'.repeat(28), name: 'Wrong Header DRep' }));
+
+    expect(await resolveIdentifier(db(), { kind: 'drep', drepId: wrongHeader })).toBeNull();
   });
 
   it('returns null for unknown identifiers', async () => {

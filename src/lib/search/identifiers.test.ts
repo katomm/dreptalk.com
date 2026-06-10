@@ -22,7 +22,7 @@ describe('detectIdentifier', () => {
 
   it('detects a tx hash with and without an index', () => {
     expect(detectIdentifier(`${HASH}#2`)).toEqual({ kind: 'gov-action', by: 'id', value: `${HASH}#2` });
-    expect(detectIdentifier(HASH)).toEqual({ kind: 'gov-action', by: 'id-prefix', value: `${HASH}#%` });
+    expect(detectIdentifier(HASH)).toEqual({ kind: 'gov-action', by: 'id-prefix', value: `${HASH}#` });
   });
 
   it('detects drep and drep_script ids', () => {

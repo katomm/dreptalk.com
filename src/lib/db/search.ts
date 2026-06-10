@@ -58,7 +58,7 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
         .prepare(
           `SELECT ga.id, ga.title, t.slug
            FROM governance_actions ga
-           LEFT JOIN topics t ON t.id = ga.topic_id
+           LEFT JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
            WHERE ga.proposal_id = ?1
            LIMIT 1`,
         )
@@ -68,25 +68,28 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
         .prepare(
           `SELECT ga.id, ga.title, t.slug
            FROM governance_actions ga
-           LEFT JOIN topics t ON t.id = ga.topic_id
+           LEFT JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
            WHERE ga.id = ?1
            LIMIT 1`,
         )
         .bind(ident.value);
     } else {
-      // id-prefix: value is "<64-hex>#%" from identifiers.ts; strip the trailing
-      // "%" and match via SUBSTR to avoid SQLite LIKE complexity limits on long
-      // hex patterns. The prefix is always exactly "<hash>#" (65 chars).
-      const prefix = ident.value.endsWith('%') ? ident.value.slice(0, -1) : ident.value;
+      // id-prefix: value is the bare "<64-hex>#" prefix from identifiers.ts.
+      // SUBSTR gives byte-exact, case-sensitive comparison without wildcard
+      // semantics. LIKE is ASCII case-insensitive and carries pattern-matching
+      // we do not want here (it also failed in workerd with "LIKE or GLOB
+      // pattern too complex" on full 65-char patterns).
+      // ORDER BY ga.id so a hash with multiple actions resolves to the lowest index.
       stmt = db
         .prepare(
           `SELECT ga.id, ga.title, t.slug
            FROM governance_actions ga
-           LEFT JOIN topics t ON t.id = ga.topic_id
+           LEFT JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
            WHERE SUBSTR(ga.id, 1, ?2) = ?1
+           ORDER BY ga.id
            LIMIT 1`,
         )
-        .bind(prefix, prefix.length);
+        .bind(ident.value, ident.value.length);
     }
     const row = await stmt.first<{ id: string; title: string | null; slug: string | null }>();
     if (!row?.slug) return null;
@@ -108,7 +111,14 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
   try {
     const { prefix, data } = decodeBech32(ident.drepId);
     if (prefix === 'drep' || prefix === 'drep_script') {
-      const hash = data.length === 29 ? data.subarray(1) : data.length === 28 ? data : null;
+      // 29-byte payloads carry a CIP-129 header byte; only 0x22 (key) or 0x23
+      // (script) are valid DRep credential headers.
+      const hash =
+        data.length === 29 && (data[0] === 0x22 || data[0] === 0x23)
+          ? data.subarray(1)
+          : data.length === 28
+            ? data
+            : null;
       if (hash) hex = toHex(hash);
     }
   } catch {
@@ -167,7 +177,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
                 snippet(governance_actions_fts, 1, char(1), char(2), '…', 12) AS snip
          FROM governance_actions_fts
          JOIN governance_actions ga ON ga.rowid = governance_actions_fts.rowid
-         LEFT JOIN topics t ON t.id = ga.topic_id
+         LEFT JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
          WHERE governance_actions_fts MATCH ?1
          ORDER BY bm25(governance_actions_fts, 5.0, 1.0)
          LIMIT ${GROUP_LIMIT}`,
