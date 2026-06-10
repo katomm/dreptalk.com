@@ -147,11 +147,14 @@ export default function DrepConcentration(props: Props) {
               ))}
             </div>
 
-            {currentMarker && currentMarker.actions.length > 0 && (
-              <p className="drep-conc__threshold-actions">
-                {threshold}% is the passing threshold for {currentMarker.actions.join(', ')}.
-              </p>
-            )}
+            {/* Always rendered with a reserved height (see CSS) so dragging the
+                slider on or off a marker never changes this column's height, which
+                would otherwise reflow the donut and re-center the legend. */}
+            <p className="drep-conc__threshold-actions">
+              {currentMarker && currentMarker.actions.length > 0
+                ? `${threshold}% is the passing threshold for ${currentMarker.actions.join(', ')}.`
+                : 'Move onto a marker to see the actions it gates.'}
+            </p>
           </div>
 
           {thresholdsAsOf && <p className="drep-conc__asof">Thresholds as of {thresholdsAsOf}.</p>}
