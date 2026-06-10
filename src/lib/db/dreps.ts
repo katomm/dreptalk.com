@@ -178,8 +178,11 @@ export async function listDreps(
 }
 
 /**
- * Inserts or replaces a drep row.
- * Uses INSERT OR REPLACE so re-syncing updates all fields atomically.
+ * Inserts or updates a drep row in place (upsert keyed on drep_id).
+ * Deliberately NOT INSERT OR REPLACE: REPLACE is DELETE+INSERT, which would
+ * reassign the rowid and fire the dreps FTS delete/insert triggers on every
+ * sync write. ON CONFLICT DO UPDATE keeps the row identity stable so the
+ * WHEN-guarded FTS trigger only fires when name/bio actually change.
  * Booleans are stored as 0/1; links array is JSON-serialized or null.
  */
 export async function upsertDrep(
@@ -211,12 +214,32 @@ export async function upsertDrep(
 
   await db
     .prepare(
-      `INSERT OR REPLACE INTO dreps
+      `INSERT INTO dreps
          (drep_id, hex, has_script, status, active, deposit, voting_power,
           expires_epoch_no, name, bio, image_url, image_content_hash,
           image_stored_url, image_fetch_failed_at, links, anchor_url,
           anchor_hash, anchor_status, last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(drep_id) DO UPDATE SET
+         hex = excluded.hex,
+         has_script = excluded.has_script,
+         status = excluded.status,
+         active = excluded.active,
+         deposit = excluded.deposit,
+         voting_power = excluded.voting_power,
+         expires_epoch_no = excluded.expires_epoch_no,
+         name = excluded.name,
+         bio = excluded.bio,
+         image_url = excluded.image_url,
+         image_content_hash = excluded.image_content_hash,
+         image_stored_url = excluded.image_stored_url,
+         image_fetch_failed_at = excluded.image_fetch_failed_at,
+         links = excluded.links,
+         anchor_url = excluded.anchor_url,
+         anchor_hash = excluded.anchor_hash,
+         anchor_status = excluded.anchor_status,
+         last_synced_at = excluded.last_synced_at,
+         created_at = excluded.created_at`,
     )
     .bind(
       args.drepId,

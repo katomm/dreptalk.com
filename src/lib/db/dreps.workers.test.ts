@@ -97,7 +97,7 @@ describe('upsertDrep + getDrepById', () => {
     expect(typeof result!.active).toBe('boolean');
   });
 
-  it('INSERT OR REPLACE overwrites an existing row', async () => {
+  it('upsert overwrites an existing row', async () => {
     const drepId = `${DREP_A}-replace`;
     await upsertDrep(db(), { ...BASE_ARGS, drepId });
 
@@ -301,5 +301,37 @@ describe('avatar store queries', () => {
     expect(set.has('2'.repeat(64))).toBe(true);
     // DISTINCT dedupes the shared hash and the null row contributes nothing.
     expect(set.size).toBe(1);
+  });
+});
+
+describe('upsertDrep rowid stability', () => {
+  it('keeps the rowid and FTS entry across re-syncs, and only name/bio changes rewrite the index', async () => {
+    await upsertDrep(db(), BASE_ARGS);
+    const before = await db().prepare('SELECT rowid FROM dreps WHERE drep_id = ?').bind(DREP_A).first<{ rowid: number }>();
+
+    // Voting-power-only change: row identity and index untouched.
+    await upsertDrep(db(), { ...BASE_ARGS, votingPower: '6000000000' });
+    const after = await db().prepare('SELECT rowid FROM dreps WHERE drep_id = ?').bind(DREP_A).first<{ rowid: number }>();
+    expect(after!.rowid).toBe(before!.rowid);
+
+    // Still findable under the original name.
+    const hits = await db()
+      .prepare('SELECT rowid FROM dreps_fts WHERE dreps_fts MATCH ?')
+      .bind('"test" "drep"')
+      .all();
+    expect(hits.results).toHaveLength(1);
+
+    // A name change updates the index.
+    await upsertDrep(db(), { ...BASE_ARGS, name: 'Renamed Drep' });
+    const renamed = await db()
+      .prepare('SELECT rowid FROM dreps_fts WHERE dreps_fts MATCH ?')
+      .bind('"renamed"')
+      .all();
+    expect(renamed.results).toHaveLength(1);
+    const oldName = await db()
+      .prepare('SELECT rowid FROM dreps_fts WHERE dreps_fts MATCH ?')
+      .bind('"test" "drep"')
+      .all();
+    expect(oldName.results).toHaveLength(0);
   });
 });
