@@ -10,6 +10,7 @@ import {
   listDrepsNeedingAvatar,
   setDrepImageStored,
   clearOrphanedImageStore,
+  listReferencedImageHashes,
 } from '../db/dreps.js';
 
 // Maximum accepted image size (256 KB): larger is mislinked or hostile.
@@ -126,4 +127,46 @@ export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarSto
   }
 
   return { scanned: rows.length, stored, cleared, failed };
+}
+
+// Grace period before an unreferenced object is deleted. Covers the window
+// between an object landing in R2 and its DB row being visible to the GC's
+// referenced-set read (mirrors the drep-metadata GC).
+const AVATAR_GC_GRACE_MS = 24 * 60 * 60 * 1000;
+
+export interface AvatarGcDeps {
+  db: D1Database;
+  bucket: R2Bucket;
+  nowMs: number;
+  /** Max deletions per run; the backlog drains over successive cron runs. */
+  deleteLimit?: number;
+}
+
+/**
+ * Deletes avatars/<hash> objects that no dreps row references anymore, once
+ * they are older than the grace period. Paginates the R2 listing; bounded
+ * deletions per run.
+ */
+export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: number; deleted: number }> {
+  const deleteLimit = deps.deleteLimit ?? 200;
+  const referenced = await listReferencedImageHashes(deps.db);
+
+  let scanned = 0;
+  let deleted = 0;
+  let cursor: string | undefined;
+  do {
+    const page = await deps.bucket.list({ prefix: AVATAR_KEY_PREFIX, cursor });
+    for (const obj of page.objects) {
+      scanned++;
+      if (deleted >= deleteLimit) break;
+      const hash = obj.key.slice(AVATAR_KEY_PREFIX.length);
+      if (referenced.has(hash)) continue;
+      if (deps.nowMs - obj.uploaded.getTime() < AVATAR_GC_GRACE_MS) continue;
+      await deps.bucket.delete(obj.key);
+      deleted++;
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor && deleted < deleteLimit);
+
+  return { scanned, deleted };
 }

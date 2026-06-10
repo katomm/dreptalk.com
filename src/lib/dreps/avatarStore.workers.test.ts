@@ -2,7 +2,7 @@
 // (AVATARS) and D1. The image fetch is injected.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { storeDrepAvatars, AVATAR_KEY_PREFIX } from './avatarStore.js';
+import { storeDrepAvatars, gcDrepAvatars, AVATAR_KEY_PREFIX } from './avatarStore.js';
 import { upsertDrep, getDrepById } from '../db/dreps.js';
 import { bytesToHex } from '../crypto/hex.js';
 
@@ -147,5 +147,29 @@ describe('storeDrepAvatars', () => {
     const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl });
     expect(r.cleared).toBe(1);
     expect((await getDrepById(db(), 'st-gone'))!.imageContentHash).toBeNull();
+  });
+});
+
+describe('gcDrepAvatars', () => {
+  it('deletes orphaned objects past the grace period, keeps referenced ones', async () => {
+    const keepHash = '3'.repeat(64);
+    await upsertDrep(db(), { ...BASE, drepId: 'gc-ref', imageUrl: 'https://img.example/r.png', imageContentHash: keepHash, imageStoredUrl: 'https://img.example/r.png' });
+    await bucket().put(AVATAR_KEY_PREFIX + keepHash, PNG_BYTES);
+    await bucket().put(AVATAR_KEY_PREFIX + '4'.repeat(64), PNG_BYTES);
+
+    // Both objects were uploaded "now"; evaluating 25h in the future puts the
+    // orphan past the 24h grace period.
+    const r = await gcDrepAvatars({ db: db(), bucket: bucket(), nowMs: Date.now() + 25 * 60 * 60 * 1000 });
+    expect(r.deleted).toBe(1);
+    expect(await bucket().get(AVATAR_KEY_PREFIX + keepHash)).not.toBeNull();
+    expect(await bucket().get(AVATAR_KEY_PREFIX + '4'.repeat(64))).toBeNull();
+  });
+
+  it('keeps a fresh orphan inside the grace period', async () => {
+    await bucket().put(AVATAR_KEY_PREFIX + '5'.repeat(64), PNG_BYTES);
+
+    const r = await gcDrepAvatars({ db: db(), bucket: bucket(), nowMs: Date.now() });
+    expect(r.deleted).toBe(0);
+    expect(await bucket().get(AVATAR_KEY_PREFIX + '5'.repeat(64))).not.toBeNull();
   });
 });
