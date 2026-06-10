@@ -19,6 +19,10 @@ describe('buildMatch', () => {
     expect(buildMatch('say "hello" world')).toBe('"say" "hello" "world"*');
   });
 
+  it('strips Unicode curly quotes from the input', () => {
+    expect(buildMatch('“governance”')).toBe('"governance"*');
+  });
+
   it('drops tokens without letters or digits', () => {
     expect(buildMatch('a & b')).toBe('"a" "b"*');
     expect(buildMatch('- - -')).toBeNull();

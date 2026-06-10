@@ -16,7 +16,7 @@ export function detectIdentifier(q: string): IdentifierQuery | null {
   if (/^drep(_script)?1[a-z0-9]+$/.test(s)) {
     return { kind: 'drep', drepId: s };
   }
-  const hash = s.match(/^([0-9a-f]{64})(?:#(\d+))?$/);
+  const hash = s.match(/^([0-9a-f]{64})(?:#(\d{1,6}))?$/);
   if (hash) {
     // DB ids are "<txHash>#<index>"; a bare hash matches by prefix (hex only,
     // so no LIKE wildcard can hide inside the value).

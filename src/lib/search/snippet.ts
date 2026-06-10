@@ -28,11 +28,15 @@ export function parseSnippet(snippet: string): SnippetSegment[] {
 /**
  * Light cleanup for snippets cut from raw markdown: leading heading/list/quote
  * markers and inline emphasis characters read as noise in a one-line preview.
+ * Two-step leading cleanup: first strip whitespace/heading/blockquote chars,
+ * then strip a list marker (- or *) only when followed by whitespace, so a
+ * leading hyphen that is part of a word (e.g. '-based') is preserved.
  * Operates before parseSnippet and must not remove the match markers.
  */
 export function cleanMarkdownSnippet(s: string): string {
   return s
-    .replace(/^[\s#>*-]+/, '')
+    .replace(/^[\s#>]+/, '')
+    .replace(/^[*-]\s+/, '')
     .replace(/(\*\*|__|`)/g, '')
     .trim();
 }

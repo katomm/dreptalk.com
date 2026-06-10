@@ -38,4 +38,21 @@ describe('cleanMarkdownSnippet', () => {
   it('does not eat match markers', () => {
     expect(cleanMarkdownSnippet('# \x01treasury\x02 cap')).toBe('\x01treasury\x02 cap');
   });
+
+  it('preserves a leading hyphen that is part of a word', () => {
+    expect(cleanMarkdownSnippet('-based reform')).toBe('-based reform');
+  });
+
+  it('strips a markdown list marker followed by whitespace', () => {
+    expect(cleanMarkdownSnippet('- list item')).toBe('list item');
+  });
+});
+
+describe('parseSnippet (edge cases)', () => {
+  it('treats an unclosed open marker as match to end of string', () => {
+    expect(parseSnippet('tail \x01unclosed')).toEqual([
+      { text: 'tail ', match: false },
+      { text: 'unclosed', match: true },
+    ]);
+  });
 });

@@ -35,4 +35,8 @@ describe('detectIdentifier', () => {
     expect(detectIdentifier('drep')).toBeNull();
     expect(detectIdentifier('deadbeef')).toBeNull();
   });
+
+  it('returns null for a tx hash with an absurdly large index', () => {
+    expect(detectIdentifier(`${HASH}#${'9'.repeat(30)}`)).toBeNull();
+  });
 });
