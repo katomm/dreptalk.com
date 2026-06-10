@@ -1,0 +1,18 @@
+DRepTalk
+Copyright 2026 DRepTalk contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes the following third-party components:
+
+------------------------------------------------------------------------
+cardenticon (src/vendor/cardenticon)
+------------------------------------------------------------------------
+Copyright 2026 cardenticon contributors
+
+Derived from hashicon (https://github.com/emeraldpay/hashicon)
+Copyright 2018-2022 EmeraldPay, Inc
+Licensed under the Apache License, Version 2.0.
+
+See src/vendor/cardenticon/NOTICE and src/vendor/cardenticon/LICENSE for
+the full attribution and license text.

@@ -1,8 +1,10 @@
 // Operator and contact details for the legal pages (imprint, privacy).
-// The text of the policies is public and lives in the repo; the operator's
-// personal data is injected from environment variables so it stays out of the
-// public repository. Set these in `.dev.vars` locally and as Worker vars in
-// production:
+// These implement the operator imprint (Impressum) and privacy page that German
+// and EU law require for a public site; adapt them if you operate under another
+// jurisdiction. The text of the policies is public and lives in the repo; the
+// operator's personal data is injected from environment variables so it stays
+// out of the public repository. Set these in `.dev.vars` locally and as Worker
+// vars in production:
 //   LEGAL_OPERATOR_NAME       operator name or entity
 //   LEGAL_OPERATOR_ADDRESS    postal address; separate lines with "|" or newlines
 //   LEGAL_CONTACT_EMAIL       contact email for legal and privacy requests
