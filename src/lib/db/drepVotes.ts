@@ -160,3 +160,33 @@ export async function getVotesByGaId(
   }
   return map;
 }
+
+export interface DrepVoteBreakdown {
+  yes: number;
+  no: number;
+  abstain: number;
+  total: number;
+}
+
+/**
+ * Yes / No / Abstain counts for a DRep (role 'DRep'), by raw vote count (1 action
+ * = 1 vote). One grouped scan over idx_drep_votes_voter. Any vote value other than
+ * Yes/No (e.g. Abstain) folds into abstain.
+ */
+export async function getDrepVoteBreakdown(db: D1Database, voterId: string): Promise<DrepVoteBreakdown> {
+  const rows = (
+    await db
+      .prepare(`SELECT vote, COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep' GROUP BY vote`)
+      .bind(voterId)
+      .all<{ vote: string; n: number }>()
+  ).results ?? [];
+  const out: DrepVoteBreakdown = { yes: 0, no: 0, abstain: 0, total: 0 };
+  for (const r of rows) {
+    const v = r.vote.toLowerCase();
+    if (v === 'yes') out.yes += r.n;
+    else if (v === 'no') out.no += r.n;
+    else out.abstain += r.n;
+    out.total += r.n;
+  }
+  return out;
+}
