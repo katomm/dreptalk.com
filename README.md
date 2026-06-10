@@ -1,10 +1,40 @@
-# DRepTalk
+<p align="center">
+  <img src="https://dreptalk.com/logo-mark.svg" alt="DRepTalk logo" width="88" />
+</p>
+
+<h1 align="center">DRepTalk</h1>
+
+<p align="center">
+  <a href="https://github.com/katomm/dreptalk.com/actions/workflows/ci.yml"><img src="https://github.com/katomm/dreptalk.com/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
+  <a href="https://dreptalk.com"><img src="https://img.shields.io/badge/live-mainnet-2ea44f.svg" alt="Live on mainnet" /></a>
+</p>
 
 Wallet-authenticated discussion forum for Cardano governance, running at [dreptalk.com](https://dreptalk.com).
 
 Incoming on-chain Governance Actions automatically open a thread, and DReps, SPOs, CC members, and proposers discuss them next to the live on-chain vote data. Reading is public; writing is gated to those on-chain roles, each proven by a wallet signature (no custody of keys, signature-based login).
 
 The aim is a calmer, accountable home for governance discussion, away from the drama of social media.
+
+## Quickstart
+
+Requires Node 20+. Local and preview run against the Cardano preprod testnet; set `CARDANO_NETWORK=preprod` in `.dev.vars`.
+
+```sh
+npm install
+npm run db:migrate:local   # set up the local database, required once before the first dev run
+npm run dev                # app dev server (Astro, with HMR)
+```
+
+For the full local setup, the database, and running governance syncs by hand, see [docs/development.md](docs/development.md). For shipping to mainnet and preprod, see [docs/deployment.md](docs/deployment.md).
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, code style, and commit and pull request conventions.
+
+## Security
+
+Found a vulnerability? Please report it privately, not in a public issue. See [SECURITY.md](SECURITY.md).
 
 ## Stack
 
@@ -14,66 +44,7 @@ Moderation is community-first: any on-chain writer (DRep, SPO, CC member, or pro
 
 On-chain values (governance tallies and status, DRep profiles, per-post vote badges) are synced on crons and are cached, not live; every place they appear shows an "as of" time. The exact cadences live in one place, `src/lib/freshness.ts`, and are published at `/help/data-freshness`.
 
-The legal pages (`/imprint`, `/privacy`) read the operator and contact details from env so they stay out of the repository: `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_ADDRESS` (separate lines with `|`), `LEGAL_CONTACT_EMAIL`, optional `LEGAL_RESPONSIBLE_PERSON`, `LEGAL_PHONE`, `LEGAL_VAT_ID`. Set them in `.dev.vars` locally and as Worker vars in production.
-
-## Local development
-
-Requires Node 20+. Local and preview run against the Cardano preprod testnet; set `CARDANO_NETWORK=preprod` in `.dev.vars`.
-
-- `npm install`
-- `npm run db:migrate:local`: set up the local database (apply all migrations). Required before the first `npm run dev`; see [Database setup](#database-setup)
-- `npm run dev`: app dev server (Astro, with HMR)
-- `npm test`: unit and integration tests
-- `npm run typecheck`: type check
-- `npm run lint`: lint with Biome (CI gate); `npm run lint:fix` applies safe fixes
-- `npm run format`: format with Biome (`npm run format:check` to verify only)
-- `npm run preview`: production build served via `wrangler dev`
-
-### Database setup
-
-The forum and governance pages read from a Cloudflare D1 (SQLite) database. In local dev both the app (through `@astrojs/cloudflare`) and the `gov-sync` cron worker use an on-disk D1 under `.wrangler/state`. That file is created automatically the first time a worker runs, but it has no tables until you apply the migrations, so a fresh clone fails with `no such table` on any page that touches the database. That missing schema is the "no database" problem a new fork hits.
-
-Apply every migration in `migrations/` to the local database once, from the repo root:
-
-```sh
-npm run db:migrate:local        # wraps: wrangler d1 migrations apply DB --local --persist-to .wrangler/state
-```
-
-`DB` is the binding name (not the database name), and `--local` targets the SQLite file under `.wrangler/state`; the remote database is never touched. The app and the cron worker share the same `database_id` and the same `.wrangler/state`, so this single command migrates the database for both: there is nothing to migrate per worker. Re-run it whenever new files land in `migrations/`.
-
-After migrating, the database exists but is empty: no governance actions, DReps, or tallies yet. None of that data ships in the repo; it is pulled from the chain by the cron worker. Local dev never fires the cron triggers on its own (the "crons don't run" you may have seen is expected, not a bug), so you populate the database by triggering the syncs by hand, as described next.
-
-### Running a governance sync locally
-
-On-chain data is ingested by a standalone Cloudflare cron worker at `workers/gov-sync` that shares the app's D1 database. It has three cron triggers, and the worker dispatches on the cron expression, so to run a specific sync locally you pass that expression to `/__scheduled`. Start the worker once, then trigger the run you need:
-
-```sh
-npm run sync:dev                                       # terminal 1: start the worker (wrangler dev, scheduled enabled)
-
-# terminal 2: trigger a single run. Keep the * inside quotes so the shell does not expand them.
-curl "http://localhost:8787/__scheduled"                       # governance actions + tallies (default */15 cron)
-curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"        # per-post DRep vote lists (hourly cron)
-curl "http://localhost:8787/__scheduled?cron=0+*/6+*+*+*"      # DRep profiles + voting power (6-hourly cron)
-```
-
-It polls Koios (preprod locally, per `CARDANO_NETWORK`) and writes to D1. Stake Participation on the governance overview needs the DRep run (it fills `dreps.voting_power`); the voted share also needs the vote run. The cron expressions mirror `src/lib/freshness.ts`.
-
-The first DRep run is the painful one without a `KOIOS_API_KEY`: it enumerates every DRep from an empty database, which is rate-limit heavy on anonymous Koios and may stall or partially fail. Set `KOIOS_API_KEY` in `.dev.vars` before the first run; the same token works on every network (see [Deployment](#deployment)). Subsequent runs are incremental and much lighter.
-
-## Deployment
-
-Production runs on mainnet at [dreptalk.com](https://dreptalk.com) (`www` redirects to the apex). A full preprod mirror runs at [preprod.dreptalk.com](https://preprod.dreptalk.com) for testing governance flows against the preprod testnet. The mirror is a separate worker (`dreptalk-com-preprod`) with its own D1 database and KV namespaces so preprod DReps, governance and logins never mix with mainnet. It also runs its own copy of the gov-sync cron worker (`dreptalk-gov-sync-preprod`) against preprod Koios. Because it sets `CARDANO_NETWORK=preprod`, the middleware tags every response `X-Robots-Tag: noindex, nofollow` so the mirror stays out of search indexes.
-
-The app preprod config is not a `wrangler.toml` environment: the `@astrojs/cloudflare` adapter regenerates the deploy config from the top level only and drops `[env.*]` blocks, so `scripts/preprod-config.mjs` derives it from the adapter's build output instead. The gov-sync worker has no adapter, so it uses a normal `[env.preprod]` block.
-
-Deploys are split per worker and environment so a failed step stays contained and any single target can be re-run on its own: `npm run deploy:app` and `npm run deploy:sync` ship the mainnet app and cron worker, `npm run deploy:app:preprod` and `npm run deploy:sync:preprod` ship their preprod mirrors, `npm run deploy:mainnet` and `npm run deploy:preprod` group the two workers per environment, and `npm run deploy` (alias for `npm run deploy:all`) ships all four. Both environments build from the same source; only `CARDANO_NETWORK`, the bindings and the route differ. Custom domains and their TLS certificates are provisioned automatically from the `dreptalk.com` zone on deploy. Mainnet schema changes are applied with `wrangler d1 migrations apply DB --remote`; the preprod database is targeted through the gov-sync env with `wrangler d1 migrations apply DB -c workers/gov-sync/wrangler.toml --env preprod --remote`.
-
-The preprod workers need the same config as mainnet, set once after their first deploy. The legal plain-text vars (`LEGAL_*`, `PRIVACY_CONTACT_EMAIL`) go on the app worker as Worker vars. `KOIOS_API_KEY` is a secret, not a var, and is set per worker with `wrangler secret put`; the same Koios token works on every network (it is tied to the account tier, not the network), so reuse the mainnet token. It is optional but recommended for preprod, mainly for the cron worker, whose six-hourly DRep enumeration is rate-limit heavy:
-
-```sh
-npx wrangler secret put KOIOS_API_KEY --name dreptalk-com-preprod
-npx wrangler secret put KOIOS_API_KEY --name dreptalk-gov-sync-preprod
-```
+DRepTalk ships an imprint and privacy page (`/imprint`, `/privacy`), the operator disclosure that German and EU law require for a public site. The policy text is public and lives in the repo; the operator's own details are injected from `LEGAL_*` env vars so they stay out of the repository. The exact variables are documented in [`src/lib/legal.ts`](src/lib/legal.ts); set them in `.dev.vars` locally and as Worker vars in production. If you run DRepTalk outside Germany or the EU, adapt these pages to your own jurisdiction.
 
 ## Status
 
@@ -85,4 +56,4 @@ Bugs and feature requests: open a [GitHub issue](https://github.com/katomm/drept
 
 ## License
 
-Apache 2.0.
+Apache 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
