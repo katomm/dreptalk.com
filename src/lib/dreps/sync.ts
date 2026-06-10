@@ -7,9 +7,10 @@
 // Idempotent and per-DRep isolated: a single DRep failing does not abort the run.
 // Mirrors the shape of governance/sync.ts (injected deps, result counts).
 
-import type { DrepInfoRow, DrepListRow } from '../koios/client.js';
+import type { DrepInfoRow, DrepListRow, DrepUpdateRow } from '../koios/client.js';
 import type { Drep } from '../db/dreps.js';
-import { getDrepsByIds, upsertDrep } from '../db/dreps.js';
+import { getDrepsByIds, upsertDrep, listDrepIdsMissingRegisteredEpoch, setRegisteredEpochs } from '../db/dreps.js';
+import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { gcDrepMetadata } from '../db/drepMetadata.js';
 import { fetchAnchorDoc, extractCip119Profile } from '../governance/metadata.js';
 
@@ -292,4 +293,72 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   }
 
   return { total: ids.length, updated, skipped, anchorsFetched, failed, gcScanned, gcDeleted };
+}
+
+// Koios pages /drep_updates at 1000 rows. The full unfiltered list is a handful
+// of pages today; this cap bounds a single run even if the list grows.
+const UPDATES_PAGE = 1000;
+const MAX_UPDATE_PAGES = 12;
+
+export interface RegisteredEpochBackfillResult {
+  /** DReps that lacked a registration epoch at the start of the run. */
+  missing: number;
+  /** DReps whose registration epoch was written this run. */
+  resolved: number;
+  /** /drep_updates pages fetched this run. */
+  pages: number;
+}
+
+export interface RegisteredEpochBackfillDeps {
+  koios: { drepUpdates(limit: number, offset: number): Promise<DrepUpdateRow[]> };
+  db: D1Database;
+  cfg: NetworkConfig;
+}
+
+/**
+ * Fills dreps.registered_epoch for DReps that still lack it, from the unfiltered
+ * /drep_updates feed (newest first). For each missing DRep we keep the earliest
+ * 'registered' block_time seen, convert it to an epoch, and batch-update.
+ *
+ * No-op when nothing is missing, so steady-state cost is one indexed read; the
+ * one-time backfill is a few pages. Stops paging early once every missing DRep
+ * has a registration row, and never exceeds MAX_UPDATE_PAGES per run.
+ */
+export async function backfillRegisteredEpochs(
+  deps: RegisteredEpochBackfillDeps,
+): Promise<RegisteredEpochBackfillResult> {
+  const { koios, db, cfg } = deps;
+  const missingIds = await listDrepIdsMissingRegisteredEpoch(db);
+  if (missingIds.length === 0) return { missing: 0, resolved: 0, pages: 0 };
+
+  const missing = new Set(missingIds);
+  const earliest = new Map<string, number>(); // drep_id -> earliest registered block_time
+
+  let pages = 0;
+  for (let offset = 0; pages < MAX_UPDATE_PAGES; offset += UPDATES_PAGE, pages++) {
+    const page = await koios.drepUpdates(UPDATES_PAGE, offset);
+    for (const row of page) {
+      if (row.action !== 'registered' || row.block_time == null) continue;
+      if (!missing.has(row.drep_id)) continue;
+      const prev = earliest.get(row.drep_id);
+      if (prev == null || row.block_time < prev) earliest.set(row.drep_id, row.block_time);
+    }
+    if (page.length < UPDATES_PAGE) break; // last page
+    // Stop early once every missing DRep has a registration row.
+    let allFound = true;
+    for (const id of missing) {
+      if (!earliest.has(id)) {
+        allFound = false;
+        break;
+      }
+    }
+    if (allFound) break;
+  }
+
+  const entries = [...earliest].map(([drepId, blockTime]) => ({
+    drepId,
+    epoch: epochFromUnix(blockTime, cfg),
+  }));
+  const resolved = await setRegisteredEpochs(db, entries);
+  return { missing: missingIds.length, resolved, pages };
 }
