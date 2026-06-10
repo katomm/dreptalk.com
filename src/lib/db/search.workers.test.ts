@@ -29,13 +29,13 @@ async function seedTopic(o: {
     .run();
 }
 
-async function seedPost(o: { id: string; topicId: string; body: string; deleted?: number }) {
+async function seedPost(o: { id: string; topicId: string; body: string; deleted?: number; hidden?: number }) {
   await db()
     .prepare(
-      `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, deleted, created_at)
-       VALUES (?, ?, 'system', ?, ?, ?, ?)`,
+      `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, deleted, hidden, created_at)
+       VALUES (?, ?, 'system', ?, ?, ?, ?, ?)`,
     )
-    .bind(o.id, o.topicId, o.body, `<p>${o.body}</p>`, o.deleted ?? 0, NOW)
+    .bind(o.id, o.topicId, o.body, `<p>${o.body}</p>`, o.deleted ?? 0, o.hidden ?? 0, NOW)
     .run();
 }
 
@@ -129,6 +129,14 @@ describe('searchAll', () => {
     await seedTopic({ id: 'ut1', title: 'Old treasury thread', slug: 'old', deleted: 1 });
     await seedTopic({ id: 'ut2', title: 'Live thread', slug: 'live' });
     await seedPost({ id: 'p1', topicId: 'ut2', body: 'treasury mention', deleted: 1 });
+
+    const r = await searchAll(db(), '"treasury"*');
+    expect(r.discussions).toHaveLength(0);
+  });
+
+  it('excludes community-hidden posts from search results', async () => {
+    await seedTopic({ id: 'ut1', title: 'Live thread', slug: 'live-hidden' });
+    await seedPost({ id: 'ph1', topicId: 'ut1', body: 'treasury detail hidden', hidden: 1 });
 
     const r = await searchAll(db(), '"treasury"*');
     expect(r.discussions).toHaveLength(0);

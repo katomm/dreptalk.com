@@ -205,7 +205,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
          JOIN posts p ON p.rowid = posts_fts.rowid
          JOIN topics t ON t.id = p.topic_id
          LEFT JOIN governance_actions ga ON ga.topic_id = t.id
-         WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND t.deleted = 0
+         WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0
          ORDER BY bm25(posts_fts)
          LIMIT 12`,
       )
