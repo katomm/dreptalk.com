@@ -22,6 +22,8 @@ export interface Drep {
   imageContentHash: string | null;
   /** The source image_url last successfully downloaded into R2. */
   imageStoredUrl: string | null;
+  /** Unix ms of the last failed download attempt; NULL when never failed or after a success. */
+  imageFetchFailedAt: number | null;
   links: { label: string; uri: string }[] | null;
   anchorUrl: string | null;
   anchorHash: string | null;
@@ -45,6 +47,7 @@ interface DrepRow {
   image_url: string | null;
   image_content_hash: string | null;
   image_stored_url: string | null;
+  image_fetch_failed_at: number | null;
   links: string | null;
   anchor_url: string | null;
   anchor_hash: string | null;
@@ -69,6 +72,7 @@ function rowToDrep(row: DrepRow): Drep {
     imageUrl: row.image_url,
     imageContentHash: row.image_content_hash,
     imageStoredUrl: row.image_stored_url,
+    imageFetchFailedAt: row.image_fetch_failed_at,
     links: row.links != null ? (JSON.parse(row.links) as { label: string; uri: string }[]) : null,
     anchorUrl: row.anchor_url,
     anchorHash: row.anchor_hash,
@@ -194,6 +198,7 @@ export async function upsertDrep(
     imageUrl: string | null;
     imageContentHash: string | null;
     imageStoredUrl: string | null;
+    imageFetchFailedAt: number | null;
     links: { label: string; uri: string }[] | null;
     anchorUrl: string | null;
     anchorHash: string | null;
@@ -209,9 +214,9 @@ export async function upsertDrep(
       `INSERT OR REPLACE INTO dreps
          (drep_id, hex, has_script, status, active, deposit, voting_power,
           expires_epoch_no, name, bio, image_url, image_content_hash,
-          image_stored_url, links, anchor_url, anchor_hash, anchor_status,
-          last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          image_stored_url, image_fetch_failed_at, links, anchor_url,
+          anchor_hash, anchor_status, last_synced_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       args.drepId,
@@ -227,6 +232,7 @@ export async function upsertDrep(
       args.imageUrl,
       args.imageContentHash,
       args.imageStoredUrl,
+      args.imageFetchFailedAt,
       linksJson,
       args.anchorUrl,
       args.anchorHash,
@@ -244,8 +250,10 @@ export interface DrepAvatarSourceRow {
 
 /**
  * Work queue for the avatar store pass: DReps whose source image exists but is
- * not yet stored, or whose source URL changed since it was stored. Ordered by
- * drep_id for deterministic paging; capped by limit.
+ * not yet stored, or whose source URL changed since it was stored. Never-failed
+ * rows come first, then failures oldest first, so a permanently failing source
+ * rotates to the back of the queue instead of starving fresh work. drep_id
+ * breaks ties for deterministic paging; capped by limit.
  */
 export async function listDrepsNeedingAvatar(db: D1Database, limit: number): Promise<DrepAvatarSourceRow[]> {
   const rows = (
@@ -254,7 +262,7 @@ export async function listDrepsNeedingAvatar(db: D1Database, limit: number): Pro
         `SELECT drep_id, image_url FROM dreps
          WHERE image_url IS NOT NULL
            AND (image_stored_url IS NULL OR image_stored_url <> image_url)
-         ORDER BY drep_id
+         ORDER BY image_fetch_failed_at ASC NULLS FIRST, drep_id
          LIMIT ?`,
       )
       .bind(limit)
@@ -266,7 +274,8 @@ export async function listDrepsNeedingAvatar(db: D1Database, limit: number): Pro
 /**
  * Records a successful store: the R2 content hash and the source URL it came
  * from. image_stored_url is the idempotency key: listDrepsNeedingAvatar only
- * re-selects a row once the on-chain image_url differs from it again.
+ * re-selects a row once the on-chain image_url differs from it again. Clears
+ * the failure stamp so a later source change re-enters the queue as fresh work.
  */
 export async function setDrepImageStored(
   db: D1Database,
@@ -275,8 +284,32 @@ export async function setDrepImageStored(
   storedUrl: string,
 ): Promise<void> {
   await db
-    .prepare('UPDATE dreps SET image_content_hash = ?, image_stored_url = ? WHERE drep_id = ?')
+    .prepare(
+      `UPDATE dreps SET image_content_hash = ?, image_stored_url = ?,
+         image_fetch_failed_at = NULL
+       WHERE drep_id = ?`,
+    )
     .bind(contentHash, storedUrl, drepId)
+    .run();
+}
+
+/**
+ * Stamps the given rows with the time of a failed download attempt, in one
+ * batched UPDATE; listDrepsNeedingAvatar sorts stamped rows to the back of the
+ * queue. No-op for an empty list.
+ */
+export async function markDrepImageFetchFailed(
+  db: D1Database,
+  drepIds: string[],
+  failedAtMs: number,
+): Promise<void> {
+  if (drepIds.length === 0) return;
+  await db
+    .prepare(
+      `UPDATE dreps SET image_fetch_failed_at = ?
+       WHERE drep_id IN (${sqlPlaceholders(drepIds)})`,
+    )
+    .bind(failedAtMs, ...drepIds)
     .run();
 }
 

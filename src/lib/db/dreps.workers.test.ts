@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
 
@@ -29,6 +29,7 @@ const BASE_ARGS = {
   imageUrl: 'https://example.com/avatar.png',
   imageContentHash: null,
   imageStoredUrl: null,
+  imageFetchFailedAt: null,
   links: [
     { label: 'Website', uri: 'https://example.com' },
     { label: 'Twitter', uri: 'https://twitter.com/testdrep' },
@@ -63,6 +64,7 @@ describe('upsertDrep + getDrepById', () => {
     expect(result!.anchorStatus).toBe('fetched');
     expect(result!.lastSyncedAt).toBe(NOW);
     expect(result!.createdAt).toBe(NOW);
+    expect(result!.imageFetchFailedAt).toBeNull();
   });
 
   it('round-trips links as a parsed array', async () => {
@@ -241,6 +243,30 @@ describe('avatar store queries', () => {
     expect(rows.find((r) => r.drepId === 'av-new')!.imageUrl).toBe('https://a.example/1.png');
   });
 
+  it('listDrepsNeedingAvatar puts never-failed rows first, then failures oldest first', async () => {
+    // By drep_id alone 'av-ord-a' would win every run; the failure stamps must
+    // rotate it behind the never-attempted row and the older failure.
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-ord-a', imageUrl: 'https://a.example/a.png', imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: 2000 });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-ord-b', imageUrl: 'https://a.example/b.png', imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: 1000 });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-ord-c', imageUrl: 'https://a.example/c.png', imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: null });
+
+    const rows = await listDrepsNeedingAvatar(db(), 10);
+    expect(rows.map((r) => r.drepId)).toEqual(['av-ord-c', 'av-ord-b', 'av-ord-a']);
+  });
+
+  it('markDrepImageFetchFailed stamps only the given rows', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-f1', imageFetchFailedAt: null });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-f2', imageFetchFailedAt: null });
+
+    await markDrepImageFetchFailed(db(), ['av-f1'], 5000);
+    expect((await getDrepById(db(), 'av-f1'))!.imageFetchFailedAt).toBe(5000);
+    expect((await getDrepById(db(), 'av-f2'))!.imageFetchFailedAt).toBeNull();
+  });
+
+  it('markDrepImageFetchFailed is a no-op for an empty id list', async () => {
+    await expect(markDrepImageFetchFailed(db(), [], 5000)).resolves.toBeUndefined();
+  });
+
   it('setDrepImageStored updates only the stored-avatar columns', async () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-set', imageUrl: 'https://a.example/s.png', imageContentHash: null, imageStoredUrl: null });
     await setDrepImageStored(db(), 'av-set', 'e'.repeat(64), 'https://a.example/s.png');
@@ -248,6 +274,12 @@ describe('avatar store queries', () => {
     expect(after!.imageContentHash).toBe('e'.repeat(64));
     expect(after!.imageStoredUrl).toBe('https://a.example/s.png');
     expect(after!.name).toBe(BASE_ARGS.name);
+  });
+
+  it('setDrepImageStored clears the failure stamp on success', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-heal', imageUrl: 'https://a.example/h.png', imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: 7000 });
+    await setDrepImageStored(db(), 'av-heal', 'e'.repeat(64), 'https://a.example/h.png');
+    expect((await getDrepById(db(), 'av-heal'))!.imageFetchFailedAt).toBeNull();
   });
 
   it('clearOrphanedImageStore nulls the columns when the source image is gone', async () => {
