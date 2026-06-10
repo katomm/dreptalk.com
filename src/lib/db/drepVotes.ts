@@ -214,3 +214,35 @@ export async function getDrepVoteBreakdown(db: D1Database, voterId: string): Pro
   }
   return out;
 }
+
+export interface DrepParticipation {
+  eligible: number;
+  voted: number;
+}
+
+/**
+ * Participation over concluded governance actions the DRep could vote on.
+ *  - eligible: actions with a terminal decided_epoch whose voting window closed
+ *    at or after the DRep registered (COALESCE(expiry_epoch, decided_epoch) >= reg).
+ *  - voted: those the DRep cast any vote on (Yes/No/Abstain all count).
+ * Returns null when registeredEpoch is unknown (not yet backfilled), so the UI
+ * shows "pending" rather than a misleading 0%.
+ */
+export async function getDrepParticipation(
+  db: D1Database,
+  voterId: string,
+  registeredEpoch: number | null,
+): Promise<DrepParticipation | null> {
+  if (registeredEpoch == null) return null;
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS eligible, COUNT(v.ga_id) AS voted
+       FROM governance_actions g
+       LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'DRep'
+       WHERE g.decided_epoch IS NOT NULL
+         AND COALESCE(g.expiry_epoch, g.decided_epoch) >= ?`,
+    )
+    .bind(voterId, registeredEpoch)
+    .first<{ eligible: number; voted: number }>();
+  return { eligible: row?.eligible ?? 0, voted: row?.voted ?? 0 };
+}

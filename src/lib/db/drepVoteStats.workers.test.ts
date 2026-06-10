@@ -47,3 +47,22 @@ describe('getDrepRationaleStats', () => {
     expect(await getDrepRationaleStats(env.DB, 'nobody')).toEqual({ total: 0, without: 0, withRationale: 0 });
   });
 });
+
+describe('getDrepParticipation', () => {
+  it('is null when the registration epoch is unknown', async () => {
+    expect(await getDrepParticipation(env.DB, 'drepP', null)).toBeNull();
+  });
+
+  it('counts only concluded actions inside the DRep eligibility window', async () => {
+    // DRep registered at epoch 100.
+    await seedAction('p1', { decidedEpoch: 95, expiryEpoch: 90 });   // closed before registration -> not eligible
+    await seedAction('p2', { decidedEpoch: 125, expiryEpoch: 120 }); // eligible, voted
+    await seedAction('p3', { decidedEpoch: 135, expiryEpoch: 130 }); // eligible, not voted
+    await seedAction('p4', { decidedEpoch: null, expiryEpoch: 200 }); // not concluded -> excluded
+    await upsertVotes(env.DB, 'p1', vote('drepP', 'Yes'), 1);
+    await upsertVotes(env.DB, 'p2', vote('drepP', 'Yes'), 1);
+    await upsertVotes(env.DB, 'p4', vote('drepP', 'Yes'), 1);
+
+    expect(await getDrepParticipation(env.DB, 'drepP', 100)).toEqual({ eligible: 2, voted: 1 });
+  });
+});
