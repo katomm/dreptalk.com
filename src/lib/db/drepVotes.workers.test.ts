@@ -25,4 +25,17 @@ describe('getDrepVotingHistory + countDrepVotes', () => {
     expect(await countDrepVotes(env.DB, 'drepX')).toBe(2);
     expect(await countDrepVotes(env.DB, 'drepOther')).toBe(1);
   });
+
+  it('upsertVotes persists the rationale anchor (meta_url)', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, decided_epoch, topic_id, created_at, last_synced_at)
+       VALUES ('m1', 'InfoAction', 'M1', 'enacted', 500, NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(env.DB, 'm1', [
+      { voterRole: 'DRep', voterId: 'drepM', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://rationale' },
+    ], 1);
+    const row = await env.DB.prepare('SELECT meta_url FROM drep_votes WHERE ga_id = ? AND voter_id = ?')
+      .bind('m1', 'drepM').first<{ meta_url: string | null }>();
+    expect(row?.meta_url).toBe('ipfs://rationale');
+  });
 });

@@ -240,7 +240,7 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
       for (let offset = 0; ; offset += VOTES_PAGE) {
         const page = await koios.proposalVotes(ga.proposalId, VOTES_PAGE, offset);
         for (const v of page) {
-          collected.push({ voterRole: v.voter_role, voterId: v.voter_id, voterHex: v.voter_hex ?? null, vote: v.vote });
+          collected.push({ voterRole: v.voter_role, voterId: v.voter_id, voterHex: v.voter_hex ?? null, vote: v.vote, metaUrl: v.meta_url ?? null });
         }
         if (page.length < VOTES_PAGE) break;
       }
@@ -278,7 +278,7 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
       for (let offset = 0; ; offset += VOTES_PAGE) {
         const page = await koios.proposalVotes(ga.proposalId, VOTES_PAGE, offset);
         for (const v of page) {
-          collected.push({ voterRole: v.voter_role, voterId: v.voter_id, voterHex: v.voter_hex ?? null, vote: v.vote });
+          collected.push({ voterRole: v.voter_role, voterId: v.voter_id, voterHex: v.voter_hex ?? null, vote: v.vote, metaUrl: v.meta_url ?? null });
         }
         if (page.length < VOTES_PAGE) break;
       }

@@ -168,6 +168,7 @@ const proposalVoteRowSchema = z
     voter_hex: z.string().nullable().optional(),
     vote: z.string(),
     block_time: z.number().nullable().optional(),
+    meta_url: z.string().nullable().optional(),
   })
   .passthrough();
 
