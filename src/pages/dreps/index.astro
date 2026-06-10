@@ -8,7 +8,7 @@ import DrepConcentration from '@/components/DrepConcentration.tsx';
 import { listDreps, listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
-import { parsePage, pageToOffset, cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
+import { parsePage, pageToOffset, cacheControlForSynced, formatAda, truncateId } from '@/lib/forum/view.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 
 const db = env.DB as D1Database | undefined;
@@ -66,7 +66,10 @@ const qs = (p: number) => `?page=${p}${query ? `&q=${encodeURIComponent(query)}`
 
 const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
   authorId: d.drepId,
-  displayName: d.name ?? d.drepId,
+  // Nameless DReps would otherwise show their full bech32 id, an unbreakable
+  // ~58-char token that overruns the row width on a phone. Truncate to the same
+  // short form the forum author resolver uses for ids without a name.
+  displayName: d.name ?? truncateId(d.drepId),
   drepId: d.drepId,
   imageHash: d.imageContentHash,
   identiconSeed: d.hex ?? d.drepId,

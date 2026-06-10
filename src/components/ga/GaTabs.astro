@@ -43,6 +43,13 @@ function tabLabel(id: GaTabId, label: string): string {
     gap: 0;
     border-bottom: 2px solid var(--border);
     margin-bottom: 1.5rem;
+    /* Five tabs do not fit a phone width; scroll them sideways instead of
+       widening the whole page. Scrollbar hidden for a clean edge. */
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .ga-tabbar::-webkit-scrollbar {
+    display: none;
   }
   .ga-tabbar__tab {
     display: inline-flex;
@@ -54,6 +61,9 @@ function tabLabel(id: GaTabId, label: string): string {
     color: var(--muted);
     border-bottom: 2px solid transparent;
     margin-bottom: -2px;
+    /* Keep each tab on one line and at full width while the bar scrolls. */
+    flex-shrink: 0;
+    white-space: nowrap;
     transition: color 0.12s, border-color 0.12s;
   }
   .ga-tabbar__tab:hover {

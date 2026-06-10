@@ -393,6 +393,14 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
     gap: 2rem;
     align-items: start;
   }
+  /* Grid items default to min-width:auto, so wide content (long ids, the tab
+     bar, stat cards) forces the track wider than the viewport and the whole
+     page scrolls sideways on a phone. min-width:0 lets the track shrink and the
+     content wrap or scroll within it instead. */
+  .ga-detail-layout__main,
+  .ga-detail-layout__sidebar {
+    min-width: 0;
+  }
   .ga-detail-layout__sidebar {
     position: sticky;
     top: 1.5rem;

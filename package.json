@@ -8,6 +8,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro build && wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local --persist-to .wrangler/state",
     "typecheck": "astro check",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",

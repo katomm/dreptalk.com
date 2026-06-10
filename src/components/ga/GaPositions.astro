@@ -4,7 +4,7 @@
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
-import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { voterDescriptor } from '@/lib/forum/author.js';
 import { voteTone, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 
 interface Props {
@@ -17,18 +17,6 @@ interface Props {
 }
 
 const { voters, dreps, total, page, pageSize, slug } = Astro.props;
-
-function descriptorFor(v: ActionVoterRow): AuthorDescriptor {
-  const d = dreps.get(v.voter_id);
-  return {
-    authorId: v.voter_id,
-    displayName: d?.name ?? v.voter_id,
-    drepId: v.voter_id,
-    imageHash: d?.imageContentHash ?? null,
-    identiconSeed: d?.hex ?? v.hex ?? v.voter_hex ?? v.voter_id,
-    badges: [],
-  };
-}
 
 const prevPage = page > 1 ? page - 1 : null;
 const nextPage = voters.length === pageSize ? page + 1 : null;
@@ -46,7 +34,7 @@ function pageHref(p: number): string {
   {total > 0 && (
     <ul class="ga-positions__list">
       {voters.map((v) => {
-        const descriptor = descriptorFor(v);
+        const descriptor = voterDescriptor(v, dreps);
         const tone = voteTone(v.vote);
         const badgeColor = TONE_COLORS[tone];
         const ada = formatAda(v.voting_power);
