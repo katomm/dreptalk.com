@@ -9,19 +9,24 @@ export interface SnippetSegment {
   match: boolean;
 }
 
+const MATCH_START = '\u0001';
+const MATCH_END = '\u0002';
+
 /** Splits marked snippet text into ordered segments for rendering. */
 export function parseSnippet(snippet: string): SnippetSegment[] {
   const segments: SnippetSegment[] = [];
   let match = false;
-  for (const part of snippet.split(/([\x01\x02])/)) {
-    if (part === '\x01') {
-      match = true;
-    } else if (part === '\x02') {
-      match = false;
-    } else if (part) {
-      segments.push({ text: part, match });
+  let buffer = '';
+  for (const ch of snippet) {
+    if (ch === MATCH_START || ch === MATCH_END) {
+      if (buffer) segments.push({ text: buffer, match });
+      buffer = '';
+      match = ch === MATCH_START;
+    } else {
+      buffer += ch;
     }
   }
+  if (buffer) segments.push({ text: buffer, match });
   return segments;
 }
 

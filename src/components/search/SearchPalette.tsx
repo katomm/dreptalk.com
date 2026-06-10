@@ -86,15 +86,23 @@ function buildRows(q: string, data: SearchResponseBody | null): Row[] {
 function Snippet({ raw }: { raw: string }) {
   const segments = parseSnippet(cleanMarkdownSnippet(raw));
   if (!segments.some((s) => s.match)) return null;
+  // Keys derive from each segment's character offset in the snippet:
+  // content-stable and unique, unlike the array index.
+  let offset = 0;
+  const keyed = segments.map((s) => {
+    const key = offset;
+    offset += s.text.length;
+    return { ...s, key };
+  });
   return (
     <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-      {segments.map((s, i) =>
+      {keyed.map((s) =>
         s.match ? (
-          <mark key={i} style={{ background: 'transparent', color: 'var(--accent)', fontWeight: 600 }}>
+          <mark key={s.key} style={{ background: 'transparent', color: 'var(--accent)', fontWeight: 600 }}>
             {s.text}
           </mark>
         ) : (
-          <span key={i}>{s.text}</span>
+          <span key={s.key}>{s.text}</span>
         ),
       )}
     </span>
@@ -207,7 +215,9 @@ export default function SearchPalette({ open, onClose, returnFocusRef }: Palette
   let lastGroup = '';
 
   return createPortal(
+    // biome-ignore lint/a11y/noStaticElementInteractions: click-away backdrop, not a control; Escape handles keyboard dismissal and the inner role="dialog" owns the semantics
     <div
+      role="presentation"
       onMouseDown={(e) => {
         // Ignore clicks on the scrollbar (within the last 16 px on the right).
         if (e.target === e.currentTarget && e.clientX < document.documentElement.clientWidth - 16) onClose();
