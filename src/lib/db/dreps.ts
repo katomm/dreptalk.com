@@ -237,6 +237,73 @@ export async function upsertDrep(
     .run();
 }
 
+export interface DrepAvatarSourceRow {
+  drepId: string;
+  imageUrl: string;
+}
+
+/**
+ * Work queue for the avatar store pass: DReps whose source image exists but is
+ * not yet stored, or whose source URL changed since it was stored. Ordered by
+ * drep_id for deterministic paging; capped by limit.
+ */
+export async function listDrepsNeedingAvatar(db: D1Database, limit: number): Promise<DrepAvatarSourceRow[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT drep_id, image_url FROM dreps
+         WHERE image_url IS NOT NULL
+           AND (image_stored_url IS NULL OR image_stored_url <> image_url)
+         ORDER BY drep_id
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<{ drep_id: string; image_url: string }>()
+  ).results ?? [];
+  return rows.map((r) => ({ drepId: r.drep_id, imageUrl: r.image_url }));
+}
+
+/**
+ * Records a successful store: the R2 content hash and the source URL it came
+ * from. image_stored_url is the idempotency key: listDrepsNeedingAvatar only
+ * re-selects a row once the on-chain image_url differs from it again.
+ */
+export async function setDrepImageStored(
+  db: D1Database,
+  drepId: string,
+  contentHash: string,
+  storedUrl: string,
+): Promise<void> {
+  await db
+    .prepare('UPDATE dreps SET image_content_hash = ?, image_stored_url = ? WHERE drep_id = ?')
+    .bind(contentHash, storedUrl, drepId)
+    .run();
+}
+
+/**
+ * Clears the stored-avatar columns for rows whose on-chain image disappeared,
+ * so the GC can reap the now-unreferenced R2 object. Returns rows cleared.
+ */
+export async function clearOrphanedImageStore(db: D1Database): Promise<number> {
+  const res = await db
+    .prepare(
+      `UPDATE dreps SET image_content_hash = NULL, image_stored_url = NULL
+       WHERE image_url IS NULL AND image_content_hash IS NOT NULL`,
+    )
+    .run();
+  return res.meta.changes ?? 0;
+}
+
+/** The set of content hashes still referenced by a dreps row (GC keep set). */
+export async function listReferencedImageHashes(db: D1Database): Promise<Set<string>> {
+  const rows = (
+    await db
+      .prepare('SELECT DISTINCT image_content_hash AS h FROM dreps WHERE image_content_hash IS NOT NULL')
+      .all<{ h: string }>()
+  ).results ?? [];
+  return new Set(rows.map((r) => r.h));
+}
+
 export interface DrepPowerRow {
   drepId: string;
   name: string | null;
