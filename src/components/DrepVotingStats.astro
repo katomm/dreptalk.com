@@ -1,0 +1,73 @@
+---
+import {
+  buildVoteDonut, formatRationale, formatParticipation, DONUT_R, DONUT_STROKE,
+} from '@/lib/dreps/voteStatsView.js';
+import type { DrepVoteBreakdown, DrepRationaleStats, DrepParticipation } from '@/lib/db/drepVotes.js';
+
+interface Props {
+  breakdown: DrepVoteBreakdown;
+  rationale: DrepRationaleStats;
+  participation: DrepParticipation | null;
+}
+
+const { breakdown, rationale, participation } = Astro.props;
+const donut = buildVoteDonut(breakdown);
+const C = 2 * Math.PI * DONUT_R;
+const rationaleLine = formatRationale(rationale);
+const participationLine = formatParticipation(participation);
+---
+
+<section style="margin-top:2rem;">
+  <h2 style="font-size:1.125rem;">Voting stats</h2>
+
+  {donut.total === 0 ? (
+    <p style="color:var(--muted);">No recorded on-chain votes.</p>
+  ) : (
+    <>
+      <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;">
+        <div style="position:relative;width:160px;height:160px;flex-shrink:0;">
+          <svg viewBox="0 0 200 200" width="160" height="160" aria-hidden="true">
+            <circle cx="100" cy="100" r={DONUT_R} fill="none" stroke="var(--border)" stroke-width={DONUT_STROKE} opacity="0.5" />
+            <g transform="rotate(-90 100 100)">
+              {donut.arcs.map((a) => (
+                <circle
+                  cx="100" cy="100" r={DONUT_R} fill="none"
+                  stroke={a.color} stroke-width={DONUT_STROKE}
+                  stroke-dasharray={`${a.dash} ${C - a.dash}`}
+                  stroke-dashoffset={a.offset}
+                />
+              ))}
+            </g>
+          </svg>
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+            <span style="font-size:1.5rem;font-weight:700;">{donut.total.toLocaleString('en-US')}</span>
+            <span style="font-size:0.75rem;color:var(--muted);">votes</span>
+          </div>
+        </div>
+
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.375rem;min-width:12rem;">
+          {donut.legend.map((l) => (
+            <li style="display:flex;align-items:center;gap:0.5rem;font-size:0.9375rem;">
+              <span style={`width:0.75rem;height:0.75rem;border-radius:2px;flex-shrink:0;background:${l.color};`} aria-hidden="true"></span>
+              <span style="font-weight:600;">{l.label}</span>
+              <span style="color:var(--muted);margin-left:auto;">{l.count} ({l.pct.toFixed(0)}%)</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1.25rem;">
+        {rationaleLine && (
+          <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem 1rem;flex:1 1 14rem;">
+            <div style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.03em;">Rationale</div>
+            <div style="font-size:0.9375rem;margin-top:0.25rem;">{rationaleLine}</div>
+          </div>
+        )}
+        <div style="border:1px solid var(--border);border-radius:0.5rem;padding:0.75rem 1rem;flex:1 1 14rem;">
+          <div style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.03em;">Participation</div>
+          <div style="font-size:0.9375rem;margin-top:0.25rem;">{participationLine}</div>
+        </div>
+      </div>
+    </>
+  )}
+</section>
