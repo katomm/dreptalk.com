@@ -8,7 +8,9 @@ import type { DrepVoteBreakdown, DrepRationaleStats, DrepParticipation } from '.
 // Donut geometry, shared with the markup in DrepVotingStats.astro (200x200 viewBox).
 export const DONUT_R = 80;
 export const DONUT_STROKE = 22;
-const C = 2 * Math.PI * DONUT_R;
+// Circumference. Exported so the component reuses it for the dash gap instead of
+// recomputing it from DONUT_R.
+export const DONUT_C = 2 * Math.PI * DONUT_R;
 
 type SliceKey = 'yes' | 'no' | 'abstain';
 
@@ -33,10 +35,10 @@ export interface VoteDonut {
   legend: DonutLegendItem[];
 }
 
-const SLICES: { key: SliceKey; label: string; vote: string }[] = [
-  { key: 'yes', label: 'Yes', vote: 'Yes' },
-  { key: 'no', label: 'No', vote: 'No' },
-  { key: 'abstain', label: 'Abstain', vote: 'Abstain' },
+const SLICES: { key: SliceKey; label: string }[] = [
+  { key: 'yes', label: 'Yes' },
+  { key: 'no', label: 'No' },
+  { key: 'abstain', label: 'Abstain' },
 ];
 
 /**
@@ -47,17 +49,16 @@ const SLICES: { key: SliceKey; label: string; vote: string }[] = [
  * legend. Returns empty arcs/legend percentages when the DRep has no votes.
  */
 export function buildVoteDonut(b: DrepVoteBreakdown): VoteDonut {
-  const counts: Record<SliceKey, number> = { yes: b.yes, no: b.no, abstain: b.abstain };
   const arcs: DonutArc[] = [];
   const legend: DonutLegendItem[] = [];
   let start = 0;
   for (const s of SLICES) {
-    const count = counts[s.key];
+    const count = b[s.key];
     const pct = b.total > 0 ? (count / b.total) * 100 : 0;
-    const color = TONE_COLORS[voteTone(s.vote)];
+    const color = TONE_COLORS[voteTone(s.label)];
     legend.push({ key: s.key, label: s.label, count, pct, color });
     if (count > 0) {
-      arcs.push({ dash: (pct / 100) * C, offset: -(start / 100) * C, color, key: s.key });
+      arcs.push({ dash: (pct / 100) * DONUT_C, offset: -(start / 100) * DONUT_C, color, key: s.key });
       start += pct;
     }
   }

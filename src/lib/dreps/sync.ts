@@ -344,15 +344,9 @@ export async function backfillRegisteredEpochs(
       if (prev == null || row.block_time < prev) earliest.set(row.drep_id, row.block_time);
     }
     if (page.length < UPDATES_PAGE) break; // last page
-    // Stop early once every missing DRep has a registration row.
-    let allFound = true;
-    for (const id of missing) {
-      if (!earliest.has(id)) {
-        allFound = false;
-        break;
-      }
-    }
-    if (allFound) break;
+    // Stop early once every missing DRep has a registration row. earliest only
+    // ever gains keys from the missing set, so equal sizes means all are found.
+    if (earliest.size === missing.size) break;
   }
 
   const entries = [...earliest].map(([drepId, blockTime]) => ({

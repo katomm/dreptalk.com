@@ -1,6 +1,6 @@
 ---
 import {
-  buildVoteDonut, formatRationale, formatParticipation, DONUT_R, DONUT_STROKE,
+  buildVoteDonut, formatRationale, formatParticipation, DONUT_R, DONUT_STROKE, DONUT_C,
 } from '@/lib/dreps/voteStatsView.js';
 import type { DrepVoteBreakdown, DrepRationaleStats, DrepParticipation } from '@/lib/db/drepVotes.js';
 
@@ -12,7 +12,6 @@ interface Props {
 
 const { breakdown, rationale, participation } = Astro.props;
 const donut = buildVoteDonut(breakdown);
-const C = 2 * Math.PI * DONUT_R;
 const rationaleLine = formatRationale(rationale);
 const participationLine = formatParticipation(participation);
 ---
@@ -33,7 +32,7 @@ const participationLine = formatParticipation(participation);
                 <circle
                   cx="100" cy="100" r={DONUT_R} fill="none"
                   stroke={a.color} stroke-width={DONUT_STROKE}
-                  stroke-dasharray={`${a.dash} ${C - a.dash}`}
+                  stroke-dasharray={`${a.dash} ${DONUT_C - a.dash}`}
                   stroke-dashoffset={a.offset}
                 />
               ))}
