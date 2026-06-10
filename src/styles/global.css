@@ -436,7 +436,7 @@ main.container {
 .drep-conc__legend-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--fg); }
 .drep-conc__legend-name:hover { text-decoration: underline; }
 .drep-conc__legend-pct { flex-shrink: 0; padding-left: 0.25rem; color: var(--muted); }
-.drep-conc__threshold-actions { max-width: 340px; margin: 0.4rem auto 0; text-align: center; font-size: 0.78rem; line-height: 1.4; color: var(--muted); }
+.drep-conc__threshold-actions { max-width: 340px; min-height: 2.8em; margin: 0.4rem auto 0; text-align: center; font-size: 0.78rem; line-height: 1.4; color: var(--muted); }
 
 /* ==========================================================================
    DReps directory: intro, stat row, table, voting-power meter, actions menu
