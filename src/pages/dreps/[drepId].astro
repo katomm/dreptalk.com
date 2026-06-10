@@ -57,7 +57,7 @@ const personLd = drep
       identifier: drep.drepId,
       url: canonical,
       ...(drep.bio ? { description: excerptFromHtml(drep.bio, 300) } : {}),
-      ...(drep.imageUrl ? { image: `${siteOrigin}/api/avatar/${drep.drepId}` } : {}),
+      ...(drep.imageContentHash ? { image: `${siteOrigin}/api/avatar/${drep.imageContentHash}` } : {}),
     }
   : null;
 ---
@@ -81,8 +81,8 @@ const personLd = drep
     <header style="display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem;">
       <span style="width:96px;height:96px;border-radius:999px;overflow:hidden;flex-shrink:0;border:1px solid var(--border);position:relative;background:var(--surface);">
         <span style="position:absolute;inset:0;" set:html={iconSvg} />
-        {drep.imageUrl && (
-          <span style={`position:absolute;inset:0;background:center/cover no-repeat url(/api/avatar/${drep.drepId});`}></span>
+        {drep.imageContentHash && (
+          <span style={`position:absolute;inset:0;background:center/cover no-repeat url(/api/avatar/${drep.imageContentHash});`}></span>
         )}
       </span>
       <div>

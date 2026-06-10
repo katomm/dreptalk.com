@@ -20,7 +20,7 @@ function descriptorFor(v: ActionVoterRow): AuthorDescriptor {
     authorId: v.voter_id,
     displayName: d?.name ?? v.voter_id,
     drepId: v.voter_id,
-    hasImage: !!d?.imageUrl,
+    imageHash: d?.imageContentHash ?? null,
     identiconSeed: d?.hex ?? v.hex ?? v.voter_hex ?? v.voter_id,
     badges: [],
   };

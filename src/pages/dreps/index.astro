@@ -68,7 +68,7 @@ const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
   authorId: d.drepId,
   displayName: d.name ?? d.drepId,
   drepId: d.drepId,
-  hasImage: !!d.imageUrl,
+  imageHash: d.imageContentHash,
   identiconSeed: d.hex ?? d.drepId,
   badges: [],
 });
