@@ -11,6 +11,11 @@ database_name = "dreptalk"
 database_id = "4a84966c-9fde-49f7-bfed-9c3c927e5db3"
 migrations_dir = "../../migrations"
 
+# R2 bucket for self-hosted DRep avatars; written by the drep-sync avatar pass.
+[[r2_buckets]]
+binding = "AVATARS"
+bucket_name = "dreptalk-avatars"
+
 # Three cron triggers (the expressions are mirrored as constants in
 # src/lib/freshness.ts, which the worker dispatches on; keep them in sync):
 #   */15 * * * *  governance discovery + active-action tallies (fast)
@@ -42,6 +47,10 @@ binding = "DB"
 database_name = "dreptalk-preprod"
 database_id = "adf2310b-b1c1-415a-b900-28dd56277cbb"
 migrations_dir = "../../migrations"
+
+[[env.preprod.r2_buckets]]
+binding = "AVATARS"
+bucket_name = "dreptalk-avatars-preprod"
 
 [env.preprod.triggers]
 crons = ["*/15 * * * *", "0 * * * *", "0 */6 * * *"]

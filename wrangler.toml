@@ -31,6 +31,12 @@ database_name = "dreptalk"
 database_id = "4a84966c-9fde-49f7-bfed-9c3c927e5db3"
 migrations_dir = "migrations"
 
+# R2 bucket holding self-hosted DRep avatars, written by the gov-sync avatar
+# store pass and served by /api/avatar/<hash>. Content addressed by sha256.
+[[r2_buckets]]
+binding = "AVATARS"
+bucket_name = "dreptalk-avatars"
+
 # KV namespace for server-side session storage.
 [[kv_namespaces]]
 binding = "SESSIONS"
