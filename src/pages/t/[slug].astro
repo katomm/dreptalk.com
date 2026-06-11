@@ -6,7 +6,7 @@ import JsonLd from '@/components/JsonLd.astro';
 import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
-import FlagButton from '@/components/FlagButton.tsx';
+import PostActions from '@/components/PostActions.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
@@ -16,7 +16,7 @@ import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
-import { getFlaggedPostIds } from '@/lib/db/postFlags.js';
+import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { threadOgImage, stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
@@ -88,17 +88,19 @@ const showComposer = !!user && !!topic && !topic.locked;
 // Per-post flag/visibility policy lives in postViewerContext.
 const viewerIsWriter = !!user && isWriter(user.roles);
 
-// Governance-action enrichment (header values) and the flagged-id set are
-// independent (different tables), so load them together. The per-author votes
-// then need govAction.id, so that one follows. All read from D1 ("as of").
-const [govAction, flaggedPostIds] = await Promise.all([
+// Governance-action enrichment (header values) and the viewer's own post state
+// (flags + reactions, one batched round-trip) are independent, so load them
+// together. The per-author votes then need govAction.id, so that one follows.
+// All read from D1 ("as of").
+const [govAction, viewerPostState] = await Promise.all([
   isGovernanceTopic && db && topic
     ? getGovernanceActionByTopicId(db, topic.id)
     : Promise.resolve(null),
-  db && user && viewerIsWriter && posts.length
-    ? getFlaggedPostIds(db, user.id, posts.map((p) => p.id))
-    : Promise.resolve(new Set<string>()),
+  db && user && viewerIsWriter
+    ? loadViewerPostState(db, user.id, posts.map((p) => p.id))
+    : Promise.resolve(emptyViewerPostState()),
 ]);
+const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 
 // Load related actions now that govAction is known (needs its id, type, returnAddress).
 const related: RelatedActionRow[] = isGovernanceTopic && govAction && db
@@ -270,6 +272,7 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                 topicAuthor={topicAuthor}
                 describe={describe}
                 flaggedPostIds={flaggedPostIds}
+                viewerReactions={viewerReactions}
                 isGovernanceTopic={isGovernanceTopic}
                 page={page}
                 prevPage={prevPage}
@@ -321,7 +324,7 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                 ? topicAuthor
                 : describe(post.author_id);
 
-            const { canSeeContent, canFlag } = postViewerContext(post, user, !!author.isSystem);
+            const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, user, !!author.isSystem);
             const authorVote = author.drepId ? govVotes.get(author.drepId) : undefined;
 
             return (
@@ -334,15 +337,6 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                   {post.hidden && canSeeContent && (
                     <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
                   )}
-                  {canFlag && (
-                    <FlagButton
-                      client:visible
-                      postId={post.id}
-                      initialFlagged={flaggedPostIds.has(post.id)}
-                      initialCount={post.flag_count}
-                      initialHidden={post.hidden}
-                    />
-                  )}
                 </div>
                 {canSeeContent ? (
                   <div class="prose" set:html={post.body_html} />
@@ -350,6 +344,16 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                   <p style="margin:0;color:var(--muted);font-style:italic;font-size:0.9375rem;">
                     This post was hidden after being flagged by the community.
                   </p>
+                )}
+                {canSeeContent && (
+                  <PostActions
+                    post={post}
+                    canReact={canReact}
+                    canFlag={canFlag}
+                    isOwnPost={isOwnPost}
+                    flagged={flaggedPostIds.has(post.id)}
+                    viewerReaction={viewerReactions.get(post.id) ?? null}
+                  />
                 )}
               </article>
             );

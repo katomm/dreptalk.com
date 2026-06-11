@@ -33,7 +33,7 @@ const tally = overviewTally(action);
 const votedLabel = tally?.role === 'SPO' ? 'SPOs' : 'DReps';
 const votedCount = tally?.voted ?? 0;
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
-const daysLeft = epochDaysLeft(action.expiryEpoch, action.tallyEpoch);
+const daysLeft = epochDaysLeft(action.expiryEpoch, action.tallyEpoch, action.status);
 // Calendar date of the expiry epoch boundary (when voting closes). Only shown
 // while voting is still open; once past, the status badge carries the outcome.
 const votingEnds =

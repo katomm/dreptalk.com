@@ -19,4 +19,18 @@ describe('identiconSvg', () => {
   it('respects the size option', () => {
     expect(identiconSvg(HEX_A, 40)).toContain('width="40"');
   });
+
+  // Regression: a stake1/addr1-prefixed string with characters outside the
+  // bech32 charset used to throw from the decoder, taking down the whole SSR
+  // stream of any page that rendered it (e.g. the proposer sidebar card).
+  it('falls back to the string hash for a malformed bech32 address', () => {
+    const malformed = 'stake1notrealbech32iiooibbb11aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const svg = identiconSvg(malformed);
+    expect(svg.startsWith('<svg')).toBe(true);
+    expect(identiconSvg(malformed)).toBe(svg);
+  });
+
+  it('falls back for a bech32 address with an empty payload', () => {
+    expect(identiconSvg('stake1q').startsWith('<svg')).toBe(true);
+  });
 });

@@ -28,7 +28,8 @@ export interface Post {
   /** Populated by createTopic/createPost; omitted by getPostsByTopic (use body_html for display). */
   body_md?: string;
   body_html: string;
-  reaction_count: number;
+  up_count: number;
+  down_count: number;
   flag_count: number;
   /** True once enough distinct writers flagged it; rendered as a placeholder. */
   hidden: boolean;
@@ -60,7 +61,8 @@ interface PostRow {
   author_id: string;
   body_md: string;
   body_html: string;
-  reaction_count: number;
+  up_count: number;
+  down_count: number;
   flag_count: number;
   hidden: number;
   edited_at: number | null;
@@ -99,7 +101,8 @@ function rowToPost(row: PostRow | PostRowNoBody): Post {
     topic_id: row.topic_id,
     author_id: row.author_id,
     body_html: row.body_html,
-    reaction_count: row.reaction_count,
+    up_count: row.up_count,
+    down_count: row.down_count,
     flag_count: row.flag_count,
     hidden: row.hidden === 1,
     edited_at: row.edited_at,
@@ -203,7 +206,8 @@ export async function createTopic(
     author_id: authorId,
     body_md: bodyMd,
     body_html: bodyHtml,
-    reaction_count: 0,
+    up_count: 0,
+    down_count: 0,
     flag_count: 0,
     hidden: 0,
     edited_at: null,
@@ -315,7 +319,7 @@ export async function getPostsByTopic(
 
   const rows = await db
     .prepare(
-      `SELECT id, topic_id, author_id, body_html, reaction_count, flag_count, hidden, edited_at, deleted, created_at
+      `SELECT id, topic_id, author_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
        FROM posts
        WHERE topic_id = ? AND deleted = 0
        ORDER BY created_at ASC
@@ -382,7 +386,7 @@ export async function getCategoryStats(
 export async function getPostById(db: D1Database, postId: string): Promise<Post | null> {
   const row = await db
     .prepare(
-      `SELECT id, topic_id, author_id, body_html, reaction_count, flag_count, hidden, edited_at, deleted, created_at
+      `SELECT id, topic_id, author_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
        FROM posts WHERE id = ?`,
     )
     .bind(postId)
@@ -486,7 +490,8 @@ export async function createPost(
     author_id: authorId,
     body_md: bodyMd,
     body_html: bodyHtml,
-    reaction_count: 0,
+    up_count: 0,
+    down_count: 0,
     flag_count: 0,
     hidden: 0,
     edited_at: null,

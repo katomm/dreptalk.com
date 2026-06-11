@@ -71,7 +71,7 @@ describe('forum tables smoke test', () => {
     const row = await env.DB
       .prepare(
         `SELECT id, topic_id, author_id, body_md, body_html,
-                reaction_count, flag_count, deleted, created_at
+                up_count, down_count, flag_count, deleted, created_at
          FROM posts WHERE id = ?`,
       )
       .bind(postId)
@@ -81,7 +81,8 @@ describe('forum tables smoke test', () => {
         author_id: string;
         body_md: string;
         body_html: string;
-        reaction_count: number;
+        up_count: number;
+        down_count: number;
         flag_count: number;
         deleted: number;
         created_at: number;
@@ -93,7 +94,8 @@ describe('forum tables smoke test', () => {
     expect(row!.author_id).toBe('system');
     expect(row!.body_md).toBe('**Hello**');
     expect(row!.body_html).toBe('<p><strong>Hello</strong></p>');
-    expect(row!.reaction_count).toBe(0);
+    expect(row!.up_count).toBe(0);
+    expect(row!.down_count).toBe(0);
     expect(row!.flag_count).toBe(0);
     expect(row!.deleted).toBe(0);
   });

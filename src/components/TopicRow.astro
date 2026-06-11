@@ -23,7 +23,7 @@ const { topic, now, author, category, governance } = Astro.props;
 
 const gaBadge = governance ? statusBadge(governance.status) : null;
 const gaBar = governance ? tallyBar(governance.drepYesPct, governance.drepNoPct) : null;
-const gaCountdown = governance ? epochCountdown(governance.expiryEpoch, governance.tallyEpoch) : null;
+const gaCountdown = governance ? epochCountdown(governance.expiryEpoch, governance.tallyEpoch, governance.status) : null;
 ---
 
 <div style="border-bottom:1px solid var(--border);padding:0.875rem 0;display:flex;gap:0.75rem;align-items:baseline;">

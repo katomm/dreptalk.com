@@ -11,6 +11,8 @@ export interface PostViewerContext {
   canSeeContent: boolean;
   /** The viewer may flag this post (a writer, not the author, not a system post). */
   canFlag: boolean;
+  /** The viewer may react to this post (a writer, not the author; system posts allowed). */
+  canReact: boolean;
 }
 
 /**
@@ -18,6 +20,9 @@ export interface PostViewerContext {
  * - canSeeContent: a hidden post stays readable for its author and moderators.
  * - canFlag: only on-chain writers can flag, never their own post or a
  *   system/governance post (authorIsSystem).
+ * - canReact: only on-chain writers, never their own post. Unlike flagging,
+ *   system posts are reactable: the opening post of a governance action is
+ *   exactly where readers signal support or opposition.
  */
 export function postViewerContext(
   post: { author_id: string; hidden: boolean },
@@ -28,5 +33,6 @@ export function postViewerContext(
   const roles = user?.roles ?? [];
   const canSeeContent = !post.hidden || isOwnPost || isModerator(roles);
   const canFlag = isWriter(roles) && !isOwnPost && !authorIsSystem;
-  return { isOwnPost, canSeeContent, canFlag };
+  const canReact = isWriter(roles) && !isOwnPost;
+  return { isOwnPost, canSeeContent, canFlag, canReact };
 }

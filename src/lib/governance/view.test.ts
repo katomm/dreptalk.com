@@ -73,23 +73,32 @@ describe('isTerminalStatus', () => {
 
 describe('epochCountdown', () => {
   it('estimates days for a future expiry', () => {
-    expect(epochCountdown(294, 290)).toBe('~20 days left (epoch 294)');
+    expect(epochCountdown(294, 290, 'active')).toBe('~20 days left (epoch 294)');
   });
   it('returns null when past or unknown', () => {
-    expect(epochCountdown(290, 290)).toBeNull();
-    expect(epochCountdown(290, 295)).toBeNull();
-    expect(epochCountdown(null, 290)).toBeNull();
-    expect(epochCountdown(294, null)).toBeNull();
+    expect(epochCountdown(290, 290, 'active')).toBeNull();
+    expect(epochCountdown(290, 295, 'active')).toBeNull();
+    expect(epochCountdown(null, 290, 'active')).toBeNull();
+    expect(epochCountdown(294, null, 'active')).toBeNull();
+  });
+  it('returns null for a terminal status even with a future expiry', () => {
+    // An action ratified or enacted before its expiry keeps a future epoch;
+    // it must not read as "still counting down".
+    expect(epochCountdown(294, 290, 'enacted')).toBeNull();
   });
 });
 
 describe('epochDaysLeft', () => {
   it('returns whole days to a future expiry, null when past or unknown', () => {
-    expect(epochDaysLeft(294, 290)).toBe(20);
-    expect(epochDaysLeft(290, 290)).toBeNull();
-    expect(epochDaysLeft(290, 295)).toBeNull();
-    expect(epochDaysLeft(null, 290)).toBeNull();
-    expect(epochDaysLeft(294, null)).toBeNull();
+    expect(epochDaysLeft(294, 290, 'active')).toBe(20);
+    expect(epochDaysLeft(290, 290, 'active')).toBeNull();
+    expect(epochDaysLeft(290, 295, 'active')).toBeNull();
+    expect(epochDaysLeft(null, 290, 'active')).toBeNull();
+    expect(epochDaysLeft(294, null, 'active')).toBeNull();
+  });
+  it('returns null for a terminal status even with a future expiry', () => {
+    expect(epochDaysLeft(294, 290, 'ratified')).toBeNull();
+    expect(epochDaysLeft(294, 290, 'pending')).toBe(20);
   });
 });
 

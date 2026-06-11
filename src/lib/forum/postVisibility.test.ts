@@ -32,6 +32,33 @@ describe('postViewerContext: canFlag', () => {
   });
 });
 
+describe('postViewerContext: canReact', () => {
+  it('lets a writer react to another user\'s post', () => {
+    const c = postViewerContext({ author_id: 'other', hidden: false }, writer, false);
+    expect(c.canReact).toBe(true);
+  });
+
+  it('lets a writer react to a system post (unlike flagging)', () => {
+    const c = postViewerContext({ author_id: 'gov-sync', hidden: false }, writer, true);
+    expect(c.canReact).toBe(true);
+  });
+
+  it('forbids reacting to your own post', () => {
+    const c = postViewerContext({ author_id: writer.id, hidden: false }, writer, false);
+    expect(c.canReact).toBe(false);
+  });
+
+  it('forbids a non-writer from reacting', () => {
+    const c = postViewerContext({ author_id: 'other', hidden: false }, member, false);
+    expect(c.canReact).toBe(false);
+  });
+
+  it('forbids an anonymous viewer from reacting', () => {
+    const c = postViewerContext({ author_id: 'other', hidden: false }, null, false);
+    expect(c.canReact).toBe(false);
+  });
+});
+
 describe('postViewerContext: canSeeContent for a hidden post', () => {
   it('hides content from an ordinary viewer', () => {
     const c = postViewerContext({ author_id: 'other', hidden: true }, writer, false);
