@@ -261,7 +261,7 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
           commentCount={Math.max(0, topic.post_count - 1)}
           positionsCount={positionsTotal}
         />
-        <div class="ga-detail-layout">
+        <div class:list={['ga-detail-layout', { 'ga-detail-layout--sidebar-first': tab === 'overview' }]}>
           <div class="ga-detail-layout__main">
             {tab === 'discussion' ? (
               <GaDiscussion
@@ -415,6 +415,12 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
     }
     .ga-detail-layout__sidebar {
       position: static;
+    }
+    /* The sidebar (status, voting info, participants) leads only on the
+       overview tab, where it is the at-a-glance summary. On the other tabs
+       the content the user navigated to (the posts, the voter list) comes
+       first and the sidebar stacks below it. */
+    .ga-detail-layout--sidebar-first .ga-detail-layout__sidebar {
       order: -1;
     }
   }
