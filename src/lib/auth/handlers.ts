@@ -31,6 +31,10 @@ import type { CardanoNetwork } from '../config/network.js';
 const REWARD_ADDR_PREPROD = 0xe0;
 const REWARD_ADDR_MAINNET = 0xe1;
 
+// CIP-19 type-6 (enterprise) address header: testnet (preprod) = 0x60, mainnet = 0x61.
+const ENTERPRISE_ADDR_PREPROD = 0x60;
+const ENTERPRISE_ADDR_MAINNET = 0x61;
+
 // ---------------------------------------------------------------------------
 // Challenge handler
 // ---------------------------------------------------------------------------
@@ -184,14 +188,28 @@ async function verifyWalletCip8(
     return { status: 401, json: { ok: false, error: 'invalid address in signature' } };
   }
 
+  // A correctly typed address for the OTHER network means the wallet is on the
+  // wrong network; report that specifically instead of a role mismatch, so the
+  // client can tell the user to switch networks.
   if (role === 'proposer') {
     const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
+    const otherHeader = network === 'mainnet' ? REWARD_ADDR_PREPROD : REWARD_ADDR_MAINNET;
+    if (addressBytes[0] === otherHeader) {
+      return { status: 401, json: { ok: false, error: 'wallet network mismatch' } };
+    }
     if (addressBytes[0] !== expectedHeader) {
       return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
     }
-  } else if (!isDrepCredentialAddress(addressBytes)) {
+  } else {
     // role === 'drep'
-    return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
+    if (!isDrepCredentialAddress(addressBytes)) {
+      return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
+    }
+    // A type-6 header carries the network bit; the bare 28-byte key hash does not.
+    const expectedHeader = network === 'mainnet' ? ENTERPRISE_ADDR_MAINNET : ENTERPRISE_ADDR_PREPROD;
+    if (addressBytes.length === 29 && addressBytes[0] !== expectedHeader) {
+      return { status: 401, json: { ok: false, error: 'wallet network mismatch' } };
+    }
   }
 
   // Derive identity from the verified pubKey, then resolve authorization via

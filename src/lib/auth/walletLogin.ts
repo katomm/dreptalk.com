@@ -3,11 +3,14 @@
 import { blake2b224 } from '../crypto/blake.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 import { walletErrorDetail } from '../wallet/walletError.js';
+import { assertWalletNetwork } from '../wallet/networkGuard.js';
 import { drepCredentialAddress } from '../cardano/identity.js';
 import type { CardanoNetwork } from '../config/network.js';
 
 // Minimal CIP-30 + CIP-95 wallet API surface required for login.
 export interface WalletApi {
+  // Optional so injected test doubles stay minimal; every CIP-30 wallet has it.
+  getNetworkId?(): Promise<number>;
   getRewardAddresses(): Promise<string[]>;
   signData(
     addr: string,
@@ -59,6 +62,19 @@ export async function loginWithWallet(
   deps?: Deps,
 ): Promise<LoginResult> {
   const fetchFn = deps?.fetchImpl ?? fetch;
+
+  // Step 0: fail fast with a clear message when the wallet is on the wrong
+  // network. Without this, signData fails with the wallet's own validation
+  // error (e.g. Eternl's '"address" contains an invalid value') because the
+  // signing address is built for the app's network. Checked before the
+  // challenge so no nonce is burned on a doomed attempt.
+  if (typeof api.getNetworkId === 'function') {
+    try {
+      await assertWalletNetwork({ getNetworkId: api.getNetworkId.bind(api) }, network);
+    } catch (err) {
+      return { ok: false, error: walletErrorDetail(err) ?? 'wallet network mismatch' };
+    }
+  }
 
   try {
     // Step 1: get challenge payload.

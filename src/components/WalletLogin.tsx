@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import { networkMismatchMessage } from '@/lib/wallet/networkGuard.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 
 type LoginState =
@@ -15,9 +16,16 @@ type LoginState =
 
 // Maps the server's terse error codes to a clear, role-aware explanation with a
 // next step. Unknown codes fall back to the (capitalized) server message.
-function friendlyLoginError(error: string | undefined, role: 'drep' | 'proposer'): string {
+function friendlyLoginError(
+  error: string | undefined,
+  role: 'drep' | 'proposer',
+  network: CardanoNetwork,
+): string {
   const e = (error ?? '').toLowerCase();
   if (!e) return 'Login failed. Please try again.';
+  if (e.includes('network mismatch')) {
+    return networkMismatchMessage(network);
+  }
   if (e.includes('cip-95')) {
     return 'This wallet does not support CIP-95. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).';
   }
@@ -96,7 +104,7 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
       // pick up the new session cookie and render the signed-in state.
       window.location.assign('/discussions');
     } else {
-      setLoginState({ status: 'error', message: friendlyLoginError(result.error, role) });
+      setLoginState({ status: 'error', message: friendlyLoginError(result.error, role, network) });
     }
   }
 
