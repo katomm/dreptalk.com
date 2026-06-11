@@ -4,6 +4,12 @@
 
 import { isWriter, isModerator } from '../auth/roles.js';
 
+/** The session user shape components receive (mirrors App.Locals.user). */
+export interface SessionUser {
+  id: string;
+  roles: string[];
+}
+
 export interface PostViewerContext {
   /** The viewer authored this post. */
   isOwnPost: boolean;

@@ -22,6 +22,7 @@ import type { KoiosClient } from './resolveRole.js';
 import { upsertUserFromAuth, type AuthRole } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import type { CardanoNetwork } from '../config/network.js';
+import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -195,7 +196,7 @@ async function verifyWalletCip8(
     const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
     const otherHeader = network === 'mainnet' ? REWARD_ADDR_PREPROD : REWARD_ADDR_MAINNET;
     if (addressBytes[0] === otherHeader) {
-      return { status: 401, json: { ok: false, error: 'wallet network mismatch' } };
+      return { status: 401, json: { ok: false, error: WALLET_NETWORK_MISMATCH } };
     }
     if (addressBytes[0] !== expectedHeader) {
       return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
@@ -208,7 +209,7 @@ async function verifyWalletCip8(
     // A type-6 header carries the network bit; the bare 28-byte key hash does not.
     const expectedHeader = network === 'mainnet' ? ENTERPRISE_ADDR_MAINNET : ENTERPRISE_ADDR_PREPROD;
     if (addressBytes.length === 29 && addressBytes[0] !== expectedHeader) {
-      return { status: 401, json: { ok: false, error: 'wallet network mismatch' } };
+      return { status: 401, json: { ok: false, error: WALLET_NETWORK_MISMATCH } };
     }
   }
 

@@ -163,10 +163,10 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     if (bodyMd.length === 0 || bodyMd.length > 20000) {
       return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
     }
-    if (body.parentPostId !== undefined && body.parentPostId !== null && typeof body.parentPostId !== 'string') {
+    const parentPostId = body.parentPostId ?? null;
+    if (parentPostId !== null && typeof parentPostId !== 'string') {
       return { status: 400, json: { ok: false, error: 'invalid parent post id' } };
     }
-    const parentPostId = typeof body.parentPostId === 'string' ? body.parentPostId : null;
 
     // 4. Render and sanitize markdown.
     const bodyHtml = renderMarkdown(bodyMd);

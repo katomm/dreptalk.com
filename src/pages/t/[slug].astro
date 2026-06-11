@@ -12,7 +12,7 @@ import GaPositions from '@/components/ga/GaPositions.astro';
 import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
-import { getTopicBySlug, getThreadPage, getTopicStats, type ThreadPage } from '@/lib/db/forum.js';
+import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { threadOgImage, stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
@@ -46,7 +46,7 @@ const offset = pageToOffset(page, PAGE_SIZE);
 
 const thread: ThreadPage = topic && db
   ? await getThreadPage(db, topic.id, { limit: PAGE_SIZE, offset })
-  : { topLevel: [], childrenByParent: new Map() };
+  : { topLevel: [], childrenByParent: new Map(), openingPost: null, stats: null };
 
 // Every post on the page (top-level and replies) for the batched lookups below.
 const pagePosts = [...thread.topLevel, ...[...thread.childrenByParent.values()].flat()];
@@ -90,14 +90,13 @@ const viewerIsWriter = !!user && isWriter(user.roles);
 // (flags + reactions, one batched round-trip) are independent, so load them
 // together. The per-author votes then need govAction.id, so that one follows.
 // All read from D1 ("as of").
-const [govAction, viewerPostState, topicStats] = await Promise.all([
+const [govAction, viewerPostState] = await Promise.all([
   isGovernanceTopic && db && topic
     ? getGovernanceActionByTopicId(db, topic.id)
     : Promise.resolve(null),
   db && user && viewerIsWriter
     ? loadViewerPostState(db, user.id, pagePosts.map((p) => p.id))
     : Promise.resolve(emptyViewerPostState()),
-  db && topic ? getTopicStats(db, topic.id) : Promise.resolve(null),
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 
@@ -167,10 +166,11 @@ const firstPostDate = topic
   ? new Date(topic.created_at).toISOString()
   : new Date().toISOString();
 
-// Meta description / schema text from the opening post (page 1's first
-// top-level post); deeper pages fall back to a generic line.
-const openingExcerpt =
-  page === 1 && thread.topLevel[0]?.body_html ? excerptFromHtml(thread.topLevel[0].body_html) : '';
+// Meta description / schema text from the opening post; deeper pages (where
+// the thread page does not carry it) fall back to a generic line.
+const openingExcerpt = thread.openingPost?.body_html
+  ? excerptFromHtml(thread.openingPost.body_html)
+  : '';
 const metaDescription =
   openingExcerpt || (topic ? `Discussion of ${topic.title} on DRepTalk.` : 'Discussion on DRepTalk.');
 
@@ -268,7 +268,6 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
               <ThreadPosts
                 topic={topic}
                 thread={thread}
-                stats={topicStats}
                 govVotes={govVotes}
                 user={user}
                 topicAuthor={topicAuthor}
@@ -276,11 +275,9 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                 flaggedPostIds={flaggedPostIds}
                 viewerReactions={viewerReactions}
                 isGovernanceTopic={isGovernanceTopic}
-                page={page}
                 prevPage={prevPage}
                 nextPage={nextPage}
                 now={now}
-                pageQueryPrefix="?tab=discussion&page="
               />
             ) : tab === 'positions' ? (
               <GaPositions
@@ -322,7 +319,6 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
       <ThreadPosts
         topic={topic}
         thread={thread}
-        stats={topicStats}
         govVotes={govVotes}
         user={user}
         topicAuthor={topicAuthor}
@@ -330,11 +326,9 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
         flaggedPostIds={flaggedPostIds}
         viewerReactions={viewerReactions}
         isGovernanceTopic={isGovernanceTopic}
-        page={page}
         prevPage={prevPage}
         nextPage={nextPage}
         now={now}
-        pageQueryPrefix="?page="
       />
     )}
   </Layout>

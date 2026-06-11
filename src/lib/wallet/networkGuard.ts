@@ -5,6 +5,13 @@
 // chain id is 0". CIP-30 getNetworkId(): 1 = mainnet, 0 = testnets.
 import type { CardanoNetwork } from '../config/network.js';
 
+/**
+ * The server's terse error code for a wrong-network login signature. Produced
+ * by the auth verify handler and substring-matched by the login UI; shared as
+ * one symbol so producer and matcher cannot drift.
+ */
+export const WALLET_NETWORK_MISMATCH = 'wallet network mismatch';
+
 /** CIP-30 network id for a Cardano network: 1 = mainnet, 0 = testnets (preprod/preview). */
 export function expectedNetworkId(network: CardanoNetwork): number {
   return network === 'mainnet' ? 1 : 0;

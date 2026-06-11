@@ -5,13 +5,11 @@
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import PostActions from '@/components/PostActions.astro';
-import { postViewerContext } from '@/lib/forum/postVisibility.js';
+import { postViewerContext, type SessionUser } from '@/lib/forum/postVisibility.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
-
-type SessionUser = { id: string; roles: string[] };
 
 interface Props {
   post: Post;

@@ -4,7 +4,7 @@
 // grouping and top-level pagination, and the getTopicStats aggregate.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { createTopic, createPost, getThreadPage, getTopicStats } from './forum.js';
+import { createTopic, createPost, getThreadPage } from './forum.js';
 import { setReaction } from './postReactions.js';
 
 const db = () => env.DB;
@@ -38,11 +38,10 @@ function reply(topicId: string, authorId: string, parentPostId: string | null, a
 
 describe('createPost: one-level threading', () => {
   it('stores the parent for a reply to a top-level post', async () => {
-    const { topicId, openerId } = await newTopic();
+    const { topicId } = await newTopic();
     const top = await reply(topicId, 'a', null, NOW + 1000);
     const child = await reply(topicId, 'b', top.id, NOW + 2000);
     expect(child.parent_post_id).toBe(top.id);
-    void openerId;
   });
 
   it('lifts a reply to a reply onto the top-level parent', async () => {
@@ -92,14 +91,17 @@ describe('getThreadPage', () => {
     const page1 = await getThreadPage(db(), topicId, { limit: 2, offset: 0 });
     expect(page1.topLevel.map((p) => p.id)).toEqual([openerId, top1.id]);
     expect(page1.childrenByParent.get(top1.id)?.map((p) => p.id)).toEqual([child.id]);
+    // Page 1 contains the opener; deeper pages do not.
+    expect(page1.openingPost?.id).toBe(openerId);
 
     const page2 = await getThreadPage(db(), topicId, { limit: 2, offset: 2 });
     expect(page2.topLevel.map((p) => p.id)).toEqual([top2.id]);
     expect(page2.childrenByParent.size).toBe(0);
+    expect(page2.openingPost).toBeNull();
   });
 });
 
-describe('getTopicStats', () => {
+describe('getThreadPage stats', () => {
   it('counts distinct participants and reads the opening post reactions', async () => {
     const { topicId, openerId } = await newTopic();
     await reply(topicId, 'second-author', null, NOW + 1000);
@@ -108,11 +110,12 @@ describe('getTopicStats', () => {
     await setReaction(db(), { postId: openerId, reactorId: 'fan-1', reaction: 'up', now: NOW });
     await setReaction(db(), { postId: openerId, reactorId: 'fan-2', reaction: 'down', now: NOW });
 
-    const stats = await getTopicStats(db(), topicId);
+    const { stats } = await getThreadPage(db(), topicId);
     expect(stats).toEqual({ participants: 2, supporting: 1, opposing: 1 });
   });
 
-  it('returns null for an unknown topic', async () => {
-    expect(await getTopicStats(db(), crypto.randomUUID())).toBeNull();
+  it('returns null stats for an unknown topic', async () => {
+    const { stats } = await getThreadPage(db(), crypto.randomUUID());
+    expect(stats).toBeNull();
   });
 });

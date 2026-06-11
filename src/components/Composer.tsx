@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { submitComposer } from '@/lib/forum/composer.js';
+import { REPLY_EVENT, type ReplyEventDetail } from '@/lib/forum/replyEvent.js';
 import { applyMarkdown, type MarkdownAction } from '@/lib/forum/markdownToolbar.js';
 
 // Toolbar buttons: label is what shows in the button, title is the tooltip.
@@ -17,12 +18,6 @@ interface ComposerProps {
   mode: 'topic' | 'post';
   categorySlug?: string;
   topicId?: string;
-}
-
-/** Detail of the page-level reply event dispatched by a post's Reply button. */
-interface ReplyEventDetail {
-  postId: string;
-  author: string;
 }
 
 export default function Composer({ mode, categorySlug, topicId }: ComposerProps) {
@@ -53,8 +48,8 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       textareaRef.current?.focus();
     };
-    window.addEventListener('dreptalk:reply', onReply);
-    return () => window.removeEventListener('dreptalk:reply', onReply);
+    window.addEventListener(REPLY_EVENT, onReply);
+    return () => window.removeEventListener(REPLY_EVENT, onReply);
   }, [mode]);
 
   // Apply a toolbar action to the current textarea selection.
