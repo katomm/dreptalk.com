@@ -2,7 +2,7 @@
 // Tally/vote sync tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
+import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId } from '../db/drepVotes.js';
 import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes } from './tallySync.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
@@ -131,6 +131,29 @@ describe('syncGovernanceTallies', () => {
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.drepVotedPower).toBeNull();
+  });
+
+  it('re-queues a frozen action for one final vote backfill, but not an active one', async () => {
+    const a = await insertActive(290);
+    const b = await insertActive(400);
+    // Both were vote-synced while active (the hourly sync set the marker).
+    await markVotesSynced(db(), a.id, NOW);
+    await markVotesSynced(db(), b.id, NOW);
+
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash), lifeRow(b.txHash)]),
+      db: db(),
+      currentEpoch: 295,
+      now: NOW + 20,
+    });
+
+    // a froze (past expiry) and must re-enter the finalized-votes backfill queue
+    // so votes cast between the last hourly sync and the freeze are picked up.
+    expect((await getGovernanceActionByTopicId(db(), a.topicId))!.status).toBe('expired');
+    expect((await getGovernanceActionByTopicId(db(), b.topicId))!.status).toBe('active');
+    const queued = await getActionsNeedingVoteBackfill(db(), 10);
+    expect(queued.map((g) => g.id)).toContain(a.id);
+    expect(queued.map((g) => g.id)).not.toContain(b.id);
   });
 
   it('freezes an action past its expiry and drops it from the active set', async () => {
