@@ -222,8 +222,13 @@ export interface DrepParticipation {
 
 /**
  * Participation over concluded governance actions the DRep could vote on.
- *  - eligible: actions with a terminal decided_epoch whose voting window closed
- *    at or after the DRep registered (COALESCE(expiry_epoch, decided_epoch) >= reg).
+ *  - eligible: actions decided at or after the DRep registered that carry at
+ *    least one DRep vote. The window uses decided_epoch, not expiry_epoch:
+ *    ratified/dropped actions close before their nominal expiry, so expiry would
+ *    count actions already decided before the DRep registered. Actions with zero
+ *    DRep votes were not DRep-votable at all (bootstrap-phase parameter changes
+ *    and hard forks were decided by the constitutional committee and SPOs alone,
+ *    the ledger rejected DRep votes), so they stay out of the denominator.
  *  - voted: those the DRep cast any vote on (Yes/No/Abstain all count).
  * Returns null when registeredEpoch is unknown (not yet backfilled), so the UI
  * shows "pending" rather than a misleading 0%.
@@ -240,7 +245,8 @@ export async function getDrepParticipation(
        FROM governance_actions g
        LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'DRep'
        WHERE g.decided_epoch IS NOT NULL
-         AND COALESCE(g.expiry_epoch, g.decided_epoch) >= ?`,
+         AND g.decided_epoch >= ?
+         AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep')`,
     )
     .bind(voterId, registeredEpoch)
     .first<{ eligible: number; voted: number }>();
