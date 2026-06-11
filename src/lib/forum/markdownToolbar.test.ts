@@ -5,7 +5,7 @@ import { applyMarkdown } from './markdownToolbar.js';
 // expected cursor/selection is easy to read in assertions.
 function show(state: { text: string; start: number; end: number }): string {
   const { text, start, end } = state;
-  return text.slice(0, start) + '[' + text.slice(start, end) + ']' + text.slice(end);
+  return `${text.slice(0, start)}[${text.slice(start, end)}]${text.slice(end)}`;
 }
 
 describe('applyMarkdown: inline wrap (bold)', () => {

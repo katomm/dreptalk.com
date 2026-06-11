@@ -52,7 +52,7 @@ export function serializeJsonLd(data: unknown): string {
  * appending "..." when truncation occurs. Default len is 16.
  */
 export function truncateId(id: string, len = 16): string {
-  return id.length > len ? id.slice(0, len) + '...' : id;
+  return id.length > len ? `${id.slice(0, len)}...` : id;
 }
 
 /**
@@ -62,7 +62,7 @@ export function truncateId(id: string, len = 16): string {
  */
 export function excerptFromHtml(html: string, maxLen = 155): string {
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  return text.length > maxLen ? text.slice(0, maxLen - 1).trimEnd() + '...' : text;
+  return text.length > maxLen ? `${text.slice(0, maxLen - 1).trimEnd()}...` : text;
 }
 
 /**

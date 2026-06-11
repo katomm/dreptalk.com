@@ -116,7 +116,6 @@ export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: 
         .sort((a, b) => ascKey(a.action.expiryEpoch) - ascKey(b.action.expiryEpoch));
     case 'ratified':
       return [...rows].sort((a, b) => descKey(b.action.decidedEpoch) - descKey(a.action.decidedEpoch));
-    case 'trending':
     default: {
       // Score each row once (a comparator would recompute it O(n log n) times), then
       // order: score descending; ties (submissions cluster at 5-day epoch starts) break

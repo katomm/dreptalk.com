@@ -44,7 +44,7 @@ function flipByte(hex: string, byteOffset: number): string {
 }
 
 function replaceLastByte(hex: string): string {
-  return hex.slice(0, -2) + 'ff';
+  return `${hex.slice(0, -2)}ff`;
 }
 
 describe('Ed25519 runtime path detection', () => {

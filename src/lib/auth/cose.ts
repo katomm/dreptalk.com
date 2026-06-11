@@ -113,7 +113,7 @@ async function verifyCip8Internal(input: {
     return { ok: false, reason: `COSE_Key crv must be Ed25519 (6), got ${crv}` };
   }
   if (!(pubKey instanceof Uint8Array) || pubKey.length !== 32) {
-    return { ok: false, reason: `COSE_Key x (-2) must be a 32-byte bstr, got ${pubKey instanceof Uint8Array ? pubKey.length + ' bytes' : typeof pubKey}` };
+    return { ok: false, reason: `COSE_Key x (-2) must be a 32-byte bstr, got ${pubKey instanceof Uint8Array ? `${pubKey.length} bytes` : typeof pubKey}` };
   }
 
   // Step 3: Decode protected header (double-encoded CBOR bstr).
@@ -147,7 +147,7 @@ async function verifyCip8Internal(input: {
       hashed = hashedFlag;
     }
   } else if (typeof unprotectedHeader === 'object' && unprotectedHeader !== null) {
-    const hashedFlag = (unprotectedHeader as Record<string, unknown>)['hashed'];
+    const hashedFlag = (unprotectedHeader as Record<string, unknown>).hashed;
     if (typeof hashedFlag === 'boolean') {
       hashed = hashedFlag;
     }
