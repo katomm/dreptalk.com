@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="tc-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9333ea"/>
+      <stop offset="1" stop-color="#6b21a8"/>
+    </linearGradient>
+    <clipPath id="tc-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#3b0764" stroke="#3b0764" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#tc-bg)" stroke="url(#tc-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#tc-clip)" fill="#ffffff" opacity="0.08">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- crown with one gem per on-chain role, drop shade first -->
+  <g fill="#581c87" transform="translate(0 3)">
+    <path d="M38 68 L38 44 L51 56 L60 38 L69 56 L82 44 L82 68 Z"/>
+    <rect x="38" y="68" width="44" height="9" rx="3"/>
+  </g>
+  <path d="M38 68 L38 44 L51 56 L60 38 L69 56 L82 44 L82 68 Z" fill="#ffffff"/>
+  <rect x="38" y="68" width="44" height="9" rx="3" fill="#ffffff"/>
+  <circle cx="47" cy="61" r="3.5" fill="#8b5cf6"/>
+  <circle cx="60" cy="59" r="3.5" fill="#3b82f6"/>
+  <circle cx="73" cy="61" r="3.5" fill="#0d9488"/>
+  <!-- sparkles -->
+  <path d="M33 38 L35.6 43 L33 48 L30.4 43 Z" fill="#e9d5ff" opacity="0.9"/>
+  <path d="M88 40 L90.2 44 L88 48 L85.8 44 Z" fill="#e9d5ff" opacity="0.7"/>
+</svg>

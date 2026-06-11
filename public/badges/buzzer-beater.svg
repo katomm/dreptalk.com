@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="bb-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f43f5e"/>
+      <stop offset="1" stop-color="#9f1239"/>
+    </linearGradient>
+    <clipPath id="bb-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#4c0519" stroke="#4c0519" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#bb-bg)" stroke="url(#bb-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#bb-clip)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- stopwatch on the last second, drop shade first -->
+  <circle cx="60" cy="65" r="20" fill="#881337"/>
+  <rect x="56" y="34" width="8" height="7" rx="2" fill="#ffffff"/>
+  <circle cx="60" cy="62" r="20" fill="#ffffff"/>
+  <rect x="58.75" y="45.5" width="2.5" height="5" rx="1" fill="#fda4af"/>
+  <rect x="73.5" y="60.75" width="5" height="2.5" rx="1" fill="#fda4af"/>
+  <rect x="58.75" y="73.5" width="2.5" height="5" rx="1" fill="#fda4af"/>
+  <rect x="41.5" y="60.75" width="5" height="2.5" rx="1" fill="#fda4af"/>
+  <path d="M60 62 L56.5 47.5" fill="none" stroke="#be123c" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="60" cy="62" r="3" fill="#be123c"/>
+  <!-- speed marks: it came in hot -->
+  <path d="M30 52 L37 54" fill="none" stroke="#fda4af" stroke-width="3" stroke-linecap="round"/>
+  <path d="M28 62 L36 62" fill="none" stroke="#fda4af" stroke-width="3" stroke-linecap="round"/>
+  <!-- sparkles -->
+  <path d="M87 46 L89.6 51 L87 56 L84.4 51 Z" fill="#fecdd3" opacity="0.9"/>
+  <path d="M86 72 L88.2 76 L86 80 L83.8 76 Z" fill="#fecdd3" opacity="0.7"/>
+</svg>

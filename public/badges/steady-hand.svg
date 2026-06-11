@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="sh-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ef4444"/>
+      <stop offset="1" stop-color="#991b1b"/>
+    </linearGradient>
+    <clipPath id="sh-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#450a0a" stroke="#450a0a" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#sh-bg)" stroke="url(#sh-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#sh-clip)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- calm under the storm: umbrella, drop shade first -->
+  <path d="M34 56 A 26 20 0 0 1 86 56 Z" fill="#7f1d1d" transform="translate(0 3)"/>
+  <path d="M34 56 A 26 20 0 0 1 86 56 Z" fill="#ffffff"/>
+  <path d="M60 38 L60 56" fill="none" stroke="#fecaca" stroke-width="2.5"/>
+  <path d="M60 30 L60 36" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M60 56 L60 80" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M60 80 a 6 6 0 0 0 12 0" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  <!-- rain glancing off -->
+  <path d="M36 30 L33 36" fill="none" stroke="#fecaca" stroke-width="3" stroke-linecap="round"/>
+  <path d="M84 32 L81 38" fill="none" stroke="#fecaca" stroke-width="3" stroke-linecap="round"/>
+  <!-- sparkles -->
+  <path d="M34 66 L36.6 71 L34 76 L31.4 71 Z" fill="#fecaca" opacity="0.9"/>
+  <path d="M87 62 L89.2 66 L87 70 L84.8 66 Z" fill="#fecaca" opacity="0.7"/>
+</svg>
