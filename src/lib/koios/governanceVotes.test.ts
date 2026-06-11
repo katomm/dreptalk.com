@@ -104,4 +104,20 @@ describe('createKoiosClient.proposalVotes', () => {
     const client = createKoiosClient({ baseUrl: 'https://preprod.koios.rest/api/v1', fetchImpl });
     await expect(client.proposalVotes(PID)).rejects.toThrow(/koios request failed: 500/i);
   });
+
+  it('tolerates raw control characters in a string value (a stray newline in meta_url)', async () => {
+    // A real Koios response carried a vote whose meta_url had a trailing newline.
+    // Strict JSON parsing rejects raw control characters, which used to fail the
+    // whole response; the client strips them before parsing. The body below is a
+    // raw string (not JSON.stringify) so the newline stays unescaped, as Koios sent it.
+    const body = '[{"voter_role":"DRep","voter_id":"drep1xyz","vote":"Yes","meta_url":"https://ipfs.io/ipfs/Qm123\n"}]';
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
+    const client = createKoiosClient({ baseUrl: 'https://preprod.koios.rest/api/v1', fetchImpl });
+
+    const rows = await client.proposalVotes(PID);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].meta_url).toBe('https://ipfs.io/ipfs/Qm123');
+  });
 });

@@ -293,7 +293,13 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       if (!res.ok) {
         throw new KoiosHttpError(res.status);
       }
-      return await res.json();
+      // Koios occasionally emits raw C0 control characters inside string values
+      // (e.g. a vote's meta_url with a stray newline), which strict JSON parsing
+      // rejects, failing the whole response. Strip them before parsing: they are
+      // never valid unescaped inside a JSON string, and between tokens they are
+      // only insignificant whitespace, so removing them cannot change the data.
+      const text = await res.text();
+      return JSON.parse(text.replace(/\p{Cc}/gu, ''));
     } finally {
       clearTimeout(timer);
     }
