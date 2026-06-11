@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="gen-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <clipPath id="gen-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#064e3b" stroke="#064e3b" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#gen-bg)" stroke="url(#gen-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#gen-clip)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- genesis block as an isometric cube, drop shade first -->
+  <rect x="44" y="65" width="38" height="22" rx="3" fill="#065f46"/>
+  <rect x="42" y="62" width="32" height="22" rx="2" fill="#ffffff"/>
+  <path d="M42 62 L50 54 L82 54 L74 62 Z" fill="#d1fae5"/>
+  <path d="M74 62 L82 54 L82 76 L74 84 Z" fill="#a7f3d0"/>
+  <!-- sprout growing out of the block -->
+  <path d="M62 54 C62 46 62 42 62 38" fill="none" stroke="#064e3b" stroke-width="4" stroke-linecap="round"/>
+  <path d="M62 42 C54 42 47 38 45 29 C54 27 62 32 62 42 Z" fill="#064e3b"/>
+  <path d="M62 38 C70 38 77 34 79 25 C70 23 62 28 62 38 Z" fill="#065f46"/>
+  <!-- sparkles -->
+  <path d="M33 46 L35.6 51 L33 56 L30.4 51 Z" fill="#d1fae5" opacity="0.9"/>
+  <path d="M87 68 L89.2 72 L87 76 L84.8 72 Z" fill="#d1fae5" opacity="0.7"/>
+</svg>

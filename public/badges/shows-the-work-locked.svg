@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <!-- locked state: fully desaturated, no rays, no sparkles -->
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#b6b3c2" stroke="#b6b3c2" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="#d6d3e0" stroke="#d6d3e0" stroke-width="8" stroke-linejoin="round"/>
+  <rect x="36" y="35" width="42" height="54" rx="6" fill="#b6b3c2"/>
+  <rect x="36" y="32" width="42" height="54" rx="6" fill="#f1eff6"/>
+  <rect x="43" y="42" width="26" height="5.5" rx="2.75" fill="#b6b3c2"/>
+  <rect x="43" y="53" width="26" height="5.5" rx="2.75" fill="#b6b3c2"/>
+  <rect x="43" y="64" width="15" height="5.5" rx="2.75" fill="#cac7d6"/>
+  <path d="M83.36 37.86 L91.14 45.64 L70.55 66.23 L61 68 L62.77 58.45 Z"
+        fill="#8f8b9e" stroke="#8f8b9e" stroke-width="2" stroke-linejoin="round"/>
+  <line x1="86.9" y1="49.88" x2="79.12" y2="42.1" stroke="#cac7d6" stroke-width="4"/>
+</svg>

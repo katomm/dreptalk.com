@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="fv-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#6d28d9"/>
+    </linearGradient>
+    <clipPath id="fv-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#4c1d95" stroke="#4c1d95" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#fv-bg)" stroke="url(#fv-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#fv-clip)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- ballot paper sliding toward the slot -->
+  <g transform="rotate(-14 60 32)">
+    <rect x="50.5" y="20.5" width="24" height="34" rx="3" fill="#3b1473"/>
+    <rect x="48" y="18" width="24" height="34" rx="3" fill="#ffffff"/>
+    <path d="M54 34 L58.5 38.5 L66.5 27" fill="none" stroke="#6d28d9"
+          stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- ballot box: lid with slot, then the body -->
+  <rect x="28" y="48" width="64" height="12" rx="6" fill="#3b1473"/>
+  <rect x="47" y="51.5" width="26" height="4.5" rx="2.25" fill="#ffffff"/>
+  <rect x="32" y="59" width="56" height="30" rx="6" fill="#1e1b4b"/>
+  <rect x="32" y="56" width="56" height="30" rx="6" fill="#2e1065"/>
+  <rect x="32" y="56" width="56" height="8" rx="4" fill="#3b1473"/>
+  <!-- sparkles -->
+  <path d="M89 33.5 L91.5 38 L89 42.5 L86.5 38 Z" fill="#e9d5ff" opacity="0.9"/>
+  <path d="M31 64 L33.2 68 L31 72 L28.8 68 Z" fill="#e9d5ff" opacity="0.7"/>
+</svg>
