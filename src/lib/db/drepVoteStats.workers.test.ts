@@ -55,14 +55,38 @@ describe('getDrepParticipation', () => {
 
   it('counts only concluded actions inside the DRep eligibility window', async () => {
     // DRep registered at epoch 100.
-    await seedAction('p1', { decidedEpoch: 95, expiryEpoch: 90 });   // closed before registration -> not eligible
+    await seedAction('p1', { decidedEpoch: 95, expiryEpoch: 90 });   // decided before registration -> not eligible
     await seedAction('p2', { decidedEpoch: 125, expiryEpoch: 120 }); // eligible, voted
     await seedAction('p3', { decidedEpoch: 135, expiryEpoch: 130 }); // eligible, not voted
     await seedAction('p4', { decidedEpoch: null, expiryEpoch: 200 }); // not concluded -> excluded
     await upsertVotes(env.DB, 'p1', vote('drepP', 'Yes'), 1);
     await upsertVotes(env.DB, 'p2', vote('drepP', 'Yes'), 1);
+    await upsertVotes(env.DB, 'p3', vote('drepOther', 'No'), 1);
     await upsertVotes(env.DB, 'p4', vote('drepP', 'Yes'), 1);
 
     expect(await getDrepParticipation(env.DB, 'drepP', 100)).toEqual({ eligible: 2, voted: 1 });
+  });
+
+  it('windows eligibility on the decided epoch, not the nominal expiry', async () => {
+    // Ratified/dropped actions conclude before their expiry epoch; one decided
+    // before the DRep registered must not count even though its expiry lies after.
+    await seedAction('w1', { decidedEpoch: 95, expiryEpoch: 105 });  // decided pre-registration
+    await seedAction('w2', { decidedEpoch: 101, expiryEpoch: 105 }); // decided post-registration
+    await upsertVotes(env.DB, 'w1', vote('drepOther', 'Yes'), 1);
+    await upsertVotes(env.DB, 'w2', vote('drepOther', 'Yes'), 1);
+
+    expect(await getDrepParticipation(env.DB, 'drepW', 100)).toEqual({ eligible: 1, voted: 0 });
+  });
+
+  it('excludes concluded actions that carry no DRep votes (not DRep-votable)', async () => {
+    // Bootstrap-phase parameter changes and hard forks were decided by the
+    // constitutional committee and SPOs alone; the ledger rejected DRep votes,
+    // so such actions have none and must stay out of the denominator.
+    await seedAction('q1', { decidedEpoch: 110, expiryEpoch: 110 }); // DRep-votable, voted
+    await seedAction('q2', { decidedEpoch: 112, expiryEpoch: 112 }); // CC/SPO-only: no DRep votes
+    await upsertVotes(env.DB, 'q1', vote('drepQ', 'Yes'), 1);
+    await upsertVotes(env.DB, 'q2', [{ voterRole: 'SPO', voterId: 'pool1x', voterHex: null, vote: 'Yes' }], 1);
+
+    expect(await getDrepParticipation(env.DB, 'drepQ', 100)).toEqual({ eligible: 1, voted: 1 });
   });
 });

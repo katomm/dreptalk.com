@@ -553,7 +553,12 @@ export type GovernanceTallyUpdate = GovernanceTally & {
   now: number;
 };
 
-/** Updates the tally columns, pct columns, status, and sync timestamps in place. */
+/**
+ * Updates the tally columns, pct columns, status, and sync timestamps in place.
+ * Freezing (any non-active status) also nulls votes_synced_at, which re-queues
+ * the action for one final per-voter vote pull (backfillFinalizedVotes); votes
+ * cast between the last hourly vote sync and the freeze would be lost otherwise.
+ */
 export async function updateGovernanceTallyAndStatus(
   db: D1Database,
   u: GovernanceTallyUpdate,
@@ -567,7 +572,8 @@ export async function updateGovernanceTallyAndStatus(
              drep_yes_pct = ?, drep_no_pct = ?, spo_yes_pct = ?, spo_no_pct = ?,
              cc_yes_pct = ?, cc_no_pct = ?,
              drep_voted_power = ?,
-             tally_epoch = ?, decided_epoch = ?, tally_synced_at = ?, last_synced_at = ?
+             tally_epoch = ?, decided_epoch = ?, tally_synced_at = ?, last_synced_at = ?,
+             votes_synced_at = CASE WHEN ? = 'active' THEN votes_synced_at ELSE NULL END
        WHERE id = ?`,
     )
     .bind(
@@ -592,6 +598,7 @@ export async function updateGovernanceTallyAndStatus(
       u.decidedEpoch,
       u.tallySyncedAt,
       u.now,
+      u.status,
       u.id,
     )
     .run();
