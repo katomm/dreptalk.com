@@ -1,0 +1,35 @@
+<!-- generated from the base badge by scripts/generate-badge-variants.mjs -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="rgl-bg-s" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c8cfd9"/>
+      <stop offset="1" stop-color="#7d8898"/>
+    </linearGradient>
+    <clipPath id="rgl-clip-s">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#1f242c" stroke="#1f242c" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#rgl-bg-s)" stroke="url(#rgl-bg-s)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#rgl-clip-s)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- the regular's coffee mug, drop shade first -->
+  <rect x="40" y="49" width="34" height="34" rx="6" fill="#596472"/>
+  <rect x="40" y="46" width="34" height="34" rx="6" fill="#ffffff"/>
+  <path d="M74 54 a 9.5 9.5 0 0 1 0 19" fill="none" stroke="#ffffff" stroke-width="6"/>
+  <rect x="44" y="52" width="26" height="5" rx="2.5" fill="#c8cfd9"/>
+  <path d="M50 38 C 48 34 52 31 50 27" fill="none" stroke="#e9edf2" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M62 38 C 60 34 64 31 62 27" fill="none" stroke="#e9edf2" stroke-width="3.5" stroke-linecap="round"/>
+  <rect x="34" y="83" width="46" height="5" rx="2.5" fill="#e9edf2"/>
+  <!-- sparkles -->
+  <path d="M88 58 L90.6 63 L88 68 L85.4 63 Z" fill="#e9edf2" opacity="0.9"/>
+  <path d="M31 60 L33.2 64 L31 68 L28.8 64 Z" fill="#e9edf2" opacity="0.7"/>
+</svg>

@@ -1,19 +1,19 @@
 <!-- generated from the base badge by scripts/generate-badge-variants.mjs -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
   <defs>
-    <linearGradient id="sad-bg-g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#92580b"/>
-      <stop offset="1" stop-color="#efc55c"/>
+    <linearGradient id="sad-bg-l" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b6b3c2"/>
+      <stop offset="1" stop-color="#e4e2ec"/>
     </linearGradient>
-    <clipPath id="sad-clip-g">
+    <clipPath id="sad-clip-l">
       <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
     </clipPath>
   </defs>
   <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
-           fill="#412402" stroke="#412402" stroke-width="10" stroke-linejoin="round"/>
+           fill="#8f8b9e" stroke="#8f8b9e" stroke-width="10" stroke-linejoin="round"/>
   <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
-           fill="url(#sad-bg-g)" stroke="url(#sad-bg-g)" stroke-width="8" stroke-linejoin="round"/>
-  <g clip-path="url(#sad-clip-g)" fill="#ffffff" opacity="0.07">
+           fill="url(#sad-bg-l)" stroke="url(#sad-bg-l)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#sad-clip-l)" fill="#ffffff" opacity="0.07">
     <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
     <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
     <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
@@ -22,17 +22,17 @@
     <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
   </g>
   <!-- speech bubble, drop shade first -->
-  <rect x="26" y="29" width="54" height="38" rx="13" fill="#412402"/>
-  <path d="M36 63 L36 81 L52 65 Z" fill="#412402"/>
+  <rect x="26" y="29" width="54" height="38" rx="13" fill="#8f8b9e"/>
+  <path d="M36 63 L36 81 L52 65 Z" fill="#8f8b9e"/>
   <rect x="26" y="26" width="54" height="38" rx="13" fill="#ffffff"/>
   <path d="M36 60 L36 78 L52 62 Z" fill="#ffffff"/>
-  <circle cx="41" cy="45" r="4.5" fill="#633806"/>
-  <circle cx="53" cy="45" r="4.5" fill="#633806"/>
-  <circle cx="65" cy="45" r="4.5" fill="#633806"/>
+  <circle cx="41" cy="45" r="4.5" fill="#9d99ad"/>
+  <circle cx="53" cy="45" r="4.5" fill="#9d99ad"/>
+  <circle cx="65" cy="45" r="4.5" fill="#9d99ad"/>
   <!-- on-chain check seal with shaded lower half and white ring -->
-  <circle cx="74" cy="72" r="20" fill="#412402"/>
-  <circle cx="74" cy="69" r="20" fill="#f8e3a8"/>
-  <path d="M54 69 A20 20 0 0 0 94 69 Z" fill="#dfa128"/>
+  <circle cx="74" cy="72" r="20" fill="#8f8b9e"/>
+  <circle cx="74" cy="69" r="20" fill="#f1eff6"/>
+  <path d="M54 69 A20 20 0 0 0 94 69 Z" fill="#d6d3e0"/>
   <circle cx="74" cy="69" r="20" fill="none" stroke="#ffffff" stroke-width="5"/>
   <path d="M64.5 69.5 L72 77 L85 61.5" fill="none" stroke="#ffffff"
         stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>

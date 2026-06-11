@@ -9,6 +9,8 @@ export interface VoteInput {
   vote: string;
   /** Rationale anchor on the vote (Koios proposal_votes.meta_url); null when none. */
   metaUrl?: string | null;
+  /** Unix seconds of the vote tx (Koios proposal_votes.block_time); null when unknown. */
+  blockTime?: number | null;
 }
 
 // Bound parameters per row in the upsert; stays well under the SQLite limit.
@@ -31,10 +33,10 @@ export async function upsertVotes(
     const stmts = chunk.map((v) =>
       db
         .prepare(
-          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, now),
+        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.blockTime ?? null, now),
     );
     await db.batch(stmts);
   }

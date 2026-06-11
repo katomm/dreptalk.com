@@ -1,0 +1,35 @@
+<!-- generated from the base badge by scripts/generate-badge-variants.mjs -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="otr-bg-l" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e4e2ec"/>
+      <stop offset="1" stop-color="#c6c3d1"/>
+    </linearGradient>
+    <clipPath id="otr-clip-l">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#8f8b9e" stroke="#8f8b9e" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#otr-bg-l)" stroke="url(#otr-bg-l)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#otr-clip-l)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- on the record: microphone, drop shade first -->
+  <rect x="50" y="31" width="20" height="36" rx="10" fill="#b6b3c2"/>
+  <rect x="50" y="28" width="20" height="36" rx="10" fill="#ffffff"/>
+  <rect x="53" y="37" width="14" height="2.5" rx="1.25" fill="#e4e2ec"/>
+  <rect x="53" y="43" width="14" height="2.5" rx="1.25" fill="#e4e2ec"/>
+  <path d="M44 52 a 16 16 0 0 0 32 0" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M60 68 L60 80" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+  <rect x="48" y="80" width="24" height="5.5" rx="2.75" fill="#ffffff"/>
+  <!-- sparkles -->
+  <path d="M85 42 L87.6 47 L85 52 L82.4 47 Z" fill="#f1eff6" opacity="0.9"/>
+  <path d="M33 62 L35.2 66 L33 70 L30.8 66 Z" fill="#f1eff6" opacity="0.7"/>
+</svg>

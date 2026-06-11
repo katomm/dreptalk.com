@@ -1,0 +1,36 @@
+<!-- generated from the base badge by scripts/generate-badge-variants.mjs -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="av-bg-s" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c8cfd9"/>
+      <stop offset="1" stop-color="#7d8898"/>
+    </linearGradient>
+    <clipPath id="av-clip-s">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#596472" stroke="#596472" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#av-bg-s)" stroke="url(#av-bg-s)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#av-clip-s)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- megaphone, drop shade first -->
+  <path d="M38 50 L66 38 L66 82 L38 70 Z" fill="#1f242c" transform="translate(0 3)"/>
+  <rect x="30" y="52" width="8" height="16" rx="3" fill="#1f242c" transform="translate(0 3)"/>
+  <rect x="30" y="52" width="8" height="16" rx="3" fill="#ffffff"/>
+  <path d="M38 50 L66 38 L66 82 L38 70 Z" fill="#ffffff"/>
+  <rect x="64" y="36" width="7" height="48" rx="3.5" fill="#ffffff"/>
+  <!-- sound waves -->
+  <path d="M78 50 C 84 55 84 65 78 70" fill="none" stroke="#e9edf2" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M85 44 C 93 52 93 68 85 76" fill="none" stroke="#e9edf2" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- sparkles -->
+  <path d="M34 36 L36.6 41 L34 46 L31.4 41 Z" fill="#e9edf2" opacity="0.9"/>
+  <path d="M40 84 L42.2 88 L40 92 L37.8 88 Z" fill="#e9edf2" opacity="0.7"/>
+</svg>
