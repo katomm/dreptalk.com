@@ -14,7 +14,7 @@ export interface NetworkConfig {
 
 // Both networks run 5-day epochs (same fact as EPOCH_DAYS in governance/view.ts,
 // expressed in seconds here for boundary math).
-const EPOCH_LENGTH_SECONDS = 5 * 24 * 60 * 60; // 432000
+export const EPOCH_LENGTH_SECONDS = 5 * 24 * 60 * 60; // 432000
 
 const CONFIGS: Record<CardanoNetwork, NetworkConfig> = {
   mainnet: {

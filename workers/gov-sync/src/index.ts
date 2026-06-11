@@ -22,6 +22,7 @@ import {
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps, backfillRegisteredEpochs } from '../../../src/lib/dreps/sync.js';
+import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars } from '../../../src/lib/dreps/avatarStore.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
 
@@ -160,6 +161,12 @@ async function runVoteSync(env: Env): Promise<void> {
   // paced budget so the hourly run stays light; drains over many hours.
   const bf = await backfillFinalizedVotes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
   console.log(`[gov-votes-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
+
+  // Award achievement badges from the freshly synced data: a set-based full
+  // pass over D1 (no Koios calls) that writes only new awards and tier upgrades.
+  const cfg = resolveNetwork(env.CARDANO_NETWORK ?? null);
+  const badges = await awardBadges({ db: env.DB, cfg, now: Date.now() });
+  console.log(`[badges] desired=${badges.desired} written=${badges.written}`);
 }
 
 async function runDrepSync(env: Env): Promise<void> {
