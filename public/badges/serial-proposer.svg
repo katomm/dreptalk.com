@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="sp-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+    <clipPath id="sp-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#164e63" stroke="#164e63" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#sp-bg)" stroke="url(#sp-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#sp-clip)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- fanned stack of submitted actions -->
+  <rect x="36" y="34" width="34" height="44" rx="4" fill="#a5f3fc" transform="rotate(-10 52 56)"/>
+  <rect x="41" y="36" width="34" height="44" rx="4" fill="#cffafe" transform="rotate(-3 58 58)"/>
+  <g transform="rotate(6 64 60)">
+    <rect x="48.5" y="39" width="34" height="44" rx="4" fill="#155e75"/>
+    <rect x="46" y="36.5" width="34" height="44" rx="4" fill="#ffffff"/>
+    <rect x="52" y="46" width="22" height="3.5" rx="1.75" fill="#0891b2"/>
+    <rect x="52" y="54" width="22" height="3.5" rx="1.75" fill="#0891b2"/>
+    <rect x="52" y="62" width="13" height="3.5" rx="1.75" fill="#67e8f9"/>
+  </g>
+  <!-- sparkles -->
+  <path d="M88 44 L90.6 49 L88 54 L85.4 49 Z" fill="#cffafe" opacity="0.9"/>
+  <path d="M31 70 L33.2 74 L31 78 L28.8 74 Z" fill="#cffafe" opacity="0.7"/>
+</svg>

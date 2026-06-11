@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="sd-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#ea580c"/>
+    </linearGradient>
+    <clipPath id="sd-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#7c2d12" stroke="#7c2d12" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#sd-bg)" stroke="url(#sd-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#sd-clip)" fill="#ffffff" opacity="0.08">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- the spark that set off the thread, drop shade first -->
+  <path d="M64 26 L42 64 L56 64 L50 90 L78 50 L62 50 Z" fill="#9a3412" transform="translate(0 3)"/>
+  <path d="M64 26 L42 64 L56 64 L50 90 L78 50 L62 50 Z" fill="#ffffff"/>
+  <!-- the debate it started -->
+  <rect x="70" y="66" width="17" height="12.5" rx="5" fill="#ffffff"/>
+  <path d="M74 77 L74 84 L80 78.5 Z" fill="#ffffff"/>
+  <!-- sparkles -->
+  <path d="M84 34 L86.6 39 L84 44 L81.4 39 Z" fill="#fde68a" opacity="0.9"/>
+  <path d="M33 50 L35.2 54 L33 58 L30.8 54 Z" fill="#fde68a" opacity="0.7"/>
+</svg>

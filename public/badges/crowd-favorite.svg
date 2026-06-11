@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="cf-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f472b6"/>
+      <stop offset="1" stop-color="#db2777"/>
+    </linearGradient>
+    <clipPath id="cf-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#831843" stroke="#831843" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#cf-bg)" stroke="url(#cf-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#cf-clip)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- star post with a heart at its core, drop shade first -->
+  <path d="M60 34 L66.8 50.7 L84.7 52 L70.9 63.6 L75.3 81 L60 71.5 L44.7 81 L49.1 63.6 L35.3 52 L53.2 50.7 Z"
+        fill="#9d174d" transform="translate(0 3)"/>
+  <path d="M60 34 L66.8 50.7 L84.7 52 L70.9 63.6 L75.3 81 L60 71.5 L44.7 81 L49.1 63.6 L35.3 52 L53.2 50.7 Z"
+        fill="#ffffff"/>
+  <path d="M60 64 C 54 59 52 55 54 52 C 55.5 49.5 59 49 60 52 C 61 49 64.5 49.5 66 52 C 68 55 66 59 60 64 Z"
+        fill="#db2777"/>
+  <!-- sparkles -->
+  <path d="M85 36 L87.6 41 L85 46 L82.4 41 Z" fill="#fbcfe8" opacity="0.9"/>
+  <path d="M33 38 L35.2 42 L33 46 L30.8 42 Z" fill="#fbcfe8" opacity="0.7"/>
+</svg>
