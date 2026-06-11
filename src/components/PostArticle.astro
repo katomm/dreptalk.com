@@ -60,3 +60,22 @@ const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, 
     />
   )}
 </article>
+
+<style>
+  /* The post named in the URL hash (a fresh reply, a shared permalink) flashes
+     briefly so the eye lands on it after the scroll. */
+  article:target {
+    animation: post-target-flash 2s ease-out 1;
+    border-radius: 0.375rem;
+  }
+  @keyframes post-target-flash {
+    0% {
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      box-shadow: 0 0 0 0.5rem color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+    100% {
+      background: transparent;
+      box-shadow: 0 0 0 0.5rem transparent;
+    }
+  }
+</style>

@@ -345,8 +345,10 @@ describe('handleCreatePost: happy path', () => {
     });
 
     expect(result.status).toBe(201);
-    const json = result.json as { ok: boolean };
+    const json = result.json as { ok: boolean; postId: string };
     expect(json.ok).toBe(true);
+    // The new post's id comes back so the client can scroll to it.
+    expect(typeof json.postId).toBe('string');
 
     // post_count must be 2 now (original + reply).
     const updated = await getTopicBySlug(db(), topic.slug);

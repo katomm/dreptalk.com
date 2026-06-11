@@ -125,6 +125,16 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
       if (mode === 'topic' && result.slug) {
         window.location.href = `/t/${result.slug}`;
       } else {
+        // Reload onto the new post so the user sees it land (especially a
+        // nested reply, which renders up at its parent, not at the composer).
+        // Setting only the hash does not navigate, so reload explicitly. The
+        // sessionStorage flag tells the reloaded page a landing is pending, so
+        // it can disable the browser's scroll restoration (which would put the
+        // user back at the composer) and scroll to the new post instead.
+        if (result.postId) {
+          sessionStorage.setItem('dreptalk:land-on-post', result.postId);
+          window.location.hash = `post-${result.postId}`;
+        }
         window.location.reload();
       }
     } else {

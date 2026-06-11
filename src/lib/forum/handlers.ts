@@ -172,9 +172,10 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     const bodyHtml = renderMarkdown(bodyMd);
 
     // 5. Persist. createPost throws domain errors for locked/missing targets.
-    await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now, parentPostId });
+    const post = await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now, parentPostId });
 
-    return { status: 201, json: { ok: true } };
+    // The id lets the client land on the new post after the reload.
+    return { status: 201, json: { ok: true, postId: post.id } };
   } catch (err) {
     if (err instanceof Error) {
       if (err.message === 'topic_locked') {

@@ -143,6 +143,34 @@ const voteFor = (author: AuthorDescriptor) =>
 <script>
   import { dispatchReply } from '@/lib/forum/replyEvent.ts';
 
+  // Land on the post named in the URL hash (a fresh reply after the composer
+  // reload, or a shared permalink). After the composer's reload the browser
+  // asynchronously restores the pre-reload scroll position (the composer at
+  // the bottom) over the anchor, so when the composer left its landing flag,
+  // restoration is disabled before it can run and re-enabled once landed.
+  if (window.location.hash.startsWith('#post-')) {
+    const pendingLanding = sessionStorage.getItem('dreptalk:land-on-post') !== null;
+    sessionStorage.removeItem('dreptalk:land-on-post');
+    const landOnHashPost = () => {
+      document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'center' });
+    };
+    if (pendingLanding) history.scrollRestoration = 'manual';
+    landOnHashPost();
+    window.addEventListener(
+      'load',
+      () => {
+        landOnHashPost();
+        // Re-assert once more after the restoration window, then hand scroll
+        // handling back to the browser for normal back/forward navigation.
+        setTimeout(() => {
+          landOnHashPost();
+          history.scrollRestoration = 'auto';
+        }, 150);
+      },
+      { once: true },
+    );
+  }
+
   // One delegated handler per page for the server-rendered post actions:
   // Reply hands the target to the Composer island via the shared reply event;
   // Share copies the post permalink and briefly confirms on the button itself.
