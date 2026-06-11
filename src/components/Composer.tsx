@@ -19,6 +19,12 @@ interface ComposerProps {
   topicId?: string;
 }
 
+/** Detail of the page-level reply event dispatched by a post's Reply button. */
+interface ReplyEventDetail {
+  postId: string;
+  author: string;
+}
+
 export default function Composer({ mode, categorySlug, topicId }: ComposerProps) {
   const [title, setTitle] = useState('');
   const [bodyMd, setBodyMd] = useState('');
@@ -26,10 +32,30 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  // Reply target set by a post's Reply button (one-level threading).
+  const [replyTo, setReplyTo] = useState<ReplyEventDetail | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   // Selection to restore after a toolbar edit re-renders the textarea.
   const pendingSelRef = useRef<{ start: number; end: number } | null>(null);
+
+  // The Reply buttons live in server-rendered markup (no island), so they talk
+  // to the composer via a window event. Scroll the form into view and focus the
+  // textarea so the click lands the user where they can type.
+  useEffect(() => {
+    if (mode !== 'post') return;
+    const onReply = (e: Event) => {
+      const detail = (e as CustomEvent<ReplyEventDetail>).detail;
+      if (!detail?.postId) return;
+      setReplyTo(detail);
+      setShowPreview(false);
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      textareaRef.current?.focus();
+    };
+    window.addEventListener('dreptalk:reply', onReply);
+    return () => window.removeEventListener('dreptalk:reply', onReply);
+  }, [mode]);
 
   // Apply a toolbar action to the current textarea selection.
   const runAction = useCallback(
@@ -96,6 +122,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
         title: title.trim(),
         topicId,
         bodyMd: bodyMd.trim(),
+        parentPostId: replyTo?.postId,
       },
     });
 
@@ -112,7 +139,43 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
   };
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+    <form ref={formRef} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      {replyTo && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.8125rem',
+            color: 'var(--muted)',
+            border: '1px solid var(--border)',
+            borderRadius: '0.375rem',
+            padding: '0.375rem 0.625rem',
+            alignSelf: 'flex-start',
+          }}
+        >
+          <span>
+            Replying to <strong style={{ color: 'var(--fg)' }}>{replyTo.author || 'post'}</strong>
+          </span>
+          <button
+            type="button"
+            onClick={() => setReplyTo(null)}
+            aria-label="Cancel reply"
+            title="Cancel reply, post as a new comment instead"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--muted)',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit',
+              lineHeight: 1,
+            }}
+          >
+            &#10005;
+          </button>
+        </div>
+      )}
       {mode === 'topic' && (
         <div>
           <label

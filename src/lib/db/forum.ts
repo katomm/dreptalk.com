@@ -25,6 +25,8 @@ export interface Post {
   id: string;
   topic_id: string;
   author_id: string;
+  /** Top-level posts have null; replies carry their top-level parent's id. */
+  parent_post_id: string | null;
   /** Populated by createTopic/createPost; omitted by getPostsByTopic (use body_html for display). */
   body_md?: string;
   body_html: string;
@@ -59,6 +61,7 @@ interface PostRow {
   id: string;
   topic_id: string;
   author_id: string;
+  parent_post_id: string | null;
   body_md: string;
   body_html: string;
   up_count: number;
@@ -100,6 +103,7 @@ function rowToPost(row: PostRow | PostRowNoBody): Post {
     id: row.id,
     topic_id: row.topic_id,
     author_id: row.author_id,
+    parent_post_id: row.parent_post_id,
     body_html: row.body_html,
     up_count: row.up_count,
     down_count: row.down_count,
@@ -204,6 +208,7 @@ export async function createTopic(
     id: postId,
     topic_id: topicId,
     author_id: authorId,
+    parent_post_id: null,
     body_md: bodyMd,
     body_html: bodyHtml,
     up_count: 0,
@@ -319,7 +324,7 @@ export async function getPostsByTopic(
 
   const rows = await db
     .prepare(
-      `SELECT id, topic_id, author_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
+      `SELECT id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
        FROM posts
        WHERE topic_id = ? AND deleted = 0
        ORDER BY created_at ASC
@@ -386,7 +391,7 @@ export async function getCategoryStats(
 export async function getPostById(db: D1Database, postId: string): Promise<Post | null> {
   const row = await db
     .prepare(
-      `SELECT id, topic_id, author_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
+      `SELECT id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
        FROM posts WHERE id = ?`,
     )
     .bind(postId)
@@ -438,6 +443,9 @@ export async function getPostsByAuthor(
  * Creates a reply post in an existing topic.
  * Throws 'topic_not_found' if the topic does not exist or is deleted.
  * Throws 'topic_locked' if the topic is locked.
+ * Throws 'parent_not_found' if parentPostId names no live post of this topic.
+ * Threads are exactly one level deep: replying to a reply attaches the new
+ * post to that reply's own top-level parent.
  * On success, increments post_count and updates last_post_at on the topic.
  * Returns the created post.
  */
@@ -449,6 +457,8 @@ export async function createPost(
     bodyMd: string;
     bodyHtml: string;
     now: number;
+    /** Optional reply target; resolved to its top-level parent when nested. */
+    parentPostId?: string | null;
   },
 ): Promise<Post> {
   const { topicId, authorId, bodyMd, bodyHtml, now } = args;
@@ -465,15 +475,28 @@ export async function createPost(
     throw new Error('topic_locked');
   }
 
+  let parentId: string | null = null;
+  if (args.parentPostId) {
+    const parent = await db
+      .prepare('SELECT id, topic_id, parent_post_id, deleted FROM posts WHERE id = ?')
+      .bind(args.parentPostId)
+      .first<{ id: string; topic_id: string; parent_post_id: string | null; deleted: number }>();
+    if (!parent || parent.deleted === 1 || parent.topic_id !== topicId) {
+      throw new Error('parent_not_found');
+    }
+    // Lift a reply-to-a-reply onto the top-level parent (one level, enforced).
+    parentId = parent.parent_post_id ?? parent.id;
+  }
+
   const postId = crypto.randomUUID();
 
   const insertPost = db
     .prepare(
       `INSERT INTO posts
-         (id, topic_id, author_id, body_md, body_html, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (id, topic_id, author_id, parent_post_id, body_md, body_html, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(postId, topicId, authorId, bodyMd, bodyHtml, now);
+    .bind(postId, topicId, authorId, parentId, bodyMd, bodyHtml, now);
 
   const updateTopic = db
     .prepare(
@@ -488,6 +511,7 @@ export async function createPost(
     id: postId,
     topic_id: topicId,
     author_id: authorId,
+    parent_post_id: parentId,
     body_md: bodyMd,
     body_html: bodyHtml,
     up_count: 0,
@@ -498,4 +522,96 @@ export async function createPost(
     deleted: 0,
     created_at: now,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Thread page (one-level threading) and thread stats
+// ---------------------------------------------------------------------------
+
+export interface ThreadPage {
+  /** Top-level posts for this page, oldest first. */
+  topLevel: Post[];
+  /** Replies grouped by their top-level parent's id, oldest first. */
+  childrenByParent: Map<string, Post[]>;
+}
+
+/**
+ * Loads one page of a thread: the page's top-level posts plus ALL replies to
+ * them, in two queries. Pagination counts top-level posts only, so a reply
+ * always renders under its parent regardless of when it was written. Hidden
+ * posts are included (rendered as placeholders); deleted ones are not.
+ */
+export async function getThreadPage(
+  db: D1Database,
+  topicId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<ThreadPage> {
+  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
+  const offset = Math.max(opts?.offset ?? 0, 0);
+
+  const topRows = await db
+    .prepare(
+      `SELECT id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
+       FROM posts
+       WHERE topic_id = ? AND deleted = 0 AND parent_post_id IS NULL
+       ORDER BY created_at ASC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(topicId, limit, offset)
+    .all<PostRowNoBody>();
+
+  const topLevel = (topRows.results ?? []).map(rowToPost);
+  const childrenByParent = new Map<string, Post[]>();
+  if (topLevel.length === 0) return { topLevel, childrenByParent };
+
+  const parentIds = topLevel.map((p) => p.id);
+  const childRows = await db
+    .prepare(
+      `SELECT id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
+       FROM posts
+       WHERE parent_post_id IN (${sqlPlaceholders(parentIds)}) AND deleted = 0
+       ORDER BY created_at ASC`,
+    )
+    .bind(...parentIds)
+    .all<PostRowNoBody>();
+
+  for (const row of childRows.results ?? []) {
+    const child = rowToPost(row);
+    const parentId = child.parent_post_id as string;
+    const list = childrenByParent.get(parentId);
+    if (list) list.push(child);
+    else childrenByParent.set(parentId, [child]);
+  }
+
+  return { topLevel, childrenByParent };
+}
+
+export interface TopicStats {
+  /** Distinct authors across the topic's live posts (system author included). */
+  participants: number;
+  /** Thumbs up/down on the opening post: the topic-level supporting/opposing signal. */
+  supporting: number;
+  opposing: number;
+}
+
+/**
+ * Header-strip stats for a thread, in one query: distinct participant count
+ * plus the opening post's reaction counts. Null for a topic with no posts.
+ */
+export async function getTopicStats(db: D1Database, topicId: string): Promise<TopicStats | null> {
+  const row = await db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(DISTINCT author_id) FROM posts WHERE topic_id = ?1 AND deleted = 0) AS participants,
+         p.up_count, p.down_count
+       FROM posts p
+       WHERE p.topic_id = ?1 AND p.deleted = 0
+       ORDER BY p.created_at ASC
+       LIMIT 1`,
+    )
+    .bind(topicId)
+    .first<{ participants: number; up_count: number; down_count: number }>();
+
+  if (!row) return null;
+  return { participants: row.participants, supporting: row.up_count, opposing: row.down_count };
 }

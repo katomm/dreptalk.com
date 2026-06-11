@@ -6,6 +6,8 @@ export interface ComposerPayload {
   title?: string;
   topicId?: string;
   bodyMd: string;
+  /** Reply target for mode 'post' (one-level threading). */
+  parentPostId?: string;
 }
 
 export interface ComposerResult {
@@ -19,7 +21,8 @@ export interface ComposerResult {
  *
  * mode 'topic': POST /api/topics with { categorySlug, title, bodyMd }.
  *   On 201 resolves { ok: true, slug }.
- * mode 'post': POST /api/topics/<topicId>/posts with { bodyMd }.
+ * mode 'post': POST /api/topics/<topicId>/posts with { bodyMd } and, when
+ *   replying to a specific post, parentPostId.
  *   On 201 resolves { ok: true }.
  * Any non-2xx response resolves { ok: false, error }.
  * Never throws: network errors are caught and returned as { ok: false, error }.
@@ -45,7 +48,7 @@ export async function submitComposer(args: {
       };
     } else {
       url = `/api/topics/${payload.topicId}/posts`;
-      body = { bodyMd: payload.bodyMd };
+      body = { bodyMd: payload.bodyMd, parentPostId: payload.parentPostId };
     }
 
     const response = await fetcher(url, {
