@@ -27,7 +27,7 @@ export interface Post {
   author_id: string;
   /** Top-level posts have null; replies carry their top-level parent's id. */
   parent_post_id: string | null;
-  /** Populated by createTopic/createPost; omitted by getPostsByTopic (use body_html for display). */
+  /** Populated by createTopic/createPost; omitted by the thread readers (use body_html for display). */
   body_md?: string;
   body_html: string;
   up_count: number;
@@ -73,10 +73,15 @@ interface PostRow {
   created_at: number;
 }
 
-// Subset returned by getPostsByTopic (body_md excluded to avoid pulling up to 20KB/post).
+// Subset returned by the thread/post readers (body_md excluded to avoid
+// pulling up to 20KB/post).
 interface PostRowNoBody extends Omit<PostRow, 'body_md'> {
   body_md?: never;
 }
+
+// The display column list shared by every post reader (body_md excluded).
+const POST_COLUMNS =
+  'id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at';
 
 /** Maps a raw D1 row to the Topic type (0/1 integers to JS booleans). */
 function rowToTopic(row: TopicRow): Topic {
@@ -309,34 +314,6 @@ export async function getTopicsByIds(db: D1Database, ids: readonly string[]): Pr
 }
 
 /**
- * Returns non-deleted posts for the given topic, ordered by created_at ascending.
- * Hidden posts ARE returned (unlike deleted ones): the view renders them as a
- * placeholder so the community-flag outcome is visible in the thread.
- * Default limit 50, capped at 100. offset >= 0.
- */
-export async function getPostsByTopic(
-  db: D1Database,
-  topicId: string,
-  opts?: { limit?: number; offset?: number },
-): Promise<Post[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
-  const offset = Math.max(opts?.offset ?? 0, 0);
-
-  const rows = await db
-    .prepare(
-      `SELECT id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
-       FROM posts
-       WHERE topic_id = ? AND deleted = 0
-       ORDER BY created_at ASC
-       LIMIT ? OFFSET ?`,
-    )
-    .bind(topicId, limit, offset)
-    .all<PostRowNoBody>();
-
-  return (rows.results ?? []).map(rowToPost);
-}
-
-/**
  * Returns the newest non-deleted topics across ALL categories, ordered by last
  * activity. Powers the forum overview's "latest activity" column. Uses the
  * idx_topics_last_post index. Default limit 20, capped at 50.
@@ -386,14 +363,11 @@ export async function getCategoryStats(
 
 /**
  * Returns a single post by id, or null if missing. The 20KB body_md is excluded
- * (like getPostsByTopic): the flag handler only needs author_id/deleted/hidden.
+ * (like the thread readers): the flag handler only needs author_id/deleted/hidden.
  */
 export async function getPostById(db: D1Database, postId: string): Promise<Post | null> {
   const row = await db
-    .prepare(
-      `SELECT id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
-       FROM posts WHERE id = ?`,
-    )
+    .prepare(`SELECT ${POST_COLUMNS} FROM posts WHERE id = ?`)
     .bind(postId)
     .first<PostRowNoBody>();
   return row ? rowToPost(row) : null;
@@ -463,11 +437,24 @@ export async function createPost(
 ): Promise<Post> {
   const { topicId, authorId, bodyMd, bodyHtml, now } = args;
 
-  const topicRow = await db
-    .prepare('SELECT id, deleted, locked FROM topics WHERE id = ?')
-    .bind(topicId)
-    .first<Pick<TopicRow, 'id' | 'deleted' | 'locked'>>();
+  // Topic and parent lookups are independent, so they go through one batch.
+  const lookups = [
+    db
+      .prepare('SELECT id, deleted, locked FROM topics WHERE id = ?')
+      .bind(topicId),
+  ];
+  if (args.parentPostId) {
+    lookups.push(
+      db
+        .prepare('SELECT id, topic_id, parent_post_id, deleted FROM posts WHERE id = ?')
+        .bind(args.parentPostId),
+    );
+  }
+  const lookupResults = await db.batch(lookups);
 
+  const topicRow = lookupResults[0]?.results?.[0] as
+    | Pick<TopicRow, 'id' | 'deleted' | 'locked'>
+    | undefined;
   if (!topicRow || topicRow.deleted === 1) {
     throw new Error('topic_not_found');
   }
@@ -477,10 +464,9 @@ export async function createPost(
 
   let parentId: string | null = null;
   if (args.parentPostId) {
-    const parent = await db
-      .prepare('SELECT id, topic_id, parent_post_id, deleted FROM posts WHERE id = ?')
-      .bind(args.parentPostId)
-      .first<{ id: string; topic_id: string; parent_post_id: string | null; deleted: number }>();
+    const parent = lookupResults[1]?.results?.[0] as
+      | { id: string; topic_id: string; parent_post_id: string | null; deleted: number }
+      | undefined;
     if (!parent || parent.deleted === 1 || parent.topic_id !== topicId) {
       throw new Error('parent_not_found');
     }
@@ -528,18 +514,46 @@ export async function createPost(
 // Thread page (one-level threading) and thread stats
 // ---------------------------------------------------------------------------
 
+export interface TopicStats {
+  /** Distinct authors across the topic's live posts (system author included). */
+  participants: number;
+  /** Thumbs up/down on the opening post: the topic-level supporting/opposing signal. */
+  supporting: number;
+  opposing: number;
+}
+
 export interface ThreadPage {
   /** Top-level posts for this page, oldest first. */
   topLevel: Post[];
   /** Replies grouped by their top-level parent's id, oldest first. */
   childrenByParent: Map<string, Post[]>;
+  /**
+   * The topic's opening post when this page contains it (offset 0), else null.
+   * The single definition the views use for the system-identity override, the
+   * Reply suppression, and the meta excerpt.
+   */
+  openingPost: Post | null;
+  /** Header-strip stats for the whole topic; null for a topic with no posts. */
+  stats: TopicStats | null;
 }
 
+// The page's top-level posts: live, parentless, oldest first. Shared between
+// the page query (full columns) and the children query's IN subselect (ids).
+const TOP_LEVEL_PAGE_SQL = `FROM posts
+   WHERE topic_id = ?1 AND deleted = 0 AND parent_post_id IS NULL
+   ORDER BY created_at ASC
+   LIMIT ?2 OFFSET ?3`;
+
 /**
- * Loads one page of a thread: the page's top-level posts plus ALL replies to
- * them, in two queries. Pagination counts top-level posts only, so a reply
- * always renders under its parent regardless of when it was written. Hidden
- * posts are included (rendered as placeholders); deleted ones are not.
+ * Loads everything the thread view needs in ONE batched round-trip:
+ * the page's top-level posts, ALL replies to them (one level; the subselect
+ * recomputes the page's parent ids so the statements stay independent), and
+ * the topic-wide stats strip. Pagination counts top-level posts only, so a
+ * reply always renders under its parent regardless of when it was written.
+ * Hidden posts are included (rendered as placeholders); deleted ones are not.
+ *
+ * Assumes the one-level invariant that createPost enforces: every
+ * parent_post_id names a top-level post of the same topic.
  */
 export async function getThreadPage(
   db: D1Database,
@@ -549,33 +563,35 @@ export async function getThreadPage(
   const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
   const offset = Math.max(opts?.offset ?? 0, 0);
 
-  const topRows = await db
-    .prepare(
-      `SELECT id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
-       FROM posts
-       WHERE topic_id = ? AND deleted = 0 AND parent_post_id IS NULL
-       ORDER BY created_at ASC
-       LIMIT ? OFFSET ?`,
-    )
-    .bind(topicId, limit, offset)
-    .all<PostRowNoBody>();
+  const [topRes, childRes, statsRes] = await db.batch([
+    db.prepare(`SELECT ${POST_COLUMNS} ${TOP_LEVEL_PAGE_SQL}`).bind(topicId, limit, offset),
+    db
+      .prepare(
+        `SELECT ${POST_COLUMNS}
+         FROM posts
+         WHERE parent_post_id IS NOT NULL
+           AND parent_post_id IN (SELECT id ${TOP_LEVEL_PAGE_SQL})
+           AND deleted = 0
+         ORDER BY created_at ASC`,
+      )
+      .bind(topicId, limit, offset),
+    db
+      .prepare(
+        `SELECT
+           (SELECT COUNT(DISTINCT author_id) FROM posts WHERE topic_id = ?1 AND deleted = 0) AS participants,
+           p.up_count, p.down_count
+         FROM posts p
+         WHERE p.topic_id = ?1 AND p.deleted = 0
+         ORDER BY p.created_at ASC
+         LIMIT 1`,
+      )
+      .bind(topicId),
+  ]);
 
-  const topLevel = (topRows.results ?? []).map(rowToPost);
+  const topLevel = ((topRes.results ?? []) as PostRowNoBody[]).map(rowToPost);
+
   const childrenByParent = new Map<string, Post[]>();
-  if (topLevel.length === 0) return { topLevel, childrenByParent };
-
-  const parentIds = topLevel.map((p) => p.id);
-  const childRows = await db
-    .prepare(
-      `SELECT id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at
-       FROM posts
-       WHERE parent_post_id IN (${sqlPlaceholders(parentIds)}) AND deleted = 0
-       ORDER BY created_at ASC`,
-    )
-    .bind(...parentIds)
-    .all<PostRowNoBody>();
-
-  for (const row of childRows.results ?? []) {
+  for (const row of (childRes.results ?? []) as PostRowNoBody[]) {
     const child = rowToPost(row);
     const parentId = child.parent_post_id as string;
     const list = childrenByParent.get(parentId);
@@ -583,35 +599,17 @@ export async function getThreadPage(
     else childrenByParent.set(parentId, [child]);
   }
 
-  return { topLevel, childrenByParent };
-}
+  const statsRow = statsRes.results?.[0] as
+    | { participants: number; up_count: number; down_count: number }
+    | undefined;
+  const stats: TopicStats | null = statsRow
+    ? { participants: statsRow.participants, supporting: statsRow.up_count, opposing: statsRow.down_count }
+    : null;
 
-export interface TopicStats {
-  /** Distinct authors across the topic's live posts (system author included). */
-  participants: number;
-  /** Thumbs up/down on the opening post: the topic-level supporting/opposing signal. */
-  supporting: number;
-  opposing: number;
-}
-
-/**
- * Header-strip stats for a thread, in one query: distinct participant count
- * plus the opening post's reaction counts. Null for a topic with no posts.
- */
-export async function getTopicStats(db: D1Database, topicId: string): Promise<TopicStats | null> {
-  const row = await db
-    .prepare(
-      `SELECT
-         (SELECT COUNT(DISTINCT author_id) FROM posts WHERE topic_id = ?1 AND deleted = 0) AS participants,
-         p.up_count, p.down_count
-       FROM posts p
-       WHERE p.topic_id = ?1 AND p.deleted = 0
-       ORDER BY p.created_at ASC
-       LIMIT 1`,
-    )
-    .bind(topicId)
-    .first<{ participants: number; up_count: number; down_count: number }>();
-
-  if (!row) return null;
-  return { participants: row.participants, supporting: row.up_count, opposing: row.down_count };
+  return {
+    topLevel,
+    childrenByParent,
+    openingPost: offset === 0 ? (topLevel[0] ?? null) : null,
+    stats,
+  };
 }

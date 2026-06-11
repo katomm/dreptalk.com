@@ -3,12 +3,12 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
+  getThreadPage,
   slugify,
   createTopic,
   getTopicBySlug,
   getTopicsByCategory,
   getTopicsByIds,
-  getPostsByTopic,
   createPost,
   getPostsByAuthor,
 } from './forum.js';
@@ -399,7 +399,13 @@ describe('getTopicsByCategory', () => {
   });
 });
 
-// ---- createPost + getPostsByTopic -------------------------------------------
+// ---- createPost + thread reads -----------------------------------------------
+
+// All posts in these tests are top-level, so the thread page's topLevel list is
+// exactly what the flat post list used to be.
+async function topLevelPosts(topicId: string, opts?: { limit?: number; offset?: number }) {
+  return (await getThreadPage(env.DB, topicId, opts)).topLevel;
+}
 
 describe('createPost', () => {
   it('increments post_count and updates last_post_at on the topic', async () => {
@@ -457,7 +463,7 @@ describe('createPost', () => {
     expect(post.deleted).toBe(false);
   });
 
-  it('getPostsByTopic returns posts in created_at asc order', async () => {
+  it('getThreadPage returns top-level posts in created_at asc order', async () => {
     const { topic } = await createTopic(db(), {
       categorySlug: 'general',
       authorId: AUTHOR,
@@ -484,7 +490,7 @@ describe('createPost', () => {
       now: T3,
     });
 
-    const posts = await getPostsByTopic(db(), topic.id);
+    const posts = await topLevelPosts(topic.id);
     expect(posts.length).toBe(3);
 
     // Must be sorted ascending by created_at.
@@ -492,7 +498,7 @@ describe('createPost', () => {
       expect(posts[i].created_at).toBeGreaterThanOrEqual(posts[i - 1].created_at);
     }
 
-    // Verify content order via body_html (body_md is not selected by getPostsByTopic).
+    // Verify content order via body_html (body_md is not selected by the thread reader).
     expect(posts[0].body_html).toBe('<p>first</p>');
     expect(posts[1].body_html).toBe('<p>second</p>');
     expect(posts[2].body_html).toBe('<p>third</p>');
@@ -565,9 +571,9 @@ describe('createPost', () => {
   });
 });
 
-// ---- getPostsByTopic pagination + caps --------------------------------------
+// ---- thread page pagination + caps -------------------------------------------
 
-describe('getPostsByTopic pagination', () => {
+describe('getThreadPage pagination', () => {
   it('respects limit and offset', async () => {
     const { topic } = await createTopic(db(), {
       categorySlug: 'general',
@@ -590,13 +596,13 @@ describe('getPostsByTopic pagination', () => {
     }
 
     // 4 posts total (1 from createTopic + 3 replies).
-    const page1 = await getPostsByTopic(db(), topic.id, { limit: 2 });
+    const page1 = await topLevelPosts(topic.id, { limit: 2 });
     expect(page1.length).toBe(2);
 
-    const page2 = await getPostsByTopic(db(), topic.id, { limit: 2, offset: 2 });
+    const page2 = await topLevelPosts(topic.id, { limit: 2, offset: 2 });
     expect(page2.length).toBe(2);
 
-    const page3 = await getPostsByTopic(db(), topic.id, { limit: 2, offset: 4 });
+    const page3 = await topLevelPosts(topic.id, { limit: 2, offset: 4 });
     expect(page3.length).toBe(0);
 
     const allIds = [...page1, ...page2].map(p => p.id);
@@ -614,7 +620,7 @@ describe('getPostsByTopic pagination', () => {
       rand: 'r071',
     });
 
-    const results = await getPostsByTopic(db(), topic.id, { limit: 500 });
+    const results = await topLevelPosts(topic.id, { limit: 500 });
     expect(results.length).toBeLessThanOrEqual(100);
   });
 
@@ -641,7 +647,7 @@ describe('getPostsByTopic pagination', () => {
     }
 
     // limit: -1 must be clamped to 1, not passed as LIMIT -1 to SQLite.
-    const negResult = await getPostsByTopic(db(), topic.id, { limit: -1 });
+    const negResult = await topLevelPosts(topic.id, { limit: -1 });
     expect(negResult.length).toBeGreaterThanOrEqual(1);
     expect(negResult.length).toBeLessThanOrEqual(100);
 
@@ -665,7 +671,7 @@ describe('getPostsByTopic pagination', () => {
       .bind(firstPost.id)
       .run();
 
-    const posts = await getPostsByTopic(db(), topic.id);
+    const posts = await topLevelPosts(topic.id);
     expect(posts.some(p => p.id === firstPost.id)).toBe(false);
   });
 });

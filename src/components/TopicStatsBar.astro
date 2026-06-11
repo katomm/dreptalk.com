@@ -3,6 +3,7 @@
 // post's supporting/opposing reactions, and last activity. All values come
 // from data the page already has plus one cheap aggregate query.
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { TONE_COLORS } from '@/lib/governance/view.js';
 import type { TopicStats } from '@/lib/db/forum.js';
 
 interface Props {
@@ -20,8 +21,8 @@ const { stats, comments, lastPostAt, now, stanceLabels = false } = Astro.props;
 const items = [
   { label: 'Participants', value: String(stats.participants), tone: 'var(--accent)' },
   { label: 'Comments', value: String(comments), tone: 'var(--accent)' },
-  { label: stanceLabels ? 'Supporting' : 'Thumbs up', value: String(stats.supporting), tone: '#1a7f37' },
-  { label: stanceLabels ? 'Opposing' : 'Thumbs down', value: String(stats.opposing), tone: '#c0392b' },
+  { label: stanceLabels ? 'Supporting' : 'Thumbs up', value: String(stats.supporting), tone: TONE_COLORS.positive },
+  { label: stanceLabels ? 'Opposing' : 'Thumbs down', value: String(stats.opposing), tone: TONE_COLORS.negative },
   { label: 'Last activity', value: formatRelativeTime(lastPostAt, now), tone: 'var(--muted)' },
 ];
 ---

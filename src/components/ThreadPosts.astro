@@ -6,17 +6,14 @@
 import PostArticle from '@/components/PostArticle.astro';
 import TopicStatsBar from '@/components/TopicStatsBar.astro';
 import Composer from '@/components/Composer.tsx';
-import type { Topic, ThreadPage, TopicStats } from '@/lib/db/forum.js';
+import type { Topic, ThreadPage } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
-
-// Mirrors App.Locals.user from env.d.ts without importing the full User db type.
-type SessionUser = { id: string; roles: string[] };
+import type { SessionUser } from '@/lib/forum/postVisibility.js';
 
 interface Props {
   topic: Topic;
   thread: ThreadPage;
-  stats: TopicStats | null;
   govVotes: Map<string, { role: string; vote: string }>;
   /** Current user, or null when anonymous. */
   user: SessionUser | null;
@@ -25,18 +22,14 @@ interface Props {
   flaggedPostIds: Set<string>;
   viewerReactions: Map<string, Reaction>;
   isGovernanceTopic: boolean;
-  page: number;
   prevPage: number | null;
   nextPage: number | null;
   now: number;
-  /** Query-string prefix for pagination links, e.g. '?page=' or '?tab=discussion&page='. */
-  pageQueryPrefix: string;
 }
 
 const {
   topic,
   thread,
-  stats,
   govVotes,
   user,
   topicAuthor,
@@ -44,26 +37,25 @@ const {
   flaggedPostIds,
   viewerReactions,
   isGovernanceTopic,
-  page,
   prevPage,
   nextPage,
   now,
-  pageQueryPrefix,
 } = Astro.props;
 
-const showComposer = !!user && !topic.locked;
-const canReply = showComposer;
+// One gate for both write affordances: the composer section and the per-post
+// Reply buttons (signed in, topic not locked; the server enforces writer roles).
+const canParticipate = !!user && !topic.locked;
 
-const authorFor = (post: { author_id: string }, isOpening: boolean): AuthorDescriptor =>
-  isOpening && isGovernanceTopic ? topicAuthor : describe(post.author_id);
+// Governance threads live behind the discussion tab; plain threads paginate at the root.
+const pageQueryPrefix = isGovernanceTopic ? '?tab=discussion&page=' : '?page=';
 
 const voteFor = (author: AuthorDescriptor) =>
   author.drepId ? govVotes.get(author.drepId) : undefined;
 ---
 
-{stats && (
+{thread.stats && (
   <TopicStatsBar
-    stats={stats}
+    stats={thread.stats}
     comments={Math.max(0, topic.post_count - 1)}
     lastPostAt={topic.last_post_at}
     now={now}
@@ -72,11 +64,11 @@ const voteFor = (author: AuthorDescriptor) =>
 )}
 
 <div style="display:flex;flex-direction:column;gap:0;">
-  {thread.topLevel.map((post, i) => {
-    // The opening post of a governance-sourced topic (page 1, index 0) uses the
-    // system identity even if its author_id is not literally gov-sync.
-    const isOpening = page === 1 && i === 0;
-    const author = authorFor(post, isOpening);
+  {thread.topLevel.map((post) => {
+    // The opening post: carries the system identity on governance topics, and
+    // takes no Reply button (replying to the opener IS a top-level comment).
+    const isOpening = post.id === thread.openingPost?.id;
+    const author = isOpening && isGovernanceTopic ? topicAuthor : describe(post.author_id);
     const children = thread.childrenByParent.get(post.id) ?? [];
 
     return (
@@ -88,7 +80,7 @@ const voteFor = (author: AuthorDescriptor) =>
           user={user}
           flagged={flaggedPostIds.has(post.id)}
           viewerReaction={viewerReactions.get(post.id) ?? null}
-          canReply={canReply && !isOpening}
+          canReply={canParticipate && !isOpening}
           now={now}
         />
         {children.length > 0 && (
@@ -103,7 +95,7 @@ const voteFor = (author: AuthorDescriptor) =>
                   user={user}
                   flagged={flaggedPostIds.has(child.id)}
                   viewerReaction={viewerReactions.get(child.id) ?? null}
-                  canReply={canReply}
+                  canReply={canParticipate}
                   now={now}
                   compact
                 />
@@ -129,7 +121,7 @@ const voteFor = (author: AuthorDescriptor) =>
   </p>
 )}
 
-{showComposer && (
+{canParticipate && (
   <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
     <h2 style="margin:0 0 1rem;font-size:1.125rem;">Reply</h2>
     <Composer client:load mode="post" topicId={topic.id} />
@@ -149,23 +141,21 @@ const voteFor = (author: AuthorDescriptor) =>
 )}
 
 <script>
+  import { dispatchReply } from '@/lib/forum/replyEvent.ts';
+
   // One delegated handler per page for the server-rendered post actions:
-  // Reply hands the target to the Composer island via a window event; Share
-  // copies the post permalink and briefly confirms on the button itself.
+  // Reply hands the target to the Composer island via the shared reply event;
+  // Share copies the post permalink and briefly confirms on the button itself.
   document.addEventListener('click', (e) => {
     const target = e.target instanceof Element ? e.target : null;
     if (!target) return;
 
     const replyBtn = target.closest('[data-reply-to]');
     if (replyBtn) {
-      window.dispatchEvent(
-        new CustomEvent('dreptalk:reply', {
-          detail: {
-            postId: replyBtn.getAttribute('data-reply-to'),
-            author: replyBtn.getAttribute('data-reply-author') ?? '',
-          },
-        }),
-      );
+      dispatchReply({
+        postId: replyBtn.getAttribute('data-reply-to') ?? '',
+        author: replyBtn.getAttribute('data-reply-author') ?? '',
+      });
       return;
     }
 
