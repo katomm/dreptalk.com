@@ -4,6 +4,7 @@
 
 import { createTopic, createPost, getPostById } from '../db/forum.js';
 import { flagPost, unflagPost, type FlagState } from '../db/postFlags.js';
+import { setReaction, clearReaction, isReaction, type ReactionState, type Reaction } from '../db/postReactions.js';
 import { renderMarkdown } from '../markdown.js';
 import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
@@ -207,14 +208,16 @@ async function authorizeFlag(
     return { fail: { status: 403, json: { ok: false, error: 'forbidden' } } };
   }
 
-  // 2. Rate limit toggles per user (30 per 600s).
-  const allowed = await checkRate(rateLimiter, `flag:${user.id}`, { max: 30, windowSec: 600, now });
+  // 2 + 3. Rate limit (30 toggles per 600s per user) and post lookup are
+  // independent round-trips (DO vs D1), so they run concurrently. The rate
+  // verdict is checked first to keep the error precedence.
+  const [allowed, post] = await Promise.all([
+    checkRate(rateLimiter, `flag:${user.id}`, { max: 30, windowSec: 600, now }),
+    getPostById(db, postId),
+  ]);
   if (!allowed) {
     return { fail: { status: 429, json: { ok: false, error: 'rate_limited' } } };
   }
-
-  // 3. The post must exist and not be deleted.
-  const post = await getPostById(db, postId);
   if (!post || post.deleted) {
     return { fail: { status: 404, json: { ok: false, error: 'post_not_found' } } };
   }
@@ -259,3 +262,84 @@ export const handleFlagPost = (input: FlagPostInput): Promise<HandlerResult> =>
 
 export const handleUnflagPost = (input: FlagPostInput): Promise<HandlerResult> =>
   handleFlagToggle(input, false);
+
+// ---------------------------------------------------------------------------
+// handleReactToPost / handleClearReaction (thumbs up / thumbs down)
+// ---------------------------------------------------------------------------
+
+export interface ReactPostInput {
+  user: User | null;
+  postId: string;
+  db: D1Database;
+  rateLimiter: DurableObjectNamespace<RateLimiter>;
+  now: number;
+}
+
+/**
+ * Shared react/withdraw flow. A writer holds at most one reaction per post;
+ * setting the other side replaces it. Unlike flagging, reacting to a system
+ * (governance) post is allowed: the opening post of a governance action is
+ * exactly what readers want to signal support or opposition on. Reacting to
+ * your own post is not. Unexpected errors return 500 without leaking detail.
+ */
+async function handleReactionChange(
+  input: ReactPostInput,
+  reaction: Reaction | null,
+): Promise<HandlerResult> {
+  try {
+    const { user, postId, db, rateLimiter, now } = input;
+
+    // 1. Auth: only on-chain writers can react (same gate as posting/flagging).
+    if (!user) {
+      return { status: 401, json: { ok: false, error: 'unauthorized' } };
+    }
+    if (!isWriter(user.roles)) {
+      return { status: 403, json: { ok: false, error: 'forbidden' } };
+    }
+
+    // 2 + 3. Rate limit (60 toggles per 600s; reactions are lightweight) and
+    // post lookup are independent round-trips (DO vs D1), so they run
+    // concurrently. The rate verdict is checked first to keep error precedence.
+    const [allowed, post] = await Promise.all([
+      checkRate(rateLimiter, `react:${user.id}`, { max: 60, windowSec: 600, now }),
+      getPostById(db, postId),
+    ]);
+    if (!allowed) {
+      return { status: 429, json: { ok: false, error: 'rate_limited' } };
+    }
+    if (!post || post.deleted) {
+      return { status: 404, json: { ok: false, error: 'post_not_found' } };
+    }
+
+    // 4. You cannot react to your own post.
+    if (post.author_id === user.id) {
+      return { status: 403, json: { ok: false, error: 'cannot_react_own' } };
+    }
+
+    const state: ReactionState = reaction
+      ? await setReaction(db, { postId, reactorId: user.id, reaction, now })
+      : await clearReaction(db, { postId, reactorId: user.id });
+
+    return {
+      status: 200,
+      json: { ok: true, reaction, upCount: state.upCount, downCount: state.downCount },
+    };
+  } catch {
+    return { status: 500, json: { ok: false, error: 'internal error' } };
+  }
+}
+
+/** Sets the caller's reaction; 400 unless reaction is 'up' or 'down'. */
+export async function handleReactToPost(
+  input: ReactPostInput,
+  reaction: unknown,
+): Promise<HandlerResult> {
+  if (!isReaction(reaction)) {
+    return { status: 400, json: { ok: false, error: 'reaction must be "up" or "down"' } };
+  }
+  return handleReactionChange(input, reaction);
+}
+
+/** Withdraws the caller's reaction (no-op if none). */
+export const handleClearReaction = (input: ReactPostInput): Promise<HandlerResult> =>
+  handleReactionChange(input, null);

@@ -3,12 +3,13 @@
 // markup from t/[slug].astro so governance and non-governance topics render
 // identically. The isGovernanceTopic + page flags drive the opening-post identity.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
-import FlagButton from '@/components/FlagButton.tsx';
+import PostActions from '@/components/PostActions.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import Composer from '@/components/Composer.tsx';
 import { postViewerContext } from '@/lib/forum/postVisibility.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import type { Topic, Post } from '@/lib/db/forum.js';
+import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 
 // Mirrors App.Locals.user from env.d.ts without importing the full User db type.
@@ -23,6 +24,7 @@ interface Props {
   topicAuthor: AuthorDescriptor;
   describe: (authorId: string) => AuthorDescriptor;
   flaggedPostIds: Set<string>;
+  viewerReactions: Map<string, Reaction>;
   isGovernanceTopic: boolean;
   page: number;
   prevPage: number | null;
@@ -38,6 +40,7 @@ const {
   topicAuthor,
   describe,
   flaggedPostIds,
+  viewerReactions,
   isGovernanceTopic,
   page,
   prevPage,
@@ -57,7 +60,7 @@ const showComposer = !!user && !topic.locked;
         ? topicAuthor
         : describe(post.author_id);
 
-    const { canSeeContent, canFlag } = postViewerContext(post, user, !!author.isSystem);
+    const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, user, !!author.isSystem);
     const authorVote = author.drepId ? govVotes.get(author.drepId) : undefined;
 
     return (
@@ -70,15 +73,6 @@ const showComposer = !!user && !topic.locked;
           {post.hidden && canSeeContent && (
             <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
           )}
-          {canFlag && (
-            <FlagButton
-              client:visible
-              postId={post.id}
-              initialFlagged={flaggedPostIds.has(post.id)}
-              initialCount={post.flag_count}
-              initialHidden={post.hidden}
-            />
-          )}
         </div>
         {canSeeContent ? (
           <div class="prose" set:html={post.body_html} />
@@ -86,6 +80,16 @@ const showComposer = !!user && !topic.locked;
           <p style="margin:0;color:var(--muted);font-style:italic;font-size:0.9375rem;">
             This post was hidden after being flagged by the community.
           </p>
+        )}
+        {canSeeContent && (
+          <PostActions
+            post={post}
+            canReact={canReact}
+            canFlag={canFlag}
+            isOwnPost={isOwnPost}
+            flagged={flaggedPostIds.has(post.id)}
+            viewerReaction={viewerReactions.get(post.id) ?? null}
+          />
         )}
       </article>
     );

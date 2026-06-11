@@ -1,0 +1,59 @@
+---
+// Per-post action row: reactions (counts visible to everyone) and the
+// community flag. Shared by the governance and non-governance thread views so
+// the action row cannot drift between the two copies of the post markup.
+//
+// Hydration is gated on canReact: a viewer who cannot react (anonymous,
+// non-writer, own post) gets the same buttons as static server-rendered HTML
+// with zero client JS; only viewers who can actually toggle pay for an island.
+import ReactionButtons from '@/components/ReactionButtons.tsx';
+import FlagButton from '@/components/FlagButton.tsx';
+import type { Post } from '@/lib/db/forum.js';
+import type { Reaction } from '@/lib/db/postReactions.js';
+
+interface Props {
+  post: Post;
+  canReact: boolean;
+  canFlag: boolean;
+  /** Drives the disabled hint: own posts read differently than "sign in". */
+  isOwnPost: boolean;
+  /** Whether the viewer has flagged this post. */
+  flagged: boolean;
+  /** The viewer's current reaction, or null. */
+  viewerReaction: Reaction | null;
+}
+
+const { post, canReact, canFlag, isOwnPost, flagged, viewerReaction } = Astro.props;
+const disabledReason = isOwnPost ? 'You cannot react to your own posts' : undefined;
+---
+
+<div style="margin-top:0.75rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
+  {canReact ? (
+    <ReactionButtons
+      client:visible
+      postId={post.id}
+      initialUpCount={post.up_count}
+      initialDownCount={post.down_count}
+      initialReaction={viewerReaction}
+      canReact={true}
+    />
+  ) : (
+    <ReactionButtons
+      postId={post.id}
+      initialUpCount={post.up_count}
+      initialDownCount={post.down_count}
+      initialReaction={null}
+      canReact={false}
+      disabledReason={disabledReason}
+    />
+  )}
+  {canFlag && (
+    <FlagButton
+      client:visible
+      postId={post.id}
+      initialFlagged={flagged}
+      initialCount={post.flag_count}
+      initialHidden={post.hidden}
+    />
+  )}
+</div>

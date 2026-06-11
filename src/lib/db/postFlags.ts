@@ -83,6 +83,22 @@ export async function unflagPost(
 }
 
 /**
+ * Statement selecting the subset of postIds that flaggerId has already flagged.
+ * Exported so the thread view can run it inside one batch with other per-viewer
+ * lookups (a single D1 round-trip).
+ */
+export function flaggedPostIdsStmt(
+  db: D1Database,
+  flaggerId: string,
+  postIds: string[],
+): D1PreparedStatement {
+  const placeholders = sqlPlaceholders(postIds);
+  return db
+    .prepare(`SELECT post_id FROM post_flags WHERE flagger_id = ? AND post_id IN (${placeholders})`)
+    .bind(flaggerId, ...postIds);
+}
+
+/**
  * Returns the subset of postIds that flaggerId has already flagged, in a single
  * query (no N+1). Used to render each post's flag button in the correct state.
  */
@@ -92,16 +108,6 @@ export async function getFlaggedPostIds(
   postIds: string[],
 ): Promise<Set<string>> {
   if (postIds.length === 0) return new Set();
-
-  const placeholders = sqlPlaceholders(postIds);
-  const rows = (
-    await db
-      .prepare(
-        `SELECT post_id FROM post_flags WHERE flagger_id = ? AND post_id IN (${placeholders})`,
-      )
-      .bind(flaggerId, ...postIds)
-      .all<{ post_id: string }>()
-  ).results ?? [];
-
+  const rows = (await flaggedPostIdsStmt(db, flaggerId, postIds).all<{ post_id: string }>()).results ?? [];
   return new Set(rows.map((r) => r.post_id));
 }

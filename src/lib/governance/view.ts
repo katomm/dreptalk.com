@@ -67,21 +67,33 @@ export function isTerminalStatus(status: string): boolean {
 
 /**
  * Human countdown to an action's expiry epoch, computed against the epoch at the
- * last tally sync. Returns null when the epochs are unknown or already past
- * (the status badge then carries the outcome).
+ * last tally sync. Returns null when the epochs are unknown or already past, or
+ * when the action's status is terminal (the status badge then carries the
+ * outcome; an action ratified or enacted early keeps a future expiry epoch).
  */
-export function epochCountdown(expiryEpoch: number | null, currentEpoch: number | null): string | null {
-  const days = epochDaysLeft(expiryEpoch, currentEpoch);
+export function epochCountdown(
+  expiryEpoch: number | null,
+  currentEpoch: number | null,
+  status: string,
+): string | null {
+  const days = epochDaysLeft(expiryEpoch, currentEpoch, status);
   if (days == null) return null;
   return `~${days} days left (epoch ${expiryEpoch})`;
 }
 
 /**
  * Whole days until an action's expiry epoch, against the epoch at the last tally
- * sync. Null when unknown or already past. The bare number powers the list row's
- * "~N days left" headline (the date and epoch are shown separately there).
+ * sync. Null when unknown, already past, or the status is terminal (a concluded
+ * action is not "counting down" even if its expiry epoch lies ahead). The bare
+ * number powers the list row's "~N days left" headline (the date and epoch are
+ * shown separately there).
  */
-export function epochDaysLeft(expiryEpoch: number | null, currentEpoch: number | null): number | null {
+export function epochDaysLeft(
+  expiryEpoch: number | null,
+  currentEpoch: number | null,
+  status: string,
+): number | null {
+  if (isTerminalStatus(status)) return null;
   if (expiryEpoch == null || currentEpoch == null) return null;
   if (expiryEpoch <= currentEpoch) return null;
   return (expiryEpoch - currentEpoch) * EPOCH_DAYS;

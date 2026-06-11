@@ -2,7 +2,8 @@
 // Changes from upstream: relative import specifiers carry the .js extension for
 // this repo's NodeNext module resolution; typographic dashes, right arrows, and
 // the >= Unicode char in comments replaced with ASCII equivalents per this repo's
-// comment style. See LICENSE and NOTICE in this folder.
+// comment style; resolveBytes falls back to the string hash for a malformed
+// bech32 address instead of throwing. See LICENSE and NOTICE in this folder.
 import { isCardanoAddress, decodeBech32 } from './bech32.js';
 import { hashString, hexToBytes, isHex } from './hash.js';
 import { renderSVG } from './renderer.js';
@@ -33,8 +34,15 @@ const DEFAULTS: ResolvedOptions = {
  */
 function resolveBytes(input: string): Uint8Array {
   if (isCardanoAddress(input)) {
-    const payload = decodeBech32(input);
-    return payload.slice(1);
+    // A malformed address (bad charset, truncated payload) must not throw:
+    // identicons render untrusted inputs, so fall back to the string hash.
+    try {
+      const payload = decodeBech32(input);
+      if (payload.length > 1) return payload.slice(1);
+    } catch {
+      // fall through to hashString
+    }
+    return hashString(input);
   }
   if (isHex(input)) {
     return hexToBytes(input);

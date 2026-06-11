@@ -806,3 +806,61 @@ describe('handleLogout', () => {
     expect(result.status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------
+// handleVerify -- reject: wallet on the wrong network
+// ---------------------------------------------------------------------------
+
+describe('handleVerify: reject wrong-network addresses with a specific error', () => {
+  it('rejects a mainnet reward address (0xe1) on preprod as a network mismatch', async () => {
+    const payload = 'dreptalk:dreptalk.com:proposer-wrong-net-nonce:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+
+    // Reward address for the OTHER network: header 0xe1 + 28-byte stake key hash.
+    const seed = new Uint8Array(32).fill(11);
+    const { keyHash } = makeCoseSignature({ seed, payload, addressBytes: new Uint8Array(28) });
+    const rewardMainnet = new Uint8Array(29);
+    rewardMainnet[0] = 0xe1;
+    rewardMainnet.set(keyHash, 1);
+    const cose = makeCoseSignature({ seed, payload, addressBytes: rewardMainnet });
+
+    const result = await handleVerify({
+      body: { payload, signatureHex: cose.signatureHex, keyHex: cose.keyHex, role: 'proposer' },
+      nonceKv: env.NONCES,
+      sessionKv: env.SESSIONS,
+      db: env.DB,
+      koios: koiosRejectAll(),
+      network: 'preprod',
+      now: 1_700_000_100,
+      secure: false,
+    }, { consumeNonce: consumeOverride });
+
+    expect(result.status).toBe(401);
+    expect((result.json as { error: string }).error).toBe('wallet network mismatch');
+  });
+
+  it('rejects a mainnet type-6 DRep address (0x61) on preprod as a network mismatch', async () => {
+    const payload = 'dreptalk:dreptalk.com:drep-wrong-net-nonce:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+
+    const seed = new Uint8Array(32).fill(12);
+    const { keyHash } = makeCoseSignature({ seed, payload, addressBytes: new Uint8Array(28) });
+    const cose = makeCoseSignature({ seed, payload, addressBytes: type6Address(keyHash, 'mainnet') });
+
+    const result = await handleVerify({
+      body: { payload, signatureHex: cose.signatureHex, keyHex: cose.keyHex, role: 'drep' },
+      nonceKv: env.NONCES,
+      sessionKv: env.SESSIONS,
+      db: env.DB,
+      koios: koiosRejectAll(),
+      network: 'preprod',
+      now: 1_700_000_100,
+      secure: false,
+    }, { consumeNonce: consumeOverride });
+
+    expect(result.status).toBe(401);
+    expect((result.json as { error: string }).error).toBe('wallet network mismatch');
+  });
+});

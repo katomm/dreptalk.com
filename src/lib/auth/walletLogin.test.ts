@@ -283,3 +283,38 @@ describe('loginWithWallet: verify 401', () => {
     expect(result.error).toBeDefined();
   });
 });
+
+describe('loginWithWallet: wallet network guard', () => {
+  it('fails fast with a clear message when the wallet is on the wrong network', async () => {
+    const fetchMock = makeFetch(FAKE_PAYLOAD, true);
+    // Wallet reports mainnet (1) while the app runs on preprod.
+    const api = makeProposerApi({ getNetworkId: vi.fn(async () => 1) });
+
+    const result = await loginWithWallet(api, 'proposer', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Your wallet is on Mainnet');
+    expect(result.error).toContain('switch your wallet to Preprod');
+    // No nonce is burned and nothing is signed on a doomed attempt.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(api.signData).not.toHaveBeenCalled();
+  });
+
+  it('proceeds when the wallet network matches', async () => {
+    const fetchMock = makeFetch(FAKE_PAYLOAD, true);
+    const api = makeProposerApi({ getNetworkId: vi.fn(async () => 0) });
+
+    const result = await loginWithWallet(api, 'proposer', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('proceeds when the wallet does not expose getNetworkId', async () => {
+    const fetchMock = makeFetch(FAKE_PAYLOAD, true);
+    const api = makeProposerApi(); // no getNetworkId
+
+    const result = await loginWithWallet(api, 'proposer', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
+
+    expect(result.ok).toBe(true);
+  });
+});

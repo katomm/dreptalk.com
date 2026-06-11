@@ -21,9 +21,23 @@ function walletNetworkName(id: number): string {
 }
 
 /**
+ * The one user-facing wording for a wallet/app network mismatch, shared by the
+ * client guard and the login error mapping so the copy cannot drift. When the
+ * wallet's network id is unknown (e.g. the server detected the mismatch), the
+ * wallet side reads "a different network".
+ */
+export function networkMismatchMessage(network: CardanoNetwork, walletNetworkId?: number): string {
+  const target = appNetworkName(network);
+  const from = walletNetworkId == null ? 'a different network' : walletNetworkName(walletNetworkId);
+  return `Your wallet is on ${from}, but DRepTalk is running on ${target}. Please switch your wallet to ${target} and try again.`;
+}
+
+/**
  * Throws a clear, human-readable error when the connected wallet's network does
  * not match the app's network. No-op on a match. Use in every wallet flow that
- * builds or submits a transaction (login does not, registration/delegation do).
+ * signs anything: transactions get the Evolution SDK's cryptic mismatch error
+ * otherwise, and login signData fails with the wallet's own validation error
+ * (e.g. Eternl's '"address" contains an invalid value').
  */
 export async function assertWalletNetwork(
   api: { getNetworkId(): Promise<number> },
@@ -31,9 +45,6 @@ export async function assertWalletNetwork(
 ): Promise<void> {
   const walletId = await api.getNetworkId();
   if (walletId !== expectedNetworkId(network)) {
-    const target = appNetworkName(network);
-    throw new Error(
-      `Your wallet is on ${walletNetworkName(walletId)}, but DRepTalk is running on ${target}. Please switch your wallet to ${target} and try again.`,
-    );
+    throw new Error(networkMismatchMessage(network, walletId));
   }
 }
