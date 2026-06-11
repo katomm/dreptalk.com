@@ -484,6 +484,10 @@ main.container {
 
 .drep-power { display: flex; align-items: center; justify-content: center; gap: 0.6rem; }
 .drep-power__ada { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Two ADA renderings ship in the markup: the exact figure for desktop and an
+   abbreviated one (200k, 2.5M) swapped in on mobile. Toggled via CSS so the page
+   stays SSR-only with no client JS. */
+.drep-power__ada-compact { display: none; }
 .drep-power__bar { flex: 0 1 110px; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
 .drep-power__fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .drep-power__pct {
@@ -494,7 +498,15 @@ main.container {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-@media (max-width: 640px) { .drep-power__bar { display: none; } }
+/* On mobile the bar drops out, ADA abbreviates, and the percentage stacks under
+   the amount so the power column stays narrow and the DRep name keeps its room. */
+@media (max-width: 640px) {
+  .drep-power { flex-direction: column; align-items: flex-end; gap: 0.15rem; }
+  .drep-power__bar { display: none; }
+  .drep-power__ada-full { display: none; }
+  .drep-power__ada-compact { display: inline; }
+  .drep-power__pct { min-width: 0; }
+}
 
 .drep-action-btn {
   display: inline-flex;

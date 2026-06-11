@@ -103,6 +103,20 @@ export function formatAda(lovelace: string | null): string {
 }
 
 /**
+ * Like {@link formatAda} but abbreviates large amounts (200k, 2.5M, 1.3B) so the
+ * voting power fits where horizontal space is tight, e.g. the DRep table on
+ * mobile. Amounts under 1000 ₳ stay exact. Null is treated as 0.
+ */
+export function formatAdaCompact(lovelace: string | null): string {
+  const ada = Math.round(Number(lovelace ?? 0) / 1_000_000);
+  const short = new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(ada);
+  return `${short} ₳`;
+}
+
+/**
  * Cache-Control for sync-driven anonymous pages (DRep profiles, directory).
  * They change only on the drep-sync cron (~6h), not per request, so they take a
  * longer edge TTL than the 30s forum threads. Logged-in users are never cached.
