@@ -2,6 +2,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { loginWithWallet } from './walletLogin.js';
 import type { WalletApi } from './walletLogin.js';
+import { blake2b224 } from '../crypto/blake.js';
+import { bytesToHex, hexToBytes } from '../crypto/hex.js';
+
+// The bare DRep key hash (CIP-95 DRepID) the flow offers first: blake2b-224 of
+// the raw 32-byte DRep public key, hex-encoded (28 bytes = 56 hex chars).
+const FAKE_DREP_KEYHASH = bytesToHex(blake2b224(hexToBytes('a'.repeat(64))));
 
 // ---------------------------------------------------------------------------
 // Shared test doubles
@@ -140,7 +146,7 @@ function makeDRepFetch() {
 }
 
 describe('loginWithWallet: drep happy path', () => {
-  it('signs a CIP-19 type-6 enterprise address via cip95.signData', async () => {
+  it('signs the bare CIP-95 DRep key hash via cip95.signData', async () => {
     const fetchMock = makeDRepFetch();
     const api = makeDRepApi();
 
@@ -149,12 +155,14 @@ describe('loginWithWallet: drep happy path', () => {
     expect(result.ok).toBe(true);
     expect(result.user).toEqual(FAKE_USER_DREP);
 
-    // CIP-95 signData is preferred and receives the type-6 enterprise address:
-    // 29 bytes (58 hex), preprod header 0x60, not the reward address.
-    const signCall = (api.cip95!.signData as ReturnType<typeof vi.fn>).mock.calls[0];
-    const addrUsed = signCall[0] as string;
-    expect(addrUsed).toHaveLength(58);
-    expect(addrUsed.slice(0, 2)).toBe('60');
+    // CIP-95 signData is preferred and is offered the bare DRep key hash first
+    // (the literal CIP-95 DRepID: 28 bytes = 56 hex, no network header). The
+    // wallet accepts it, so only one signing attempt is made.
+    const signCalls = (api.cip95!.signData as ReturnType<typeof vi.fn>).mock.calls;
+    expect(signCalls).toHaveLength(1);
+    const addrUsed = signCalls[0][0] as string;
+    expect(addrUsed).toBe(FAKE_DREP_KEYHASH);
+    expect(addrUsed).toHaveLength(56);
     expect(addrUsed).not.toBe(FAKE_REWARD_ADDR);
     // The base signData must not be used when cip95.signData exists.
     expect(api.signData).not.toHaveBeenCalled();
@@ -164,14 +172,59 @@ describe('loginWithWallet: drep happy path', () => {
     expect(body.role).toBe('drep');
   });
 
-  it('uses the mainnet enterprise header 0x61 on mainnet', async () => {
+  it('falls back to the type-6 enterprise address when the wallet rejects the bare key hash', async () => {
     const fetchMock = makeDRepFetch();
-    const api = makeDRepApi();
+    // First attempt (bare DRep key hash) fails with a non-decline error, as a
+    // wallet that only signs the type-6 address form would report.
+    const signData = vi
+      .fn()
+      .mockRejectedValueOnce({ code: 2, info: 'MessageError: User rejected' })
+      .mockResolvedValueOnce({ signature: FAKE_SIG, key: FAKE_KEY });
+    const api = makeDRepApi({
+      cip95: { getPubDRepKey: vi.fn(async () => FAKE_DREP_PUBKEY), signData },
+    });
+
+    const result = await loginWithWallet(api, 'drep', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
+
+    expect(result.ok).toBe(true);
+    // Two attempts: bare key hash, then the type-6 enterprise address (58 hex,
+    // preprod header 0x60).
+    expect(signData).toHaveBeenCalledTimes(2);
+    expect(signData.mock.calls[0][0]).toBe(FAKE_DREP_KEYHASH);
+    const fallbackAddr = signData.mock.calls[1][0] as string;
+    expect(fallbackAddr).toHaveLength(58);
+    expect(fallbackAddr.slice(0, 2)).toBe('60');
+    expect(fallbackAddr.slice(2)).toBe(FAKE_DREP_KEYHASH);
+  });
+
+  it('uses the mainnet enterprise header 0x61 for the fallback on mainnet', async () => {
+    const fetchMock = makeDRepFetch();
+    const signData = vi
+      .fn()
+      .mockRejectedValueOnce({ code: 2, info: 'MessageError' })
+      .mockResolvedValueOnce({ signature: FAKE_SIG, key: FAKE_KEY });
+    const api = makeDRepApi({
+      cip95: { getPubDRepKey: vi.fn(async () => FAKE_DREP_PUBKEY), signData },
+    });
 
     await loginWithWallet(api, 'drep', 'mainnet', { fetchImpl: fetchMock as unknown as typeof fetch });
 
-    const signCall = (api.cip95!.signData as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect((signCall[0] as string).slice(0, 2)).toBe('61');
+    expect((signData.mock.calls[1][0] as string).slice(0, 2)).toBe('61');
+  });
+
+  it('stops at the user decline and does not try the fallback form', async () => {
+    const fetchMock = makeDRepFetch();
+    // CIP-30 DataSignError UserDeclined (code 3): the user said no.
+    const signData = vi.fn().mockRejectedValue({ code: 3, info: 'User declined to sign the data.' });
+    const api = makeDRepApi({
+      cip95: { getPubDRepKey: vi.fn(async () => FAKE_DREP_PUBKEY), signData },
+    });
+
+    const result = await loginWithWallet(api, 'drep', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
+
+    expect(result.ok).toBe(false);
+    // Only the first form is attempted; an explicit decline is not retried.
+    expect(signData).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to base signData when cip95.signData is absent', async () => {
@@ -182,8 +235,7 @@ describe('loginWithWallet: drep happy path', () => {
 
     expect(result.ok).toBe(true);
     const signCall = (api.signData as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(signCall[0] as string).toHaveLength(58);
-    expect((signCall[0] as string).slice(0, 2)).toBe('60');
+    expect(signCall[0] as string).toBe(FAKE_DREP_KEYHASH);
   });
 });
 

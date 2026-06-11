@@ -40,10 +40,11 @@ interface Deps {
  *
  * Steps:
  *   1. POST /api/auth/challenge to get a one-time payload string.
- *   2. Derive the signing address:
+ *   2. Derive the signing address candidate(s):
  *      - proposer: first reward address from CIP-30 getRewardAddresses().
- *      - drep: CIP-19 type-6 (enterprise) address built from the Blake2b-224
- *        DRep key hash (CIP-95 getPubDRepKey), signed via cip95.signData when
+ *      - drep: the Blake2b-224 DRep key hash from CIP-95 getPubDRepKey, offered
+ *        both as the bare key-hash hex (the literal CIP-95 DRepID) and as a
+ *        CIP-19 type-6 (enterprise) address; signed via cip95.signData when
  *        available, else the base signData.
  *   3. Hex-encode the payload (UTF-8 bytes to hex).
  *   4. Call wallet.signData(addr, payloadHex).
@@ -72,24 +73,28 @@ export async function loginWithWallet(
     }
     const { payload } = (await challengeRes.json()) as { payload: string };
 
-    // Step 2: derive the signing address and select the signer.
-    let addr: string;
+    // Step 2: derive the signing address candidate(s) and select the signer.
+    let addrCandidates: string[];
     let signData = api.signData.bind(api);
     if (role === 'proposer') {
       const addrs = await api.getRewardAddresses();
-      addr = addrs[0];
+      addrCandidates = [addrs[0]];
     } else {
       // DRep: CIP-95 required to read the DRep key.
       if (!api.cip95) {
         return { ok: false, error: 'wallet does not support CIP-95' };
       }
       const pubKeyHex = await api.cip95.getPubDRepKey();
-      // pubKeyHex is the raw 32-byte Ed25519 DRep public key. Sign a CIP-19
-      // type-6 (enterprise) address built from its key hash; CIP-95 wallets sign
-      // that with the DRep key. Prefer the namespaced cip95.signData; fall back
-      // to the base signData, which most wallets route to the DRep key too.
+      // pubKeyHex is the raw 32-byte Ed25519 DRep public key. CIP-95 wallets
+      // disagree on how the DRep `addr` argument must be encoded, so we offer the
+      // forms in order of compatibility and use the first the wallet accepts:
+      //   1. the bare 28-byte DRep key-hash hex (the literal CIP-95 DRepID),
+      //   2. a CIP-19 type-6 (enterprise) address (network header + key hash).
+      // Some wallets only sign the bare DRepID and reject the type-6 form as a
+      // generic signing failure; others accept the address form. The identity is
+      // bound server-side from the signed public key, not from this header.
       const keyHash = blake2b224(hexToBytes(pubKeyHex));
-      addr = drepCredentialAddress(keyHash, network);
+      addrCandidates = [bytesToHex(keyHash), drepCredentialAddress(keyHash, network)];
       if (api.cip95.signData) {
         signData = api.cip95.signData.bind(api.cip95);
       }
@@ -98,8 +103,8 @@ export async function loginWithWallet(
     // Step 3: hex-encode the payload string (UTF-8).
     const payloadHex = bytesToHex(new TextEncoder().encode(payload));
 
-    // Step 4: sign with wallet.
-    const { signature, key } = await signData(addr, payloadHex);
+    // Step 4: sign with the first address form the wallet accepts.
+    const { signature, key } = await signWithFirstAccepted(signData, addrCandidates, payloadHex);
 
     // Step 5: POST verify.
     const verifyRes = await fetchFn('/api/auth/verify', {
@@ -129,5 +134,38 @@ export async function loginWithWallet(
     const detail = walletErrorDetail(err) ?? 'wallet connection or network error';
     return { ok: false, error: detail };
   }
+}
+
+/**
+ * Signs the payload with the first `addr` form the wallet accepts.
+ *
+ * CIP-95 wallets disagree on how the DRep `addr` argument must be encoded: some
+ * sign only the bare key-hash hex (the literal CIP-95 DRepID) and reject a
+ * CIP-19 type-6 enterprise address as a generic signing failure (VESPR surfaces
+ * this as a "user rejected" error), while others accept the address form. We try
+ * the candidates in order and return the first signature. A genuine user decline
+ * (CIP-30 DataSignError code 3) stops the loop immediately so we never re-prompt
+ * after the user said no; any other failure falls through to the next encoding.
+ */
+async function signWithFirstAccepted(
+  signData: (addr: string, payloadHex: string) => Promise<{ signature: string; key: string }>,
+  addrCandidates: string[],
+  payloadHex: string,
+): Promise<{ signature: string; key: string }> {
+  let lastErr: unknown;
+  for (let i = 0; i < addrCandidates.length; i++) {
+    try {
+      return await signData(addrCandidates[i], payloadHex);
+    } catch (err) {
+      lastErr = err;
+      if (isUserDecline(err) || i === addrCandidates.length - 1) throw err;
+    }
+  }
+  throw lastErr;
+}
+
+/** True when a CIP-30 wallet error is an explicit user rejection (DataSignError UserDeclined = 3). */
+function isUserDecline(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === 3;
 }
 
