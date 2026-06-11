@@ -14,6 +14,9 @@ import {
   getDrepVotingHistory, countDrepVotes,
   getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation,
 } from '@/lib/db/drepVotes.js';
+import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
+import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
+import BadgeTile from '@/components/BadgeTile.astro';
 import { isIndexableProfile, influencePct } from '@/lib/drep/profile.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import {
@@ -32,15 +35,20 @@ if (!drep) {
 
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation] = await Promise.all([
-  drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
-  db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
-  drep && db ? getDrepVotingHistory(db, drep.drepId, { limit: 20 }) : Promise.resolve([]),
-  drep && db ? countDrepVotes(db, drep.drepId) : Promise.resolve(0),
-  drep && db ? getDrepVoteBreakdown(db, drep.drepId) : Promise.resolve({ yes: 0, no: 0, abstain: 0, total: 0 }),
-  drep && db ? getDrepRationaleStats(db, drep.drepId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
-  drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : Promise.resolve(null),
-]);
+const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts] =
+  await Promise.all([
+    drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
+    db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
+    drep && db ? getDrepVotingHistory(db, drep.drepId, { limit: 20 }) : Promise.resolve([]),
+    drep && db ? countDrepVotes(db, drep.drepId) : Promise.resolve(0),
+    drep && db ? getDrepVoteBreakdown(db, drep.drepId) : Promise.resolve({ yes: 0, no: 0, abstain: 0, total: 0 }),
+    drep && db ? getDrepRationaleStats(db, drep.drepId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
+    drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : Promise.resolve(null),
+    drep && db ? loadEarnedBadges(db, drep.drepId, drepUser?.id ?? null) : Promise.resolve([]),
+    drep && db ? getBadgeHolderCounts(db) : Promise.resolve(new Map<string, number>()),
+  ]);
+
+const showcase = pickShowcase(earnedBadges, holderCounts, 3);
 
 const hasMetadata = !!(drep?.name || drep?.bio);
 const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length, votesCast });
@@ -116,6 +124,26 @@ const personLd = drep
     )}
 
     <p style="font-size:0.75rem;color:var(--muted);">On-chain data as of {formatRelativeTime(drep.lastSyncedAt, now)}.</p>
+
+    <section style="margin-top:2rem;">
+        <h2 style="font-size:1.125rem;">
+          Badges <span style="color:var(--muted);font-weight:400;">({earnedBadges.length})</span>
+        </h2>
+        {showcase.length === 0 ? (
+          <p style="color:var(--muted);">
+            No badges yet. <a href={`/dreps/${drep.drepId}/badges`}>See what can be earned</a>.
+          </p>
+        ) : (
+          <div style="display:flex;gap:1.5rem;align-items:flex-start;flex-wrap:wrap;">
+            {showcase.map((t) => (
+              <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} size={80} />
+            ))}
+            <a href={`/dreps/${drep.drepId}/badges`} style="align-self:center;font-size:0.9375rem;">
+              All badges →
+            </a>
+          </div>
+        )}
+      </section>
 
     <section style="margin-top:2rem;">
       <h2 style="font-size:1.125rem;">Forum activity</h2>

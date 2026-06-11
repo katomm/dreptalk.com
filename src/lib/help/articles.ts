@@ -38,6 +38,11 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     text: 'How posts are moderated: community flagging today (3 flags hide a post), with appointed moderators a possibility later.',
   },
   {
+    href: '/help/badges',
+    title: 'Badges',
+    text: 'How achievement badges work: earned automatically from on-chain and forum activity, bronze/silver/gold tiers, permanent, never about the direction of a vote, plus a few hidden ones.',
+  },
+  {
     href: '/help/open-source',
     title: 'Open source',
     text: 'DRepTalk is open source under the Apache 2.0 license. The full code is on GitHub and contributions are welcome.',

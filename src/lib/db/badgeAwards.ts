@@ -61,6 +61,105 @@ export async function getSubjectAwards(
   return (res.results ?? []).map(rowToAward);
 }
 
+// Live counters the gallery shows progress bars for; everything else (streaks,
+// one-off events, registry badges) renders without a bar.
+export interface BadgeCounters {
+  votes: number;
+  rationale: number;
+  types: number;
+  cross: number;
+  crossRationale: number;
+  crossDeliberated: number;
+  posts: number;
+  ups: number;
+  maxUp: number;
+  topics: number;
+  govTopics: number;
+}
+
+/** Per-subject progress counters, computed live at render time. */
+export async function loadBadgeCounters(db: D1Database, drepId: string, userId: string | null): Promise<BadgeCounters> {
+  const [votes, types, cross, posts, topics, govTopics] = await Promise.all([
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n, SUM(CASE WHEN meta_url IS NOT NULL AND meta_url != '' THEN 1 ELSE 0 END) AS r
+         FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep'`,
+      )
+      .bind(drepId)
+      .first<{ n: number; r: number | null }>(),
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT g.type) AS n FROM drep_votes v
+         JOIN governance_actions g ON g.id = v.ga_id
+         WHERE v.voter_id = ? AND v.voter_role = 'DRep'`,
+      )
+      .bind(drepId)
+      .first<{ n: number }>(),
+    userId
+      ? db
+          .prepare(
+            `SELECT g.id AS ga, MIN(p.created_at) AS first_ms, v.block_time AS bt,
+                    MAX(CASE WHEN v.meta_url IS NOT NULL AND v.meta_url != '' THEN 1 ELSE 0 END) AS rat
+             FROM posts p
+             JOIN governance_actions g ON g.topic_id = p.topic_id
+             JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ?1 AND v.voter_role = 'DRep'
+             WHERE p.author_id = ?2 AND p.deleted = 0 AND p.hidden = 0
+             GROUP BY g.id, v.block_time`,
+          )
+          .bind(drepId, userId)
+          .all<{ ga: string; first_ms: number; bt: number | null; rat: number }>()
+      : Promise.resolve(null),
+    userId
+      ? db
+          .prepare(
+            `SELECT COUNT(*) AS n, COALESCE(SUM(up_count), 0) AS ups, COALESCE(MAX(up_count), 0) AS maxup
+             FROM posts WHERE author_id = ? AND deleted = 0 AND hidden = 0`,
+          )
+          .bind(userId)
+          .first<{ n: number; ups: number; maxup: number }>()
+      : Promise.resolve(null),
+    userId
+      ? db
+          .prepare(`SELECT COUNT(*) AS n FROM topics WHERE author_id = ? AND deleted = 0 AND source = 'user'`)
+          .bind(userId)
+          .first<{ n: number }>()
+      : Promise.resolve(null),
+    userId
+      ? db
+          .prepare(
+            `SELECT COUNT(DISTINCT p.topic_id) AS n FROM posts p
+             JOIN governance_actions g ON g.topic_id = p.topic_id
+             WHERE p.author_id = ? AND p.deleted = 0 AND p.hidden = 0`,
+          )
+          .bind(userId)
+          .first<{ n: number }>()
+      : Promise.resolve(null),
+  ]);
+
+  const crossRows = cross?.results ?? [];
+  return {
+    votes: votes?.n ?? 0,
+    rationale: votes?.r ?? 0,
+    types: types?.n ?? 0,
+    cross: crossRows.length,
+    crossRationale: crossRows.filter((r) => r.rat).length,
+    crossDeliberated: crossRows.filter((r) => r.bt != null && r.first_ms < r.bt * 1000).length,
+    posts: posts?.n ?? 0,
+    ups: posts?.ups ?? 0,
+    maxUp: posts?.maxup ?? 0,
+    topics: topics?.n ?? 0,
+    govTopics: govTopics?.n ?? 0,
+  };
+}
+
+/** Holders per badge id, for the /badges overview and rarity-ranked showcases. */
+export async function getBadgeHolderCounts(db: D1Database): Promise<Map<string, number>> {
+  const res = await db
+    .prepare('SELECT badge_id, COUNT(*) AS n FROM badge_awards GROUP BY badge_id')
+    .all<{ badge_id: string; n: number }>();
+  return new Map((res.results ?? []).map((r) => [r.badge_id, r.n]));
+}
+
 // Bound parameters per row in the upsert; stays well under the SQLite limit.
 const UPSERT_CHUNK = 100;
 

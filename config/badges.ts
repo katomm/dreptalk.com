@@ -93,7 +93,10 @@ export function badgeImagePath(id: string, tier = 0): string {
   return slug ? `/badges/${id}-${slug}.svg` : `/badges/${id}.svg`;
 }
 
+/** Anonymous card shown for hidden badges that are not yet earned. */
+export const MYSTERY_BADGE_IMAGE = '/badges/mystery.svg';
+
 /** Artwork URL for a not-yet-earned badge (mystery card when hidden). */
 export function badgeLockedImagePath(badge: Badge): string {
-  return badge.hidden ? '/badges/mystery.svg' : `/badges/${badge.id}-locked.svg`;
+  return badge.hidden ? MYSTERY_BADGE_IMAGE : `/badges/${badge.id}-locked.svg`;
 }
