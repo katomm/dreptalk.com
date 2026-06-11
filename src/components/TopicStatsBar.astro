@@ -1,0 +1,79 @@
+---
+// Compact stat strip above a thread: participants, comments, the opening
+// post's supporting/opposing reactions, and last activity. All values come
+// from data the page already has plus one cheap aggregate query.
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import { TONE_COLORS } from '@/lib/governance/view.js';
+import type { TopicStats } from '@/lib/db/forum.js';
+
+interface Props {
+  stats: TopicStats;
+  /** Replies only (post_count minus the opening post). */
+  comments: number;
+  lastPostAt: number;
+  now: number;
+  /** Label the opening post's thumbs as Supporting/Opposing (governance threads). */
+  stanceLabels?: boolean;
+}
+
+const { stats, comments, lastPostAt, now, stanceLabels = false } = Astro.props;
+
+const items = [
+  { label: 'Participants', value: String(stats.participants), tone: 'var(--accent)' },
+  { label: 'Comments', value: String(comments), tone: 'var(--accent)' },
+  { label: stanceLabels ? 'Supporting' : 'Thumbs up', value: String(stats.supporting), tone: TONE_COLORS.positive },
+  { label: stanceLabels ? 'Opposing' : 'Thumbs down', value: String(stats.opposing), tone: TONE_COLORS.negative },
+  { label: 'Last activity', value: formatRelativeTime(lastPostAt, now), tone: 'var(--muted)' },
+];
+---
+
+<div class="topic-stats">
+  {items.map((item) => (
+    <div class="topic-stats__item">
+      <span class="topic-stats__label" style={`--dot:${item.tone}`}>{item.label}</span>
+      <span class="topic-stats__value">{item.value}</span>
+    </div>
+  ))}
+</div>
+
+<style>
+  .topic-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 2rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    padding: 0.875rem 1.125rem;
+    margin-bottom: 1.25rem;
+  }
+  .topic-stats__item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+  .topic-stats__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  .topic-stats__label::before {
+    content: '';
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 999px;
+    background: var(--dot);
+    flex-shrink: 0;
+  }
+  .topic-stats__value {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--fg);
+  }
+</style>

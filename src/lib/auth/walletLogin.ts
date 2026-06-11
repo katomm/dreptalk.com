@@ -3,7 +3,7 @@
 import { blake2b224 } from '../crypto/blake.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 import { walletErrorDetail } from '../wallet/walletError.js';
-import { assertWalletNetwork } from '../wallet/networkGuard.js';
+import { assertWalletNetwork, WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { drepCredentialAddress } from '../cardano/identity.js';
 import type { CardanoNetwork } from '../config/network.js';
 
@@ -73,7 +73,7 @@ export async function loginWithWallet(
     try {
       await assertWalletNetwork({ getNetworkId: api.getNetworkId.bind(api) }, network);
     } catch (err) {
-      return { ok: false, error: walletErrorDetail(err) ?? 'wallet network mismatch' };
+      return { ok: false, error: walletErrorDetail(err) ?? WALLET_NETWORK_MISMATCH };
     }
   }
 

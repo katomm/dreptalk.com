@@ -6,11 +6,15 @@ export interface ComposerPayload {
   title?: string;
   topicId?: string;
   bodyMd: string;
+  /** Reply target for mode 'post' (one-level threading). */
+  parentPostId?: string;
 }
 
 export interface ComposerResult {
   ok: boolean;
   slug?: string;
+  /** The created post's id (mode 'post'); drives the post-submit scroll target. */
+  postId?: string;
   error?: string;
 }
 
@@ -19,8 +23,9 @@ export interface ComposerResult {
  *
  * mode 'topic': POST /api/topics with { categorySlug, title, bodyMd }.
  *   On 201 resolves { ok: true, slug }.
- * mode 'post': POST /api/topics/<topicId>/posts with { bodyMd }.
- *   On 201 resolves { ok: true }.
+ * mode 'post': POST /api/topics/<topicId>/posts with { bodyMd } and, when
+ *   replying to a specific post, parentPostId.
+ *   On 201 resolves { ok: true, postId }.
  * Any non-2xx response resolves { ok: false, error }.
  * Never throws: network errors are caught and returned as { ok: false, error }.
  */
@@ -45,7 +50,7 @@ export async function submitComposer(args: {
       };
     } else {
       url = `/api/topics/${payload.topicId}/posts`;
-      body = { bodyMd: payload.bodyMd };
+      body = { bodyMd: payload.bodyMd, parentPostId: payload.parentPostId };
     }
 
     const response = await fetcher(url, {
@@ -59,7 +64,8 @@ export async function submitComposer(args: {
         const data = (await response.json()) as { ok: boolean; slug?: string };
         return { ok: true, slug: data.slug };
       }
-      return { ok: true };
+      const data = (await response.json().catch(() => null)) as { postId?: string } | null;
+      return { ok: true, postId: data?.postId };
     }
 
     // Non-2xx: try to read a message from the response body.

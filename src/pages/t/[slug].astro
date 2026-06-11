@@ -3,19 +3,16 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
-import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
-import PostActions from '@/components/PostActions.astro';
-import VoteBadge from '@/components/VoteBadge.astro';
+import ThreadPosts from '@/components/ThreadPosts.astro';
 import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
-import GaDiscussion from '@/components/ga/GaDiscussion.astro';
 import GaPositions from '@/components/ga/GaPositions.astro';
 import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
-import { getTopicBySlug, getPostsByTopic } from '@/lib/db/forum.js';
+import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { threadOgImage, stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
@@ -23,7 +20,6 @@ import { getVotesByGaId, getActionVoters, countActionVoters, type ActionVoterRow
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { isWriter } from '@/lib/auth/roles.js';
-import { postViewerContext } from '@/lib/forum/postVisibility.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
@@ -48,9 +44,12 @@ const PAGE_SIZE = 50;
 const page = parsePage(Astro.url.searchParams.get('page'));
 const offset = pageToOffset(page, PAGE_SIZE);
 
-const posts = topic && db
-  ? await getPostsByTopic(db, topic.id, { limit: PAGE_SIZE, offset })
-  : [];
+const thread: ThreadPage = topic && db
+  ? await getThreadPage(db, topic.id, { limit: PAGE_SIZE, offset })
+  : { topLevel: [], childrenByParent: new Map(), openingPost: null, stats: null };
+
+// Every post on the page (top-level and replies) for the batched lookups below.
+const pagePosts = [...thread.topLevel, ...[...thread.childrenByParent.values()].flat()];
 
 const category = topic ? getCategory(topic.category_slug) : undefined;
 
@@ -59,7 +58,7 @@ const category = topic ? getCategory(topic.category_slug) : undefined;
 const isGovernanceTopic = topic?.source === 'governance';
 
 const identities = db
-  ? await loadAuthorIdentities(db, [topic?.author_id, ...posts.map((p) => p.author_id)])
+  ? await loadAuthorIdentities(db, [topic?.author_id, ...pagePosts.map((p) => p.author_id)])
   : null;
 
 const describe = (authorId: string): AuthorDescriptor =>
@@ -82,10 +81,9 @@ const now = Date.now();
 const network = currentNetwork().network;
 
 const user = Astro.locals.user;
-const showComposer = !!user && !!topic && !topic.locked;
 
 // Only on-chain writers can flag, so the flagged-id set is loaded for them only.
-// Per-post flag/visibility policy lives in postViewerContext.
+// Per-post flag/visibility policy lives in postViewerContext (via PostArticle).
 const viewerIsWriter = !!user && isWriter(user.roles);
 
 // Governance-action enrichment (header values) and the viewer's own post state
@@ -97,7 +95,7 @@ const [govAction, viewerPostState] = await Promise.all([
     ? getGovernanceActionByTopicId(db, topic.id)
     : Promise.resolve(null),
   db && user && viewerIsWriter
-    ? loadViewerPostState(db, user.id, posts.map((p) => p.id))
+    ? loadViewerPostState(db, user.id, pagePosts.map((p) => p.id))
     : Promise.resolve(emptyViewerPostState()),
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
@@ -160,16 +158,19 @@ const ccSize = govAction
   : 0;
 
 const prevPage = page > 1 ? page - 1 : null;
-const nextPage = posts.length === PAGE_SIZE ? page + 1 : null;
+// Pagination counts top-level posts; replies render with their parent.
+const nextPage = thread.topLevel.length === PAGE_SIZE ? page + 1 : null;
 
 const firstPostAuthor = topic?.author_id ?? '';
 const firstPostDate = topic
   ? new Date(topic.created_at).toISOString()
   : new Date().toISOString();
 
-// Meta description / schema text from the opening post (posts[0] on page 1);
-// deeper pages fall back to a generic line.
-const openingExcerpt = page === 1 && posts[0]?.body_html ? excerptFromHtml(posts[0].body_html) : '';
+// Meta description / schema text from the opening post; deeper pages (where
+// the thread page does not carry it) fall back to a generic line.
+const openingExcerpt = thread.openingPost?.body_html
+  ? excerptFromHtml(thread.openingPost.body_html)
+  : '';
 const metaDescription =
   openingExcerpt || (topic ? `Discussion of ${topic.title} on DRepTalk.` : 'Discussion on DRepTalk.');
 
@@ -264,9 +265,9 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
         <div class:list={['ga-detail-layout', { 'ga-detail-layout--sidebar-first': tab === 'overview' }]}>
           <div class="ga-detail-layout__main">
             {tab === 'discussion' ? (
-              <GaDiscussion
+              <ThreadPosts
                 topic={topic}
-                posts={posts}
+                thread={thread}
                 govVotes={govVotes}
                 user={user}
                 topicAuthor={topicAuthor}
@@ -274,7 +275,6 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                 flaggedPostIds={flaggedPostIds}
                 viewerReactions={viewerReactions}
                 isGovernanceTopic={isGovernanceTopic}
-                page={page}
                 prevPage={prevPage}
                 nextPage={nextPage}
                 now={now}
@@ -315,75 +315,21 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
         </div>
       </>
     ) : (
-      // Non-governance topics: single-column thread, unchanged.
-      <>
-        <div style="display:flex;flex-direction:column;gap:0;">
-          {posts.map((post, i) => {
-            const author =
-              isGovernanceTopic && page === 1 && i === 0
-                ? topicAuthor
-                : describe(post.author_id);
-
-            const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, user, !!author.isSystem);
-            const authorVote = author.drepId ? govVotes.get(author.drepId) : undefined;
-
-            return (
-              <article style="border-top:1px solid var(--border);padding:1.25rem 0;" id={`post-${post.id}`}>
-                <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-                  <AuthorIdentity author={author} />
-                  {authorVote && <VoteBadge vote={authorVote.vote} />}
-                  <span>{formatRelativeTime(post.created_at, now)}</span>
-                  {post.edited_at && <span>(edited)</span>}
-                  {post.hidden && canSeeContent && (
-                    <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
-                  )}
-                </div>
-                {canSeeContent ? (
-                  <div class="prose" set:html={post.body_html} />
-                ) : (
-                  <p style="margin:0;color:var(--muted);font-style:italic;font-size:0.9375rem;">
-                    This post was hidden after being flagged by the community.
-                  </p>
-                )}
-                {canSeeContent && (
-                  <PostActions
-                    post={post}
-                    canReact={canReact}
-                    canFlag={canFlag}
-                    isOwnPost={isOwnPost}
-                    flagged={flaggedPostIds.has(post.id)}
-                    viewerReaction={viewerReactions.get(post.id) ?? null}
-                  />
-                )}
-              </article>
-            );
-          })}
-        </div>
-
-        {(prevPage || nextPage) && (
-          <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
-            {prevPage && (
-              <a href={`/t/${topic.slug}?page=${prevPage}`}>Previous page</a>
-            )}
-            {nextPage && (
-              <a href={`/t/${topic.slug}?page=${nextPage}`}>Next page</a>
-            )}
-          </nav>
-        )}
-
-        {topic.locked && (
-          <p style="margin-top:2rem;padding:0.875rem 1rem;border:1px solid var(--border);border-radius:0.375rem;color:var(--muted);font-size:0.875rem;">
-            This topic is locked and no longer accepts new replies.
-          </p>
-        )}
-
-        {showComposer && (
-          <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
-            <h2 style="margin:0 0 1rem;font-size:1.125rem;">Reply</h2>
-            <Composer client:load mode="post" topicId={topic.id} />
-          </section>
-        )}
-      </>
+      // Non-governance topics: single-column thread.
+      <ThreadPosts
+        topic={topic}
+        thread={thread}
+        govVotes={govVotes}
+        user={user}
+        topicAuthor={topicAuthor}
+        describe={describe}
+        flaggedPostIds={flaggedPostIds}
+        viewerReactions={viewerReactions}
+        isGovernanceTopic={isGovernanceTopic}
+        prevPage={prevPage}
+        nextPage={nextPage}
+        now={now}
+      />
     )}
   </Layout>
 )}

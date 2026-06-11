@@ -1,0 +1,239 @@
+---
+// The full thread body shared by governance and non-governance topic views:
+// stats strip, one-level-threaded post list, pagination, locked notice,
+// composer (writers) or join banner (anonymous). Replaces the previously
+// duplicated markup in t/[slug].astro and GaDiscussion.astro.
+import PostArticle from '@/components/PostArticle.astro';
+import TopicStatsBar from '@/components/TopicStatsBar.astro';
+import Composer from '@/components/Composer.tsx';
+import type { Topic, ThreadPage } from '@/lib/db/forum.js';
+import type { Reaction } from '@/lib/db/postReactions.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import type { SessionUser } from '@/lib/forum/postVisibility.js';
+
+interface Props {
+  topic: Topic;
+  thread: ThreadPage;
+  govVotes: Map<string, { role: string; vote: string }>;
+  /** Current user, or null when anonymous. */
+  user: SessionUser | null;
+  topicAuthor: AuthorDescriptor;
+  describe: (authorId: string) => AuthorDescriptor;
+  flaggedPostIds: Set<string>;
+  viewerReactions: Map<string, Reaction>;
+  isGovernanceTopic: boolean;
+  prevPage: number | null;
+  nextPage: number | null;
+  now: number;
+}
+
+const {
+  topic,
+  thread,
+  govVotes,
+  user,
+  topicAuthor,
+  describe,
+  flaggedPostIds,
+  viewerReactions,
+  isGovernanceTopic,
+  prevPage,
+  nextPage,
+  now,
+} = Astro.props;
+
+// One gate for both write affordances: the composer section and the per-post
+// Reply buttons (signed in, topic not locked; the server enforces writer roles).
+const canParticipate = !!user && !topic.locked;
+
+// Governance threads live behind the discussion tab; plain threads paginate at the root.
+const pageQueryPrefix = isGovernanceTopic ? '?tab=discussion&page=' : '?page=';
+
+const voteFor = (author: AuthorDescriptor) =>
+  author.drepId ? govVotes.get(author.drepId) : undefined;
+---
+
+{thread.stats && (
+  <TopicStatsBar
+    stats={thread.stats}
+    comments={Math.max(0, topic.post_count - 1)}
+    lastPostAt={topic.last_post_at}
+    now={now}
+    stanceLabels={isGovernanceTopic}
+  />
+)}
+
+<div style="display:flex;flex-direction:column;gap:0;">
+  {thread.topLevel.map((post) => {
+    // The opening post: carries the system identity on governance topics, and
+    // takes no Reply button (replying to the opener IS a top-level comment).
+    const isOpening = post.id === thread.openingPost?.id;
+    const author = isOpening && isGovernanceTopic ? topicAuthor : describe(post.author_id);
+    const children = thread.childrenByParent.get(post.id) ?? [];
+
+    return (
+      <div style="border-top:1px solid var(--border);">
+        <PostArticle
+          post={post}
+          author={author}
+          authorVote={voteFor(author)}
+          user={user}
+          flagged={flaggedPostIds.has(post.id)}
+          viewerReaction={viewerReactions.get(post.id) ?? null}
+          canReply={canParticipate && !isOpening}
+          now={now}
+        />
+        {children.length > 0 && (
+          <div class="thread-replies">
+            {children.map((child) => {
+              const childAuthor = describe(child.author_id);
+              return (
+                <PostArticle
+                  post={child}
+                  author={childAuthor}
+                  authorVote={voteFor(childAuthor)}
+                  user={user}
+                  flagged={flaggedPostIds.has(child.id)}
+                  viewerReaction={viewerReactions.get(child.id) ?? null}
+                  canReply={canParticipate}
+                  now={now}
+                  compact
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  })}
+</div>
+
+{(prevPage || nextPage) && (
+  <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
+    {prevPage && <a href={`/t/${topic.slug}${pageQueryPrefix}${prevPage}`}>Previous page</a>}
+    {nextPage && <a href={`/t/${topic.slug}${pageQueryPrefix}${nextPage}`}>Next page</a>}
+  </nav>
+)}
+
+{topic.locked && (
+  <p style="margin-top:2rem;padding:0.875rem 1rem;border:1px solid var(--border);border-radius:0.375rem;color:var(--muted);font-size:0.875rem;">
+    This topic is locked and no longer accepts new replies.
+  </p>
+)}
+
+{canParticipate && (
+  <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
+    <h2 style="margin:0 0 1rem;font-size:1.125rem;">Reply</h2>
+    <Composer client:load mode="post" topicId={topic.id} />
+  </section>
+)}
+
+{!user && !topic.locked && (
+  <aside class="join-banner">
+    <div>
+      <p class="join-banner__title">Join the conversation</p>
+      <p class="join-banner__sub">
+        Sign in with a verified on-chain role (DRep, SPO, CC, proposer) to share your perspective.
+      </p>
+    </div>
+    <a class="btn btn-primary" href="/login">Sign in</a>
+  </aside>
+)}
+
+<script>
+  import { dispatchReply } from '@/lib/forum/replyEvent.ts';
+
+  // Land on the post named in the URL hash (a fresh reply after the composer
+  // reload, or a shared permalink). After the composer's reload the browser
+  // asynchronously restores the pre-reload scroll position (the composer at
+  // the bottom) over the anchor, so when the composer left its landing flag,
+  // restoration is disabled before it can run and re-enabled once landed.
+  if (window.location.hash.startsWith('#post-')) {
+    const pendingLanding = sessionStorage.getItem('dreptalk:land-on-post') !== null;
+    sessionStorage.removeItem('dreptalk:land-on-post');
+    const landOnHashPost = () => {
+      document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'center' });
+    };
+    if (pendingLanding) history.scrollRestoration = 'manual';
+    landOnHashPost();
+    window.addEventListener(
+      'load',
+      () => {
+        landOnHashPost();
+        // Re-assert once more after the restoration window, then hand scroll
+        // handling back to the browser for normal back/forward navigation.
+        setTimeout(() => {
+          landOnHashPost();
+          history.scrollRestoration = 'auto';
+        }, 150);
+      },
+      { once: true },
+    );
+  }
+
+  // One delegated handler per page for the server-rendered post actions:
+  // Reply hands the target to the Composer island via the shared reply event;
+  // Share copies the post permalink and briefly confirms on the button itself.
+  document.addEventListener('click', (e) => {
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target) return;
+
+    const replyBtn = target.closest('[data-reply-to]');
+    if (replyBtn) {
+      dispatchReply({
+        postId: replyBtn.getAttribute('data-reply-to') ?? '',
+        author: replyBtn.getAttribute('data-reply-author') ?? '',
+      });
+      return;
+    }
+
+    const shareBtn = target.closest('[data-share-post]');
+    if (shareBtn) {
+      const url = new URL(window.location.href);
+      url.hash = `post-${shareBtn.getAttribute('data-share-post')}`;
+      const label = shareBtn.querySelector('[data-share-label]');
+      navigator.clipboard
+        .writeText(url.toString())
+        .then(() => {
+          if (!label) return;
+          const original = label.textContent;
+          label.textContent = 'Copied';
+          setTimeout(() => {
+            label.textContent = original;
+          }, 1500);
+        })
+        .catch(() => {
+          // Clipboard unavailable (permissions, http): leave the label as is.
+        });
+    }
+  });
+</script>
+
+<style>
+  .thread-replies {
+    margin: 0 0 1.25rem 1.375rem;
+    padding-left: 1rem;
+    border-left: 2px solid var(--border);
+  }
+  .join-banner {
+    margin-top: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+    padding: 1rem 1.25rem;
+  }
+  .join-banner__title {
+    margin: 0 0 0.2rem;
+    font-weight: 600;
+  }
+  .join-banner__sub {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+</style>

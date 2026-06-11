@@ -124,6 +124,8 @@ export interface CreatePostInput {
   topicId: string;
   body: {
     bodyMd: unknown;
+    /** Optional reply target (one-level threading). */
+    parentPostId?: unknown;
   };
   db: D1Database;
   rateLimiter: DurableObjectNamespace<RateLimiter>;
@@ -156,19 +158,24 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
       return { status: 429, json: { ok: false, error: 'rate_limited' } };
     }
 
-    // 3. Validate bodyMd.
+    // 3. Validate bodyMd and the optional reply target.
     const bodyMd = (typeof body.bodyMd === 'string' ? body.bodyMd : '').trim();
     if (bodyMd.length === 0 || bodyMd.length > 20000) {
       return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
+    }
+    const parentPostId = body.parentPostId ?? null;
+    if (parentPostId !== null && typeof parentPostId !== 'string') {
+      return { status: 400, json: { ok: false, error: 'invalid parent post id' } };
     }
 
     // 4. Render and sanitize markdown.
     const bodyHtml = renderMarkdown(bodyMd);
 
-    // 5. Persist. createPost throws domain errors for locked/missing topics.
-    await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now });
+    // 5. Persist. createPost throws domain errors for locked/missing targets.
+    const post = await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now, parentPostId });
 
-    return { status: 201, json: { ok: true } };
+    // The id lets the client land on the new post after the reload.
+    return { status: 201, json: { ok: true, postId: post.id } };
   } catch (err) {
     if (err instanceof Error) {
       if (err.message === 'topic_locked') {
@@ -176,6 +183,9 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
       }
       if (err.message === 'topic_not_found') {
         return { status: 404, json: { ok: false, error: 'topic_not_found' } };
+      }
+      if (err.message === 'parent_not_found') {
+        return { status: 404, json: { ok: false, error: 'parent_not_found' } };
       }
     }
     return { status: 500, json: { ok: false, error: 'internal error' } };

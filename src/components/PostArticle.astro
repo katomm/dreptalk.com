@@ -1,0 +1,81 @@
+---
+// One post card in a thread: identity row, body (or the hidden-by-community
+// placeholder), and the action row. Used for top-level posts and, with
+// compact, for one-level replies.
+import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import VoteBadge from '@/components/VoteBadge.astro';
+import PostActions from '@/components/PostActions.astro';
+import { postViewerContext, type SessionUser } from '@/lib/forum/postVisibility.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import type { Post } from '@/lib/db/forum.js';
+import type { Reaction } from '@/lib/db/postReactions.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+
+interface Props {
+  post: Post;
+  author: AuthorDescriptor;
+  /** The author's on-chain vote on the surrounding governance action, if any. */
+  authorVote?: { role: string; vote: string };
+  user: SessionUser | null;
+  flagged: boolean;
+  viewerReaction: Reaction | null;
+  canReply: boolean;
+  now: number;
+  /** Reply rendering: smaller avatar. */
+  compact?: boolean;
+}
+
+const { post, author, authorVote, user, flagged, viewerReaction, canReply, now, compact = false } = Astro.props;
+
+const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, user, !!author.isSystem);
+---
+
+<article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
+  <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+    <AuthorIdentity author={author} size={compact ? 22 : 28} />
+    {authorVote && <VoteBadge vote={authorVote.vote} />}
+    <span>{formatRelativeTime(post.created_at, now)}</span>
+    {post.edited_at && <span>(edited)</span>}
+    {post.hidden && canSeeContent && (
+      <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
+    )}
+  </div>
+  {canSeeContent ? (
+    <div class="prose" set:html={post.body_html} />
+  ) : (
+    <p style="margin:0;color:var(--muted);font-style:italic;font-size:0.9375rem;">
+      This post was hidden after being flagged by the community.
+    </p>
+  )}
+  {canSeeContent && (
+    <PostActions
+      post={post}
+      canReact={canReact}
+      canFlag={canFlag}
+      isOwnPost={isOwnPost}
+      flagged={flagged}
+      viewerReaction={viewerReaction}
+      canReply={canReply}
+      authorName={author.displayName}
+    />
+  )}
+</article>
+
+<style>
+  /* The post named in the URL hash (a fresh reply, a shared permalink) flashes
+     briefly so the eye lands on it after the scroll. */
+  article:target {
+    animation: post-target-flash 2s ease-out 1;
+    border-radius: 0.375rem;
+  }
+  @keyframes post-target-flash {
+    0% {
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      box-shadow: 0 0 0 0.5rem color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+    100% {
+      background: transparent;
+      box-shadow: 0 0 0 0.5rem transparent;
+    }
+  }
+</style>

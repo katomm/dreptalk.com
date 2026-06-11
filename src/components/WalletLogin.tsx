@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
-import { networkMismatchMessage } from '@/lib/wallet/networkGuard.js';
+import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 
 type LoginState =
@@ -23,7 +23,7 @@ function friendlyLoginError(
 ): string {
   const e = (error ?? '').toLowerCase();
   if (!e) return 'Login failed. Please try again.';
-  if (e.includes('network mismatch')) {
+  if (e.includes(WALLET_NETWORK_MISMATCH)) {
     return networkMismatchMessage(network);
   }
   if (e.includes('cip-95')) {
