@@ -55,8 +55,8 @@ describe('submitComposer: topic mode, happy path', () => {
 // ---------------------------------------------------------------------------
 
 describe('submitComposer: post mode, happy path', () => {
-  it('POSTs to /api/topics/<id>/posts with bodyMd and returns ok', async () => {
-    const fetch = fakeFetch(201, { ok: true });
+  it('POSTs to /api/topics/<id>/posts with bodyMd and returns ok + postId', async () => {
+    const fetch = fakeFetch(201, { ok: true, postId: 'post-uuid-9' });
 
     const result = await submitComposer({
       mode: 'post',
@@ -69,6 +69,7 @@ describe('submitComposer: post mode, happy path', () => {
 
     expect(result.ok).toBe(true);
     expect(result.slug).toBeUndefined();
+    expect(result.postId).toBe('post-uuid-9');
     expect(result.error).toBeUndefined();
 
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
@@ -77,6 +78,25 @@ describe('submitComposer: post mode, happy path', () => {
 
     const sentBody = JSON.parse(init.body as string);
     expect(sentBody.bodyMd).toBe('**reply text**');
+    expect(sentBody.parentPostId).toBeUndefined();
+  });
+
+  it('sends parentPostId when replying to a specific post', async () => {
+    const fetch = fakeFetch(201, { ok: true, postId: 'post-uuid-10' });
+
+    await submitComposer({
+      mode: 'post',
+      payload: {
+        topicId: 'topic-uuid-001',
+        bodyMd: 'nested reply',
+        parentPostId: 'parent-uuid-1',
+      },
+      fetchImpl: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+    const sentBody = JSON.parse(init.body as string);
+    expect(sentBody.parentPostId).toBe('parent-uuid-1');
   });
 });
 
