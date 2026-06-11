@@ -4,6 +4,7 @@ Requires Node 20+. Local and preview run against the Cardano preprod testnet; se
 
 - `npm install`
 - `npm run db:migrate:local`: set up the local database (apply all migrations). Required before the first `npm run dev`; see [Database setup](#database-setup)
+- `npm run db:seed:local`: optional fake forum data for local UI work; see [Seeding fake data](#seeding-fake-data)
 - `npm run dev`: app dev server (Astro, with HMR)
 - `npm test`: unit and integration tests
 - `npm run typecheck`: type check
@@ -23,7 +24,17 @@ npm run db:migrate:local        # wraps: wrangler d1 migrations apply DB --local
 
 `DB` is the binding name (not the database name), and `--local` targets the SQLite file under `.wrangler/state`; the remote database is never touched. The app and the cron worker share the same `database_id` and the same `.wrangler/state`, so this single command migrates the database for both: there is nothing to migrate per worker. Re-run it whenever new files land in `migrations/`.
 
-After migrating, the database exists but is empty: no governance actions, DReps, or tallies yet. None of that data ships in the repo; it is pulled from the chain by the cron worker. Local dev never fires the cron triggers on its own (the "crons don't run" you may have seen is expected, not a bug), so you populate the database by triggering the syncs by hand, as described next.
+After migrating, the database exists but is empty: no governance actions, DReps, or tallies yet. None of that data ships in the repo. There are two ways to fill it: the seed script (fake data, instant, no network) or the governance syncs (real on-chain data), described in the next two sections. Local dev never fires the cron triggers on its own (the "crons don't run" you may have seen is expected, not a bug).
+
+## Seeding fake data
+
+For working on the forum UI you usually do not need real chain data. The seed script inserts a coherent fake data set: a handful of DReps, SPOs, and a CC member, discussion threads with conversations and replies, two governance actions with tallies and per-DRep votes, reactions, and one community-hidden post:
+
+```sh
+npm run db:seed:local           # wraps: wrangler d1 execute DB --local --file scripts/seed-dev.sql
+```
+
+It is re-runnable: every seeded row carries a recognizable id and is deleted and re-inserted on each run, so it also resets whatever you clicked together while testing. Timestamps are relative to "now" and the epoch numbers are calibrated for preprod, so the UI always looks current. Seed data and real synced data can coexist; re-seeding never touches synced rows. Local only: the script is never meant to run against a remote database.
 
 ## Running a governance sync locally
 
