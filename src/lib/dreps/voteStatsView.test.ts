@@ -28,7 +28,7 @@ describe('formatRationale', () => {
 
 describe('formatParticipation', () => {
   it('formats the participation rate', () => {
-    expect(formatParticipation({ eligible: 22, voted: 18 })).toBe('Voted on 18 of 22 eligible actions (82%)');
+    expect(formatParticipation({ eligible: 22, voted: 18 })).toBe('Voted on 18 of 22 concluded actions (82%)');
   });
   it('shows pending when the registration epoch is unknown', () => {
     expect(formatParticipation(null)).toBe('Registration date pending');

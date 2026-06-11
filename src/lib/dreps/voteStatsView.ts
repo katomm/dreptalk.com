@@ -80,5 +80,5 @@ export function formatParticipation(p: DrepParticipation | null): string {
   if (p === null) return 'Registration date pending';
   if (p.eligible === 0) return 'No concluded governance actions yet';
   const pct = Math.round((p.voted / p.eligible) * 100);
-  return `Voted on ${p.voted} of ${p.eligible} eligible actions (${pct}%)`;
+  return `Voted on ${p.voted} of ${p.eligible} concluded actions (${pct}%)`;
 }
