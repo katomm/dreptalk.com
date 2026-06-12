@@ -1,5 +1,8 @@
 // Hex encoding and decoding utilities.
 
+/** A 32-byte hash as 64 lowercase hex chars (sha256, blake2b-256). */
+export const HEX_HASH_256_RE = /^[0-9a-f]{64}$/;
+
 /** Converts a hex string (upper or lowercase) to a Uint8Array. */
 export function hexToBytes(hex: string): Uint8Array {
   if (hex.length === 0) return new Uint8Array(0);

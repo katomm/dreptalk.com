@@ -18,6 +18,7 @@ import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { parseLinks } from '@/components/DRepService.js';
 import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
+import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 
 // Same enabled-api shape as DRepService: CIP-30 tx surface plus the cip95
 // reader for the DRep key and getNetworkId for the network guard.
@@ -206,22 +207,6 @@ export default function DrepSettings({
   }
 
   const busy = phase.status === 'submitting';
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '0.5rem 0.75rem',
-    border: '1px solid var(--border)',
-    borderRadius: '0.375rem',
-    background: 'var(--bg)',
-    color: 'var(--fg)',
-    fontSize: '1rem',
-  };
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '0.875rem',
-    marginBottom: '0.25rem',
-    color: 'var(--muted)',
-  };
 
   if (phase.status === 'success') {
     return (

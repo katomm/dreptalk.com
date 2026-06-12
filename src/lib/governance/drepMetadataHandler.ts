@@ -14,6 +14,7 @@
 // bounded by the route's per-IP rate limit and the sync GC.
 
 import { z } from 'zod';
+import { HEX_HASH_256_RE } from '../crypto/hex.js';
 import { buildDrepMetadata } from './drepMetadata.js';
 import { putDrepMetadata } from '../db/drepMetadata.js';
 
@@ -30,7 +31,7 @@ const bodySchema = z.object({
   image: z
     .object({
       url: z.string().max(2100),
-      sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+      sha256: z.string().regex(HEX_HASH_256_RE).optional(),
     })
     .optional(),
 });

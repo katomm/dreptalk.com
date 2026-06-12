@@ -17,6 +17,7 @@ import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
+import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 
 // The enabled wallet api is the CIP-30 surface plus the optional CIP-95
 // extension namespace. We intersect the structural Tx api (used by
@@ -267,22 +268,6 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
     phase.status === 'connecting' ||
     phase.status === 'checking' ||
     phase.status === 'submitting';
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '0.5rem 0.75rem',
-    border: '1px solid var(--border)',
-    borderRadius: '0.375rem',
-    background: 'var(--bg)',
-    color: 'var(--fg)',
-    fontSize: '1rem',
-  };
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '0.875rem',
-    marginBottom: '0.25rem',
-    color: 'var(--muted)',
-  };
 
   // Success state: standalone confirmation, no form.
   if (phase.status === 'success') {

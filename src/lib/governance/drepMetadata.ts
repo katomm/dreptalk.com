@@ -8,7 +8,7 @@
 // Example document used to confirm field names: CIP-0119/examples/drep.jsonld
 
 import { blake2b256 } from '@/lib/crypto/blake.js';
-import { bytesToHex } from '@/lib/crypto/hex.js';
+import { bytesToHex, HEX_HASH_256_RE } from '@/lib/crypto/hex.js';
 import { sanitizeExternalText } from '@/lib/validation/input.js';
 
 // Reused across every buildDrepMetadata call; allocation is cheap but
@@ -90,7 +90,7 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
   let image: { '@type': 'ImageObject'; contentUrl: string; sha256?: string } | undefined;
   if (input.image && isValidHttpsUrl(input.image.url)) {
     image = { '@type': 'ImageObject', contentUrl: input.image.url };
-    if (input.image.sha256 && /^[0-9a-f]{64}$/.test(input.image.sha256)) {
+    if (input.image.sha256 && HEX_HASH_256_RE.test(input.image.sha256)) {
       image.sha256 = input.image.sha256;
     }
   }
