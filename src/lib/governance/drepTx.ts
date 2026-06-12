@@ -114,6 +114,17 @@ export function queueDeregisterDrepOps(
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
 }
 
+/** Like queueRegisterDrepOps, for the update_drep certificate (new anchor, no deposit). */
+export function queueUpdateDrepOps(
+  txb: DrepTxBuilder,
+  parts: { drepCredential: Credential.Credential; anchor: Anchor.Anchor; drepKeyHash: Uint8Array },
+): DrepTxBuilder {
+  return txb
+    .updateDRep({ drepCredential: parts.drepCredential, anchor: parts.anchor })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
 /**
  * Builds, signs, and submits a Conway reg_drep certificate transaction.
  *
@@ -167,6 +178,37 @@ export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string
 
   const built = await queueDeregisterDrepOps(client.newTx(), {
     drepCredential,
+    drepKeyHash: opts.drepKeyHash,
+  }).build();
+
+  const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
+  const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
+  const signedTxHex = Transaction.addVKeyWitnessesHex(unsignedTxHex, witnessSetHex);
+  const txHash = await opts.walletApi.submitTx(signedTxHex);
+
+  return { txHash };
+}
+
+/**
+ * Builds, signs, and submits a Conway update_drep certificate transaction
+ * that replaces the DRep's metadata anchor. No deposit is involved; the
+ * wallet pays only the network fee. Non-custodial like register/retire.
+ *
+ * Requires a live wallet and a reachable Koios provider. Not unit-testable
+ * offline; mirrors registerDRep and is covered by the preprod e2e suite.
+ */
+export async function updateDRepMetadata(opts: RegisterDRepOpts): Promise<{ txHash: string }> {
+  const { drepCredential, anchor } = buildRegisterDrepParts({
+    drepKeyHash: opts.drepKeyHash,
+    anchorUrl: opts.anchorUrl,
+    anchorHashHex: opts.anchorHashHex,
+  });
+
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+
+  const built = await queueUpdateDrepOps(client.newTx(), {
+    drepCredential,
+    anchor,
     drepKeyHash: opts.drepKeyHash,
   }).build();
 
