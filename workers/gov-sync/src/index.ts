@@ -85,35 +85,27 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
   const { koios, network } = buildKoios(env);
   const now = Date.now();
 
-  // Discovery and the tip lookup are independent; run them together. The tip
-  // feeds the tally pass below, so this phase is the primary one.
-  let tipEpoch: number | null = null;
   await phase('discovery', async () => {
-    const [disc, tip] = await Promise.all([
-      syncGovernanceActions({ koios, db: env.DB, network, now, rand: randSuffix }),
-      koios.tip(),
-    ]);
-    tipEpoch = tip.epoch_no;
+    const disc = await syncGovernanceActions({ koios, db: env.DB, network, now, rand: randSuffix });
     console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
     return { items: disc.total, failed: disc.failed };
   }, { primary: true });
 
-  // Tallies need the current epoch; skip the phase entirely when the tip failed.
-  if (tipEpoch != null) {
-    const currentEpoch = tipEpoch;
-    await phase('tallies', async () => {
-      const tally = await syncGovernanceTallies({
-        koios,
-        db: env.DB,
-        currentEpoch,
-        now,
-        limit: TALLY_LIMIT,
-        paceMs: TALLY_PACE_MS,
-      });
-      console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
-      return { items: tally.updated, failed: tally.failed };
+  // The tip lookup lives inside the tally phase: tallies are its only consumer,
+  // so a tip failure surfaces as a failed tallies phase, not a failed discovery.
+  await phase('tallies', async () => {
+    const tip = await koios.tip();
+    const tally = await syncGovernanceTallies({
+      koios,
+      db: env.DB,
+      currentEpoch: tip.epoch_no,
+      now,
+      limit: TALLY_LIMIT,
+      paceMs: TALLY_PACE_MS,
     });
-  }
+    console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
+    return { items: tally.updated, failed: tally.failed };
+  });
 
   await phase('voted-power', async () => {
     const backfill = await backfillVotedPower({ koios, db: env.DB, limit: 25 });
@@ -271,10 +263,12 @@ export default {
     // keeps the invocation alive until it finishes (and `wrangler dev
     // --test-scheduled` only returns once it resolves).
     try {
-      const kind =
-        event.cron === CRON_DREP_SYNC ? 'dreps' : event.cron === CRON_VOTE_SYNC ? 'votes' : 'governance';
-      const run =
-        kind === 'dreps' ? runDrepSync : kind === 'votes' ? runVoteSync : runGovernanceSync;
+      const [kind, run] =
+        event.cron === CRON_DREP_SYNC
+          ? (['dreps', runDrepSync] as const)
+          : event.cron === CRON_VOTE_SYNC
+            ? (['votes', runVoteSync] as const)
+            : (['governance', runGovernanceSync] as const);
       const summary = await recordSyncRun(env.DB, kind, (phase) => run(env, phase));
       console.log(
         `[sync-run] kind=${kind} status=${summary.status} items=${summary.items} failed=${summary.failed}` +

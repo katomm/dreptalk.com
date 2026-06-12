@@ -76,18 +76,27 @@ export interface FinishSyncRun {
   error: string | null;
   phases: SyncPhaseOutcome[];
   finishedAt: number;
+  /** When set, prune rows older than this in the same D1 batch (one round trip). */
+  pruneOlderThanMs?: number;
 }
 
 /** Finalizes a run row with its outcome and per-phase details. */
 export async function finishSyncRun(db: D1Database, id: number, fin: FinishSyncRun): Promise<void> {
-  await db
+  const update = db
     .prepare(
       `UPDATE sync_runs
          SET finished_at = ?, status = ?, items = ?, failed = ?, error = ?, phases = ?
        WHERE id = ?`,
     )
-    .bind(fin.finishedAt, fin.status, fin.items, fin.failed, fin.error, JSON.stringify(fin.phases), id)
-    .run();
+    .bind(fin.finishedAt, fin.status, fin.items, fin.failed, fin.error, JSON.stringify(fin.phases), id);
+  if (fin.pruneOlderThanMs == null) {
+    await update.run();
+    return;
+  }
+  await db.batch([
+    update,
+    db.prepare(`DELETE FROM sync_runs WHERE started_at < ?`).bind(fin.pruneOlderThanMs),
+  ]);
 }
 
 /** Most recent runs first, across all kinds. */

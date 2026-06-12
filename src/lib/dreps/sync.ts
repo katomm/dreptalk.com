@@ -108,16 +108,14 @@ async function enumerateRegistered(deps: DrepSyncDeps): Promise<string[]> {
  * The cost saver: when the on-chain meta_hash equals the stored anchorHash AND
  * the stored row's anchor was previously fetched OK, the stored profile is
  * reused and NO network fetch happens. `fetched` reports whether the anchor was
- * fetched so the caller can tally anchorsFetched; `deferred` reports a fetch
- * skipped because the per-run budget was spent (the caller tallies and the
- * next run retries it, since the stored status is not 'ok').
+ * fetched so the caller can tally anchorsFetched.
  */
 async function resolveProfile(
   info: DrepInfoRow,
   existing: Drep | undefined,
   deps: DrepSyncDeps,
   canFetch: boolean,
-): Promise<{ profile: ResolvedProfile; fetched: boolean; deferred: boolean }> {
+): Promise<{ profile: ResolvedProfile; fetched: boolean }> {
   const metaUrl = info.meta_url ?? null;
   const metaHash = info.meta_hash ?? null;
 
@@ -136,31 +134,16 @@ async function resolveProfile(
           anchorStatus: 'ok',
         },
         fetched: false,
-        deferred: false,
-      };
-    }
-
-    // A fetch is needed but the per-run budget is spent: record 'deferred' and
-    // keep any previously resolved profile. The chain fields still update below
-    // (buildRow), so the row is current except for the anchor document.
-    if (!canFetch) {
-      return {
-        profile: {
-          name: existing?.name ?? null,
-          bio: existing?.bio ?? null,
-          imageUrl: existing?.imageUrl ?? null,
-          links: existing?.links ?? null,
-          anchorUrl: metaUrl,
-          anchorHash: metaHash,
-          anchorStatus: 'deferred',
-        },
-        fetched: false,
-        deferred: true,
       };
     }
 
     // Hash changed (or first sight, or prior fetch failed): re-fetch + verify.
-    const result = await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl });
+    // When the per-run anchor budget is spent the fetch is skipped and the
+    // status recorded as 'deferred'; the non-ok handling below preserves the
+    // profile, and the next run retries (only 'ok' rows take the reuse path).
+    const result = canFetch
+      ? await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl })
+      : { status: 'deferred' as const, doc: null };
     if (result.status === 'ok') {
       const cip119 = extractCip119Profile(result.doc);
       return {
@@ -174,14 +157,14 @@ async function resolveProfile(
           anchorStatus: 'ok',
         },
         fetched: true,
-        deferred: false,
       };
     }
-    // Any non-ok status: record the error status but PRESERVE the previously
-    // resolved profile. A transient fetch failure (Koios or the host being down)
-    // must not blank an otherwise-good avatar or name; the next successful sync
-    // re-fetches (the stored anchorStatus is not 'ok', so the reuse path is
-    // skipped). On first sight with no prior profile, the fields stay null.
+    // Any non-ok status (including 'deferred'): record it but PRESERVE the
+    // previously resolved profile. A transient fetch failure (Koios or the host
+    // being down) must not blank an otherwise-good avatar or name; the next
+    // successful sync re-fetches (the stored anchorStatus is not 'ok', so the
+    // reuse path is skipped). On first sight with no prior profile, the fields
+    // stay null.
     return {
       profile: {
         name: existing?.name ?? null,
@@ -192,8 +175,7 @@ async function resolveProfile(
         anchorHash: metaHash,
         anchorStatus: result.status,
       },
-      fetched: true,
-      deferred: false,
+      fetched: canFetch,
     };
   }
 
@@ -209,7 +191,6 @@ async function resolveProfile(
       anchorStatus: 'no-anchor',
     },
     fetched: false,
-    deferred: false,
   };
 }
 
@@ -301,9 +282,9 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
       try {
         const prior = existing.get(info.drep_id);
         const canFetch = anchorsFetched < maxAnchorFetches;
-        const { profile, fetched, deferred } = await resolveProfile(info, prior, deps, canFetch);
+        const { profile, fetched } = await resolveProfile(info, prior, deps, canFetch);
         if (fetched) anchorsFetched++;
-        if (deferred) anchorsDeferred++;
+        if (profile.anchorStatus === 'deferred') anchorsDeferred++;
 
         const row = buildRow(info, profile, prior, now);
 

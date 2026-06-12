@@ -9,7 +9,7 @@
 // migration has not been applied yet), the run still executes normally.
 
 import {
-  startSyncRun, finishSyncRun, pruneSyncRuns,
+  startSyncRun, finishSyncRun,
   type SyncPhaseOutcome, type SyncRunStatus,
 } from '../db/syncRuns.js';
 
@@ -36,7 +36,7 @@ export interface SyncRunSummary {
   phases: SyncPhaseOutcome[];
 }
 
-function errorMessage(err: unknown): string {
+export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -89,9 +89,9 @@ export async function recordSyncRun(
   if (runId != null) {
     try {
       await finishSyncRun(db, runId, {
-        status, items, failed, error: firstError, phases: outcomes, finishedAt: Date.now(),
+        status, items, failed, error: firstError, phases: outcomes,
+        finishedAt: Date.now(), pruneOlderThanMs: startedAt - RETENTION_MS,
       });
-      await pruneSyncRuns(db, startedAt - RETENTION_MS);
     } catch (err) {
       console.warn(`[sync-run] bookkeeping unavailable (finish):`, err);
     }

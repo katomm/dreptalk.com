@@ -9,6 +9,8 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import { listSyncRuns, type SyncRun } from '@/lib/db/syncRuns.js';
+import { errorMessage } from '@/lib/sync/runRecorder.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
 import { CRON_GOVERNANCE, CRON_VOTE_SYNC, CRON_DREP_SYNC, nextCronRunMs } from '@/lib/freshness.js';
 
 const KINDS = [
@@ -24,7 +26,7 @@ try {
   runs = await listSyncRuns(env.DB as D1Database, 30);
 } catch (err) {
   // Most likely the sync_runs migration has not been applied yet.
-  loadError = err instanceof Error ? err.message : String(err);
+  loadError = errorMessage(err);
 }
 
 const latestByKind = new Map<string, SyncRun>();
@@ -43,14 +45,6 @@ function fmtDuration(run: SyncRun): string {
   return sec < 10 ? `${sec.toFixed(1)}s` : `${Math.round(sec)}s`;
 }
 
-function fmtAgo(ms: number): string {
-  const min = Math.round((now - ms) / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min} min ago`;
-  const h = Math.floor(min / 60);
-  return `${h}h ${min % 60}m ago`;
-}
-
 function fmtIn(ms: number | null): string {
   if (ms == null) return '-';
   const min = Math.max(0, Math.round((ms - now) / 60_000));
@@ -58,9 +52,9 @@ function fmtIn(ms: number | null): string {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  ok: 'var(--success, #2e7d32)',
-  partial: 'var(--warning, #b26a00)',
-  error: 'var(--danger, #c62828)',
+  ok: '#2e7d32',
+  partial: '#b26a00',
+  error: '#c0392b',
   running: 'var(--muted)',
 };
 
@@ -69,78 +63,68 @@ Astro.response.headers.set('Cache-Control', 'no-store');
 
 <Layout title="Sync status - DRepTalk" description="Last gov-sync runs: status, duration, items, errors." noindex>
   <h1>Sync status</h1>
-  <p style="color:var(--muted);max-width:62ch;line-height:1.6;">
+  <p class="intro">
     Run history of the gov-sync cron worker. Each run records its phases, item counts,
     failures, and the first error. <strong>partial</strong> means some phase or some items
     failed but the run kept going; failed work is retried by the next scheduled run.
   </p>
 
-  {loadError && (
-    <p style="color:var(--danger, #c62828);">
-      Could not read sync_runs: {loadError} (is migration 0026 applied?)
-    </p>
-  )}
+  {loadError && <p class="error-text">Could not read sync_runs: {loadError} (is migration 0026 applied?)</p>}
 
-  <div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));margin:1.5rem 0;">
+  <div class="cards">
     {KINDS.map(({ kind, label, cron }) => {
       const latest = latestByKind.get(kind);
       return (
-        <div style="border:1px solid var(--border);border-radius:8px;padding:1rem;">
-          <h2 style="margin:0 0 0.5rem;font-size:1rem;">{label}</h2>
-          <dl style="margin:0;font-size:0.875rem;display:grid;grid-template-columns:auto 1fr;gap:0.25rem 0.75rem;">
-            <dt style="color:var(--muted);">Status</dt>
-            <dd style={`margin:0;font-weight:600;color:${STATUS_COLOR[latest?.status ?? 'running']};`}>
+        <div class="card">
+          <h2>{label}</h2>
+          <dl>
+            <dt>Status</dt>
+            <dd class="status" style={`color:${STATUS_COLOR[latest?.status ?? 'running']};`}>
               {latest?.status ?? 'no runs yet'}
             </dd>
-            <dt style="color:var(--muted);">Last run</dt>
-            <dd style="margin:0;">{latest ? fmtAgo(latest.startedAt) : '-'}</dd>
-            <dt style="color:var(--muted);">Duration</dt>
-            <dd style="margin:0;">{latest ? fmtDuration(latest) : '-'}</dd>
-            <dt style="color:var(--muted);">Items / failed</dt>
-            <dd style="margin:0;">{latest ? `${latest.items} / ${latest.failed}` : '-'}</dd>
-            <dt style="color:var(--muted);">Next run</dt>
-            <dd style="margin:0;">{fmtIn(nextCronRunMs(cron, now))}</dd>
+            <dt>Last run</dt>
+            <dd>{latest ? formatRelativeTime(latest.startedAt, now) : '-'}</dd>
+            <dt>Duration</dt>
+            <dd>{latest ? fmtDuration(latest) : '-'}</dd>
+            <dt>Items / failed</dt>
+            <dd>{latest ? `${latest.items} / ${latest.failed}` : '-'}</dd>
+            <dt>Next run</dt>
+            <dd>{fmtIn(nextCronRunMs(cron, now))}</dd>
           </dl>
-          {latest?.error && (
-            <p style="margin:0.5rem 0 0;font-size:0.8125rem;color:var(--danger, #c62828);word-break:break-word;">
-              {latest.error}
-            </p>
-          )}
+          {latest?.error && <p class="error-text small">{latest.error}</p>}
         </div>
       );
     })}
   </div>
 
-  <h2 style="font-size:1.125rem;">Recent runs</h2>
-  <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
+  <h2 class="table-heading">Recent runs</h2>
+  <div class="table-wrap">
+    <table>
       <thead>
-        <tr style="text-align:left;border-bottom:2px solid var(--border);">
-          <th style="padding:0.5rem 0.75rem 0.5rem 0;">Started</th>
-          <th style="padding:0.5rem 0.75rem;">Kind</th>
-          <th style="padding:0.5rem 0.75rem;">Status</th>
-          <th style="padding:0.5rem 0.75rem;">Duration</th>
-          <th style="padding:0.5rem 0.75rem;">Items</th>
-          <th style="padding:0.5rem 0.75rem;">Failed</th>
-          <th style="padding:0.5rem 0 0.5rem 0.75rem;">Phases / error</th>
+        <tr>
+          <th>Started</th>
+          <th>Kind</th>
+          <th>Status</th>
+          <th>Duration</th>
+          <th>Items</th>
+          <th>Failed</th>
+          <th>Phases / error</th>
         </tr>
       </thead>
       <tbody>
         {runs.map((run) => (
-          <tr style="border-bottom:1px solid var(--border);vertical-align:top;">
-            <td style="padding:0.5rem 0.75rem 0.5rem 0;white-space:nowrap;">{fmtTime(run.startedAt)}</td>
-            <td style="padding:0.5rem 0.75rem;">{run.kind}</td>
-            <td style={`padding:0.5rem 0.75rem;font-weight:600;color:${STATUS_COLOR[run.status] ?? 'inherit'};`}>{run.status}</td>
-            <td style="padding:0.5rem 0.75rem;white-space:nowrap;">{fmtDuration(run)}</td>
-            <td style="padding:0.5rem 0.75rem;">{run.items}</td>
-            <td style="padding:0.5rem 0.75rem;">{run.failed}</td>
-            <td style="padding:0.5rem 0 0.5rem 0.75rem;">
+          <tr>
+            <td class="nowrap">{fmtTime(run.startedAt)}</td>
+            <td>{run.kind}</td>
+            <td class="status" style={`color:${STATUS_COLOR[run.status] ?? 'inherit'};`}>{run.status}</td>
+            <td class="nowrap">{fmtDuration(run)}</td>
+            <td>{run.items}</td>
+            <td>{run.failed}</td>
+            <td>
               {run.phases.length > 0 && (
                 <details>
-                  <summary style="cursor:pointer;color:var(--muted);">
-                    {run.phases.filter((p) => p.ok).length}/{run.phases.length} phases ok
-                  </summary>
-                  <ul style="margin:0.25rem 0 0;padding-left:1rem;">
+                  <summary>{run.phases.filter((p) => p.ok).length}/{run.phases.length} phases ok</summary>
+                  <ul>
                     {run.phases.map((p) => (
                       <li style={p.ok ? '' : `color:${STATUS_COLOR.error};`}>
                         {p.phase}: {p.ok ? 'ok' : 'failed'}, {Math.round(p.ms / 100) / 10}s, {p.items} items
@@ -151,14 +135,106 @@ Astro.response.headers.set('Cache-Control', 'no-store');
                   </ul>
                 </details>
               )}
-              {run.error && run.phases.length === 0 && <span style="word-break:break-word;">{run.error}</span>}
+              {run.error && run.phases.length === 0 && <span class="break">{run.error}</span>}
             </td>
           </tr>
         ))}
         {runs.length === 0 && !loadError && (
-          <tr><td colspan="7" style="padding:1rem 0;color:var(--muted);">No sync runs recorded yet.</td></tr>
+          <tr><td colspan="7" class="empty">No sync runs recorded yet.</td></tr>
         )}
       </tbody>
     </table>
   </div>
 </Layout>
+
+<style>
+  .intro {
+    color: var(--muted);
+    max-width: 62ch;
+    line-height: 1.6;
+  }
+  .error-text {
+    color: #c0392b;
+    word-break: break-word;
+  }
+  .error-text.small {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+  }
+  .cards {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    margin: 1.5rem 0;
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  .card h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+  }
+  .card dl {
+    margin: 0;
+    font-size: 0.875rem;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.25rem 0.75rem;
+  }
+  .card dt {
+    color: var(--muted);
+  }
+  .card dd {
+    margin: 0;
+  }
+  .status {
+    font-weight: 600;
+  }
+  .table-heading {
+    font-size: 1.125rem;
+  }
+  .table-wrap {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  thead tr {
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+  }
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th,
+  td {
+    padding: 0.5rem 0.75rem;
+  }
+  th:first-child,
+  td:first-child {
+    padding-left: 0;
+  }
+  .nowrap {
+    white-space: nowrap;
+  }
+  .break {
+    word-break: break-word;
+  }
+  .empty {
+    padding: 1rem 0;
+    color: var(--muted);
+  }
+  summary {
+    cursor: pointer;
+    color: var(--muted);
+  }
+  details ul {
+    margin: 0.25rem 0 0;
+    padding-left: 1rem;
+  }
+</style>
