@@ -18,6 +18,11 @@ export interface Drep {
   /** Epoch the DRep first registered (from /drep_updates), or null until backfilled. */
   registeredEpoch: number | null;
   name: string | null;
+  /**
+   * SEO-friendly profile path segment ("lisa-cardano-9zulj"), assigned once by
+   * the sync backfill and sticky thereafter; null when the name yields no slug.
+   */
+  slug: string | null;
   bio: string | null;
   imageUrl: string | null;
   /** sha256 (hex) of the stored avatar bytes in R2 (avatars/<hash>), or null when not stored. */
@@ -46,6 +51,7 @@ interface DrepRow {
   expires_epoch_no: number | null;
   registered_epoch: number | null;
   name: string | null;
+  slug: string | null;
   bio: string | null;
   image_url: string | null;
   image_content_hash: string | null;
@@ -72,6 +78,7 @@ function rowToDrep(row: DrepRow): Drep {
     expiresEpochNo: row.expires_epoch_no,
     registeredEpoch: row.registered_epoch,
     name: row.name,
+    slug: row.slug,
     bio: row.bio,
     imageUrl: row.image_url,
     imageContentHash: row.image_content_hash,
@@ -94,6 +101,20 @@ export async function getDrepById(db: D1Database, drepId: string): Promise<Drep 
   const row = await db
     .prepare('SELECT * FROM dreps WHERE drep_id = ?')
     .bind(drepId)
+    .first<DrepRow>();
+  return row ? rowToDrep(row) : null;
+}
+
+/**
+ * Resolves a profile-path segment to its drep row: the raw drep id (legacy
+ * URLs, pasted ids) or the assigned slug. One query; both columns are unique
+ * (PK / unique index) and their value spaces are disjoint, since every slug
+ * contains a hyphen and bech32 ids never do.
+ */
+export async function getDrepByIdOrSlug(db: D1Database, key: string): Promise<Drep | null> {
+  const row = await db
+    .prepare('SELECT * FROM dreps WHERE drep_id = ?1 OR slug = ?1 LIMIT 1')
+    .bind(key)
     .first<DrepRow>();
   return row ? rowToDrep(row) : null;
 }
@@ -122,15 +143,16 @@ export async function getDrepsByIds(db: D1Database, ids: string[]): Promise<Map<
 }
 
 /**
- * DRep ids whose profile is indexable per the SEO quality-gate: has on-chain
- * metadata (name/bio), has authored a forum post, or has recorded on-chain votes.
+ * Profile path segments (slug when assigned, else drep id) of DReps indexable
+ * per the SEO quality-gate: has on-chain metadata (name/bio), has authored a
+ * forum post, or has recorded on-chain votes.
  * Used by the sitemap and the per-profile robots gate.
  */
 export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
   const rows = (
     await db
       .prepare(
-        `SELECT d.drep_id AS drep_id FROM dreps d
+        `SELECT COALESCE(d.slug, d.drep_id) AS drep_id FROM dreps d
          WHERE d.name IS NOT NULL OR d.bio IS NOT NULL
             OR EXISTS (
               SELECT 1 FROM users u JOIN posts p ON p.author_id = u.id
@@ -377,6 +399,48 @@ export async function setRegisteredEpochs(
   return entries.length;
 }
 
+/**
+ * Work queue for the slug backfill: named DReps without an assigned slug.
+ * Steady state is zero rows (one indexed read); only newly named DReps appear.
+ */
+export async function listDrepsMissingSlug(
+  db: D1Database,
+): Promise<{ drepId: string; name: string | null }[]> {
+  const rows = (
+    await db
+      .prepare('SELECT drep_id, name FROM dreps WHERE name IS NOT NULL AND slug IS NULL')
+      .all<{ drep_id: string; name: string | null }>()
+  ).results ?? [];
+  return rows.map((r) => ({ drepId: r.drep_id, name: r.name }));
+}
+
+/** Every assigned slug, as the taken-set for collision-free assignment. */
+export async function listAssignedSlugs(db: D1Database): Promise<Set<string>> {
+  const rows = (
+    await db.prepare('SELECT slug FROM dreps WHERE slug IS NOT NULL').all<{ slug: string }>()
+  ).results ?? [];
+  return new Set(rows.map((r) => r.slug));
+}
+
+/**
+ * Assigns the given slugs in one batch, only where none is set yet (sticky:
+ * never overwrites, so a profile URL can never change once minted). Returns
+ * the number of statements issued. No-op for an empty list.
+ */
+export async function setDrepSlugs(
+  db: D1Database,
+  entries: { drepId: string; slug: string }[],
+): Promise<number> {
+  if (entries.length === 0) return 0;
+  const stmts = entries.map((e) =>
+    db
+      .prepare('UPDATE dreps SET slug = ? WHERE drep_id = ? AND slug IS NULL')
+      .bind(e.slug, e.drepId),
+  );
+  await db.batch(stmts);
+  return entries.length;
+}
+
 /** The set of content hashes still referenced by a dreps row (GC keep set). */
 export async function listReferencedImageHashes(db: D1Database): Promise<Set<string>> {
   const rows = (
@@ -390,6 +454,7 @@ export async function listReferencedImageHashes(db: D1Database): Promise<Set<str
 export interface DrepPowerRow {
   drepId: string;
   name: string | null;
+  slug: string | null;
   votingPower: string | null;
 }
 
@@ -403,12 +468,12 @@ export async function listDrepsForConcentration(db: D1Database): Promise<DrepPow
   const rows = (
     await db
       .prepare(
-        `SELECT drep_id, name, voting_power FROM dreps
+        `SELECT drep_id, name, slug, voting_power FROM dreps
          WHERE active = 1 AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})
          ORDER BY CAST(voting_power AS INTEGER) DESC`,
       )
       .bind(...SPECIAL_DREP_IDS)
-      .all<{ drep_id: string; name: string | null; voting_power: string | null }>()
+      .all<{ drep_id: string; name: string | null; slug: string | null; voting_power: string | null }>()
   ).results ?? [];
-  return rows.map((r) => ({ drepId: r.drep_id, name: r.name, votingPower: r.voting_power }));
+  return rows.map((r) => ({ drepId: r.drep_id, name: r.name, slug: r.slug, votingPower: r.voting_power }));
 }

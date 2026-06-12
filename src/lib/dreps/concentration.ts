@@ -9,12 +9,15 @@ import { formatAda } from '../forum/view.js';
 export interface ConcentrationInput {
   drepId: string;
   name: string | null;
+  /** SEO profile slug when assigned; the legend link prefers it over the id. */
+  slug?: string | null;
   power: bigint;
 }
 
 export interface ConcentrationTop {
   drepId: string;
   name: string | null;
+  slug: string | null;
   powerLabel: string;
   pct: number;
 }
@@ -62,6 +65,7 @@ export function computeConcentration(dreps: ConcentrationInput[]): Concentration
     return {
       drepId: d.drepId,
       name: d.name,
+      slug: d.slug ?? null,
       powerLabel: formatAda(power.toString()),
       pct: pctOf(power, total),
     };

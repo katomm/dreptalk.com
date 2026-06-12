@@ -23,7 +23,7 @@ interface Props {
 }
 
 const { author, size = 28 } = Astro.props;
-const { displayName, drepId, imageHash, badges = [], isSystem = false } = author;
+const { displayName, drepId, drepSlug, imageHash, badges = [], isSystem = false } = author;
 
 // Overlay the stored avatar only when one exists in R2 (content addressed).
 const showImage = !isSystem && !!imageHash;
@@ -31,8 +31,9 @@ const showImage = !isSystem && !!imageHash;
 // Same seed everywhere for a given author (DRep hex when known, else the id).
 const seed = author.identiconSeed ?? author.authorId;
 const iconSvg = isSystem ? null : identiconSvg(seed, size);
-// Author profile link only for DReps with a synced row (the page is /dreps/<drepId>).
-const profileHref = !isSystem && drepId ? `/dreps/${drepId}` : null;
+// Author profile link only for DReps with a synced row; prefer the SEO slug
+// over the raw id so internal links never pay the canonical redirect.
+const profileHref = !isSystem && drepId ? `/dreps/${drepSlug ?? drepId}` : null;
 ---
 
 <span class="author-identity" style={`--avatar-size:${size}px;`}>

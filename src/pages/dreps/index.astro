@@ -42,7 +42,7 @@ const toLovelace = (s: string | null): bigint => {
   }
 };
 const concentration = computeConcentration(
-  concentrationRows.map((r) => ({ drepId: r.drepId, name: r.name, power: toLovelace(r.votingPower) })),
+  concentrationRows.map((r) => ({ drepId: r.drepId, name: r.name, slug: r.slug, power: toLovelace(r.votingPower) })),
 );
 
 // The same total the donut uses (active, non-special), so a row's table share and
@@ -121,6 +121,7 @@ const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
   // short form the forum author resolver uses for ids without a name.
   displayName: d.name ?? truncateId(d.drepId),
   drepId: d.drepId,
+  drepSlug: d.slug,
   imageHash: d.imageContentHash,
   identiconSeed: d.hex ?? d.drepId,
   badges: [],
@@ -211,6 +212,7 @@ const barWidth = (pct: number): string => {
                   class="drep-action-btn"
                   data-drep-action
                   data-drep-id={d.drepId}
+                  data-drep-slug={d.slug ?? ''}
                   data-drep-name={descriptor.displayName}
                   data-drep-cred={cred ?? ''}
                   data-drep-script={d.hasScript ? '1' : '0'}

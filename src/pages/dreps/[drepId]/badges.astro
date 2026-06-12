@@ -5,7 +5,8 @@ import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
 import BadgeTile from '@/components/BadgeTile.astro';
-import { getDrepById } from '@/lib/db/dreps.js';
+import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
+import { drepPath } from '@/lib/drep/profile.js';
 import { getUserByDrepId } from '@/lib/db/users.js';
 import { MYSTERY_BADGE_IMAGE } from '../../../../config/badges.js';
 import { buildDrepBadgeGallery } from '@/lib/badges/gallery.js';
@@ -14,7 +15,12 @@ import { cacheControlForSynced, truncateId } from '@/lib/forum/view.js';
 const { drepId } = Astro.params;
 const db = env.DB as D1Database | undefined;
 
-const drep = drepId && db ? await getDrepById(db, drepId) : null;
+const drep = drepId && db ? await getDrepByIdOrSlug(db, drepId) : null;
+
+// Same canonical-URL rule as the profile page: id requests redirect to the slug.
+if (drep && drepId !== (drep.slug ?? drep.drepId)) {
+  return Astro.redirect(`${drepPath(drep)}/badges`, 301);
+}
 
 if (!drep) {
   Astro.response.status = 404;
@@ -43,7 +49,7 @@ const grid = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1
       <span style="margin:0 0.375rem;">/</span>
       <a href="/dreps">DReps</a>
       <span style="margin:0 0.375rem;">/</span>
-      <a href={`/dreps/${drep.drepId}`}>{displayName}</a>
+      <a href={drepPath(drep)}>{displayName}</a>
       <span style="margin:0 0.375rem;">/</span>
       <span>Badges</span>
     </nav>

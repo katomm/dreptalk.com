@@ -165,7 +165,7 @@ export default function DrepConcentration(props: Props) {
           {topK.map((t, i) => (
             <li key={t.drepId} className="drep-conc__legend-item">
               <span className="drep-conc__swatch" style={{ background: topTone(i) }} aria-hidden="true" />
-              <a href={`/dreps/${t.drepId}`} className="drep-conc__legend-name">{t.name ?? truncateId(t.drepId)}</a>
+              <a href={`/dreps/${t.slug ?? t.drepId}`} className="drep-conc__legend-name">{t.name ?? truncateId(t.drepId)}</a>
               <span className="drep-conc__legend-pct">{t.pct.toFixed(1)}%</span>
             </li>
           ))}

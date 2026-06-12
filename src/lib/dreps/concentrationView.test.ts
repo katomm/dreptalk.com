@@ -21,9 +21,9 @@ describe('coalitionAt', () => {
 
 describe('buildSegments', () => {
   const topK: ConcentrationTop[] = [
-    { drepId: 'a', name: 'A', powerLabel: '', pct: 30 },
-    { drepId: 'b', name: 'B', powerLabel: '', pct: 25 },
-    { drepId: 'c', name: 'C', powerLabel: '', pct: 20 },
+    { drepId: 'a', name: 'A', slug: null, powerLabel: '', pct: 30 },
+    { drepId: 'b', name: 'B', slug: null, powerLabel: '', pct: 25 },
+    { drepId: 'c', name: 'C', slug: null, powerLabel: '', pct: 20 },
   ];
   it('uses individual top slices when the coalition fits in top-K', () => {
     expect(buildSegments(topK, { count: 2, cumPct: 55 })).toEqual([

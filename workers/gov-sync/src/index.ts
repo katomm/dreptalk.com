@@ -21,7 +21,7 @@ import {
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
-import { syncDreps, backfillRegisteredEpochs } from '../../../src/lib/dreps/sync.js';
+import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars } from '../../../src/lib/dreps/avatarStore.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
@@ -185,6 +185,15 @@ async function runDrepSync(env: Env): Promise<void> {
     console.log(`[drep-reg-backfill] missing=${reg.missing} resolved=${reg.resolved} pages=${reg.pages}`);
   } catch (err) {
     console.warn('[drep-reg-backfill] pass failed:', err);
+  }
+
+  // Mint profile slugs for newly named DReps (pure D1, no Koios). Non-fatal:
+  // a profile without a slug simply keeps its id URL until the next run.
+  try {
+    const slugs = await backfillDrepSlugs(env.DB);
+    if (slugs.missing > 0) console.log(`[drep-slugs] missing=${slugs.missing} assigned=${slugs.assigned}`);
+  } catch (err) {
+    console.warn('[drep-slugs] pass failed:', err);
   }
 
   // Store new/changed avatars in R2 and GC orphaned objects. Non-fatal: a

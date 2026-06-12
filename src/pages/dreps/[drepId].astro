@@ -6,7 +6,7 @@ import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
-import { getDrepById } from '@/lib/db/dreps.js';
+import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { getUserByDrepId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
@@ -17,7 +17,7 @@ import {
 import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
-import { isIndexableProfile, influencePct } from '@/lib/drep/profile.js';
+import { isIndexableProfile, influencePct, drepPath } from '@/lib/drep/profile.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import {
   cacheControlForSynced, formatAda, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN,
@@ -26,7 +26,13 @@ import {
 const { drepId } = Astro.params;
 const db = env.DB as D1Database | undefined;
 
-const drep = drepId && db ? await getDrepById(db, drepId) : null;
+const drep = drepId && db ? await getDrepByIdOrSlug(db, drepId) : null;
+
+// A slugged profile has exactly one canonical URL: requests for the raw id
+// redirect permanently so links, crawlers, and caches converge on the slug.
+if (drep && drepId !== (drep.slug ?? drep.drepId)) {
+  return Astro.redirect(drepPath(drep), 301);
+}
 
 if (!drep) {
   Astro.response.status = 404;
@@ -62,7 +68,7 @@ const now = Date.now();
 const displayName = drep?.name ?? (drep ? truncateId(drep.drepId, 18) : '');
 const influence = drep ? influencePct(drep.votingPower, activeStake.total) : null;
 const iconSvg = drep ? identiconSvg(drep.hex ?? drep.drepId, 96) : '';
-const canonical = drep ? `${siteOrigin}/dreps/${drep.drepId}` : siteOrigin;
+const canonical = drep ? `${siteOrigin}${drepPath(drep)}` : siteOrigin;
 
 const personLd = drep
   ? {
@@ -131,14 +137,14 @@ const personLd = drep
         </h2>
         {showcase.length === 0 ? (
           <p style="color:var(--muted);">
-            No badges yet. <a href={`/dreps/${drep.drepId}/badges`}>See what can be earned</a>.
+            No badges yet. <a href={`${drepPath(drep)}/badges`}>See what can be earned</a>.
           </p>
         ) : (
           <div style="display:flex;gap:1.5rem;align-items:flex-start;flex-wrap:wrap;">
             {showcase.map((t) => (
               <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} size={80} />
             ))}
-            <a href={`/dreps/${drep.drepId}/badges`} style="align-self:center;font-size:0.9375rem;">
+            <a href={`${drepPath(drep)}/badges`} style="align-self:center;font-size:0.9375rem;">
               All badges →
             </a>
           </div>

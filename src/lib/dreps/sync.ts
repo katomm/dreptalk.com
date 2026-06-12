@@ -9,7 +9,11 @@
 
 import type { DrepInfoRow, DrepListRow, DrepUpdateRow } from '../koios/client.js';
 import type { Drep } from '../db/dreps.js';
-import { getDrepsByIds, upsertDrep, listDrepIdsMissingRegisteredEpoch, setRegisteredEpochs } from '../db/dreps.js';
+import {
+  getDrepsByIds, upsertDrep, listDrepIdsMissingRegisteredEpoch, setRegisteredEpochs,
+  listDrepsMissingSlug, listAssignedSlugs, setDrepSlugs,
+} from '../db/dreps.js';
+import { assignSlugs } from './slug.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { gcDrepMetadata } from '../db/drepMetadata.js';
 import { fetchAnchorDoc, extractCip119Profile } from '../governance/metadata.js';
@@ -188,6 +192,8 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     // so a profile upsert never wipes a resolved value.
     registeredEpoch: existing?.registeredEpoch ?? null,
     name: profile.name,
+    // Owned by the slug backfill, not the chain sync; sticky once assigned.
+    slug: existing?.slug ?? null,
     bio: profile.bio,
     imageUrl: profile.imageUrl,
     // The stored-avatar columns are owned by the avatar store pass, not by the
@@ -293,6 +299,29 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   }
 
   return { total: ids.length, updated, skipped, anchorsFetched, failed, gcScanned, gcDeleted };
+}
+
+export interface SlugBackfillResult {
+  /** Named DReps that lacked a slug at the start of the run. */
+  missing: number;
+  /** Slugs assigned this run. */
+  assigned: number;
+}
+
+/**
+ * Mints profile slugs for named DReps that have none yet. Pure D1 work, no
+ * Koios calls; steady-state cost is one indexed read returning zero rows. The
+ * taken-set read only happens when there is actual work. Slugs are sticky:
+ * setDrepSlugs only fills NULL, so an existing slug is never rewritten.
+ */
+export async function backfillDrepSlugs(db: D1Database): Promise<SlugBackfillResult> {
+  const missing = await listDrepsMissingSlug(db);
+  if (missing.length === 0) return { missing: 0, assigned: 0 };
+
+  const taken = await listAssignedSlugs(db);
+  const entries = assignSlugs(missing, taken);
+  const assigned = await setDrepSlugs(db, entries);
+  return { missing: missing.length, assigned };
 }
 
 // Koios pages /drep_updates at 1000 rows. The full unfiltered list is a handful

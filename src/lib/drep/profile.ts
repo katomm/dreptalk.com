@@ -1,6 +1,15 @@
 // Pure view-model helpers for the DRep profile. No I/O.
 
 /**
+ * Canonical profile path for a DRep: the SEO slug when one is assigned, else
+ * the raw id. Every internal link goes through this so no link ever pays the
+ * id-to-slug redirect.
+ */
+export function drepPath(d: { drepId: string; slug?: string | null }): string {
+  return `/dreps/${d.slug ?? d.drepId}`;
+}
+
+/**
  * SEO quality-gate: a profile is indexable only when it carries real content,
  * so thousands of empty profiles do not become thin/duplicate pages. Thin
  * profiles stay reachable but are emitted noindex.
