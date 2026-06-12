@@ -64,6 +64,25 @@ describe('handleDrepMetadata: content-addressed hosting', () => {
     expect((a.json as { url: string }).url).toBe((b.json as { url: string }).url);
   });
 
+  it('passes a valid image through to the hosted document', async () => {
+    const image = { url: `https://dreptalk.com/api/avatar/${'ab'.repeat(32)}`, sha256: 'ab'.repeat(32) };
+    const result = await handleDrepMetadata(baseInput({ image }));
+
+    expect(result.status).toBe(200);
+    const json = result.json as { hash: string };
+    const row = await getDrepMetadataByHash(env.DB, json.hash);
+    expect(JSON.parse(row!.body).body.image).toEqual({
+      '@type': 'ImageObject',
+      contentUrl: image.url,
+      sha256: image.sha256,
+    });
+  });
+
+  it('returns 400 for a malformed image object', async () => {
+    const result = await handleDrepMetadata(baseInput({ image: { url: 42 } }));
+    expect(result.status).toBe(400);
+  });
+
   it('returns 400 for a malformed drepId', async () => {
     const result = await handleDrepMetadata(baseInput({ drepId: 'nope' }));
     expect(result.status).toBe(400);
