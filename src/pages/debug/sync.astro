@@ -9,8 +9,16 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import { listSyncRuns, type SyncRun } from '@/lib/db/syncRuns.js';
+import { countGivenUpMetaActions } from '@/lib/db/governance.js';
+import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from '@/lib/governance/metadata.js';
 import { errorMessage } from '@/lib/sync/runRecorder.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import {
+  formatBerlinDateTime,
+  formatBerlinTime,
+  runDisplay,
+  groupRunsByDay,
+} from '@/lib/sync/statusView.js';
 import { CRON_GOVERNANCE, CRON_VOTE_SYNC, CRON_DREP_SYNC, nextCronRunMs } from '@/lib/freshness.js';
 
 const KINDS = [
@@ -20,30 +28,39 @@ const KINDS = [
 ] as const;
 
 const now = Date.now();
+const db = env.DB as D1Database;
+
+// The run history and the given-up count are independent reads; start both
+// before awaiting so they overlap. Each keeps its own error handling: a missing
+// sync_runs table surfaces as loadError, while a count failure (same likely
+// cause) stays silent so the run history still renders.
+const runsPromise = listSyncRuns(db, 30);
+const givenUpPromise = countGivenUpMetaActions(db, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS).catch(() => 0);
+
 let runs: SyncRun[] = [];
 let loadError: string | null = null;
 try {
-  runs = await listSyncRuns(env.DB as D1Database, 30);
+  runs = await runsPromise;
 } catch (err) {
   // Most likely the sync_runs migration has not been applied yet.
   loadError = errorMessage(err);
 }
+
+// Anchors the metadata backfill has permanently abandoned. They drop out of the
+// retry query, so without this they would silently disappear from view.
+const givenUp = await givenUpPromise;
 
 const latestByKind = new Map<string, SyncRun>();
 for (const run of runs) {
   if (!latestByKind.has(run.kind)) latestByKind.set(run.kind, run);
 }
 
-function fmtTime(ms: number | null): string {
-  if (ms == null) return '-';
-  return new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-}
+const groupedRuns = groupRunsByDay(runs);
 
-function fmtDuration(run: SyncRun): string {
-  if (run.finishedAt == null) return 'running / killed';
-  const sec = (run.finishedAt - run.startedAt) / 1000;
-  return sec < 10 ? `${sec.toFixed(1)}s` : `${Math.round(sec)}s`;
-}
+const RUN_STATE_COLOR: Record<string, string> = {
+  running: 'var(--muted)',
+  killed: '#c0392b',
+};
 
 function fmtIn(ms: number | null): string {
   if (ms == null) return '-';
@@ -59,6 +76,9 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 Astro.response.headers.set('Cache-Control', 'no-store');
+// Operator dashboard: auto-refresh so a watched run updates without a manual
+// reload. The Refresh header avoids an inline meta tag, keeping the strict CSP.
+Astro.response.headers.set('Refresh', '60');
 ---
 
 <Layout title="Sync status - DRepTalk" description="Last gov-sync runs: status, duration, items, errors." noindex>
@@ -74,6 +94,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
   <div class="cards">
     {KINDS.map(({ kind, label, cron }) => {
       const latest = latestByKind.get(kind);
+      const dur = latest ? runDisplay(latest, now) : null;
       return (
         <div class="card">
           <h2>{label}</h2>
@@ -85,7 +106,9 @@ Astro.response.headers.set('Cache-Control', 'no-store');
             <dt>Last run</dt>
             <dd>{latest ? formatRelativeTime(latest.startedAt, now) : '-'}</dd>
             <dt>Duration</dt>
-            <dd>{latest ? fmtDuration(latest) : '-'}</dd>
+            <dd>
+              {dur ? <span style={`color:${RUN_STATE_COLOR[dur.state] ?? 'inherit'};`}>{dur.text}</span> : '-'}
+            </dd>
             <dt>Items / failed</dt>
             <dd>{latest ? `${latest.items} / ${latest.failed}` : '-'}</dd>
             <dt>Next run</dt>
@@ -97,12 +120,20 @@ Astro.response.headers.set('Cache-Control', 'no-store');
     })}
   </div>
 
+  {givenUp > 0 && (
+    <p class="given-up">
+      {givenUp} governance {givenUp === 1 ? 'anchor' : 'anchors'} given up: metadata re-extraction
+      failed {META_REEXTRACT_MAX_ATTEMPTS}+ times (anchor dead or hash-mismatched), so it is no
+      longer retried and no longer counts toward a run's failed items.
+    </p>
+  )}
+
   <h2 class="table-heading">Recent runs</h2>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th>Started</th>
+          <th>Started (Berlin)</th>
           <th>Kind</th>
           <th>Status</th>
           <th>Duration</th>
@@ -112,33 +143,44 @@ Astro.response.headers.set('Cache-Control', 'no-store');
         </tr>
       </thead>
       <tbody>
-        {runs.map((run) => (
-          <tr>
-            <td class="nowrap">{fmtTime(run.startedAt)}</td>
-            <td>{run.kind}</td>
-            <td class="status" style={`color:${STATUS_COLOR[run.status] ?? 'inherit'};`}>{run.status}</td>
-            <td class="nowrap">{fmtDuration(run)}</td>
-            <td>{run.items}</td>
-            <td>{run.failed}</td>
-            <td>
-              {run.phases.length > 0 && (
-                <details>
-                  <summary>{run.phases.filter((p) => p.ok).length}/{run.phases.length} phases ok</summary>
-                  <ul>
-                    {run.phases.map((p) => (
-                      <li style={p.ok ? '' : `color:${STATUS_COLOR.error};`}>
-                        {p.phase}: {p.ok ? 'ok' : 'failed'}, {Math.round(p.ms / 100) / 10}s, {p.items} items
-                        {p.failed > 0 ? `, ${p.failed} failed` : ''}
-                        {p.error ? ` (${p.error})` : ''}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              {run.error && run.phases.length === 0 && <span class="break">{run.error}</span>}
-            </td>
-          </tr>
-        ))}
+        {groupedRuns.map((item) => {
+          if (item.type === 'day') {
+            return (
+              <tr class="day-row">
+                <th colspan="7" scope="colgroup">{item.label}</th>
+              </tr>
+            );
+          }
+          const run = item.run;
+          const dur = runDisplay(run, now);
+          return (
+            <tr>
+              <td class="nowrap" title={formatBerlinDateTime(run.startedAt)}>{formatBerlinTime(run.startedAt)}</td>
+              <td>{run.kind}</td>
+              <td class="status" style={`color:${STATUS_COLOR[run.status] ?? 'inherit'};`}>{run.status}</td>
+              <td class="nowrap" style={`color:${RUN_STATE_COLOR[dur.state] ?? 'inherit'};`}>{dur.text}</td>
+              <td>{run.items}</td>
+              <td>{run.failed}</td>
+              <td>
+                {run.phases.length > 0 && (
+                  <details>
+                    <summary>{run.phases.filter((p) => p.ok).length}/{run.phases.length} phases ok</summary>
+                    <ul>
+                      {run.phases.map((p) => (
+                        <li style={p.ok ? '' : `color:${STATUS_COLOR.error};`}>
+                          {p.phase}: {p.ok ? 'ok' : 'failed'}, {Math.round(p.ms / 100) / 10}s, {p.items} items
+                          {p.failed > 0 ? `, ${p.failed} failed` : ''}
+                          {p.error ? ` (${p.error})` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {run.error && run.phases.length === 0 && <span class="break">{run.error}</span>}
+              </td>
+            </tr>
+          );
+        })}
         {runs.length === 0 && !loadError && (
           <tr><td colspan="7" class="empty">No sync runs recorded yet.</td></tr>
         )}
@@ -160,6 +202,19 @@ Astro.response.headers.set('Cache-Control', 'no-store');
   .error-text.small {
     margin: 0.5rem 0 0;
     font-size: 0.8125rem;
+  }
+  .given-up {
+    color: #b26a00;
+    font-size: 0.875rem;
+    max-width: 62ch;
+    margin: -0.5rem 0 1.5rem;
+  }
+  .day-row th {
+    padding: 0.75rem 0 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
   }
   .cards {
     display: grid;
