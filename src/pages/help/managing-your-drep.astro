@@ -1,0 +1,74 @@
+---
+export const prerender = false;
+
+import HelpLayout from '@/layouts/HelpLayout.astro';
+---
+
+<HelpLayout
+  title="Managing your DRep - DRepTalk"
+  description="How to register as a Cardano DRep, set up or update your on-chain CIP-119 metadata (name, bio, links, profile image), and deregister. All non-custodial: your wallet signs and submits every transaction."
+  crumb="Managing your DRep"
+>
+  <p style="color:var(--muted);max-width:62ch;line-height:1.6;">
+    DRepTalk can submit the three on-chain DRep lifecycle actions for you:
+    registering, updating your metadata, and deregistering. All of them are
+    <strong>non-custodial</strong>: dreptalk.com never sees your keys; your wallet
+    signs and submits each transaction, so you always confirm the exact
+    certificate and cost in your wallet. You need a CIP-95 capable wallet
+    (for example Lace, Eternl, or Typhon).
+  </p>
+
+  <section style="margin-top:1.75rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Registering</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Go to <a href="/drep">Register as a DRep</a>, connect your wallet, and fill in
+      your profile: name, a short bio, links, and an optional profile image (JPG or
+      PNG, up to 256 KB). DRepTalk hosts this as a CIP-119 metadata document and your
+      wallet submits the registration certificate pointing at it. Registration locks
+      a <strong>refundable 500 ADA deposit</strong> plus a small network fee; the
+      deposit comes back in full when you deregister.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Setting up or updating your metadata</h2>
+    <p style="margin:0 0 0.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Your on-chain metadata is what wallets, explorers, and DRepTalk show to
+      delegators. If yours is outdated, or you registered without any, sign in as a
+      DRep and open <a href="/settings">Settings</a>. The form is prefilled with
+      your current on-chain profile; edit it, upload an image if you like, and
+      submit. Your wallet signs an update certificate that points to the new
+      document. There is <strong>no deposit</strong> for updates, only the small
+      network fee.
+    </p>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      The update is on the chain as soon as the transaction confirms; DRepTalk and
+      other sites show it after their next sync (on DRepTalk, within about an hour).
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Deregistering</h2>
+    <p style="margin:0 0 0.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Deregistering (retiring) is also done from <a href="/settings">Settings</a>.
+      It submits a deregistration certificate to the chain: your 500 ADA deposit is
+      refunded once it confirms, and everyone who delegated their voting power to
+      you loses that delegation. You can register again later, but delegators would
+      need to delegate to you again.
+    </p>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Deregistering is an <strong>on-chain action only</strong>. It does not delete
+      your DRepTalk forum account, your posts, or your profile page.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">What these actions never do</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      None of them move your funds beyond the shown deposit and fee, and none ask
+      for a seed phrase or private key. Your wallet shows you the certificate and
+      the exact cost before anything is submitted; if something looks different,
+      reject it.
+    </p>
+  </section>
+</HelpLayout>

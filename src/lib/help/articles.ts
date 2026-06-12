@@ -13,6 +13,11 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     text: 'Who can sign in and with which keys: DReps via their DRep key (CIP-95) and proposers via their reward address. No password, no transaction, no fees.',
   },
   {
+    href: '/help/managing-your-drep',
+    title: 'Managing your DRep',
+    text: 'How to register as a DRep, set up or update your on-chain metadata (name, bio, links, image) from Settings, and deregister. What costs a deposit, what only costs a fee.',
+  },
+  {
     href: '/help/data-freshness',
     title: 'Data freshness',
     text: 'How often each on-chain value (governance tallies and status, DRep profiles, vote badges) is refreshed. Cached, not live.',
