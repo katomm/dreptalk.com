@@ -7,16 +7,31 @@ export interface KoiosClientOptions {
   timeoutMs?: number;
   /** Retry transient failures (5xx / 429 / network / timeout) this many times. Default 0. */
   retries?: number;
-  /** Base delay between retries in ms, scaled linearly by attempt. Default 300. */
+  /** Base delay between retries in ms; doubles per attempt (exponential backoff). Default 300. */
   retryDelayMs?: number;
+  /** Cap for a single retry delay (covers both the backoff curve and Retry-After). Default 8000. */
+  maxRetryDelayMs?: number;
 }
 
 /** Error for any non-2xx Koios response; carries the HTTP status for callers. */
 export class KoiosHttpError extends Error {
-  constructor(public readonly status: number) {
+  constructor(
+    public readonly status: number,
+    /** Parsed Retry-After response header in ms, when the server sent one. */
+    public readonly retryAfterMs: number | null = null,
+  ) {
     super(`koios request failed: ${status}`);
     this.name = 'KoiosHttpError';
   }
+}
+
+/** Parses a Retry-After header (delta-seconds or HTTP-date) into milliseconds. */
+function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  if (/^\d+$/.test(header)) return Number(header) * 1000;
+  const date = Date.parse(header);
+  if (Number.isNaN(date)) return null;
+  return Math.max(0, date - Date.now());
 }
 
 // Koios caps the /drep_info POST body. Send sub-batches under that cap; the
@@ -263,6 +278,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
 
   const retries = opts.retries ?? 0;
   const retryDelayMs = opts.retryDelayMs ?? 300;
+  const maxRetryDelayMs = opts.maxRetryDelayMs ?? 8_000;
 
   // A failure is worth retrying only when it is transient: a 5xx/429 from Koios,
   // or a network/timeout error (which surfaces as a non-KoiosHttpError). Client
@@ -291,7 +307,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
         signal: controller.signal,
       });
       if (!res.ok) {
-        throw new KoiosHttpError(res.status);
+        throw new KoiosHttpError(res.status, parseRetryAfter(res.headers.get('retry-after')));
       }
       // Koios occasionally emits raw C0 control characters inside string values
       // (e.g. a vote's meta_url with a stray newline), which strict JSON parsing
@@ -305,7 +321,20 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     }
   }
 
-  // Retries transient failures with a linear backoff. Koios's proposal_voting_summary
+  // Delay before retry attempt i: exponential backoff (base * 2^i) plus a small
+  // random jitter so parallel calls do not retry in lockstep. A server-sent
+  // Retry-After wins when it asks for a longer wait. Both are capped so a rogue
+  // header cannot stall a cron run.
+  function retryDelay(attemptIndex: number, err: unknown): number {
+    const base = retryDelayMs * 2 ** attemptIndex;
+    let delay = base + Math.random() * base * 0.25;
+    if (err instanceof KoiosHttpError && err.retryAfterMs != null) {
+      delay = Math.max(delay, err.retryAfterMs);
+    }
+    return Math.min(delay, maxRetryDelayMs);
+  }
+
+  // Retries transient failures with exponential backoff. Koios's proposal_voting_summary
   // is a heavy aggregation that returns 504/timeout under a burst of requests, so the
   // gov-sync cron opts into a couple of retries; the interactive auth flow leaves
   // retries at 0 (fail fast).
@@ -318,7 +347,8 @@ export function createKoiosClient(opts: KoiosClientOptions) {
         return await attempt(path, init);
       } catch (err) {
         if (i >= retries || !isTransient(err)) throw err;
-        if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (i + 1)));
+        const delay = retryDelay(i, err);
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }

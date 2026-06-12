@@ -36,6 +36,8 @@ export interface DrepSyncResult {
   updated: number;
   skipped: number;
   anchorsFetched: number;
+  /** Anchor fetches pushed to the next run by maxAnchorFetches. */
+  anchorsDeferred: number;
   failed: number;
   // Hosted-metadata GC (junk written for self-generated keys).
   gcScanned: number;
@@ -51,6 +53,14 @@ export interface DrepSyncDeps {
   now: number;
   /** Anchor fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
+  /**
+   * Cap on anchor fetches per run. DReps beyond the cap are written with
+   * anchorStatus 'deferred' (profile preserved) and picked up by the next run,
+   * because only anchorStatus 'ok' allows the no-fetch reuse path. Bounds the
+   * heavy first sync, which would otherwise fetch every anchor in one
+   * invocation and blow the Workers subrequest limit. Unlimited when omitted.
+   */
+  maxAnchorFetches?: number;
 }
 
 // The profile + anchor fields resolved for one DRep before the change check.
@@ -98,13 +108,16 @@ async function enumerateRegistered(deps: DrepSyncDeps): Promise<string[]> {
  * The cost saver: when the on-chain meta_hash equals the stored anchorHash AND
  * the stored row's anchor was previously fetched OK, the stored profile is
  * reused and NO network fetch happens. `fetched` reports whether the anchor was
- * fetched so the caller can tally anchorsFetched.
+ * fetched so the caller can tally anchorsFetched; `deferred` reports a fetch
+ * skipped because the per-run budget was spent (the caller tallies and the
+ * next run retries it, since the stored status is not 'ok').
  */
 async function resolveProfile(
   info: DrepInfoRow,
   existing: Drep | undefined,
   deps: DrepSyncDeps,
-): Promise<{ profile: ResolvedProfile; fetched: boolean }> {
+  canFetch: boolean,
+): Promise<{ profile: ResolvedProfile; fetched: boolean; deferred: boolean }> {
   const metaUrl = info.meta_url ?? null;
   const metaHash = info.meta_hash ?? null;
 
@@ -123,6 +136,26 @@ async function resolveProfile(
           anchorStatus: 'ok',
         },
         fetched: false,
+        deferred: false,
+      };
+    }
+
+    // A fetch is needed but the per-run budget is spent: record 'deferred' and
+    // keep any previously resolved profile. The chain fields still update below
+    // (buildRow), so the row is current except for the anchor document.
+    if (!canFetch) {
+      return {
+        profile: {
+          name: existing?.name ?? null,
+          bio: existing?.bio ?? null,
+          imageUrl: existing?.imageUrl ?? null,
+          links: existing?.links ?? null,
+          anchorUrl: metaUrl,
+          anchorHash: metaHash,
+          anchorStatus: 'deferred',
+        },
+        fetched: false,
+        deferred: true,
       };
     }
 
@@ -141,6 +174,7 @@ async function resolveProfile(
           anchorStatus: 'ok',
         },
         fetched: true,
+        deferred: false,
       };
     }
     // Any non-ok status: record the error status but PRESERVE the previously
@@ -159,6 +193,7 @@ async function resolveProfile(
         anchorStatus: result.status,
       },
       fetched: true,
+      deferred: false,
     };
   }
 
@@ -174,6 +209,7 @@ async function resolveProfile(
       anchorStatus: 'no-anchor',
     },
     fetched: false,
+    deferred: false,
   };
 }
 
@@ -242,7 +278,9 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   let updated = 0;
   let skipped = 0;
   let anchorsFetched = 0;
+  let anchorsDeferred = 0;
   let failed = 0;
+  const maxAnchorFetches = deps.maxAnchorFetches ?? Infinity;
 
   // Collected for the hosted-metadata GC: every registered drep id and every
   // current on-chain anchor hash. A row survives GC if it matches either, so a
@@ -262,8 +300,10 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
       if (info.meta_hash) keepHashes.add(info.meta_hash.toLowerCase());
       try {
         const prior = existing.get(info.drep_id);
-        const { profile, fetched } = await resolveProfile(info, prior, deps);
+        const canFetch = anchorsFetched < maxAnchorFetches;
+        const { profile, fetched, deferred } = await resolveProfile(info, prior, deps, canFetch);
         if (fetched) anchorsFetched++;
+        if (deferred) anchorsDeferred++;
 
         const row = buildRow(info, profile, prior, now);
 
@@ -298,7 +338,7 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
     gcDeleted = gc.deleted;
   }
 
-  return { total: ids.length, updated, skipped, anchorsFetched, failed, gcScanned, gcDeleted };
+  return { total: ids.length, updated, skipped, anchorsFetched, anchorsDeferred, failed, gcScanned, gcDeleted };
 }
 
 export interface SlugBackfillResult {

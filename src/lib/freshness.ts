@@ -57,3 +57,32 @@ export const FRESHNESS: readonly FreshnessRow[] = [
 export const CRON_GOVERNANCE = '*/15 * * * *'; // discovery + active-action tallies
 export const CRON_VOTE_SYNC = '0 * * * *'; // per-post vote lists (hourly, active only)
 export const CRON_DREP_SYNC = '0 */6 * * *'; // DRep profile sync
+
+// Matches one cron field against a value: '*', '*/n', or a plain number. This
+// covers exactly the subset of cron syntax the CRON_* constants use; anything
+// fancier (lists, ranges) is not supported and yields null from nextCronRunMs.
+function cronFieldMatches(field: string, value: number): boolean {
+  if (field === '*') return true;
+  const step = /^\*\/(\d+)$/.exec(field);
+  if (step) return value % Number(step[1]) === 0;
+  return /^\d+$/.test(field) && Number(field) === value;
+}
+
+/**
+ * Next UTC fire time (ms) for one of the CRON_* expressions, strictly after
+ * nowMs. Day/month/weekday fields must be '*'. Scans minute steps, bounded to
+ * 48h, which comfortably covers the longest supported cadence.
+ */
+export function nextCronRunMs(cron: string, nowMs: number): number | null {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5 || parts.slice(2).some((p) => p !== '*')) return null;
+  const [minute, hour] = parts;
+  const start = Math.floor(nowMs / 60_000) * 60_000 + 60_000;
+  for (let t = start; t <= nowMs + 48 * 3_600_000; t += 60_000) {
+    const d = new Date(t);
+    if (cronFieldMatches(minute, d.getUTCMinutes()) && cronFieldMatches(hour, d.getUTCHours())) {
+      return t;
+    }
+  }
+  return null;
+}

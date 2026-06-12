@@ -51,7 +51,9 @@ curl "http://localhost:8787/__scheduled?cron=0+*/6+*+*+*"      # DRep profiles +
 
 It polls Koios (preprod locally, per `CARDANO_NETWORK`) and writes to D1. Stake Participation on the governance overview needs the DRep run (it fills `dreps.voting_power`); the voted share also needs the vote run. The cron expressions mirror `src/lib/freshness.ts`.
 
-The first DRep run is the painful one without a `KOIOS_API_KEY`: it enumerates every DRep from an empty database, which is rate-limit heavy on anonymous Koios and may stall or partially fail. Set `KOIOS_API_KEY` in `.dev.vars` before the first run; the same token works on every network (see [Deployment](deployment.md)). Subsequent runs are incremental and much lighter.
+The first DRep run is the heavy one without a `KOIOS_API_KEY`: it enumerates every DRep from an empty database, which is rate-limit heavy on anonymous Koios. Set `KOIOS_API_KEY` in `.dev.vars` before the first run; the same token works on every network (see [Deployment](deployment.md)). Subsequent runs are incremental and much lighter.
+
+The sync is built to survive a bad run. Koios calls retry transient failures (5xx, 429, network errors) with exponential backoff and honor `Retry-After`; all writes are idempotent upserts, so a re-run resumes where the last one left off; and the DRep run caps its CIP-119 anchor fetches per run, marking the rest `deferred` so a large backlog drains over the next few runs instead of exceeding the Workers subrequest limit. Every run is recorded in the `sync_runs` table with an `ok` / `partial` / `error` status and per-phase outcomes (one failing pass no longer skips the rest); `/debug/sync` shows the recent runs, durations, item counts, errors, and the next scheduled run.
 
 ---
 
