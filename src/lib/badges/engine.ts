@@ -53,7 +53,10 @@ function tiersOf(badgeId: string): [number, number, number] {
 
 function getOrCreate<K, V>(map: Map<K, V>, key: K, make: () => V): V {
   let v = map.get(key);
-  if (v === undefined) map.set(key, (v = make()));
+  if (v === undefined) {
+    v = make();
+    map.set(key, v);
+  }
   return v;
 }
 
