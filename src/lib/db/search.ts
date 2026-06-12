@@ -3,6 +3,7 @@
 // All queries are parameterized; the MATCH string itself is built by
 // lib/search/match.ts (never raw user input) and bound as a parameter.
 import { decodeBech32 } from '../crypto/bech32.js';
+import { drepPath } from '../drep/profile.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
 
 export interface ExactHit {
@@ -99,11 +100,11 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
   }
 
   const direct = await db
-    .prepare('SELECT drep_id, name FROM dreps WHERE drep_id = ?1 LIMIT 1')
+    .prepare('SELECT drep_id, name, slug FROM dreps WHERE drep_id = ?1 LIMIT 1')
     .bind(ident.drepId)
-    .first<{ drep_id: string; name: string | null }>();
+    .first<{ drep_id: string; name: string | null; slug: string | null }>();
   if (direct) {
-    return { kind: 'drep', href: `/dreps/${direct.drep_id}`, label: direct.name ?? direct.drep_id };
+    return { kind: 'drep', href: drepPath({ drepId: direct.drep_id, slug: direct.slug }), label: direct.name ?? direct.drep_id };
   }
 
   // The pasted id may be the other bech32 flavor (CIP-105 vs CIP-129) of a
@@ -128,11 +129,11 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
   }
   if (!hex) return null;
   const byHex = await db
-    .prepare('SELECT drep_id, name FROM dreps WHERE hex = ?1 LIMIT 1')
+    .prepare('SELECT drep_id, name, slug FROM dreps WHERE hex = ?1 LIMIT 1')
     .bind(hex)
-    .first<{ drep_id: string; name: string | null }>();
+    .first<{ drep_id: string; name: string | null; slug: string | null }>();
   if (!byHex) return null;
-  return { kind: 'drep', href: `/dreps/${byHex.drep_id}`, label: byHex.name ?? byHex.drep_id };
+  return { kind: 'drep', href: drepPath({ drepId: byHex.drep_id, slug: byHex.slug }), label: byHex.name ?? byHex.drep_id };
 }
 
 interface GaRow {
@@ -160,6 +161,7 @@ interface TopicRow {
 interface DrepRow {
   drep_id: string;
   name: string | null;
+  slug: string | null;
   status: string;
   voting_power: string | null;
   image_content_hash: string | null;
@@ -215,7 +217,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
       .bind(match),
     db
       .prepare(
-        `SELECT d.drep_id, d.name, d.status, d.voting_power, d.image_content_hash,
+        `SELECT d.drep_id, d.name, d.slug, d.status, d.voting_power, d.image_content_hash,
                 snippet(dreps_fts, 1, char(1), char(2), '…', 12) AS snip
          FROM dreps_fts
          JOIN dreps d ON d.rowid = dreps_fts.rowid
@@ -288,7 +290,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
   }
 
   const dreps: DrepHit[] = drepRows.map((d) => ({
-    href: `/dreps/${d.drep_id}`,
+    href: drepPath({ drepId: d.drep_id, slug: d.slug }),
     drepId: d.drep_id,
     name: d.name,
     status: d.status,

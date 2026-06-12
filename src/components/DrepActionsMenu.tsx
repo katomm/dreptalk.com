@@ -20,6 +20,7 @@ import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import type { WalletApi } from '@/lib/governance/drepTx.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
+import { drepPath } from '@/lib/drep/profile.js';
 
 // The enabled CIP-30 surface we use here: the tx WalletApi plus getNetworkId,
 // which the network guard reads (enable() returns the full object at runtime).
@@ -30,6 +31,8 @@ type EnabledWalletApi = WalletApi & { getNetworkId(): Promise<number> };
 // resolve it, so delegation is offered as disabled.
 interface Target {
   drepId: string;
+  /** SEO profile slug when assigned; the profile link prefers it over the id. */
+  slug: string | null;
   name: string;
   credentialHex: string | null;
   isScript: boolean;
@@ -43,6 +46,7 @@ interface Props {
 function targetFromButton(btn: HTMLElement): Target {
   return {
     drepId: btn.dataset.drepId ?? '',
+    slug: btn.dataset.drepSlug || null,
     name: btn.dataset.drepName ?? '',
     credentialHex: btn.dataset.drepCred || null,
     isScript: btn.dataset.drepScript === '1',
@@ -125,7 +129,7 @@ export default function DrepActionsMenu({ network = 'preprod' }: Props) {
               <span className="drep-menu__hint">unavailable</span>
             )}
           </button>
-          <a role="menuitem" className="drep-menu__item" href={`/dreps/${menu.target.drepId}`}>
+          <a role="menuitem" className="drep-menu__item" href={drepPath(menu.target)}>
             View profile
           </a>
           <button

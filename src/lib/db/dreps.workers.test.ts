@@ -221,7 +221,7 @@ describe('special DReps', () => {
     const rows = await listDrepsForConcentration(db());
     const ids = rows.map((r) => r.drepId);
     expect(ids).toEqual(['cbig', 'csmall']);
-    expect(rows[0]).toEqual({ drepId: 'cbig', name: 'Big', votingPower: '300' });
+    expect(rows[0]).toEqual({ drepId: 'cbig', name: 'Big', slug: null, votingPower: '300' });
   });
 });
 
