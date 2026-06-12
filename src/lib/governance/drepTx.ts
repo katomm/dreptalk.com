@@ -87,6 +87,23 @@ function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletAp
 type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
 
 /**
+ * Shared tail of every flow here: serialize the built tx, have the wallet
+ * sign it, splice the returned witness set in, and submit. The wallet
+ * extension performs signing and submission; the server is never involved
+ * in key operations.
+ */
+async function signAndSubmit(
+  built: Awaited<ReturnType<DrepTxBuilder['build']>>,
+  walletApi: WalletApi,
+): Promise<{ txHash: string }> {
+  const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
+  const witnessSetHex = await walletApi.signTx(unsignedTxHex, false);
+  const signedTxHex = Transaction.addVKeyWitnessesHex(unsignedTxHex, witnessSetHex);
+  const txHash = await walletApi.submitTx(signedTxHex);
+  return { txHash };
+}
+
+/**
  * Queues the reg_drep certificate, the DRep-key required signer, and the CIP-20
  * attribution tag onto a tx builder. The addSigner call is mandatory: the
  * reg_drep certificate is witnessed by the DRep key (which controls no input),
@@ -110,6 +127,17 @@ export function queueDeregisterDrepOps(
 ): DrepTxBuilder {
   return txb
     .deregisterDRep({ drepCredential: parts.drepCredential })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+/** Like queueRegisterDrepOps, for the update_drep certificate (new anchor, no deposit). */
+export function queueUpdateDrepOps(
+  txb: DrepTxBuilder,
+  parts: { drepCredential: Credential.Credential; anchor: Anchor.Anchor; drepKeyHash: Uint8Array },
+): DrepTxBuilder {
+  return txb
+    .updateDRep({ drepCredential: parts.drepCredential, anchor: parts.anchor })
     .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
 }
@@ -139,12 +167,7 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
     drepKeyHash: opts.drepKeyHash,
   }).build();
 
-  const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
-  const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
-  const signedTxHex = Transaction.addVKeyWitnessesHex(unsignedTxHex, witnessSetHex);
-  const txHash = await opts.walletApi.submitTx(signedTxHex);
-
-  return { txHash };
+  return signAndSubmit(built, opts.walletApi);
 }
 
 /**
@@ -170,12 +193,33 @@ export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string
     drepKeyHash: opts.drepKeyHash,
   }).build();
 
-  const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
-  const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
-  const signedTxHex = Transaction.addVKeyWitnessesHex(unsignedTxHex, witnessSetHex);
-  const txHash = await opts.walletApi.submitTx(signedTxHex);
+  return signAndSubmit(built, opts.walletApi);
+}
 
-  return { txHash };
+/**
+ * Builds, signs, and submits a Conway update_drep certificate transaction
+ * that replaces the DRep's metadata anchor. No deposit is involved; the
+ * wallet pays only the network fee. Non-custodial like register/retire.
+ *
+ * Requires a live wallet and a reachable Koios provider. Not unit-testable
+ * offline; mirrors registerDRep and is covered by the preprod e2e suite.
+ */
+export async function updateDRepMetadata(opts: RegisterDRepOpts): Promise<{ txHash: string }> {
+  const { drepCredential, anchor } = buildRegisterDrepParts({
+    drepKeyHash: opts.drepKeyHash,
+    anchorUrl: opts.anchorUrl,
+    anchorHashHex: opts.anchorHashHex,
+  });
+
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+
+  const built = await queueUpdateDrepOps(client.newTx(), {
+    drepCredential,
+    anchor,
+    drepKeyHash: opts.drepKeyHash,
+  }).build();
+
+  return signAndSubmit(built, opts.walletApi);
 }
 
 /**
@@ -270,10 +314,5 @@ export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ tx
 
   const built = await queueDelegateVotesOps(client.newTx(), { stakeCredential, drep, stakeKeyHash }).build();
 
-  const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
-  const witnessSetHex = await opts.walletApi.signTx(unsignedTxHex, false);
-  const signedTxHex = Transaction.addVKeyWitnessesHex(unsignedTxHex, witnessSetHex);
-  const txHash = await opts.walletApi.submitTx(signedTxHex);
-
-  return { txHash };
+  return signAndSubmit(built, opts.walletApi);
 }

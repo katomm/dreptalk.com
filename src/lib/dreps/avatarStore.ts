@@ -16,7 +16,8 @@ import {
 } from '../db/dreps.js';
 
 // Maximum accepted image size (256 KB): larger is mislinked or hostile.
-const MAX_IMAGE_BYTES = 256 * 1024;
+// Exported so the upload endpoint enforces the same cap as the sync mirror.
+export const MAX_IMAGE_BYTES = 256 * 1024;
 // Upstream fetch timeout in milliseconds.
 const FETCH_TIMEOUT_MS = 8_000;
 // Raster types only. SVG is rejected: it can carry scripts.

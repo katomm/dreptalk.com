@@ -7,6 +7,7 @@ import {
   buildRegisterDrepParts,
   queueRegisterDrepOps,
   queueDeregisterDrepOps,
+  queueUpdateDrepOps,
   buildDrepTarget,
   stakeCredentialFromRewardAddress,
   queueDelegateVotesOps,
@@ -25,6 +26,7 @@ function makeBuilderRecorder() {
   const calls: Array<{ op: string; arg: unknown }> = [];
   const rec = {
     registerDRep(arg: unknown) { calls.push({ op: 'registerDRep', arg }); return rec; },
+    updateDRep(arg: unknown) { calls.push({ op: 'updateDRep', arg }); return rec; },
     deregisterDRep(arg: unknown) { calls.push({ op: 'deregisterDRep', arg }); return rec; },
     delegateToDRep(arg: unknown) { calls.push({ op: 'delegateToDRep', arg }); return rec; },
     addSigner(arg: unknown) { calls.push({ op: 'addSigner', arg }); return rec; },
@@ -140,6 +142,30 @@ describe('queueDeregisterDrepOps (fee: DRep key required signer)', () => {
 
     expect(calls.some((c) => c.op === 'deregisterDRep')).toBe(true);
     expect(addSignerKeyHashHex(calls)).toBe(bytesToHex(DREP_KEY_HASH));
+  });
+});
+
+describe('queueUpdateDrepOps (fee: DRep key required signer)', () => {
+  it('declares the DRep key as a required signer and queues the update_drep cert', () => {
+    const { drepCredential, anchor } = buildRegisterDrepParts({
+      drepKeyHash: DREP_KEY_HASH,
+      anchorUrl: ANCHOR_URL,
+      anchorHashHex: ANCHOR_HASH_HEX,
+    });
+    const { rec, calls } = makeBuilderRecorder();
+
+    queueUpdateDrepOps(rec as Parameters<typeof queueUpdateDrepOps>[0], {
+      drepCredential,
+      anchor,
+      drepKeyHash: DREP_KEY_HASH,
+    });
+
+    const update = calls.find((c) => c.op === 'updateDRep');
+    expect(update).toBeDefined();
+    // The new anchor must ride on the cert; without it the update is a no-op.
+    expect((update!.arg as { anchor?: unknown }).anchor).toBeDefined();
+    expect(addSignerKeyHashHex(calls)).toBe(bytesToHex(DREP_KEY_HASH));
+    expect(calls.some((c) => c.op === 'attachMetadata')).toBe(true);
   });
 });
 

@@ -54,6 +54,44 @@ export function listCardanoWallets(cardano: unknown): CardanoWalletInfo[] {
     });
 }
 
+// localStorage key remembering the wallet last used successfully (login or a
+// DRep action). With several extensions installed, defaulting to the first
+// injected wallet routinely picks the wrong one; preferring the remembered key
+// keeps login, registration, and settings on the wallet the user actually uses.
+const LAST_WALLET_STORAGE_KEY = 'dreptalk.lastWallet';
+
+/** Persists the wallet key after a successful use. Safe without localStorage. */
+export function rememberWallet(key: string): void {
+  try {
+    localStorage.setItem(LAST_WALLET_STORAGE_KEY, key);
+  } catch {
+    // Storage unavailable (private mode, blocked); the default stays first-found.
+  }
+}
+
+function recallWallet(): string | null {
+  try {
+    return localStorage.getItem(LAST_WALLET_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Picks the selection for a freshly scanned wallet list: the user's current
+ * pick when still present, else the remembered last-used wallet, else the
+ * first one found. Pure; exported for unit tests.
+ */
+export function chooseSelectedWallet(
+  current: string,
+  remembered: string | null,
+  found: ReadonlyArray<{ key: string }>,
+): string {
+  if (current && found.some((w) => w.key === current)) return current;
+  if (remembered && found.some((w) => w.key === remembered)) return remembered;
+  return found[0]?.key ?? '';
+}
+
 /**
  * useCardanoWallets
  *
@@ -72,11 +110,15 @@ export function useCardanoWallets(): {
   const [selected, setSelected] = useState<string>('');
 
   useEffect(() => {
+    // Read once per mount: the remembered wallet is set on a successful action
+    // (which navigates away), so it does not change while this hook re-scans.
+    const remembered = recallWallet();
     const scan = () => {
       const found = listCardanoWallets((window as unknown as { cardano?: unknown }).cardano);
       setWallets(found);
-      // Keep a valid selection: preserve the user's pick, else default to the first.
-      setSelected((cur) => (cur && found.some((w) => w.key === cur) ? cur : found[0]?.key ?? ''));
+      // Keep a valid selection: the user's pick, else the remembered wallet,
+      // else the first one found.
+      setSelected((cur) => chooseSelectedWallet(cur, remembered, found));
       return found.length;
     };
 

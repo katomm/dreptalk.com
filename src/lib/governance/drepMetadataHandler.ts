@@ -14,6 +14,7 @@
 // bounded by the route's per-IP rate limit and the sync GC.
 
 import { z } from 'zod';
+import { HEX_HASH_256_RE } from '../crypto/hex.js';
 import { buildDrepMetadata } from './drepMetadata.js';
 import { putDrepMetadata } from '../db/drepMetadata.js';
 
@@ -27,6 +28,12 @@ const bodySchema = z.object({
   name: z.string().max(1000),
   bio: z.string().max(20000),
   links: z.array(z.string().max(2100)).max(20),
+  image: z
+    .object({
+      url: z.string().max(2100),
+      sha256: z.string().regex(HEX_HASH_256_RE).optional(),
+    })
+    .optional(),
 });
 
 export interface DrepMetadataInput {
@@ -55,9 +62,9 @@ async function handleInternal(input: DrepMetadataInput): Promise<DrepMetadataRes
   if (!parsed.success) {
     return { status: 400, json: { error: parsed.error.issues[0]?.message ?? 'invalid input' } };
   }
-  const { drepId, name, bio, links } = parsed.data;
+  const { drepId, name, bio, links, image } = parsed.data;
 
-  const m = buildDrepMetadata({ name, bio, links });
+  const m = buildDrepMetadata({ name, bio, links, image });
 
   // Content-addressed URL: the hash is in the path, so the bytes served at this
   // URL never change, and a different document gets a different URL. The drep id

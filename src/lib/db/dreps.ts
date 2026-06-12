@@ -339,6 +339,58 @@ export async function setDrepImageStored(
 }
 
 /**
+ * Optimistic profile write for a DRep who just submitted an update_drep tx.
+ * Updates only the display and anchor columns of that one row, leaving the
+ * chain-derived fields (status, voting power, deposit, slug, registered epoch)
+ * untouched. The values are derived from the same hosted document the wallet
+ * anchored, parsed with the same extractCip119Profile the sync uses, so the
+ * later sync sees an unchanged row and skips it. A plain UPDATE keeps the rowid
+ * stable, so the FTS triggers reindex name/bio in place. Returns true when a
+ * row existed and was updated.
+ */
+export async function updateDrepProfileFromAnchor(
+  db: D1Database,
+  args: {
+    drepId: string;
+    name: string | null;
+    bio: string | null;
+    links: { label: string; uri: string }[] | null;
+    imageUrl: string | null;
+    imageContentHash: string | null;
+    imageStoredUrl: string | null;
+    anchorUrl: string | null;
+    anchorHash: string | null;
+    anchorStatus: string;
+    lastSyncedAt: number;
+  },
+): Promise<boolean> {
+  const linksJson = args.links != null ? JSON.stringify(args.links) : null;
+  const res = await db
+    .prepare(
+      `UPDATE dreps SET
+         name = ?, bio = ?, links = ?, image_url = ?,
+         image_content_hash = ?, image_stored_url = ?, image_fetch_failed_at = NULL,
+         anchor_url = ?, anchor_hash = ?, anchor_status = ?, last_synced_at = ?
+       WHERE drep_id = ?`,
+    )
+    .bind(
+      args.name,
+      args.bio,
+      linksJson,
+      args.imageUrl,
+      args.imageContentHash,
+      args.imageStoredUrl,
+      args.anchorUrl,
+      args.anchorHash,
+      args.anchorStatus,
+      args.lastSyncedAt,
+      args.drepId,
+    )
+    .run();
+  return (res.meta?.changes ?? 0) > 0;
+}
+
+/**
  * Stamps the given rows with the time of a failed download attempt, in one
  * batched UPDATE; listDrepsNeedingAvatar sorts stamped rows to the back of the
  * queue. No-op for an empty list.

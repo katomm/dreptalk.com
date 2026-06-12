@@ -71,3 +71,42 @@ describe('buildDrepMetadata', () => {
     expect(result.hash).toBe(expected);
   });
 });
+
+describe('buildDrepMetadata image', () => {
+  const base = { name: 'Test', bio: '', links: [] as string[] };
+
+  it('omits the image key entirely when no image is given', () => {
+    const m = buildDrepMetadata(base);
+    expect(JSON.parse(m.body).body.image).toBeUndefined();
+  });
+
+  it('embeds an ImageObject with contentUrl and sha256', () => {
+    const m = buildDrepMetadata({
+      ...base,
+      image: { url: `https://dreptalk.com/api/avatar/${'ab'.repeat(32)}`, sha256: 'ab'.repeat(32) },
+    });
+    expect(JSON.parse(m.body).body.image).toEqual({
+      '@type': 'ImageObject',
+      contentUrl: `https://dreptalk.com/api/avatar/${'ab'.repeat(32)}`,
+      sha256: 'ab'.repeat(32),
+    });
+  });
+
+  it('omits sha256 when not provided', () => {
+    const m = buildDrepMetadata({ ...base, image: { url: 'https://example.com/me.png' } });
+    expect(JSON.parse(m.body).body.image).toEqual({
+      '@type': 'ImageObject',
+      contentUrl: 'https://example.com/me.png',
+    });
+  });
+
+  it('drops a non-https image URL', () => {
+    const m = buildDrepMetadata({ ...base, image: { url: 'data:image/png;base64,AAAA' } });
+    expect(JSON.parse(m.body).body.image).toBeUndefined();
+  });
+
+  it('is hash-deterministic for the same image input', () => {
+    const input = { ...base, image: { url: 'https://example.com/me.png', sha256: 'cd'.repeat(32) } };
+    expect(buildDrepMetadata(input).hash).toBe(buildDrepMetadata(input).hash);
+  });
+});

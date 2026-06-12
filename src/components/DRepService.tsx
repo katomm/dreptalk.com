@@ -6,7 +6,7 @@
 // (see registerDRep). The only server calls here are reading public chain data
 // via the Koios proxy and hosting the metadata document.
 import { useState, useRef } from 'react';
-import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { registerDRep, retireDRep } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
@@ -16,6 +16,9 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
+import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
+import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+import WalletPicker from '@/components/WalletPicker.js';
 
 // The enabled wallet api is the CIP-30 surface plus the optional CIP-95
 // extension namespace. We intersect the structural Tx api (used by
@@ -77,6 +80,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
   const [links, setLinks] = useState('');
+  const [image, setImage] = useState<HostedImage | null>(null);
 
   // Step 1 + 2 + 3: connect, derive the DRep identity, check current status.
   async function handleConnect() {
@@ -120,6 +124,9 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
     // Store the enabled api for reuse in the submit step; avoids a second
     // enable() IPC call when the user submits the registration form.
     enabledApiRef.current = api;
+
+    // Successful CIP-95 connect: remember the wallet as the future default.
+    rememberWallet(selected);
 
     // Derive the DRep key hash (28-byte blake2b-224) and the CIP-129 drep1 id.
     // Compute the hash once and derive the id from the same bytes via
@@ -199,6 +206,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           name: trimmedName,
           bio: bio.trim(),
           links: parseLinks(links),
+          ...(image ? { image } : {}),
         }),
       });
       if (!metaRes.ok) {
@@ -265,22 +273,6 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
     phase.status === 'checking' ||
     phase.status === 'submitting';
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '0.5rem 0.75rem',
-    border: '1px solid var(--border)',
-    borderRadius: '0.375rem',
-    background: 'var(--bg)',
-    color: 'var(--fg)',
-    fontSize: '1rem',
-  };
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '0.875rem',
-    marginBottom: '0.25rem',
-    color: 'var(--muted)',
-  };
-
   // Success state: standalone confirmation, no form.
   if (phase.status === 'success') {
     return (
@@ -336,22 +328,12 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
             phase.status === 'connecting' ||
             phase.status === 'error') && (
             <>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Wallet</span>
-                <select
-                  value={selected}
-                  onChange={(e) => setSelected(e.target.value)}
-                  disabled={busy}
-                  style={{ ...inputStyle, padding: '0.5rem' }}
-                >
-                  {wallets.map((w) => (
-                    <option key={w.key} value={w.key}>
-                      {w.name}
-                      {w.supportsCip95 ? ' (CIP-95)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <WalletPicker
+                wallets={wallets}
+                selected={selected}
+                onSelect={setSelected}
+                disabled={busy}
+              />
               <button
                 type="button"
                 onClick={handleConnect}
@@ -452,6 +434,11 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
                   disabled={busy}
                   style={inputStyle}
                 />
+              </div>
+
+              <div>
+                <span style={labelStyle}>Profile image (optional)</span>
+                <DrepImageUpload value={image} onChange={setImage} disabled={busy} />
               </div>
 
               <div>
