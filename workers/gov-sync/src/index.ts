@@ -7,6 +7,11 @@
 //   0 */6 * * *   enumerate every registered DRep and persist profile data.
 // Shares the app's D1 database.
 //
+// Every run is recorded in the sync_runs table via recordSyncRun: each pass is
+// a phase that fails in isolation (a Koios hiccup in one pass no longer skips
+// the rest), and the run row carries ok/partial/error plus per-phase outcomes
+// for the /debug/sync page.
+//
 // Deployed separately from the Pages/Workers app (see
 // .github/workflows/deploy-workers.yml); merging app code does NOT deploy this.
 
@@ -25,6 +30,7 @@ import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../..
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars } from '../../../src/lib/dreps/avatarStore.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
+import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
 
 interface Env {
   DB: D1Database;
@@ -43,13 +49,14 @@ function buildKoios(env: Env) {
   const { network, koiosBaseUrl } = resolveNetwork(env.CARDANO_NETWORK ?? null);
   // proposal_voting_summary / proposal_votes are heavy aggregations that can take
   // 10-25s when Koios is under load. The default 10s timeout drops them and the
-  // action never syncs, so wait longer here and retry once for a genuine transient
-  // failure. The per-run limits below bound the worst-case wall time.
+  // action never syncs, so wait longer here and retry transient failures with
+  // exponential backoff (500ms then 1s, plus any server-sent Retry-After). The
+  // per-run limits below bound the worst-case wall time.
   const koios = createKoiosClient({
     baseUrl: koiosBaseUrl,
     token: env.KOIOS_API_KEY || undefined,
     timeoutMs: 25_000,
-    retries: 1,
+    retries: 2,
     retryDelayMs: 500,
   });
   return { koios, network };
@@ -66,148 +73,185 @@ const TALLY_PACE_MS = 200;
 const VOTE_LIMIT = 12;
 const VOTE_PACE_MS = 200;
 
+// Per-run anchor-fetch budget for the DRep sync. The first sync from an empty
+// database would otherwise fetch every DRep's CIP-119 anchor in one invocation
+// and blow the Workers subrequest limit; with the budget, the backlog drains
+// over a few 6-hour runs (deferred anchors resume automatically). Steady-state
+// runs fetch only changed anchors and never come near the cap.
+const DREP_ANCHOR_LIMIT = 400;
+
 // Discover new actions, then refresh tallies + lifecycle for active actions.
-async function runGovernanceSync(env: Env): Promise<void> {
+async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
   const { koios, network } = buildKoios(env);
   const now = Date.now();
 
-  // Discovery and the tip lookup are independent; run them together.
-  const [disc, tip] = await Promise.all([
-    syncGovernanceActions({ koios, db: env.DB, network, now, rand: randSuffix }),
-    koios.tip(),
-  ]);
-  console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
+  await phase('discovery', async () => {
+    const disc = await syncGovernanceActions({ koios, db: env.DB, network, now, rand: randSuffix });
+    console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
+    return { items: disc.total, failed: disc.failed };
+  }, { primary: true });
 
-  const tally = await syncGovernanceTallies({
-    koios,
-    db: env.DB,
-    currentEpoch: tip.epoch_no,
-    now,
-    limit: TALLY_LIMIT,
-    paceMs: TALLY_PACE_MS,
+  // The tip lookup lives inside the tally phase: tallies are its only consumer,
+  // so a tip failure surfaces as a failed tallies phase, not a failed discovery.
+  await phase('tallies', async () => {
+    const tip = await koios.tip();
+    const tally = await syncGovernanceTallies({
+      koios,
+      db: env.DB,
+      currentEpoch: tip.epoch_no,
+      now,
+      limit: TALLY_LIMIT,
+      paceMs: TALLY_PACE_MS,
+    });
+    console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
+    return { items: tally.updated, failed: tally.failed };
   });
-  console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
 
-  const backfill = await backfillVotedPower({ koios, db: env.DB, limit: 25 });
-  console.log(`[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`);
+  await phase('voted-power', async () => {
+    const backfill = await backfillVotedPower({ koios, db: env.DB, limit: 25 });
+    console.log(`[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`);
+    return { items: backfill.updated, failed: backfill.failed };
+  });
 
-  const metaBackfill = await backfillActionMetadata({ db: env.DB, now: Date.now(), fetchImpl: fetch, limit: 10 });
-  console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
+  await phase('metadata', async () => {
+    const metaBackfill = await backfillActionMetadata({ db: env.DB, now: Date.now(), fetchImpl: fetch, limit: 10 });
+    console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
+    return { items: metaBackfill.updated, failed: metaBackfill.failed };
+  });
 
   // Correct post dates for existing no-reply governance topics (sync-time -> submission
   // time). Idempotent: a no-op once corrected. The whole backlog is low hundreds, so
   // one generous limit drains it in a single run.
-  const postDate = await backfillGovTopicSubmittedAt({ db: env.DB, network, limit: 500 });
-  console.log(`[gov-postdate-backfill] scanned=${postDate.scanned} updated=${postDate.updated}`);
+  await phase('post-dates', async () => {
+    const postDate = await backfillGovTopicSubmittedAt({ db: env.DB, network, limit: 500 });
+    console.log(`[gov-postdate-backfill] scanned=${postDate.scanned} updated=${postDate.updated}`);
+    return { items: postDate.updated };
+  });
 
   // Last: recompute the materialized trending sort key so the list page can order and
   // page in the database. Runs after discovery, tallies, and the post-date backfill so
   // it folds in everything this run changed. Only-changed writes; a no-op once settled.
-  const trending = await refreshTrendingScores({ db: env.DB });
-  console.log(`[gov-trending] scanned=${trending.scanned} updated=${trending.updated}`);
+  await phase('trending', async () => {
+    const trending = await refreshTrendingScores({ db: env.DB });
+    console.log(`[gov-trending] scanned=${trending.scanned} updated=${trending.updated}`);
+    return { items: trending.updated };
+  });
 
   // Refresh the cached CIP-1694 voting thresholds + committee quorum (used by the
   // GA detail Voting Information card). Changes only via governance, so this is a
   // cheap once-per-run call with an only-changed write.
-  try {
+  await phase('params', async () => {
     const [ep, ccq] = await Promise.all([koios.epochParams(), koios.committeeQuorum()]);
-    if (ep) {
-      const next = {
-        epoch: ep.epoch_no ?? null,
-        dvtMotionNoConfidence: ep.dvt_motion_no_confidence ?? null,
-        dvtCommitteeNormal: ep.dvt_committee_normal ?? null,
-        dvtCommitteeNoConfidence: ep.dvt_committee_no_confidence ?? null,
-        dvtUpdateConstitution: ep.dvt_update_to_constitution ?? null,
-        dvtHardFork: ep.dvt_hard_fork_initiation ?? null,
-        dvtPpNetwork: ep.dvt_p_p_network_group ?? null,
-        dvtPpEconomic: ep.dvt_p_p_economic_group ?? null,
-        dvtPpTechnical: ep.dvt_p_p_technical_group ?? null,
-        dvtPpGov: ep.dvt_p_p_gov_group ?? null,
-        dvtTreasuryWithdrawal: ep.dvt_treasury_withdrawal ?? null,
-        pvtMotionNoConfidence: ep.pvt_motion_no_confidence ?? null,
-        pvtCommitteeNormal: ep.pvt_committee_normal ?? null,
-        pvtCommitteeNoConfidence: ep.pvt_committee_no_confidence ?? null,
-        pvtHardFork: ep.pvt_hard_fork_initiation ?? null,
-        pvtSecurityGroup: ep.pvtpp_security_group ?? null,
-        ccThreshold: ccq,
-        committeeMinSize: ep.committee_min_size ?? null,
-        syncedAt: now,
-      };
-      const cur = await getProtocolParams(env.DB);
-      if (
-        !cur ||
-        cur.epoch !== next.epoch ||
-        cur.dvtTreasuryWithdrawal !== next.dvtTreasuryWithdrawal ||
-        cur.ccThreshold !== next.ccThreshold
-      ) {
-        await upsertProtocolParams(env.DB, next);
-      }
-      console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold}`);
+    if (!ep) return { items: 0 };
+    const next = {
+      epoch: ep.epoch_no ?? null,
+      dvtMotionNoConfidence: ep.dvt_motion_no_confidence ?? null,
+      dvtCommitteeNormal: ep.dvt_committee_normal ?? null,
+      dvtCommitteeNoConfidence: ep.dvt_committee_no_confidence ?? null,
+      dvtUpdateConstitution: ep.dvt_update_to_constitution ?? null,
+      dvtHardFork: ep.dvt_hard_fork_initiation ?? null,
+      dvtPpNetwork: ep.dvt_p_p_network_group ?? null,
+      dvtPpEconomic: ep.dvt_p_p_economic_group ?? null,
+      dvtPpTechnical: ep.dvt_p_p_technical_group ?? null,
+      dvtPpGov: ep.dvt_p_p_gov_group ?? null,
+      dvtTreasuryWithdrawal: ep.dvt_treasury_withdrawal ?? null,
+      pvtMotionNoConfidence: ep.pvt_motion_no_confidence ?? null,
+      pvtCommitteeNormal: ep.pvt_committee_normal ?? null,
+      pvtCommitteeNoConfidence: ep.pvt_committee_no_confidence ?? null,
+      pvtHardFork: ep.pvt_hard_fork_initiation ?? null,
+      pvtSecurityGroup: ep.pvtpp_security_group ?? null,
+      ccThreshold: ccq,
+      committeeMinSize: ep.committee_min_size ?? null,
+      syncedAt: now,
+    };
+    const cur = await getProtocolParams(env.DB);
+    let written = 0;
+    if (
+      !cur ||
+      cur.epoch !== next.epoch ||
+      cur.dvtTreasuryWithdrawal !== next.dvtTreasuryWithdrawal ||
+      cur.ccThreshold !== next.ccThreshold
+    ) {
+      await upsertProtocolParams(env.DB, next);
+      written = 1;
     }
-  } catch (err) {
-    console.warn('[gov-params] failed:', err);
-  }
+    console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold}`);
+    return { items: written };
+  });
 }
 
 // Refresh the per-post vote lists (active actions only). Hourly: vote lists are
 // larger and per-post badges do not need 15-minute freshness.
-async function runVoteSync(env: Env): Promise<void> {
+async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
   const { koios } = buildKoios(env);
   const now = Date.now();
-  const r = await syncGovernanceVotes({ koios, db: env.DB, now, limit: VOTE_LIMIT, paceMs: VOTE_PACE_MS });
-  console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
+
+  await phase('votes', async () => {
+    const r = await syncGovernanceVotes({ koios, db: env.DB, now, limit: VOTE_LIMIT, paceMs: VOTE_PACE_MS });
+    console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
+    return { items: r.votes, failed: r.failed };
+  }, { primary: true });
 
   // One-time historical fill for finalised actions never vote-synced. Small,
   // paced budget so the hourly run stays light; drains over many hours.
-  const bf = await backfillFinalizedVotes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
-  console.log(`[gov-votes-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
+  await phase('finalized-backfill', async () => {
+    const bf = await backfillFinalizedVotes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
+    console.log(`[gov-votes-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
+    return { items: bf.votes, failed: bf.failed };
+  });
 
   // Award achievement badges from the freshly synced data: a set-based full
   // pass over D1 (no Koios calls) that writes only new awards and tier upgrades.
-  const cfg = resolveNetwork(env.CARDANO_NETWORK ?? null);
-  const badges = await awardBadges({ db: env.DB, cfg, now: Date.now() });
-  console.log(`[badges] desired=${badges.desired} written=${badges.written}`);
+  await phase('badges', async () => {
+    const cfg = resolveNetwork(env.CARDANO_NETWORK ?? null);
+    const badges = await awardBadges({ db: env.DB, cfg, now: Date.now() });
+    console.log(`[badges] desired=${badges.desired} written=${badges.written}`);
+    return { items: badges.written };
+  });
 }
 
-async function runDrepSync(env: Env): Promise<void> {
+async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   const { koios } = buildKoios(env);
-  const r = await syncDreps({ koios, db: env.DB, fetchImpl: fetch, now: Date.now() });
-  console.log(
-    `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} anchorsFetched=${r.anchorsFetched} failed=${r.failed}`,
-  );
+
+  await phase('dreps', async () => {
+    const r = await syncDreps({
+      koios, db: env.DB, fetchImpl: fetch, now: Date.now(), maxAnchorFetches: DREP_ANCHOR_LIMIT,
+    });
+    console.log(
+      `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} ` +
+        `anchorsFetched=${r.anchorsFetched} anchorsDeferred=${r.anchorsDeferred} failed=${r.failed}`,
+    );
+    return { items: r.total, failed: r.failed };
+  }, { primary: true });
 
   // Backfill registration epochs for any DReps still missing one (drives the
   // participation stat). No-op once all are filled; only new DReps cost a page.
-  // Non-fatal: a Koios hiccup here must not skip the avatar pass that follows.
-  const cfg = resolveNetwork(env.CARDANO_NETWORK ?? null);
-  try {
+  await phase('registered-epochs', async () => {
+    const cfg = resolveNetwork(env.CARDANO_NETWORK ?? null);
     const reg = await backfillRegisteredEpochs({ koios, db: env.DB, cfg });
     console.log(`[drep-reg-backfill] missing=${reg.missing} resolved=${reg.resolved} pages=${reg.pages}`);
-  } catch (err) {
-    console.warn('[drep-reg-backfill] pass failed:', err);
-  }
+    return { items: reg.resolved };
+  });
 
-  // Mint profile slugs for newly named DReps (pure D1, no Koios). Non-fatal:
-  // a profile without a slug simply keeps its id URL until the next run.
-  try {
+  // Mint profile slugs for newly named DReps (pure D1, no Koios). A profile
+  // without a slug simply keeps its id URL until the next run.
+  await phase('slugs', async () => {
     const slugs = await backfillDrepSlugs(env.DB);
     if (slugs.missing > 0) console.log(`[drep-slugs] missing=${slugs.missing} assigned=${slugs.assigned}`);
-  } catch (err) {
-    console.warn('[drep-slugs] pass failed:', err);
-  }
+    return { items: slugs.assigned };
+  });
 
-  // Store new/changed avatars in R2 and GC orphaned objects. Non-fatal: a
-  // failure here must not fail the DRep sync that already succeeded.
+  // Store new/changed avatars in R2 and GC orphaned objects. A failure here
+  // must not fail the DRep sync that already succeeded (phase isolation).
   if (env.AVATARS) {
-    try {
-      const a = await storeDrepAvatars({ db: env.DB, bucket: env.AVATARS, fetchImpl: fetch });
+    const bucket = env.AVATARS;
+    await phase('avatars', async () => {
+      const a = await storeDrepAvatars({ db: env.DB, bucket, fetchImpl: fetch });
       console.log(`[drep-avatars] scanned=${a.scanned} stored=${a.stored} cleared=${a.cleared} failed=${a.failed}`);
-      const gc = await gcDrepAvatars({ db: env.DB, bucket: env.AVATARS, nowMs: Date.now() });
+      const gc = await gcDrepAvatars({ db: env.DB, bucket, nowMs: Date.now() });
       console.log(`[drep-avatars-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);
-    } catch (err) {
-      // warn, not error: non-fatal by design, matching the [gov-params] catch.
-      console.warn('[drep-avatars] pass failed:', err);
-    }
+      return { items: a.stored, failed: a.failed };
+    });
   } else {
     console.warn('[drep-avatars] AVATARS binding missing; skipping avatar store');
   }
@@ -219,14 +263,17 @@ export default {
     // keeps the invocation alive until it finishes (and `wrangler dev
     // --test-scheduled` only returns once it resolves).
     try {
-      if (event.cron === CRON_DREP_SYNC) {
-        await runDrepSync(env);
-      } else if (event.cron === CRON_VOTE_SYNC) {
-        await runVoteSync(env);
-      } else {
-        // Default: the */15 governance discovery + tally cycle.
-        await runGovernanceSync(env);
-      }
+      const [kind, run] =
+        event.cron === CRON_DREP_SYNC
+          ? (['dreps', runDrepSync] as const)
+          : event.cron === CRON_VOTE_SYNC
+            ? (['votes', runVoteSync] as const)
+            : (['governance', runGovernanceSync] as const);
+      const summary = await recordSyncRun(env.DB, kind, (phase) => run(env, phase));
+      console.log(
+        `[sync-run] kind=${kind} status=${summary.status} items=${summary.items} failed=${summary.failed}` +
+          (summary.error ? ` error=${summary.error}` : ''),
+      );
     } catch (err) {
       console.error(`[gov-sync] scheduled run failed (cron=${event.cron})`, err);
     }

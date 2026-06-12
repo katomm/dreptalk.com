@@ -134,6 +134,77 @@ describe('createKoiosClient retry', () => {
     await expect(client.tip()).rejects.toThrow(/koios request failed: 503/i);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it('backs off exponentially between retries', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({}, 503))
+        .mockResolvedValueOnce(jsonResponse({}, 503))
+        .mockResolvedValueOnce(jsonResponse([{ epoch_no: 1, block_no: 1, abs_slot: 1 }]));
+      const client = createKoiosClient({
+        baseUrl: 'https://api.koios.rest/api/v1', fetchImpl, retries: 2, retryDelayMs: 100,
+      });
+
+      const pending = client.tip();
+      // First retry waits 100ms base + up to 25% jitter; second waits 200ms + jitter.
+      await vi.advanceTimersByTimeAsync(130);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(260);
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      await expect(pending).resolves.toMatchObject({ epoch_no: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for a Retry-After header on 429 when it exceeds the backoff', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(new Response('{}', { status: 429, headers: { 'retry-after': '2' } }))
+        .mockResolvedValueOnce(jsonResponse([{ epoch_no: 5, block_no: 6, abs_slot: 7 }]));
+      const client = createKoiosClient({
+        baseUrl: 'https://api.koios.rest/api/v1', fetchImpl, retries: 1, retryDelayMs: 100,
+      });
+
+      const pending = client.tip();
+      // Well past the 100-125ms backoff but before the 2s Retry-After: no retry yet.
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(600);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      await expect(pending).resolves.toMatchObject({ epoch_no: 5 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('caps a rogue Retry-After at maxRetryDelayMs', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(new Response('{}', { status: 429, headers: { 'retry-after': '3600' } }))
+        .mockResolvedValueOnce(jsonResponse([{ epoch_no: 9, block_no: 9, abs_slot: 9 }]));
+      const client = createKoiosClient({
+        baseUrl: 'https://api.koios.rest/api/v1',
+        fetchImpl,
+        retries: 1,
+        retryDelayMs: 100,
+        maxRetryDelayMs: 1000,
+      });
+
+      const pending = client.tip();
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      await expect(pending).resolves.toMatchObject({ epoch_no: 9 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // --- drepInfo ---

@@ -316,6 +316,68 @@ describe('syncDreps', () => {
   });
 });
 
+describe('anchor fetch budget', () => {
+  it('defers anchor fetches beyond maxAnchorFetches and resumes on the next run', async () => {
+    const ids = ['drep1-budget-a', 'drep1-budget-b', 'drep1-budget-c'];
+    const infoById = new Map(
+      ids.map((id) => [
+        id,
+        infoRow(id, { meta_url: `https://example.com/${id}.json`, meta_hash: profileHash }),
+      ]),
+    );
+    const { koios } = fakeKoios({ pages: [ids.map((id) => listRow(id))], infoById });
+
+    // First run: budget of 1 fetch; the other two DReps are deferred.
+    const first = countingProfileFetch();
+    const r1 = await syncDreps({
+      koios, db: env.DB, fetchImpl: first.fetchImpl, now: NOW, maxAnchorFetches: 1,
+    });
+    expect(r1).toMatchObject({ total: 3, anchorsFetched: 1, anchorsDeferred: 2, failed: 0 });
+    expect(first.calls()).toBe(1);
+
+    // Deferred rows are written with the chain fields current and the profile
+    // marked deferred, so the next run knows to fetch.
+    const deferredRows = await Promise.all(ids.map((id) => getDrepById(env.DB, id)));
+    const statuses = deferredRows.map((r) => r!.anchorStatus).sort();
+    expect(statuses).toEqual(['deferred', 'deferred', 'ok']);
+
+    // Second run without a budget: only the two deferred anchors are fetched
+    // (the completed one stays on the no-fetch reuse path).
+    const second = countingProfileFetch();
+    const r2 = await syncDreps({ koios, db: env.DB, fetchImpl: second.fetchImpl, now: NOW + 1 });
+    expect(r2).toMatchObject({ anchorsFetched: 2, anchorsDeferred: 0, failed: 0 });
+    expect(second.calls()).toBe(2);
+
+    for (const id of ids) {
+      const row = await getDrepById(env.DB, id);
+      expect(row!.anchorStatus).toBe('ok');
+      expect(row!.name).toBe('Alice DRep');
+    }
+  });
+
+  it('repeated deferral does not rewrite an unchanged deferred row', async () => {
+    const id = 'drep1-budget-stable';
+    const infoById = new Map([
+      [id, infoRow(id, { meta_url: 'https://example.com/stable.json', meta_hash: profileHash })],
+    ]);
+    const { koios } = fakeKoios({ pages: [[listRow(id)]], infoById });
+
+    const r1 = await syncDreps({
+      koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW, maxAnchorFetches: 0,
+    });
+    expect(r1).toMatchObject({ anchorsDeferred: 1, updated: 1 });
+    const afterFirst = await getDrepById(env.DB, id);
+    expect(afterFirst!.anchorStatus).toBe('deferred');
+
+    // Same budget again: still deferred, but nothing changed, so no write.
+    const r2 = await syncDreps({
+      koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW + 1, maxAnchorFetches: 0,
+    });
+    expect(r2).toMatchObject({ anchorsDeferred: 1, updated: 0, skipped: 1 });
+    expect((await getDrepById(env.DB, id))!.lastSyncedAt).toBe(NOW);
+  });
+});
+
 describe('stored-avatar preservation', () => {
   it('a re-sync write preserves the avatar-store-owned columns', async () => {
     const drepId = 'drep1avatarkeep';
