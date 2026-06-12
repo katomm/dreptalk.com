@@ -45,6 +45,7 @@ const moreRoles: Array<{ label: string; href?: string }> = [
         </summary>
         <div class="role-entry__menu" role="menu">
           <span class="role-entry__identity" title={user.id}>{truncateId(user.id, 22)}</span>
+          <a class="role-entry__item" href="/settings" role="menuitem">Settings</a>
           <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
             <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
           </form>
@@ -53,6 +54,7 @@ const moreRoles: Array<{ label: string; href?: string }> = [
     ) : (
       <div class="role-entry__list" role="menu">
         <span class="role-entry__identity" title={user.id}>{truncateId(user.id, 22)}</span>
+        <a class="role-entry__item" href="/settings" role="menuitem">Settings</a>
         <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
           <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
         </form>
