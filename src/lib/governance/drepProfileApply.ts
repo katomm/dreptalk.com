@@ -13,7 +13,6 @@
 // the row. Only the logged-in DRep's own row is touched.
 
 import { extractCip119Profile } from './metadata.js';
-import { HEX_HASH_256_RE } from '../crypto/hex.js';
 import { getDrepMetadataByHash } from '../db/drepMetadata.js';
 import { updateDrepProfileFromAnchor } from '../db/dreps.js';
 
@@ -32,23 +31,6 @@ export interface ApplyDrepProfileInput {
 export interface ApplyDrepProfileResult {
   status: number;
   json: { ok: boolean; applied: boolean };
-}
-
-function asRecord(v: unknown): Record<string, unknown> {
-  return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
-}
-
-/**
- * Reads the image sha256 from a CIP-119 document body, when present and valid.
- * Our own uploads embed it (and the bytes live in R2 under that key), so it can
- * be written straight to image_content_hash. Pure; exported for tests.
- */
-export function imageSha256FromDoc(doc: unknown): string | null {
-  const root = asRecord(doc);
-  const body = 'body' in root ? asRecord(root.body) : root;
-  const image = asRecord(body.image);
-  const sha = image.sha256;
-  return typeof sha === 'string' && HEX_HASH_256_RE.test(sha) ? sha : null;
 }
 
 /** Never throws; unexpected errors become a generic 500. */
@@ -76,12 +58,11 @@ async function applyInternal(input: ApplyDrepProfileInput): Promise<ApplyDrepPro
   }
 
   const profile = extractCip119Profile(doc);
-  const imageSha256 = imageSha256FromDoc(doc);
 
   // image_content_hash is only set when the document references an image with a
   // sha256 (our own uploads), since the bytes are then already in R2 and serve
   // immediately. A foreign image without a hash is left for the avatar pass.
-  const hasOwnImage = profile.imageUrl != null && imageSha256 != null;
+  const hasOwnImage = profile.imageUrl != null && profile.imageSha256 != null;
 
   const applied = await updateDrepProfileFromAnchor(input.db, {
     drepId: input.drepId,
@@ -89,7 +70,7 @@ async function applyInternal(input: ApplyDrepProfileInput): Promise<ApplyDrepPro
     bio: profile.bio,
     links: profile.links,
     imageUrl: profile.imageUrl,
-    imageContentHash: hasOwnImage ? imageSha256 : null,
+    imageContentHash: hasOwnImage ? profile.imageSha256 : null,
     imageStoredUrl: hasOwnImage ? profile.imageUrl : null,
     anchorUrl: `${input.origin}/drep/${input.hash}.json`,
     anchorHash: input.hash,

@@ -53,6 +53,18 @@ describe('extractCip119Profile', () => {
     };
     const profile = extractCip119Profile(doc);
     expect(profile.imageUrl).toBe('https://images.example.com/carol.png');
+    expect(profile.imageSha256).toBeNull();
+  });
+
+  it('reads the image sha256 from an ImageObject when valid', () => {
+    const sha = 'ab'.repeat(32);
+    const doc = { body: { image: { contentUrl: 'https://x/y.png', sha256: sha } } };
+    expect(extractCip119Profile(doc).imageSha256).toBe(sha);
+  });
+
+  it('ignores a malformed image sha256', () => {
+    const doc = { body: { image: { contentUrl: 'https://x/y.png', sha256: 'nope' } } };
+    expect(extractCip119Profile(doc).imageSha256).toBeNull();
   });
 
   it('drops a javascript: image URL', () => {

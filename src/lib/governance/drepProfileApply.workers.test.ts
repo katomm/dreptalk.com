@@ -6,7 +6,7 @@
 // the logged-in DRep's own row and self-heals on the next sync.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { applyDrepProfile, imageSha256FromDoc } from './drepProfileApply.js';
+import { applyDrepProfile } from './drepProfileApply.js';
 import { buildDrepMetadata } from './drepMetadata.js';
 import { putDrepMetadata } from '../db/drepMetadata.js';
 import { upsertDrep, getDrepById } from '../db/dreps.js';
@@ -48,18 +48,6 @@ async function hostDoc(drepId: string, input: { name: string; bio: string; links
   await putDrepMetadata(env.DB, { drepId, body: m.body, hash: m.hash, name: m.name, createdAt: 1_700_000_000 });
   return { hash: m.hash };
 }
-
-describe('imageSha256FromDoc', () => {
-  it('reads a valid sha256 from the CIP-119 ImageObject', () => {
-    const doc = { body: { image: { '@type': 'ImageObject', contentUrl: 'https://x/y', sha256: AVATAR_SHA } } };
-    expect(imageSha256FromDoc(doc)).toBe(AVATAR_SHA);
-  });
-  it('returns null when there is no image or no sha256', () => {
-    expect(imageSha256FromDoc({ body: {} })).toBeNull();
-    expect(imageSha256FromDoc({ body: { image: 'https://x/y' } })).toBeNull();
-    expect(imageSha256FromDoc({ body: { image: { sha256: 'nope' } } })).toBeNull();
-  });
-});
 
 describe('applyDrepProfile', () => {
   it('writes the new profile, image hash, and anchor onto the own row', async () => {

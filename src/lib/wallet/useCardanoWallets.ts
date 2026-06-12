@@ -110,12 +110,15 @@ export function useCardanoWallets(): {
   const [selected, setSelected] = useState<string>('');
 
   useEffect(() => {
+    // Read once per mount: the remembered wallet is set on a successful action
+    // (which navigates away), so it does not change while this hook re-scans.
+    const remembered = recallWallet();
     const scan = () => {
       const found = listCardanoWallets((window as unknown as { cardano?: unknown }).cardano);
       setWallets(found);
       // Keep a valid selection: the user's pick, else the remembered wallet,
       // else the first one found.
-      setSelected((cur) => chooseSelectedWallet(cur, recallWallet(), found));
+      setSelected((cur) => chooseSelectedWallet(cur, remembered, found));
       return found.length;
     };
 

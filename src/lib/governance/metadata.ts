@@ -11,7 +11,7 @@
 // caller still creates the thread, just without trusted metadata.
 
 import { blake2b256 } from '../crypto/blake.js';
-import { bytesToHex } from '../crypto/hex.js';
+import { bytesToHex, HEX_HASH_256_RE } from '../crypto/hex.js';
 import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
 
@@ -119,6 +119,8 @@ export interface Cip119Profile {
   name: string | null;
   bio: string | null;
   imageUrl: string | null;
+  /** sha256 (64 hex) of the image bytes, when the ImageObject carries one. */
+  imageSha256: string | null;
   links: { label: string; uri: string }[] | null;
 }
 
@@ -168,6 +170,14 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
     if (resolved) imageUrl = resolved.slice(0, MAX_PROFILE_IMAGE_URL_LEN);
   }
 
+  // imageSha256: the ImageObject may carry the sha256 of the bytes. Our own
+  // uploads embed it (and the bytes live in R2 under that key), so a consumer
+  // can serve the image directly without re-downloading.
+  const imageSha256 =
+    typeof imgRecord?.sha256 === 'string' && HEX_HASH_256_RE.test(imgRecord.sha256)
+      ? imgRecord.sha256
+      : null;
+
   // links: body.references is an array; keep only items with http(s) uri/url.
   let links: { label: string; uri: string }[] | null = null;
   if (Array.isArray(body.references)) {
@@ -191,7 +201,7 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
     links = valid.length > 0 ? valid : null;
   }
 
-  return { name, bio, imageUrl, links };
+  return { name, bio, imageUrl, imageSha256, links };
 }
 
 // Discriminated union returning the raw parsed doc on success. The doc is the

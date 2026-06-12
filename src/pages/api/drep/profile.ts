@@ -38,7 +38,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   // Resolve the session user's drep_id; a non-DRep session simply applies
   // nothing (the handler returns applied:false).
-  const user = locals.user ? await getUserById(db, locals.user.id) : null;
+  const user = await getUserById(db, locals.user.id);
 
   const result = await applyDrepProfile({
     db,
