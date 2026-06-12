@@ -24,10 +24,17 @@ export const MAX_DREP_LINKS = 6;
 // common browser and HTTP server limits.
 const MAX_LINK_URL_LEN = 2048;
 
+export interface DrepImageInput {
+  url: string;
+  /** sha256 (64 lowercase hex) of the image bytes; optional for foreign hosts. */
+  sha256?: string;
+}
+
 export interface DrepMetadataInput {
   name: string;
   bio: string;
   links: string[];
+  image?: DrepImageInput;
 }
 
 export interface DrepMetadataResult {
@@ -39,6 +46,16 @@ export interface DrepMetadataResult {
   body: string;
   // blake2b-256 hash of the UTF-8 bytes of `body`, as 64 lowercase hex chars.
   hash: string;
+}
+
+/** Returns true when the URL uses https and parses without error. */
+function isValidHttpsUrl(raw: string): boolean {
+  if (raw.length > MAX_LINK_URL_LEN) return false;
+  try {
+    return new URL(raw).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 /** Returns true when the URL uses http or https and parses without error. */
@@ -68,14 +85,24 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
     .filter(isValidHttpUrl)
     .slice(0, MAX_DREP_LINKS);
 
+  // Image: only an https URL is embeddable (the sync-side parser drops anything
+  // else, and data: URIs would bloat the doc). sha256 rides along when known.
+  let image: { '@type': 'ImageObject'; contentUrl: string; sha256?: string } | undefined;
+  if (input.image && isValidHttpsUrl(input.image.url)) {
+    image = { '@type': 'ImageObject', contentUrl: input.image.url };
+    if (input.image.sha256 && /^[0-9a-f]{64}$/.test(input.image.sha256)) {
+      image.sha256 = input.image.sha256;
+    }
+  }
+
   // Build the JSON-LD document with a fixed key order. Each object literal
   // uses the exact property insertion order that JSON.stringify will preserve,
   // so the serialized form is deterministic regardless of engine version.
   //
   // @context mirrors the CIP-119 example document exactly (CIP-0119/examples/drep.jsonld).
-  // Only fields that have values are included; empty/optional fields (image,
-  // paymentAddress, qualifications, motivations, doNotList) are omitted so
-  // that the document remains minimal and the hash is stable.
+  // Only fields that have values are included; empty/optional fields (image
+  // when absent, paymentAddress, qualifications, motivations, doNotList) are
+  // omitted so that the document remains minimal and the hash is stable.
   const doc = {
     '@context': {
       CIP100: 'https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#',
@@ -111,6 +138,7 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
     hashAlgorithm: 'blake2b-256',
     body: {
       givenName: name,
+      ...(image ? { image } : {}),
       objectives: bio,
       references: links.map(uri => ({
         '@type': 'Link' as const,
