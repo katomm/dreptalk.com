@@ -12,8 +12,12 @@
 // the rest), and the run row carries ok/partial/error plus per-phase outcomes
 // for the /debug/sync page.
 //
-// Deployed separately from the Pages/Workers app (see
-// .github/workflows/deploy-workers.yml); merging app code does NOT deploy this.
+// Deployed separately from the app via Cloudflare Workers Builds, whose build
+// trigger only watches this directory (workers/gov-sync/**). This worker bundles
+// shared logic from src/lib at build time, but changes under src/lib do NOT match
+// the watch path, so editing the bundled governance/sync logic alone leaves the
+// cron running the old bundle. A change here (even a comment) is required to
+// trigger a redeploy that picks up new src/lib code.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
