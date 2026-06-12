@@ -9,9 +9,7 @@
 // Built on a native <details> and a plain <form>, no client JS here (the
 // strict CSP forbids inline scripts; the copy button JS lives in AccountMenu).
 import { roleLabels } from '@/lib/auth/roles';
-import { drepPath } from '@/lib/drep/profile';
 import type { AuthorDescriptor } from '@/lib/forum/author';
-import { truncateId } from '@/lib/forum/view';
 import AccountMenu from '@/components/AccountMenu.astro';
 import Avatar from '@/components/Avatar.astro';
 
@@ -51,19 +49,18 @@ const signinRoles = [
   },
 ];
 
-// Signed-in display values. The account descriptor carries the synced DRep
-// identity (name, slug, avatar); without it the session id still renders.
-const display = user
+// Pill display values; the menu reads the descriptor itself. Layout always
+// resolves a descriptor for a signed-in user (the resolver owns the fallbacks
+// for accounts without a synced DRep row), so nothing is re-derived here.
+const labels = user ? roleLabels(user.roles) : [];
+const display = user && account
   ? {
-      name: account?.displayName ?? truncateId(user.id),
-      role: roleLabels(user.roles)[0],
-      allRoles: roleLabels(user.roles).join(', '),
-      id: account?.drepId ?? user.id,
-      seed: account?.identiconSeed ?? user.id,
-      imageHash: account?.imageHash ?? null,
-      profileHref: account?.drepId
-        ? drepPath({ drepId: account.drepId, slug: account.drepSlug ?? null })
-        : null,
+      account,
+      name: account.displayName,
+      role: labels[0],
+      allRoles: labels.join(', '),
+      seed: account.identiconSeed ?? account.authorId,
+      imageHash: account.imageHash ?? null,
     }
   : null;
 ---
@@ -87,23 +84,11 @@ const display = user
           </span>
         </summary>
         <div class="role-entry__menu role-entry__menu--account">
-          <AccountMenu
-            name={display.name}
-            id={display.id}
-            seed={display.seed}
-            imageHash={display.imageHash}
-            profileHref={display.profileHref}
-          />
+          <AccountMenu account={display.account} />
         </div>
       </details>
     ) : (
-      <AccountMenu
-        name={display.name}
-        id={display.id}
-        seed={display.seed}
-        imageHash={display.imageHash}
-        profileHref={display.profileHref}
-      />
+      <AccountMenu account={display.account} />
     )}
   </div>
 ) : (
@@ -193,10 +178,17 @@ const display = user
   .role-entry__pill:hover {
     background: var(--accent-hover);
   }
-  .role-entry__toggle {
+  /* The chevron segment, shared by both summaries: hairline divider against
+     the main segment. */
+  .role-entry__toggle,
+  .role-entry__pill-chev {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
     padding: 0 0.7rem;
     border-left: 1px solid color-mix(in srgb, var(--accent-fg) 28%, transparent);
+  }
+  .role-entry__toggle {
     border-top-right-radius: var(--radius);
     border-bottom-right-radius: var(--radius);
   }
@@ -342,12 +334,5 @@ const display = user
     font-size: 0.6875rem;
     font-weight: 500;
     opacity: 0.85;
-  }
-  .role-entry__pill-chev {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 0.7rem;
-    border-left: 1px solid color-mix(in srgb, var(--accent-fg) 28%, transparent);
   }
 </style>

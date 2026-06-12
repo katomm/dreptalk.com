@@ -431,8 +431,8 @@ export default function DrepSettings({
             style={{
               padding: '0.5rem 1rem',
               background: 'transparent',
-              color: '#dc2626',
-              border: '1px solid #dc2626',
+              color: 'var(--danger)',
+              border: '1px solid var(--danger)',
               borderRadius: '0.375rem',
               fontSize: '0.9375rem',
               fontWeight: 500,

@@ -42,7 +42,7 @@ const organizationLd = {
 // it. Signed-out and prerendered renders skip the lookup entirely.
 const sessionUser = Astro.locals.user;
 const account: AuthorDescriptor | null = sessionUser
-  ? await loadAuthorIdentity(runtimeEnv(Astro.locals).DB as D1Database | undefined, sessionUser.id)
+  ? await loadAuthorIdentity(runtimeEnv(Astro.locals).DB, sessionUser.id)
   : null;
 
 const pathname = Astro.url.pathname;

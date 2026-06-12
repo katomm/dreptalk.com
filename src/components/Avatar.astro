@@ -3,9 +3,9 @@
 // self-hosted R2 copy (/api/avatar/<hash>, content addressed) as an overlay
 // background-image. If the R2 fetch 404s, the background simply does not paint
 // and the identicon shows through; the strict CSP forbids inline onerror
-// handlers, so this layering is the fallback mechanism. Same approach as
-// AuthorIdentity, extracted so the header pill and the account menu share one
-// implementation.
+// handlers, so this layering is the fallback mechanism. The single avatar
+// implementation, shared by AuthorIdentity, the header pill, the account menu
+// and the DRep profile hero.
 import { identiconSvg } from '@/lib/identity/identicon';
 
 interface Props {
@@ -31,6 +31,7 @@ const { seed, imageHash = null, size = 28, ring = false } = Astro.props;
 <style>
   .avatar {
     position: relative;
+    display: inline-block;
     width: var(--avatar-size);
     height: var(--avatar-size);
     flex-shrink: 0;

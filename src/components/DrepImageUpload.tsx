@@ -105,7 +105,7 @@ export default function DrepImageUpload({ value, onChange, disabled }: DrepImage
         </div>
         <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>JPG or PNG, max 256 KB.</span>
         {error && (
-          <span role="alert" style={{ fontSize: '0.8125rem', color: '#dc2626' }}>
+          <span role="alert" style={{ fontSize: '0.8125rem', color: 'var(--danger)' }}>
             {error}
           </span>
         )}

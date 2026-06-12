@@ -3,22 +3,23 @@
 // id with a copy button) above Settings, Profile (DReps only) and Log out.
 // Rendered by RoleEntry in both the desktop dropdown and the flat mobile list,
 // so the rows live here exactly once. The copy button is the only client JS,
-// shipped as a bundled script (the strict CSP forbids inline handlers); it
-// uses data-copy-id, not data-copy, to stay clear of the brand page's
-// delegated [data-copy] listener.
+// shipped as a bundled script (the strict CSP forbids inline handlers).
+import { authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author';
 import { truncateIdMiddle } from '@/lib/forum/view';
 import Avatar from '@/components/Avatar.astro';
 
 interface Props {
-  name: string;
-  /** Full account id (DRep id when synced, else the session user id). */
-  id: string;
-  seed: string;
-  imageHash?: string | null;
-  /** DRep profile path, or null when the account has no public profile. */
-  profileHref?: string | null;
+  /** Resolved identity of the signed-in user. */
+  account: AuthorDescriptor;
 }
-const { name, id, seed, imageHash = null, profileHref = null } = Astro.props;
+const { account } = Astro.props;
+
+const name = account.displayName;
+// Show (and copy) the DRep id when one is synced, else the session user id.
+const id = account.drepId ?? account.authorId;
+const seed = account.identiconSeed ?? account.authorId;
+const imageHash = account.imageHash ?? null;
+const profileHref = authorProfileHref(account);
 
 // Inner SVG markup per menu icon (24x24 stroke icons, rendered via set:html).
 const icons = {
@@ -43,7 +44,7 @@ const items = [
       <span class="account-menu__head-name">{name}</span>
       <span class="account-menu__head-id" title={id}>{truncateIdMiddle(id)}</span>
     </span>
-    <button type="button" class="account-menu__copy" data-copy-id={id} aria-label="Copy your id" title="Copy your id">
+    <button type="button" class="account-menu__copy" data-copy={id} aria-label="Copy your id" title="Copy your id">
       <svg class="account-menu__copy-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
       </svg>
@@ -71,9 +72,9 @@ const items = [
   // desktop and the mobile-menu instance.
   document.addEventListener('click', (event) => {
     const btn = (event.target as Element | null)?.closest<HTMLButtonElement>('.account-menu__copy');
-    if (!btn?.dataset.copyId) return;
+    if (!btn?.dataset.copy) return;
     navigator.clipboard
-      .writeText(btn.dataset.copyId)
+      .writeText(btn.dataset.copy)
       .then(() => {
         btn.classList.add('is-copied');
         setTimeout(() => btn.classList.remove('is-copied'), 1500);
