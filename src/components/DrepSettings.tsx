@@ -36,7 +36,9 @@ type DrepAction = 'update' | 'retire';
 type Phase =
   | { status: 'idle' }
   | { status: 'submitting'; action: DrepAction }
-  | { status: 'success'; txHash: string; action: DrepAction }
+  // immediate: the optimistic profile write landed, so the new metadata is
+  // already visible and the success copy can drop the "after next sync" wait.
+  | { status: 'success'; txHash: string; action: DrepAction; immediate?: boolean }
   | { status: 'error'; message: string };
 
 export interface DrepSettingsProps {
@@ -182,7 +184,20 @@ export default function DrepSettings({
         origin: window.location.origin,
       });
 
-      setPhase({ status: 'success', txHash, action: 'update' });
+      // Optimistically apply the just-anchored profile to our DB so the change
+      // shows now instead of after the next sync. Best effort: a failure here
+      // never turns the successful transaction into an error, it only means the
+      // success copy keeps the "after next sync" wording.
+      const immediate = await fetch('/api/drep/profile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ hash }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => (j as { applied?: boolean } | null)?.applied === true)
+        .catch(() => false);
+
+      setPhase({ status: 'success', txHash, action: 'update', immediate });
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
     }
@@ -237,7 +252,9 @@ export default function DrepSettings({
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
               {phase.action === 'retire'
                 ? 'Your DRep deposit is refunded once the transaction is confirmed. Your forum account and posts are unaffected.'
-                : 'Your profile shows the new metadata after the next sync (within about an hour).'}
+                : phase.immediate
+                  ? 'Your profile on DRepTalk is updated. Wallets and explorers show the change once the transaction confirms.'
+                  : 'Your profile shows the new metadata after the next sync (within about an hour).'}
             </p>
           </div>
         </div>
