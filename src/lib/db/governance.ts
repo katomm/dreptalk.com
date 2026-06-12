@@ -472,6 +472,27 @@ export async function incrementActionMetaAttempts(db: D1Database, id: string): P
 }
 
 /**
+ * Count of actions the metadata backfill has permanently given up on: stale
+ * metadata with an anchor, but maxAttempts failed re-extractions. These drop out
+ * of getActionsNeedingMetaReextract and would otherwise be invisible, so the
+ * status page surfaces the count.
+ */
+export async function countGivenUpMetaActions(
+  db: D1Database,
+  currentVersion: number,
+  maxAttempts: number,
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM governance_actions
+       WHERE anchor_url IS NOT NULL AND meta_version < ? AND meta_attempts >= ?`,
+    )
+    .bind(currentVersion, maxAttempts)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
  * Finalised actions whose full per-voter vote list has never been synced
  * (votes_synced_at IS NULL) and that have a proposal id to query. Active/pending
  * actions are covered by the live vote sync, so they are excluded here. Bounded

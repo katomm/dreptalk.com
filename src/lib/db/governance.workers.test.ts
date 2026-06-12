@@ -14,6 +14,7 @@ import {
   getActionsNeedingVotedPower,
   updateVotedPower,
   getActionsNeedingMetaReextract,
+  countGivenUpMetaActions,
   updateActionMetadata,
   getActionsNeedingVoteBackfill,
   markVotesSynced,
@@ -376,6 +377,27 @@ describe('getActionsNeedingMetaReextract', () => {
     const ids = candidates.map((c) => c.id);
     expect(ids).toContain(live.id);
     expect(ids).not.toContain(giveUp.id);
+  });
+});
+
+describe('countGivenUpMetaActions', () => {
+  it('counts only stale, anchored rows at or past the give-up cap', async () => {
+    // Delta-based: other tests in this file also seed rows, so measure the change.
+    const before = await countGivenUpMetaActions(db(), 1, 10);
+
+    const dead = await insertAction({ anchorUrl: 'https://example.com/g1.json', anchorHash: 'g1', metaVersion: 0 });
+    await db().prepare('UPDATE governance_actions SET meta_attempts = ? WHERE id = ?').bind(10, dead.id).run();
+
+    // Below the cap: still being retried, must not count.
+    await insertAction({ anchorUrl: 'https://example.com/g2.json', anchorHash: 'g2', metaVersion: 0 });
+    // Already current: nothing to re-extract, must not count.
+    await insertAction({ anchorUrl: 'https://example.com/g3.json', anchorHash: 'g3', metaVersion: 1 });
+    // Anchor-less even past the cap: no anchor to give up on, must not count.
+    const anchorless = await insertAction({ anchorUrl: null, anchorHash: null, metaVersion: 0 });
+    await db().prepare('UPDATE governance_actions SET meta_attempts = ? WHERE id = ?').bind(20, anchorless.id).run();
+
+    const after = await countGivenUpMetaActions(db(), 1, 10);
+    expect(after - before).toBe(1);
   });
 });
 
