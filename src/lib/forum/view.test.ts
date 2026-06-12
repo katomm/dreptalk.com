@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, excerptFromHtml, formatAda, cacheControlForSynced } from './view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, truncateIdMiddle, excerptFromHtml, formatAda, cacheControlForSynced } from './view.js';
 
 // ---------------------------------------------------------------------------
 // serializeJsonLd
@@ -54,6 +54,31 @@ describe('truncateId', () => {
 
   it('respects a custom len', () => {
     expect(truncateId('hello world', 5)).toBe('hello...');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// truncateIdMiddle
+// ---------------------------------------------------------------------------
+
+describe('truncateIdMiddle', () => {
+  it('returns a short id unchanged', () => {
+    expect(truncateIdMiddle('drep1abcdef')).toBe('drep1abcdef');
+  });
+
+  it('returns an id at the exact threshold unchanged', () => {
+    // head (9) + tail (8) + 3 = 20 characters
+    expect(truncateIdMiddle('a'.repeat(20))).toBe('a'.repeat(20));
+  });
+
+  it('keeps the prefix and the tail of a long id', () => {
+    const id = 'drep1yf3yabcdefghijklmnop0hks02d7';
+    expect(truncateIdMiddle(id)).toBe('drep1yf3y...0hks02d7');
+  });
+
+  it('respects custom head and tail lengths', () => {
+    const id = 'drep1234567890abcdefghijklmnopqrstuvwxyz';
+    expect(truncateIdMiddle(id, 12, 6)).toBe('drep12345678...uvwxyz');
   });
 });
 

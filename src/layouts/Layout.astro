@@ -7,7 +7,7 @@ import JsonLd from '@/components/JsonLd.astro';
 import LogoMark from '@/components/LogoMark.astro';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { NAV_LINKS } from '@/lib/config/nav.js';
-import { describeAuthor, loadAuthorIdentities, type AuthorDescriptor } from '@/lib/forum/author';
+import { loadAuthorIdentity, type AuthorDescriptor } from '@/lib/forum/author';
 
 interface Props {
   title: string;
@@ -41,13 +41,9 @@ const organizationLd = {
 // the header; both RoleEntry instances (desktop pill and mobile menu) receive
 // it. Signed-out and prerendered renders skip the lookup entirely.
 const sessionUser = Astro.locals.user;
-let account: AuthorDescriptor | null = null;
-if (sessionUser) {
-  const db = runtimeEnv(Astro.locals).DB as D1Database | undefined;
-  account = db
-    ? (await loadAuthorIdentities(db, [sessionUser.id])).describe(sessionUser.id)
-    : describeAuthor(sessionUser.id, new Map(), new Map());
-}
+const account: AuthorDescriptor | null = sessionUser
+  ? await loadAuthorIdentity(runtimeEnv(Astro.locals).DB as D1Database | undefined, sessionUser.id)
+  : null;
 
 const pathname = Astro.url.pathname;
 const navLinks = NAV_LINKS;

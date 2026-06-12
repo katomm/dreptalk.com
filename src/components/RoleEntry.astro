@@ -3,17 +3,17 @@
 // and the chevron reveals every writer role (the menu repeats the DRep entry so
 // the list is complete). Signed in (Astro.locals.user is set by the middleware,
 // the resolved identity arrives via the account prop), the pill shows the
-// account's avatar, name and role and opens a menu with the identity, Settings,
-// Profile (DReps only) and Log out. Reading the forum is public, this only
-// gates who can post. SPO (Calidus key) and CC-member sign-in use the offline
-// paste flow; DRep and proposer use the wallet flow. Built on a native
-// <details> and a plain <form>; the only client JS is the copy button, shipped
-// as a bundled script (the strict CSP forbids inline scripts).
+// account's avatar, name and role and opens the AccountMenu. Reading the forum
+// is public, this only gates who can post. SPO (Calidus key) and CC-member
+// sign-in use the offline paste flow; DRep and proposer use the wallet flow.
+// Built on a native <details> and a plain <form>, no client JS here (the
+// strict CSP forbids inline scripts; the copy button JS lives in AccountMenu).
 import { roleLabels } from '@/lib/auth/roles';
 import { drepPath } from '@/lib/drep/profile';
 import type { AuthorDescriptor } from '@/lib/forum/author';
 import { truncateId } from '@/lib/forum/view';
-import { identiconSvg } from '@/lib/identity/identicon';
+import AccountMenu from '@/components/AccountMenu.astro';
+import Avatar from '@/components/Avatar.astro';
 
 interface Props {
   layout?: 'split' | 'flat';
@@ -24,34 +24,32 @@ const { layout = 'split', account = null } = Astro.props;
 
 const user = Astro.locals.user;
 
-// Inner SVG markup per menu icon (24x24 stroke icons, rendered via set:html so
-// the list below stays declarative).
-const icons = {
-  drep: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-  spo: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
-  cc: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
-  proposer:
-    '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>',
-  settings:
-    '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
-  profile: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-  logout:
-    '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
-} as const;
-
-// Sign-in entries for the on-chain writer roles. The first doubles as the
-// primary button; the flat (mobile) disclosure skips it because the primary
-// button sits directly above the list there.
+// Sign-in entries for the on-chain writer roles, with their menu icons (24x24
+// stroke paths, rendered via set:html). The first doubles as the primary
+// button: the split menu highlights it, the flat (mobile) disclosure skips it
+// because the primary button sits directly above the list there.
 const signinRoles = [
-  { label: 'Enter as DRep', href: '/login', icon: icons.drep, active: true },
-  { label: 'Enter as SPO', href: '/login?role=spo', icon: icons.spo, active: false },
-  { label: 'Enter as CC member', href: '/login?role=cc', icon: icons.cc, active: false },
-  { label: 'Enter as proposer', href: '/login?role=proposer', icon: icons.proposer, active: false },
+  {
+    label: 'Enter as DRep',
+    href: '/login',
+    icon: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  },
+  {
+    label: 'Enter as SPO',
+    href: '/login?role=spo',
+    icon: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  },
+  {
+    label: 'Enter as CC member',
+    href: '/login?role=cc',
+    icon: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+  },
+  {
+    label: 'Enter as proposer',
+    href: '/login?role=proposer',
+    icon: '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>',
+  },
 ];
-
-// Middle truncation so both the bech32 prefix and the distinctive tail stay
-// visible (truncateId keeps only the head).
-const shortId = (id: string) => (id.length > 21 ? `${id.slice(0, 9)}...${id.slice(-8)}` : id);
 
 // Signed-in display values. The account descriptor carries the synced DRep
 // identity (name, slug, avatar); without it the session id still renders.
@@ -76,12 +74,7 @@ const display = user
       <details class="role-entry__more">
         <summary class="role-entry__pill" aria-label="Account menu" title={`Signed in as ${display.allRoles}`}>
           <span class="role-entry__pill-main">
-            <span class="role-entry__avatar role-entry__avatar--pill" aria-hidden="true">
-              <span class="role-entry__avatar-icon" set:html={identiconSvg(display.seed, 26)} />
-              {display.imageHash && (
-                <span class="role-entry__avatar-img" style={`background-image:url(/api/avatar/${display.imageHash})`}></span>
-              )}
-            </span>
+            <Avatar seed={display.seed} imageHash={display.imageHash} size={26} ring />
             <span class="role-entry__pill-text">
               <span class="role-entry__pill-name">{display.name}</span>
               <span class="role-entry__pill-role">{display.role}</span>
@@ -93,84 +86,24 @@ const display = user
             </svg>
           </span>
         </summary>
-        <div class="role-entry__menu role-entry__menu--account" role="menu">
-          <div class="role-entry__head">
-            <span class="role-entry__avatar role-entry__avatar--head" aria-hidden="true">
-              <span class="role-entry__avatar-icon" set:html={identiconSvg(display.seed, 40)} />
-              {display.imageHash && (
-                <span class="role-entry__avatar-img" style={`background-image:url(/api/avatar/${display.imageHash})`}></span>
-              )}
-            </span>
-            <span class="role-entry__head-text">
-              <span class="role-entry__head-name">{display.name}</span>
-              <span class="role-entry__head-id" title={display.id}>{shortId(display.id)}</span>
-            </span>
-            <button type="button" class="role-entry__copy" data-copy={display.id} aria-label="Copy your id" title="Copy your id">
-              <svg class="role-entry__copy-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-              </svg>
-              <svg class="role-entry__copied-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-            </button>
-          </div>
-          <a class="role-entry__item" href="/settings" role="menuitem">
-            <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.settings} />
-            Settings
-          </a>
-          {display.profileHref && (
-            <a class="role-entry__item" href={display.profileHref} role="menuitem">
-              <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.profile} />
-              Profile
-            </a>
-          )}
-          <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
-            <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">
-              <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.logout} />
-              Log out
-            </button>
-          </form>
+        <div class="role-entry__menu role-entry__menu--account">
+          <AccountMenu
+            name={display.name}
+            id={display.id}
+            seed={display.seed}
+            imageHash={display.imageHash}
+            profileHref={display.profileHref}
+          />
         </div>
       </details>
     ) : (
-      <div class="role-entry__list" role="menu">
-        <div class="role-entry__head">
-          <span class="role-entry__avatar role-entry__avatar--head" aria-hidden="true">
-            <span class="role-entry__avatar-icon" set:html={identiconSvg(display.seed, 40)} />
-            {display.imageHash && (
-              <span class="role-entry__avatar-img" style={`background-image:url(/api/avatar/${display.imageHash})`}></span>
-            )}
-          </span>
-          <span class="role-entry__head-text">
-            <span class="role-entry__head-name">{display.name}</span>
-            <span class="role-entry__head-id" title={display.id}>{shortId(display.id)}</span>
-          </span>
-          <button type="button" class="role-entry__copy" data-copy={display.id} aria-label="Copy your id" title="Copy your id">
-            <svg class="role-entry__copy-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-            </svg>
-            <svg class="role-entry__copied-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-          </button>
-        </div>
-        <a class="role-entry__item" href="/settings" role="menuitem">
-          <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.settings} />
-          Settings
-        </a>
-        {display.profileHref && (
-          <a class="role-entry__item" href={display.profileHref} role="menuitem">
-            <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.profile} />
-            Profile
-          </a>
-        )}
-        <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
-          <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">
-            <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.logout} />
-            Log out
-          </button>
-        </form>
-      </div>
+      <AccountMenu
+        name={display.name}
+        id={display.id}
+        seed={display.seed}
+        imageHash={display.imageHash}
+        profileHref={display.profileHref}
+      />
     )}
   </div>
 ) : (
@@ -191,8 +124,8 @@ const display = user
         </svg>
       </summary>
       <div class="role-entry__menu" role="menu">
-        {signinRoles.map((r) => (
-          <a class:list={['role-entry__item', { 'role-entry__item--active': r.active }]} href={r.href} role="menuitem">
+        {signinRoles.map((r, i) => (
+          <a class:list={['role-entry__item', { 'role-entry__item--active': i === 0 }]} href={r.href} role="menuitem">
             <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={r.icon} />
             {r.label}
           </a>
@@ -208,7 +141,7 @@ const display = user
         </svg>
       </summary>
       <div class="role-entry__list" role="menu">
-        {signinRoles.filter((r) => !r.active).map((r) => (
+        {signinRoles.slice(1).map((r) => (
           <a class="role-entry__item" href={r.href} role="menuitem">
             <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={r.icon} />
             {r.label}
@@ -220,35 +153,11 @@ const display = user
   </div>
 )}
 
-<script>
-  // Copy-to-clipboard for the account id. One delegated listener covers the
-  // desktop and the mobile-menu instance; the strict CSP forbids inline
-  // handlers, so this ships as a bundled script.
-  document.addEventListener('click', (event) => {
-    const btn = (event.target as Element | null)?.closest<HTMLButtonElement>('.role-entry__copy');
-    if (!btn?.dataset.copy) return;
-    navigator.clipboard
-      .writeText(btn.dataset.copy)
-      .then(() => {
-        btn.classList.add('is-copied');
-        setTimeout(() => btn.classList.remove('is-copied'), 1500);
-      })
-      .catch(() => {
-        // Clipboard can be blocked (no permission / insecure context); ignore.
-      });
-  });
-</script>
-
 <style>
   .role-entry {
     position: relative;
     display: inline-flex;
     align-items: stretch;
-    /* Destructive accent for Log out; no global danger token exists yet. */
-    --danger: #dc2626;
-  }
-  :global(html[data-theme='dark']) .role-entry {
-    --danger: #f87171;
   }
 
   /* The primary action reuses the global .btn .btn-primary; only the split-pill
@@ -262,26 +171,34 @@ const display = user
   .role-entry__more {
     display: inline-flex;
   }
-  .role-entry__toggle {
+
+  /* Both <summary> variants (signed-out chevron segment, signed-in account
+     pill) share the accent fill and disclosure-marker reset. */
+  .role-entry__toggle,
+  .role-entry__pill {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 0 0.7rem;
     background: var(--accent);
     color: var(--accent-fg);
     border: 1px solid transparent;
-    border-left: 1px solid color-mix(in srgb, var(--accent-fg) 28%, transparent);
-    border-top-right-radius: var(--radius);
-    border-bottom-right-radius: var(--radius);
     cursor: pointer;
     list-style: none;
     transition: background-color 0.15s ease;
   }
-  .role-entry__toggle::-webkit-details-marker {
+  .role-entry__toggle::-webkit-details-marker,
+  .role-entry__pill::-webkit-details-marker {
     display: none;
   }
-  .role-entry__toggle:hover {
+  .role-entry__toggle:hover,
+  .role-entry__pill:hover {
     background: var(--accent-hover);
+  }
+  .role-entry__toggle {
+    justify-content: center;
+    padding: 0 0.7rem;
+    border-left: 1px solid color-mix(in srgb, var(--accent-fg) 28%, transparent);
+    border-top-right-radius: var(--radius);
+    border-bottom-right-radius: var(--radius);
   }
   .role-entry__chev {
     transition: transform 0.18s ease;
@@ -290,8 +207,8 @@ const display = user
     transform: rotate(180deg);
   }
 
-  /* Dropdown menu: rows divided by hairlines; the hover surface keeps a small
-     radius inside the row. */
+  /* Dropdown menu: signed-out rows divided by hairlines; the signed-in variant
+     is just the positioned shell around AccountMenu. */
   .role-entry__menu {
     position: absolute;
     top: calc(100% + 0.5rem);
@@ -395,26 +312,11 @@ const display = user
     transform: rotate(180deg);
   }
 
-  /* ---- Signed in ------------------------------------------------------- */
-
-  /* The whole pill is the <summary>, so name and chevron both open the menu;
-     a hairline keeps the split-pill look of the signed-out state. */
+  /* Signed in: the whole pill is the <summary>, so name and chevron both open
+     the menu; a hairline keeps the split-pill look of the signed-out state. */
   .role-entry__pill {
-    display: inline-flex;
     align-items: stretch;
-    background: var(--accent);
-    color: var(--accent-fg);
-    border: 1px solid transparent;
     border-radius: var(--radius);
-    cursor: pointer;
-    list-style: none;
-    transition: background-color 0.15s ease;
-  }
-  .role-entry__pill::-webkit-details-marker {
-    display: none;
-  }
-  .role-entry__pill:hover {
-    background: var(--accent-hover);
   }
   .role-entry__pill-main {
     display: inline-flex;
@@ -447,126 +349,5 @@ const display = user
     justify-content: center;
     padding: 0 0.7rem;
     border-left: 1px solid color-mix(in srgb, var(--accent-fg) 28%, transparent);
-  }
-
-  /* Layered avatar (same approach as AuthorIdentity): identicon base, stored
-     R2 image as an overlay background so a 404 falls through silently. */
-  .role-entry__avatar {
-    position: relative;
-    width: var(--avatar-size, 26px);
-    height: var(--avatar-size, 26px);
-    flex-shrink: 0;
-    border-radius: 999px;
-    overflow: hidden;
-    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  }
-  .role-entry__avatar--pill {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-fg) 35%, transparent);
-  }
-  .role-entry__avatar--head {
-    --avatar-size: 40px;
-    border: 1px solid var(--border);
-  }
-  .role-entry__avatar-icon {
-    position: absolute;
-    inset: 0;
-    display: block;
-  }
-  .role-entry__avatar-icon :global(svg) {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
-  .role-entry__avatar-img {
-    position: absolute;
-    inset: 0;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-  }
-
-  /* Identity header at the top of the account menu. */
-  .role-entry__head {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    padding: 0.6rem 0.55rem 0.65rem;
-  }
-  .role-entry__head-text {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    min-width: 0;
-    margin-right: auto;
-  }
-  .role-entry__head-name {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--fg);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .role-entry__head-id {
-    font-size: 0.75rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  .role-entry__copy {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    background: none;
-    border: none;
-    border-radius: var(--radius-sm);
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .role-entry__copy:hover {
-    background: var(--surface);
-    color: var(--accent);
-  }
-  .role-entry__copied-icon {
-    display: none;
-    color: var(--accent);
-  }
-  .role-entry__copy.is-copied .role-entry__copy-icon {
-    display: none;
-  }
-  .role-entry__copy.is-copied .role-entry__copied-icon {
-    display: block;
-  }
-
-  /* Log out is a <form> button rendered as a menu item; reset native button
-     chrome and let it fill the menu row (the form itself is display:contents
-     in the flat list; in the split menu it is a block so the hairline divider
-     applies to it). */
-  .role-entry__menu .role-entry__logout-form {
-    display: block;
-  }
-  .role-entry__list .role-entry__logout-form {
-    display: contents;
-  }
-  button.role-entry__item {
-    width: 100%;
-    font: inherit;
-    background: none;
-    border: none;
-    cursor: pointer;
-  }
-  .role-entry__logout-item {
-    color: var(--danger);
-  }
-  .role-entry__logout-item .role-entry__item-icon {
-    color: var(--danger);
-  }
-  button.role-entry__logout-item:hover {
-    background: color-mix(in srgb, var(--danger) 8%, transparent);
-    color: var(--danger);
   }
 </style>

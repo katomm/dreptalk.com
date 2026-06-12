@@ -56,6 +56,15 @@ export function truncateId(id: string, len = 16): string {
 }
 
 /**
+ * Middle truncation for a long id: keeps the bech32 prefix and the distinctive
+ * tail (e.g. "drep1yf3y...0hks02d7"). Ids short enough to show whole pass
+ * through unchanged.
+ */
+export function truncateIdMiddle(id: string, head = 9, tail = 8): string {
+  return id.length > head + tail + 3 ? `${id.slice(0, head)}...${id.slice(-tail)}` : id;
+}
+
+/**
  * Strips HTML tags from a string, collapses whitespace, and truncates to
  * `maxLen` characters (appending "..." when truncated). For plain-text meta
  * descriptions and JSON-LD text derived from sanitized post HTML.

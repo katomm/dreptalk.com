@@ -121,6 +121,19 @@ export async function loadAuthorIdentities(
 }
 
 /**
+ * Resolves a single identity (e.g. the header's signed-in user). Without a DB
+ * handle it falls back to the pure id-derived defaults, so callers never deal
+ * with the batch resolver's internals.
+ */
+export async function loadAuthorIdentity(
+  db: D1Database | undefined,
+  authorId: string,
+): Promise<AuthorDescriptor> {
+  if (!db) return describeAuthor(authorId, new Map(), new Map());
+  return (await loadAuthorIdentities(db, [authorId])).describe(authorId);
+}
+
+/**
  * Builds the descriptor for a governance-action voter row from the already-batched
  * dreps map. Pure mapping, performs no I/O. A nameless DRep falls back to the
  * truncated id so a full bech32 string never overruns a narrow row. Shared by the
