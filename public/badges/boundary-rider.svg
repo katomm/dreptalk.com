@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <!-- hard split: the epoch boundary itself is the background -->
+    <linearGradient id="br-bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0.5" stop-color="#6d28d9"/>
+      <stop offset="0.5" stop-color="#0d9488"/>
+    </linearGradient>
+    <clipPath id="br-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#1e1b4b" stroke="#1e1b4b" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#br-bg)" stroke="url(#br-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#br-clip)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- hourglass straddling the boundary, drop shade first -->
+  <g fill="#1e1b4b" transform="translate(0 3)">
+    <rect x="44" y="32" width="32" height="5" rx="2.5"/>
+    <path d="M48 37 L72 37 L60 60 Z"/>
+    <path d="M48 83 L72 83 L60 60 Z"/>
+    <rect x="44" y="83" width="32" height="5" rx="2.5"/>
+  </g>
+  <rect x="44" y="32" width="32" height="5" rx="2.5" fill="#ffffff"/>
+  <path d="M48 37 L72 37 L60 60 Z" fill="#ffffff"/>
+  <path d="M48 83 L72 83 L60 60 Z" fill="#ffffff"/>
+  <rect x="44" y="83" width="32" height="5" rx="2.5" fill="#ffffff"/>
+  <path d="M54 80 L66 80 L60 70 Z" fill="#fbbf24"/>
+  <!-- sparkles -->
+  <path d="M34 50 L36.6 55 L34 60 L31.4 55 Z" fill="#ddd6fe" opacity="0.9"/>
+  <path d="M87 56 L89.2 60 L87 64 L84.8 60 Z" fill="#99f6e4" opacity="0.8"/>
+</svg>

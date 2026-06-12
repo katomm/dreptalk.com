@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="en-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+    <clipPath id="en-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#164e63" stroke="#164e63" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#en-bg)" stroke="url(#en-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#en-clip)" fill="#ffffff" opacity="0.08">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- gavel making it official, drop shade first -->
+  <g transform="translate(0 3)">
+    <path d="M42 84 L64 58" fill="none" stroke="#155e75" stroke-width="7" stroke-linecap="round"/>
+    <rect x="59" y="38" width="26" height="16" rx="4" fill="#155e75" transform="rotate(40 72 46)"/>
+  </g>
+  <path d="M42 84 L64 58" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/>
+  <rect x="59" y="38" width="26" height="16" rx="4" fill="#ffffff" transform="rotate(40 72 46)"/>
+  <rect x="62" y="80" width="26" height="6" rx="3" fill="#a5f3fc"/>
+  <!-- impact marks -->
+  <path d="M52 36 L48 31" fill="none" stroke="#cffafe" stroke-width="3" stroke-linecap="round"/>
+  <path d="M59 31 L57 25" fill="none" stroke="#cffafe" stroke-width="3" stroke-linecap="round"/>
+  <!-- sparkles -->
+  <path d="M33 52 L35.6 57 L33 62 L30.4 57 Z" fill="#cffafe" opacity="0.9"/>
+  <path d="M89 62 L91.2 66 L89 70 L86.8 66 Z" fill="#cffafe" opacity="0.7"/>
+</svg>

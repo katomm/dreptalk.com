@@ -1,0 +1,79 @@
+---
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import BadgeTile from '@/components/BadgeTile.astro';
+import {
+  BADGES,
+  BADGE_CATEGORY_LABELS,
+  type BadgeCategory,
+  badgeImagePath,
+  MYSTERY_BADGE_IMAGE,
+} from '../../config/badges.js';
+import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
+
+// Public badge index; holder counts change at most hourly, cache at the edge.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+
+const db = env.DB as D1Database | undefined;
+const holders = db ? await getBadgeHolderCounts(db) : new Map<string, number>();
+
+const categories = Object.keys(BADGE_CATEGORY_LABELS) as BadgeCategory[];
+const visibleByCategory = categories
+  .map((c) => ({ category: c, badges: BADGES.filter((b) => b.category === c && !b.hidden) }))
+  .filter((g) => g.badges.length > 0);
+const hidden = BADGES.filter((b) => b.hidden);
+
+const earnedLabel = (id: string) => {
+  const n = holders.get(id) ?? 0;
+  return n === 1 ? 'earned once' : `earned by ${n}`;
+};
+const grid = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1.5rem 1rem;';
+---
+
+<Layout
+  title="Badges - DRepTalk"
+  description="Achievement badges for governance participation: voting, explaining votes, and discussing where the votes happen."
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Badges</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.5rem;">Badges</h1>
+  <p style="color:var(--muted);max-width:60ch;line-height:1.6;">
+    Badges recognize governance participation: voting, explaining votes, and discussing
+    where the votes happen. They are earned automatically and never expire.
+    <a href="/help/badges">How badges work</a>.
+  </p>
+
+  {visibleByCategory.map((group) => (
+    <section style="margin-top:2.5rem;">
+      <h2 style="font-size:1.125rem;">{BADGE_CATEGORY_LABELS[group.category]}</h2>
+      <div style={grid}>
+        {group.badges.map((b) => (
+          <BadgeTile
+            name={b.name}
+            image={badgeImagePath(b.id)}
+            description={`${b.description} ${earnedLabel(b.id)}.`}
+          />
+        ))}
+      </div>
+    </section>
+  ))}
+
+  <section style="margin-top:2.5rem;">
+    <h2 style="font-size:1.125rem;">Hidden badges</h2>
+    <p style="color:var(--muted);max-width:60ch;line-height:1.6;">
+      {hidden.length} badges only reveal themselves when earned. Their names and
+      criteria stay secret until then.
+    </p>
+    <div style={grid}>
+      {hidden.map((b) => (
+        <BadgeTile name="???" image={MYSTERY_BADGE_IMAGE} earned={false} description={`${earnedLabel(b.id)}.`} />
+      ))}
+    </div>
+  </section>
+</Layout>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <!-- placeholder card for hidden badges: desaturated, no rays, no sparkles -->
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#b6b3c2" stroke="#b6b3c2" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="#d6d3e0" stroke="#d6d3e0" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M48 47 C 48 36 72 36 72 47 C 72 56 61 55 61 64"
+        fill="none" stroke="#8f8b9e" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="61" cy="77" r="4.5" fill="#8f8b9e"/>
+</svg>

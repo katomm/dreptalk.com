@@ -1,0 +1,42 @@
+<!-- generated from the base badge by scripts/generate-badge-variants.mjs -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="sad-bg-b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8f4f1d"/>
+      <stop offset="1" stop-color="#e3b483"/>
+    </linearGradient>
+    <clipPath id="sad-clip-b">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#451a03" stroke="#451a03" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#sad-bg-b)" stroke="url(#sad-bg-b)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#sad-clip-b)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- speech bubble, drop shade first -->
+  <rect x="26" y="29" width="54" height="38" rx="13" fill="#451a03"/>
+  <path d="M36 63 L36 81 L52 65 Z" fill="#451a03"/>
+  <rect x="26" y="26" width="54" height="38" rx="13" fill="#ffffff"/>
+  <path d="M36 60 L36 78 L52 62 Z" fill="#ffffff"/>
+  <circle cx="41" cy="45" r="4.5" fill="#6b3410"/>
+  <circle cx="53" cy="45" r="4.5" fill="#6b3410"/>
+  <circle cx="65" cy="45" r="4.5" fill="#6b3410"/>
+  <!-- on-chain check seal with shaded lower half and white ring -->
+  <circle cx="74" cy="72" r="20" fill="#451a03"/>
+  <circle cx="74" cy="69" r="20" fill="#f3d9b9"/>
+  <path d="M54 69 A20 20 0 0 0 94 69 Z" fill="#cd8f52"/>
+  <circle cx="74" cy="69" r="20" fill="none" stroke="#ffffff" stroke-width="5"/>
+  <path d="M64.5 69.5 L72 77 L85 61.5" fill="none" stroke="#ffffff"
+        stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- sparkles -->
+  <path d="M86 33.5 L88.6 38.5 L86 43.5 L83.4 38.5 Z" fill="#ffffff" opacity="0.85"/>
+  <path d="M34 78 L36.2 82 L34 86 L31.8 82 Z" fill="#ffffff" opacity="0.7"/>
+</svg>

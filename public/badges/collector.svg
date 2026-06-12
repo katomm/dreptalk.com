@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="cl-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d946ef"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <clipPath id="cl-clip">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#4a044e" stroke="#4a044e" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#cl-bg)" stroke="url(#cl-bg)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#cl-clip)" fill="#ffffff" opacity="0.08">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- badges collecting badges, drop shade first -->
+  <g fill="#701a75" transform="translate(0 3)">
+    <polygon points="46,39 38.2,43.5 38.2,52.5 46,57 53.8,52.5 53.8,43.5"/>
+    <polygon points="74,39 66.2,43.5 66.2,52.5 74,57 81.8,52.5 81.8,43.5"/>
+    <polygon points="60,63 52.2,67.5 52.2,76.5 60,81 67.8,76.5 67.8,67.5"/>
+  </g>
+  <polygon points="46,39 38.2,43.5 38.2,52.5 46,57 53.8,52.5 53.8,43.5"
+           fill="#8b5cf6" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+  <polygon points="74,39 66.2,43.5 66.2,52.5 74,57 81.8,52.5 81.8,43.5"
+           fill="#3b82f6" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+  <polygon points="60,63 52.2,67.5 52.2,76.5 60,81 67.8,76.5 67.8,67.5"
+           fill="#0d9488" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- sparkles -->
+  <path d="M33 64 L35.6 69 L33 74 L30.4 69 Z" fill="#f5d0fe" opacity="0.9"/>
+  <path d="M87 64 L89.2 68 L87 72 L84.8 68 Z" fill="#f5d0fe" opacity="0.7"/>
+  <path d="M60 28 L62.2 32 L60 36 L57.8 32 Z" fill="#f5d0fe" opacity="0.8"/>
+</svg>

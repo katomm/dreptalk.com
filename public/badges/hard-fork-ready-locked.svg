@@ -1,0 +1,41 @@
+<!-- generated from the base badge by scripts/generate-badge-variants.mjs -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <!-- same fork glyph as the DRep badge, SPO blue family -->
+    <linearGradient id="hfr-bg-l" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e4e2ec"/>
+      <stop offset="1" stop-color="#c6c3d1"/>
+    </linearGradient>
+    <clipPath id="hfr-clip-l">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#8f8b9e" stroke="#8f8b9e" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#hfr-bg-l)" stroke="url(#hfr-bg-l)" stroke-width="8" stroke-linejoin="round"/>
+  <g clip-path="url(#hfr-clip-l)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <g fill="none" stroke="#b6b3c2" stroke-width="7" stroke-linecap="round" transform="translate(0 3)">
+    <path d="M60 88 L60 66"/>
+    <path d="M60 66 C60 54 46 54 46 42"/>
+    <path d="M60 66 C60 54 74 54 74 42"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round">
+    <path d="M60 88 L60 66"/>
+    <path d="M60 66 C60 54 46 54 46 42"/>
+    <path d="M60 66 C60 54 74 54 74 42"/>
+  </g>
+  <path d="M46 28 L39 40 L53 40 Z" fill="#ffffff"/>
+  <path d="M74 28 L67 40 L81 40 Z" fill="#ffffff"/>
+  <circle cx="60" cy="88" r="6" fill="#ffffff"/>
+  <!-- sparkles -->
+  <path d="M86 60 L88.6 65 L86 70 L83.4 65 Z" fill="#f1eff6" opacity="0.9"/>
+  <path d="M34 56 L36.2 60 L34 64 L31.8 60 Z" fill="#f1eff6" opacity="0.7"/>
+</svg>

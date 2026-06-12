@@ -1,0 +1,40 @@
+<!-- generated from the base badge by scripts/generate-badge-variants.mjs -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="stw-bg-l" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c6c3d1"/>
+      <stop offset="1" stop-color="#c6c3d1"/>
+    </linearGradient>
+    <clipPath id="stw-clip-l">
+      <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"/>
+    </clipPath>
+  </defs>
+  <!-- thick rim, then the badge face on top -->
+  <polygon points="60,8 14.97,34 14.97,86 60,112 105.03,86 105.03,34"
+           fill="#b6b3c2" stroke="#b6b3c2" stroke-width="10" stroke-linejoin="round"/>
+  <polygon points="60,17 22.76,38.5 22.76,81.5 60,103 97.24,81.5 97.24,38.5"
+           fill="url(#stw-bg-l)" stroke="url(#stw-bg-l)" stroke-width="8" stroke-linejoin="round"/>
+  <!-- celebratory ray burst behind the glyph -->
+  <g clip-path="url(#stw-clip-l)" fill="#ffffff" opacity="0.07">
+    <path d="M60 60 L80.7 -17.3 L39.3 -17.3 Z"/>
+    <path d="M60 60 L3.4 3.4 L-17.3 39.3 Z"/>
+    <path d="M60 60 L-17.3 80.7 L3.4 116.6 Z"/>
+    <path d="M60 60 L39.3 137.3 L80.7 137.3 Z"/>
+    <path d="M60 60 L116.6 116.6 L137.3 80.7 Z"/>
+    <path d="M60 60 L137.3 39.3 L116.6 3.4 Z"/>
+  </g>
+  <!-- ballot paper with a solid drop shade for depth -->
+  <rect x="36" y="35" width="42" height="54" rx="6" fill="#9d99ad"/>
+  <rect x="36" y="32" width="42" height="54" rx="6" fill="#ffffff"/>
+  <rect x="43" y="42" width="26" height="5.5" rx="2.75" fill="#c6c3d1"/>
+  <rect x="43" y="53" width="26" height="5.5" rx="2.75" fill="#c6c3d1"/>
+  <rect x="43" y="64" width="15" height="5.5" rx="2.75" fill="#e4e2ec"/>
+  <!-- pen writing the unfinished line, with a light grip band -->
+  <path d="M83.36 37.86 L91.14 45.64 L70.55 66.23 L61 68 L62.77 58.45 Z"
+        fill="#8f8b9e" stroke="#8f8b9e" stroke-width="2" stroke-linejoin="round"/>
+  <line x1="86.9" y1="49.88" x2="79.12" y2="42.1" stroke="#d6d3e0" stroke-width="4"/>
+  <line x1="61" y1="68" x2="65.6" y2="63.4" stroke="#e4e2ec" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- sparkles -->
+  <path d="M88 71.5 L91 77 L88 82.5 L85 77 Z" fill="#f1eff6" opacity="0.9"/>
+  <path d="M29 45 L31.2 49 L29 53 L26.8 49 Z" fill="#f1eff6" opacity="0.7"/>
+</svg>

@@ -1,0 +1,98 @@
+---
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import BadgeTile from '@/components/BadgeTile.astro';
+import { getDrepById } from '@/lib/db/dreps.js';
+import { getUserByDrepId } from '@/lib/db/users.js';
+import { MYSTERY_BADGE_IMAGE } from '../../../../config/badges.js';
+import { buildDrepBadgeGallery } from '@/lib/badges/gallery.js';
+import { cacheControlForSynced, truncateId } from '@/lib/forum/view.js';
+
+const { drepId } = Astro.params;
+const db = env.DB as D1Database | undefined;
+
+const drep = drepId && db ? await getDrepById(db, drepId) : null;
+
+if (!drep) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
+const gallery = drep && db ? await buildDrepBadgeGallery(db, drep.drepId, drepUser?.id ?? null) : null;
+
+if (drep) {
+  Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+}
+
+const displayName = drep?.name ?? (drep ? truncateId(drep.drepId, 18) : '');
+// Always noindex: the indexable content lives on the profile and on /badges;
+// per-DRep galleries would only add thin near-duplicate pages.
+const grid = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:1.25rem 1rem;';
+---
+
+{!drep || !gallery ? (
+  <NotFound noun="DRep" />
+) : (
+  <Layout title={`Badges of ${displayName} - DRepTalk`} description={`Achievement badges earned by ${displayName} on DRepTalk.`} noindex={true}>
+    <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+      <a href="/">DRepTalk</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <a href="/dreps">DReps</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <a href={`/dreps/${drep.drepId}`}>{displayName}</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <span>Badges</span>
+    </nav>
+
+    <h1 style="margin:0 0 0.25rem;">Badges</h1>
+    <p style="color:var(--muted);margin:0 0 1.5rem;">
+      {gallery.earned.length} earned · <a href="/help/badges">how badges work</a>
+    </p>
+
+    {gallery.earned.length > 0 && (
+      <section style="margin-bottom:2.5rem;">
+        <h2 style="font-size:1.125rem;">Earned <span style="color:var(--muted);font-weight:400;">({gallery.earned.length})</span></h2>
+        <p style="color:var(--muted);font-size:0.9375rem;max-width:60ch;">
+          Earned automatically from on-chain and forum activity, newest first.
+        </p>
+        <div style={grid}>
+          {gallery.earned.map((t) => (
+            <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} progress={t.progress} />
+          ))}
+        </div>
+      </section>
+    )}
+
+    {gallery.inProgress.length > 0 && (
+      <section style="margin-bottom:2.5rem;">
+        <h2 style="font-size:1.125rem;">In progress <span style="color:var(--muted);font-weight:400;">({gallery.inProgress.length})</span></h2>
+        <p style="color:var(--muted);font-size:0.9375rem;max-width:60ch;">
+          Not earned yet. Bars show live progress toward the next milestone.
+        </p>
+        <div style={grid}>
+          {gallery.inProgress.map((t) => (
+            <BadgeTile name={t.badge.name} image={t.image} earned={false} progress={t.progress} />
+          ))}
+        </div>
+      </section>
+    )}
+
+    {gallery.hiddenLockedCount > 0 && (
+      <section style="margin-bottom:2.5rem;">
+        <h2 style="font-size:1.125rem;">Hidden <span style="color:var(--muted);font-weight:400;">({gallery.hiddenLockedCount})</span></h2>
+        <p style="color:var(--muted);font-size:0.9375rem;max-width:60ch;">
+          Some badges only reveal themselves when earned.
+        </p>
+        <div style={grid}>
+          {Array.from({ length: gallery.hiddenLockedCount }).map(() => (
+            <BadgeTile name="???" image={MYSTERY_BADGE_IMAGE} earned={false} />
+          ))}
+        </div>
+      </section>
+    )}
+  </Layout>
+)}
