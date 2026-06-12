@@ -15,6 +15,7 @@
 // ship the heavy tx bundle on first load.
 import { useEffect, useRef, useState } from 'react';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import WalletPicker from '@/components/WalletPicker.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import type { WalletApi } from '@/lib/governance/drepTx.js';
@@ -323,21 +324,12 @@ function DelegateDialog({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
                 {(phase.status === 'idle' || phase.status === 'connecting' || phase.status === 'error') && (
                   <>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                      <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Wallet</span>
-                      <select
-                        value={selected}
-                        onChange={(e) => setSelected(e.target.value)}
-                        disabled={busy}
-                        className="drep-dialog__select"
-                      >
-                        {wallets.map((w) => (
-                          <option key={w.key} value={w.key}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <WalletPicker
+                      wallets={wallets}
+                      selected={selected}
+                      onSelect={setSelected}
+                      disabled={busy}
+                    />
                     <button
                       type="button"
                       className="btn btn-primary"

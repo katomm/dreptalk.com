@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
+import WalletPicker from '@/components/WalletPicker.js';
 import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 
@@ -142,29 +143,12 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {/* Wallet picker */}
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Wallet</span>
-              <select
-                value={selectedWallet}
-                onChange={(e) => setSelectedWallet(e.target.value)}
-                disabled={busy}
-                style={{
-                  padding: '0.5rem',
-                  border: '1px solid var(--border)',
-                  borderRadius: '0.375rem',
-                  background: 'var(--bg)',
-                  color: 'var(--fg)',
-                  fontSize: '1rem',
-                }}
-              >
-                {wallets.map((w) => (
-                  <option key={w.key} value={w.key}>
-                    {w.name}
-                    {w.supportsCip95 ? ' (CIP-95)' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <WalletPicker
+              wallets={wallets}
+              selected={selectedWallet}
+              onSelect={setSelectedWallet}
+              disabled={busy}
+            />
 
             {/* Role toggle */}
             <fieldset

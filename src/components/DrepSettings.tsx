@@ -19,6 +19,7 @@ import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { parseLinks } from '@/components/DRepService.js';
 import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
 import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+import WalletPicker from '@/components/WalletPicker.js';
 
 // Same enabled-api shape as DRepService: CIP-30 tx surface plus the cip95
 // reader for the DRep key and getNetworkId for the network guard.
@@ -254,22 +255,12 @@ export default function DrepSettings({
 
   return (
     <div style={{ maxWidth: '32rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-        <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Wallet</span>
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          disabled={busy}
-          style={{ ...inputStyle, padding: '0.5rem' }}
-        >
-          {wallets.map((w) => (
-            <option key={w.key} value={w.key}>
-              {w.name}
-              {w.supportsCip95 ? ' (CIP-95)' : ''}
-            </option>
-          ))}
-        </select>
-      </label>
+      <WalletPicker
+        wallets={wallets}
+        selected={selected}
+        onSelect={setSelected}
+        disabled={busy}
+      />
 
       <form
         onSubmit={(e) => {
