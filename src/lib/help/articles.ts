@@ -15,7 +15,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
   {
     href: '/help/managing-your-drep',
     title: 'Managing your DRep',
-    text: 'How to register as a DRep, set up or update your on-chain metadata (name, bio, links, image) from Settings, and deregister. What costs a deposit, what only costs a fee.',
+    text: 'How to register as a DRep, change your on-chain metadata (name, bio, links, image) from Settings, and deregister to get your 500 ADA deposit back. What costs a deposit, what only costs a fee.',
   },
   {
     href: '/help/data-freshness',
