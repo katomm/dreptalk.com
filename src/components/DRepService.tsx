@@ -16,6 +16,7 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
+import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
 
 // The enabled wallet api is the CIP-30 surface plus the optional CIP-95
 // extension namespace. We intersect the structural Tx api (used by
@@ -77,6 +78,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
   const [links, setLinks] = useState('');
+  const [image, setImage] = useState<HostedImage | null>(null);
 
   // Step 1 + 2 + 3: connect, derive the DRep identity, check current status.
   async function handleConnect() {
@@ -199,6 +201,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           name: trimmedName,
           bio: bio.trim(),
           links: parseLinks(links),
+          ...(image ? { image } : {}),
         }),
       });
       if (!metaRes.ok) {
@@ -452,6 +455,11 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
                   disabled={busy}
                   style={inputStyle}
                 />
+              </div>
+
+              <div>
+                <span style={labelStyle}>Profile image (optional)</span>
+                <DrepImageUpload value={image} onChange={setImage} disabled={busy} />
               </div>
 
               <div>
