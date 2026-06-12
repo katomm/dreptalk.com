@@ -338,7 +338,7 @@ describe('getActionsNeedingMetaReextract', () => {
     // No anchor: must be excluded regardless of meta_version.
     const noAnchor = await insertAction({ anchorUrl: null, anchorHash: null, metaVersion: 0 });
 
-    const candidates = await getActionsNeedingMetaReextract(db(), 1, 100);
+    const candidates = await getActionsNeedingMetaReextract(db(), 1, 100, 10);
     const ids = candidates.map((c) => c.id);
     expect(ids).toContain(stale.id);
     expect(ids).not.toContain(current.id);
@@ -350,7 +350,7 @@ describe('getActionsNeedingMetaReextract', () => {
     await insertAction({ anchorUrl: 'https://example.com/x1.json', anchorHash: 'h1', metaVersion: 0 });
     await insertAction({ anchorUrl: 'https://example.com/x2.json', anchorHash: 'h2', metaVersion: 0 });
 
-    const one = await getActionsNeedingMetaReextract(db(), 1, 1);
+    const one = await getActionsNeedingMetaReextract(db(), 1, 1, 10);
     expect(one.length).toBe(1);
   });
 
@@ -358,12 +358,24 @@ describe('getActionsNeedingMetaReextract', () => {
     await insertAction({ anchorUrl: 'https://example.com/y.json', anchorHash: 'hh', metaVersion: 1 });
     await insertAction({ anchorUrl: null, anchorHash: null, metaVersion: 0 });
 
-    const candidates = await getActionsNeedingMetaReextract(db(), 1, 100);
+    const candidates = await getActionsNeedingMetaReextract(db(), 1, 100, 10);
     // Any rows from this test iteration are already current or anchor-less.
     for (const c of candidates) {
       expect(c.metaVersion).toBeLessThan(1);
       expect(c.anchorUrl).not.toBeNull();
     }
+  });
+
+  it('excludes rows whose meta_attempts reached the give-up cap', async () => {
+    const live = await insertAction({ anchorUrl: 'https://example.com/live.json', anchorHash: 'aa', metaVersion: 0 });
+    const giveUp = await insertAction({ anchorUrl: 'https://example.com/dead.json', anchorHash: 'bb', metaVersion: 0 });
+    // Push the second row to the cap so the backfill should give up on it.
+    await db().prepare('UPDATE governance_actions SET meta_attempts = ? WHERE id = ?').bind(10, giveUp.id).run();
+
+    const candidates = await getActionsNeedingMetaReextract(db(), 1, 100, 10);
+    const ids = candidates.map((c) => c.id);
+    expect(ids).toContain(live.id);
+    expect(ids).not.toContain(giveUp.id);
   });
 });
 

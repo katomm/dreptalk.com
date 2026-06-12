@@ -31,6 +31,17 @@ export const ANCHOR_FETCH_TIMEOUT_MS = 8_000;
  * their title backfilled.
  */
 export const META_EXTRACT_VERSION = 2;
+
+/**
+ * How many times the metadata backfill may fail to fetch or verify an action's
+ * anchor before it gives up and stops re-attempting that row. At the 15-minute
+ * governance cadence this is ~2.5 hours of continuous failure, well past any
+ * transient outage, so only a permanently dead or hash-mismatched anchor is
+ * abandoned. Giving up keeps the governance sync from being pinned at 'partial'
+ * forever and saves a wasted anchor fetch per run. A successful extract resets
+ * the counter (see updateActionMetadata).
+ */
+export const META_REEXTRACT_MAX_ATTEMPTS = 10;
 const MAX_TITLE_LEN = 300;
 const MAX_ABSTRACT_LEN = 1_000;
 const MAX_RATIONALE_LEN = 20_000;
