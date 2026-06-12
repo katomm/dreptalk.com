@@ -1,0 +1,82 @@
+---
+// Account settings. Session-gated; the DRep section prefills from the synced
+// dreps row so a DRep can update stale on-chain metadata or set it up for the
+// first time. All on-chain actions live in the DrepSettings island and are
+// non-custodial.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import DrepSettings from '@/components/DrepSettings.tsx';
+import { roleLabels } from '@/lib/auth/roles';
+import { truncateId } from '@/lib/forum/view';
+import { currentNetwork, runtimeEnv } from '@/lib/api/response';
+import { getUserById } from '@/lib/db/users';
+import { getDrepById } from '@/lib/db/dreps';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+const network = currentNetwork().network;
+
+const dbUser = db ? await getUserById(db, user.id) : null;
+const drepId = user.roles.includes('drep') ? (dbUser?.drep_id ?? null) : null;
+const drep = drepId && db ? await getDrepById(db, drepId) : null;
+
+// Prefill: synced on-chain metadata when available, empty form otherwise
+// (covers DReps without any metadata yet). Links flatten to one URL per line.
+const initialName = drep?.name ?? '';
+const initialBio = drep?.bio ?? '';
+const initialLinks = (drep?.links ?? []).map((l) => l.uri).join('\n');
+const initialImage = drep?.imageUrl
+  ? { url: drep.imageUrl, ...(drep.imageContentHash ? { sha256: drep.imageContentHash } : {}) }
+  : null;
+---
+<Layout
+  title="Settings - DRepTalk"
+  description="Manage your DRepTalk account and, for DReps, your on-chain profile metadata."
+>
+  <h1 style="margin:0 0 0.5rem;">Settings</h1>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.5rem;font-size:1.0625rem;">Account</h2>
+    <p style="margin:0;font-size:0.9375rem;color:var(--muted);">
+      Signed in as
+      <span
+        style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"
+        title={drepId ?? user.id}
+      >{truncateId(drepId ?? user.id, 28)}</span>
+      ({roleLabels(user.roles).join(', ')})
+    </p>
+  </section>
+
+  {drepId ? (
+    <section style="margin-top:2rem;">
+      <h2 style="margin:0 0 0.5rem;font-size:1.0625rem;">DRep profile (on-chain)</h2>
+      <p style="margin:0 0 1rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+        This edits the CIP-119 metadata stored on the Cardano chain, the same
+        profile wallets and explorers show. See
+        <a href="/help/managing-your-drep">managing your DRep</a> for details.
+      </p>
+      <DrepSettings
+        network={network}
+        expectedDrepId={drepId}
+        initialName={initialName}
+        initialBio={initialBio}
+        initialLinks={initialLinks}
+        initialImage={initialImage}
+        client:load
+      />
+    </section>
+  ) : (
+    <section style="margin-top:2rem;">
+      <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
+        Settings specific to your role are not available yet. They will appear
+        here as they are added.
+      </p>
+    </section>
+  )}
+</Layout>
