@@ -6,7 +6,7 @@
 // (unreg_drep, deposit refund). The wallet signs and submits; the server only
 // hosts the metadata document and proxies Koios.
 import { useState, useRef } from 'react';
-import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { updateDRepMetadata, retireDRep } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
@@ -127,6 +127,9 @@ export default function DrepSettings({
       });
       return null;
     }
+
+    // The right wallet for this DRep: remember it as the future default.
+    rememberWallet(selected);
 
     return { api, drepKeyHash };
   }

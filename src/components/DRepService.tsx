@@ -6,7 +6,7 @@
 // (see registerDRep). The only server calls here are reading public chain data
 // via the Koios proxy and hosting the metadata document.
 import { useState, useRef } from 'react';
-import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { registerDRep, retireDRep } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
@@ -123,6 +123,9 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
     // Store the enabled api for reuse in the submit step; avoids a second
     // enable() IPC call when the user submits the registration form.
     enabledApiRef.current = api;
+
+    // Successful CIP-95 connect: remember the wallet as the future default.
+    rememberWallet(selected);
 
     // Derive the DRep key hash (28-byte blake2b-224) and the CIP-129 drep1 id.
     // Compute the hash once and derive the id from the same bytes via

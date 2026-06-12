@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
-import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 
@@ -99,6 +99,8 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
     const result = await loginWithWallet(api, role, network);
 
     if (result.ok && result.user) {
+      // Remember the wallet so registration and settings preselect it later.
+      rememberWallet(selectedWallet);
       setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });
       // Navigate to the discussions feed; the full page load lets the SSR header
       // pick up the new session cookie and render the signed-in state.

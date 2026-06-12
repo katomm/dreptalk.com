@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { listCardanoWallets } from './useCardanoWallets.js';
+import { listCardanoWallets, chooseSelectedWallet } from './useCardanoWallets.js';
 
 // Minimal stub that matches the CIP-30 shape expected by listCardanoWallets.
 const fakeCardano = {
@@ -88,5 +88,29 @@ describe('listCardanoWallets', () => {
     const result = listCardanoWallets(fakeCardano);
     const lace = result.find((w) => w.key === 'lace')!;
     expect(lace.raw).toBe(fakeCardano.lace);
+  });
+});
+
+describe('chooseSelectedWallet', () => {
+  const found = (...keys: string[]) => keys.map((key) => ({ key }) as { key: string });
+
+  it('keeps the current pick when it is still available', () => {
+    expect(chooseSelectedWallet('eternl', 'lace', found('lace', 'eternl'))).toBe('eternl');
+  });
+
+  it('prefers the remembered wallet over the first one when nothing is picked', () => {
+    expect(chooseSelectedWallet('', 'eternl', found('lace', 'eternl'))).toBe('eternl');
+  });
+
+  it('falls back to the first wallet when the remembered one is gone', () => {
+    expect(chooseSelectedWallet('', 'typhon', found('lace', 'eternl'))).toBe('lace');
+  });
+
+  it('falls back to the first wallet when nothing is remembered', () => {
+    expect(chooseSelectedWallet('', null, found('lace', 'eternl'))).toBe('lace');
+  });
+
+  it('returns empty when no wallets are found', () => {
+    expect(chooseSelectedWallet('', 'lace', [])).toBe('');
   });
 });
