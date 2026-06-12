@@ -10,6 +10,17 @@ export function drepPath(d: { drepId: string; slug?: string | null }): string {
 }
 
 /**
+ * True when the requested path segment already is the canonical one for this
+ * DRep; the profile routes 301 to drepPath() otherwise.
+ */
+export function isCanonicalDrepParam(
+  d: { drepId: string; slug?: string | null },
+  param: string,
+): boolean {
+  return param === (d.slug ?? d.drepId);
+}
+
+/**
  * SEO quality-gate: a profile is indexable only when it carries real content,
  * so thousands of empty profiles do not become thin/duplicate pages. Thin
  * profiles stay reachable but are emitted noindex.

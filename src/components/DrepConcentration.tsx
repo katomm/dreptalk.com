@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Concentration } from '@/lib/dreps/concentration.js';
 import { coalitionAt, snapThreshold, buildSegments, summarySentence, type DonutSegment } from '@/lib/dreps/concentrationView.js';
 import { truncateId } from '@/lib/forum/view.js';
+import { drepPath } from '@/lib/drep/profile.js';
 
 // A DRep voting threshold and the governance actions it gates. Several actions
 // can share one threshold percent (they are grouped server-side).
@@ -165,7 +166,7 @@ export default function DrepConcentration(props: Props) {
           {topK.map((t, i) => (
             <li key={t.drepId} className="drep-conc__legend-item">
               <span className="drep-conc__swatch" style={{ background: topTone(i) }} aria-hidden="true" />
-              <a href={`/dreps/${t.slug ?? t.drepId}`} className="drep-conc__legend-name">{t.name ?? truncateId(t.drepId)}</a>
+              <a href={drepPath(t)} className="drep-conc__legend-name">{t.name ?? truncateId(t.drepId)}</a>
               <span className="drep-conc__legend-pct">{t.pct.toFixed(1)}%</span>
             </li>
           ))}

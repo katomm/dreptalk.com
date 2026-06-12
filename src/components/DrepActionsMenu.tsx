@@ -20,6 +20,7 @@ import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import type { WalletApi } from '@/lib/governance/drepTx.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
+import { drepPath } from '@/lib/drep/profile.js';
 
 // The enabled CIP-30 surface we use here: the tx WalletApi plus getNetworkId,
 // which the network guard reads (enable() returns the full object at runtime).
@@ -128,7 +129,7 @@ export default function DrepActionsMenu({ network = 'preprod' }: Props) {
               <span className="drep-menu__hint">unavailable</span>
             )}
           </button>
-          <a role="menuitem" className="drep-menu__item" href={`/dreps/${menu.target.slug ?? menu.target.drepId}`}>
+          <a role="menuitem" className="drep-menu__item" href={drepPath(menu.target)}>
             View profile
           </a>
           <button

@@ -3,6 +3,7 @@
 // All queries are parameterized; the MATCH string itself is built by
 // lib/search/match.ts (never raw user input) and bound as a parameter.
 import { decodeBech32 } from '../crypto/bech32.js';
+import { drepPath } from '../drep/profile.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
 
 export interface ExactHit {
@@ -103,7 +104,7 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
     .bind(ident.drepId)
     .first<{ drep_id: string; name: string | null; slug: string | null }>();
   if (direct) {
-    return { kind: 'drep', href: `/dreps/${direct.slug ?? direct.drep_id}`, label: direct.name ?? direct.drep_id };
+    return { kind: 'drep', href: drepPath({ drepId: direct.drep_id, slug: direct.slug }), label: direct.name ?? direct.drep_id };
   }
 
   // The pasted id may be the other bech32 flavor (CIP-105 vs CIP-129) of a
@@ -132,7 +133,7 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
     .bind(hex)
     .first<{ drep_id: string; name: string | null; slug: string | null }>();
   if (!byHex) return null;
-  return { kind: 'drep', href: `/dreps/${byHex.slug ?? byHex.drep_id}`, label: byHex.name ?? byHex.drep_id };
+  return { kind: 'drep', href: drepPath({ drepId: byHex.drep_id, slug: byHex.slug }), label: byHex.name ?? byHex.drep_id };
 }
 
 interface GaRow {
@@ -289,7 +290,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
   }
 
   const dreps: DrepHit[] = drepRows.map((d) => ({
-    href: `/dreps/${d.slug ?? d.drep_id}`,
+    href: drepPath({ drepId: d.drep_id, slug: d.slug }),
     drepId: d.drep_id,
     name: d.name,
     status: d.status,

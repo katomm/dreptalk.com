@@ -17,7 +17,7 @@ import {
 import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
-import { isIndexableProfile, influencePct, drepPath } from '@/lib/drep/profile.js';
+import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam } from '@/lib/drep/profile.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import {
   cacheControlForSynced, formatAda, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN,
@@ -30,7 +30,7 @@ const drep = drepId && db ? await getDrepByIdOrSlug(db, drepId) : null;
 
 // A slugged profile has exactly one canonical URL: requests for the raw id
 // redirect permanently so links, crawlers, and caches converge on the slug.
-if (drep && drepId !== (drep.slug ?? drep.drepId)) {
+if (drep && drepId && !isCanonicalDrepParam(drep, drepId)) {
   return Astro.redirect(drepPath(drep), 301);
 }
 
