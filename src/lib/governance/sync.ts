@@ -6,13 +6,14 @@
 import type { ProposalListRow } from '../koios/client.js';
 import { governanceActionUrl, epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
 import { readableType, formatAda } from './view.js';
-import { fetchAnchorMetadata, META_EXTRACT_VERSION } from './metadata.js';
+import { fetchAnchorMetadata, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
 import { createTopic, setTopicPostedAt, getAllTopicsByCategory } from '../db/forum.js';
 import {
   getKnownActionIds,
   buildInsertGovernanceAction,
   getActionsNeedingMetaReextract,
+  incrementActionMetaAttempts,
   updateActionMetadata,
   getGovTopicsForSubmittedAtBackfill,
   getAllGovernanceActions,
@@ -169,14 +170,16 @@ export interface MetaBackfillDeps {
  * Bump META_EXTRACT_VERSION in metadata.ts to trigger a new backfill pass.
  *
  * Behavior on failure: if the anchor is unreachable or fails verification, the
- * row is left untouched (meta_version stays at its old value) so the next run
- * retries. If the anchor fetches and parses successfully but contains no
+ * row's meta_version stays at its old value so the next run retries, and its
+ * meta_attempts counter is bumped. Once a row reaches META_REEXTRACT_MAX_ATTEMPTS
+ * failures it drops out of the candidate query (a permanently dead anchor stops
+ * being retried). If the anchor fetches and parses successfully but contains no
  * rationale/abstract, that is a valid empty extraction: meta_version IS bumped
  * (the row is now current, just empty).
  */
 export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<MetaBackfillResult> {
   const { db, fetchImpl, limit } = deps;
-  const candidates = await getActionsNeedingMetaReextract(db, META_EXTRACT_VERSION, limit);
+  const candidates = await getActionsNeedingMetaReextract(db, META_EXTRACT_VERSION, limit, META_REEXTRACT_MAX_ATTEMPTS);
   let updated = 0;
   let failed = 0;
 
@@ -184,14 +187,17 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
     // anchor_url is guaranteed non-null by the DB query, but guard the type.
     if (!ga.anchorUrl || !ga.anchorHash) {
       failed++;
+      await incrementActionMetaAttempts(db, ga.id);
       continue;
     }
     try {
       const result = await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl });
       if (result.status !== 'ok') {
         // Anchor unreachable or failed integrity check: do not bump version,
-        // leave the row for the next run to retry.
+        // count the failed attempt, and leave the row for the next run to retry
+        // (until it exhausts its attempt budget and is given up on).
         failed++;
+        await incrementActionMetaAttempts(db, ga.id);
         continue;
       }
       // Successful fetch (even when the doc has no rationale): bump version.
@@ -204,6 +210,7 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
       updated++;
     } catch {
       failed++;
+      await incrementActionMetaAttempts(db, ga.id);
     }
   }
 

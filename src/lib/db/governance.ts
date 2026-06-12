@@ -438,23 +438,37 @@ export async function updateVotedPower(db: D1Database, id: string, votedPower: n
   await db.prepare('UPDATE governance_actions SET drep_voted_power = ? WHERE id = ?').bind(votedPower, id).run();
 }
 
-/** Actions whose stored metadata predates the current extractor and have an anchor to re-read. */
+/**
+ * Actions whose stored metadata predates the current extractor and have an
+ * anchor to re-read. Rows that have failed re-extraction maxAttempts times are
+ * excluded: their anchor is treated as permanently dead so the backfill stops
+ * retrying it every run.
+ */
 export async function getActionsNeedingMetaReextract(
   db: D1Database,
   currentVersion: number,
   limit: number,
+  maxAttempts: number,
 ): Promise<GovernanceAction[]> {
   const rows = (
     await db
       .prepare(
         `SELECT * FROM governance_actions
-         WHERE anchor_url IS NOT NULL AND meta_version < ?
+         WHERE anchor_url IS NOT NULL AND meta_version < ? AND meta_attempts < ?
          LIMIT ?`,
       )
-      .bind(currentVersion, limit)
+      .bind(currentVersion, maxAttempts, limit)
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
+}
+
+/** Records one failed metadata re-extraction attempt; drives the give-up cap. */
+export async function incrementActionMetaAttempts(db: D1Database, id: string): Promise<void> {
+  await db
+    .prepare('UPDATE governance_actions SET meta_attempts = meta_attempts + 1 WHERE id = ?')
+    .bind(id)
+    .run();
 }
 
 /**
@@ -524,9 +538,11 @@ export async function updateActionMetadata(
   id: string,
   m: { title: string | null; abstract: string | null; rationaleHtml: string | null; metaVersion: number },
 ): Promise<void> {
+  // A successful extract clears meta_attempts so a future version bump starts
+  // this row's retry budget fresh (a past dead spell must not count against it).
   await db
     .prepare(
-      'UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, meta_version = ? WHERE id = ?',
+      'UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, meta_version = ?, meta_attempts = 0 WHERE id = ?',
     )
     .bind(m.title, m.abstract, m.rationaleHtml, m.metaVersion, id)
     .run();

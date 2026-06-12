@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt, refreshTrendingScores } from './sync.js';
-import { META_EXTRACT_VERSION } from './metadata.js';
+import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
 import type { ProposalListRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
@@ -243,6 +243,45 @@ describe('backfillActionMetadata', () => {
 
     const result = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 5, fetchImpl, limit: 1 });
     expect(result.scanned).toBe(1);
+  });
+
+  it('increments meta_attempts on a failed fetch and resets it on a later success', async () => {
+    const { id, topicId } = await insertStaleAction('https://example.com/attempts.json', backfillHash);
+
+    const fetchFail: typeof fetch = async () => { throw new Error('network error'); };
+    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 8, fetchImpl: fetchFail, limit: 10 });
+    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 9, fetchImpl: fetchFail, limit: 10 });
+
+    const afterFail = await env.DB.prepare('SELECT meta_attempts FROM governance_actions WHERE id = ?')
+      .bind(id).first<{ meta_attempts: number }>();
+    expect(afterFail!.meta_attempts).toBe(2);
+
+    // A successful extract bumps the version and clears the attempt counter.
+    const fetchImpl: typeof fetch = async () =>
+      new Response(backfillJson, { headers: { 'content-type': 'application/json' } });
+    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 10, fetchImpl, limit: 10 });
+
+    const got = await getGovernanceActionByTopicId(env.DB, topicId);
+    expect(got!.metaVersion).toBe(META_EXTRACT_VERSION);
+    const afterOk = await env.DB.prepare('SELECT meta_attempts FROM governance_actions WHERE id = ?')
+      .bind(id).first<{ meta_attempts: number }>();
+    expect(afterOk!.meta_attempts).toBe(0);
+  });
+
+  it('gives up on a permanently dead anchor once meta_attempts hits the cap', async () => {
+    const { id } = await insertStaleAction('https://example.com/permadead.json', backfillHash);
+    // Simulate a row that has already exhausted its retry budget.
+    await env.DB.prepare('UPDATE governance_actions SET meta_attempts = ? WHERE id = ?')
+      .bind(META_REEXTRACT_MAX_ATTEMPTS, id).run();
+
+    const fetchFail: typeof fetch = async () => { throw new Error('still dead'); };
+    const result = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 11, fetchImpl: fetchFail, limit: 10 });
+
+    // The exhausted row is no longer a candidate: nothing scanned, nothing failed.
+    const stillThere = await env.DB.prepare('SELECT id FROM governance_actions WHERE id = ?')
+      .bind(id).first();
+    expect(stillThere).not.toBeNull();
+    expect(result.scanned).toBe(0);
   });
 
   it('scans 0 on the second run when all stale rows have been updated', async () => {
