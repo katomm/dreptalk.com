@@ -18,7 +18,10 @@ import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
 import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam } from '@/lib/drep/profile.js';
+import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
+import { currentNetwork } from '@/lib/api/response';
 import Avatar from '@/components/Avatar.astro';
+import DelegateButton from '@/components/DelegateButton.tsx';
 import {
   cacheControlForSynced, formatAda, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN,
 } from '@/lib/forum/view.js';
@@ -68,6 +71,12 @@ const now = Date.now();
 const displayName = drep?.name ?? (drep ? truncateId(drep.drepId, 18) : '');
 const influence = drep ? influencePct(drep.votingPower, activeStake.total) : null;
 const canonical = drep ? `${siteOrigin}${drepPath(drep)}` : siteOrigin;
+
+// Delegation CTA: the island needs the deployment's network and the 28-byte
+// DRep credential (stored `hex`, else derived from the id). When neither
+// resolves, the credential is null and the button is omitted.
+const delegateNetwork = currentNetwork().network;
+const delegateCredentialHex = drep ? (drep.hex ?? drepCredentialHexFromId(drep.drepId)) : null;
 
 const personLd = drep
   ? {
@@ -124,6 +133,22 @@ const personLd = drep
     )}
 
     <p style="font-size:0.75rem;color:var(--muted);">On-chain data as of {formatRelativeTime(drep.lastSyncedAt, now)}.</p>
+
+    {delegateCredentialHex && (
+      <div style="margin-top:1.5rem;">
+        <DelegateButton
+          client:idle
+          network={delegateNetwork}
+          target={{
+            drepId: drep.drepId,
+            slug: drep.slug,
+            name: displayName,
+            credentialHex: delegateCredentialHex,
+            isScript: drep.hasScript,
+          }}
+        />
+      </div>
+    )}
 
     <section style="margin-top:2rem;">
         <h2 style="font-size:1.125rem;">
