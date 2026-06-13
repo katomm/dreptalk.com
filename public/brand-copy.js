@@ -1,6 +1,7 @@
 // Click-to-copy for the brand color swatches. Loaded as an external file (never
 // inline) so it satisfies the strict CSP (script-src 'self'). One delegated
-// listener handles every [data-copy] button.
+// listener handles every swatch button; scoped to .swatch so other data-copy
+// buttons on the page (e.g. the header account menu) are not captured here.
 (function () {
   function flash(button) {
     var hex = button.querySelector('[data-hex]');
@@ -15,7 +16,7 @@
   }
 
   document.addEventListener('click', function (event) {
-    var button = event.target && event.target.closest ? event.target.closest('[data-copy]') : null;
+    var button = event.target && event.target.closest ? event.target.closest('.swatch[data-copy]') : null;
     if (!button) return;
     var value = button.getAttribute('data-copy');
     if (!value || !navigator.clipboard || !navigator.clipboard.writeText) return;

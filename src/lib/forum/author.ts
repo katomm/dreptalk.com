@@ -7,6 +7,7 @@
 import { getUsersByIds, type User } from '../db/users.js';
 import { getDrepsByIds, type Drep } from '../db/dreps.js';
 import type { ActionVoterRow } from '../db/drepVotes.js';
+import { drepPath } from '../drep/profile.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { truncateId } from './view.js';
 
@@ -118,6 +119,29 @@ export async function loadAuthorIdentities(
   return {
     describe: (authorId: string) => describeAuthor(authorId, usersById, drepsById),
   };
+}
+
+/**
+ * Public profile link for an author: only DReps with a synced row have one,
+ * and internal links prefer the SEO slug so they never pay the canonical
+ * redirect. The single source of this rule for every component that links an
+ * author (post headers, the account menu).
+ */
+export function authorProfileHref(a: AuthorDescriptor): string | null {
+  return !a.isSystem && a.drepId ? drepPath({ drepId: a.drepId, slug: a.drepSlug ?? null }) : null;
+}
+
+/**
+ * Resolves a single identity (e.g. the header's signed-in user). Without a DB
+ * handle it falls back to the pure id-derived defaults, so callers never deal
+ * with the batch resolver's internals.
+ */
+export async function loadAuthorIdentity(
+  db: D1Database | undefined,
+  authorId: string,
+): Promise<AuthorDescriptor> {
+  if (!db) return describeAuthor(authorId, new Map(), new Map());
+  return (await loadAuthorIdentities(db, [authorId])).describe(authorId);
 }
 
 /**

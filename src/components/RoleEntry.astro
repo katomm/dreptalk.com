@@ -1,64 +1,94 @@
 ---
-// Role-aware sign-in control. When signed out, the primary action enters as a
-// DRep and the chevron reveals the other on-chain writing roles. When signed in
-// (Astro.locals.user is set by the middleware), it shows the role badge and a
-// Logout control instead. Reading the forum is public, this only gates who can
-// post. SPO (Calidus key) and CC-member sign-in use the offline paste flow;
-// proposer uses the wallet flow. Built on a native <details> and a plain <form>
-// so it needs no client JS (the strict CSP forbids inline scripts).
+// Role-aware sign-in control. Signed out, the primary action enters as a DRep
+// and the chevron reveals every writer role (the menu repeats the DRep entry so
+// the list is complete). Signed in (Astro.locals.user is set by the middleware,
+// the resolved identity arrives via the account prop), the pill shows the
+// account's avatar, name and role and opens the AccountMenu. Reading the forum
+// is public, this only gates who can post. SPO (Calidus key) and CC-member
+// sign-in use the offline paste flow; DRep and proposer use the wallet flow.
+// Built on a native <details> and a plain <form>, no client JS here (the
+// strict CSP forbids inline scripts; the copy button JS lives in AccountMenu).
 import { roleLabels } from '@/lib/auth/roles';
-import { truncateId } from '@/lib/forum/view';
+import type { AuthorDescriptor } from '@/lib/forum/author';
+import AccountMenu from '@/components/AccountMenu.astro';
+import Avatar from '@/components/Avatar.astro';
 
 interface Props {
   layout?: 'split' | 'flat';
+  /** Resolved identity of the signed-in user; null when signed out. */
+  account?: AuthorDescriptor | null;
 }
-const { layout = 'split' } = Astro.props;
+const { layout = 'split', account = null } = Astro.props;
 
 const user = Astro.locals.user;
 
-// Roles revealed beyond the primary "Enter as DRep" action. Order follows the
-// product framing; entries without an href are not implemented yet.
-const moreRoles: Array<{ label: string; href?: string }> = [
-  { label: 'Enter as SPO', href: '/login?role=spo' },
-  { label: 'Enter as CC member', href: '/login?role=cc' },
-  { label: 'Enter as proposer', href: '/login?role=proposer' },
+// Sign-in entries for the on-chain writer roles, with their menu icons (24x24
+// stroke paths, rendered via set:html). The first doubles as the primary
+// button: the split menu highlights it, the flat (mobile) disclosure skips it
+// because the primary button sits directly above the list there.
+const signinRoles = [
+  {
+    label: 'Enter as DRep',
+    href: '/login',
+    icon: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  },
+  {
+    label: 'Enter as SPO',
+    href: '/login?role=spo',
+    icon: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  },
+  {
+    label: 'Enter as CC member',
+    href: '/login?role=cc',
+    icon: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+  },
+  {
+    label: 'Enter as proposer',
+    href: '/login?role=proposer',
+    icon: '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>',
+  },
 ];
+
+// Pill display values; the menu reads the descriptor itself. Layout always
+// resolves a descriptor for a signed-in user (the resolver owns the fallbacks
+// for accounts without a synced DRep row), so nothing is re-derived here.
+const labels = user ? roleLabels(user.roles) : [];
+const display = user && account
+  ? {
+      account,
+      name: account.displayName,
+      role: labels[0],
+      allRoles: labels.join(', '),
+      seed: account.identiconSeed ?? account.authorId,
+      imageHash: account.imageHash ?? null,
+    }
+  : null;
 ---
 
-{user ? (
+{display ? (
   <div class:list={['role-entry', 'role-entry--signedin', `role-entry--${layout}`]}>
-    {/* Reuse the split-pill: the primary shows a generic "Signed in" status, the
-        chevron dropdown shows the (shortened) identity and Log out. */}
-    <span class="btn btn-primary role-entry__main role-entry__account" title={`Signed in as ${roleLabels(user.roles).join(', ')}`}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M20 6 9 17l-5-5" />
-      </svg>
-      Signed in
-    </span>
-
     {layout === 'split' ? (
       <details class="role-entry__more">
-        <summary class="role-entry__toggle" aria-label="Account menu">
-          <svg class="role-entry__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+        <summary class="role-entry__pill" aria-label="Account menu" title={`Signed in as ${display.allRoles}`}>
+          <span class="role-entry__pill-main">
+            <Avatar seed={display.seed} imageHash={display.imageHash} size={26} ring />
+            <span class="role-entry__pill-text">
+              <span class="role-entry__pill-name">{display.name}</span>
+              <span class="role-entry__pill-role">{display.role}</span>
+            </span>
+          </span>
+          <span class="role-entry__pill-chev">
+            <svg class="role-entry__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </span>
         </summary>
-        <div class="role-entry__menu" role="menu">
-          <span class="role-entry__identity" title={user.id}>{truncateId(user.id, 22)}</span>
-          <a class="role-entry__item" href="/settings" role="menuitem">Settings</a>
-          <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
-            <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
-          </form>
+        <div class="role-entry__menu role-entry__menu--account">
+          <AccountMenu account={display.account} />
         </div>
       </details>
     ) : (
-      <div class="role-entry__list" role="menu">
-        <span class="role-entry__identity" title={user.id}>{truncateId(user.id, 22)}</span>
-        <a class="role-entry__item" href="/settings" role="menuitem">Settings</a>
-        <form method="POST" action="/api/auth/logout" class="role-entry__logout-form">
-          <button type="submit" class="role-entry__item role-entry__logout-item" role="menuitem">Log out</button>
-        </form>
-      </div>
+      <AccountMenu account={display.account} />
     )}
   </div>
 ) : (
@@ -79,16 +109,12 @@ const moreRoles: Array<{ label: string; href?: string }> = [
         </svg>
       </summary>
       <div class="role-entry__menu" role="menu">
-        {moreRoles.map((r) =>
-          r.href ? (
-            <a class="role-entry__item" href={r.href} role="menuitem">{r.label}</a>
-          ) : (
-            <span class="role-entry__item role-entry__item--soon" aria-disabled="true">
-              {r.label}
-              <span class="role-entry__soon">soon</span>
-            </span>
-          ),
-        )}
+        {signinRoles.map((r, i) => (
+          <a class:list={['role-entry__item', { 'role-entry__item--active': i === 0 }]} href={r.href} role="menuitem">
+            <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={r.icon} />
+            {r.label}
+          </a>
+        ))}
       </div>
     </details>
   ) : (
@@ -100,16 +126,12 @@ const moreRoles: Array<{ label: string; href?: string }> = [
         </svg>
       </summary>
       <div class="role-entry__list" role="menu">
-        {moreRoles.map((r) =>
-          r.href ? (
-            <a class="role-entry__item" href={r.href} role="menuitem">{r.label}</a>
-          ) : (
-            <span class="role-entry__item role-entry__item--soon" aria-disabled="true">
-              {r.label}
-              <span class="role-entry__soon">soon</span>
-            </span>
-          ),
-        )}
+        {signinRoles.slice(1).map((r) => (
+          <a class="role-entry__item" href={r.href} role="menuitem">
+            <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={r.icon} />
+            {r.label}
+          </a>
+        ))}
       </div>
     </details>
   )}
@@ -134,26 +156,41 @@ const moreRoles: Array<{ label: string; href?: string }> = [
   .role-entry__more {
     display: inline-flex;
   }
-  .role-entry__toggle {
+
+  /* Both <summary> variants (signed-out chevron segment, signed-in account
+     pill) share the accent fill and disclosure-marker reset. */
+  .role-entry__toggle,
+  .role-entry__pill {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 0 0.7rem;
     background: var(--accent);
     color: var(--accent-fg);
     border: 1px solid transparent;
-    border-left: 1px solid color-mix(in srgb, var(--accent-fg) 28%, transparent);
-    border-top-right-radius: var(--radius);
-    border-bottom-right-radius: var(--radius);
     cursor: pointer;
     list-style: none;
     transition: background-color 0.15s ease;
   }
-  .role-entry__toggle::-webkit-details-marker {
+  .role-entry__toggle::-webkit-details-marker,
+  .role-entry__pill::-webkit-details-marker {
     display: none;
   }
-  .role-entry__toggle:hover {
+  .role-entry__toggle:hover,
+  .role-entry__pill:hover {
     background: var(--accent-hover);
+  }
+  /* The chevron segment, shared by both summaries: hairline divider against
+     the main segment. */
+  .role-entry__toggle,
+  .role-entry__pill-chev {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.7rem;
+    border-left: 1px solid color-mix(in srgb, var(--accent-fg) 28%, transparent);
+  }
+  .role-entry__toggle {
+    border-top-right-radius: var(--radius);
+    border-bottom-right-radius: var(--radius);
   }
   .role-entry__chev {
     transition: transform 0.18s ease;
@@ -162,54 +199,63 @@ const moreRoles: Array<{ label: string; href?: string }> = [
     transform: rotate(180deg);
   }
 
-  /* Dropdown menu */
+  /* Dropdown menu: signed-out rows divided by hairlines; the signed-in variant
+     is just the positioned shell around AccountMenu. */
   .role-entry__menu {
     position: absolute;
     top: calc(100% + 0.5rem);
     right: 0;
     z-index: 60;
-    min-width: 210px;
+    min-width: 230px;
     display: flex;
     flex-direction: column;
-    gap: 0.1rem;
     padding: 0.4rem;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-lg);
   }
+  .role-entry__menu > :global(* + *) {
+    border-top: 1px solid var(--border);
+  }
+  .role-entry__menu--account {
+    min-width: 260px;
+  }
 
   .role-entry__item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.55rem 0.7rem;
+    gap: 0.6rem;
+    padding: 0.6rem 0.7rem;
     border-radius: var(--radius-sm);
     font-size: 0.9375rem;
     font-weight: 500;
     color: var(--fg);
     text-decoration: none;
   }
+  .role-entry__item-icon {
+    flex-shrink: 0;
+    color: var(--muted);
+  }
   a.role-entry__item:hover {
     background: var(--surface);
     color: var(--accent);
   }
-  .role-entry__item--soon {
-    color: var(--muted);
-    cursor: default;
+  a.role-entry__item:hover .role-entry__item-icon {
+    color: var(--accent);
   }
-  .role-entry__soon {
-    flex-shrink: 0;
-    font-size: 0.65rem;
+  /* The DRep entry doubles the primary action; mark it as the highlighted
+     default in the full role list. */
+  .role-entry__item--active {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--accent);
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--muted);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.05rem 0.4rem;
+  }
+  .role-entry__item--active .role-entry__item-icon {
+    color: var(--accent);
+  }
+  a.role-entry__item--active:hover {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
 
   /* Flat layout for the mobile menu: stacked full-width rows, no disclosure. */
@@ -258,38 +304,35 @@ const moreRoles: Array<{ label: string; href?: string }> = [
     transform: rotate(180deg);
   }
 
-  /* Signed-in: reuse the split-pill. The account label is a non-interactive
-     primary; the chevron opens the Log out menu. */
-  .role-entry__account {
-    cursor: default;
-    gap: 0.4rem;
+  /* Signed in: the whole pill is the <summary>, so name and chevron both open
+     the menu; a hairline keeps the split-pill look of the signed-out state. */
+  .role-entry__pill {
+    align-items: stretch;
+    border-radius: var(--radius);
   }
-  /* The signed-in identity sits above Log out in the dropdown, shortened and
-     monospaced, with the full id in the title for hover. */
-  .role-entry__identity {
-    display: block;
-    padding: 0.5rem 0.7rem 0.45rem;
-    font-size: 0.8rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: var(--muted);
-    word-break: break-all;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 0.15rem;
+  .role-entry__pill-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.3rem 0.85rem 0.3rem 0.45rem;
   }
-  /* Log out is a <form> button rendered as a menu item; reset native button
-     chrome and let it fill the menu row (the form itself is display:contents). */
-  .role-entry__logout-form {
-    display: contents;
+  .role-entry__pill-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.15;
   }
-  button.role-entry__item {
-    width: 100%;
-    font: inherit;
-    background: none;
-    border: none;
-    cursor: pointer;
+  .role-entry__pill-name {
+    font-size: 0.875rem;
+    font-weight: 700;
+    max-width: 11ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  button.role-entry__item:hover {
-    background: var(--surface);
-    color: var(--accent);
+  .role-entry__pill-role {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    opacity: 0.85;
   }
 </style>

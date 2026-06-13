@@ -22,6 +22,7 @@ import type { WalletApi } from '@/lib/governance/drepTx.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { drepPath } from '@/lib/drep/profile.js';
+import { truncateIdMiddle } from '@/lib/forum/view.js';
 
 // The enabled CIP-30 surface we use here: the tx WalletApi plus getNetworkId,
 // which the network guard reads (enable() returns the full object at runtime).
@@ -199,7 +200,7 @@ function DelegateDialog({
     };
   }, [busy, onClose]);
 
-  const shortId = `${target.drepId.slice(0, 12)}...${target.drepId.slice(-6)}`;
+  const shortId = truncateIdMiddle(target.drepId, 12, 6);
 
   async function handleConnect() {
     const walletInfo = wallets.find((w) => w.key === selected);

@@ -1,0 +1,65 @@
+---
+// Layered avatar: a deterministic identicon SVG as the base, with the stored
+// self-hosted R2 copy (/api/avatar/<hash>, content addressed) as an overlay
+// background-image. If the R2 fetch 404s, the background simply does not paint
+// and the identicon shows through; the strict CSP forbids inline onerror
+// handlers, so this layering is the fallback mechanism. The single avatar
+// implementation, shared by AuthorIdentity, the header pill, the account menu
+// and the DRep profile hero.
+import { identiconSvg } from '@/lib/identity/identicon';
+
+interface Props {
+  /** Stable identicon seed (DRep credential hex when known, else the user id). */
+  seed: string;
+  /** Content hash of the stored avatar in R2, or null when none is stored. */
+  imageHash?: string | null;
+  /** Avatar edge length in px. */
+  size?: number;
+  /** Replace the border with a subtle ring for placement on accent surfaces. */
+  ring?: boolean;
+}
+const { seed, imageHash = null, size = 28, ring = false } = Astro.props;
+---
+
+<span class:list={['avatar', { 'avatar--ring': ring }]} style={`--avatar-size:${size}px;`} aria-hidden="true">
+  <span class="avatar__icon" set:html={identiconSvg(seed, size)} />
+  {imageHash && (
+    <span class="avatar__img" style={`background-image:url(/api/avatar/${imageHash})`}></span>
+  )}
+</span>
+
+<style>
+  .avatar {
+    position: relative;
+    display: inline-block;
+    width: var(--avatar-size);
+    height: var(--avatar-size);
+    flex-shrink: 0;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    border: 1px solid var(--border);
+  }
+  .avatar--ring {
+    border-color: transparent;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-fg) 35%, transparent);
+  }
+  .avatar__icon {
+    position: absolute;
+    inset: 0;
+    display: block;
+  }
+  .avatar__icon :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  /* R2 avatar overlay as a background so a 404 falls through to the identicon. */
+  .avatar__img {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+</style>

@@ -18,7 +18,7 @@ import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
 import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam } from '@/lib/drep/profile.js';
-import { identiconSvg } from '@/lib/identity/identicon.js';
+import Avatar from '@/components/Avatar.astro';
 import {
   cacheControlForSynced, formatAda, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN,
 } from '@/lib/forum/view.js';
@@ -67,7 +67,6 @@ const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
 const displayName = drep?.name ?? (drep ? truncateId(drep.drepId, 18) : '');
 const influence = drep ? influencePct(drep.votingPower, activeStake.total) : null;
-const iconSvg = drep ? identiconSvg(drep.hex ?? drep.drepId, 96) : '';
 const canonical = drep ? `${siteOrigin}${drepPath(drep)}` : siteOrigin;
 
 const personLd = drep
@@ -100,12 +99,7 @@ const personLd = drep
     </nav>
 
     <header style="display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem;">
-      <span style="width:96px;height:96px;border-radius:999px;overflow:hidden;flex-shrink:0;border:1px solid var(--border);position:relative;background:var(--surface);">
-        <span style="position:absolute;inset:0;" set:html={iconSvg} />
-        {drep.imageContentHash && (
-          <span style={`position:absolute;inset:0;background:center/cover no-repeat url(/api/avatar/${drep.imageContentHash});`}></span>
-        )}
-      </span>
+      <Avatar seed={drep.hex ?? drep.drepId} imageHash={drep.imageContentHash} size={96} />
       <div style="min-width:0;">
         <h1 style="margin:0 0 0.25rem;overflow-wrap:anywhere;">{displayName}</h1>
         <div style="font-size:0.8125rem;color:var(--muted);word-break:break-all;">{drep.drepId}</div>
