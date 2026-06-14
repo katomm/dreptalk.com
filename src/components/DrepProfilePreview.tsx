@@ -16,6 +16,20 @@ interface DrepProfilePreviewProps {
 
 const AVATAR_SIZE = 64;
 
+/**
+ * Only http(s) links become clickable in the preview. The server drops anything
+ * else before storing, so this just keeps a javascript:/data: URL the editor is
+ * still holding from rendering as a live href (self-XSS hardening).
+ */
+function isHttpHref(uri: string): boolean {
+  try {
+    const { protocol } = new URL(uri);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 const cardStyle: CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 'var(--radius, 14px)',
@@ -72,10 +86,14 @@ export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewPr
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
             {links.map((l, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: preview rows have no stable id; order is the identity
-              <li key={i}>
-                <a href={l.uri} rel="nofollow noopener" target="_blank" style={{ color: 'var(--accent)', fontSize: '0.9375rem' }}>
-                  {linkDisplayLabel(l)}
-                </a>
+              <li key={i} style={{ fontSize: '0.9375rem' }}>
+                {isHttpHref(l.uri.trim()) ? (
+                  <a href={l.uri.trim()} rel="nofollow noopener" target="_blank" style={{ color: 'var(--accent)' }}>
+                    {linkDisplayLabel(l)}
+                  </a>
+                ) : (
+                  <span style={{ color: 'var(--muted)' }}>{linkDisplayLabel(l)}</span>
+                )}
               </li>
             ))}
           </ul>
