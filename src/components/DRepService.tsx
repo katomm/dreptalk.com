@@ -45,7 +45,10 @@ type Phase =
   | { status: 'form'; identity: DRepIdentity }
   | { status: 'submitting'; identity: DRepIdentity; action: DRepAction }
   | { status: 'success'; txHash: string; action: DRepAction }
-  | { status: 'error'; message: string };
+  // identity is carried when the error happens after the form was reached, so a
+  // failed submit keeps the filled form on screen instead of collapsing back to
+  // the connect step. Connect-step errors have no identity and show the picker.
+  | { status: 'error'; message: string; identity?: DRepIdentity };
 
 interface DRepServiceProps {
   // Resolved at build time from the .astro shell; defaults to preprod.
@@ -165,7 +168,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   async function handleRegister(identity: DRepIdentity) {
     const trimmedName = profile.name.trim();
     if (!trimmedName) {
-      setPhase({ status: 'error', message: 'Please enter a name for your DRep.' });
+      setPhase({ status: 'error', message: 'Please enter a name for your DRep.', identity });
       return;
     }
 
@@ -205,6 +208,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           message: body?.error
             ? `Could not save your DRep profile: ${body.error}.`
             : 'Could not save your DRep profile. Please try again.',
+          identity,
         });
         return;
       }
@@ -222,7 +226,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
 
       setPhase({ status: 'success', txHash, action: 'register' });
     } catch (err) {
-      setPhase({ status: 'error', message: readableError(err) });
+      setPhase({ status: 'error', message: readableError(err), identity });
     }
   }
 
@@ -261,6 +265,19 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
     phase.status === 'connecting' ||
     phase.status === 'checking' ||
     phase.status === 'submitting';
+
+  // The identity that keeps the registration form rendered. It is present while
+  // filling/submitting the form and, crucially, on a register-time error, so a
+  // failed submit shows the error inline with the user's inputs intact rather
+  // than dropping back to the connect step.
+  const formIdentity: DRepIdentity | undefined =
+    phase.status === 'form'
+      ? phase.identity
+      : phase.status === 'submitting' && phase.action === 'register'
+        ? phase.identity
+        : phase.status === 'error'
+          ? phase.identity
+          : undefined;
 
   // Success state: standalone confirmation, no form.
   if (phase.status === 'success') {
@@ -312,10 +329,11 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-          {/* Wallet picker (hidden once the form/registered state is reached). */}
+          {/* Wallet picker. Shown until the form is reached; on a connect-step
+              error (no identity yet) it stays so the user can retry connecting. */}
           {(phase.status === 'idle' ||
             phase.status === 'connecting' ||
-            phase.status === 'error') && (
+            (phase.status === 'error' && !phase.identity)) && (
             <div style={{ maxWidth: '32rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
               <WalletConnection
                 wallets={wallets}
@@ -341,7 +359,11 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
                   alignSelf: 'flex-start',
                 }}
               >
-                {phase.status === 'connecting' ? 'Connecting...' : 'Connect wallet'}
+                {phase.status === 'connecting'
+                  ? 'Connecting...'
+                  : phase.status === 'error'
+                    ? 'Try again'
+                    : 'Connect wallet'}
               </button>
             </div>
           )}
@@ -395,21 +417,42 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
             </p>
           )}
 
-          {/* Registration form (also stays mounted during a register submit). */}
-          {(phase.status === 'form' ||
-            (phase.status === 'submitting' && phase.action === 'register')) && (
+          {/* Registration form. Stays mounted during a register submit and on a
+              register-time error (formIdentity), so the inputs are never lost. */}
+          {formIdentity && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleRegister(phase.identity);
+                void handleRegister(formIdentity);
               }}
               style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
             >
               <p style={{ margin: 0, maxWidth: '32rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-                DRep id: {phase.identity.drepId}
+                DRep id: {formIdentity.drepId}
               </p>
 
-              <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="reg-drep" seed={phase.identity.drepId} />
+              <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="reg-drep" seed={formIdentity.drepId} />
+
+              {/* A submit-time error shows here, keeping the filled form intact.
+                  Retry with the button below, or switch wallet/account via reset. */}
+              {phase.status === 'error' && (
+                <div className="callout callout--error" role="alert" style={{ maxWidth: '32rem' }}>
+                  <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <div className="callout__body">
+                    {phase.message}
+                    {' '}
+                    <button
+                      type="button"
+                      onClick={reset}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+                    >
+                      Use a different wallet
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <button
@@ -438,22 +481,14 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
             </form>
           )}
 
-          {phase.status === 'error' && (
+          {/* Connect-step error (no identity yet): the picker above shows a
+              "Try again" button; this just states what went wrong. */}
+          {phase.status === 'error' && !phase.identity && (
             <div className="callout callout--error" role="alert" style={{ maxWidth: '32rem' }}>
               <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
-              <div className="callout__body">
-                {phase.message}
-                {' '}
-                <button
-                  type="button"
-                  onClick={reset}
-                  style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
-                >
-                  Try again
-                </button>
-              </div>
+              <div className="callout__body">{phase.message}</div>
             </div>
           )}
         </div>
