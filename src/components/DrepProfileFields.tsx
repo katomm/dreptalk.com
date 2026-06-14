@@ -1,7 +1,7 @@
 // Shared, controlled field block for both DRep flows (registration + settings).
 // Simple fields (name, image, bio, links) are always visible; the advanced
 // CIP-119 fields live behind a collapsible so the common case stays simple.
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
 import DrepLinksEditor, { type ProfileLink } from '@/components/DrepLinksEditor.js';
 import DrepProfilePreview from '@/components/DrepProfilePreview.js';
@@ -40,29 +40,39 @@ const NAME_MAX = 80;
 const BIO_MAX = 1000;
 const TEXT_MAX = 1000;
 
+const textAreaStyle = { ...inputStyle, lineHeight: '1.6', resize: 'vertical' as const, fontFamily: 'inherit' };
+const helpStyle = { display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', margin: '0 0 0.375rem' } as const;
+const labelRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' } as const;
+const counterStyle = { fontSize: '0.75rem', color: 'var(--muted)', flexShrink: 0 } as const;
+
+/** A labelled field with a live "used / max" counter and a helper line. */
+function CountedField(props: { id: string; label: string; count: number; max: number; help: string; children: ReactNode }) {
+  return (
+    <div>
+      <div style={labelRowStyle}>
+        <label htmlFor={props.id} style={labelStyle}>{props.label}</label>
+        <span style={counterStyle}>{props.count} / {props.max}</span>
+      </div>
+      <span style={helpStyle}>{props.help}</span>
+      {props.children}
+    </div>
+  );
+}
+
 export default function DrepProfileFields({ value, onChange, disabled, idPrefix, seed }: DrepProfileFieldsProps) {
   const [showAdvanced, setShowAdvanced] = useState(
     value.motivations !== '' || value.qualifications !== '' || value.paymentAddress !== '' || value.doNotList,
   );
   const set = <K extends keyof DrepProfileValue>(k: K, v: DrepProfileValue[K]) => onChange({ ...value, [k]: v });
 
-  const textAreaStyle = { ...inputStyle, lineHeight: '1.6', resize: 'vertical' as const, fontFamily: 'inherit' };
-  const helpStyle = { display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', margin: '0 0 0.375rem' } as const;
-  const labelRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' } as const;
-  const counterStyle = { fontSize: '0.75rem', color: 'var(--muted)', flexShrink: 0 } as const;
-
   return (
     <div className="drep-profile-edit">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-      <div>
-        <div style={labelRowStyle}>
-          <label htmlFor={`${idPrefix}-name`} style={labelStyle}>Name</label>
-          <span style={counterStyle}>{value.name.length} / {NAME_MAX}</span>
-        </div>
-        <span style={helpStyle}>How your DRep name will appear on explorers and in DRepTalk.</span>
+      <CountedField id={`${idPrefix}-name`} label="Name" count={value.name.length} max={NAME_MAX}
+        help="How your DRep name will appear on explorers and in DRepTalk.">
         <input id={`${idPrefix}-name`} type="text" value={value.name} onChange={(e) => set('name', e.target.value)}
           placeholder="Your DRep name" maxLength={NAME_MAX} required disabled={disabled} style={inputStyle} />
-      </div>
+      </CountedField>
 
       <div>
         <span style={labelStyle}>Profile image (optional)</span>
@@ -70,15 +80,11 @@ export default function DrepProfileFields({ value, onChange, disabled, idPrefix,
         <DrepImageUpload value={value.image} onChange={(img) => set('image', img)} disabled={disabled} />
       </div>
 
-      <div>
-        <div style={labelRowStyle}>
-          <label htmlFor={`${idPrefix}-bio`} style={labelStyle}>Bio</label>
-          <span style={counterStyle}>{value.bio.length} / {BIO_MAX}</span>
-        </div>
-        <span style={helpStyle}>Short description shown on your public profile.</span>
+      <CountedField id={`${idPrefix}-bio`} label="Bio" count={value.bio.length} max={BIO_MAX}
+        help="Short description shown on your public profile.">
         <textarea id={`${idPrefix}-bio`} value={value.bio} onChange={(e) => set('bio', e.target.value)}
           placeholder="Tell delegators what you stand for (plain text)." maxLength={BIO_MAX} rows={6} disabled={disabled} style={textAreaStyle} />
-      </div>
+      </CountedField>
 
       <div>
         <span style={labelStyle}>Links</span>
