@@ -2,7 +2,7 @@
 // Non-custodial: the server never sees a private key; the wallet extension signs and submits.
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
-import { Anchor, Client, Credential, DRep, KeyHash, ScriptHash, Transaction, Url, mainnet, preprod } from '@evolution-sdk/evolution';
+import { Address, Anchor, Client, Credential, DRep, KeyHash, ScriptHash, Transaction, Url, UTxO, mainnet, preprod } from '@evolution-sdk/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -87,6 +87,47 @@ function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletAp
 type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
 
 /**
+ * Collects the connected wallet's UTxOs across ALL of its addresses, to fund the
+ * transaction.
+ *
+ * Why this is needed: EvolutionSDK 0.5.9 funds a CIP-30 wallet from a SINGLE
+ * address only. Its resolveAvailableUtxos uses wallet.address() (which the CIP-30
+ * wrapper resolves to getUsedAddresses()[0]) and asks the provider for that one
+ * address's UTxOs (Koios /address_info). A multi-address (HD) wallet keeps its
+ * ada across many addresses, so the first used address is often empty and the
+ * builder reports "Available: 0" on a well-funded wallet. We gather every
+ * address's UTxOs ourselves (reusing the SDK's own Koios decoding via a read
+ * client) and pass them to build({ availableUtxos }), which the SDK honors over
+ * its single-address default. The change address still defaults to wallet
+ * .address(), which is a valid wallet address. Revisit if a future SDK funds a
+ * CIP-30 wallet from the wallet's own getUtxos().
+ */
+async function collectWalletUtxos(
+  network: CardanoNetwork,
+  origin: string,
+  walletApi: WalletApi,
+): Promise<UTxO.UTxO[]> {
+  const reader = Client.make(network === 'mainnet' ? mainnet : preprod).withKoios({
+    baseUrl: `${origin}/api/koios`,
+  });
+
+  const used = await walletApi.getUsedAddresses();
+  const addresses = used.length > 0 ? used : await walletApi.getUnusedAddresses();
+
+  const perAddress = await Promise.all(
+    addresses.map((addressHex) => reader.getUtxos(Address.fromHex(addressHex))),
+  );
+
+  // Dedupe by output reference: an address list is normally disjoint, but guard
+  // against a wallet returning the same address (and thus UTxO) more than once.
+  const byRef = new Map<string, UTxO.UTxO>();
+  for (const utxo of perAddress.flat()) {
+    byRef.set(UTxO.toOutRefString(utxo), utxo);
+  }
+  return [...byRef.values()];
+}
+
+/**
  * Shared tail of every flow here: serialize the built tx, have the wallet
  * sign it, splice the returned witness set in, and submit. The wallet
  * extension performs signing and submission; the server is never involved
@@ -160,12 +201,13 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
   });
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
 
   const built = await queueRegisterDrepOps(client.newTx(), {
     drepCredential,
     anchor,
     drepKeyHash: opts.drepKeyHash,
-  }).build();
+  }).build({ availableUtxos });
 
   return signAndSubmit(built, opts.walletApi);
 }
@@ -187,11 +229,12 @@ export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string
   const drepCredential = Credential.makeKeyHash(opts.drepKeyHash);
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
 
   const built = await queueDeregisterDrepOps(client.newTx(), {
     drepCredential,
     drepKeyHash: opts.drepKeyHash,
-  }).build();
+  }).build({ availableUtxos });
 
   return signAndSubmit(built, opts.walletApi);
 }
@@ -212,12 +255,13 @@ export async function updateDRepMetadata(opts: RegisterDRepOpts): Promise<{ txHa
   });
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
 
   const built = await queueUpdateDrepOps(client.newTx(), {
     drepCredential,
     anchor,
     drepKeyHash: opts.drepKeyHash,
-  }).build();
+  }).build({ availableUtxos });
 
   return signAndSubmit(built, opts.walletApi);
 }
@@ -311,8 +355,9 @@ export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ tx
   const drep = buildDrepTarget({ credentialHex: opts.drepCredentialHex, isScript: opts.drepIsScript });
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
 
-  const built = await queueDelegateVotesOps(client.newTx(), { stakeCredential, drep, stakeKeyHash }).build();
+  const built = await queueDelegateVotesOps(client.newTx(), { stakeCredential, drep, stakeKeyHash }).build({ availableUtxos });
 
   return signAndSubmit(built, opts.walletApi);
 }
