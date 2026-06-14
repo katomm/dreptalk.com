@@ -138,7 +138,7 @@ describe('buildDrepMetadata full profile', () => {
   });
 
   it('writes a valid payment address and drops an invalid one', () => {
-    const addr = 'addr_test1qz' + 'a'.repeat(40);
+    const addr = `addr_test1qz${'a'.repeat(40)}`;
     expect(JSON.parse(buildDrepMetadata({ ...base, paymentAddress: addr }).body).body.paymentAddress).toBe(addr);
     expect(JSON.parse(buildDrepMetadata({ ...base, paymentAddress: 'not-an-address' }).body).body.paymentAddress).toBeUndefined();
   });

@@ -115,7 +115,7 @@ describe('applyDrepProfile', () => {
   it('applies motivations, qualifications, payment address, and doNotList', async () => {
     const id = `${DREP_ID.slice(0, -1)}m`;
     await seedRow(id);
-    const addr = 'addr_test1qz' + 'a'.repeat(40);
+    const addr = `addr_test1qz${'a'.repeat(40)}`;
     const m = buildDrepMetadata({ name: 'Adv', bio: '', links: [], motivations: 'M', qualifications: 'Q', paymentAddress: addr, doNotList: true });
     await putDrepMetadata(env.DB, { drepId: id, body: m.body, hash: m.hash, name: m.name, createdAt: 1_700_000_000 });
 

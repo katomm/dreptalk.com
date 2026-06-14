@@ -23,7 +23,7 @@ const profileDoc = {
     objectives: 'Champion of the test suite.',
     image: 'https://example.com/alice.png',
     motivations: 'To improve governance.',
-    paymentAddress: 'addr_test1qz' + 'a'.repeat(40),
+    paymentAddress: `addr_test1qz${'a'.repeat(40)}`,
     references: [{ '@type': 'Link', label: 'Website', uri: 'https://alice.example' }],
   },
 };
@@ -112,7 +112,7 @@ describe('syncDreps', () => {
     expect(stored!.imageUrl).toBe('https://example.com/alice.png');
     expect(stored!.links).toEqual([{ label: 'Website', uri: 'https://alice.example' }]);
     expect(stored!.motivations).toBe('To improve governance.');
-    expect(stored!.paymentAddress).toBe('addr_test1qz' + 'a'.repeat(40));
+    expect(stored!.paymentAddress).toBe(`addr_test1qz${'a'.repeat(40)}`);
     expect(stored!.anchorStatus).toBe('ok');
     expect(stored!.anchorHash).toBe(profileHash);
     expect(stored!.status).toBe('active');

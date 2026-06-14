@@ -94,7 +94,7 @@ describe('handleDrepMetadata: content-addressed hosting', () => {
   });
 
   it('hosts labeled links and the advanced fields', async () => {
-    const addr = 'addr_test1qz' + 'a'.repeat(40);
+    const addr = `addr_test1qz${'a'.repeat(40)}`;
     const res = await handleDrepMetadata(baseInput({
       links: [{ uri: 'https://example.com', label: 'Site' }],
       motivations: 'M', qualifications: 'Q', paymentAddress: addr, doNotList: true,

@@ -216,7 +216,7 @@ describe('extractCip119Profile', () => {
   });
 
   it('parses motivations, qualifications, and a payment address', () => {
-    const addr = 'addr1q9' + 'x'.repeat(40);
+    const addr = `addr1q9${'x'.repeat(40)}`;
     const doc = { body: { motivations: 'M', qualifications: 'Q', paymentAddress: addr } };
     const p = extractCip119Profile(doc);
     expect(p.motivations).toBe('M');

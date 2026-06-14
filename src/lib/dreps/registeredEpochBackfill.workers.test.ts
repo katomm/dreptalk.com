@@ -9,6 +9,7 @@ function drepArgs(drepId: string) {
     drepId, hex: null, hasScript: false, status: 'registered', active: true, deposit: null,
     votingPower: null, expiresEpochNo: null, name: null, bio: null, imageUrl: null,
     imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: null, links: null,
+    motivations: null, qualifications: null, paymentAddress: null, doNotList: false,
     anchorUrl: null, anchorHash: null, anchorStatus: 'no-anchor', lastSyncedAt: 0, createdAt: 0,
   };
 }
