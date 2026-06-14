@@ -3,6 +3,42 @@
 # pages or API routes; those get their security headers from src/middleware.ts,
 # and their Content-Security-Policy as a response header from Astro security.csp
 # (see astro.config.mjs). Keep this set in sync with src/lib/http/securityHeaders.ts.
+
+# Long-lived immutable cache for content-stable assets with fixed filenames.
+# Hashed /_astro/* assets get this automatically from the adapter; the public/
+# assets below do not, so without these rules every navigation pays a 304
+# revalidation roundtrip. These never change under the same name; if one ever
+# does, bump its filename (e.g. logo-v2.svg) so caches pick it up.
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+/badges/*
+  Cache-Control: public, max-age=31536000, immutable
+/og/*
+  Cache-Control: public, max-age=31536000, immutable
+/orgs/*
+  Cache-Control: public, max-age=31536000, immutable
+/favicon.png
+  Cache-Control: public, max-age=31536000, immutable
+/og.png
+  Cache-Control: public, max-age=31536000, immutable
+/logo.png
+  Cache-Control: public, max-age=31536000, immutable
+/logo.svg
+  Cache-Control: public, max-age=31536000, immutable
+/logo-mark.svg
+  Cache-Control: public, max-age=31536000, immutable
+/logo-96.png
+  Cache-Control: public, max-age=31536000, immutable
+
+# Hand-edited scripts keep stable filenames, so they cannot be immutable: an edit
+# would not propagate to returning visitors. Cap at one hour with revalidation
+# instead. theme.js is render-blocking in <head>, so even an hour removes most of
+# the per-navigation roundtrips while keeping a theme/script fix fast to ship.
+/theme.js
+  Cache-Control: public, max-age=3600, must-revalidate
+/brand-copy.js
+  Cache-Control: public, max-age=3600, must-revalidate
+
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
