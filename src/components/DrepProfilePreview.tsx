@@ -75,9 +75,14 @@ export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewPr
             height={AVATAR_SIZE}
             style={{ width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--border)', flexShrink: 0 }}
           />
-          <span style={{ fontSize: '1.125rem', fontWeight: 700, color: value.name.trim() ? 'var(--fg)' : 'var(--muted)', overflowWrap: 'anywhere' }}>
-            {value.name.trim() || 'Your DRep name'}
-          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', minWidth: 0 }}>
+            <span style={{ fontSize: '1.125rem', fontWeight: 700, color: value.name.trim() ? 'var(--fg)' : 'var(--muted)', overflowWrap: 'anywhere' }}>
+              {value.name.trim() || 'Your DRep name'}
+            </span>
+            <span style={{ alignSelf: 'flex-start', fontSize: '0.6875rem', fontWeight: 600, color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', borderRadius: '999px', padding: '0.05rem 0.5rem' }}>
+              DRep
+            </span>
+          </div>
         </div>
 
         {value.bio.trim() && <p style={bodyText}>{value.bio}</p>}
@@ -121,6 +126,26 @@ export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewPr
             </span>
           </p>
         )}
+      </div>
+
+      <div
+        style={{
+          marginTop: '0.75rem',
+          border: '1px solid var(--border)',
+          background: 'color-mix(in srgb, var(--accent) 5%, var(--surface))',
+          borderRadius: 'var(--radius, 14px)',
+          padding: '0.875rem 1rem',
+        }}
+      >
+        <p style={{ margin: '0 0 0.25rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--accent)' }}>
+          These details are stored on-chain
+        </p>
+        <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', lineHeight: 1.5, color: 'var(--muted)' }}>
+          They are public and can be viewed on explorers and by anyone in the Cardano ecosystem.
+        </p>
+        <a href="/help/managing-your-drep" style={{ fontSize: '0.8125rem', color: 'var(--accent)' }}>
+          Learn more about CIP-119
+        </a>
       </div>
     </div>
   );

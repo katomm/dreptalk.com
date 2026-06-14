@@ -283,15 +283,29 @@ export default function DrepSettings({
     );
   }
 
+  const selectedWalletName = wallets.find((w) => w.key === selected)?.name ?? null;
+
   return (
     <div style={{ maxWidth: '60rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-      <div style={{ maxWidth: '32rem' }}>
+      <div style={{ maxWidth: '32rem', border: '1px solid var(--border)', borderRadius: 'var(--radius, 14px)', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1rem' }}>
+            Wallet <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.875rem' }}>(CIP-95)</span>
+          </h2>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+            Select the wallet that represents your DRep on-chain.
+          </p>
+        </div>
         <WalletPicker
           wallets={wallets}
           selected={selected}
           onSelect={setSelected}
           disabled={busy}
+          hideLabel
         />
+        <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
+          This wallet will be used to sign your on-chain metadata update.
+        </p>
       </div>
 
       <form
@@ -303,13 +317,21 @@ export default function DrepSettings({
       >
         <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="settings-drep" seed={expectedDrepId} />
 
-        <p style={{ margin: 0, maxWidth: '32rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          Updating your metadata is an on-chain transaction. There is no deposit;
-          your wallet pays only the small network fee. Your public profile shows
-          the update after the next sync (within about an hour).
-        </p>
+        <div style={{ maxWidth: '32rem', display: 'flex', gap: '0.625rem', alignItems: 'flex-start', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 'var(--radius, 14px)', padding: '0.875rem 1rem' }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, marginTop: '0.1rem' }}>
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <div>
+            <p style={{ margin: '0 0 0.25rem', fontSize: '0.875rem', fontWeight: 600 }}>On-chain update</p>
+            <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+              Updating your metadata is an on-chain transaction. There is no deposit; your wallet pays
+              only the small network fee. Your public profile shows the update after the next sync
+              (within about an hour).
+            </p>
+          </div>
+        </div>
 
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
           <button
             type="submit"
             disabled={busy}
@@ -326,6 +348,11 @@ export default function DrepSettings({
           >
             {phase.status === 'submitting' && phase.action === 'update' ? 'Awaiting wallet...' : 'Update on-chain'}
           </button>
+          {selectedWalletName && (
+            <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
+              You'll be asked to sign with {selectedWalletName}.
+            </span>
+          )}
         </div>
 
         {phase.status === 'submitting' && phase.action === 'update' && (

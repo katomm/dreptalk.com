@@ -17,6 +17,8 @@ interface WalletPickerProps {
   disabled?: boolean;
   /** Field label above the list. Defaults to "Wallet". */
   label?: string;
+  /** Hide the built-in label, e.g. when an enclosing card already has a heading. */
+  hideLabel?: boolean;
 }
 
 const rowBase: CSSProperties = {
@@ -46,13 +48,13 @@ function monogram(name: string): string {
   return (name.trim()[0] ?? '?').toUpperCase();
 }
 
-export default function WalletPicker({ wallets, selected, onSelect, disabled, label = 'Wallet' }: WalletPickerProps) {
+export default function WalletPicker({ wallets, selected, onSelect, disabled, label = 'Wallet', hideLabel = false }: WalletPickerProps) {
   const groupName = useId();
   const [focused, setFocused] = useState<string | null>(null);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-      <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{label}</span>
+      {!hideLabel && <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>{label}</span>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
         {wallets.map((w) => {
           const isSelected = w.key === selected;

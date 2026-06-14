@@ -47,29 +47,42 @@ export default function DrepProfileFields({ value, onChange, disabled, idPrefix,
   const set = <K extends keyof DrepProfileValue>(k: K, v: DrepProfileValue[K]) => onChange({ ...value, [k]: v });
 
   const textAreaStyle = { ...inputStyle, lineHeight: '1.6', resize: 'vertical' as const, fontFamily: 'inherit' };
+  const helpStyle = { display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', margin: '0 0 0.375rem' } as const;
+  const labelRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' } as const;
+  const counterStyle = { fontSize: '0.75rem', color: 'var(--muted)', flexShrink: 0 } as const;
 
   return (
     <div className="drep-profile-edit">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
       <div>
-        <label htmlFor={`${idPrefix}-name`} style={labelStyle}>Name</label>
+        <div style={labelRowStyle}>
+          <label htmlFor={`${idPrefix}-name`} style={labelStyle}>Name</label>
+          <span style={counterStyle}>{value.name.length} / {NAME_MAX}</span>
+        </div>
+        <span style={helpStyle}>How your DRep name will appear on explorers and in DRepTalk.</span>
         <input id={`${idPrefix}-name`} type="text" value={value.name} onChange={(e) => set('name', e.target.value)}
           placeholder="Your DRep name" maxLength={NAME_MAX} required disabled={disabled} style={inputStyle} />
       </div>
 
       <div>
         <span style={labelStyle}>Profile image (optional)</span>
+        <span style={helpStyle}>Recommended: square JPG or PNG, max 256 KB.</span>
         <DrepImageUpload value={value.image} onChange={(img) => set('image', img)} disabled={disabled} />
       </div>
 
       <div>
-        <label htmlFor={`${idPrefix}-bio`} style={labelStyle}>Bio</label>
+        <div style={labelRowStyle}>
+          <label htmlFor={`${idPrefix}-bio`} style={labelStyle}>Bio</label>
+          <span style={counterStyle}>{value.bio.length} / {BIO_MAX}</span>
+        </div>
+        <span style={helpStyle}>Short description shown on your public profile.</span>
         <textarea id={`${idPrefix}-bio`} value={value.bio} onChange={(e) => set('bio', e.target.value)}
           placeholder="Tell delegators what you stand for (plain text)." maxLength={BIO_MAX} rows={6} disabled={disabled} style={textAreaStyle} />
       </div>
 
       <div>
         <span style={labelStyle}>Links</span>
+        <span style={helpStyle}>Add links to your website, social profiles, or other relevant pages.</span>
         <DrepLinksEditor value={value.links} onChange={(links) => set('links', links)} disabled={disabled} />
       </div>
 

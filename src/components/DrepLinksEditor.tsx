@@ -60,21 +60,27 @@ export default function DrepLinksEditor({ value, onChange, disabled, max = 10 }:
             onClick={() => remove(i)}
             disabled={disabled}
             aria-label={`Remove link ${i + 1}`}
-            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.25rem', lineHeight: 1, padding: '0 0.25rem' }}
+            title="Remove link"
+            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', lineHeight: 0, padding: '0 0.25rem', flexShrink: 0 }}
           >
-            &times;
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
           </button>
         </div>
       ))}
       {value.length < max && (
-        <button
-          type="button"
-          onClick={add}
-          disabled={disabled}
-          style={{ alignSelf: 'flex-start', background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '0.375rem', padding: '0.375rem 0.75rem', fontSize: '0.875rem', cursor: disabled ? 'not-allowed' : 'pointer' }}
-        >
-          Add link
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+          <button
+            type="button"
+            onClick={add}
+            disabled={disabled}
+            style={{ background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '0.375rem', padding: '0.375rem 0.75rem', fontSize: '0.875rem', cursor: disabled ? 'not-allowed' : 'pointer' }}
+          >
+            Add link
+          </button>
+          <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>You can add up to {max} links.</span>
+        </div>
       )}
     </div>
   );
