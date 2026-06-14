@@ -8,16 +8,24 @@
 //
 // Size and color come in as an inline `style` because Astro scoped styles do
 // not reach a child component's root element.
+//
+// `label` controls the accessible name. Next to the visible "DRepTalk" wordmark
+// (header, footer) the mark is decorative, so leave it unset: the SVG is hidden
+// from assistive tech, avoiding a duplicate name that would otherwise read as
+// "DRepTalk DRepTalk" and mismatch the link's own label. Standing alone (the
+// brand card) pass a label so it is announced like a labelled image.
 interface Props {
   style?: string;
+  label?: string;
 }
-const { style } = Astro.props;
+const { style, label } = Astro.props;
 ---
 <svg
   style={style}
   viewBox="0 0 72 72"
-  role="img"
-  aria-label="DRepTalk"
+  role={label ? 'img' : undefined}
+  aria-label={label}
+  aria-hidden={label ? undefined : 'true'}
   fill="currentColor"
 >
   <g stroke="currentColor" stroke-width="2.4" stroke-linecap="round">

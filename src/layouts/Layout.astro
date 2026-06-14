@@ -1,5 +1,6 @@
 ---
 import '@/styles/global.css';
+import themeInit from '@/scripts/theme-init.js?raw';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import SearchTrigger from '@/components/search/SearchTrigger';
 import RoleEntry from '@/components/RoleEntry.astro';
@@ -57,7 +58,12 @@ const isActive = (href: string) =>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <script is:inline src="/theme.js"></script>
+    {/* Inlined (not external) to avoid a render-blocking request before first
+        paint. Its CSP hash is added in astro.config.mjs and only ships on the
+        Worker-rendered (SSR) CSP header, so pages using this layout must stay
+        SSR: a prerendered page gets the hash-less /* CSP from public/_headers,
+        which would block this script. Keep pages off `export const prerender`. */}
+    <script is:inline set:html={themeInit} />
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
