@@ -73,8 +73,9 @@ const swatchGroups = [
     <section class="brand__section" aria-labelledby="wordmark-heading">
       <h2 id="wordmark-heading">Wordmark</h2>
       <p class="brand__note">
-        DRepTalk is one word, capital D, R, T. The second half uses the brand gradient (or the
-        accent violet on a flat background). Do not space it as "DRep Talk".
+        DRepTalk is one word, capital D, R, T. The first half ("DRep") sits in muted grey, like the
+        mark; only the second half ("Talk") carries color, the brand gradient (or the accent violet
+        on a flat background). Do not space it as "DRep Talk".
       </p>
       <div class="wordmark-row">
         <span class="wordmark-chip">DRep<span class="grad-text">Talk</span></span>
@@ -226,7 +227,9 @@ const swatchGroups = [
     font-weight: 700;
     font-size: 1.6rem;
     letter-spacing: -0.01em;
-    color: var(--fg);
+    /* "DRep" muted like the mark, matching the header wordmark; only "Talk"
+       (.grad-text or the accent span below) carries color. */
+    color: var(--muted);
   }
   .wordmark-chip--accent span {
     color: var(--accent);
