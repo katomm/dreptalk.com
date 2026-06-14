@@ -234,4 +234,13 @@ describe('extractCip119Profile', () => {
     expect(extractCip119Profile({ body: { doNotList: 'true' } }).doNotList).toBe(true);
     expect(extractCip119Profile({ body: {} }).doNotList).toBe(false);
   });
+
+  it('preserves line breaks in objectives, motivations, and qualifications', () => {
+    const p = extractCip119Profile({
+      body: { objectives: 'a\n\nb', motivations: 'm1\nm2', qualifications: 'q1\nq2' },
+    });
+    expect(p.bio).toBe('a\n\nb');
+    expect(p.motivations).toBe('m1\nm2');
+    expect(p.qualifications).toBe('q1\nq2');
+  });
 });

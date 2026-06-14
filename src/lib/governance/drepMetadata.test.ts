@@ -161,4 +161,19 @@ describe('buildDrepMetadata full profile', () => {
     expect(a.body).toBe(b.body);
     expect(a.hash).toBe(b.hash);
   });
+
+  it('keeps line breaks in the long plain-text fields but not in the name', () => {
+    const m = buildDrepMetadata({
+      name: 'Line\nBreak',
+      bio: 'Para one.\n\nPara two.',
+      links: [],
+      motivations: 'Motiv\nline',
+      qualifications: 'Qual\nline',
+    });
+    const body = JSON.parse(m.body).body;
+    expect(body.givenName).toBe('LineBreak'); // givenName is single-line per CIP-119
+    expect(body.objectives).toBe('Para one.\n\nPara two.');
+    expect(body.motivations).toBe('Motiv\nline');
+    expect(body.qualifications).toBe('Qual\nline');
+  });
 });

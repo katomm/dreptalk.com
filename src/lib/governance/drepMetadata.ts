@@ -9,7 +9,7 @@
 
 import { blake2b256 } from '@/lib/crypto/blake.js';
 import { bytesToHex, HEX_HASH_256_RE } from '@/lib/crypto/hex.js';
-import { sanitizeExternalText } from '@/lib/validation/input.js';
+import { sanitizeExternalText, sanitizeExternalMultiline } from '@/lib/validation/input.js';
 import { isCardanoPaymentAddress } from '@/lib/cardano/identity.js';
 
 // Reused across every buildDrepMetadata call; allocation is cheap but
@@ -92,8 +92,10 @@ function isValidHttpUrl(raw: string): boolean {
  * serialization variance would make the document unverifiable.
  */
 export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult {
+  // givenName stays single-line per CIP-119; the long fields are freeform plain
+  // text where the spec permits line breaks, so keep paragraphs (no markdown).
   const name = sanitizeExternalText(input.name, MAX_DREP_NAME);
-  const bio = sanitizeExternalText(input.bio, MAX_DREP_BIO);
+  const bio = sanitizeExternalMultiline(input.bio, MAX_DREP_BIO);
 
   const links = input.links
     .filter((l) => isValidHttpUrl(l.uri))
@@ -103,8 +105,8 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
       uri: l.uri,
     }));
 
-  const motivations = sanitizeExternalText(input.motivations ?? '', MAX_DREP_MOTIVATIONS);
-  const qualifications = sanitizeExternalText(input.qualifications ?? '', MAX_DREP_QUALIFICATIONS);
+  const motivations = sanitizeExternalMultiline(input.motivations ?? '', MAX_DREP_MOTIVATIONS);
+  const qualifications = sanitizeExternalMultiline(input.qualifications ?? '', MAX_DREP_QUALIFICATIONS);
   const trimmedPay = input.paymentAddress?.trim() ?? '';
   const paymentAddress =
     trimmedPay.length <= MAX_DREP_PAYMENT_ADDR && isCardanoPaymentAddress(trimmedPay)

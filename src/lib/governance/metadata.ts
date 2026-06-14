@@ -169,7 +169,7 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
     (typeof body.bio === 'string' && body.bio) ||
     (typeof body.objectives === 'string' && body.objectives) ||
     '';
-  const bio = sanitizeExternalText(rawBio, MAX_PROFILE_BIO_LEN) || null;
+  const bio = sanitizeExternalMultiline(rawBio, MAX_PROFILE_BIO_LEN) || null;
 
   // imageUrl: body.image may be a plain string URL or a CIP-119 ImageObject with
   // contentUrl. http(s) is kept, ipfs:// resolves to the gateway, anything else
@@ -221,9 +221,9 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
   }
 
   const motivations =
-    sanitizeExternalText(typeof body.motivations === 'string' ? body.motivations : '', MAX_PROFILE_MOTIVATIONS_LEN) || null;
+    sanitizeExternalMultiline(typeof body.motivations === 'string' ? body.motivations : '', MAX_PROFILE_MOTIVATIONS_LEN) || null;
   const qualifications =
-    sanitizeExternalText(typeof body.qualifications === 'string' ? body.qualifications : '', MAX_PROFILE_QUALIFICATIONS_LEN) || null;
+    sanitizeExternalMultiline(typeof body.qualifications === 'string' ? body.qualifications : '', MAX_PROFILE_QUALIFICATIONS_LEN) || null;
   const rawPay = typeof body.paymentAddress === 'string' ? body.paymentAddress.trim() : '';
   const paymentAddress =
     rawPay.length > 0 && rawPay.length <= MAX_PROFILE_PAYMENT_ADDR_LEN && isCardanoPaymentAddress(rawPay)
