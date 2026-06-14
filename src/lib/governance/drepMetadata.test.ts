@@ -129,6 +129,11 @@ describe('buildDrepMetadata full profile', () => {
     expect(JSON.parse(buildDrepMetadata({ ...base, links }).body).body.references).toHaveLength(10);
   });
 
+  it('caps a link label at 100 characters', () => {
+    const m = buildDrepMetadata({ ...base, links: [{ uri: 'https://x.com/a', label: 'L'.repeat(150) }] });
+    expect(JSON.parse(m.body).body.references[0].label).toHaveLength(100);
+  });
+
   it('writes motivations and qualifications when present, omits when empty', () => {
     const m = buildDrepMetadata({ ...base, motivations: 'My motivations.', qualifications: 'My quals.' });
     const body = JSON.parse(m.body).body;
