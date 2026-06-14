@@ -2,7 +2,11 @@
 import Layout from '@/layouts/Layout.astro';
 import LogoMark from '@/components/LogoMark.astro';
 
-export const prerender = true;
+// SSR (not prerendered) so this page is served by the Worker and receives
+// Astro's hash-based CSP header, which includes the inlined theme-init hash.
+// A prerendered static page would instead get the hash-less /* CSP from
+// public/_headers, which blocks the inlined theme script and Astro's inline
+// styles. The page is static content, so the per-request render cost is trivial.
 
 // Brand palette. Hexes mirror the design tokens in src/styles/global.css.
 const brandColors = [

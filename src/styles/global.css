@@ -399,8 +399,8 @@ main.container {
 
 /* ==========================================================================
    Theme toggle: circular-reveal view transition (clean clip, not cross-fade).
-   The JS in public/theme.js animates the new snapshot's clip-path from the
-   toggle button outward.
+   The JS in src/scripts/theme-init.js animates the new snapshot's clip-path
+   from the toggle button outward.
    ========================================================================== */
 ::view-transition-old(root),
 ::view-transition-new(root) {

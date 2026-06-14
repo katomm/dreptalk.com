@@ -1,6 +1,20 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
+
+// The theme-init script is inlined into <head> via set:html (see Layout.astro)
+// so it runs before first paint without a render-blocking network request.
+// Strict CSP has no 'unsafe-inline' for scripts, so pin this exact inline body
+// with its own SHA-256 hash, computed here from the same file that gets inlined.
+// Keeping it derived means editing theme-init.js cannot desync the hash.
+const themeInitSource = readFileSync(
+  fileURLToPath(new URL('./src/scripts/theme-init.js', import.meta.url)),
+  'utf8',
+);
+const themeInitHash = `sha256-${createHash('sha256').update(themeInitSource).digest('base64')}`;
 
 export default defineConfig({
   site: 'https://dreptalk.com',
@@ -61,6 +75,9 @@ export default defineConfig({
         // the Cloudflare Web Analytics beacon origin. The per-build script
         // hashes are still appended automatically.
         resources: ["'self'", 'https://static.cloudflareinsights.com'],
+        // Astro hashes its own bundled/inline scripts but not author is:inline
+        // ones, so add the inlined theme-init hash explicitly.
+        hashes: [themeInitHash],
       },
     },
   },
