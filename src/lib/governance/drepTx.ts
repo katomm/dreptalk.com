@@ -86,21 +86,21 @@ function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletAp
 // recording stub cast to this type to assert the signer is declared.
 type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
 
+// The Conway DRep registration deposit (drep_deposit protocol parameter), in
+// lovelace. Stable at 500 ADA on mainnet and preprod; changing it requires an
+// on-chain governance action. Used only to size input selection; the SDK reads
+// the authoritative value from protocol parameters when balancing the tx.
+const DREP_DEPOSIT_LOVELACE = 500_000_000n;
+
+// Headroom over the funded amount to also cover the network fee, the change
+// output's min-UTxO, and small protocol-parameter drift, so input selection
+// never picks a set that is short by a fee's worth.
+const FUNDING_HEADROOM_LOVELACE = 5_000_000n;
+
 /**
- * Collects the connected wallet's UTxOs across ALL of its addresses, to fund the
- * transaction.
- *
- * Why this is needed: EvolutionSDK 0.5.9 funds a CIP-30 wallet from a SINGLE
- * address only. Its resolveAvailableUtxos uses wallet.address() (which the CIP-30
- * wrapper resolves to getUsedAddresses()[0]) and asks the provider for that one
- * address's UTxOs (Koios /address_info). A multi-address (HD) wallet keeps its
- * ada across many addresses, so the first used address is often empty and the
- * builder reports "Available: 0" on a well-funded wallet. We gather every
- * address's UTxOs ourselves (reusing the SDK's own Koios decoding via a read
- * client) and pass them to build({ availableUtxos }), which the SDK honors over
- * its single-address default. The change address still defaults to wallet
- * .address(), which is a valid wallet address. Revisit if a future SDK funds a
- * CIP-30 wallet from the wallet's own getUtxos().
+ * Collects the connected wallet's UTxOs across all of its addresses, reusing the
+ * SDK's own Koios decoding via a read client. Used as the funding universe for
+ * input selection and as build({ availableUtxos }).
  */
 async function collectWalletUtxos(
   network: CardanoNetwork,
@@ -125,6 +125,40 @@ async function collectWalletUtxos(
     byRef.set(UTxO.toOutRefString(utxo), utxo);
   }
   return [...byRef.values()];
+}
+
+/** Lovelace in a UTxO (0 if absent), as a bigint for exact comparison. */
+function utxoLovelace(utxo: UTxO.UTxO): bigint {
+  return BigInt(utxo.assets?.lovelace ?? 0n);
+}
+
+/**
+ * Picks the fewest wallet UTxOs (largest first) whose combined lovelace covers
+ * `minLovelace`, falling back to all UTxOs if the wallet cannot reach it.
+ *
+ * Why this is needed: these flows build certificate-only transactions with no
+ * payment output. The SDK's automatic coin selection is driven by outputs, so
+ * with none it selects no inputs and reports "Available: 0" even on a funded
+ * wallet, regardless of build({ availableUtxos }). We therefore select inputs
+ * ourselves and pass them via collectFrom, sizing the set to cover the
+ * certificate deposit (if any) plus a fee headroom. Largest-first keeps the
+ * input count, and so the tx size, small.
+ */
+function pickInputsToCover(utxos: UTxO.UTxO[], minLovelace: bigint): UTxO.UTxO[] {
+  const sorted = [...utxos].sort((a, b) => {
+    const av = utxoLovelace(a);
+    const bv = utxoLovelace(b);
+    return av < bv ? 1 : av > bv ? -1 : 0;
+  });
+
+  const picked: UTxO.UTxO[] = [];
+  let sum = 0n;
+  for (const utxo of sorted) {
+    picked.push(utxo);
+    sum += utxoLovelace(utxo);
+    if (sum >= minLovelace) return picked;
+  }
+  return sorted;
 }
 
 /**
@@ -202,12 +236,16 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  // reg_drep locks the DRep deposit, so the inputs must cover deposit + fee.
+  const inputs = pickInputsToCover(availableUtxos, DREP_DEPOSIT_LOVELACE + FUNDING_HEADROOM_LOVELACE);
 
   const built = await queueRegisterDrepOps(client.newTx(), {
     drepCredential,
     anchor,
     drepKeyHash: opts.drepKeyHash,
-  }).build({ availableUtxos });
+  })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
 
   return signAndSubmit(built, opts.walletApi);
 }
@@ -230,11 +268,15 @@ export async function retireDRep(opts: RetireDRepOpts): Promise<{ txHash: string
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  // unreg_drep refunds the deposit, so the inputs only need to cover the fee.
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
 
   const built = await queueDeregisterDrepOps(client.newTx(), {
     drepCredential,
     drepKeyHash: opts.drepKeyHash,
-  }).build({ availableUtxos });
+  })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
 
   return signAndSubmit(built, opts.walletApi);
 }
@@ -256,12 +298,16 @@ export async function updateDRepMetadata(opts: RegisterDRepOpts): Promise<{ txHa
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  // update_drep has no deposit, so the inputs only need to cover the fee.
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
 
   const built = await queueUpdateDrepOps(client.newTx(), {
     drepCredential,
     anchor,
     drepKeyHash: opts.drepKeyHash,
-  }).build({ availableUtxos });
+  })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
 
   return signAndSubmit(built, opts.walletApi);
 }
@@ -356,8 +402,12 @@ export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ tx
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  // vote_deleg has no deposit, so the inputs only need to cover the fee.
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
 
-  const built = await queueDelegateVotesOps(client.newTx(), { stakeCredential, drep, stakeKeyHash }).build({ availableUtxos });
+  const built = await queueDelegateVotesOps(client.newTx(), { stakeCredential, drep, stakeKeyHash })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
 
   return signAndSubmit(built, opts.walletApi);
 }
