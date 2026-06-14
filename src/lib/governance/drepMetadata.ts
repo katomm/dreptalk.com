@@ -18,7 +18,11 @@ const TEXT_ENCODER = new TextEncoder();
 // Character limits defined by CIP-119 and enforced before hashing.
 export const MAX_DREP_NAME = 80;
 export const MAX_DREP_BIO = 1000;
-export const MAX_DREP_LINKS = 6;
+export const MAX_DREP_LINKS = 10;
+export const MAX_DREP_LINK_LABEL = 80;
+export const MAX_DREP_MOTIVATIONS = 1000;
+export const MAX_DREP_QUALIFICATIONS = 1000;
+export const MAX_DREP_PAYMENT_ADDR = 150;
 
 // Per-link URL length cap. CIP-119 is silent on URL length; 2048 matches
 // common browser and HTTP server limits.
@@ -30,18 +34,27 @@ export interface DrepImageInput {
   sha256?: string;
 }
 
+export interface DrepLinkInput {
+  uri: string;
+  label?: string;
+}
+
 export interface DrepMetadataInput {
   name: string;
   bio: string;
-  links: string[];
+  links: DrepLinkInput[];
   image?: DrepImageInput;
+  motivations?: string;
+  qualifications?: string;
+  paymentAddress?: string;
+  doNotList?: boolean;
 }
 
 export interface DrepMetadataResult {
   // Sanitized, length-capped values stored in the document.
   name: string;
   bio: string;
-  links: string[];
+  links: { label: string; uri: string }[];
   // Canonical CIP-119 JSON string (stable key order, UTF-8).
   body: string;
   // blake2b-256 hash of the UTF-8 bytes of `body`, as 64 lowercase hex chars.
@@ -56,6 +69,11 @@ function isValidHttpsUrl(raw: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** A Cardano payment address: addr1... (mainnet) or addr_test1... (testnet). */
+function isCardanoPaymentAddress(raw: string): boolean {
+  return raw.length <= MAX_DREP_PAYMENT_ADDR && /^addr(_test)?1[0-9a-z]+$/.test(raw);
 }
 
 /** Returns true when the URL uses http or https and parses without error. */
@@ -82,8 +100,20 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
   const bio = sanitizeExternalText(input.bio, MAX_DREP_BIO);
 
   const links = input.links
-    .filter(isValidHttpUrl)
-    .slice(0, MAX_DREP_LINKS);
+    .filter((l) => isValidHttpUrl(l.uri))
+    .slice(0, MAX_DREP_LINKS)
+    .map((l) => ({
+      label: sanitizeExternalText(l.label ?? '', MAX_DREP_LINK_LABEL),
+      uri: l.uri,
+    }));
+
+  const motivations = sanitizeExternalText(input.motivations ?? '', MAX_DREP_MOTIVATIONS);
+  const qualifications = sanitizeExternalText(input.qualifications ?? '', MAX_DREP_QUALIFICATIONS);
+  const paymentAddress =
+    input.paymentAddress && isCardanoPaymentAddress(input.paymentAddress.trim())
+      ? input.paymentAddress.trim()
+      : '';
+  const doNotList = input.doNotList === true;
 
   // Image: only an https URL is embeddable (the sync-side parser drops anything
   // else, and data: URIs would bloat the doc). sha256 rides along when known.
@@ -132,6 +162,7 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
           objectives: 'CIP119:objectives',
           motivations: 'CIP119:motivations',
           qualifications: 'CIP119:qualifications',
+          doNotList: 'CIP119:doNotList',
         },
       },
     },
@@ -140,11 +171,15 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
       givenName: name,
       ...(image ? { image } : {}),
       objectives: bio,
-      references: links.map(uri => ({
+      ...(motivations ? { motivations } : {}),
+      ...(qualifications ? { qualifications } : {}),
+      ...(paymentAddress ? { paymentAddress } : {}),
+      references: links.map((l) => ({
         '@type': 'Link' as const,
-        label: '',
-        uri,
+        label: l.label,
+        uri: l.uri,
       })),
+      ...(doNotList ? { doNotList: true } : {}),
     },
   };
 

@@ -32,6 +32,11 @@ export interface Drep {
   /** Unix ms of the last failed download attempt; NULL when never failed or after a success. */
   imageFetchFailedAt: number | null;
   links: { label: string; uri: string }[] | null;
+  motivations: string | null;
+  qualifications: string | null;
+  paymentAddress: string | null;
+  /** CIP-119 doNotList flag; round-tripped but not honored by the listing. */
+  doNotList: boolean;
   anchorUrl: string | null;
   anchorHash: string | null;
   anchorStatus: string;
@@ -58,6 +63,10 @@ interface DrepRow {
   image_stored_url: string | null;
   image_fetch_failed_at: number | null;
   links: string | null;
+  motivations: string | null;
+  qualifications: string | null;
+  payment_address: string | null;
+  do_not_list: number;
   anchor_url: string | null;
   anchor_hash: string | null;
   anchor_status: string;
@@ -85,6 +94,10 @@ function rowToDrep(row: DrepRow): Drep {
     imageStoredUrl: row.image_stored_url,
     imageFetchFailedAt: row.image_fetch_failed_at,
     links: row.links != null ? (JSON.parse(row.links) as { label: string; uri: string }[]) : null,
+    motivations: row.motivations,
+    qualifications: row.qualifications,
+    paymentAddress: row.payment_address,
+    doNotList: row.do_not_list === 1,
     anchorUrl: row.anchor_url,
     anchorHash: row.anchor_hash,
     anchorStatus: row.anchor_status,
@@ -225,6 +238,10 @@ export async function upsertDrep(
     imageStoredUrl: string | null;
     imageFetchFailedAt: number | null;
     links: { label: string; uri: string }[] | null;
+    motivations: string | null;
+    qualifications: string | null;
+    paymentAddress: string | null;
+    doNotList: boolean;
     anchorUrl: string | null;
     anchorHash: string | null;
     anchorStatus: string;
@@ -239,9 +256,10 @@ export async function upsertDrep(
       `INSERT INTO dreps
          (drep_id, hex, has_script, status, active, deposit, voting_power,
           expires_epoch_no, name, bio, image_url, image_content_hash,
-          image_stored_url, image_fetch_failed_at, links, anchor_url,
-          anchor_hash, anchor_status, last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          image_stored_url, image_fetch_failed_at, links,
+          motivations, qualifications, payment_address, do_not_list,
+          anchor_url, anchor_hash, anchor_status, last_synced_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(drep_id) DO UPDATE SET
          hex = excluded.hex,
          has_script = excluded.has_script,
@@ -257,6 +275,10 @@ export async function upsertDrep(
          image_stored_url = excluded.image_stored_url,
          image_fetch_failed_at = excluded.image_fetch_failed_at,
          links = excluded.links,
+         motivations = excluded.motivations,
+         qualifications = excluded.qualifications,
+         payment_address = excluded.payment_address,
+         do_not_list = excluded.do_not_list,
          anchor_url = excluded.anchor_url,
          anchor_hash = excluded.anchor_hash,
          anchor_status = excluded.anchor_status,
@@ -279,6 +301,10 @@ export async function upsertDrep(
       args.imageStoredUrl,
       args.imageFetchFailedAt,
       linksJson,
+      args.motivations,
+      args.qualifications,
+      args.paymentAddress,
+      args.doNotList ? 1 : 0,
       args.anchorUrl,
       args.anchorHash,
       args.anchorStatus,
@@ -380,6 +406,10 @@ export async function updateDrepProfileFromAnchor(
     name: string | null;
     bio: string | null;
     links: { label: string; uri: string }[] | null;
+    motivations: string | null;
+    qualifications: string | null;
+    paymentAddress: string | null;
+    doNotList: boolean;
     imageUrl: string | null;
     imageContentHash: string | null;
     imageStoredUrl: string | null;
@@ -395,6 +425,7 @@ export async function updateDrepProfileFromAnchor(
       `UPDATE dreps SET
          name = ?, bio = ?, links = ?, image_url = ?,
          image_content_hash = ?, image_stored_url = ?, image_fetch_failed_at = NULL,
+         motivations = ?, qualifications = ?, payment_address = ?, do_not_list = ?,
          anchor_url = ?, anchor_hash = ?, anchor_status = ?, last_synced_at = ?
        WHERE drep_id = ?`,
     )
@@ -405,6 +436,10 @@ export async function updateDrepProfileFromAnchor(
       args.imageUrl,
       args.imageContentHash,
       args.imageStoredUrl,
+      args.motivations,
+      args.qualifications,
+      args.paymentAddress,
+      args.doNotList ? 1 : 0,
       args.anchorUrl,
       args.anchorHash,
       args.anchorStatus,
