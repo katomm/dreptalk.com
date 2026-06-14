@@ -18,7 +18,7 @@ import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import DrepProfileFields, { type DrepProfileValue, profileLinksToWire } from '@/components/DrepProfileFields.js';
 import type { HostedImage } from '@/components/DrepImageUpload.js';
-import WalletPicker from '@/components/WalletPicker.js';
+import WalletConnection from '@/components/WalletConnection.js';
 
 // Same enabled-api shape as DRepService: CIP-30 tx surface plus the cip95
 // reader for the DRep key and getNetworkId for the network guard.
@@ -287,25 +287,8 @@ export default function DrepSettings({
 
   return (
     <div style={{ maxWidth: '60rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-      <div style={{ maxWidth: '32rem', border: '1px solid var(--border)', borderRadius: 'var(--radius, 14px)', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: '1rem' }}>
-            Wallet <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: '0.875rem' }}>(CIP-95)</span>
-          </h2>
-          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-            Select the wallet that represents your DRep on-chain.
-          </p>
-        </div>
-        <WalletPicker
-          wallets={wallets}
-          selected={selected}
-          onSelect={setSelected}
-          disabled={busy}
-          hideLabel
-        />
-        <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          This wallet will be used to sign your on-chain metadata update.
-        </p>
+      <div style={{ maxWidth: '32rem' }}>
+        <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} />
       </div>
 
       <form
