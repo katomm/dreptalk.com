@@ -288,7 +288,7 @@ export default function DrepSettings({
   return (
     <div style={{ maxWidth: '60rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
       <div style={{ maxWidth: '32rem' }}>
-        <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} />
+        <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} note="This wallet will be used to sign your on-chain metadata update." />
       </div>
 
       <form
