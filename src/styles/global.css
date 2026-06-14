@@ -122,6 +122,12 @@ html[data-theme='dark'] {
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* Always reserve the scrollbar gutter so the centered layout keeps the same
+     width whether a page scrolls or not. Without this the header and main
+     content shift sideways by the scrollbar width when navigating between a
+     long page (scrollbar shown) and a short one (no scrollbar). Harmless no-op
+     on overlay-scrollbar systems. */
+  scrollbar-gutter: stable;
 }
 
 body {
