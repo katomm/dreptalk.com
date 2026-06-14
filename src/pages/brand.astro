@@ -64,6 +64,16 @@ const swatchGroups = [
           <LogoMark style="width:70%;height:auto;color:#fff" label="DRepTalk mark on the brand gradient" />
         </figure>
       </div>
+      <figure class="logo-lockup">
+        <span class="logo-lockup__brand">
+          <LogoMark style="height:34px;width:34px;color:var(--muted)" />
+          <span class="logo-lockup__word">DRep<span class="grad-text">Talk</span></span>
+        </span>
+        <figcaption class="brand__note">
+          In context, next to the wordmark, the mark sits in muted grey like the header lockup; only
+          "Talk" keeps the gradient.
+        </figcaption>
+      </figure>
       <div class="brand__downloads">
         <a class="btn btn-secondary" href="/logo.svg" download="dreptalk-logo.svg">Logo SVG</a>
         <a class="btn btn-secondary" href="/logo.png" download="dreptalk-logo.png">Logo PNG</a>
@@ -201,6 +211,32 @@ const swatchGroups = [
   }
   .logo-card--grad {
     background: var(--grad);
+  }
+
+  /* In-context lockup: mark plus wordmark as it appears in the header. */
+  .logo-lockup {
+    margin: 1.25rem 0 0;
+  }
+  .logo-lockup__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+  }
+  .logo-lockup__word {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.5rem;
+    letter-spacing: -0.01em;
+    /* "DRep" muted like the mark; only "Talk" (.grad-text) carries color. */
+    color: var(--muted);
+    line-height: 1;
+  }
+  .logo-lockup figcaption {
+    margin-top: 0.75rem;
   }
 
   .brand__downloads {
