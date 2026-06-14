@@ -7,6 +7,7 @@ import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
+import { linkDisplayLabel } from '@/lib/dreps/linkLabel.js';
 import { getUserByDrepId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
@@ -127,9 +128,27 @@ const personLd = drep
     {drep.links && drep.links.length > 0 && (
       <ul style="list-style:none;padding:0;display:flex;gap:1rem;flex-wrap:wrap;">
         {drep.links.map((l) => (
-          <li><a href={l.uri} rel="nofollow noopener" target="_blank">{l.label}</a></li>
+          <li><a href={l.uri} rel="nofollow noopener" target="_blank">{linkDisplayLabel(l)}</a></li>
         ))}
       </ul>
+    )}
+
+    {drep.motivations && (
+      <section style="max-width:65ch;margin-top:0.5rem;">
+        <h2 style="font-size:1rem;margin:0 0 0.25rem;">Motivations</h2>
+        <p style="color:var(--fg);margin:0;white-space:pre-wrap;">{drep.motivations}</p>
+      </section>
+    )}
+    {drep.qualifications && (
+      <section style="max-width:65ch;margin-top:0.5rem;">
+        <h2 style="font-size:1rem;margin:0 0 0.25rem;">Qualifications</h2>
+        <p style="color:var(--fg);margin:0;white-space:pre-wrap;">{drep.qualifications}</p>
+      </section>
+    )}
+    {drep.paymentAddress && (
+      <p style="font-size:0.8125rem;color:var(--muted);margin-top:0.5rem;">
+        Payment address: <span style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;word-break:break-all;">{drep.paymentAddress}</span>
+      </p>
     )}
 
     <p style="font-size:0.75rem;color:var(--muted);">On-chain data as of {formatRelativeTime(drep.lastSyncedAt, now)}.</p>
