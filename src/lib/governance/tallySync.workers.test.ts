@@ -250,6 +250,27 @@ describe('syncGovernanceVotes', () => {
     const sizes = await Promise.all([a, b, c].map((x) => getVotesByGaId(db(), x.id)));
     expect(sizes.filter((m) => m.size > 0).length).toBe(2);
   });
+
+  it('caps an endless vote list at maxPages instead of fetching forever', async () => {
+    const a = await insertActive(400);
+    let calls = 0;
+    // Always returns a full page: an effectively endless (pathological) vote list.
+    const koios = {
+      async proposalVotes(_pid: string, limit = 1000, offset = 0): Promise<ProposalVoteRow[]> {
+        calls++;
+        return Array.from({ length: limit }, (_, k) => ({
+          voter_role: 'DRep',
+          voter_id: `drep_${offset + k}`,
+          voter_hex: null,
+          vote: 'Yes',
+        }));
+      },
+    };
+
+    await syncGovernanceVotes({ koios, db: db(), now: NOW, maxPages: 3 });
+    expect(calls).toBe(3); // bounded; did not run away
+    expect((await getVotesByGaId(db(), a.id)).size).toBe(3000);
+  });
 });
 
 describe('backfillVotedPower', () => {
@@ -371,5 +392,32 @@ describe('backfillFinalizedVotes', () => {
 
     expect(await getDrepVotingHistory(env.DB, 'drepH', {})).toHaveLength(1);
     expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]); // now marked synced
+  });
+
+  it('caps a pathological finalised vote list and still marks the action synced', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaCap', 'InfoAction', 'Huge', 'enacted', 'propCap', NULL, 0, 0)`,
+    ).run();
+
+    let calls = 0;
+    const koios = {
+      // Endless full pages: the exact shape that used to kill the run mid-loop.
+      proposalVotes: async (_p: string, limit = 1000, offset = 0): Promise<ProposalVoteRow[]> => {
+        calls++;
+        return Array.from({ length: limit }, (_, k) => ({
+          voter_role: 'DRep',
+          voter_id: `drep_${offset + k}`,
+          voter_hex: null,
+          vote: 'Yes',
+        }));
+      },
+    };
+
+    const r = await backfillFinalizedVotes({ koios, db: env.DB, now: 999, limit: 10, maxPages: 3 });
+    expect(calls).toBe(3); // bounded; did not run away
+    expect(r.votes).toBe(3000);
+    // Marked synced despite the cap, so it cannot stall the backfill every run.
+    expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]);
   });
 });

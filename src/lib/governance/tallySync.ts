@@ -61,10 +61,53 @@ export interface VoteSyncDeps {
   limit?: number;
   /** Delay between actions (ms) so a run does not burst Koios. Default 0. */
   paceMs?: number;
+  /** Max vote pages to fetch per action; defaults to MAX_VOTE_PAGES. Tests lower it. */
+  maxPages?: number;
 }
 
 // Koios pages proposal_votes at 1000 rows; loop while a full page comes back.
 const VOTES_PAGE = 1000;
+
+// Hard cap on vote pages fetched per action per run. Without it the pagination
+// loop is unbounded: an action whose vote list keeps returning full pages (real
+// abuse on a testnet, or a paginating Koios that never ends) makes the cron
+// worker run out of CPU/subrequests and get killed mid-run, before it can mark
+// the action synced, so the same action kills every subsequent run too. The cap
+// (25k votes) sits far above any realistic on-chain action; only a pathological
+// list is truncated, and that is logged.
+const MAX_VOTE_PAGES = 25;
+
+/**
+ * Fetches a proposal's per-voter votes, bounded to maxPages pages. Returns the
+ * collected votes and whether the cap was hit (the list was longer and got
+ * truncated). Shared by the live vote sync and the finalised backfill.
+ */
+async function collectProposalVotes(
+  koios: VoteSyncDeps['koios'],
+  proposalId: string,
+  maxPages: number,
+): Promise<{ votes: VoteInput[]; capped: boolean }> {
+  const votes: VoteInput[] = [];
+  let capped = true;
+  for (let page = 0; page < maxPages; page++) {
+    const rows = await koios.proposalVotes(proposalId, VOTES_PAGE, page * VOTES_PAGE);
+    for (const v of rows) {
+      votes.push({
+        voterRole: v.voter_role,
+        voterId: v.voter_id,
+        voterHex: v.voter_hex ?? null,
+        vote: v.vote,
+        metaUrl: v.meta_url ?? null,
+        blockTime: v.block_time ?? null,
+      });
+    }
+    if (rows.length < VOTES_PAGE) {
+      capped = false;
+      break;
+    }
+  }
+  return { votes, capped };
+}
 
 /**
  * Derives the lifecycle status from the proposal_list epoch fields, falling back
@@ -220,7 +263,7 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
 }
 
 export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncResult> {
-  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0 } = deps;
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES } = deps;
 
   // Same bounded, stale-first strategy as the tally sync: proposal_votes is even
   // heavier (paginated per action), so a run must not fetch every action at once.
@@ -236,16 +279,12 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     actions++;
     try {
-      const collected: VoteInput[] = [];
-      for (let offset = 0; ; offset += VOTES_PAGE) {
-        const page = await koios.proposalVotes(ga.proposalId, VOTES_PAGE, offset);
-        for (const v of page) {
-          collected.push({ voterRole: v.voter_role, voterId: v.voter_id, voterHex: v.voter_hex ?? null, vote: v.vote, metaUrl: v.meta_url ?? null, blockTime: v.block_time ?? null });
-        }
-        if (page.length < VOTES_PAGE) break;
-      }
+      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
       votes += await upsertVotes(db, ga.id, collected, now);
       await markVotesSynced(db, ga.id, now);
+      if (capped) {
+        console.warn(`[gov-votes] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; synced a capped prefix`);
+      }
     } catch (err) {
       failed++;
       console.warn(`[gov-votes] action ${ga.id} failed:`, err);
@@ -264,7 +303,7 @@ export interface VoteBackfillResult { actions: number; votes: number; failed: nu
  * action synced so it drops out of the candidate set. Bounded by `limit`.
  */
 export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBackfillResult> {
-  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0 } = deps;
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES } = deps;
   const candidates = await getActionsNeedingVoteBackfill(db, limit);
   let votes = 0;
   let failed = 0;
@@ -274,16 +313,15 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     actions++;
     try {
-      const collected: VoteInput[] = [];
-      for (let offset = 0; ; offset += VOTES_PAGE) {
-        const page = await koios.proposalVotes(ga.proposalId, VOTES_PAGE, offset);
-        for (const v of page) {
-          collected.push({ voterRole: v.voter_role, voterId: v.voter_id, voterHex: v.voter_hex ?? null, vote: v.vote, metaUrl: v.meta_url ?? null, blockTime: v.block_time ?? null });
-        }
-        if (page.length < VOTES_PAGE) break;
-      }
+      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
       votes += await upsertVotes(db, ga.id, collected, now);
+      // Mark synced even when capped: the prefix is stored and the action drops
+      // out of the candidate set, so a pathological list cannot stall the backfill
+      // on the same action every run.
       await markVotesSynced(db, ga.id, now);
+      if (capped) {
+        console.warn(`[gov-votes-backfill] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; synced a capped prefix`);
+      }
     } catch (err) {
       failed++;
       console.warn(`[gov-votes-backfill] action ${ga.id} failed:`, err);

@@ -185,7 +185,10 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
 }
 
 // Refresh the per-post vote lists (active actions only). Hourly: vote lists are
-// larger and per-post badges do not need 15-minute freshness.
+// larger and per-post badges do not need 15-minute freshness. Per-action vote
+// pagination is bounded (see MAX_VOTE_PAGES in tallySync) so one action with a
+// pathologically long vote list cannot run this invocation out of CPU and leave
+// the run stuck mid-loop.
 async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
   const { koios } = buildKoios(env);
   const now = Date.now();
