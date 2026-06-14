@@ -298,22 +298,47 @@ export interface DrepAvatarSourceRow {
  * not yet stored, or whose source URL changed since it was stored. Never-failed
  * rows come first, then failures oldest first, so a permanently failing source
  * rotates to the back of the queue instead of starving fresh work. drep_id
- * breaks ties for deterministic paging; capped by limit.
+ * breaks ties for deterministic paging; capped by limit. Rows that have failed
+ * maxAttempts times are excluded: the source is treated as permanently broken so
+ * the pass stops retrying it and the dreps sync is not pinned at 'partial'.
  */
-export async function listDrepsNeedingAvatar(db: D1Database, limit: number): Promise<DrepAvatarSourceRow[]> {
+export async function listDrepsNeedingAvatar(
+  db: D1Database,
+  limit: number,
+  maxAttempts: number,
+): Promise<DrepAvatarSourceRow[]> {
   const rows = (
     await db
       .prepare(
         `SELECT drep_id, image_url FROM dreps
          WHERE image_url IS NOT NULL
            AND (image_stored_url IS NULL OR image_stored_url <> image_url)
+           AND image_fetch_attempts < ?
          ORDER BY image_fetch_failed_at ASC NULLS FIRST, drep_id
          LIMIT ?`,
       )
-      .bind(limit)
+      .bind(maxAttempts, limit)
       .all<{ drep_id: string; image_url: string }>()
   ).results ?? [];
   return rows.map((r) => ({ drepId: r.drep_id, imageUrl: r.image_url }));
+}
+
+/**
+ * Count of DReps the avatar pass has permanently given up on: an image URL that
+ * is still unstored after maxAttempts failed fetches. These drop out of
+ * listDrepsNeedingAvatar, so the status page surfaces the count.
+ */
+export async function countGivenUpAvatars(db: D1Database, maxAttempts: number): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM dreps
+       WHERE image_url IS NOT NULL
+         AND (image_stored_url IS NULL OR image_stored_url <> image_url)
+         AND image_fetch_attempts >= ?`,
+    )
+    .bind(maxAttempts)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 /**
@@ -331,7 +356,7 @@ export async function setDrepImageStored(
   await db
     .prepare(
       `UPDATE dreps SET image_content_hash = ?, image_stored_url = ?,
-         image_fetch_failed_at = NULL
+         image_fetch_failed_at = NULL, image_fetch_attempts = 0
        WHERE drep_id = ?`,
     )
     .bind(contentHash, storedUrl, drepId)
@@ -403,7 +428,7 @@ export async function markDrepImageFetchFailed(
   if (drepIds.length === 0) return;
   await db
     .prepare(
-      `UPDATE dreps SET image_fetch_failed_at = ?
+      `UPDATE dreps SET image_fetch_failed_at = ?, image_fetch_attempts = image_fetch_attempts + 1
        WHERE drep_id IN (${sqlPlaceholders(drepIds)})`,
     )
     .bind(failedAtMs, ...drepIds)

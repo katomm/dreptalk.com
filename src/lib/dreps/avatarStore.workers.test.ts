@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { storeDrepAvatars, gcDrepAvatars, AVATAR_KEY_PREFIX } from './avatarStore.js';
-import { upsertDrep, getDrepById } from '../db/dreps.js';
+import { upsertDrep, getDrepById, listDrepsNeedingAvatar, countGivenUpAvatars } from '../db/dreps.js';
 import { bytesToHex } from '../crypto/hex.js';
 
 const db = () => env.DB;
@@ -207,5 +207,37 @@ describe('gcDrepAvatars', () => {
     const r = await gcDrepAvatars({ db: db(), bucket: bucket(), nowMs: Date.now() });
     expect(r.deleted).toBe(0);
     expect(await bucket().get(AVATAR_KEY_PREFIX + '5'.repeat(64))).not.toBeNull();
+  });
+});
+
+describe('avatar give-up', () => {
+  const fail404 = (async () => new Response('no', { status: 404 })) as unknown as typeof fetch;
+
+  it('gives up on a DRep after maxAttempts failed fetches and surfaces the count', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'gu-dead', imageUrl: 'https://dead.example/x.png' });
+
+    // Two runs, cap 2: each fails and increments the attempt counter. A high limit
+    // ensures gu-dead is reached every run despite other rows in the shared DB.
+    expect((await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl: fail404, maxAttempts: 2, limit: 500 })).failed)
+      .toBeGreaterThanOrEqual(1);
+    await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl: fail404, maxAttempts: 2, limit: 500 });
+
+    // At the cap: excluded from the candidate query, counted as given up.
+    const candidates = await listDrepsNeedingAvatar(db(), 500, 2);
+    expect(candidates.find((c) => c.drepId === 'gu-dead')).toBeUndefined();
+    expect(await countGivenUpAvatars(db(), 2)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('resets the attempt counter on a successful store', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'gu-recover', imageUrl: 'https://flaky.example/x.png' });
+    const ok = (async () => imageResponse(PNG_BYTES)) as unknown as typeof fetch;
+
+    await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl: fail404, maxAttempts: 5, limit: 500 });
+    await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl: ok, maxAttempts: 5, limit: 500 });
+
+    const row = await db()
+      .prepare("SELECT image_fetch_attempts AS a FROM dreps WHERE drep_id = 'gu-recover'")
+      .first<{ a: number }>();
+    expect(row?.a).toBe(0);
   });
 });

@@ -25,6 +25,13 @@ const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'im
 // R2 key prefix; the full key is avatars/<sha256-hex>.
 export const AVATAR_KEY_PREFIX = 'avatars/';
 
+// How many times the avatar pass may fail to fetch or validate a DRep's image
+// before it gives up and stops re-attempting that DRep. At the 6-hour dreps
+// cadence this is over two days of continuous failure, so only a permanently
+// broken source is abandoned. Giving up keeps the dreps sync from being pinned
+// at 'partial' forever. A successful store resets the counter.
+export const AVATAR_FETCH_MAX_ATTEMPTS = 10;
+
 export interface AvatarStoreDeps {
   db: D1Database;
   bucket: R2Bucket;
@@ -32,6 +39,8 @@ export interface AvatarStoreDeps {
   fetchImpl?: typeof fetch;
   /** Max downloads per run; the backlog drains over successive cron runs. */
   limit?: number;
+  /** Give-up cap for failed fetches per DRep; defaults to AVATAR_FETCH_MAX_ATTEMPTS. */
+  maxAttempts?: number;
   /** Failure stamp time (unix ms); defaults to Date.now(), injected for tests. */
   nowMs?: number;
 }
@@ -103,13 +112,14 @@ async function fetchValidatedImage(
 export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarStoreResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const limit = deps.limit ?? 25;
+  const maxAttempts = deps.maxAttempts ?? AVATAR_FETCH_MAX_ATTEMPTS;
   const nowMs = deps.nowMs ?? Date.now();
 
   // First null out rows whose on-chain image disappeared, so their objects
   // become unreferenced and the GC can reap them.
   const cleared = await clearOrphanedImageStore(deps.db);
 
-  const rows = await listDrepsNeedingAvatar(deps.db, limit);
+  const rows = await listDrepsNeedingAvatar(deps.db, limit, maxAttempts);
   let stored = 0;
   const failedIds: string[] = [];
   for (const row of rows) {

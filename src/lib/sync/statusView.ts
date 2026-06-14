@@ -73,9 +73,14 @@ export type RunDisplay =
 
 /** Distinguishes a finished run (with duration) from one still running vs killed. */
 export function runDisplay(
-  run: { startedAt: number; finishedAt: number | null },
+  run: { startedAt: number; finishedAt: number | null; status?: string },
   now: number,
 ): RunDisplay {
+  // A run the reaper finalized as 'killed' has a finish time, but its duration is
+  // meaningless (the reap time, not the death time), so report it as killed.
+  if (run.status === 'killed') {
+    return { state: 'killed', text: 'killed' };
+  }
   if (run.finishedAt != null) {
     const sec = (run.finishedAt - run.startedAt) / 1000;
     return { state: 'done', text: sec < 10 ? `${sec.toFixed(1)}s` : `${Math.round(sec)}s` };

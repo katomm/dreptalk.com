@@ -232,7 +232,7 @@ describe('avatar store queries', () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-stored', imageUrl: 'https://a.example/3.png', imageContentHash: 'd'.repeat(64), imageStoredUrl: 'https://a.example/3.png' });
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-noimage', imageUrl: null, imageContentHash: null, imageStoredUrl: null });
 
-    const rows = await listDrepsNeedingAvatar(db(), 10);
+    const rows = await listDrepsNeedingAvatar(db(), 10, 100);
     const ids = rows.map((r) => r.drepId).sort();
     expect(ids).toEqual(['av-changed', 'av-new']);
     expect(rows.find((r) => r.drepId === 'av-new')!.imageUrl).toBe('https://a.example/1.png');
@@ -245,7 +245,7 @@ describe('avatar store queries', () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-ord-b', imageUrl: 'https://a.example/b.png', imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: 1000 });
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-ord-c', imageUrl: 'https://a.example/c.png', imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: null });
 
-    const rows = await listDrepsNeedingAvatar(db(), 10);
+    const rows = await listDrepsNeedingAvatar(db(), 10, 100);
     expect(rows.map((r) => r.drepId)).toEqual(['av-ord-c', 'av-ord-b', 'av-ord-a']);
   });
 
