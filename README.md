@@ -42,6 +42,29 @@ Found a vulnerability? Please report it privately, not in a public issue. See [S
 
 Astro (SSR) on Cloudflare Workers, with D1, KV, and a Durable Object for atomic rate limiting. A standalone cron worker ingests governance actions. Chain data via Koios, used anonymously by default; set `KOIOS_API_KEY` for higher rate limits. A free [koios.rest](https://koios.rest) account is enough to run everything, though a Pro key is recommended for production to keep the heavy first DRep sync comfortably inside the rate limit. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
 
+The chain is never read live on a page request. The cron worker pulls from Koios on a schedule and writes the result to shared storage; the app worker only ever reads that cache, so every on-chain value is shown with an "as of" time.
+
+```mermaid
+flowchart TB
+    chain[("Cardano chain · Koios")]
+    cron["gov-sync cron worker<br/>~15 min: discover actions + active tallies<br/>hourly: per-post vote badges<br/>~6 h: DRep profiles + avatars"]
+    store[("Shared storage<br/>D1 (forum + cached chain) · R2 (avatars)")]
+    app["App worker · Astro SSR"]
+    do["Durable Object<br/>rate limiting"]
+    kv[("KV<br/>sessions · auth nonces")]
+    readers["Readers<br/>public, edge-cached ~30s"]
+    writers["Writers: DReps, SPOs, CC, proposers<br/>wallet signature, on-chain roles"]
+
+    chain -- "read on cron" --> cron
+    cron -- "write cache" --> store
+    store -- "read cache" --> app
+    app -- "persist posts" --> store
+    writers -- "post (gated)" --> app
+    app -- "serve pages" --> readers
+    app <--> do
+    app <--> kv
+```
+
 Moderation is community-first: any on-chain writer (DRep, SPO, CC member, or proposer) can flag a post, and a post is hidden behind a placeholder once three distinct writers have flagged it. Every writer is a wallet-verified governance participant, and registering as a DRep locks a refundable 500 ADA deposit, so coordinated abuse is expensive and this lightweight check is expected to be enough in early operation; the post author and moderators can still read a hidden post. Moderators and admins can be granted by stake address through the `MODERATORS` env value (comma-separated `stakeAddress` or `stakeAddress:role`, role `admin` or `moderator`), empty by default: they sign in with the normal stake-key wallet flow, and the allowlist only adds the moderation role.
 
 On-chain values (governance tallies and status, DRep profiles, per-post vote badges) are synced on crons and are cached, not live; every place they appear shows an "as of" time. The exact cadences live in one place, `src/lib/freshness.ts`, and are published at `/help/data-freshness`.
