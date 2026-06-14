@@ -16,10 +16,9 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
-import { parseLinks } from '@/components/DRepService.js';
-import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
-import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
-import WalletPicker from '@/components/WalletPicker.js';
+import DrepProfileFields, { type DrepProfileValue, profileLinksToWire } from '@/components/DrepProfileFields.js';
+import type { HostedImage } from '@/components/DrepImageUpload.js';
+import WalletConnection from '@/components/WalletConnection.js';
 
 // Same enabled-api shape as DRepService: CIP-30 tx surface plus the cip95
 // reader for the DRep key and getNetworkId for the network guard.
@@ -27,9 +26,6 @@ type EnabledWalletApi = TxWalletApi & {
   getNetworkId(): Promise<number>;
   cip95?: { getPubDRepKey(): Promise<string> };
 };
-
-const NAME_MAX = 80;
-const BIO_MAX = 1500;
 
 type DrepAction = 'update' | 'retire';
 
@@ -49,9 +45,12 @@ export interface DrepSettingsProps {
   /** Prefill from the synced dreps row; empty strings when no metadata yet. */
   initialName: string;
   initialBio: string;
-  /** One URL per line, pre-joined by the page. */
-  initialLinks: string;
+  initialLinks: { label: string; uri: string }[];
   initialImage: HostedImage | null;
+  initialMotivations: string;
+  initialQualifications: string;
+  initialPaymentAddress: string;
+  initialDoNotList: boolean;
 }
 
 /** True when the wallet-derived drep id matches the session's. Pure; exported for tests. */
@@ -66,6 +65,10 @@ export default function DrepSettings({
   initialBio,
   initialLinks,
   initialImage,
+  initialMotivations,
+  initialQualifications,
+  initialPaymentAddress,
+  initialDoNotList,
 }: DrepSettingsProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
@@ -74,10 +77,16 @@ export default function DrepSettings({
   // each call is an extension IPC round trip).
   const enabledApiRef = useRef<EnabledWalletApi | null>(null);
 
-  const [name, setName] = useState(initialName);
-  const [bio, setBio] = useState(initialBio);
-  const [links, setLinks] = useState(initialLinks);
-  const [image, setImage] = useState<HostedImage | null>(initialImage);
+  const [profile, setProfile] = useState<DrepProfileValue>({
+    name: initialName,
+    bio: initialBio,
+    links: initialLinks,
+    image: initialImage,
+    motivations: initialMotivations,
+    qualifications: initialQualifications,
+    paymentAddress: initialPaymentAddress,
+    doNotList: initialDoNotList,
+  });
   const [confirmRetire, setConfirmRetire] = useState(false);
 
   // Connects the selected wallet, runs the network guard, derives the DRep
@@ -140,7 +149,7 @@ export default function DrepSettings({
   // Update flow: host the new CIP-119 document, then have the wallet sign and
   // submit the update_drep certificate pointing at it.
   async function handleUpdate() {
-    const trimmedName = name.trim();
+    const trimmedName = profile.name.trim();
     if (!trimmedName) {
       setPhase({ status: 'error', message: 'Please enter a name for your DRep.' });
       return;
@@ -158,9 +167,13 @@ export default function DrepSettings({
         body: JSON.stringify({
           drepId: expectedDrepId,
           name: trimmedName,
-          bio: bio.trim(),
-          links: parseLinks(links),
-          ...(image ? { image } : {}),
+          bio: profile.bio.trim(),
+          links: profileLinksToWire(profile.links),
+          ...(profile.image ? { image: profile.image } : {}),
+          motivations: profile.motivations.trim(),
+          qualifications: profile.qualifications.trim(),
+          paymentAddress: profile.paymentAddress.trim(),
+          doNotList: profile.doNotList,
         }),
       });
       if (!metaRes.ok) {
@@ -270,14 +283,13 @@ export default function DrepSettings({
     );
   }
 
+  const selectedWalletName = wallets.find((w) => w.key === selected)?.name ?? null;
+
   return (
-    <div style={{ maxWidth: '32rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-      <WalletPicker
-        wallets={wallets}
-        selected={selected}
-        onSelect={setSelected}
-        disabled={busy}
-      />
+    <div style={{ maxWidth: '60rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <div style={{ maxWidth: '32rem' }}>
+        <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} />
+      </div>
 
       <form
         onSubmit={(e) => {
@@ -286,66 +298,23 @@ export default function DrepSettings({
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
       >
-        <div>
-          <label htmlFor="settings-drep-name" style={labelStyle}>
-            Name
-          </label>
-          <input
-            id="settings-drep-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your DRep name"
-            maxLength={NAME_MAX}
-            required
-            disabled={busy}
-            style={inputStyle}
-          />
+        <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="settings-drep" seed={expectedDrepId} />
+
+        <div className="callout" role="note" style={{ maxWidth: '32rem' }}>
+          <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: 'var(--muted)' }}>
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <div className="callout__body">
+            <p style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>On-chain update</p>
+            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)' }}>
+              Updating your metadata is an on-chain transaction. There is no deposit; your wallet pays
+              only the small network fee. Your public profile shows the update after the next sync
+              (within about an hour).
+            </p>
+          </div>
         </div>
 
-        <div>
-          <span style={labelStyle}>Profile image (optional)</span>
-          <DrepImageUpload value={image} onChange={setImage} disabled={busy} />
-        </div>
-
-        <div>
-          <label htmlFor="settings-drep-bio" style={labelStyle}>
-            Bio
-          </label>
-          <textarea
-            id="settings-drep-bio"
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="Tell delegators what you stand for (plain text)."
-            maxLength={BIO_MAX}
-            rows={6}
-            disabled={busy}
-            style={{ ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit' }}
-          />
-        </div>
-
-        <div>
-          <label htmlFor="settings-drep-links" style={labelStyle}>
-            Links
-          </label>
-          <textarea
-            id="settings-drep-links"
-            value={links}
-            onChange={(e) => setLinks(e.target.value)}
-            placeholder="One URL per line (or comma separated). Website, X, GitHub, etc."
-            rows={3}
-            disabled={busy}
-            style={{ ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit' }}
-          />
-        </div>
-
-        <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          Updating your metadata is an on-chain transaction. There is no deposit;
-          your wallet pays only the small network fee. Your public profile shows
-          the update after the next sync (within about an hour).
-        </p>
-
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
           <button
             type="submit"
             disabled={busy}
@@ -362,6 +331,11 @@ export default function DrepSettings({
           >
             {phase.status === 'submitting' && phase.action === 'update' ? 'Awaiting wallet...' : 'Update on-chain'}
           </button>
+          {selectedWalletName && (
+            <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
+              You'll be asked to sign with {selectedWalletName}.
+            </span>
+          )}
         </div>
 
         {phase.status === 'submitting' && phase.action === 'update' && (
@@ -372,7 +346,7 @@ export default function DrepSettings({
       </form>
 
       {phase.status === 'error' && (
-        <div className="callout callout--error" role="alert">
+        <div className="callout callout--error" role="alert" style={{ maxWidth: '32rem' }}>
           <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
@@ -390,7 +364,7 @@ export default function DrepSettings({
         </div>
       )}
 
-      <section style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <section style={{ marginTop: '1.5rem', maxWidth: '32rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>Retire as DRep</h3>
 
         <div className="callout callout--error" role="note">

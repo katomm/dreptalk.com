@@ -135,7 +135,7 @@ describe('POST /api/drep/metadata: stores a well-formed document', () => {
       drepId: VALID_DREP_ID,
       name: 'Alice Cardano',
       bio: 'Testing governance.',
-      links: ['https://alice.example.com'],
+      links: [{ uri: 'https://alice.example.com' }],
     });
 
     const res = await POST(ctx);

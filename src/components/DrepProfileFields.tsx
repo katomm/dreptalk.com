@@ -1,0 +1,132 @@
+// Shared, controlled field block for both DRep flows (registration + settings).
+// Simple fields (name, image, bio, links) are always visible; the advanced
+// CIP-119 fields live behind a collapsible so the common case stays simple.
+import { useState, type ReactNode } from 'react';
+import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
+import DrepLinksEditor, { type ProfileLink } from '@/components/DrepLinksEditor.js';
+import DrepProfilePreview from '@/components/DrepProfilePreview.js';
+import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+
+export interface DrepProfileValue {
+  name: string;
+  bio: string;
+  links: ProfileLink[];
+  image: HostedImage | null;
+  motivations: string;
+  qualifications: string;
+  paymentAddress: string;
+  doNotList: boolean;
+}
+
+/**
+ * Maps the editor's link rows to the wire shape the metadata endpoint expects:
+ * trimmed label and uri, dropping rows with an empty uri. Shared by both flows
+ * (registration + settings) so they cannot drift.
+ */
+export function profileLinksToWire(links: ProfileLink[]): { uri: string; label: string }[] {
+  return links.filter((l) => l.uri.trim()).map((l) => ({ uri: l.uri.trim(), label: l.label.trim() }));
+}
+
+interface DrepProfileFieldsProps {
+  value: DrepProfileValue;
+  onChange: (next: DrepProfileValue) => void;
+  disabled?: boolean;
+  idPrefix: string;
+  /** Identicon seed for the preview (the DRep id), matching the public profile. */
+  seed: string;
+}
+
+const NAME_MAX = 80;
+const BIO_MAX = 1000;
+const TEXT_MAX = 1000;
+
+const textAreaStyle = { ...inputStyle, lineHeight: '1.6', resize: 'vertical' as const, fontFamily: 'inherit' };
+const helpStyle = { display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', margin: '0 0 0.375rem' } as const;
+const labelRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' } as const;
+const counterStyle = { fontSize: '0.75rem', color: 'var(--muted)', flexShrink: 0 } as const;
+
+/** A labelled field with a live "used / max" counter and a helper line. */
+function CountedField(props: { id: string; label: string; count: number; max: number; help: string; children: ReactNode }) {
+  return (
+    <div>
+      <div style={labelRowStyle}>
+        <label htmlFor={props.id} style={labelStyle}>{props.label}</label>
+        <span style={counterStyle}>{props.count} / {props.max}</span>
+      </div>
+      <span style={helpStyle}>{props.help}</span>
+      {props.children}
+    </div>
+  );
+}
+
+export default function DrepProfileFields({ value, onChange, disabled, idPrefix, seed }: DrepProfileFieldsProps) {
+  const [showAdvanced, setShowAdvanced] = useState(
+    value.motivations !== '' || value.qualifications !== '' || value.paymentAddress !== '' || value.doNotList,
+  );
+  const set = <K extends keyof DrepProfileValue>(k: K, v: DrepProfileValue[K]) => onChange({ ...value, [k]: v });
+
+  return (
+    <div className="drep-profile-edit">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <CountedField id={`${idPrefix}-name`} label="Name" count={value.name.length} max={NAME_MAX}
+        help="How your DRep name will appear on explorers and in DRepTalk.">
+        <input id={`${idPrefix}-name`} type="text" value={value.name} onChange={(e) => set('name', e.target.value)}
+          placeholder="Your DRep name" maxLength={NAME_MAX} required disabled={disabled} style={inputStyle} />
+      </CountedField>
+
+      <div>
+        <span style={labelStyle}>Profile image (optional)</span>
+        <span style={helpStyle}>Recommended: square JPG or PNG, max 256 KB.</span>
+        <DrepImageUpload value={value.image} onChange={(img) => set('image', img)} disabled={disabled} />
+      </div>
+
+      <CountedField id={`${idPrefix}-bio`} label="Bio" count={value.bio.length} max={BIO_MAX}
+        help="Short description shown on your public profile.">
+        <textarea id={`${idPrefix}-bio`} value={value.bio} onChange={(e) => set('bio', e.target.value)}
+          placeholder="Tell delegators what you stand for (plain text)." maxLength={BIO_MAX} rows={6} disabled={disabled} style={textAreaStyle} />
+      </CountedField>
+
+      <div>
+        <span style={labelStyle}>Links</span>
+        <span style={helpStyle}>Add links to your website, social profiles, or other relevant pages.</span>
+        <DrepLinksEditor value={value.links} onChange={(links) => set('links', links)} disabled={disabled} />
+      </div>
+
+      <div>
+        <button type="button" onClick={() => setShowAdvanced((s) => !s)}
+          style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit' }}>
+          {showAdvanced ? 'Hide advanced fields' : 'Show advanced fields'}
+        </button>
+      </div>
+
+      {showAdvanced && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', borderLeft: '2px solid var(--border)', paddingLeft: '0.875rem' }}>
+          <div>
+            <label htmlFor={`${idPrefix}-motivations`} style={labelStyle}>Motivations</label>
+            <textarea id={`${idPrefix}-motivations`} value={value.motivations} onChange={(e) => set('motivations', e.target.value)}
+              placeholder="Why you serve as a DRep." maxLength={TEXT_MAX} rows={4} disabled={disabled} style={textAreaStyle} />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-qualifications`} style={labelStyle}>Qualifications</label>
+            <textarea id={`${idPrefix}-qualifications`} value={value.qualifications} onChange={(e) => set('qualifications', e.target.value)}
+              placeholder="Your relevant background." maxLength={TEXT_MAX} rows={4} disabled={disabled} style={textAreaStyle} />
+          </div>
+          <div>
+            <label htmlFor={`${idPrefix}-payment`} style={labelStyle}>Payment address</label>
+            <input id={`${idPrefix}-payment`} type="text" value={value.paymentAddress} onChange={(e) => set('paymentAddress', e.target.value)}
+              placeholder="addr1... or addr_test1..." maxLength={150} disabled={disabled} style={inputStyle} />
+          </div>
+          <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
+            <input type="checkbox" checked={value.doNotList} onChange={(e) => set('doNotList', e.target.checked)} disabled={disabled} style={{ marginTop: '0.15rem' }} />
+            <span>Set the CIP-119 "do not list" flag (kept in your on-chain metadata; DRepTalk still shows you).</span>
+          </label>
+        </div>
+      )}
+      </div>
+
+      <aside className="drep-profile-edit__preview">
+        <DrepProfilePreview value={value} seed={seed} />
+      </aside>
+    </div>
+  );
+}

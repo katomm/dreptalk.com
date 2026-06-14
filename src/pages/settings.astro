@@ -27,40 +27,37 @@ const drepId = user.roles.includes('drep') ? (dbUser?.drep_id ?? null) : null;
 const drep = drepId && db ? await getDrepById(db, drepId) : null;
 
 // Prefill: synced on-chain metadata when available, empty form otherwise
-// (covers DReps without any metadata yet). Links flatten to one URL per line.
+// (covers DReps without any metadata yet).
 const initialName = drep?.name ?? '';
 const initialBio = drep?.bio ?? '';
-const initialLinks = (drep?.links ?? []).map((l) => l.uri).join('\n');
+const initialLinks = drep?.links ?? [];
 const initialImage = drep?.imageUrl
   ? { url: drep.imageUrl, ...(drep.imageContentHash ? { sha256: drep.imageContentHash } : {}) }
   : null;
+const initialMotivations = drep?.motivations ?? '';
+const initialQualifications = drep?.qualifications ?? '';
+const initialPaymentAddress = drep?.paymentAddress ?? '';
+const initialDoNotList = drep?.doNotList ?? false;
 ---
 <Layout
   title="Settings - DRepTalk"
   description="Manage your DRepTalk account and, for DReps, your on-chain profile metadata."
 >
-  <h1 style="margin:0 0 0.5rem;">Settings</h1>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Settings</span>
+  </nav>
 
-  <section style="margin-top:1.5rem;">
-    <h2 style="margin:0 0 0.5rem;font-size:1.0625rem;">Account</h2>
-    <p style="margin:0;font-size:0.9375rem;color:var(--muted);">
-      Signed in as
-      <span
-        style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"
-        title={drepId ?? user.id}
-      >{truncateId(drepId ?? user.id, 28)}</span>
-      ({roleLabels(user.roles).join(', ')})
-    </p>
-  </section>
+  <h1 style="margin:0 0 0.5rem;">Settings</h1>
+  <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+    {drepId
+      ? 'Manage your DRep profile metadata stored on-chain (CIP-119).'
+      : 'Manage your DRepTalk account.'}
+  </p>
 
   {drepId ? (
-    <section style="margin-top:2rem;">
-      <h2 style="margin:0 0 0.5rem;font-size:1.0625rem;">DRep profile (on-chain)</h2>
-      <p style="margin:0 0 1rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
-        This edits the CIP-119 metadata stored on the Cardano chain, the same
-        profile wallets and explorers show. See
-        <a href="/help/managing-your-drep">managing your DRep</a> for details.
-      </p>
+    <section style="margin-top:1.75rem;">
       <DrepSettings
         network={network}
         expectedDrepId={drepId}
@@ -68,11 +65,23 @@ const initialImage = drep?.imageUrl
         initialBio={initialBio}
         initialLinks={initialLinks}
         initialImage={initialImage}
+        initialMotivations={initialMotivations}
+        initialQualifications={initialQualifications}
+        initialPaymentAddress={initialPaymentAddress}
+        initialDoNotList={initialDoNotList}
         client:load
       />
     </section>
   ) : (
-    <section style="margin-top:2rem;">
+    <section style="margin-top:1.75rem;">
+      <p style="margin:0 0 0.75rem;font-size:0.9375rem;color:var(--muted);">
+        Signed in as
+        <span
+          style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"
+          title={user.id}
+        >{truncateId(user.id, 28)}</span>
+        ({roleLabels(user.roles).join(', ')})
+      </p>
       <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
         Settings specific to your role are not available yet. They will appear
         here as they are added.

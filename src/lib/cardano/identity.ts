@@ -18,6 +18,16 @@ const ENTERPRISE_TESTNET_HEADER = 0x60;
 const ENTERPRISE_MAINNET_HEADER = 0x61;
 
 /**
+ * True for a Cardano payment address string: addr1... (mainnet) or
+ * addr_test1... (testnet). Format check only, no checksum; callers apply their
+ * own length cap. Shared by the metadata builder (write) and parser (read) so
+ * the rule cannot drift between them.
+ */
+export function isCardanoPaymentAddress(raw: string): boolean {
+  return /^addr(_test)?1[0-9a-z]+$/.test(raw);
+}
+
+/**
  * Encodes a 28-byte DRep key hash as a CIP-129 bech32 drep1 address.
  * Prepends header byte 0x22 to the key hash before encoding.
  */

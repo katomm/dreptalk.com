@@ -34,6 +34,10 @@ async function seedRow(drepId: string) {
     imageStoredUrl: null,
     imageFetchFailedAt: null,
     links: null,
+    motivations: null,
+    qualifications: null,
+    paymentAddress: null,
+    doNotList: false,
     anchorUrl: 'https://dreptalk.com/drep/old.json',
     anchorHash: 'ff'.repeat(32),
     anchorStatus: 'ok',
@@ -43,7 +47,7 @@ async function seedRow(drepId: string) {
 }
 
 // Host a new CIP-119 document and return its { url, hash }.
-async function hostDoc(drepId: string, input: { name: string; bio: string; links: string[]; image?: { url: string; sha256?: string } }) {
+async function hostDoc(drepId: string, input: { name: string; bio: string; links: { uri: string; label?: string }[]; image?: { url: string; sha256?: string }; motivations?: string; qualifications?: string; paymentAddress?: string; doNotList?: boolean }) {
   const m = buildDrepMetadata(input);
   await putDrepMetadata(env.DB, { drepId, body: m.body, hash: m.hash, name: m.name, createdAt: 1_700_000_000 });
   return { hash: m.hash };
@@ -56,7 +60,7 @@ describe('applyDrepProfile', () => {
     const { hash } = await hostDoc(DREP_ID, {
       name: 'New Name',
       bio: 'New bio.',
-      links: ['https://example.com/a'],
+      links: [{ uri: 'https://example.com/a' }],
       image: { url: imageUrl, sha256: AVATAR_SHA },
     });
 
@@ -106,5 +110,22 @@ describe('applyDrepProfile', () => {
     const { hash } = await hostDoc(id, { name: 'Ghost', bio: '', links: [] });
     const res = await applyDrepProfile({ db: env.DB, drepId: id, hash, origin: ORIGIN, now: 1 });
     expect(res.json.applied).toBe(false);
+  });
+
+  it('applies motivations, qualifications, payment address, and doNotList', async () => {
+    const id = `${DREP_ID.slice(0, -1)}m`;
+    await seedRow(id);
+    const addr = `addr_test1qz${'a'.repeat(40)}`;
+    const m = buildDrepMetadata({ name: 'Adv', bio: '', links: [], motivations: 'M', qualifications: 'Q', paymentAddress: addr, doNotList: true });
+    await putDrepMetadata(env.DB, { drepId: id, body: m.body, hash: m.hash, name: m.name, createdAt: 1_700_000_000 });
+
+    const res = await applyDrepProfile({ db: env.DB, drepId: id, hash: m.hash, origin: ORIGIN, now: 2_000_000 });
+    expect(res.json.applied).toBe(true);
+
+    const row = await getDrepById(env.DB, id);
+    expect(row?.motivations).toBe('M');
+    expect(row?.qualifications).toBe('Q');
+    expect(row?.paymentAddress).toBe(addr);
+    expect(row?.doNotList).toBe(true);
   });
 });

@@ -214,4 +214,33 @@ describe('extractCip119Profile', () => {
     expect(profile.name).toBe('AliceDRep');
     expect(profile.bio).toBe('Biowithcontrols');
   });
+
+  it('parses motivations, qualifications, and a payment address', () => {
+    const addr = `addr1q9${'x'.repeat(40)}`;
+    const doc = { body: { motivations: 'M', qualifications: 'Q', paymentAddress: addr } };
+    const p = extractCip119Profile(doc);
+    expect(p.motivations).toBe('M');
+    expect(p.qualifications).toBe('Q');
+    expect(p.paymentAddress).toBe(addr);
+  });
+
+  it('drops a non-address paymentAddress', () => {
+    const p = extractCip119Profile({ body: { paymentAddress: 'stake1notpayment' } });
+    expect(p.paymentAddress).toBeNull();
+  });
+
+  it('coerces doNotList from boolean and string', () => {
+    expect(extractCip119Profile({ body: { doNotList: true } }).doNotList).toBe(true);
+    expect(extractCip119Profile({ body: { doNotList: 'true' } }).doNotList).toBe(true);
+    expect(extractCip119Profile({ body: {} }).doNotList).toBe(false);
+  });
+
+  it('preserves line breaks in objectives, motivations, and qualifications', () => {
+    const p = extractCip119Profile({
+      body: { objectives: 'a\n\nb', motivations: 'm1\nm2', qualifications: 'q1\nq2' },
+    });
+    expect(p.bio).toBe('a\n\nb');
+    expect(p.motivations).toBe('m1\nm2');
+    expect(p.qualifications).toBe('q1\nq2');
+  });
 });

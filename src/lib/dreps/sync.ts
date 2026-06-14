@@ -68,7 +68,7 @@ export interface DrepSyncDeps {
 // like status/votingPower are filled later by buildRow).
 type ResolvedProfile = Pick<
   Drep,
-  'name' | 'bio' | 'imageUrl' | 'links' | 'anchorUrl' | 'anchorHash' | 'anchorStatus'
+  'name' | 'bio' | 'imageUrl' | 'links' | 'motivations' | 'qualifications' | 'paymentAddress' | 'doNotList' | 'anchorUrl' | 'anchorHash' | 'anchorStatus'
 >;
 
 /** Splits an array into fixed-size chunks. */
@@ -129,6 +129,10 @@ async function resolveProfile(
           bio: existing.bio,
           imageUrl: existing.imageUrl,
           links: existing.links,
+          motivations: existing.motivations,
+          qualifications: existing.qualifications,
+          paymentAddress: existing.paymentAddress,
+          doNotList: existing.doNotList,
           anchorUrl: metaUrl,
           anchorHash: metaHash,
           anchorStatus: 'ok',
@@ -152,6 +156,10 @@ async function resolveProfile(
           bio: cip119.bio,
           imageUrl: cip119.imageUrl,
           links: cip119.links,
+          motivations: cip119.motivations,
+          qualifications: cip119.qualifications,
+          paymentAddress: cip119.paymentAddress,
+          doNotList: cip119.doNotList,
           anchorUrl: metaUrl,
           anchorHash: metaHash,
           anchorStatus: 'ok',
@@ -171,6 +179,10 @@ async function resolveProfile(
         bio: existing?.bio ?? null,
         imageUrl: existing?.imageUrl ?? null,
         links: existing?.links ?? null,
+        motivations: existing?.motivations ?? null,
+        qualifications: existing?.qualifications ?? null,
+        paymentAddress: existing?.paymentAddress ?? null,
+        doNotList: existing?.doNotList ?? false,
         anchorUrl: metaUrl,
         anchorHash: metaHash,
         anchorStatus: result.status,
@@ -186,6 +198,10 @@ async function resolveProfile(
       bio: null,
       imageUrl: null,
       links: null,
+      motivations: null,
+      qualifications: null,
+      paymentAddress: null,
+      doNotList: false,
       anchorUrl: null,
       anchorHash: null,
       anchorStatus: 'no-anchor',
@@ -219,6 +235,10 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     imageStoredUrl: existing?.imageStoredUrl ?? null,
     imageFetchFailedAt: existing?.imageFetchFailedAt ?? null,
     links: profile.links,
+    motivations: profile.motivations,
+    qualifications: profile.qualifications,
+    paymentAddress: profile.paymentAddress,
+    doNotList: profile.doNotList,
     anchorUrl: profile.anchorUrl,
     anchorHash: profile.anchorHash,
     anchorStatus: profile.anchorStatus,
@@ -245,6 +265,10 @@ function hasChanged(next: Drep, existing: Drep | undefined): boolean {
     next.bio !== existing.bio ||
     next.imageUrl !== existing.imageUrl ||
     linksKey(next.links) !== linksKey(existing.links) ||
+    next.motivations !== existing.motivations ||
+    next.qualifications !== existing.qualifications ||
+    next.paymentAddress !== existing.paymentAddress ||
+    next.doNotList !== existing.doNotList ||
     next.anchorUrl !== existing.anchorUrl ||
     next.anchorHash !== existing.anchorHash ||
     next.anchorStatus !== existing.anchorStatus

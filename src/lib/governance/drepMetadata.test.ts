@@ -6,7 +6,7 @@ describe('buildDrepMetadata', () => {
     const input = {
       name: 'Alice Cardano',
       bio: 'I want to improve governance.',
-      links: ['https://alice.example.com', 'https://twitter.com/alice'],
+      links: [{ uri: 'https://alice.example.com' }, { uri: 'https://twitter.com/alice' }],
     };
     const r1 = buildDrepMetadata(input);
     const r2 = buildDrepMetadata(input);
@@ -26,9 +26,9 @@ describe('buildDrepMetadata', () => {
     const result = buildDrepMetadata({
       name: 'Bob',
       bio: 'bio',
-      links: ['javascript:alert(1)', 'https://bob.example.com', 'ftp://example.com'],
+      links: [{ uri: 'javascript:alert(1)' }, { uri: 'https://bob.example.com' }, { uri: 'ftp://example.com' }],
     });
-    expect(result.links).toEqual(['https://bob.example.com']);
+    expect(result.links).toEqual([{ label: '', uri: 'https://bob.example.com' }]);
   });
 
   it('truncates name at MAX_DREP_NAME characters', () => {
@@ -44,7 +44,7 @@ describe('buildDrepMetadata', () => {
   });
 
   it('caps links at MAX_DREP_LINKS', () => {
-    const many = Array.from({ length: MAX_DREP_LINKS + 5 }, (_, i) => `https://example.com/${i}`);
+    const many = Array.from({ length: MAX_DREP_LINKS + 5 }, (_, i) => ({ uri: `https://example.com/${i}` }));
     const result = buildDrepMetadata({ name: 'Test', bio: '', links: many });
     expect(result.links.length).toBe(MAX_DREP_LINKS);
   });
@@ -53,7 +53,7 @@ describe('buildDrepMetadata', () => {
     const result = buildDrepMetadata({
       name: 'Carol',
       bio: 'My objectives.',
-      links: ['https://carol.example.com'],
+      links: [{ uri: 'https://carol.example.com' }],
     });
     const parsed = JSON.parse(result.body);
     expect(parsed.body.givenName).toBe('Carol');
@@ -73,7 +73,7 @@ describe('buildDrepMetadata', () => {
 });
 
 describe('buildDrepMetadata image', () => {
-  const base = { name: 'Test', bio: '', links: [] as string[] };
+  const base = { name: 'Test', bio: '', links: [] as { uri: string; label?: string }[] };
 
   it('omits the image key entirely when no image is given', () => {
     const m = buildDrepMetadata(base);
@@ -108,5 +108,72 @@ describe('buildDrepMetadata image', () => {
   it('is hash-deterministic for the same image input', () => {
     const input = { ...base, image: { url: 'https://example.com/me.png', sha256: 'cd'.repeat(32) } };
     expect(buildDrepMetadata(input).hash).toBe(buildDrepMetadata(input).hash);
+  });
+});
+
+describe('buildDrepMetadata full profile', () => {
+  const base = { name: 'Test', bio: '', links: [] as { uri: string; label?: string }[] };
+
+  it('writes a real label on each reference', () => {
+    const m = buildDrepMetadata({ ...base, links: [{ uri: 'https://x.com/a', label: 'My Site' }] });
+    expect(JSON.parse(m.body).body.references[0]).toEqual({ '@type': 'Link', label: 'My Site', uri: 'https://x.com/a' });
+  });
+
+  it('defaults an empty label to an empty string', () => {
+    const m = buildDrepMetadata({ ...base, links: [{ uri: 'https://x.com/a' }] });
+    expect(JSON.parse(m.body).body.references[0].label).toBe('');
+  });
+
+  it('keeps up to 10 links', () => {
+    const links = Array.from({ length: 14 }, (_, i) => ({ uri: `https://x.com/${i}` }));
+    expect(JSON.parse(buildDrepMetadata({ ...base, links }).body).body.references).toHaveLength(10);
+  });
+
+  it('caps a link label at 100 characters', () => {
+    const m = buildDrepMetadata({ ...base, links: [{ uri: 'https://x.com/a', label: 'L'.repeat(150) }] });
+    expect(JSON.parse(m.body).body.references[0].label).toHaveLength(100);
+  });
+
+  it('writes motivations and qualifications when present, omits when empty', () => {
+    const m = buildDrepMetadata({ ...base, motivations: 'My motivations.', qualifications: 'My quals.' });
+    const body = JSON.parse(m.body).body;
+    expect(body.motivations).toBe('My motivations.');
+    expect(body.qualifications).toBe('My quals.');
+    expect(JSON.parse(buildDrepMetadata(base).body).body.motivations).toBeUndefined();
+  });
+
+  it('writes a valid payment address and drops an invalid one', () => {
+    const addr = `addr_test1qz${'a'.repeat(40)}`;
+    expect(JSON.parse(buildDrepMetadata({ ...base, paymentAddress: addr }).body).body.paymentAddress).toBe(addr);
+    expect(JSON.parse(buildDrepMetadata({ ...base, paymentAddress: 'not-an-address' }).body).body.paymentAddress).toBeUndefined();
+  });
+
+  it('writes doNotList only when true, and maps it in @context', () => {
+    const on = JSON.parse(buildDrepMetadata({ ...base, doNotList: true }).body);
+    expect(on.body.doNotList).toBe(true);
+    expect(on['@context'].body['@context'].doNotList).toBe('CIP119:doNotList');
+    expect(JSON.parse(buildDrepMetadata({ ...base, doNotList: false }).body).body.doNotList).toBeUndefined();
+  });
+
+  it('is byte-stable for a name/bio/links-only document', () => {
+    const a = buildDrepMetadata({ name: 'Same', bio: 'Bio', links: [{ uri: 'https://x.com/a', label: 'L' }] });
+    const b = buildDrepMetadata({ name: 'Same', bio: 'Bio', links: [{ uri: 'https://x.com/a', label: 'L' }] });
+    expect(a.body).toBe(b.body);
+    expect(a.hash).toBe(b.hash);
+  });
+
+  it('keeps line breaks in the long plain-text fields but not in the name', () => {
+    const m = buildDrepMetadata({
+      name: 'Line\nBreak',
+      bio: 'Para one.\n\nPara two.',
+      links: [],
+      motivations: 'Motiv\nline',
+      qualifications: 'Qual\nline',
+    });
+    const body = JSON.parse(m.body).body;
+    expect(body.givenName).toBe('LineBreak'); // givenName is single-line per CIP-119
+    expect(body.objectives).toBe('Para one.\n\nPara two.');
+    expect(body.motivations).toBe('Motiv\nline');
+    expect(body.qualifications).toBe('Qual\nline');
   });
 });

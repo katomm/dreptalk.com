@@ -585,3 +585,26 @@ main.container {
 .drep-dialog__target { margin: 0.5rem 0 1rem; font-size: 0.95rem; display: flex; flex-direction: column; gap: 0.15rem; }
 .drep-dialog__target-id { font-size: 0.8125rem; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .drep-dialog__note { margin: 0 0 1rem; font-size: 0.8125rem; color: var(--muted); }
+
+/* DRep profile editor: form fields with a live preview beside them. Single
+   column on small screens; on wide screens the fields take a readable column
+   and the preview sits in a sticky column next to them. Media queries cannot
+   live in the React islands' inline styles, so the layout lives here. */
+.drep-profile-edit {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+.drep-profile-edit__preview {
+  min-width: 0;
+}
+@media (min-width: 56rem) {
+  .drep-profile-edit {
+    grid-template-columns: minmax(0, 32rem) minmax(0, 1fr);
+  }
+  .drep-profile-edit__preview {
+    position: sticky;
+    top: 1.5rem;
+  }
+}

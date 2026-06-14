@@ -27,7 +27,13 @@ const bodySchema = z.object({
   drepId: z.string().regex(DREP_ID_RE, 'invalid drep id'),
   name: z.string().max(1000),
   bio: z.string().max(20000),
-  links: z.array(z.string().max(2100)).max(20),
+  links: z
+    .array(z.object({ uri: z.string().max(2100), label: z.string().max(200).optional() }))
+    .max(20),
+  motivations: z.string().max(20000).optional(),
+  qualifications: z.string().max(20000).optional(),
+  paymentAddress: z.string().max(200).optional(),
+  doNotList: z.boolean().optional(),
   image: z
     .object({
       url: z.string().max(2100),
@@ -62,9 +68,9 @@ async function handleInternal(input: DrepMetadataInput): Promise<DrepMetadataRes
   if (!parsed.success) {
     return { status: 400, json: { error: parsed.error.issues[0]?.message ?? 'invalid input' } };
   }
-  const { drepId, name, bio, links, image } = parsed.data;
+  const { drepId, name, bio, links, image, motivations, qualifications, paymentAddress, doNotList } = parsed.data;
 
-  const m = buildDrepMetadata({ name, bio, links, image });
+  const m = buildDrepMetadata({ name, bio, links, image, motivations, qualifications, paymentAddress, doNotList });
 
   // Content-addressed URL: the hash is in the path, so the bytes served at this
   // URL never change, and a different document gets a different URL. The drep id

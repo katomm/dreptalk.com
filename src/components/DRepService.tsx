@@ -16,8 +16,7 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
-import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
-import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+import DrepProfileFields, { type DrepProfileValue, profileLinksToWire } from '@/components/DrepProfileFields.js';
 import WalletPicker from '@/components/WalletPicker.js';
 
 // The enabled wallet api is the CIP-30 surface plus the optional CIP-95
@@ -28,11 +27,6 @@ type EnabledWalletApi = TxWalletApi & {
   getNetworkId(): Promise<number>;
   cip95?: { getPubDRepKey(): Promise<string> };
 };
-
-// A few sensible, light client-side limits. The /api/drep/metadata endpoint is
-// the real validator; this only keeps obvious mistakes out of the wallet prompt.
-const NAME_MAX = 80;
-const BIO_MAX = 1500;
 
 // Distinguishes the two on-chain actions so the submitting and success states
 // can render action-appropriate copy without duplicating the phase machine.
@@ -58,15 +52,6 @@ interface DRepServiceProps {
   network?: CardanoNetwork;
 }
 
-// Splits the free-form links field (newline or comma separated) into a clean
-// list of trimmed, non-empty entries. Exported for unit testing.
-export function parseLinks(raw: string): string[] {
-  return raw
-    .split(/[\n,]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
 export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
@@ -77,10 +62,10 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   const enabledApiRef = useRef<EnabledWalletApi | null>(null);
 
   // Registration form fields.
-  const [name, setName] = useState('');
-  const [bio, setBio] = useState('');
-  const [links, setLinks] = useState('');
-  const [image, setImage] = useState<HostedImage | null>(null);
+  const [profile, setProfile] = useState<DrepProfileValue>({
+    name: '', bio: '', links: [], image: null,
+    motivations: '', qualifications: '', paymentAddress: '', doNotList: false,
+  });
 
   // Step 1 + 2 + 3: connect, derive the DRep identity, check current status.
   async function handleConnect() {
@@ -178,7 +163,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
 
   // Step 4: build the metadata, then have the wallet sign and submit reg_drep.
   async function handleRegister(identity: DRepIdentity) {
-    const trimmedName = name.trim();
+    const trimmedName = profile.name.trim();
     if (!trimmedName) {
       setPhase({ status: 'error', message: 'Please enter a name for your DRep.' });
       return;
@@ -204,9 +189,13 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
         body: JSON.stringify({
           drepId: identity.drepId,
           name: trimmedName,
-          bio: bio.trim(),
-          links: parseLinks(links),
-          ...(image ? { image } : {}),
+          bio: profile.bio.trim(),
+          links: profileLinksToWire(profile.links),
+          ...(profile.image ? { image: profile.image } : {}),
+          motivations: profile.motivations.trim(),
+          qualifications: profile.qualifications.trim(),
+          paymentAddress: profile.paymentAddress.trim(),
+          doNotList: profile.doNotList,
         }),
       });
       if (!metaRes.ok) {
@@ -308,9 +297,9 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   }
 
   return (
-    <div style={{ maxWidth: '32rem' }}>
+    <div style={{ maxWidth: '60rem' }}>
       {/* Note shown before the wallet prompt: this DOES cost a deposit + fee. */}
-      <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1.25rem' }}>
+      <p style={{ maxWidth: '32rem', fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1.25rem' }}>
         Registering as a DRep is an on-chain transaction. Your wallet will ask you to
         approve a refundable deposit of 500 ADA plus a small network fee. The deposit is
         returned in full when you later retire. dreptalk.com never sees your keys; your
@@ -327,7 +316,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           {(phase.status === 'idle' ||
             phase.status === 'connecting' ||
             phase.status === 'error') && (
-            <>
+            <div style={{ maxWidth: '32rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
               <WalletPicker
                 wallets={wallets}
                 selected={selected}
@@ -353,7 +342,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               >
                 {phase.status === 'connecting' ? 'Connecting...' : 'Connect wallet'}
               </button>
-            </>
+            </div>
           )}
 
           {phase.status === 'checking' && (
@@ -363,7 +352,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           )}
 
           {phase.status === 'already-registered' && (
-            <div className="callout callout--info" role="status">
+            <div className="callout callout--info" role="status" style={{ maxWidth: '32rem' }}>
               <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
@@ -415,62 +404,11 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               }}
               style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
             >
-              <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
+              <p style={{ margin: 0, maxWidth: '32rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
                 DRep id: {phase.identity.drepId}
               </p>
 
-              <div>
-                <label htmlFor="drep-name" style={labelStyle}>
-                  Name
-                </label>
-                <input
-                  id="drep-name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your DRep name"
-                  maxLength={NAME_MAX}
-                  required
-                  disabled={busy}
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <span style={labelStyle}>Profile image (optional)</span>
-                <DrepImageUpload value={image} onChange={setImage} disabled={busy} />
-              </div>
-
-              <div>
-                <label htmlFor="drep-bio" style={labelStyle}>
-                  Bio
-                </label>
-                <textarea
-                  id="drep-bio"
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  placeholder="Tell delegators what you stand for (plain text)."
-                  maxLength={BIO_MAX}
-                  rows={6}
-                  disabled={busy}
-                  style={{ ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit' }}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="drep-links" style={labelStyle}>
-                  Links
-                </label>
-                <textarea
-                  id="drep-links"
-                  value={links}
-                  onChange={(e) => setLinks(e.target.value)}
-                  placeholder="One URL per line (or comma separated). Website, X, GitHub, etc."
-                  rows={3}
-                  disabled={busy}
-                  style={{ ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit' }}
-                />
-              </div>
+              <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="reg-drep" seed={phase.identity.drepId} />
 
               <div>
                 <button
@@ -500,7 +438,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           )}
 
           {phase.status === 'error' && (
-            <div className="callout callout--error" role="alert">
+            <div className="callout callout--error" role="alert" style={{ maxWidth: '32rem' }}>
               <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
