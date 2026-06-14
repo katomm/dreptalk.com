@@ -19,7 +19,7 @@ function baseInput(bodyOverrides: Record<string, unknown> = {}) {
       drepId: DREP_ID,
       name: 'Fixture DRep',
       bio: 'Hosting CIP-119 metadata.',
-      links: ['https://example.com'],
+      links: [{ uri: 'https://example.com' }],
       ...bodyOverrides,
     },
     db: env.DB,
@@ -91,5 +91,20 @@ describe('handleDrepMetadata: content-addressed hosting', () => {
   it('returns 400 when drepId is missing', async () => {
     const result = await handleDrepMetadata(baseInput({ drepId: undefined }));
     expect(result.status).toBe(400);
+  });
+
+  it('hosts labeled links and the advanced fields', async () => {
+    const addr = 'addr_test1qz' + 'a'.repeat(40);
+    const res = await handleDrepMetadata(baseInput({
+      links: [{ uri: 'https://example.com', label: 'Site' }],
+      motivations: 'M', qualifications: 'Q', paymentAddress: addr, doNotList: true,
+    }));
+    expect(res.status).toBe(200);
+    const stored = await getDrepMetadataByHash(env.DB, (res.json as { hash: string }).hash);
+    const body = JSON.parse(stored!.body).body;
+    expect(body.references[0]).toEqual({ '@type': 'Link', label: 'Site', uri: 'https://example.com' });
+    expect(body.motivations).toBe('M');
+    expect(body.paymentAddress).toBe(addr);
+    expect(body.doNotList).toBe(true);
   });
 });
