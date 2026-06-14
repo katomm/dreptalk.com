@@ -16,6 +16,7 @@ export const GET: APIRoute = async ({ site }) => {
 
   const entries: Array<{ path: string; lastmod?: string }> = [
     { path: '/' },
+    { path: '/register-drep' },
     { path: '/badges' },
     ...getCategories().map((c) => ({ path: `/c/${c.slug}` })),
   ];
