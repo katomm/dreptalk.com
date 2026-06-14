@@ -10,6 +10,8 @@ import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import { listSyncRuns, type SyncRun } from '@/lib/db/syncRuns.js';
 import { countGivenUpMetaActions } from '@/lib/db/governance.js';
+import { countGivenUpAvatars } from '@/lib/db/dreps.js';
+import { AVATAR_FETCH_MAX_ATTEMPTS } from '@/lib/dreps/avatarStore.js';
 import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from '@/lib/governance/metadata.js';
 import { errorMessage } from '@/lib/sync/runRecorder.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
@@ -36,6 +38,7 @@ const db = env.DB as D1Database;
 // cause) stays silent so the run history still renders.
 const runsPromise = listSyncRuns(db, 30);
 const givenUpPromise = countGivenUpMetaActions(db, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS).catch(() => 0);
+const givenUpAvatarsPromise = countGivenUpAvatars(db, AVATAR_FETCH_MAX_ATTEMPTS).catch(() => 0);
 
 let runs: SyncRun[] = [];
 let loadError: string | null = null;
@@ -46,9 +49,10 @@ try {
   loadError = errorMessage(err);
 }
 
-// Anchors the metadata backfill has permanently abandoned. They drop out of the
-// retry query, so without this they would silently disappear from view.
+// Sources the syncs have permanently abandoned. They drop out of their retry
+// queries, so without these counts they would silently disappear from view.
 const givenUp = await givenUpPromise;
+const givenUpAvatars = await givenUpAvatarsPromise;
 
 const latestByKind = new Map<string, SyncRun>();
 for (const run of runs) {
@@ -72,6 +76,7 @@ const STATUS_COLOR: Record<string, string> = {
   ok: '#2e7d32',
   partial: '#b26a00',
   error: '#c0392b',
+  killed: '#c0392b',
   running: 'var(--muted)',
 };
 
@@ -124,6 +129,14 @@ Astro.response.headers.set('Refresh', '60');
     <p class="given-up">
       {givenUp} governance {givenUp === 1 ? 'anchor' : 'anchors'} given up: metadata re-extraction
       failed {META_REEXTRACT_MAX_ATTEMPTS}+ times (anchor dead or hash-mismatched), so it is no
+      longer retried and no longer counts toward a run's failed items.
+    </p>
+  )}
+
+  {givenUpAvatars > 0 && (
+    <p class="given-up">
+      {givenUpAvatars} DRep {givenUpAvatars === 1 ? 'avatar' : 'avatars'} given up: image fetch
+      failed {AVATAR_FETCH_MAX_ATTEMPTS}+ times (source dead, wrong type, or oversize), so it is no
       longer retried and no longer counts toward a run's failed items.
     </p>
   )}

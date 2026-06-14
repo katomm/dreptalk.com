@@ -9,7 +9,7 @@
 // migration has not been applied yet), the run still executes normally.
 
 import {
-  startSyncRun, finishSyncRun,
+  startSyncRun, finishSyncRun, reapStaleSyncRuns,
   type SyncPhaseOutcome, type SyncRunStatus,
 } from '../db/syncRuns.js';
 
@@ -51,6 +51,8 @@ export async function recordSyncRun(
   let runId: number | null = null;
   try {
     runId = await startSyncRun(db, kind, startedAt);
+    // Finalize orphaned runs from earlier invocations that were killed mid-flight.
+    await reapStaleSyncRuns(db, startedAt);
   } catch (err) {
     console.warn(`[sync-run] bookkeeping unavailable (start):`, err);
   }

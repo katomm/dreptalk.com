@@ -71,6 +71,14 @@ describe('runDisplay', () => {
       text: 'killed',
     });
   });
+
+  it('reports a reaper-finalized killed run as killed, ignoring its finish time', () => {
+    // finishedAt is the reap time, not the death time, so its duration is meaningless.
+    expect(runDisplay({ startedAt: now - 600_000, finishedAt: now, status: 'killed' }, now)).toEqual({
+      state: 'killed',
+      text: 'killed',
+    });
+  });
 });
 
 describe('groupRunsByDay', () => {

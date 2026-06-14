@@ -252,6 +252,9 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   // must not fail the DRep sync that already succeeded (phase isolation).
   if (env.AVATARS) {
     const bucket = env.AVATARS;
+    // Avatar fetches give up on a source after AVATAR_FETCH_MAX_ATTEMPTS failures
+    // (see avatarStore), so a permanently broken image stops being retried every
+    // run instead of pinning this sync at 'partial' forever.
     await phase('avatars', async () => {
       const a = await storeDrepAvatars({ db: env.DB, bucket, fetchImpl: fetch });
       console.log(`[drep-avatars] scanned=${a.scanned} stored=${a.stored} cleared=${a.cleared} failed=${a.failed}`);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { startSyncRun, finishSyncRun, listSyncRuns, pruneSyncRuns } from './syncRuns.js';
+import { startSyncRun, finishSyncRun, listSyncRuns, pruneSyncRuns, reapStaleSyncRuns, STALE_RUN_MS } from './syncRuns.js';
 
 const NOW = 1_748_000_000_000;
 
@@ -46,5 +46,20 @@ describe('sync_runs', () => {
     const after = await listSyncRuns(env.DB, 50);
     expect(after.find((r) => r.id === oldId)).toBeUndefined();
     expect(after.find((r) => r.id === newId)).toBeDefined();
+  });
+
+  it('reaps a stale running row as killed but leaves a fresh one running', async () => {
+    const stale = await startSyncRun(env.DB, 'votes', NOW - STALE_RUN_MS - 1_000);
+    const fresh = await startSyncRun(env.DB, 'votes', NOW - 1_000);
+
+    const reaped = await reapStaleSyncRuns(env.DB, NOW);
+    expect(reaped).toBeGreaterThanOrEqual(1);
+
+    const runs = await listSyncRuns(env.DB, 200);
+    const s = runs.find((r) => r.id === stale);
+    const f = runs.find((r) => r.id === fresh);
+    expect(s).toMatchObject({ status: 'killed' });
+    expect(s!.finishedAt).not.toBeNull();
+    expect(f).toMatchObject({ status: 'running', finishedAt: null });
   });
 });

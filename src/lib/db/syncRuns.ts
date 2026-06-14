@@ -4,7 +4,13 @@
 // at the end, so a row stuck in 'running' is evidence of a killed invocation.
 // Parameterized SQL only.
 
-export type SyncRunStatus = 'running' | 'ok' | 'partial' | 'error';
+export type SyncRunStatus = 'running' | 'ok' | 'partial' | 'error' | 'killed';
+
+// A run still marked 'running' this long after it started was hard-killed by the
+// runtime before it could finalize (real runs finish in well under this). The
+// reaper finalizes such orphans as 'killed' so the status page shows a clean
+// terminal state instead of an ambiguous, forever-'running' row.
+export const STALE_RUN_MS = 15 * 60 * 1000;
 
 export interface SyncPhaseOutcome {
   phase: string;
@@ -111,5 +117,20 @@ export async function listSyncRuns(db: D1Database, limit: number): Promise<SyncR
 /** Deletes run rows older than the cutoff; returns how many were removed. */
 export async function pruneSyncRuns(db: D1Database, olderThanMs: number): Promise<number> {
   const res = await db.prepare(`DELETE FROM sync_runs WHERE started_at < ?`).bind(olderThanMs).run();
+  return res.meta.changes ?? 0;
+}
+
+/**
+ * Finalizes orphaned runs: any row still 'running' but older than STALE_RUN_MS
+ * was killed mid-flight before it could record an outcome, so mark it 'killed'
+ * with a finish time. Returns how many were reaped. Idempotent and safe to call
+ * at the start of every run; if a reaped run somehow does finish later, its own
+ * finishSyncRun overwrites the status.
+ */
+export async function reapStaleSyncRuns(db: D1Database, nowMs: number): Promise<number> {
+  const res = await db
+    .prepare(`UPDATE sync_runs SET status = 'killed', finished_at = ? WHERE status = 'running' AND started_at < ?`)
+    .bind(nowMs, nowMs - STALE_RUN_MS)
+    .run();
   return res.meta.changes ?? 0;
 }
