@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
-import WalletPicker from '@/components/WalletPicker.js';
+import WalletConnection from '@/components/WalletConnection.js';
 import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 
@@ -142,12 +142,13 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {/* Wallet picker */}
-            <WalletPicker
+            {/* Wallet picker (compact; reveals the full list via Change wallet) */}
+            <WalletConnection
               wallets={wallets}
               selected={selectedWallet}
               onSelect={setSelectedWallet}
               disabled={busy}
+              label="Signing wallet"
             />
 
             {/* Role toggle */}

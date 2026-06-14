@@ -1,7 +1,9 @@
-// Compact "connected wallet" summary for the settings flow. The wallet is only
-// a signing detail there: the common case is a single wallet, so we show it as
-// one row instead of a full radio list. "Change wallet" appears only when more
-// than one wallet is present and reveals the shared WalletPicker on demand.
+// Compact wallet summary used across the signing flows. The wallet is only a
+// signing detail: the common case is a single wallet, so it shows as one row
+// instead of a full radio list. "Change wallet" appears only when more than one
+// wallet is present and reveals the shared WalletPicker on demand. The label and
+// note are caller-provided so each flow can word it honestly (we only enable the
+// wallet at sign time, so pre-connect flows say "Signing wallet", not "connected").
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { CardanoWalletInfo } from '@/lib/wallet/useCardanoWallets.js';
@@ -12,6 +14,10 @@ interface WalletConnectionProps {
   selected: string;
   onSelect: (key: string) => void;
   disabled?: boolean;
+  /** Small heading above the wallet name. Defaults to "Connected wallet". */
+  label?: string;
+  /** Optional helper line under the row; omitted when not provided. */
+  note?: string;
 }
 
 const cardStyle: CSSProperties = {
@@ -50,7 +56,7 @@ function monogram(name: string): string {
   return (name.trim()[0] ?? '?').toUpperCase();
 }
 
-export default function WalletConnection({ wallets, selected, onSelect, disabled }: WalletConnectionProps) {
+export default function WalletConnection({ wallets, selected, onSelect, disabled, label = 'Connected wallet', note }: WalletConnectionProps) {
   const [changing, setChanging] = useState(false);
   const current = wallets.find((w) => w.key === selected) ?? wallets[0];
   const canChange = wallets.length > 1;
@@ -66,7 +72,7 @@ export default function WalletConnection({ wallets, selected, onSelect, disabled
           <span aria-hidden="true" style={monoStyle}>{monogram(current.name)}</span>
         )}
         <div style={{ minWidth: 0, flex: 1 }}>
-          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--muted)' }}>Connected wallet</p>
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--muted)' }}>{label}</p>
           <p style={{ margin: '0.1rem 0 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current.name}</span>
             {current.supportsCip95 && <span style={badgeStyle}>CIP-95</span>}
@@ -99,9 +105,9 @@ export default function WalletConnection({ wallets, selected, onSelect, disabled
         </div>
       )}
 
-      <p style={{ margin: '0.75rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-        This wallet will be used to sign your on-chain metadata update.
-      </p>
+      {note && (
+        <p style={{ margin: '0.75rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>{note}</p>
+      )}
     </div>
   );
 }

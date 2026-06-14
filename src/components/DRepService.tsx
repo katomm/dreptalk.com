@@ -17,7 +17,7 @@ import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import DrepProfileFields, { type DrepProfileValue, profileLinksToWire } from '@/components/DrepProfileFields.js';
-import WalletPicker from '@/components/WalletPicker.js';
+import WalletConnection from '@/components/WalletConnection.js';
 
 // The enabled wallet api is the CIP-30 surface plus the optional CIP-95
 // extension namespace. We intersect the structural Tx api (used by
@@ -317,11 +317,12 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
             phase.status === 'connecting' ||
             phase.status === 'error') && (
             <div style={{ maxWidth: '32rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-              <WalletPicker
+              <WalletConnection
                 wallets={wallets}
                 selected={selected}
                 onSelect={setSelected}
                 disabled={busy}
+                label="Signing wallet"
               />
               <button
                 type="button"

@@ -6,7 +6,7 @@
 // bundle on first load.
 import { useEffect, useRef, useState } from 'react';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
-import WalletPicker from '@/components/WalletPicker.js';
+import WalletConnection from '@/components/WalletConnection.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import type { WalletApi } from '@/lib/governance/drepTx.js';
@@ -220,11 +220,12 @@ export default function DelegateDialog({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
                 {(phase.status === 'idle' || phase.status === 'connecting' || phase.status === 'error') && (
                   <>
-                    <WalletPicker
+                    <WalletConnection
                       wallets={wallets}
                       selected={selected}
                       onSelect={setSelected}
                       disabled={busy}
+                      label="Signing wallet"
                     />
                     <button
                       type="button"
