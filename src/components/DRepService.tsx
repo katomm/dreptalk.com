@@ -297,9 +297,9 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
   }
 
   return (
-    <div style={{ maxWidth: '32rem' }}>
+    <div style={{ maxWidth: '60rem' }}>
       {/* Note shown before the wallet prompt: this DOES cost a deposit + fee. */}
-      <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1.25rem' }}>
+      <p style={{ maxWidth: '32rem', fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1.25rem' }}>
         Registering as a DRep is an on-chain transaction. Your wallet will ask you to
         approve a refundable deposit of 500 ADA plus a small network fee. The deposit is
         returned in full when you later retire. dreptalk.com never sees your keys; your
@@ -316,7 +316,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           {(phase.status === 'idle' ||
             phase.status === 'connecting' ||
             phase.status === 'error') && (
-            <>
+            <div style={{ maxWidth: '32rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
               <WalletPicker
                 wallets={wallets}
                 selected={selected}
@@ -342,7 +342,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               >
                 {phase.status === 'connecting' ? 'Connecting...' : 'Connect wallet'}
               </button>
-            </>
+            </div>
           )}
 
           {phase.status === 'checking' && (
@@ -352,7 +352,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           )}
 
           {phase.status === 'already-registered' && (
-            <div className="callout callout--info" role="status">
+            <div className="callout callout--info" role="status" style={{ maxWidth: '32rem' }}>
               <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
@@ -404,11 +404,11 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               }}
               style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
             >
-              <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
+              <p style={{ margin: 0, maxWidth: '32rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
                 DRep id: {phase.identity.drepId}
               </p>
 
-              <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="reg-drep" />
+              <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="reg-drep" seed={phase.identity.drepId} />
 
               <div>
                 <button
@@ -438,7 +438,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           )}
 
           {phase.status === 'error' && (
-            <div className="callout callout--error" role="alert">
+            <div className="callout callout--error" role="alert" style={{ maxWidth: '32rem' }}>
               <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>

@@ -284,13 +284,15 @@ export default function DrepSettings({
   }
 
   return (
-    <div style={{ maxWidth: '32rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-      <WalletPicker
-        wallets={wallets}
-        selected={selected}
-        onSelect={setSelected}
-        disabled={busy}
-      />
+    <div style={{ maxWidth: '60rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <div style={{ maxWidth: '32rem' }}>
+        <WalletPicker
+          wallets={wallets}
+          selected={selected}
+          onSelect={setSelected}
+          disabled={busy}
+        />
+      </div>
 
       <form
         onSubmit={(e) => {
@@ -299,9 +301,9 @@ export default function DrepSettings({
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
       >
-        <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="settings-drep" />
+        <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="settings-drep" seed={expectedDrepId} />
 
-        <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
+        <p style={{ margin: 0, maxWidth: '32rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
           Updating your metadata is an on-chain transaction. There is no deposit;
           your wallet pays only the small network fee. Your public profile shows
           the update after the next sync (within about an hour).
@@ -334,7 +336,7 @@ export default function DrepSettings({
       </form>
 
       {phase.status === 'error' && (
-        <div className="callout callout--error" role="alert">
+        <div className="callout callout--error" role="alert" style={{ maxWidth: '32rem' }}>
           <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
@@ -352,7 +354,7 @@ export default function DrepSettings({
         </div>
       )}
 
-      <section style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <section style={{ marginTop: '1.5rem', maxWidth: '32rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <h3 style={{ margin: 0, fontSize: '1rem' }}>Retire as DRep</h3>
 
         <div className="callout callout--error" role="note">

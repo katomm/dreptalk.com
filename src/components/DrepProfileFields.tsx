@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
 import DrepLinksEditor, { type ProfileLink } from '@/components/DrepLinksEditor.js';
+import DrepProfilePreview from '@/components/DrepProfilePreview.js';
 import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 
 export interface DrepProfileValue {
@@ -31,13 +32,15 @@ interface DrepProfileFieldsProps {
   onChange: (next: DrepProfileValue) => void;
   disabled?: boolean;
   idPrefix: string;
+  /** Identicon seed for the preview (the DRep id), matching the public profile. */
+  seed: string;
 }
 
 const NAME_MAX = 80;
 const BIO_MAX = 1000;
 const TEXT_MAX = 1000;
 
-export default function DrepProfileFields({ value, onChange, disabled, idPrefix }: DrepProfileFieldsProps) {
+export default function DrepProfileFields({ value, onChange, disabled, idPrefix, seed }: DrepProfileFieldsProps) {
   const [showAdvanced, setShowAdvanced] = useState(
     value.motivations !== '' || value.qualifications !== '' || value.paymentAddress !== '' || value.doNotList,
   );
@@ -46,7 +49,8 @@ export default function DrepProfileFields({ value, onChange, disabled, idPrefix 
   const textAreaStyle = { ...inputStyle, lineHeight: '1.6', resize: 'vertical' as const, fontFamily: 'inherit' };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+    <div className="drep-profile-edit">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
       <div>
         <label htmlFor={`${idPrefix}-name`} style={labelStyle}>Name</label>
         <input id={`${idPrefix}-name`} type="text" value={value.name} onChange={(e) => set('name', e.target.value)}
@@ -99,6 +103,11 @@ export default function DrepProfileFields({ value, onChange, disabled, idPrefix 
           </label>
         </div>
       )}
+      </div>
+
+      <aside className="drep-profile-edit__preview">
+        <DrepProfilePreview value={value} seed={seed} />
+      </aside>
     </div>
   );
 }
