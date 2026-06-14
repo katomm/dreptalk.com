@@ -2,6 +2,7 @@
 // pair; the parent owns the array. Up to MAX rows; an empty trailing row is the
 // "add" affordance through the explicit Add button.
 import type { CSSProperties } from 'react';
+import { inputStyle as baseInputStyle } from '@/components/drepFormStyles.js';
 
 export interface ProfileLink {
   label: string;
@@ -15,14 +16,9 @@ interface DrepLinksEditorProps {
   max?: number;
 }
 
-const inputStyle: CSSProperties = {
-  padding: '0.5rem 0.75rem',
-  border: '1px solid var(--border)',
-  borderRadius: '0.375rem',
-  background: 'var(--bg)',
-  color: 'var(--fg)',
-  fontSize: '0.9375rem',
-};
+// The shared field style, a touch smaller for these in-row inputs. Flex sizing
+// on each input overrides the base width.
+const inputStyle: CSSProperties = { ...baseInputStyle, fontSize: '0.9375rem' };
 
 export default function DrepLinksEditor({ value, onChange, disabled, max = 10 }: DrepLinksEditorProps) {
   function update(i: number, patch: Partial<ProfileLink>) {

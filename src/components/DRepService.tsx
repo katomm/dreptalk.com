@@ -16,7 +16,7 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
-import DrepProfileFields, { type DrepProfileValue } from '@/components/DrepProfileFields.js';
+import DrepProfileFields, { type DrepProfileValue, profileLinksToWire } from '@/components/DrepProfileFields.js';
 import WalletPicker from '@/components/WalletPicker.js';
 
 // The enabled wallet api is the CIP-30 surface plus the optional CIP-95
@@ -190,7 +190,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
           drepId: identity.drepId,
           name: trimmedName,
           bio: profile.bio.trim(),
-          links: profile.links.filter((l) => l.uri.trim()).map((l) => ({ uri: l.uri.trim(), label: l.label.trim() })),
+          links: profileLinksToWire(profile.links),
           ...(profile.image ? { image: profile.image } : {}),
           motivations: profile.motivations.trim(),
           qualifications: profile.qualifications.trim(),

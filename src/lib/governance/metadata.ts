@@ -14,6 +14,7 @@ import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex, HEX_HASH_256_RE } from '../crypto/hex.js';
 import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
+import { isCardanoPaymentAddress } from '../cardano/identity.js';
 
 // Upper bound on the anchor document we download and hash-verify. Real mainnet
 // CIP-108 proposals reach ~1.2MB because the rationale can embed long markdown
@@ -225,7 +226,7 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
     sanitizeExternalText(typeof body.qualifications === 'string' ? body.qualifications : '', MAX_PROFILE_QUALIFICATIONS_LEN) || null;
   const rawPay = typeof body.paymentAddress === 'string' ? body.paymentAddress.trim() : '';
   const paymentAddress =
-    rawPay.length > 0 && rawPay.length <= MAX_PROFILE_PAYMENT_ADDR_LEN && /^addr(_test)?1[0-9a-z]+$/.test(rawPay)
+    rawPay.length > 0 && rawPay.length <= MAX_PROFILE_PAYMENT_ADDR_LEN && isCardanoPaymentAddress(rawPay)
       ? rawPay
       : null;
   const doNotList = body.doNotList === true || body.doNotList === 'true';

@@ -17,6 +17,15 @@ export interface DrepProfileValue {
   doNotList: boolean;
 }
 
+/**
+ * Maps the editor's link rows to the wire shape the metadata endpoint expects:
+ * trimmed label and uri, dropping rows with an empty uri. Shared by both flows
+ * (registration + settings) so they cannot drift.
+ */
+export function profileLinksToWire(links: ProfileLink[]): { uri: string; label: string }[] {
+  return links.filter((l) => l.uri.trim()).map((l) => ({ uri: l.uri.trim(), label: l.label.trim() }));
+}
+
 interface DrepProfileFieldsProps {
   value: DrepProfileValue;
   onChange: (next: DrepProfileValue) => void;

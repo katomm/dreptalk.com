@@ -10,6 +10,7 @@
 import { blake2b256 } from '@/lib/crypto/blake.js';
 import { bytesToHex, HEX_HASH_256_RE } from '@/lib/crypto/hex.js';
 import { sanitizeExternalText } from '@/lib/validation/input.js';
+import { isCardanoPaymentAddress } from '@/lib/cardano/identity.js';
 
 // Reused across every buildDrepMetadata call; allocation is cheap but
 // TextEncoder has no state, so a single module-level instance is fine.
@@ -71,11 +72,6 @@ function isValidHttpsUrl(raw: string): boolean {
   }
 }
 
-/** A Cardano payment address: addr1... (mainnet) or addr_test1... (testnet). */
-function isCardanoPaymentAddress(raw: string): boolean {
-  return raw.length <= MAX_DREP_PAYMENT_ADDR && /^addr(_test)?1[0-9a-z]+$/.test(raw);
-}
-
 /** Returns true when the URL uses http or https and parses without error. */
 function isValidHttpUrl(raw: string): boolean {
   if (raw.length > MAX_LINK_URL_LEN) return false;
@@ -109,9 +105,10 @@ export function buildDrepMetadata(input: DrepMetadataInput): DrepMetadataResult 
 
   const motivations = sanitizeExternalText(input.motivations ?? '', MAX_DREP_MOTIVATIONS);
   const qualifications = sanitizeExternalText(input.qualifications ?? '', MAX_DREP_QUALIFICATIONS);
+  const trimmedPay = input.paymentAddress?.trim() ?? '';
   const paymentAddress =
-    input.paymentAddress && isCardanoPaymentAddress(input.paymentAddress.trim())
-      ? input.paymentAddress.trim()
+    trimmedPay.length <= MAX_DREP_PAYMENT_ADDR && isCardanoPaymentAddress(trimmedPay)
+      ? trimmedPay
       : '';
   const doNotList = input.doNotList === true;
 
