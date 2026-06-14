@@ -125,6 +125,9 @@ const MAX_PROFILE_IMAGE_URL_LEN = 2_048;
 const MAX_PROFILE_LINK_LABEL_LEN = 100;
 const MAX_PROFILE_LINK_URI_LEN = 2_048;
 const MAX_PROFILE_LINKS = 10;
+const MAX_PROFILE_MOTIVATIONS_LEN = 1_000;
+const MAX_PROFILE_QUALIFICATIONS_LEN = 1_000;
+const MAX_PROFILE_PAYMENT_ADDR_LEN = 150;
 
 export interface Cip119Profile {
   name: string | null;
@@ -133,6 +136,10 @@ export interface Cip119Profile {
   /** sha256 (64 hex) of the image bytes, when the ImageObject carries one. */
   imageSha256: string | null;
   links: { label: string; uri: string }[] | null;
+  motivations: string | null;
+  qualifications: string | null;
+  paymentAddress: string | null;
+  doNotList: boolean;
 }
 
 /** Returns true for http(s) URLs that parse without error. */
@@ -212,7 +219,18 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
     links = valid.length > 0 ? valid : null;
   }
 
-  return { name, bio, imageUrl, imageSha256, links };
+  const motivations =
+    sanitizeExternalText(typeof body.motivations === 'string' ? body.motivations : '', MAX_PROFILE_MOTIVATIONS_LEN) || null;
+  const qualifications =
+    sanitizeExternalText(typeof body.qualifications === 'string' ? body.qualifications : '', MAX_PROFILE_QUALIFICATIONS_LEN) || null;
+  const rawPay = typeof body.paymentAddress === 'string' ? body.paymentAddress.trim() : '';
+  const paymentAddress =
+    rawPay.length > 0 && rawPay.length <= MAX_PROFILE_PAYMENT_ADDR_LEN && /^addr(_test)?1[0-9a-z]+$/.test(rawPay)
+      ? rawPay
+      : null;
+  const doNotList = body.doNotList === true || body.doNotList === 'true';
+
+  return { name, bio, imageUrl, imageSha256, links, motivations, qualifications, paymentAddress, doNotList };
 }
 
 // Discriminated union returning the raw parsed doc on success. The doc is the
