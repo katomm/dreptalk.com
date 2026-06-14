@@ -16,9 +16,8 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
-import { parseLinks } from '@/components/DRepService.js';
-import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
-import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+import DrepProfileFields, { type DrepProfileValue } from '@/components/DrepProfileFields.js';
+import type { HostedImage } from '@/components/DrepImageUpload.js';
 import WalletPicker from '@/components/WalletPicker.js';
 
 // Same enabled-api shape as DRepService: CIP-30 tx surface plus the cip95
@@ -27,9 +26,6 @@ type EnabledWalletApi = TxWalletApi & {
   getNetworkId(): Promise<number>;
   cip95?: { getPubDRepKey(): Promise<string> };
 };
-
-const NAME_MAX = 80;
-const BIO_MAX = 1500;
 
 type DrepAction = 'update' | 'retire';
 
@@ -49,9 +45,12 @@ export interface DrepSettingsProps {
   /** Prefill from the synced dreps row; empty strings when no metadata yet. */
   initialName: string;
   initialBio: string;
-  /** One URL per line, pre-joined by the page. */
-  initialLinks: string;
+  initialLinks: { label: string; uri: string }[];
   initialImage: HostedImage | null;
+  initialMotivations: string;
+  initialQualifications: string;
+  initialPaymentAddress: string;
+  initialDoNotList: boolean;
 }
 
 /** True when the wallet-derived drep id matches the session's. Pure; exported for tests. */
@@ -66,6 +65,10 @@ export default function DrepSettings({
   initialBio,
   initialLinks,
   initialImage,
+  initialMotivations,
+  initialQualifications,
+  initialPaymentAddress,
+  initialDoNotList,
 }: DrepSettingsProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
@@ -74,10 +77,16 @@ export default function DrepSettings({
   // each call is an extension IPC round trip).
   const enabledApiRef = useRef<EnabledWalletApi | null>(null);
 
-  const [name, setName] = useState(initialName);
-  const [bio, setBio] = useState(initialBio);
-  const [links, setLinks] = useState(initialLinks);
-  const [image, setImage] = useState<HostedImage | null>(initialImage);
+  const [profile, setProfile] = useState<DrepProfileValue>({
+    name: initialName,
+    bio: initialBio,
+    links: initialLinks,
+    image: initialImage,
+    motivations: initialMotivations,
+    qualifications: initialQualifications,
+    paymentAddress: initialPaymentAddress,
+    doNotList: initialDoNotList,
+  });
   const [confirmRetire, setConfirmRetire] = useState(false);
 
   // Connects the selected wallet, runs the network guard, derives the DRep
@@ -140,7 +149,7 @@ export default function DrepSettings({
   // Update flow: host the new CIP-119 document, then have the wallet sign and
   // submit the update_drep certificate pointing at it.
   async function handleUpdate() {
-    const trimmedName = name.trim();
+    const trimmedName = profile.name.trim();
     if (!trimmedName) {
       setPhase({ status: 'error', message: 'Please enter a name for your DRep.' });
       return;
@@ -158,9 +167,13 @@ export default function DrepSettings({
         body: JSON.stringify({
           drepId: expectedDrepId,
           name: trimmedName,
-          bio: bio.trim(),
-          links: parseLinks(links),
-          ...(image ? { image } : {}),
+          bio: profile.bio.trim(),
+          links: profile.links.filter((l) => l.uri.trim()).map((l) => ({ uri: l.uri.trim(), label: l.label.trim() })),
+          ...(profile.image ? { image: profile.image } : {}),
+          motivations: profile.motivations.trim(),
+          qualifications: profile.qualifications.trim(),
+          paymentAddress: profile.paymentAddress.trim(),
+          doNotList: profile.doNotList,
         }),
       });
       if (!metaRes.ok) {
@@ -286,58 +299,7 @@ export default function DrepSettings({
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
       >
-        <div>
-          <label htmlFor="settings-drep-name" style={labelStyle}>
-            Name
-          </label>
-          <input
-            id="settings-drep-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your DRep name"
-            maxLength={NAME_MAX}
-            required
-            disabled={busy}
-            style={inputStyle}
-          />
-        </div>
-
-        <div>
-          <span style={labelStyle}>Profile image (optional)</span>
-          <DrepImageUpload value={image} onChange={setImage} disabled={busy} />
-        </div>
-
-        <div>
-          <label htmlFor="settings-drep-bio" style={labelStyle}>
-            Bio
-          </label>
-          <textarea
-            id="settings-drep-bio"
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="Tell delegators what you stand for (plain text)."
-            maxLength={BIO_MAX}
-            rows={6}
-            disabled={busy}
-            style={{ ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit' }}
-          />
-        </div>
-
-        <div>
-          <label htmlFor="settings-drep-links" style={labelStyle}>
-            Links
-          </label>
-          <textarea
-            id="settings-drep-links"
-            value={links}
-            onChange={(e) => setLinks(e.target.value)}
-            placeholder="One URL per line (or comma separated). Website, X, GitHub, etc."
-            rows={3}
-            disabled={busy}
-            style={{ ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit' }}
-          />
-        </div>
+        <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="settings-drep" />
 
         <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
           Updating your metadata is an on-chain transaction. There is no deposit;

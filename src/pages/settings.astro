@@ -27,13 +27,17 @@ const drepId = user.roles.includes('drep') ? (dbUser?.drep_id ?? null) : null;
 const drep = drepId && db ? await getDrepById(db, drepId) : null;
 
 // Prefill: synced on-chain metadata when available, empty form otherwise
-// (covers DReps without any metadata yet). Links flatten to one URL per line.
+// (covers DReps without any metadata yet).
 const initialName = drep?.name ?? '';
 const initialBio = drep?.bio ?? '';
-const initialLinks = (drep?.links ?? []).map((l) => l.uri).join('\n');
+const initialLinks = drep?.links ?? [];
 const initialImage = drep?.imageUrl
   ? { url: drep.imageUrl, ...(drep.imageContentHash ? { sha256: drep.imageContentHash } : {}) }
   : null;
+const initialMotivations = drep?.motivations ?? '';
+const initialQualifications = drep?.qualifications ?? '';
+const initialPaymentAddress = drep?.paymentAddress ?? '';
+const initialDoNotList = drep?.doNotList ?? false;
 ---
 <Layout
   title="Settings - DRepTalk"
@@ -55,7 +59,7 @@ const initialImage = drep?.imageUrl
 
   {drepId ? (
     <section style="margin-top:2rem;">
-      <h2 style="margin:0 0 0.5rem;font-size:1.0625rem;">DRep profile (on-chain)</h2>
+      <h2 style="margin:0 0 0.5rem;font-size:1.0625rem;">Your DRep profile <span style="color:var(--muted);font-weight:400;font-size:0.875rem;">(on-chain)</span></h2>
       <p style="margin:0 0 1rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
         This edits the CIP-119 metadata stored on the Cardano chain, the same
         profile wallets and explorers show. See
@@ -68,6 +72,10 @@ const initialImage = drep?.imageUrl
         initialBio={initialBio}
         initialLinks={initialLinks}
         initialImage={initialImage}
+        initialMotivations={initialMotivations}
+        initialQualifications={initialQualifications}
+        initialPaymentAddress={initialPaymentAddress}
+        initialDoNotList={initialDoNotList}
         client:load
       />
     </section>
