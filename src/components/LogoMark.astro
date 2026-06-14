@@ -1,10 +1,13 @@
 ---
 // The DRepTalk burst mark as inline SVG so it inherits `currentColor` (an
-// external <img> cannot). Used where the mark sits next to the "DRepTalk"
-// wordmark (header, footer) painted in --muted, leaving the "Talk" gradient as
-// the only accent, and on the brand gradient card painted white. The favicon
-// and the large brand cards keep the full-color gradient logo.svg, where there
-// is no adjacent wordmark to clash with.
+// external <img> cannot). This is the canonical mark (eight nodes, spokes,
+// outer dot ring, center), matching public/logo.svg. Used where the mark sits
+// next to the "DRepTalk" wordmark (header, footer) painted in --muted, leaving
+// the "Talk" gradient as the only accent, and on the brand gradient card
+// painted white. The large brand cards and downloads keep the full-color
+// gradient logo.svg. The tab favicon (public/favicon.svg + favicon.png) is a
+// deliberately simplified variant without the outer ring, which reads better at
+// 16-32px.
 //
 // Size and color come in as an inline `style` because Astro scoped styles do
 // not reach a child component's root element.
