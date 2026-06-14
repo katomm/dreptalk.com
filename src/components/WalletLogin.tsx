@@ -217,7 +217,7 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
                     {role === 'drep' && (
                       <>
                         <span style={{ color: 'var(--muted)', margin: '0 0.5rem' }}>or</span>
-                        <a href="/drep" style={{ color: 'var(--accent)' }}>register as a DRep</a>
+                        <a href="/register-drep" style={{ color: 'var(--accent)' }}>register as a DRep</a>
                       </>
                     )}
                   </div>

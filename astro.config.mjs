@@ -30,6 +30,11 @@ export default defineConfig({
     sessionKVBindingName: 'SESSIONS',
   }),
   integrations: [react()],
+  // The registration page moved from /drep (too close to /dreps and the on-chain
+  // /drep/<hash>.json documents) to /register-drep. Redirect so old links hold.
+  redirects: {
+    '/drep': '/register-drep',
+  },
   vite: {
     // Pin React to a single instance. Astro's React islands load the renderer's
     // React through Vite's optimized deps (the ?v= query), while a component's
