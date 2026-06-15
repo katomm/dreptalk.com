@@ -150,6 +150,13 @@ function labelMemberObj(o: unknown): string {
   return '(member)';
 }
 
+// Finds the first array element that is an object carrying `key`. Used to pull a
+// payload field by shape rather than position, tolerant of an optional leading
+// prev-action pointer.
+function findObjByKey<T>(arr: unknown[], key: string): T | undefined {
+  return arr.find((c) => c !== null && typeof c === 'object' && key in c) as T | undefined;
+}
+
 function decodeParams(contents: unknown[], ep: Record<string, unknown>): OnchainChanges {
   const map = contents[1];
   const rows: ParamRow[] = [];
@@ -178,9 +185,7 @@ function decodeParams(contents: unknown[], ep: Record<string, unknown>): Onchain
 }
 
 function decodeHardFork(contents: unknown[], ep: Record<string, unknown>): OnchainChanges {
-  const ver = contents.find((c) => c !== null && typeof c === 'object' && 'major' in c) as
-    | { major: number; minor?: number }
-    | undefined;
+  const ver = findObjByKey<{ major: number; minor?: number }>(contents, 'major');
   const toVersion = ver ? `${ver.major}.${ver.minor ?? 0}` : '';
   const maj = ep.protocol_major;
   const fromVersion =
@@ -218,9 +223,7 @@ function decodeCommittee(contents: unknown[]): OnchainChanges {
 }
 
 function decodeConstitution(contents: unknown[]): OnchainChanges {
-  const body = contents.find((c) => c !== null && typeof c === 'object' && 'anchor' in c) as
-    | { anchor?: { url?: string }; script?: string }
-    | undefined;
+  const body = findObjByKey<{ anchor?: { url?: string }; script?: string }>(contents, 'anchor');
   return {
     kind: 'constitution',
     anchorUrl: body?.anchor?.url ?? null,

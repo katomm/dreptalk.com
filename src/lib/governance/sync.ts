@@ -158,14 +158,17 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
 
   // Backfill payloads for already-known rows discovered before this column existed.
   // Bounded per run; `proposals` is already in memory, so this adds no Koios call.
+  // Once every row has a payload the missing-set is empty and the loop is skipped.
   const missing = await getActionIdsMissingOnchainPayload(db);
   let backfilled = 0;
-  for (const p of proposals) {
-    if (backfilled >= 50) break;
-    const id = `${p.proposal_tx_hash}#${p.proposal_index}`;
-    if (missing.has(id) && p.proposal_description != null) {
-      await updateActionOnchainPayload(db, id, JSON.stringify(p.proposal_description));
-      backfilled++;
+  if (missing.size > 0) {
+    for (const p of proposals) {
+      if (backfilled >= 50) break;
+      const id = `${p.proposal_tx_hash}#${p.proposal_index}`;
+      if (missing.has(id) && p.proposal_description != null) {
+        await updateActionOnchainPayload(db, id, JSON.stringify(p.proposal_description));
+        backfilled++;
+      }
     }
   }
 

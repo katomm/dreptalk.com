@@ -8,16 +8,15 @@ interface Props {
 }
 const { changes } = Astro.props;
 
-const hasParams = changes?.kind === 'params' && changes.rows.length > 0;
-const hasTreasury = changes?.kind === 'treasury' && changes.rows.length > 0;
-const hasCommittee =
-  changes?.kind === 'committee' &&
-  (changes.added.length > 0 || changes.removed.length > 0 || changes.threshold !== null);
+// Render only when there is something to show. Types with a variable-length body
+// (params/treasury/committee) are hidden when that body is empty; the rest always
+// carry content.
 const show =
   changes !== null &&
-  (hasParams ||
-    hasTreasury ||
-    hasCommittee ||
+  ((changes.kind === 'params' && changes.rows.length > 0) ||
+    (changes.kind === 'treasury' && changes.rows.length > 0) ||
+    (changes.kind === 'committee' &&
+      (changes.added.length > 0 || changes.removed.length > 0 || changes.threshold !== null)) ||
     changes.kind === 'hardfork' ||
     changes.kind === 'constitution' ||
     changes.kind === 'note');
