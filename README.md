@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://dreptalk.com/logo-mark.svg" alt="DRepTalk logo" width="88" />
+  <img src="https://dreptalk.com/logo.svg" alt="DRepTalk logo" width="88" />
 </p>
 
 <h1 align="center">DRepTalk</h1>
