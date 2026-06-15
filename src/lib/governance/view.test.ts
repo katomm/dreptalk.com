@@ -3,6 +3,7 @@ import {
   readableType,
   formatAda,
   statusBadge,
+  govStatusVerb,
   isTerminalStatus,
   epochCountdown,
   epochDaysLeft,
@@ -250,5 +251,20 @@ describe('isSpoLedType / overviewTally', () => {
   it('returns null when neither role has a tally', () => {
     expect(overviewTally(make({ type: 'HardForkInitiation' }))).toBeNull();
     expect(overviewTally(make({ type: 'TreasuryWithdrawals' }))).toBeNull();
+  });
+});
+
+describe('govStatusVerb', () => {
+  it('maps statuses to past-tense feed verbs', () => {
+    expect(govStatusVerb('active')).toBe('moved to voting');
+    expect(govStatusVerb('enacted')).toBe('was enacted');
+    expect(govStatusVerb('ratified')).toBe('was ratified');
+    expect(govStatusVerb('dropped')).toBe('was dropped');
+    expect(govStatusVerb('expired')).toBe('expired');
+    expect(govStatusVerb('closed')).toBe('was closed');
+  });
+
+  it('falls back to a generic phrase for an unknown status', () => {
+    expect(govStatusVerb('whatever')).toBe('is now whatever');
   });
 });
