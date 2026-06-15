@@ -8,7 +8,7 @@ const PARAMS = {
   dvtHardFork: 0.6, dvtPpNetwork: 0.67, dvtPpEconomic: 0.67, dvtPpTechnical: 0.67, dvtPpGov: 0.75,
   pvtMotionNoConfidence: 0.51, pvtCommitteeNormal: 0.51, pvtCommitteeNoConfidence: 0.51,
   pvtHardFork: 0.51, pvtSecurityGroup: 0.51,
-  ccThreshold: 0.67, committeeMinSize: 7, syncedAt: 1717000000000,
+  ccThreshold: 0.67, committeeMinSize: 7, syncedAt: 1717000000000, rawJson: null,
 };
 
 describe('protocol_params', () => {
@@ -24,5 +24,10 @@ describe('protocol_params', () => {
     const p = await getProtocolParams(env.DB);
     expect(p!.epoch).toBe(541);
     expect(p!.dvtTreasuryWithdrawal).toBe(0.6);
+  });
+  it('round-trips raw_json', async () => {
+    await upsertProtocolParams(env.DB, { ...PARAMS, rawJson: '{"gov_action_deposit":100000000000}' });
+    const p = await getProtocolParams(env.DB);
+    expect(p!.rawJson).toBe('{"gov_action_deposit":100000000000}');
   });
 });

@@ -139,10 +139,16 @@ const proposalListRowSchema = z
     ratified_epoch: z.number().nullable().optional(),
     dropped_epoch: z.number().nullable().optional(),
     expired_epoch: z.number().nullable().optional(),
+    // Decoded on-chain action body (tag + contents). Persisted per action and
+    // decoded at render time for the "On-chain changes" overview block.
+    proposal_description: z.unknown().optional(),
   })
   .passthrough();
 
 export type ProposalListRow = z.infer<typeof proposalListRowSchema>;
+
+// Exported for unit tests only.
+export const _proposalListRowSchemaForTest = proposalListRowSchema;
 
 // Voting summary for one proposal. Counts are votes_cast; the *_pct fields are
 // power-weighted for DRep/pool and count-weighted for committee (as Koios

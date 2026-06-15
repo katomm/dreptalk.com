@@ -7,7 +7,7 @@ const P: ProtocolParams = {
   dvtUpdateConstitution: 0.75, dvtHardFork: 0.6, dvtPpNetwork: 0.67, dvtPpEconomic: 0.67,
   dvtPpTechnical: 0.67, dvtPpGov: 0.75, dvtTreasuryWithdrawal: 0.67,
   pvtMotionNoConfidence: 0.51, pvtCommitteeNormal: 0.51, pvtCommitteeNoConfidence: 0.51,
-  pvtHardFork: 0.51, pvtSecurityGroup: 0.51, ccThreshold: 0.67, committeeMinSize: 7, syncedAt: 0,
+  pvtHardFork: 0.51, pvtSecurityGroup: 0.51, ccThreshold: 0.67, committeeMinSize: 7, syncedAt: 0, rawJson: null,
 };
 
 describe('evaluateThresholds', () => {
