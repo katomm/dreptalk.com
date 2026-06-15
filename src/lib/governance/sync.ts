@@ -9,6 +9,7 @@ import { readableType, formatAda } from './view.js';
 import { fetchAnchorMetadata, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
 import { createTopic, setTopicPostedAt, getAllTopicsByCategory } from '../db/forum.js';
+import { activityInsert } from '../db/activity.js';
 import {
   getKnownActionIds,
   buildInsertGovernanceAction,
@@ -133,6 +134,15 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
             metaVersion: META_EXTRACT_VERSION,
             topicId,
             now,
+          }),
+          // The newly discovered action is a feed event. created_at is the
+          // submission time (same as the topic's), so the feed and the topic
+          // agree on the action's date.
+          activityInsert(db, {
+            type: 'gov_created',
+            topicId,
+            payload: { type: p.proposal_type },
+            createdAt: submittedAtMs,
           }),
         ],
       });

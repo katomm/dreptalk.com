@@ -51,6 +51,30 @@ export function statusBadge(status: string): StatusBadge {
   }
 }
 
+/**
+ * Past-tense verb phrase for a governance status change, used by the activity
+ * feed ("<Title> was enacted"). Mirrors the statusBadge vocabulary; 'active' is
+ * the pending -> active transition, phrased as entering the voting window.
+ */
+export function govStatusVerb(to: string): string {
+  switch (to) {
+    case 'active':
+      return 'moved to voting';
+    case 'ratified':
+      return 'was ratified';
+    case 'enacted':
+      return 'was enacted';
+    case 'dropped':
+      return 'was dropped';
+    case 'expired':
+      return 'expired';
+    case 'closed':
+      return 'was closed';
+    default:
+      return `is now ${to}`;
+  }
+}
+
 // Lifecycle statuses whose voting window is over and whose outcome is frozen. The
 // rest ('active', and the not-yet-synced 'pending') are still open and counting down.
 // Exported as the single source of truth: isTerminalStatus tests membership here, and

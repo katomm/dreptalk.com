@@ -421,3 +421,53 @@ describe('backfillFinalizedVotes', () => {
     expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]);
   });
 });
+
+describe('syncGovernanceTallies emits gov_status', () => {
+  async function statusEvents(topicId: string) {
+    return (
+      await db()
+        .prepare("SELECT payload FROM activity WHERE type = 'gov_status' AND topic_id = ? ORDER BY created_at ASC")
+        .bind(topicId)
+        .all<{ payload: string }>()
+    ).results.map((r) => JSON.parse(r.payload));
+  }
+
+  it('emits on pending -> active, and not again when unchanged', async () => {
+    const { txHash, topicId } = await insertActive(294);
+
+    // First sync: pending (stored) -> active (derived) emits one event.
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(txHash)]),
+      db: db(),
+      currentEpoch: 290,
+      now: NOW,
+    });
+    let events = await statusEvents(topicId);
+    expect(events.length).toBe(1);
+    expect(events[0]).toEqual({ from: 'pending', to: 'active' });
+
+    // Second sync: active -> active, no new event.
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(txHash)]),
+      db: db(),
+      currentEpoch: 291,
+      now: NOW + 1000,
+    });
+    events = await statusEvents(topicId);
+    expect(events.length).toBe(1);
+  });
+
+  it('emits on a transition to a terminal status', async () => {
+    const { txHash, topicId } = await insertActive(294);
+
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(txHash, { enacted_epoch: 292 })]),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW,
+    });
+    const events = await statusEvents(topicId);
+    expect(events.length).toBe(1);
+    expect(events[0]).toEqual({ from: 'pending', to: 'enacted' });
+  });
+});

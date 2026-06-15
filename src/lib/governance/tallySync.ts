@@ -18,6 +18,7 @@ import {
   type GovernanceTally,
 } from '../db/governance.js';
 import { upsertVotes, type VoteInput } from '../db/drepVotes.js';
+import { activityInsert } from '../db/activity.js';
 
 // Max actions a single tally/vote run processes when the caller does not specify
 // one. Koios is latency-limited under a large burst (proposal_voting_summary and
@@ -208,6 +209,18 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
         tallySyncedAt: now,
         now,
       });
+
+      // A real lifecycle transition (pending -> active, active -> enacted, etc.)
+      // is a feed event; a same-status tally refresh is not. created_at = now,
+      // since the change is happening now (unlike gov_created's submission time).
+      if (status !== ga.status && ga.topicId) {
+        await activityInsert(db, {
+          type: 'gov_status',
+          topicId: ga.topicId,
+          payload: { from: ga.status, to: status },
+          createdAt: now,
+        }).run();
+      }
 
       updated++;
       if (status !== 'active') frozen++;

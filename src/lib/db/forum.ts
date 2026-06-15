@@ -4,6 +4,7 @@
 // Callers are responsible for rendering/sanitizing markdown before passing bodyHtml.
 
 import { sqlPlaceholders } from './sql.js';
+import { activityInsert } from './activity.js';
 
 export interface Topic {
   id: string;
@@ -189,7 +190,14 @@ export async function createTopic(
     .bind(postId, topicId, authorId, bodyMd, bodyHtml, postedAt);
 
   const extra = batchWith ? batchWith(topicId) : [];
-  await db.batch([insertTopic, insertPost, ...extra]);
+  // A user-created topic emits a 'topic_created' event in the same atomic batch.
+  // Governance-sourced topics are emitted by gov sync as 'gov_created' (it has
+  // the on-chain action context), so they emit nothing here.
+  const events =
+    source === 'user'
+      ? [activityInsert(db, { type: 'topic_created', topicId, actorId: authorId, createdAt: postedAt })]
+      : [];
+  await db.batch([insertTopic, insertPost, ...events, ...extra]);
 
   // Construct return objects from the known inputs and D1 column defaults;
   // avoids a SELECT round-trip after the batch insert.
@@ -490,7 +498,12 @@ export async function createPost(
     )
     .bind(now, topicId);
 
-  await db.batch([insertPost, updateTopic]);
+  await db.batch([
+    insertPost,
+    updateTopic,
+    // The reply is a feed event; emit it atomically with the post.
+    activityInsert(db, { type: 'reply_created', topicId, actorId: authorId, refPostId: postId, createdAt: now }),
+  ]);
 
   // Construct the return value from known inputs and column defaults.
   return rowToPost({

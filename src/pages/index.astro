@@ -3,11 +3,11 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
-import TopicRow from '@/components/TopicRow.astro';
-import { getCategories, getCategory, GOVERNANCE_CATEGORY_SLUG } from '../../config/categories.js';
-import { getCategoryStats, getLatestTopicsAcrossCategories } from '@/lib/db/forum.js';
-import { getGovernanceActionsByTopicIds, getLatestGovernanceAction } from '@/lib/db/governance.js';
-import { loadAuthorIdentities } from '@/lib/forum/author.js';
+import ActivityRow from '@/components/ActivityRow.astro';
+import { getCategories } from '../../config/categories.js';
+import { getCategoryStats } from '@/lib/db/forum.js';
+import { getLatestGovernanceAction } from '@/lib/db/governance.js';
+import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { readableType, statusBadge, TONE_COLORS } from '@/lib/governance/view.js';
 import { cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
@@ -16,26 +16,15 @@ const db = env.DB as D1Database | undefined;
 const now = Date.now();
 const user = Astro.locals.user;
 
-// Category stats, the latest 4 topics, and the hero's newest governance action
-// are independent; load them together.
-const [stats, latest, heroAction] = db
+// Category stats, the latest activity feed, and the hero's newest governance
+// action are independent; load them together.
+const [stats, feed, heroAction] = db
   ? await Promise.all([
       getCategoryStats(db),
-      getLatestTopicsAcrossCategories(db, { limit: 4 }),
+      loadActivityFeed(db, { limit: 6 }),
       getLatestGovernanceAction(db),
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null];
-
-// Author identities and governance actions depend only on `latest`.
-const govTopicIds = latest
-  .filter((t) => t.category_slug === GOVERNANCE_CATEGORY_SLUG)
-  .map((t) => t.id);
-const [identities, govByTopic] = await Promise.all([
-  db ? loadAuthorIdentities(db, latest.map((t) => t.author_id)) : Promise.resolve(null),
-  db && govTopicIds.length
-    ? getGovernanceActionsByTopicIds(db, govTopicIds)
-    : Promise.resolve(new Map()),
-]);
 
 const categories = getCategories();
 
@@ -245,18 +234,12 @@ const heroFeatures = [
 
       <section aria-label="Latest activity">
         <h3 class="section-label">Latest activity</h3>
-        {latest.length === 0 ? (
-          <p style="color:var(--muted);">No topics yet.</p>
+        {feed.length === 0 ? (
+          <p style="color:var(--muted);">No recent activity yet.</p>
         ) : (
           <div>
-            {latest.map((t) => (
-              <TopicRow
-                topic={t}
-                now={now}
-                author={identities ? identities.describe(t.author_id) : undefined}
-                category={getCategory(t.category_slug)}
-                governance={govByTopic.get(t.id)}
-              />
+            {feed.map((e) => (
+              <ActivityRow event={e} now={now} />
             ))}
           </div>
         )}
