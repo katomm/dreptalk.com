@@ -1,0 +1,192 @@
+---
+// "On-chain changes" block for the Overview: renders the decoded payload per type.
+// Renders nothing when there is no decodable payload.
+import type { OnchainChanges } from '@/lib/governance/onchain.js';
+
+interface Props {
+  changes: OnchainChanges | null;
+}
+const { changes } = Astro.props;
+
+const hasParams = changes?.kind === 'params' && changes.rows.length > 0;
+const hasTreasury = changes?.kind === 'treasury' && changes.rows.length > 0;
+const hasCommittee =
+  changes?.kind === 'committee' &&
+  (changes.added.length > 0 || changes.removed.length > 0 || changes.threshold !== null);
+const show =
+  changes !== null &&
+  (hasParams ||
+    hasTreasury ||
+    hasCommittee ||
+    changes.kind === 'hardfork' ||
+    changes.kind === 'constitution' ||
+    changes.kind === 'note');
+---
+
+{show && changes && (
+  <section class="ocx">
+    <p class="ocx__label">On-chain changes</p>
+
+    {changes.kind === 'params' && (
+      <ul class="ocx__rows">
+        {changes.rows.map((r) => (
+          <li class="ocx__row">
+            <span class="ocx__group">{r.group}</span>
+            <span class="ocx__name">{r.label}</span>
+            <span class="ocx__val">
+              {r.oldValue !== null && <span class="ocx__old">{r.oldValue}</span>}
+              {r.oldValue !== null && <span class="ocx__arrow">&rarr;</span>}
+              <span class="ocx__new">{r.newValue}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    )}
+
+    {changes.kind === 'hardfork' && (
+      <p class="ocx__single">
+        Protocol Version{' '}
+        {changes.fromVersion && (
+          <>
+            <span class="ocx__old">{changes.fromVersion}</span> <span class="ocx__arrow">&rarr;</span>{' '}
+          </>
+        )}
+        <span class="ocx__new">{changes.toVersion}</span>
+      </p>
+    )}
+
+    {changes.kind === 'treasury' && (
+      <>
+        <ul class="ocx__rows">
+          {changes.rows.map((r) => (
+            <li class="ocx__row">
+              <span class="ocx__name mono">{r.address}</span>
+              <span class="ocx__val"><span class="ocx__new">{r.ada}</span></span>
+            </li>
+          ))}
+        </ul>
+        <p class="ocx__total">Total: <span class="ocx__new">{changes.totalAda}</span></p>
+      </>
+    )}
+
+    {changes.kind === 'committee' && (
+      <ul class="ocx__rows">
+        {changes.threshold !== null && (
+          <li class="ocx__row">
+            <span class="ocx__name">New threshold</span>
+            <span class="ocx__val"><span class="ocx__new">{changes.threshold}</span></span>
+          </li>
+        )}
+        {changes.added.map((m) => (
+          <li class="ocx__row">
+            <span class="ocx__name">Added</span>
+            <span class="ocx__val mono">
+              {m.who}
+              {m.termEpoch !== null && <span class="ocx__group"> term to epoch {m.termEpoch}</span>}
+            </span>
+          </li>
+        ))}
+        {changes.removed.map((m) => (
+          <li class="ocx__row">
+            <span class="ocx__name">Removed</span>
+            <span class="ocx__val mono">{m}</span>
+          </li>
+        ))}
+      </ul>
+    )}
+
+    {changes.kind === 'constitution' && (
+      <ul class="ocx__rows">
+        {changes.anchorUrl && (
+          <li class="ocx__row">
+            <span class="ocx__name">New constitution</span>
+            <span class="ocx__val"><a href={changes.anchorUrl} target="_blank" rel="noopener noreferrer">{changes.anchorUrl}</a></span>
+          </li>
+        )}
+        {changes.scriptHash && (
+          <li class="ocx__row">
+            <span class="ocx__name">Guardrails script</span>
+            <span class="ocx__val mono">{changes.scriptHash}</span>
+          </li>
+        )}
+      </ul>
+    )}
+
+    {changes.kind === 'note' && <p class="ocx__note">{changes.text}</p>}
+  </section>
+)}
+
+<style>
+  .ocx {
+    margin: 0 0 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem 1.125rem;
+    background: var(--surface);
+  }
+  .ocx__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 0.6rem;
+  }
+  .ocx__rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .ocx__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+  }
+  .ocx__group {
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .ocx__name {
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .ocx__val {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+  }
+  .ocx__old {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+  .ocx__arrow {
+    color: var(--muted);
+  }
+  .ocx__new {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .ocx__single,
+  .ocx__total,
+  .ocx__note {
+    font-size: 0.9375rem;
+    margin: 0.4rem 0 0;
+  }
+  .ocx__note {
+    color: var(--muted);
+  }
+  .mono {
+    font-family: monospace;
+    font-size: 0.78rem;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+</style>

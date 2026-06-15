@@ -2,18 +2,21 @@
 // Overview tab: stat cards + rationale block.
 // The tally staleness note is kept here so the overview self-describes its data.
 import GaStatCards from './GaStatCards.astro';
+import GaOnchainChanges from './GaOnchainChanges.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { StakeParticipation, OverviewTally } from '@/lib/governance/view.js';
+import type { OnchainChanges } from '@/lib/governance/onchain.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 
 interface Props {
   action: GovernanceAction;
   stake: StakeParticipation | null;
   tally: OverviewTally | null;
+  onchain: OnchainChanges | null;
   now: number;
 }
 
-const { action, stake, tally, now } = Astro.props;
+const { action, stake, tally, onchain, now } = Astro.props;
 const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
 
 // Clamp + CSS-only expand, but only for rationales that are genuinely a wall of
@@ -29,6 +32,7 @@ const isLongRationale = rationaleText.length > 5000;
 ---
 
 <section class="ga-overview">
+  <GaOnchainChanges changes={onchain} />
   <GaStatCards stake={stake} tally={tally} />
 
   {asOf && (

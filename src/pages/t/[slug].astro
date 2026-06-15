@@ -24,6 +24,7 @@ import { currentNetwork } from '@/lib/api/response.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { parseGaTab } from '@/lib/governance/tab.js';
+import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { env } from 'cloudflare:workers';
@@ -151,6 +152,12 @@ const stake =
     : null;
 
 const tally = govAction ? overviewTally(govAction) : null;
+
+// Decode the on-chain payload for the Overview's "On-chain changes" block. Old→new
+// reads the cached epoch_params blob; both are null-safe and render nothing if absent.
+const onchainChanges = govAction
+  ? decodeOnchainChanges(govAction.onchainPayload ?? null, params?.rawJson ?? null, network)
+  : null;
 
 // Number of CC members who voted (honest quorum proxy).
 const ccSize = govAction
@@ -297,6 +304,7 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
                 action={govAction}
                 stake={stake}
                 tally={tally}
+                onchain={onchainChanges}
                 now={now}
               />
             )}
