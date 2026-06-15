@@ -19,6 +19,8 @@ import {
   getGovTopicsForSubmittedAtBackfill,
   getAllGovernanceActions,
   batchUpdateTrendingScores,
+  getActionIdsMissingOnchainPayload,
+  updateActionOnchainPayload,
 } from '../db/governance.js';
 import { trendingOrderKey } from './sort.js';
 import { GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
@@ -131,6 +133,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
             deposit: p.deposit ?? null,
             submittedEpoch: p.proposed_epoch ?? null,
             expiryEpoch: p.expiration ?? null,
+            onchainPayload: p.proposal_description != null ? JSON.stringify(p.proposal_description) : null,
             metaVersion: META_EXTRACT_VERSION,
             topicId,
             now,
@@ -150,6 +153,19 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
       created++;
     } catch {
       failed++;
+    }
+  }
+
+  // Backfill payloads for already-known rows discovered before this column existed.
+  // Bounded per run; `proposals` is already in memory, so this adds no Koios call.
+  const missing = await getActionIdsMissingOnchainPayload(db);
+  let backfilled = 0;
+  for (const p of proposals) {
+    if (backfilled >= 50) break;
+    const id = `${p.proposal_tx_hash}#${p.proposal_index}`;
+    if (missing.has(id) && p.proposal_description != null) {
+      await updateActionOnchainPayload(db, id, JSON.stringify(p.proposal_description));
+      backfilled++;
     }
   }
 

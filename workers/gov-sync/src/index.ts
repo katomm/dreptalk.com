@@ -167,6 +167,9 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
       ccThreshold: ccq,
       committeeMinSize: ep.committee_min_size ?? null,
       syncedAt: now,
+      // Full epoch_params blob: the Overview's parameter old to new lookup reads
+      // it (no extra Koios call). Stored verbatim so future keys need no schema change.
+      rawJson: JSON.stringify(ep),
     };
     const cur = await getProtocolParams(env.DB);
     let written = 0;
@@ -174,7 +177,8 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
       !cur ||
       cur.epoch !== next.epoch ||
       cur.dvtTreasuryWithdrawal !== next.dvtTreasuryWithdrawal ||
-      cur.ccThreshold !== next.ccThreshold
+      cur.ccThreshold !== next.ccThreshold ||
+      cur.rawJson !== next.rawJson
     ) {
       await upsertProtocolParams(env.DB, next);
       written = 1;
