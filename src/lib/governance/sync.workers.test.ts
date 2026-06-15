@@ -74,6 +74,22 @@ describe('syncGovernanceActions', () => {
     // Action with no anchor gets a generated title from its type + tx hash.
     expect(topics.some((t) => t.title.startsWith('Info Action ('))).toBe(true);
 
+    // Each new governance topic emits exactly one gov_created activity event.
+    const govEvents = (
+      await env.DB.prepare("SELECT topic_id, type, actor_id FROM activity WHERE type = 'gov_created'").all<{
+        topic_id: string;
+        type: string;
+        actor_id: string | null;
+      }>()
+    ).results;
+    expect(govEvents.length).toBe(2);
+    expect(govEvents.every((e) => e.actor_id === null)).toBe(true);
+    // No topic_created events for governance topics.
+    const topicCreated = (
+      await env.DB.prepare("SELECT COUNT(*) AS n FROM activity WHERE type = 'topic_created'").first<{ n: number }>()
+    )!;
+    expect(topicCreated.n).toBe(0);
+
     const gas = (
       await env.DB.prepare('SELECT id, type, anchor_status, topic_id FROM governance_actions').all<{
         id: string;
