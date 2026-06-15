@@ -14,6 +14,7 @@ interface Over {
   id: string;
   status?: string;
   submittedEpoch?: number | null;
+  submittedAt?: number | null;
   expiryEpoch?: number | null;
   decidedEpoch?: number | null;
   postCount?: number;
@@ -27,6 +28,7 @@ function row(o: Over): GovActionTopic {
     action: {
       status: o.status ?? 'active',
       submittedEpoch: o.submittedEpoch ?? null,
+      submittedAt: o.submittedAt ?? null,
       expiryEpoch: o.expiryEpoch ?? null,
       decidedEpoch: o.decidedEpoch ?? null,
       drepYes: o.votes ?? null,
@@ -56,6 +58,16 @@ describe('sortGovActionTopics', () => {
       row({ id: 'mid', submittedEpoch: 310, status: 'expired' }),
     ];
     expect(ids(sortGovActionTopics(rows, 'new', NOW))).toEqual(['newest', 'mid', 'old']);
+  });
+
+  it('new: same epoch breaks ties by exact submitted_at (newest first), nulls last', () => {
+    const rows = [
+      row({ id: 'e500-early', submittedEpoch: 500, submittedAt: 1000 }),
+      row({ id: 'e500-late', submittedEpoch: 500, submittedAt: 2000 }),
+      row({ id: 'e501', submittedEpoch: 501, submittedAt: 3000 }),
+      row({ id: 'e500-nullat', submittedEpoch: 500, submittedAt: null }),
+    ];
+    expect(ids(sortGovActionTopics(rows, 'new', NOW))).toEqual(['e501', 'e500-late', 'e500-early', 'e500-nullat']);
   });
 
   it('closing: open actions only, soonest expiry first, nulls last (excludes terminal)', () => {

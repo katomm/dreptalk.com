@@ -109,7 +109,15 @@ const ascKey = (e: number | null) => e ?? Number.MAX_SAFE_INTEGER;
 export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: number): GovActionTopic[] {
   switch (mode) {
     case 'new':
-      return [...rows].sort((a, b) => descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch));
+      // Exact on-chain submission time first (newest); submission epoch then topic
+      // id are fallbacks while submitted_at is still null. Mirrors govPageOrderBy('new').
+      return [...rows].sort((a, b) => {
+        const byAt = descKey(b.action.submittedAt) - descKey(a.action.submittedAt);
+        if (byAt !== 0) return byAt;
+        const byEpoch = descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch);
+        if (byEpoch !== 0) return byEpoch;
+        return a.topic.id.localeCompare(b.topic.id);
+      });
     case 'closing':
       return rows
         .filter((r) => !isTerminalStatus(r.action.status))
