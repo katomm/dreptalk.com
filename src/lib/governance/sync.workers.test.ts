@@ -134,6 +134,84 @@ describe('syncGovernanceActions', () => {
     // be META_EXTRACT_VERSION (1) because discovery always writes the current version.
     expect(row?.meta_version).toBe(META_EXTRACT_VERSION);
   });
+
+  it('stores proposal_description as onchain_payload on discovery', async () => {
+    const txHash = 'cc'.repeat(32);
+    const row: ProposalListRow = {
+      proposal_id: 'gov_action1pay',
+      proposal_tx_hash: txHash,
+      proposal_index: 0,
+      proposal_type: 'ParameterChange',
+      meta_url: null,
+      meta_hash: null,
+      proposed_epoch: 1,
+      expiration: 2,
+      proposal_description: { tag: 'ParameterChange', contents: [null, { govActionDeposit: 1000000000 }, 'fa'] },
+    };
+    await syncGovernanceActions({
+      koios: fakeKoios([row]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_000_000,
+      rand: () => 'rnd-pay',
+      fetchImpl: fetchOk,
+    });
+    const stored = await env.DB
+      .prepare('SELECT onchain_payload FROM governance_actions WHERE id = ?')
+      .bind(`${txHash}#0`)
+      .first<{ onchain_payload: string }>();
+    expect(JSON.parse(stored!.onchain_payload).contents[1].govActionDeposit).toBe(1000000000);
+  });
+
+  it('backfills onchain_payload for a pre-existing row', async () => {
+    const txHash = 'dd'.repeat(32);
+    const id = `${txHash}#0`;
+    await env.DB.batch([
+      buildInsertGovernanceAction(env.DB, {
+        id,
+        proposalId: 'gov_action1bf',
+        type: 'HardForkInitiation',
+        title: null,
+        abstract: null,
+        rationaleHtml: null,
+        anchorUrl: null,
+        anchorHash: null,
+        anchorStatus: 'no-anchor',
+        returnAddress: null,
+        deposit: null,
+        submittedEpoch: 1,
+        expiryEpoch: 2,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId: 'topic-bf-ocp',
+        now: 1,
+      }),
+    ]);
+    await syncGovernanceActions({
+      koios: fakeKoios([
+        {
+          proposal_id: 'gov_action1bf',
+          proposal_tx_hash: txHash,
+          proposal_index: 0,
+          proposal_type: 'HardForkInitiation',
+          meta_url: null,
+          meta_hash: null,
+          proposed_epoch: 1,
+          expiration: 2,
+          proposal_description: { tag: 'HardForkInitiation', contents: [null, { major: 11, minor: 0 }] },
+        },
+      ]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1,
+      rand: () => 'rnd-bf',
+      fetchImpl: fetchOk,
+    });
+    const stored = await env.DB
+      .prepare('SELECT onchain_payload FROM governance_actions WHERE id = ?')
+      .bind(id)
+      .first<{ onchain_payload: string }>();
+    expect(JSON.parse(stored!.onchain_payload).contents[1].major).toBe(11);
+  });
 });
 
 // CIP-108 anchor doc with Markdown rationale for the backfill tests.

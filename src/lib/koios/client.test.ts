@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createKoiosClient } from './client';
+import { createKoiosClient, _proposalListRowSchemaForTest } from './client';
 import type { DrepInfo, AccountInfo } from './client';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -491,5 +491,26 @@ describe('createKoiosClient.committeeInfo', () => {
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
     await expect(client.committeeInfo()).rejects.toThrow(/koios request failed: 500/i);
+  });
+});
+
+// --- proposalListRowSchema ---
+
+describe('proposalListRowSchema', () => {
+  it('retains proposal_description', () => {
+    const row = _proposalListRowSchemaForTest.parse({
+      proposal_id: 'gov_action1xyz',
+      proposal_tx_hash: 'abcd',
+      proposal_index: 0,
+      proposal_type: 'ParameterChange',
+      proposal_description: {
+        tag: 'ParameterChange',
+        contents: [null, { govActionDeposit: 1000000000 }, 'fa24fb'],
+      },
+    });
+    expect(row.proposal_description).toEqual({
+      tag: 'ParameterChange',
+      contents: [null, { govActionDeposit: 1000000000 }, 'fa24fb'],
+    });
   });
 });

@@ -18,6 +18,8 @@ import {
   updateActionMetadata,
   getActionsNeedingVoteBackfill,
   markVotesSynced,
+  getActionIdsMissingOnchainPayload,
+  updateActionOnchainPayload,
   type NewGovernanceAction,
 } from './governance.js';
 import { getAllTopicsByCategory } from './forum.js';
@@ -602,5 +604,31 @@ describe('getActionsNeedingVoteBackfill + markVotesSynced', () => {
     await markVotesSynced(env.DB, 'fin1', 12345);
     c = await getActionsNeedingVoteBackfill(env.DB, 10);
     expect(c).toEqual([]);
+  });
+});
+
+describe('onchain_payload', () => {
+  it('persists and reads back onchain_payload', async () => {
+    const a = await insertAction({ onchainPayload: '{"tag":"ParameterChange"}' });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got?.onchainPayload).toBe('{"tag":"ParameterChange"}');
+  });
+
+  it('defaults onchain_payload to null when not provided', async () => {
+    const a = await insertAction();
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got?.onchainPayload).toBeNull();
+  });
+
+  it('backfills onchain_payload only where missing', async () => {
+    const withPayload = await insertAction({ onchainPayload: '{"tag":"InfoAction"}' });
+    const without = await insertAction();
+    const missing = await getActionIdsMissingOnchainPayload(db());
+    expect(missing.has(without.id)).toBe(true);
+    expect(missing.has(withPayload.id)).toBe(false);
+
+    await updateActionOnchainPayload(db(), without.id, '{"tag":"InfoAction"}');
+    const after = await getActionIdsMissingOnchainPayload(db());
+    expect(after.has(without.id)).toBe(false);
   });
 });

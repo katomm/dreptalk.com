@@ -12,6 +12,19 @@ export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
   return new Set(rows.map((r) => r.id));
 }
 
+/** Ids of actions whose on-chain payload has not yet been stored (backfill target). */
+export async function getActionIdsMissingOnchainPayload(db: D1Database): Promise<Set<string>> {
+  const rows =
+    (await db.prepare('SELECT id FROM governance_actions WHERE onchain_payload IS NULL').all<{ id: string }>())
+      .results ?? [];
+  return new Set(rows.map((r) => r.id));
+}
+
+/** Stores the raw proposal_description JSON for one action (backfill). */
+export async function updateActionOnchainPayload(db: D1Database, id: string, payload: string): Promise<void> {
+  await db.prepare('UPDATE governance_actions SET onchain_payload = ? WHERE id = ?').bind(payload, id).run();
+}
+
 export interface NewGovernanceAction {
   id: string;
   proposalId: string | null;
@@ -26,6 +39,8 @@ export interface NewGovernanceAction {
   deposit: string | null;
   submittedEpoch: number | null;
   expiryEpoch: number | null;
+  /** Raw Koios proposal_description JSON, or null/absent when not available. */
+  onchainPayload?: string | null;
   /** Metadata-extraction version used when writing title/abstract/rationale_html. */
   metaVersion: number;
   topicId: string;
@@ -44,8 +59,8 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       // freshly discovered action as 'active' before we have checked would mislead.
       `INSERT OR IGNORE INTO governance_actions
          (id, proposal_id, type, title, abstract, rationale_html, anchor_url, anchor_hash, anchor_status,
-          return_address, deposit, submitted_epoch, expiry_epoch, status, meta_version, topic_id, created_at, last_synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+          return_address, deposit, submitted_epoch, expiry_epoch, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       a.id,
@@ -61,6 +76,7 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       a.deposit,
       a.submittedEpoch,
       a.expiryEpoch,
+      a.onchainPayload ?? null,
       a.metaVersion,
       a.topicId,
       a.now,
@@ -86,6 +102,7 @@ export interface GovernanceAction {
   submittedEpoch: number | null;
   expiryEpoch: number | null;
   status: string;
+  onchainPayload: string | null;
   drepYes: number | null;
   drepNo: number | null;
   drepAbstain: number | null;
@@ -129,6 +146,7 @@ interface GovernanceActionRow {
   submitted_epoch: number | null;
   expiry_epoch: number | null;
   status: string;
+  onchain_payload: string | null;
   drep_yes: number | null;
   drep_no: number | null;
   drep_abstain: number | null;
@@ -171,6 +189,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     submittedEpoch: r.submitted_epoch,
     expiryEpoch: r.expiry_epoch,
     status: r.status,
+    onchainPayload: r.onchain_payload,
     drepYes: r.drep_yes,
     drepNo: r.drep_no,
     drepAbstain: r.drep_abstain,
