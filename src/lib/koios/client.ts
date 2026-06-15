@@ -132,6 +132,9 @@ const proposalListRowSchema = z
     deposit: z.string().nullable().optional(),
     return_address: z.string().nullable().optional(),
     proposed_epoch: z.number().nullable().optional(),
+    // Exact submission time of the proposal's block (unix seconds). Stored (x1000)
+    // as governance_actions.submitted_at so the "new" list orders by real recency.
+    block_time: z.number().nullable().optional(),
     expiration: z.number().nullable().optional(),
     meta_url: z.string().nullable().optional(),
     meta_hash: z.string().nullable().optional(),
