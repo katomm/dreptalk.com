@@ -25,6 +25,19 @@ export async function updateActionOnchainPayload(db: D1Database, id: string, pay
   await db.prepare('UPDATE governance_actions SET onchain_payload = ? WHERE id = ?').bind(payload, id).run();
 }
 
+/** Ids of actions whose exact submission time has not yet been stored (backfill target). */
+export async function getActionIdsMissingSubmittedAt(db: D1Database): Promise<Set<string>> {
+  const rows =
+    (await db.prepare('SELECT id FROM governance_actions WHERE submitted_at IS NULL').all<{ id: string }>())
+      .results ?? [];
+  return new Set(rows.map((r) => r.id));
+}
+
+/** Stores the exact on-chain submission time (unix ms) for one action (backfill). */
+export async function updateActionSubmittedAt(db: D1Database, id: string, submittedAt: number): Promise<void> {
+  await db.prepare('UPDATE governance_actions SET submitted_at = ? WHERE id = ?').bind(submittedAt, id).run();
+}
+
 export interface NewGovernanceAction {
   id: string;
   proposalId: string | null;
@@ -38,6 +51,8 @@ export interface NewGovernanceAction {
   returnAddress: string | null;
   deposit: string | null;
   submittedEpoch: number | null;
+  /** Exact on-chain submission time (unix ms, from Koios block_time), or null/absent. */
+  submittedAt?: number | null;
   expiryEpoch: number | null;
   /** Raw Koios proposal_description JSON, or null/absent when not available. */
   onchainPayload?: string | null;
@@ -59,8 +74,8 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       // freshly discovered action as 'active' before we have checked would mislead.
       `INSERT OR IGNORE INTO governance_actions
          (id, proposal_id, type, title, abstract, rationale_html, anchor_url, anchor_hash, anchor_status,
-          return_address, deposit, submitted_epoch, expiry_epoch, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+          return_address, deposit, submitted_epoch, submitted_at, expiry_epoch, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       a.id,
@@ -75,6 +90,7 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       a.returnAddress,
       a.deposit,
       a.submittedEpoch,
+      a.submittedAt ?? null,
       a.expiryEpoch,
       a.onchainPayload ?? null,
       a.metaVersion,
@@ -100,6 +116,7 @@ export interface GovernanceAction {
   returnAddress: string | null;
   deposit: string | null;
   submittedEpoch: number | null;
+  submittedAt: number | null;
   expiryEpoch: number | null;
   status: string;
   onchainPayload: string | null;
@@ -144,6 +161,7 @@ interface GovernanceActionRow {
   return_address: string | null;
   deposit: string | null;
   submitted_epoch: number | null;
+  submitted_at: number | null;
   expiry_epoch: number | null;
   status: string;
   onchain_payload: string | null;
@@ -187,6 +205,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     returnAddress: r.return_address,
     deposit: r.deposit,
     submittedEpoch: r.submitted_epoch,
+    submittedAt: r.submitted_at,
     expiryEpoch: r.expiry_epoch,
     status: r.status,
     onchainPayload: r.onchain_payload,
@@ -278,8 +297,9 @@ export interface LatestGovernanceAction {
 /**
  * Returns the single newest titled governance action with a live topic, for the
  * homepage hero card. One indexed LIMIT 1 query joined to topics for the thread
- * slug; ordered by submission epoch (newest first), then discovery time as a
- * tiebreak. Null when none exist yet (fresh deploy / local dev without sync).
+ * slug; ordered by exact on-chain submission time (newest first), then submission
+ * epoch and discovery time as fallbacks while submitted_at is still null. Null
+ * when none exist yet (fresh deploy / local dev without sync).
  */
 export async function getLatestGovernanceAction(db: D1Database): Promise<LatestGovernanceAction | null> {
   const row = await db
@@ -288,7 +308,7 @@ export async function getLatestGovernanceAction(db: D1Database): Promise<LatestG
          FROM governance_actions ga
          JOIN topics t ON t.id = ga.topic_id
         WHERE t.deleted = 0 AND ga.title IS NOT NULL
-        ORDER BY ga.submitted_epoch DESC, ga.created_at DESC
+        ORDER BY ga.submitted_at IS NULL, ga.submitted_at DESC, ga.submitted_epoch DESC, ga.created_at DESC
         LIMIT 1`,
     )
     .first<GovernanceActionRow & { slug: string }>();
@@ -324,7 +344,10 @@ export async function getGovernanceActionsByTopicIds(
 function govPageOrderBy(sort: GovSort): string {
   switch (sort) {
     case 'new':
-      return 'ga.submitted_epoch DESC, ga.topic_id ASC';
+      // Exact on-chain submission time first (newest), so same-epoch actions order
+      // by when they were actually submitted, not by a random topic id. submitted_at
+      // IS NULL puts not-yet-backfilled rows last, where they fall back to epoch order.
+      return 'ga.submitted_at IS NULL, ga.submitted_at DESC, ga.submitted_epoch DESC, ga.topic_id ASC';
     case 'closing':
       // expiry_epoch IS NULL sorts undated-but-open actions last (after the dated ones).
       return 'ga.expiry_epoch IS NULL, ga.expiry_epoch ASC, ga.topic_id ASC';
