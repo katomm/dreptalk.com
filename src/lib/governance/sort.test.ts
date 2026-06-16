@@ -4,6 +4,7 @@ import {
   sortGovActionTopics,
   trendingScore,
   trendingOrderKey,
+  GOV_SORTS,
   type GovActionTopic,
 } from './sort.js';
 
@@ -41,12 +42,19 @@ function row(o: Over): GovActionTopic {
 const ids = (rows: GovActionTopic[]) => rows.map((r) => r.topic.id);
 
 describe('parseGovSort', () => {
-  it('defaults to trending and passes valid modes through', () => {
-    expect(parseGovSort(null)).toBe('trending');
-    expect(parseGovSort('garbage')).toBe('trending');
+  it('defaults to new and passes valid modes through', () => {
+    expect(parseGovSort(null)).toBe('new');
+    expect(parseGovSort('garbage')).toBe('new');
+    expect(parseGovSort('trending')).toBe('trending');
     expect(parseGovSort('closing')).toBe('closing');
     expect(parseGovSort('ratified')).toBe('ratified');
     expect(parseGovSort('new')).toBe('new');
+  });
+});
+
+describe('GOV_SORTS order', () => {
+  it('leads with new, then trending', () => {
+    expect(GOV_SORTS.map((s) => s.mode)).toEqual(['new', 'trending', 'closing', 'ratified']);
   });
 });
 
