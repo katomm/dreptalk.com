@@ -8,31 +8,31 @@
 // its SHA-256 hash (see astro.config.mjs). Defaults are 'new' and 'sentiment', so
 // only a saved non-default triggers a single, loop-safe redirect (the redirected URL
 // then carries the param, so the next run just mirrors it).
-(function () {
+(() => {
   try {
-    var url = new URL(location.href);
-    var redirect = false;
+    const url = new URL(location.href);
+    let redirect = false;
 
-    var SORT_KEY = 'dreptalk:gov-sort';
-    var SORTS = ['new', 'trending', 'closing', 'ratified'];
-    var sortParam = url.searchParams.get('sort');
+    const SORT_KEY = 'dreptalk:gov-sort';
+    const SORTS = ['new', 'trending', 'closing', 'ratified'];
+    const sortParam = url.searchParams.get('sort');
     if (sortParam) {
       if (SORTS.indexOf(sortParam) !== -1) localStorage.setItem(SORT_KEY, sortParam);
     } else {
-      var savedSort = localStorage.getItem(SORT_KEY);
+      const savedSort = localStorage.getItem(SORT_KEY);
       if (savedSort && savedSort !== 'new' && SORTS.indexOf(savedSort) !== -1) {
         url.searchParams.set('sort', savedSort);
         redirect = true;
       }
     }
 
-    var METRIC_KEY = 'dreptalk:gov-metric';
-    var METRICS = ['stake', 'sentiment'];
-    var metricParam = url.searchParams.get('metric');
+    const METRIC_KEY = 'dreptalk:gov-metric';
+    const METRICS = ['stake', 'sentiment'];
+    const metricParam = url.searchParams.get('metric');
     if (metricParam) {
       if (METRICS.indexOf(metricParam) !== -1) localStorage.setItem(METRIC_KEY, metricParam);
     } else {
-      var savedMetric = localStorage.getItem(METRIC_KEY);
+      const savedMetric = localStorage.getItem(METRIC_KEY);
       if (savedMetric && savedMetric !== 'sentiment' && METRICS.indexOf(savedMetric) !== -1) {
         url.searchParams.set('metric', savedMetric);
         redirect = true;
@@ -40,5 +40,5 @@
     }
 
     if (redirect) location.replace(url.toString());
-  } catch (e) {}
+  } catch {}
 })();
