@@ -16,6 +16,15 @@ const themeInitSource = readFileSync(
 );
 const themeInitHash = `sha256-${createHash('sha256').update(themeInitSource).digest('base64')}`;
 
+// Same approach for the governance-list preference script (sort + metric persist/
+// restore), inlined via set:html on the governance category page. Derived from the
+// same file that gets inlined, so editing it cannot desync the CSP hash.
+const govPrefsSource = readFileSync(
+  fileURLToPath(new URL('./src/scripts/gov-prefs-restore.js', import.meta.url)),
+  'utf8',
+);
+const govPrefsHash = `sha256-${createHash('sha256').update(govPrefsSource).digest('base64')}`;
+
 export default defineConfig({
   site: 'https://dreptalk.com',
   output: 'server',
@@ -81,8 +90,8 @@ export default defineConfig({
         // hashes are still appended automatically.
         resources: ["'self'", 'https://static.cloudflareinsights.com'],
         // Astro hashes its own bundled/inline scripts but not author is:inline
-        // ones, so add the inlined theme-init hash explicitly.
-        hashes: [themeInitHash],
+        // ones, so add the inlined script hashes explicitly.
+        hashes: [themeInitHash, govPrefsHash],
       },
     },
   },

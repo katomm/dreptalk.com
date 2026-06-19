@@ -1,7 +1,7 @@
-// Sorting for the governance-actions list. A DRep usually wants to see where
-// engagement is happening or what is closing soon, not the newest submission, so
-// the default is "trending". All modes are pure and unit-tested. The action set
-// is small (low hundreds), so the page loads it once and sorts in memory.
+// Sorting for the governance-actions list. The default is "new" (newest on-chain
+// submission first), the most intuitive entry point; "trending" (engagement +
+// recency) sits right next to it for DReps who want to see where discussion is
+// happening. All modes are pure and unit-tested.
 
 import type { Topic } from '../db/forum.js';
 import type { GovernanceAction } from '../db/governance.js';
@@ -10,17 +10,17 @@ import { isTerminalStatus } from './view.js';
 export type GovSort = 'trending' | 'new' | 'closing' | 'ratified';
 
 export const GOV_SORTS: readonly { mode: GovSort; label: string }[] = [
-  { mode: 'trending', label: 'Trending' },
   { mode: 'new', label: 'New' },
+  { mode: 'trending', label: 'Trending' },
   { mode: 'closing', label: 'Closing Soon' },
   { mode: 'ratified', label: 'Recently Ratified' },
 ];
 
 const VALID = new Set<string>(GOV_SORTS.map((s) => s.mode));
 
-/** Parses the ?sort= param; defaults to 'trending' for anything unrecognized. */
+/** Parses the ?sort= param; defaults to 'new' for anything unrecognized. */
 export function parseGovSort(value: string | null): GovSort {
-  return value && VALID.has(value) ? (value as GovSort) : 'trending';
+  return value && VALID.has(value) ? (value as GovSort) : 'new';
 }
 
 export interface GovActionTopic {
@@ -109,7 +109,15 @@ const ascKey = (e: number | null) => e ?? Number.MAX_SAFE_INTEGER;
 export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: number): GovActionTopic[] {
   switch (mode) {
     case 'new':
-      return [...rows].sort((a, b) => descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch));
+      // Exact on-chain submission time first (newest); submission epoch then topic
+      // id are fallbacks while submitted_at is still null. Mirrors govPageOrderBy('new').
+      return [...rows].sort((a, b) => {
+        const byAt = descKey(b.action.submittedAt) - descKey(a.action.submittedAt);
+        if (byAt !== 0) return byAt;
+        const byEpoch = descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch);
+        if (byEpoch !== 0) return byEpoch;
+        return a.topic.id.localeCompare(b.topic.id);
+      });
     case 'closing':
       return rows
         .filter((r) => !isTerminalStatus(r.action.status))

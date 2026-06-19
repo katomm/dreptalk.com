@@ -39,6 +39,7 @@ async function seedGovRow(o: {
   lastPostAt?: number;
   status?: string;
   submittedEpoch?: number | null;
+  submittedAt?: number | null;
   expiryEpoch?: number | null;
   decidedEpoch?: number | null;
   trendingScore?: number | null;
@@ -58,13 +59,14 @@ async function seedGovRow(o: {
     db()
       .prepare(
         `INSERT INTO governance_actions
-           (id, type, anchor_status, status, submitted_epoch, expiry_epoch, decided_epoch, drep_yes, trending_score, topic_id, created_at, last_synced_at)
-         VALUES (?, 'InfoAction', 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, type, anchor_status, status, submitted_epoch, submitted_at, expiry_epoch, decided_epoch, drep_yes, trending_score, topic_id, created_at, last_synced_at)
+         VALUES (?, 'InfoAction', 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         o.actionId,
         o.status ?? 'active',
         o.submittedEpoch ?? null,
+        o.submittedAt ?? null,
         o.expiryEpoch ?? null,
         o.decidedEpoch ?? null,
         o.drepYes ?? null,
@@ -481,6 +483,23 @@ describe('getGovernanceActionTopicIdsPage', () => {
 
     const { topicIds } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'new', limit: 100, offset: 0 });
     expect(topicIds).toEqual(['t-320', 't-310', 't-300', 't-nil']);
+  });
+
+  it('new: same epoch orders by exact submitted_at (newest first), NULL last', async () => {
+    // Real data is consistent (higher epoch => later block_time); the interesting
+    // case is two actions in the SAME epoch, where submitted_epoch ties and only
+    // submitted_at distinguishes them. topic_id ascending would order them
+    // 'early' < 'late', the opposite of newest-first, so this fails on the old
+    // submitted_epoch-then-topic_id order.
+    await seedGovRow({ topicId: 't-e500-early', actionId: 'a1', submittedEpoch: 500, submittedAt: 1000 });
+    await seedGovRow({ topicId: 't-e500-late', actionId: 'a2', submittedEpoch: 500, submittedAt: 2000 });
+    await seedGovRow({ topicId: 't-e501', actionId: 'a3', submittedEpoch: 501, submittedAt: 3000 });
+    // Not yet backfilled: falls back to submitted_epoch order and sorts after the
+    // same-epoch dated rows.
+    await seedGovRow({ topicId: 't-e500-nullat', actionId: 'a4', submittedEpoch: 500, submittedAt: null });
+
+    const { topicIds } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'new', limit: 100, offset: 0 });
+    expect(topicIds).toEqual(['t-e501', 't-e500-late', 't-e500-early', 't-e500-nullat']);
   });
 
   it('closing: open actions only, soonest expiry first, NULL expiry last, terminal excluded', async () => {

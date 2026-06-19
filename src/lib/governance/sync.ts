@@ -21,6 +21,8 @@ import {
   batchUpdateTrendingScores,
   getActionIdsMissingOnchainPayload,
   updateActionOnchainPayload,
+  getActionIdsMissingSubmittedAt,
+  updateActionSubmittedAt,
 } from '../db/governance.js';
 import { trendingOrderKey } from './sort.js';
 import { GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
@@ -132,6 +134,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
             returnAddress: p.return_address ?? null,
             deposit: p.deposit ?? null,
             submittedEpoch: p.proposed_epoch ?? null,
+            submittedAt: p.block_time != null ? p.block_time * 1000 : null,
             expiryEpoch: p.expiration ?? null,
             onchainPayload: p.proposal_description != null ? JSON.stringify(p.proposal_description) : null,
             metaVersion: META_EXTRACT_VERSION,
@@ -168,6 +171,22 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
       if (missing.has(id) && p.proposal_description != null) {
         await updateActionOnchainPayload(db, id, JSON.stringify(p.proposal_description));
         backfilled++;
+      }
+    }
+  }
+
+  // Backfill exact submission time (block_time) for rows discovered before this
+  // column existed. Same in-memory `proposals`, so no extra Koios call; bounded
+  // per run and self-limiting once every row has a submitted_at.
+  const missingAt = await getActionIdsMissingSubmittedAt(db);
+  let filledAt = 0;
+  if (missingAt.size > 0) {
+    for (const p of proposals) {
+      if (filledAt >= 50) break;
+      const id = `${p.proposal_tx_hash}#${p.proposal_index}`;
+      if (missingAt.has(id) && p.block_time != null) {
+        await updateActionSubmittedAt(db, id, p.block_time * 1000);
+        filledAt++;
       }
     }
   }

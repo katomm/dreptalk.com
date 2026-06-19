@@ -22,6 +22,9 @@ import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { proposerView } from '@/lib/identity/proposer.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
+// Raw inline script (pinned in the CSP by its hash in astro.config.mjs) that
+// persists/restores the reader's sort + metric choice in localStorage.
+import govPrefsRestoreJs from '@/scripts/gov-prefs-restore.js?raw';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
@@ -46,9 +49,9 @@ const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
 // Governance actions get their own sort modes (a DRep wants trending / closing
 // soon, not the newest submission); discussion categories stay activity-ordered.
 const sort = parseGovSort(Astro.url.searchParams.get('sort'));
-// Which metric column to show (stake by default).
+// Which metric column to show (sentiment by default).
 const metric: 'stake' | 'sentiment' =
-  Astro.url.searchParams.get('metric') === 'sentiment' ? 'sentiment' : 'stake';
+  Astro.url.searchParams.get('metric') === 'stake' ? 'stake' : 'sentiment';
 
 let topics: Topic[] = [];
 let govTotal = 0;
@@ -173,6 +176,8 @@ const breadcrumbLd = {
     description={category.description}
   >
     <JsonLd data={breadcrumbLd} />
+
+    {isGovernanceCategory && <script is:inline set:html={govPrefsRestoreJs} />}
 
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
       <a href="/">DRepTalk</a>

@@ -212,6 +212,86 @@ describe('syncGovernanceActions', () => {
       .first<{ onchain_payload: string }>();
     expect(JSON.parse(stored!.onchain_payload).contents[1].major).toBe(11);
   });
+
+  it('stores submitted_at (block_time x1000) on discovery', async () => {
+    const txHash = 'ee'.repeat(32);
+    await syncGovernanceActions({
+      koios: fakeKoios([
+        {
+          proposal_id: 'gov_action1bt',
+          proposal_tx_hash: txHash,
+          proposal_index: 0,
+          proposal_type: 'InfoAction',
+          meta_url: null,
+          meta_hash: null,
+          proposed_epoch: 500,
+          expiration: 510,
+          block_time: 1_700_000_500,
+        },
+      ]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_002_000_000,
+      rand: () => 'rnd-bt',
+      fetchImpl: fetchOk,
+    });
+    const stored = await env.DB
+      .prepare('SELECT submitted_at FROM governance_actions WHERE id = ?')
+      .bind(`${txHash}#0`)
+      .first<{ submitted_at: number }>();
+    expect(stored!.submitted_at).toBe(1_700_000_500_000);
+  });
+
+  it('backfills submitted_at for a pre-existing row from block_time', async () => {
+    const txHash = 'ff'.repeat(32);
+    const id = `${txHash}#0`;
+    // Insert a row without submitted_at (NULL), as discovery did before this column.
+    await env.DB.batch([
+      buildInsertGovernanceAction(env.DB, {
+        id,
+        proposalId: 'gov_action1btbf',
+        type: 'InfoAction',
+        title: null,
+        abstract: null,
+        rationaleHtml: null,
+        anchorUrl: null,
+        anchorHash: null,
+        anchorStatus: 'no-anchor',
+        returnAddress: null,
+        deposit: null,
+        submittedEpoch: 500,
+        expiryEpoch: 510,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId: 'topic-bt-bf',
+        now: 1,
+      }),
+    ]);
+    await syncGovernanceActions({
+      koios: fakeKoios([
+        {
+          proposal_id: 'gov_action1btbf',
+          proposal_tx_hash: txHash,
+          proposal_index: 0,
+          proposal_type: 'InfoAction',
+          meta_url: null,
+          meta_hash: null,
+          proposed_epoch: 500,
+          expiration: 510,
+          block_time: 1_700_000_900,
+        },
+      ]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1,
+      rand: () => 'rnd-btbf',
+      fetchImpl: fetchOk,
+    });
+    const stored = await env.DB
+      .prepare('SELECT submitted_at FROM governance_actions WHERE id = ?')
+      .bind(id)
+      .first<{ submitted_at: number | null }>();
+    expect(stored!.submitted_at).toBe(1_700_000_900_000);
+  });
 });
 
 // CIP-108 anchor doc with Markdown rationale for the backfill tests.
