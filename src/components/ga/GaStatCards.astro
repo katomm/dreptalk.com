@@ -2,7 +2,7 @@
 // Stat cards row for the governance-action overview: Stake Participation,
 // Sentiment, and DRep/Voter Participation. Reuses .metric markup from GovActionRow.
 import TallyBar from '@/components/TallyBar.astro';
-import { fmtPct } from '@/lib/governance/view.js';
+import { fmtPct, sentimentSubline } from '@/lib/governance/view.js';
 import type { StakeParticipation, OverviewTally } from '@/lib/governance/view.js';
 
 interface Props {
@@ -39,8 +39,8 @@ const { stake, tally } = Astro.props;
         <span class="metric__pct metric__pct--pos">
           {fmtPct(tally.bar.yes)} <span class="metric__pctword">{tally.role} support</span>
         </span>
-        <span class="metric__sub">{fmtPct(tally.bar.no)} against &middot; {fmtPct(tally.bar.abstain)} abstain</span>
-        <TallyBar bar={tally.bar} height={7} />
+        <span class="metric__sub">{sentimentSubline(tally)}</span>
+        <TallyBar bar={tally.bar} height={7} pendingNo={tally.noIsPending} />
       </div>
     ) : (
       <span class="metric__sub">-</span>
