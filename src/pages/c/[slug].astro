@@ -22,6 +22,9 @@ import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { proposerView } from '@/lib/identity/proposer.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
+// Raw inline script (pinned in the CSP by its hash in astro.config.mjs) that
+// persists/restores the reader's sort + metric choice in localStorage.
+import govPrefsRestoreJs from '@/scripts/gov-prefs-restore.js?raw';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
@@ -145,20 +148,6 @@ const pageHref = (p: number) =>
 const ctrlHref = (o: { sort?: GovSort; metric?: 'stake' | 'sentiment' }) =>
   `/c/${category!.slug}?sort=${o.sort ?? sort}&metric=${o.metric ?? metric}`;
 
-// Persist the reader's sort choice client-side. Sorting is server-driven (the DB
-// orders and pages), so the choice lives in the ?sort= param; this script mirrors
-// it into localStorage when present, and restores a saved non-default choice by
-// redirecting an unparameterized visit before the default-sorted list paints.
-// Runs inline and early; 'new' is the default so only a saved trending/closing/
-// ratified triggers a redirect. Emitted only for the governance category.
-const govSortRestoreJs =
-  "(function(){try{var K='dreptalk:gov-sort',V=['new','trending','closing','ratified']," +
-  "u=new URL(location.href),p=u.searchParams.get('sort');" +
-  "if(p){if(V.indexOf(p)!==-1)localStorage.setItem(K,p);return;}" +
-  "var s=localStorage.getItem(K);" +
-  "if(s&&s!=='new'&&V.indexOf(s)!==-1){u.searchParams.set('sort',s);location.replace(u.toString());}" +
-  "}catch(e){}})();";
-
 const breadcrumbLd = {
   '@context': 'https://schema.org',
   '@type': 'BreadcrumbList',
@@ -188,7 +177,7 @@ const breadcrumbLd = {
   >
     <JsonLd data={breadcrumbLd} />
 
-    {isGovernanceCategory && <script is:inline set:html={govSortRestoreJs} />}
+    {isGovernanceCategory && <script is:inline set:html={govPrefsRestoreJs} />}
 
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
       <a href="/">DRepTalk</a>
