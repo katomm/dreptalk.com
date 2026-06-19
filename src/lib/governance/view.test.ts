@@ -18,6 +18,7 @@ import {
   threadOgImage,
   isSpoLedType,
   overviewTally,
+  sentimentSubline,
   TERMINAL_STATUSES,
   type RoleTallyInput,
 } from './view.js';
@@ -198,15 +199,17 @@ describe('stakeParticipation / formatAdaShort', () => {
   });
 });
 
-describe('isSpoLedType / overviewTally', () => {
-  // Minimal builder: empty tallies, overridable per role.
-  const make = (over: Partial<RoleTallyInput>): RoleTallyInput => ({
-    type: 'TreasuryWithdrawals',
-    drepYesPct: null, drepNoPct: null, drepYes: null, drepNo: null, drepAbstain: null,
-    spoYesPct: null, spoNoPct: null, spoYes: null, spoNo: null, spoAbstain: null,
-    ...over,
-  });
+// Minimal RoleTallyInput builder: empty tallies, overridable per role. Shared by
+// the overviewTally and sentimentSubline suites below.
+const make = (over: Partial<RoleTallyInput>): RoleTallyInput => ({
+  type: 'TreasuryWithdrawals',
+  status: 'active',
+  drepYesPct: null, drepNoPct: null, drepYes: null, drepNo: null, drepAbstain: null,
+  spoYesPct: null, spoNoPct: null, spoYes: null, spoNo: null, spoAbstain: null,
+  ...over,
+});
 
+describe('isSpoLedType / overviewTally', () => {
   it('flags only the hard fork as SPO-led', () => {
     expect(isSpoLedType('HardForkInitiation')).toBe(true);
   });
@@ -251,6 +254,44 @@ describe('isSpoLedType / overviewTally', () => {
   it('returns null when neither role has a tally', () => {
     expect(overviewTally(make({ type: 'HardForkInitiation' }))).toBeNull();
     expect(overviewTally(make({ type: 'TreasuryWithdrawals' }))).toBeNull();
+  });
+
+  it('flags the SPO no-share as pending on an open hard fork where no pool voted No', () => {
+    const t = overviewTally(make({ type: 'HardForkInitiation', status: 'active', spoYesPct: 16, spoNoPct: 84, spoYes: 68, spoNo: 0, spoAbstain: 0 }))!;
+    expect(t.role).toBe('SPO');
+    expect(t.noIsPending).toBe(true);
+  });
+  it('does not flag pending once a pool has actually voted No', () => {
+    const t = overviewTally(make({ type: 'HardForkInitiation', status: 'active', spoYesPct: 60, spoNoPct: 40, spoYes: 100, spoNo: 5, spoAbstain: 0 }))!;
+    expect(t.noIsPending).toBe(false);
+  });
+  it('does not flag pending once the hard fork is terminal', () => {
+    const t = overviewTally(make({ type: 'HardForkInitiation', status: 'expired', spoYesPct: 16, spoNoPct: 84, spoYes: 68, spoNo: 0, spoAbstain: 0 }))!;
+    expect(t.noIsPending).toBe(false);
+  });
+  it('does not flag pending when there is no no-share to relabel', () => {
+    const t = overviewTally(make({ type: 'HardForkInitiation', status: 'active', spoYesPct: 100, spoNoPct: 0, spoYes: 68, spoNo: 0, spoAbstain: 0 }))!;
+    expect(t.noIsPending).toBe(false);
+  });
+  it('never flags pending for a DRep-led bar', () => {
+    const t = overviewTally(make({ type: 'TreasuryWithdrawals', status: 'active', drepYesPct: 20, drepNoPct: 80, drepYes: 10, drepNo: 0, drepAbstain: 0 }))!;
+    expect(t.role).toBe('DRep');
+    expect(t.noIsPending).toBe(false);
+  });
+});
+
+describe('sentimentSubline', () => {
+  it('reads the no-share as "not yet voted" when it is only non-voting stake', () => {
+    const t = overviewTally(make({ type: 'HardForkInitiation', status: 'active', spoYesPct: 16, spoNoPct: 84, spoYes: 68, spoNo: 0, spoAbstain: 0 }))!;
+    expect(sentimentSubline(t)).toBe('84% not yet voted');
+  });
+  it('keeps an abstain share alongside "not yet voted"', () => {
+    const t = overviewTally(make({ type: 'HardForkInitiation', status: 'active', spoYesPct: 16, spoNoPct: 74, spoYes: 68, spoNo: 0, spoAbstain: 1 }))!;
+    expect(sentimentSubline(t)).toBe('74% not yet voted · 10% abstain');
+  });
+  it('reads as "against" for a normal tally', () => {
+    const t = overviewTally(make({ type: 'TreasuryWithdrawals', status: 'active', drepYesPct: 79, drepNoPct: 21, drepYes: 200, drepNo: 70, drepAbstain: 6 }))!;
+    expect(sentimentSubline(t)).toBe('21% against · 0% abstain');
   });
 });
 

@@ -259,6 +259,7 @@ export function isSpoLedType(type: string): boolean {
 // GovernanceAction, so the full action is assignable without a cast.
 export interface RoleTallyInput {
   type: string;
+  status: string;
   drepYesPct: number | null;
   drepNoPct: number | null;
   drepYes: number | null;
@@ -275,6 +276,10 @@ export interface OverviewTally {
   role: VoterRole;   // whose tally the row's sentiment + voter count represent
   bar: TallyBar;
   voted: number;     // voters of that role who cast yes/no/abstain
+  // True when the bar's "no" share is purely non-voting stake counted as No by the
+  // ledger default (open hard fork, SPO-led, zero pools actually voted No), so it
+  // should read as "not yet voted" rather than hostile opposition. See sentimentSubline.
+  noIsPending: boolean;
 }
 
 /**
@@ -293,9 +298,34 @@ export function overviewTally(a: RoleTallyInput): OverviewTally | null {
       role === 'SPO'
         ? (a.spoYes ?? 0) + (a.spoNo ?? 0) + (a.spoAbstain ?? 0)
         : (a.drepYes ?? 0) + (a.drepNo ?? 0) + (a.drepAbstain ?? 0);
-    return { role, bar, voted };
+    // On an open hard fork the SPO "no" share is the ledger default for pools that
+    // have not voted; when no pool cast an explicit No (spoNo count is 0) that share
+    // is entirely non-voting stake, so we relabel it "not yet voted" instead of
+    // "against". Once a pool votes No, or the action freezes, we cannot tell the two
+    // apart and keep the literal No share.
+    const noIsPending =
+      role === 'SPO' &&
+      isSpoLedType(a.type) &&
+      !isTerminalStatus(a.status) &&
+      (a.spoNo ?? 0) === 0 &&
+      bar.no > 0;
+    return { role, bar, voted, noIsPending };
   }
   return null;
+}
+
+/**
+ * The sub-line under the sentiment headline. Normally "21% against · 6% abstain";
+ * when the No share is only non-voting stake on an open hard fork (see
+ * OverviewTally.noIsPending) it reads "84% not yet voted" so the bar does not
+ * overstate opposition while voting is still open.
+ */
+export function sentimentSubline(t: OverviewTally): string {
+  const noShare = `${fmtPct(t.bar.no)} ${t.noIsPending ? 'not yet voted' : 'against'}`;
+  // A pending bar drops a 0% abstain for a clean "not yet voted"; the normal bar
+  // always carries its abstain share, as it did before this relabeling existed.
+  if (t.noIsPending && t.bar.abstain === 0) return noShare;
+  return `${noShare} · ${fmtPct(t.bar.abstain)} abstain`;
 }
 
 /** Compact ADA from lovelace: "3.21B ₳" / "12.4M ₳" / "950K ₳" / "0 ₳". */

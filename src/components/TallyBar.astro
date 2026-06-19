@@ -7,13 +7,18 @@ import { TONE_BAR_COLORS, type TallyBar } from '@/lib/governance/view.js';
 interface Props {
   bar: TallyBar;
   height?: number;
+  // When the "no" share is only stake that has not voted yet (see
+  // OverviewTally.noIsPending), paint it neutral instead of the hostile "against"
+  // red, so an open hard fork does not look more opposed than it is.
+  pendingNo?: boolean;
 }
 
-const { bar, height = 8 } = Astro.props;
+const { bar, height = 8, pendingNo = false } = Astro.props;
+const noColor = pendingNo ? TONE_BAR_COLORS.neutral : TONE_BAR_COLORS.negative;
 ---
 
 <div aria-hidden="true" style={`display:flex;height:${height}px;border-radius:999px;overflow:hidden;background:var(--border);`}>
   <div style={`width:${bar.yes}%;background:${TONE_BAR_COLORS.positive};`}></div>
-  <div style={`width:${bar.no}%;background:${TONE_BAR_COLORS.negative};`}></div>
+  <div style={`width:${bar.no}%;background:${noColor};`}></div>
   <div style={`width:${bar.abstain}%;background:${TONE_BAR_COLORS.neutral};`}></div>
 </div>

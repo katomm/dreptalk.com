@@ -4,6 +4,7 @@ import {
   epochDaysLeft,
   fmtPct,
   overviewTally,
+  sentimentSubline,
   readableType,
   formatEpochDate,
   govTypeTone,
@@ -73,9 +74,9 @@ const votingEnds =
     {tally ? (
       <>
         <span class="metric__pct">{fmtPct(tally.bar.yes)} <span class="metric__pctword">{tally.role} support</span></span>
-        <span class="metric__sub">{fmtPct(tally.bar.no)} against &middot; {fmtPct(tally.bar.abstain)} abstain</span>
+        <span class="metric__sub">{sentimentSubline(tally)}</span>
         {/* The sentiment bar's pastel palette lives in TallyBar (TONE_BAR_COLORS); do not inline colors here without it. */}
-        <TallyBar bar={tally.bar} height={7} />
+        <TallyBar bar={tally.bar} height={7} pendingNo={tally.noIsPending} />
       </>
     ) : <span class="metric__sub">-</span>}
   </div>
