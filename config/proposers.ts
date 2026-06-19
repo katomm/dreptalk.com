@@ -65,18 +65,21 @@ export const PROPOSERS: Proposer[] = [
     slug: 'cardano-foundation',
     name: 'Cardano Foundation',
     addresses: ['stake1uyyqmz5ae7ct4f26p4t87y2xrrgu7f3e0cpap66zgcnxu0gl7gy6y'],
+    icon: '/orgs/cf.png',
     website: 'https://cardanofoundation.org',
   },
   {
     slug: 'eternl',
     name: 'Eternl',
     addresses: ['stake1ux0uusq33auzyekl6x566a886ltgzw0n6l2nl9yv2fpe74gt48ert'],
+    icon: '/orgs/eternl.jpg',
     website: 'https://eternl.io',
   },
   {
     slug: 'blink-labs',
     name: 'Blink Labs',
     addresses: ['stake1u8j3j3rjw5tjgyh6w4ezx0z4lglu3ufxsfuev4ndchld6jsdlaaqg'],
+    icon: '/orgs/blinklabs.jpg',
     website: 'https://blinklabs.io',
   },
   {
