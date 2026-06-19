@@ -49,9 +49,9 @@ const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
 // Governance actions get their own sort modes (a DRep wants trending / closing
 // soon, not the newest submission); discussion categories stay activity-ordered.
 const sort = parseGovSort(Astro.url.searchParams.get('sort'));
-// Which metric column to show (stake by default).
+// Which metric column to show (sentiment by default).
 const metric: 'stake' | 'sentiment' =
-  Astro.url.searchParams.get('metric') === 'sentiment' ? 'sentiment' : 'stake';
+  Astro.url.searchParams.get('metric') === 'stake' ? 'stake' : 'sentiment';
 
 let topics: Topic[] = [];
 let govTotal = 0;

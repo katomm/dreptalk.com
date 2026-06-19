@@ -5,8 +5,8 @@
 //   - on an unparameterized visit, redirects to the saved non-default choice
 //     before the default view paints.
 // Inlined into the governance category page via set:html and pinned in the CSP by
-// its SHA-256 hash (see astro.config.mjs). Defaults are 'new' and 'stake', so only
-// a saved non-default triggers a single, loop-safe redirect (the redirected URL
+// its SHA-256 hash (see astro.config.mjs). Defaults are 'new' and 'sentiment', so
+// only a saved non-default triggers a single, loop-safe redirect (the redirected URL
 // then carries the param, so the next run just mirrors it).
 (function () {
   try {
@@ -33,7 +33,7 @@
       if (METRICS.indexOf(metricParam) !== -1) localStorage.setItem(METRIC_KEY, metricParam);
     } else {
       var savedMetric = localStorage.getItem(METRIC_KEY);
-      if (savedMetric && savedMetric !== 'stake' && METRICS.indexOf(savedMetric) !== -1) {
+      if (savedMetric && savedMetric !== 'sentiment' && METRICS.indexOf(savedMetric) !== -1) {
         url.searchParams.set('metric', savedMetric);
         redirect = true;
       }
