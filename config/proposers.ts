@@ -22,7 +22,14 @@ export const PROPOSERS: Proposer[] = [
   {
     slug: 'intersect',
     name: 'Intersect',
-    addresses: ['stake1uyvjdz9rxsfsmv44rtk75k2rqyqskrga96dgdfrqjvjjpwsefcjnp'],
+    addresses: [
+      'stake1uyvjdz9rxsfsmv44rtk75k2rqyqskrga96dgdfrqjvjjpwsefcjnp',
+      // Earlier submitter address (Plomin hard fork, Constitution, Plutus cost
+      // model); metadata hosted under github.com/IntersectMBO/governance-actions.
+      'stake1uyguuqwdpexmhgjd07vax5t2ay3f7qvea49ex907g6fmvjclq6l03',
+      // Joint MBO budgets administered by Intersect (Critical Integrations, TOKEN2049).
+      'stake1uxq8hyxek4nvl227wjvrdm0h000sjgraczp92c07l0wr56g05k4la',
+    ],
     icon: '/orgs/intersect.png',
     website: 'https://www.intersectmbo.org',
   },
@@ -53,6 +60,44 @@ export const PROPOSERS: Proposer[] = [
       'stake17yyule028w4c2xy2rzsnzs22v4cvav3aljm5z76kz9hc9as0vfqh9',
     ],
     icon: '/orgs/pragma.jpg',
+  },
+  {
+    slug: 'cardano-foundation',
+    name: 'Cardano Foundation',
+    addresses: ['stake1uyyqmz5ae7ct4f26p4t87y2xrrgu7f3e0cpap66zgcnxu0gl7gy6y'],
+    icon: '/orgs/cf.png',
+    website: 'https://cardanofoundation.org',
+  },
+  {
+    slug: 'eternl',
+    name: 'Eternl',
+    addresses: ['stake1ux0uusq33auzyekl6x566a886ltgzw0n6l2nl9yv2fpe74gt48ert'],
+    icon: '/orgs/eternl.jpg',
+    website: 'https://eternl.io',
+  },
+  {
+    slug: 'blink-labs',
+    name: 'Blink Labs',
+    addresses: ['stake1u8j3j3rjw5tjgyh6w4ezx0z4lglu3ufxsfuev4ndchld6jsdlaaqg'],
+    icon: '/orgs/blinklabs.jpg',
+    website: 'https://blinklabs.io',
+  },
+  {
+    slug: 'deltadefi',
+    name: 'DeltaDeFi',
+    addresses: ['stake1u98py2aurukenuwgt78znz7jr90j3jkwfxeh2t7zlge6z8clpduxn'],
+    website: 'https://deltadefi.io',
+  },
+  {
+    slug: 'scalus',
+    name: 'Scalus',
+    addresses: ['stake1uxlvah74gljhkhehgh5u5dywmuljtm2v068nh7prgpp4uxcf5r9dg'],
+  },
+  {
+    slug: '5am-earth',
+    name: '5am.earth',
+    addresses: ['stake1uxx5zvsjds4mha66z6y0ftd40ztzt7f90eqlf85hmvhlukc6p4ue3'],
+    website: 'https://5am.earth',
   },
 ];
 
