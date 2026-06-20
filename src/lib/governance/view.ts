@@ -53,13 +53,12 @@ export function statusBadge(status: string): StatusBadge {
 
 /**
  * Past-tense verb phrase for a governance status change, used by the activity
- * feed ("<Title> was enacted"). Mirrors the statusBadge vocabulary; 'active' is
- * the pending -> active transition, phrased as entering the voting window.
+ * feed ("<Title> was enacted"). Mirrors the statusBadge vocabulary. Only terminal
+ * outcomes reach the feed (pending -> active is suppressed in tallySync), so there
+ * is deliberately no 'active' phrasing here.
  */
 export function govStatusVerb(to: string): string {
   switch (to) {
-    case 'active':
-      return 'moved to voting';
     case 'ratified':
       return 'was ratified';
     case 'enacted':

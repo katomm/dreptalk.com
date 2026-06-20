@@ -19,6 +19,7 @@ import {
 } from '../db/governance.js';
 import { upsertVotes, type VoteInput } from '../db/drepVotes.js';
 import { activityInsert } from '../db/activity.js';
+import { isTerminalStatus } from './view.js';
 
 // Max actions a single tally/vote run processes when the caller does not specify
 // one. Koios is latency-limited under a large burst (proposal_voting_summary and
@@ -210,10 +211,13 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
         now,
       });
 
-      // A real lifecycle transition (pending -> active, active -> enacted, etc.)
-      // is a feed event; a same-status tally refresh is not. created_at = now,
-      // since the change is happening now (unlike gov_created's submission time).
-      if (status !== ga.status && ga.topicId) {
+      // Only a transition INTO a terminal outcome (enacted/expired/dropped/...) is
+      // a feed event. pending -> active is suppressed: on-chain an action is votable
+      // from submission, so "moved to voting" right after "new governance action" is
+      // just our two-phase sync (discover, then tally) settling, not a milestone. A
+      // same-status tally refresh emits nothing either. created_at = now, since the
+      // change is happening now (unlike gov_created's submission time).
+      if (status !== ga.status && isTerminalStatus(status) && ga.topicId) {
         await activityInsert(db, {
           type: 'gov_status',
           topicId: ga.topicId,

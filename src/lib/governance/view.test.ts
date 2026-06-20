@@ -297,7 +297,6 @@ describe('sentimentSubline', () => {
 
 describe('govStatusVerb', () => {
   it('maps statuses to past-tense feed verbs', () => {
-    expect(govStatusVerb('active')).toBe('moved to voting');
     expect(govStatusVerb('enacted')).toBe('was enacted');
     expect(govStatusVerb('ratified')).toBe('was ratified');
     expect(govStatusVerb('dropped')).toBe('was dropped');
@@ -307,5 +306,8 @@ describe('govStatusVerb', () => {
 
   it('falls back to a generic phrase for an unknown status', () => {
     expect(govStatusVerb('whatever')).toBe('is now whatever');
+    // 'active' is intentionally not a feed verb: pending -> active is suppressed,
+    // so only terminal outcomes ever reach govStatusVerb.
+    expect(govStatusVerb('active')).toBe('is now active');
   });
 });
