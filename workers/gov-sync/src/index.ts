@@ -18,6 +18,10 @@
 // the watch path, so editing the bundled governance/sync logic alone leaves the
 // cron running the old bundle. A change here (even a comment) is required to
 // trigger a redeploy that picks up new src/lib code.
+//
+// Redeploy markers (touch this file to pick up the named src/lib change):
+//   2026-06-20: ship the governance_actions.submitted_at writer + backfill so the
+//               "new" sort orders by exact on-chain submission time.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
