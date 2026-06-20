@@ -76,7 +76,7 @@ export default function DrepProfileFields({ value, onChange, disabled, idPrefix,
 
       <div>
         <span style={labelStyle}>Profile image (optional)</span>
-        <span style={helpStyle}>Recommended: square JPG or PNG, max 256 KB.</span>
+        <span style={helpStyle}>Recommended: square JPG or PNG. Large images are resized automatically.</span>
         <DrepImageUpload value={value.image} onChange={(img) => set('image', img)} disabled={disabled} />
       </div>
 

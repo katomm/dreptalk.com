@@ -33,6 +33,10 @@ cfg.kv_namespaces = [
 ];
 cfg.r2_buckets = [{ binding: 'AVATARS', bucket_name: 'dreptalk-avatars-preprod' }];
 
+// The Images binding is account-level (no per-network resource), so preprod
+// reuses the same binding. Set it explicitly in case the adapter drops it.
+cfg.images = { binding: 'IMAGES' };
+
 // This is a standalone config, not a wrangler environment: drop the env
 // metadata so the derived name is used verbatim (no legacy "-preprod" suffix).
 delete cfg.definedEnvironments;

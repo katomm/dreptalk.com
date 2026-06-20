@@ -2,14 +2,17 @@
 // (AVATARS) and D1. The image fetch is injected.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { storeDrepAvatars, gcDrepAvatars, AVATAR_KEY_PREFIX } from './avatarStore.js';
+import { storeDrepAvatars, gcDrepAvatars, AVATAR_KEY_PREFIX, type ImageDownscaler } from './avatarStore.js';
 import { upsertDrep, getDrepById, listDrepsNeedingAvatar, countGivenUpAvatars } from '../db/dreps.js';
 import { bytesToHex } from '../crypto/hex.js';
+import { toArrayBuffer } from '../crypto/bytes.js';
 
 const db = () => env.DB;
 const bucket = () => env.AVATARS as R2Bucket;
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+// Stand-in for downscaler output; the real bytes come from the Images binding.
+const WEBP_BYTES = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 9, 9]);
 
 async function sha256Of(bytes: Uint8Array): Promise<string> {
   return bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
@@ -104,23 +107,79 @@ describe('storeDrepAvatars', () => {
     expect((await getDrepById(db(), 'st-svg'))!.imageContentHash).toBeNull();
   });
 
-  it('rejects an oversize body', async () => {
-    await upsertDrep(db(), { ...BASE, drepId: 'st-big', imageUrl: 'https://img.example/big.png' });
-    const big = new Uint8Array(256 * 1024 + 1);
-    const fetchImpl = (async () => imageResponse(big)) as unknown as typeof fetch;
+  it('stores a body up to the cap as-is without downscaling', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-midsize', imageUrl: 'https://img.example/mid.png' });
+    // 300 KB: over the old 256 KB cap, under the new 512 KB cap -> stored as-is.
+    const mid = new Uint8Array(300 * 1024);
+    mid.set(PNG_BYTES);
+    let downscaleCalls = 0;
+    const downscale: ImageDownscaler = async () => {
+      downscaleCalls++;
+      return null;
+    };
+    const fetchImpl = (async () => imageResponse(mid)) as unknown as typeof fetch;
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, downscale });
+    expect(r.stored).toBe(1);
+    expect(downscaleCalls).toBe(0);
+    expect((await getDrepById(db(), 'st-midsize'))!.imageContentHash).toBe(await sha256Of(mid));
+  });
+
+  it('downscales an over-cap image via the injected downscaler', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-down', imageUrl: 'https://img.example/huge.png' });
+    const huge = new Uint8Array(600 * 1024); // over the 512 KB cap
+    huge.set(PNG_BYTES);
+    let calls = 0;
+    const downscale: ImageDownscaler = async () => {
+      calls++;
+      return { bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' };
+    };
+    const fetchImpl = (async () => imageResponse(huge)) as unknown as typeof fetch;
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, downscale });
+    expect(r.stored).toBe(1);
+    expect(calls).toBe(1);
+    const hash = await sha256Of(WEBP_BYTES);
+    const obj = await bucket().get(AVATAR_KEY_PREFIX + hash);
+    expect(obj!.httpMetadata?.contentType).toBe('image/webp');
+    expect((await getDrepById(db(), 'st-down'))!.imageContentHash).toBe(hash);
+  });
+
+  it('fails an over-cap image when no downscaler is configured', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-nodown', imageUrl: 'https://img.example/huge2.png' });
+    const huge = new Uint8Array(600 * 1024);
+    huge.set(PNG_BYTES);
+    const fetchImpl = (async () => imageResponse(huge)) as unknown as typeof fetch;
 
     const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl });
     expect(r.failed).toBe(1);
-    expect((await getDrepById(db(), 'st-big'))!.imageContentHash).toBeNull();
+    expect((await getDrepById(db(), 'st-nodown'))!.imageContentHash).toBeNull();
+  });
+
+  it('rejects a body over the hard download ceiling before downscaling', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-ceiling', imageUrl: 'https://img.example/ceil.png' });
+    const over = new Uint8Array(10 * 1024 * 1024 + 1);
+    over.set(PNG_BYTES);
+    let calls = 0;
+    const downscale: ImageDownscaler = async () => {
+      calls++;
+      return { bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' };
+    };
+    const fetchImpl = (async () => imageResponse(over)) as unknown as typeof fetch;
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, downscale });
+    expect(r.failed).toBe(1);
+    expect(calls).toBe(0);
+    expect((await getDrepById(db(), 'st-ceiling'))!.imageContentHash).toBeNull();
   });
 
   it('rejects an oversize content-length declaration before reading the body', async () => {
     await upsertDrep(db(), { ...BASE, drepId: 'st-declared', imageUrl: 'https://img.example/declared.png' });
-    // Small body, but the declared length exceeds the cap: the early reject fires.
+    // Small body, but the declared length exceeds the hard ceiling: early reject fires.
     const fetchImpl = (async () =>
       new Response(PNG_BYTES, {
         status: 200,
-        headers: { 'content-type': 'image/png', 'content-length': String(256 * 1024 + 1) },
+        headers: { 'content-type': 'image/png', 'content-length': String(10 * 1024 * 1024 + 1) },
       })) as unknown as typeof fetch;
 
     const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl });

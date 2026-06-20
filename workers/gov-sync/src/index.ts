@@ -32,13 +32,14 @@ import {
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
-import { storeDrepAvatars, gcDrepAvatars } from '../../../src/lib/dreps/avatarStore.js';
+import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
 
 interface Env {
   DB: D1Database;
   AVATARS?: R2Bucket;
+  IMAGES?: ImagesLike;
   CARDANO_NETWORK?: string;
   KOIOS_API_KEY?: string;
 }
@@ -260,7 +261,12 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
     // (see avatarStore), so a permanently broken image stops being retried every
     // run instead of pinning this sync at 'partial' forever.
     await phase('avatars', async () => {
-      const a = await storeDrepAvatars({ db: env.DB, bucket, fetchImpl: fetch });
+      const a = await storeDrepAvatars({
+        db: env.DB,
+        bucket,
+        fetchImpl: fetch,
+        downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
+      });
       console.log(`[drep-avatars] scanned=${a.scanned} stored=${a.stored} cleared=${a.cleared} failed=${a.failed}`);
       const gc = await gcDrepAvatars({ db: env.DB, bucket, nowMs: Date.now() });
       console.log(`[drep-avatars-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);
