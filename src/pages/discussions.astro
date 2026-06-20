@@ -3,11 +3,11 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
-import ActivityRow from '@/components/ActivityRow.astro';
+import ActivityFeed from '@/components/ActivityFeed.astro';
 import { getCategoryStats } from '@/lib/db/forum.js';
-import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
+import { loadActivityFeed, parseActivityFilter, type ActivityFilter } from '@/lib/forum/activityFeed.js';
 import { getCategories } from '../../config/categories.js';
-import { cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { cacheControlFor, formatRelativeTime, parsePage, pageToOffset, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 
 const db = env.DB as D1Database | undefined;
@@ -15,10 +15,23 @@ const now = Date.now();
 
 const categories = getCategories();
 
-// Category stats and the latest activity feed are independent; load them together.
+const PAGE_SIZE = 20;
+const filter = parseActivityFilter(Astro.url.searchParams.get('filter'));
+const page = parsePage(Astro.url.searchParams.get('page'));
+const offset = pageToOffset(page, PAGE_SIZE);
+
+// Category stats and the activity page are independent; load them together.
 const [stats, feed] = db
-  ? await Promise.all([getCategoryStats(db), loadActivityFeed(db, { limit: 30 })])
-  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), []];
+  ? await Promise.all([
+      getCategoryStats(db),
+      loadActivityFeed(db, { filter, limit: PAGE_SIZE, offset }),
+    ])
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), { events: [], total: 0 }];
+
+// Tabs and pager keep the active filter; a filter change resets to page 1.
+const tabHref = (f: ActivityFilter) => `/discussions?filter=${f}`;
+const prevHref = page > 1 ? `/discussions?filter=${filter}&page=${page - 1}` : null;
+const nextHref = offset + PAGE_SIZE < feed.total ? `/discussions?filter=${filter}&page=${page + 1}` : null;
 
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 
@@ -61,18 +74,15 @@ const breadcrumbLd = {
       </div>
     </section>
 
-    <section aria-label="Latest activity">
-      <h2 style="font-size:0.8125rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin:0 0 0.75rem;">Latest activity</h2>
-      {feed.length === 0 ? (
-        <p style="color:var(--muted);">No recent activity yet.</p>
-      ) : (
-        <div>
-          {feed.map((e) => (
-            <ActivityRow event={e} now={now} />
-          ))}
-        </div>
-      )}
-    </section>
+    <ActivityFeed
+      events={feed.events}
+      now={now}
+      title="Latest activity"
+      subtitle="A summary of what's happening in governance."
+      tabs={{ active: filter, hrefFor: tabHref }}
+      pagination={{ prevHref, nextHref }}
+      footer={true}
+    />
   </div>
 </Layout>
 

@@ -1,0 +1,87 @@
+---
+// One activity feed surface, shared by the homepage (compact: header + view-all
+// link + rows) and /discussions (full: header + type tabs + rows + pagination +
+// footer). Pure presentation; the page resolves events and passes them in.
+import type { ActivityEvent } from '@/lib/forum/activityFeed.js';
+import { ACTIVITY_TABS, type ActivityFilter } from '@/lib/forum/activityFeed.js';
+import ActivityRow from '@/components/ActivityRow.astro';
+
+interface Props {
+  events: ActivityEvent[];
+  now: number;
+  title: string;
+  subtitle: string;
+  viewAllHref?: string;
+  tabs?: { active: ActivityFilter; hrefFor: (f: ActivityFilter) => string };
+  pagination?: { prevHref: string | null; nextHref: string | null };
+  footer?: boolean;
+}
+
+const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer } = Astro.props;
+---
+
+<section class="af" aria-label={title}>
+  <header class="af-head">
+    <div class="af-titles">
+      <h2 class="af-title">
+        <svg class="af-pulse" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
+        {title}
+      </h2>
+      <p class="af-subtitle">{subtitle}</p>
+    </div>
+    {viewAllHref && (
+      <a class="af-viewall" href={viewAllHref}>View all activity
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+      </a>
+    )}
+  </header>
+
+  {tabs && (
+    <nav class="af-tabs" aria-label="Filter activity">
+      {ACTIVITY_TABS.map((t) => (
+        <a class="af-tab" aria-current={t.filter === tabs.active ? 'true' : undefined} href={tabs.hrefFor(t.filter)}>{t.label}</a>
+      ))}
+    </nav>
+  )}
+
+  {events.length === 0 ? (
+    <p class="af-empty">No recent activity yet.</p>
+  ) : (
+    <div class="af-list">
+      {events.map((e) => <ActivityRow event={e} now={now} />)}
+    </div>
+  )}
+
+  {pagination && (pagination.prevHref || pagination.nextHref) && (
+    <nav class="af-pager" aria-label="Pagination">
+      {pagination.prevHref ? <a href={pagination.prevHref}>Previous</a> : <span></span>}
+      {pagination.nextHref ? <a href={pagination.nextHref}>Next</a> : <span></span>}
+    </nav>
+  )}
+
+  {footer && (
+    <p class="af-footer">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
+      Updated just now
+    </p>
+  )}
+</section>
+
+<style>
+  .af-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
+  .af-title { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.25rem; }
+  .af-pulse { color: var(--accent); flex-shrink: 0; }
+  .af-subtitle { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--muted); }
+  .af-viewall { display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0; font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--border); border-radius: 999px; padding: 0.4rem 0.75rem; }
+  .af-viewall:hover { background: var(--surface-2); }
+
+  .af-tabs { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 1rem; }
+  .af-tab { display: inline-flex; align-items: center; padding: 0.375rem 0.75rem; font-size: 0.85rem; text-decoration: none; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; transition: color 0.12s, background 0.12s, border-color 0.12s; }
+  .af-tab:hover { color: var(--fg); }
+  .af-tab[aria-current='true'] { color: var(--fg); background: var(--surface-2); border-color: var(--fg); font-weight: 600; }
+
+  .af-empty { color: var(--muted); }
+  .af-pager { display: flex; justify-content: space-between; margin-top: 1.25rem; font-size: 0.875rem; }
+  .af-pager a { color: var(--accent); text-decoration: none; }
+  .af-footer { display: flex; align-items: center; justify-content: center; gap: 0.4rem; margin: 1.25rem 0 0; font-size: 0.8125rem; color: var(--muted); }
+</style>

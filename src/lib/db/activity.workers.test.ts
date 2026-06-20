@@ -2,7 +2,7 @@
 // Activity event log tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { activityInsert, getRecentActivity } from './activity.js';
+import { activityInsert, getRecentActivity, getActivityPage } from './activity.js';
 import { createTopic, createPost } from './forum.js';
 
 const db = () => env.DB;
@@ -119,5 +119,59 @@ describe('forum write paths emit activity', () => {
       ref_post_id: reply.id,
       created_at: 8000,
     });
+  });
+});
+
+describe('getActivityPage', () => {
+  async function seedTopic(id: string, source: 'user' | 'governance', deleted = 0) {
+    await db()
+      .prepare(
+        "INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at, deleted) VALUES (?, ?, 'a', ?, ?, ?, 1, 0, 0, ?)",
+      )
+      .bind(id, source === 'governance' ? 'governance-actions' : 'general', source, `T-${id}`, `t-${id}`, deleted)
+      .run();
+  }
+
+  it('filters by type, excludes deleted topics, and returns a total', async () => {
+    await seedTopic('gov1', 'governance');
+    await seedTopic('forum1', 'user');
+    await seedTopic('del1', 'user', 1);
+
+    await db().batch([
+      activityInsert(db(), { type: 'gov_created', topicId: 'gov1', createdAt: 100 }),
+      activityInsert(db(), { type: 'gov_status', topicId: 'gov1', payload: { from: 'active', to: 'enacted' }, createdAt: 200 }),
+      activityInsert(db(), { type: 'reply_created', topicId: 'forum1', actorId: 'a', refPostId: 'p1', createdAt: 300 }),
+      activityInsert(db(), { type: 'topic_created', topicId: 'forum1', actorId: 'a', createdAt: 400 }),
+      activityInsert(db(), { type: 'reply_created', topicId: 'del1', actorId: 'a', createdAt: 500 }),
+    ]);
+
+    const all = await getActivityPage(db(), { filter: 'all', limit: 50, offset: 0 });
+    // del1's event is excluded (deleted topic); 4 remain, newest first.
+    expect(all.total).toBe(4);
+    expect(all.rows.map((r) => r.type)).toEqual(['topic_created', 'reply_created', 'gov_status', 'gov_created']);
+
+    const gov = await getActivityPage(db(), { filter: 'governance', limit: 50, offset: 0 });
+    expect(gov.total).toBe(2);
+    expect(gov.rows.every((r) => r.type === 'gov_created' || r.type === 'gov_status')).toBe(true);
+
+    const comments = await getActivityPage(db(), { filter: 'comments', limit: 50, offset: 0 });
+    // Comments = human forum activity: new topics AND replies, not just replies.
+    expect(comments.total).toBe(2);
+    expect(comments.rows.map((r) => r.type)).toEqual(['topic_created', 'reply_created']);
+    expect(comments.rows.every((r) => r.topic_id === 'forum1')).toBe(true);
+  });
+
+  it('paginates with limit and offset', async () => {
+    await seedTopic('page', 'user');
+    await db().batch([
+      activityInsert(db(), { type: 'reply_created', topicId: 'page', actorId: 'a', createdAt: 1 }),
+      activityInsert(db(), { type: 'reply_created', topicId: 'page', actorId: 'a', createdAt: 2 }),
+      activityInsert(db(), { type: 'reply_created', topicId: 'page', actorId: 'a', createdAt: 3 }),
+    ]);
+    const page = await getActivityPage(db(), { filter: 'comments', limit: 2, offset: 0 });
+    expect(page.rows.length).toBe(2);
+    expect(page.total).toBe(3);
+    const page2 = await getActivityPage(db(), { filter: 'comments', limit: 2, offset: 2 });
+    expect(page2.rows.length).toBe(1);
   });
 });

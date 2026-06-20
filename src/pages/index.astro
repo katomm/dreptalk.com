@@ -3,7 +3,7 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
-import ActivityRow from '@/components/ActivityRow.astro';
+import ActivityFeed from '@/components/ActivityFeed.astro';
 import { getCategories } from '../../config/categories.js';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { getLatestGovernanceAction } from '@/lib/db/governance.js';
@@ -21,7 +21,7 @@ const user = Astro.locals.user;
 const [stats, feed, heroAction] = db
   ? await Promise.all([
       getCategoryStats(db),
-      loadActivityFeed(db, { limit: 6 }),
+      loadActivityFeed(db, { limit: 6 }).then((r) => r.events),
       getLatestGovernanceAction(db),
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null];
@@ -232,21 +232,13 @@ const heroFeatures = [
         </div>
       </section>
 
-      <section aria-label="Latest activity">
-        <h3 class="section-label">Latest activity</h3>
-        {feed.length === 0 ? (
-          <p style="color:var(--muted);">No recent activity yet.</p>
-        ) : (
-          <div>
-            {feed.map((e) => (
-              <ActivityRow event={e} now={now} />
-            ))}
-          </div>
-        )}
-        <div class="view-all-row">
-          <a class="view-all-link" href="/discussions">View all discussions</a>
-        </div>
-      </section>
+      <ActivityFeed
+        events={feed}
+        now={now}
+        title="Latest activity"
+        subtitle="A summary of what's happening in governance."
+        viewAllHref="/discussions"
+      />
     </div>
   </section>
 </Layout>
@@ -563,22 +555,6 @@ const heroFeatures = [
     color: var(--muted);
     margin: 0 0 0.75rem;
     font-weight: 600;
-  }
-
-  /* "View all" row under the activity list. */
-  .view-all-row {
-    padding: 0.75rem 0;
-    border-top: 1px solid var(--border);
-    margin-top: 0.25rem;
-  }
-  .view-all-link {
-    color: var(--accent);
-    text-decoration: none;
-    font-size: 0.9rem;
-    font-weight: 600;
-  }
-  .view-all-link:hover {
-    text-decoration: underline;
   }
 
   /* ---- Responsive ----------------------------------------------------- */
