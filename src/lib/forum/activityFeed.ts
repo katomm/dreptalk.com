@@ -11,6 +11,22 @@ import { getGovernanceActionsByTopicIds } from '../db/governance.js';
 import { loadAuthorIdentities, type AuthorDescriptor } from './author.js';
 import { getCategory } from '../../../config/categories.js';
 
+export type ActivityFilter = 'all' | 'governance' | 'comments';
+
+// Tab order + labels for the /discussions feed; the single source of both.
+export const ACTIVITY_TABS: readonly { filter: ActivityFilter; label: string }[] = [
+  { filter: 'all', label: 'All' },
+  { filter: 'governance', label: 'Governance actions' },
+  { filter: 'comments', label: 'Comments' },
+];
+
+const VALID_FILTERS = new Set<string>(ACTIVITY_TABS.map((t) => t.filter));
+
+/** Parses the ?filter= param; defaults to 'all' for anything unrecognized. */
+export function parseActivityFilter(value: string | null): ActivityFilter {
+  return value && VALID_FILTERS.has(value) ? (value as ActivityFilter) : 'all';
+}
+
 export interface ActivityEvent {
   kind: ActivityKind;
   createdAt: number;
