@@ -55,7 +55,7 @@ describe('loadActivityFeed', () => {
     expect(feed.some((e) => e.topic.title === 'Doomed')).toBe(false);
   });
 
-  it('filter comments returns only reply_created events, with an accurate total', async () => {
+  it('filter comments returns human topics and replies, with an accurate total', async () => {
     const { topic } = await createTopic(db(), {
       categorySlug: 'general',
       authorId: 'user-d',
@@ -73,9 +73,10 @@ describe('loadActivityFeed', () => {
       now: 5000,
     });
 
+    // The human-started topic and the reply both count as comments; the gov filter
+    // would exclude both. Newest first: the reply, then the topic creation.
     const { events, total } = await loadActivityFeed(db(), { filter: 'comments', limit: 10 });
-    expect(events.length).toBe(1);
-    expect(events[0].kind).toBe('reply_created');
-    expect(total).toBe(1);
+    expect(events.map((e) => e.kind)).toEqual(['reply_created', 'topic_created']);
+    expect(total).toBe(2);
   });
 });

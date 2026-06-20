@@ -155,9 +155,10 @@ describe('getActivityPage', () => {
     expect(gov.rows.every((r) => r.type === 'gov_created' || r.type === 'gov_status')).toBe(true);
 
     const comments = await getActivityPage(db(), { filter: 'comments', limit: 50, offset: 0 });
-    expect(comments.total).toBe(1);
-    expect(comments.rows[0].type).toBe('reply_created');
-    expect(comments.rows[0].topic_id).toBe('forum1');
+    // Comments = human forum activity: new topics AND replies, not just replies.
+    expect(comments.total).toBe(2);
+    expect(comments.rows.map((r) => r.type)).toEqual(['topic_created', 'reply_created']);
+    expect(comments.rows.every((r) => r.topic_id === 'forum1')).toBe(true);
   });
 
   it('paginates with limit and offset', async () => {

@@ -91,7 +91,7 @@ Tabs map to a `?filter=` query param on /discussions:
 | ----------------- | ------------- | ------------------------------------- |
 | All               | `all`         | every type                            |
 | Governance actions| `governance`  | `gov_created`, `gov_status`           |
-| Comments          | `comments`    | `reply_created`                       |
+| Comments          | `comments`    | `topic_created`, `reply_created` (human forum activity: new topics and replies) |
 
 - New `parseActivityFilter(value): ActivityFilter` in `activityFeed.ts` (defaults
   to `all`; mirrors `parseGovSort`). `ActivityFilter = 'all' | 'governance' | 'comments'`.

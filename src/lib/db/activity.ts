@@ -71,10 +71,13 @@ export async function getRecentActivity(
 }
 
 // Activity types each feed filter includes. 'all' is handled by skipping the type
-// clause entirely. Constant per filter (never user input).
+// clause entirely. Constant per filter (never user input). 'comments' is all human
+// forum activity: a new topic by a person counts like a reply, so it is included
+// here (governance covers the system on-chain events). Together they partition the
+// four types: every event is in exactly one of governance/comments.
 const FILTER_TYPES: Record<'governance' | 'comments', ActivityKind[]> = {
   governance: ['gov_created', 'gov_status'],
-  comments: ['reply_created'],
+  comments: ['topic_created', 'reply_created'],
 };
 
 /**
