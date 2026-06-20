@@ -5,7 +5,7 @@
 // loadAuthorIdentities), so there is no N+1. Events whose topic was deleted are
 // dropped, so removed content never surfaces in the feed.
 
-import { getRecentActivity, type ActivityKind } from '../db/activity.js';
+import { getActivityPage, type ActivityKind } from '../db/activity.js';
 import { getTopicsByIds } from '../db/forum.js';
 import { getGovernanceActionsByTopicIds } from '../db/governance.js';
 import { loadAuthorIdentities, type AuthorDescriptor } from './author.js';
@@ -58,28 +58,31 @@ function parseTransition(payload: string | null): { from: string; to: string } |
 }
 
 /**
- * Loads the newest activity events as ready view models, newest first. Over-fetches
- * a small buffer so events filtered out (deleted topics) do not shorten the list,
- * then caps to `limit`. Default limit 20, capped at 50.
+ * Loads one page of activity events as ready view models, newest first, for the
+ * given type filter. getActivityPage already excludes deleted-topic events in SQL,
+ * so the returned total matches the rows. Hydration is batched (topics, authors,
+ * governance). Default limit 20, capped at 50.
  */
 export async function loadActivityFeed(
   db: D1Database,
-  opts?: { limit?: number },
-): Promise<ActivityEvent[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
-  const rows = await getRecentActivity(db, { limit: Math.min(limit + 10, 50) });
-  if (rows.length === 0) return [];
+  opts: { filter?: ActivityFilter; limit: number; offset?: number },
+): Promise<{ events: ActivityEvent[]; total: number }> {
+  const filter = opts.filter ?? 'all';
+  const limit = Math.min(Math.max(opts.limit, 1), 50);
+  const offset = Math.max(opts.offset ?? 0, 0);
+
+  const { rows, total } = await getActivityPage(db, { filter, limit, offset });
+  if (rows.length === 0) return { events: [], total };
 
   const topicIds = [...new Set(rows.map((r) => r.topic_id))];
   const topicsById = await getTopicsByIds(db, topicIds);
 
-  // Keep only events whose topic still exists and is live, then cap to limit.
-  const live = rows
-    .filter((r) => {
-      const t = topicsById.get(r.topic_id);
-      return t && !t.deleted;
-    })
-    .slice(0, limit);
+  // Defensive: a topic deleted between the page query and this read would still be
+  // returned by getTopicsByIds; drop those so removed content never renders.
+  const live = rows.filter((r) => {
+    const t = topicsById.get(r.topic_id);
+    return t && !t.deleted;
+  });
 
   const govTopicIds = live
     .filter((r) => topicsById.get(r.topic_id)?.source === 'governance')
@@ -90,7 +93,7 @@ export async function loadActivityFeed(
     govTopicIds.length ? getGovernanceActionsByTopicIds(db, govTopicIds) : Promise.resolve(new Map()),
   ]);
 
-  return live.map((r) => {
+  const events = live.map((r) => {
     // Non-null: live was filtered to events whose topic is present.
     const t = topicsById.get(r.topic_id)!;
     const gov = govByTopic.get(r.topic_id);
@@ -110,4 +113,6 @@ export async function loadActivityFeed(
       refPostId: r.ref_post_id,
     };
   });
+
+  return { events, total };
 }

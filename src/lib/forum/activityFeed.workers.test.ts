@@ -25,7 +25,7 @@ describe('loadActivityFeed', () => {
       now: 2000,
     });
 
-    const feed = await loadActivityFeed(db(), { limit: 10 });
+    const { events: feed } = await loadActivityFeed(db(), { limit: 10 });
 
     // Newest first: the reply, then the topic creation.
     expect(feed[0].kind).toBe('reply_created');
@@ -51,7 +51,31 @@ describe('loadActivityFeed', () => {
     });
     await db().prepare('UPDATE topics SET deleted = 1 WHERE id = ?').bind(topic.id).run();
 
-    const feed = await loadActivityFeed(db(), { limit: 10 });
+    const { events: feed } = await loadActivityFeed(db(), { limit: 10 });
     expect(feed.some((e) => e.topic.title === 'Doomed')).toBe(false);
+  });
+
+  it('filter comments returns only reply_created events, with an accurate total', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: 'user-d',
+      title: 'Filter thread',
+      bodyMd: 'b',
+      bodyHtml: '<p>b</p>',
+      now: 4000,
+      rand: 'feed3',
+    });
+    await createPost(db(), {
+      topicId: topic.id,
+      authorId: 'user-e',
+      bodyMd: 'r',
+      bodyHtml: '<p>r</p>',
+      now: 5000,
+    });
+
+    const { events, total } = await loadActivityFeed(db(), { filter: 'comments', limit: 10 });
+    expect(events.length).toBe(1);
+    expect(events[0].kind).toBe('reply_created');
+    expect(total).toBe(1);
   });
 });
