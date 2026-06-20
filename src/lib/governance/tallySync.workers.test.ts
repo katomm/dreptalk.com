@@ -432,29 +432,28 @@ describe('syncGovernanceTallies emits gov_status', () => {
     ).results.map((r) => JSON.parse(r.payload));
   }
 
-  it('emits on pending -> active, and not again when unchanged', async () => {
+  it('does not emit on pending -> active (votable from submission, not a milestone)', async () => {
     const { txHash, topicId } = await insertActive(294);
 
-    // First sync: pending (stored) -> active (derived) emits one event.
+    // pending (stored) -> active (derived): suppressed. On-chain the action is
+    // votable from submission, so this is just our two-phase sync (discover, then
+    // tally) settling, not a real lifecycle milestone worth a feed line.
     await syncGovernanceTallies({
       koios: fakeTallyKoios([lifeRow(txHash)]),
       db: db(),
       currentEpoch: 290,
       now: NOW,
     });
-    let events = await statusEvents(topicId);
-    expect(events.length).toBe(1);
-    expect(events[0]).toEqual({ from: 'pending', to: 'active' });
+    expect((await statusEvents(topicId)).length).toBe(0);
 
-    // Second sync: active -> active, no new event.
+    // Second, unchanged sync: still nothing.
     await syncGovernanceTallies({
       koios: fakeTallyKoios([lifeRow(txHash)]),
       db: db(),
       currentEpoch: 291,
       now: NOW + 1000,
     });
-    events = await statusEvents(topicId);
-    expect(events.length).toBe(1);
+    expect((await statusEvents(topicId)).length).toBe(0);
   });
 
   it('emits on a transition to a terminal status', async () => {
