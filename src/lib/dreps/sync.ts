@@ -12,6 +12,7 @@ import type { Drep } from '../db/dreps.js';
 import {
   getDrepsByIds, upsertDrep, listDrepIdsMissingRegisteredEpoch, setRegisteredEpochs,
   listDrepsMissingSlug, listAssignedSlugs, setDrepSlugs,
+  listActiveDrepIds, deactivateDreps,
 } from '../db/dreps.js';
 import { assignSlugs } from './slug.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
@@ -35,6 +36,8 @@ export interface DrepSyncResult {
   total: number;
   updated: number;
   skipped: number;
+  /** Rows transitioned to inactive because the DRep left the registered set. */
+  deactivated: number;
   anchorsFetched: number;
   /** Anchor fetches pushed to the next run by maxAnchorFetches. */
   anchorsDeferred: number;
@@ -326,6 +329,39 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
     }
   }
 
+  // Deactivate rows that still claim active voting power but are no longer in the
+  // registered enumeration: the DRep deregistered (deposit returned). Koios drops
+  // them from the registered set yet still answers drep_info with the deregistered
+  // state, so a frozen "active" row would otherwise keep showing stale power
+  // forever. Only the chain-derived columns are refreshed; the profile is kept so
+  // the retired DRep stays viewable for its governance history. Guarded on a
+  // non-empty enumeration so a transient empty drep_list never deactivates
+  // everyone (a wrongly-deactivated row self-heals on the next sync that
+  // re-enumerates it).
+  let deactivated = 0;
+  if (ids.length > 0) {
+    const staleIds = (await listActiveDrepIds(db)).filter((id) => !registeredIds.has(id));
+    if (staleIds.length > 0) {
+      // drepInfoBatch sub-batches internally (DREP_INFO_MAX), so one call is fine.
+      const infoById = new Map((await koios.drepInfoBatch(staleIds)).map((r) => [r.drep_id, r]));
+      const rows = staleIds.flatMap((drepId) => {
+        const info = infoById.get(drepId);
+        // A re-registration that landed between enumeration and this lookup: leave
+        // it for the next full sync, which re-enumerates and refreshes the profile.
+        if (info?.active) return [];
+        return [{
+          drepId,
+          status: info?.drep_status ?? 'deregistered',
+          votingPower: info?.amount ?? '0',
+          deposit: info?.deposit ?? null,
+          expiresEpochNo: info?.expires_epoch_no ?? null,
+          lastSyncedAt: now,
+        }];
+      });
+      deactivated = await deactivateDreps(db, rows);
+    }
+  }
+
   // GC unreferenced junk older than the grace period. Reaching here means every
   // chunk's drepInfoBatch succeeded, so registeredIds and keepHashes are complete.
   // Guard on a non-empty enumeration: a transient empty drep_list must never be
@@ -343,7 +379,7 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
     gcDeleted = gc.deleted;
   }
 
-  return { total: ids.length, updated, skipped, anchorsFetched, anchorsDeferred, failed, gcScanned, gcDeleted };
+  return { total: ids.length, updated, skipped, deactivated, anchorsFetched, anchorsDeferred, failed, gcScanned, gcDeleted };
 }
 
 export interface SlugBackfillResult {

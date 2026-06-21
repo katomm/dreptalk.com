@@ -71,6 +71,11 @@ const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
 const displayName = drep?.name ?? (drep ? truncateId(drep.drepId, 18) : '');
 const influence = drep ? influencePct(drep.votingPower, activeStake.total) : null;
+
+// A DRep that deregistered its credential: still viewable for the governance
+// record, but clearly marked and no longer delegatable (no voting power).
+const isRetired = !!drep && drep.status === 'deregistered';
+const statusLabel = drep ? (drep.active ? 'Active' : isRetired ? 'Retired' : drep.status) : '';
 const canonical = drep ? `${siteOrigin}${drepPath(drep)}` : siteOrigin;
 
 // Delegation CTA: the island needs the deployment's network and the 28-byte
@@ -114,7 +119,7 @@ const personLd = drep
         <h1 style="margin:0 0 0.25rem;overflow-wrap:anywhere;">{displayName}</h1>
         <div style="font-size:0.8125rem;color:var(--muted);word-break:break-all;">{drep.drepId}</div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.8125rem;">
-          <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{drep.active ? 'Active' : drep.status}</span>
+          <span style={`border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;${drep.active ? '' : 'color:var(--muted);'}`}>{statusLabel}</span>
           <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{formatAda(drep.votingPower)} voting power</span>
           {influence != null && (
             <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{influence.toFixed(2)}% influence</span>
@@ -122,6 +127,12 @@ const personLd = drep
         </div>
       </div>
     </header>
+
+    {isRetired && (
+      <p style="border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.75rem;color:var(--muted);font-size:0.875rem;max-width:65ch;margin:0 0 1rem;">
+        This DRep has retired: the credential was deregistered on-chain, so it no longer holds voting power or accepts delegation. The history below is kept for the governance record.
+      </p>
+    )}
 
     {drep.bio && <p style="color:var(--fg);max-width:65ch;">{drep.bio}</p>}
 
@@ -153,7 +164,7 @@ const personLd = drep
 
     <p style="font-size:0.75rem;color:var(--muted);">On-chain data as of {formatRelativeTime(drep.lastSyncedAt, now)}.</p>
 
-    {delegateCredentialHex && (
+    {delegateCredentialHex && !isRetired && (
       <div style="margin-top:1.5rem;">
         <DelegateButton
           client:idle

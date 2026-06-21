@@ -22,6 +22,8 @@
 // Redeploy markers (touch this file to pick up the named src/lib change):
 //   2026-06-20: ship the governance_actions.submitted_at writer + backfill so the
 //               "new" sort orders by exact on-chain submission time.
+//   2026-06-21: ship the DRep sync deactivation pass so deregistered DReps stop
+//               showing as active with frozen voting power.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -235,7 +237,8 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
     });
     console.log(
       `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} ` +
-        `anchorsFetched=${r.anchorsFetched} anchorsDeferred=${r.anchorsDeferred} failed=${r.failed}`,
+        `deactivated=${r.deactivated} anchorsFetched=${r.anchorsFetched} ` +
+        `anchorsDeferred=${r.anchorsDeferred} failed=${r.failed}`,
     );
     return { items: r.total, failed: r.failed };
   }, { primary: true });
