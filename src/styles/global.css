@@ -468,7 +468,7 @@ main.container {
 .drep-stat__label { font-size: 0.8125rem; color: var(--muted); }
 .drep-stat__value { font-size: 1.4rem; font-weight: 700; line-height: 1.1; }
 
-.drep-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+.drep-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; table-layout: fixed; }
 .drep-table thead th {
   text-align: left;
   font-size: 0.7rem;
@@ -479,17 +479,19 @@ main.container {
   padding: 0 0 0.6rem;
   border-bottom: 1px solid var(--border);
 }
-/* Voting power header and content are centered; the DRep name sizes to content
-   and actions stay narrow, so the columns share the row and the numbers sit
-   centered rather than jammed to one edge. The DRep name is forced single-line
-   (overriding AuthorIdentity's break-anywhere, which otherwise stacks a squeezed
-   name into vertical text) and ellipsized when the column is tight. */
-.drep-table thead th.drep-table__power-h { text-align: center; }
-.drep-table thead th.drep-table__actions-h { text-align: right; width: 1%; white-space: nowrap; }
+/* Fixed layout so the DRep column is bounded: a long name ellipsizes instead of
+   widening the row past the viewport (which used to shove the power and actions
+   columns off-screen on phones). Power and actions get explicit widths; the DRep
+   column takes the rest. Power header and content stay centered. */
+.drep-table thead th.drep-table__power-h { text-align: center; width: 16rem; }
+.drep-table thead th.drep-table__actions-h { text-align: right; width: 8.5rem; white-space: nowrap; }
 .drep-table td { padding: 0.6rem 0; border-top: 1px solid var(--border); vertical-align: middle; }
 .drep-table tbody tr:first-child td { border-top: none; }
 .drep-table__power { text-align: center; }
-.drep-table__actions { text-align: right; width: 1%; }
+.drep-table__actions { text-align: right; }
+/* The fixed-width DRep cell bounds the inline identity; making it a flex with
+   min-width:0 lets the name ellipsize rather than overflow. */
+.drep-table .author-identity { display: flex; min-width: 0; max-width: 100%; }
 .drep-table .author-identity__name { overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .drep-power { display: flex; align-items: center; justify-content: center; gap: 0.6rem; }
@@ -508,16 +510,6 @@ main.container {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* On mobile the bar drops out, ADA abbreviates, and the percentage stacks under
-   the amount so the power column stays narrow and the DRep name keeps its room. */
-@media (max-width: 640px) {
-  .drep-power { flex-direction: column; align-items: flex-end; gap: 0.15rem; }
-  .drep-power__bar { display: none; }
-  .drep-power__ada-full { display: none; }
-  .drep-power__ada-compact { display: inline; }
-  .drep-power__pct { min-width: 0; }
-}
-
 .drep-action-btn {
   display: inline-flex;
   align-items: center;
@@ -532,6 +524,42 @@ main.container {
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .drep-action-btn:hover { background: var(--surface); color: var(--fg); border-color: var(--border); }
+
+/* Actions cell: the desktop delegate quick-action sits to the left of the kebab. */
+.drep-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.4rem; }
+.drep-delegate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.drep-delegate-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Mobile: reclaim width for the DRep name. Slim power column (bar drops out, ADA
+   abbreviates, percentage stacks under the amount), the delegate quick-action
+   hides, and the kebab grows to a 44px tap target. Placed after the base rules so
+   it overrides them. */
+@media (max-width: 640px) {
+  .drep-table thead th.drep-table__power-h { width: 5.5rem; }
+  .drep-table thead th.drep-table__actions-h { width: 2.75rem; }
+  .drep-delegate-btn { display: none; }
+  .drep-action-btn { width: 2.75rem; height: 2.75rem; }
+  .drep-power { flex-direction: column; align-items: flex-end; gap: 0.15rem; }
+  .drep-power__bar { display: none; }
+  .drep-power__ada-full { display: none; }
+  .drep-power__ada-compact { display: inline; }
+  .drep-power__pct { min-width: 0; }
+}
 
 .drep-menu {
   z-index: 50;

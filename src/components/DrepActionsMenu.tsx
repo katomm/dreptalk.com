@@ -46,6 +46,18 @@ export default function DrepActionsMenu({ network = 'preprod' }: Props) {
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       const el = e.target as HTMLElement | null;
+      // The desktop "Delegate" quick-action opens the dialog straight away,
+      // skipping the popover. Like the kebab, it is server HTML outside this
+      // island's React root, so the document listener is what catches it.
+      const del = el?.closest('[data-drep-delegate]') as HTMLElement | null;
+      if (del) {
+        // Same effect as openDelegate(), inlined with the stable state setters so
+        // this [] effect needs no extra dependency.
+        e.preventDefault();
+        setMenu(null);
+        setDialogTarget(targetFromButton(del));
+        return;
+      }
       const btn = el?.closest('[data-drep-action]') as HTMLElement | null;
       if (btn) {
         e.preventDefault();
