@@ -37,7 +37,9 @@ const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerConte
     <AuthorIdentity author={author} size={compact ? 22 : 28} />
     {authorVote && <VoteBadge vote={authorVote.vote} />}
     <span>{formatRelativeTime(post.created_at, now)}</span>
-    {post.edited_at && <span>(edited)</span>}
+    {post.edited_at && (
+      <a href={`/posts/${post.id}/history`} data-history={post.id} class="post-edited">(edited)</a>
+    )}
     {post.hidden && canSeeContent && (
       <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
     )}
@@ -80,5 +82,13 @@ const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerConte
       background: transparent;
       box-shadow: 0 0 0 0.5rem transparent;
     }
+  }
+  .post-edited {
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--muted);
+  }
+  .post-edited:hover {
+    color: var(--fg);
   }
 </style>

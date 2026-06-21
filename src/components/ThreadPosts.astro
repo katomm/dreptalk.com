@@ -144,6 +144,8 @@ const voteFor = (author: AuthorDescriptor) =>
 
 <script>
   import { dispatchReply } from '@/lib/forum/replyEvent.ts';
+  import { dispatchEdit } from '@/lib/forum/editEvent.ts';
+  import { openHistoryModal } from '@/lib/forum/postHistory.ts';
 
   // Land on the post named in the URL hash (a fresh reply after the composer
   // reload, or a shared permalink). After the composer's reload the browser
@@ -186,6 +188,32 @@ const voteFor = (author: AuthorDescriptor) =>
         postId: replyBtn.getAttribute('data-reply-to') ?? '',
         author: replyBtn.getAttribute('data-reply-author') ?? '',
       });
+      return;
+    }
+
+    const editBtn = target.closest('[data-edit-post]');
+    if (editBtn) {
+      const postId = editBtn.getAttribute('data-edit-post') ?? '';
+      if (!postId) return;
+      // Fetch the current markdown source (the thread page omits body_md), then
+      // hand it to the composer's edit mode.
+      fetch(`/api/posts/${postId}/history`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { ok: boolean; versions: { bodyMd: string }[] } | null) => {
+          const bodyMd = data?.ok ? (data.versions[0]?.bodyMd ?? '') : '';
+          dispatchEdit({ postId, bodyMd });
+        })
+        .catch(() => {
+          // Network error: do nothing; the user can retry.
+        });
+      return;
+    }
+
+    const historyLink = target.closest('[data-history]');
+    if (historyLink) {
+      // Enhance the marker link into an inline modal; fall back to the href on error.
+      e.preventDefault();
+      void openHistoryModal(historyLink.getAttribute('data-history') ?? '');
       return;
     }
 
