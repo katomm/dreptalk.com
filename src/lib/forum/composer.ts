@@ -88,3 +88,36 @@ export async function submitComposer(args: {
     };
   }
 }
+
+/**
+ * Submit an edit to an existing post body. POST /api/posts/<postId>/edit with
+ * { bodyMd }. On 2xx resolves { ok: true }; any non-2xx resolves { ok: false, error }.
+ * Never throws.
+ */
+export async function submitEdit(args: {
+  postId: string;
+  bodyMd: string;
+  fetchImpl?: typeof fetch;
+}): Promise<ComposerResult> {
+  const fetcher = args.fetchImpl ?? fetch;
+  try {
+    const response = await fetcher(`/api/posts/${args.postId}/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bodyMd: args.bodyMd }),
+    });
+    if (response.status >= 200 && response.status < 300) {
+      return { ok: true };
+    }
+    let errorMessage: string | undefined;
+    try {
+      const data = (await response.json()) as { error?: string };
+      errorMessage = data.error;
+    } catch {
+      // Body unreadable; fall through to fallback.
+    }
+    return { ok: false, error: errorMessage ?? `Request failed with status ${response.status}` };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Network error' };
+  }
+}
