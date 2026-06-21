@@ -37,7 +37,7 @@ const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerConte
     <AuthorIdentity author={author} size={compact ? 22 : 28} />
     {authorVote && <VoteBadge vote={authorVote.vote} />}
     <span>{formatRelativeTime(post.created_at, now)}</span>
-    {post.edited_at && (
+    {post.edited_at && canSeeContent && (
       <a href={`/posts/${post.id}/history`} data-history={post.id} class="post-edited">(edited)</a>
     )}
     {post.hidden && canSeeContent && (
