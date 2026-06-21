@@ -609,6 +609,76 @@ export async function editTitle(
     .run();
 }
 
+export interface PostVersion {
+  bodyMd: string;
+  bodyHtml: string;
+  /** Current version: edited_at ?? created_at. Revision: replaced_at. */
+  at: number;
+  current: boolean;
+}
+
+export interface PostHistory {
+  /** Newest first; index 0 is the live current body. */
+  versions: PostVersion[];
+  hidden: boolean;
+  authorId: string;
+  topicId: string;
+  topicSlug: string;
+  topicTitle: string;
+}
+
+/**
+ * Returns a post's full version history (current body + every archived revision,
+ * newest first) plus the fields the history view and its hidden-gate need.
+ * Returns null when the post is missing or deleted. Public callers apply the
+ * hidden-post visibility gate (a hidden post's history is author/moderator only).
+ */
+export async function getPostHistory(db: D1Database, postId: string): Promise<PostHistory | null> {
+  const [postRes, revRes] = await db.batch([
+    db
+      .prepare(
+        `SELECT p.body_md, p.body_html, p.edited_at, p.created_at, p.hidden, p.author_id, p.deleted,
+                p.topic_id, t.slug AS topic_slug, t.title AS topic_title
+         FROM posts p JOIN topics t ON t.id = p.topic_id
+         WHERE p.id = ?`,
+      )
+      .bind(postId),
+    db
+      .prepare(
+        'SELECT body_md, body_html, replaced_at FROM post_revisions WHERE post_id = ? ORDER BY replaced_at DESC',
+      )
+      .bind(postId),
+  ]);
+
+  const post = postRes.results?.[0] as
+    | {
+        body_md: string; body_html: string; edited_at: number | null; created_at: number;
+        hidden: number; author_id: string; deleted: number;
+        topic_id: string; topic_slug: string; topic_title: string;
+      }
+    | undefined;
+  if (!post || post.deleted === 1) return null;
+
+  const versions: PostVersion[] = [
+    { bodyMd: post.body_md, bodyHtml: post.body_html, at: post.edited_at ?? post.created_at, current: true },
+    ...((revRes.results ?? []) as { body_md: string; body_html: string; replaced_at: number }[]).map((r) => ({
+      bodyMd: r.body_md,
+      bodyHtml: r.body_html,
+      at: r.replaced_at,
+      current: false,
+    })),
+  ];
+
+  return {
+    versions,
+    hidden: post.hidden === 1,
+    authorId: post.author_id,
+    topicId: post.topic_id,
+    topicSlug: post.topic_slug,
+    topicTitle: post.topic_title,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Thread page (one-level threading) and thread stats
 // ---------------------------------------------------------------------------
