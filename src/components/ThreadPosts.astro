@@ -199,8 +199,9 @@ const voteFor = (author: AuthorDescriptor) =>
       // hand it to the composer's edit mode.
       fetch(`/api/posts/${postId}/history`)
         .then((r) => (r.ok ? r.json() : null))
-        .then((data: { ok: boolean; versions: { bodyMd: string }[] } | null) => {
-          const bodyMd = data?.ok ? (data.versions[0]?.bodyMd ?? '') : '';
+        .then((data) => {
+          const history = data as { ok: boolean; versions: { bodyMd: string }[] } | null;
+          const bodyMd = history?.ok ? (history.versions[0]?.bodyMd ?? '') : '';
           dispatchEdit({ postId, bodyMd });
         })
         .catch(() => {
