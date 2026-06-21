@@ -5,6 +5,7 @@
 
 import { sqlPlaceholders } from './sql.js';
 import { activityInsert } from './activity.js';
+import { isWithinGrace } from '../forum/editPolicy.js';
 
 export interface Topic {
   id: string;
@@ -521,6 +522,65 @@ export async function createPost(
     deleted: 0,
     created_at: now,
   });
+}
+
+/**
+ * Edits a post's body. Within the grace window (isWithinGrace) the edit is
+ * silent: the body is replaced and nothing else changes. Past the window the
+ * current body is archived into post_revisions and edited_at is stamped, both in
+ * one batch. Throws on a missing/deleted post, a non-owner, a hidden post, or a
+ * missing/deleted/locked topic. Returns whether a revision was archived.
+ */
+export async function editPost(
+  db: D1Database,
+  args: { postId: string; authorId: string; bodyMd: string; bodyHtml: string; now: number },
+): Promise<{ edited: boolean }> {
+  const { postId, authorId, bodyMd, bodyHtml, now } = args;
+
+  // Load the post WITH its body (needed to archive the prior version), then its
+  // topic's state (depends on post.topic_id). Two sequential reads.
+  const post = await db
+    .prepare(
+      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at FROM posts WHERE id = ?',
+    )
+    .bind(postId)
+    .first<{
+      id: string; topic_id: string; author_id: string; body_md: string;
+      body_html: string; hidden: number; deleted: number; created_at: number;
+    }>();
+  if (!post || post.deleted === 1) throw new Error('post_not_found');
+  if (post.author_id !== authorId) throw new Error('not_owner');
+  if (post.hidden === 1) throw new Error('post_hidden');
+
+  const topicRow = await db
+    .prepare('SELECT deleted, locked FROM topics WHERE id = ?')
+    .bind(post.topic_id)
+    .first<{ deleted: number; locked: number }>();
+  if (!topicRow || topicRow.deleted === 1) throw new Error('topic_not_found');
+  if (topicRow.locked === 1) throw new Error('topic_locked');
+
+  // Silent in-grace edit: replace the body only.
+  if (isWithinGrace(post.created_at, now)) {
+    await db
+      .prepare('UPDATE posts SET body_md = ?, body_html = ? WHERE id = ?')
+      .bind(bodyMd, bodyHtml, postId)
+      .run();
+    return { edited: false };
+  }
+
+  // Marked edit: archive the prior version, then replace + stamp, atomically.
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO post_revisions (id, post_id, body_md, body_html, replaced_at, editor_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), postId, post.body_md, post.body_html, now, authorId),
+    db
+      .prepare('UPDATE posts SET body_md = ?, body_html = ?, edited_at = ? WHERE id = ?')
+      .bind(bodyMd, bodyHtml, now, postId),
+  ]);
+  return { edited: true };
 }
 
 // ---------------------------------------------------------------------------
