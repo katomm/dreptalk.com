@@ -583,6 +583,32 @@ export async function editPost(
   return { edited: true };
 }
 
+/**
+ * Edits a user topic's title. Sets title_edited_at as the "(edited)" marker; the
+ * slug is intentionally left unchanged so existing links never break, and no
+ * prior title is stored (title history is a marker only). Throws on a
+ * missing/deleted topic, a non-author, a governance topic, or a locked topic.
+ */
+export async function editTitle(
+  db: D1Database,
+  args: { topicId: string; authorId: string; title: string; now: number },
+): Promise<void> {
+  const { topicId, authorId, title, now } = args;
+  const topic = await db
+    .prepare('SELECT author_id, source, deleted, locked FROM topics WHERE id = ?')
+    .bind(topicId)
+    .first<{ author_id: string; source: string; deleted: number; locked: number }>();
+  if (!topic || topic.deleted === 1) throw new Error('topic_not_found');
+  if (topic.source !== 'user') throw new Error('not_user_topic');
+  if (topic.author_id !== authorId) throw new Error('not_owner');
+  if (topic.locked === 1) throw new Error('topic_locked');
+
+  await db
+    .prepare('UPDATE topics SET title = ?, title_edited_at = ? WHERE id = ?')
+    .bind(title, now, topicId)
+    .run();
+}
+
 // ---------------------------------------------------------------------------
 // Thread page (one-level threading) and thread stats
 // ---------------------------------------------------------------------------
