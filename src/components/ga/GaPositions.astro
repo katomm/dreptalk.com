@@ -2,6 +2,7 @@
 // DRep Positions tab: paginated list of all DReps who voted on the governance action,
 // ordered by voting power desc. Each row shows identity, vote badge, and power.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
@@ -41,7 +42,7 @@ function pageHref(p: number): string {
         return (
           <li class="ga-positions__row">
             <div class="ga-positions__identity">
-              <AuthorIdentity author={descriptor} />
+              <AuthorIdentity author={descriptor} size={AVATAR_SIZE.compact} />
             </div>
             <span
               class="ga-positions__vote"

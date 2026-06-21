@@ -4,6 +4,7 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import DrepConcentration from '@/components/DrepConcentration.tsx';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
 import { listDreps, listDrepsForConcentration } from '@/lib/db/dreps.js';
@@ -191,7 +192,7 @@ const barWidth = (pct: number): string => {
           const cred = credentialHexFor(d);
           return (
             <tr>
-              <td><AuthorIdentity author={descriptor} /></td>
+              <td><AuthorIdentity author={descriptor} size={AVATAR_SIZE.compact} /></td>
               <td class="drep-table__power">
                 <div class="drep-power">
                   <span class="drep-power__ada">

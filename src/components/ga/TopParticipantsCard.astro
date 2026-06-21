@@ -2,6 +2,7 @@
 // Sidebar card: top DRep participants (by voting power) for a governance action.
 // Renders nothing when the voter list is empty (action has no recorded votes yet).
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
@@ -25,7 +26,7 @@ const { voters, dreps } = Astro.props;
         return (
           <li class="top-participants__row">
             <div class="top-participants__identity">
-              <AuthorIdentity author={descriptor} size={22} />
+              <AuthorIdentity author={descriptor} size={AVATAR_SIZE.compact} />
             </div>
             {ada && <span class="top-participants__power">{ada}</span>}
           </li>

@@ -10,6 +10,7 @@ import { formatRelativeTime } from '@/lib/forum/view.js';
 import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 
 interface Props {
   post: Post;
@@ -34,7 +35,7 @@ const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerConte
 
 <article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
   <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-    <AuthorIdentity author={author} size={compact ? 22 : 28} />
+    <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.post} />
     {authorVote && <VoteBadge vote={authorVote.vote} />}
     <span>{formatRelativeTime(post.created_at, now)}</span>
     {post.edited_at && canSeeContent && (
