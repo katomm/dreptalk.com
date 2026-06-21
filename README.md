@@ -6,6 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/katomm/dreptalk.com/actions/workflows/ci.yml"><img src="https://github.com/katomm/dreptalk.com/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
+  <a href="https://biomejs.dev"><img src="https://img.shields.io/badge/Checked_with-Biome-60a5fa?style=flat&amp;logo=biome" alt="Checked with Biome" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0" /></a>
   <a href="https://dreptalk.com"><img src="https://img.shields.io/website?url=https%3A%2F%2Fdreptalk.com&amp;up_message=online&amp;down_message=offline&amp;label=mainnet" alt="Mainnet status" /></a>
   <a href="https://preprod.dreptalk.com"><img src="https://img.shields.io/website?url=https%3A%2F%2Fpreprod.dreptalk.com&amp;up_message=online&amp;down_message=offline&amp;label=preprod" alt="Preprod status" /></a>
