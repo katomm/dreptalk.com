@@ -19,6 +19,8 @@ export interface PostViewerContext {
   canFlag: boolean;
   /** The viewer may react to this post (a writer, not the author; system posts allowed). */
   canReact: boolean;
+  /** The viewer may edit this post (a writer, their own, not system, not hidden). */
+  canEdit: boolean;
 }
 
 /**
@@ -40,5 +42,6 @@ export function postViewerContext(
   const canSeeContent = !post.hidden || isOwnPost || isModerator(roles);
   const canFlag = isWriter(roles) && !isOwnPost && !authorIsSystem;
   const canReact = isWriter(roles) && !isOwnPost;
-  return { isOwnPost, canSeeContent, canFlag, canReact };
+  const canEdit = isWriter(roles) && isOwnPost && !authorIsSystem && !post.hidden;
+  return { isOwnPost, canSeeContent, canFlag, canReact, canEdit };
 }

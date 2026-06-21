@@ -10,6 +10,7 @@ import { formatRelativeTime } from '@/lib/forum/view.js';
 import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 
 interface Props {
   post: Post;
@@ -23,19 +24,23 @@ interface Props {
   now: number;
   /** Reply rendering: smaller avatar. */
   compact?: boolean;
+  /** The thread is locked: disables the Edit affordance. */
+  topicLocked?: boolean;
 }
 
-const { post, author, authorVote, user, flagged, viewerReaction, canReply, now, compact = false } = Astro.props;
+const { post, author, authorVote, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false } = Astro.props;
 
-const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, user, !!author.isSystem);
+const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
 ---
 
 <article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
   <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-    <AuthorIdentity author={author} size={compact ? 22 : 28} />
+    <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.post} />
     {authorVote && <VoteBadge vote={authorVote.vote} />}
     <span>{formatRelativeTime(post.created_at, now)}</span>
-    {post.edited_at && <span>(edited)</span>}
+    {post.edited_at && canSeeContent && (
+      <a href={`/posts/${post.id}/history`} data-history={post.id} class="post-edited">(edited)</a>
+    )}
     {post.hidden && canSeeContent && (
       <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
     )}
@@ -56,6 +61,7 @@ const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, 
       flagged={flagged}
       viewerReaction={viewerReaction}
       canReply={canReply}
+      canEdit={canEdit && !topicLocked}
       authorName={author.displayName}
     />
   )}
@@ -77,5 +83,13 @@ const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, 
       background: transparent;
       box-shadow: 0 0 0 0.5rem transparent;
     }
+  }
+  .post-edited {
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--muted);
+  }
+  .post-edited:hover {
+    color: var(--fg);
   }
 </style>

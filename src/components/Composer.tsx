@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { submitComposer } from '@/lib/forum/composer.js';
+import { submitComposer, submitEdit } from '@/lib/forum/composer.js';
 import { REPLY_EVENT, type ReplyEventDetail } from '@/lib/forum/replyEvent.js';
+import { EDIT_EVENT, type EditEventDetail } from '@/lib/forum/editEvent.js';
 import { applyMarkdown, type MarkdownAction } from '@/lib/forum/markdownToolbar.js';
 
 // Toolbar buttons: label is what shows in the button, title is the tooltip.
@@ -29,6 +30,8 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
   const [showPreview, setShowPreview] = useState(false);
   // Reply target set by a post's Reply button (one-level threading).
   const [replyTo, setReplyTo] = useState<ReplyEventDetail | null>(null);
+  // Post being edited, set by a post's Edit button. Mutually exclusive with replyTo.
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -43,6 +46,8 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
     const onReply = (e: Event) => {
       const detail = (e as CustomEvent<ReplyEventDetail>).detail;
       if (!detail?.postId) return;
+      // Reply and edit are mutually exclusive: starting a reply leaves edit mode.
+      setEditingPostId(null);
       setReplyTo(detail);
       setShowPreview(false);
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -50,6 +55,24 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
     };
     window.addEventListener(REPLY_EVENT, onReply);
     return () => window.removeEventListener(REPLY_EVENT, onReply);
+  }, [mode]);
+
+  // Edit buttons live in server-rendered markup; they hand the post id + current
+  // source here via a window event (the source is fetched by the dispatcher).
+  useEffect(() => {
+    if (mode !== 'post') return;
+    const onEdit = (e: Event) => {
+      const detail = (e as CustomEvent<EditEventDetail>).detail;
+      if (!detail?.postId) return;
+      setReplyTo(null);
+      setEditingPostId(detail.postId);
+      setBodyMd(detail.bodyMd);
+      setShowPreview(false);
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      textareaRef.current?.focus();
+    };
+    window.addEventListener(EDIT_EVENT, onEdit);
+    return () => window.removeEventListener(EDIT_EVENT, onEdit);
   }, [mode]);
 
   // Apply a toolbar action to the current textarea selection.
@@ -110,6 +133,20 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
     setError(null);
     setSubmitting(true);
 
+    // Edit path: update an existing post, then reload onto it.
+    if (editingPostId) {
+      const result = await submitEdit({ postId: editingPostId, bodyMd: bodyMd.trim() });
+      if (result.ok) {
+        sessionStorage.setItem('dreptalk:land-on-post', editingPostId);
+        window.location.hash = `post-${editingPostId}`;
+        window.location.reload();
+      } else {
+        setError(result.error ?? 'Something went wrong.');
+        setSubmitting(false);
+      }
+      return;
+    }
+
     const result = await submitComposer({
       mode,
       payload: {
@@ -125,12 +162,6 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
       if (mode === 'topic' && result.slug) {
         window.location.href = `/t/${result.slug}`;
       } else {
-        // Reload onto the new post so the user sees it land (especially a
-        // nested reply, which renders up at its parent, not at the composer).
-        // Setting only the hash does not navigate, so reload explicitly. The
-        // sessionStorage flag tells the reloaded page a landing is pending, so
-        // it can disable the browser's scroll restoration (which would put the
-        // user back at the composer) and scroll to the new post instead.
         if (result.postId) {
           sessionStorage.setItem('dreptalk:land-on-post', result.postId);
           window.location.hash = `post-${result.postId}`;
@@ -145,6 +176,43 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      {editingPostId && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.8125rem',
+            color: 'var(--muted)',
+            border: '1px solid var(--border)',
+            borderRadius: '0.375rem',
+            padding: '0.375rem 0.625rem',
+            alignSelf: 'flex-start',
+          }}
+        >
+          <span>Editing your post</span>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingPostId(null);
+              setBodyMd('');
+            }}
+            aria-label="Cancel edit"
+            title="Cancel editing"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--muted)',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit',
+              lineHeight: 1,
+            }}
+          >
+            &#10005;
+          </button>
+        </div>
+      )}
       {replyTo && (
         <div
           style={{
@@ -345,7 +413,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
             fontWeight: 500,
           }}
         >
-          {submitting ? 'Submitting...' : mode === 'topic' ? 'Post topic' : 'Post reply'}
+          {submitting ? 'Submitting...' : editingPostId ? 'Save edit' : mode === 'topic' ? 'Post topic' : 'Post reply'}
         </button>
       </div>
     </form>

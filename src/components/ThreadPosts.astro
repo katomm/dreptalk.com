@@ -81,6 +81,7 @@ const voteFor = (author: AuthorDescriptor) =>
           flagged={flaggedPostIds.has(post.id)}
           viewerReaction={viewerReactions.get(post.id) ?? null}
           canReply={canParticipate && !isOpening}
+          topicLocked={topic.locked}
           now={now}
         />
         {children.length > 0 && (
@@ -96,6 +97,7 @@ const voteFor = (author: AuthorDescriptor) =>
                   flagged={flaggedPostIds.has(child.id)}
                   viewerReaction={viewerReactions.get(child.id) ?? null}
                   canReply={canParticipate}
+                  topicLocked={topic.locked}
                   now={now}
                   compact
                 />
@@ -142,6 +144,8 @@ const voteFor = (author: AuthorDescriptor) =>
 
 <script>
   import { dispatchReply } from '@/lib/forum/replyEvent.ts';
+  import { dispatchEdit } from '@/lib/forum/editEvent.ts';
+  import { openHistoryModal } from '@/lib/forum/postHistory.ts';
 
   // Land on the post named in the URL hash (a fresh reply after the composer
   // reload, or a shared permalink). After the composer's reload the browser
@@ -184,6 +188,33 @@ const voteFor = (author: AuthorDescriptor) =>
         postId: replyBtn.getAttribute('data-reply-to') ?? '',
         author: replyBtn.getAttribute('data-reply-author') ?? '',
       });
+      return;
+    }
+
+    const editBtn = target.closest('[data-edit-post]');
+    if (editBtn) {
+      const postId = editBtn.getAttribute('data-edit-post') ?? '';
+      if (!postId) return;
+      // Fetch the current markdown source (the thread page omits body_md), then
+      // hand it to the composer's edit mode.
+      fetch(`/api/posts/${postId}/history`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          const history = data as { ok: boolean; versions: { bodyMd: string }[] } | null;
+          const bodyMd = history?.ok ? (history.versions[0]?.bodyMd ?? '') : '';
+          dispatchEdit({ postId, bodyMd });
+        })
+        .catch(() => {
+          // Network error: do nothing; the user can retry.
+        });
+      return;
+    }
+
+    const historyLink = target.closest('[data-history]');
+    if (historyLink) {
+      // Enhance the marker link into an inline modal; fall back to the href on error.
+      e.preventDefault();
+      void openHistoryModal(historyLink.getAttribute('data-history') ?? '');
       return;
     }
 

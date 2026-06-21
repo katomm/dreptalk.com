@@ -5,6 +5,7 @@
 
 import { sqlPlaceholders } from './sql.js';
 import { activityInsert } from './activity.js';
+import { isWithinGrace } from '../forum/editPolicy.js';
 
 export interface Topic {
   id: string;
@@ -20,6 +21,8 @@ export interface Topic {
   post_count: number;
   last_post_at: number;
   created_at: number;
+  /** Set when the title has been edited (marker only; no stored prior titles). */
+  title_edited_at: number | null;
 }
 
 export interface Post {
@@ -56,6 +59,7 @@ interface TopicRow {
   post_count: number;
   last_post_at: number;
   created_at: number;
+  title_edited_at: number | null;
 }
 
 interface PostRow {
@@ -100,6 +104,7 @@ function rowToTopic(row: TopicRow): Topic {
     post_count: row.post_count,
     last_post_at: row.last_post_at,
     created_at: row.created_at,
+    title_edited_at: row.title_edited_at,
   };
 }
 
@@ -215,6 +220,7 @@ export async function createTopic(
     post_count: 1,
     last_post_at: postedAt,
     created_at: postedAt,
+    title_edited_at: null,
   });
 
   const firstPost = rowToPost({
@@ -521,6 +527,161 @@ export async function createPost(
     deleted: 0,
     created_at: now,
   });
+}
+
+/**
+ * Edits a post's body. Within the grace window (isWithinGrace) the edit is
+ * silent: the body is replaced and nothing else changes. Past the window the
+ * current body is archived into post_revisions and edited_at is stamped, both in
+ * one batch. Throws on a missing/deleted post, a non-owner, a hidden post, or a
+ * missing/deleted/locked topic. Returns whether a revision was archived.
+ */
+export async function editPost(
+  db: D1Database,
+  args: { postId: string; authorId: string; bodyMd: string; bodyHtml: string; now: number },
+): Promise<{ edited: boolean }> {
+  const { postId, authorId, bodyMd, bodyHtml, now } = args;
+
+  // Load the post WITH its body (needed to archive the prior version), then its
+  // topic's state (depends on post.topic_id). Two sequential reads.
+  const post = await db
+    .prepare(
+      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at FROM posts WHERE id = ?',
+    )
+    .bind(postId)
+    .first<{
+      id: string; topic_id: string; author_id: string; body_md: string;
+      body_html: string; hidden: number; deleted: number; created_at: number;
+    }>();
+  if (!post || post.deleted === 1) throw new Error('post_not_found');
+  if (post.author_id !== authorId) throw new Error('not_owner');
+  if (post.hidden === 1) throw new Error('post_hidden');
+
+  const topicRow = await db
+    .prepare('SELECT deleted, locked FROM topics WHERE id = ?')
+    .bind(post.topic_id)
+    .first<{ deleted: number; locked: number }>();
+  if (!topicRow || topicRow.deleted === 1) throw new Error('topic_not_found');
+  if (topicRow.locked === 1) throw new Error('topic_locked');
+
+  // Silent in-grace edit: replace the body only.
+  if (isWithinGrace(post.created_at, now)) {
+    await db
+      .prepare('UPDATE posts SET body_md = ?, body_html = ? WHERE id = ?')
+      .bind(bodyMd, bodyHtml, postId)
+      .run();
+    return { edited: false };
+  }
+
+  // Marked edit: archive the prior version, then replace + stamp, atomically.
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO post_revisions (id, post_id, body_md, body_html, replaced_at, editor_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), postId, post.body_md, post.body_html, now, authorId),
+    db
+      .prepare('UPDATE posts SET body_md = ?, body_html = ?, edited_at = ? WHERE id = ?')
+      .bind(bodyMd, bodyHtml, now, postId),
+  ]);
+  return { edited: true };
+}
+
+/**
+ * Edits a user topic's title. Sets title_edited_at as the "(edited)" marker; the
+ * slug is intentionally left unchanged so existing links never break, and no
+ * prior title is stored (title history is a marker only). Throws on a
+ * missing/deleted topic, a non-author, a governance topic, or a locked topic.
+ */
+export async function editTitle(
+  db: D1Database,
+  args: { topicId: string; authorId: string; title: string; now: number },
+): Promise<void> {
+  const { topicId, authorId, title, now } = args;
+  const topic = await db
+    .prepare('SELECT author_id, source, deleted, locked FROM topics WHERE id = ?')
+    .bind(topicId)
+    .first<{ author_id: string; source: string; deleted: number; locked: number }>();
+  if (!topic || topic.deleted === 1) throw new Error('topic_not_found');
+  if (topic.source !== 'user') throw new Error('not_user_topic');
+  if (topic.author_id !== authorId) throw new Error('not_owner');
+  if (topic.locked === 1) throw new Error('topic_locked');
+
+  await db
+    .prepare('UPDATE topics SET title = ?, title_edited_at = ? WHERE id = ?')
+    .bind(title, now, topicId)
+    .run();
+}
+
+export interface PostVersion {
+  bodyMd: string;
+  bodyHtml: string;
+  /** Current version: edited_at ?? created_at. Revision: replaced_at. */
+  at: number;
+  current: boolean;
+}
+
+export interface PostHistory {
+  /** Newest first; index 0 is the live current body. */
+  versions: PostVersion[];
+  hidden: boolean;
+  authorId: string;
+  topicId: string;
+  topicSlug: string;
+  topicTitle: string;
+}
+
+/**
+ * Returns a post's full version history (current body + every archived revision,
+ * newest first) plus the fields the history view and its hidden-gate need.
+ * Returns null when the post is missing or deleted. Public callers apply the
+ * hidden-post visibility gate (a hidden post's history is author/moderator only).
+ */
+export async function getPostHistory(db: D1Database, postId: string): Promise<PostHistory | null> {
+  const [postRes, revRes] = await db.batch([
+    db
+      .prepare(
+        `SELECT p.body_md, p.body_html, p.edited_at, p.created_at, p.hidden, p.author_id, p.deleted,
+                p.topic_id, t.slug AS topic_slug, t.title AS topic_title
+         FROM posts p JOIN topics t ON t.id = p.topic_id
+         WHERE p.id = ?`,
+      )
+      .bind(postId),
+    db
+      .prepare(
+        'SELECT body_md, body_html, replaced_at FROM post_revisions WHERE post_id = ? ORDER BY replaced_at DESC',
+      )
+      .bind(postId),
+  ]);
+
+  const post = postRes.results?.[0] as
+    | {
+        body_md: string; body_html: string; edited_at: number | null; created_at: number;
+        hidden: number; author_id: string; deleted: number;
+        topic_id: string; topic_slug: string; topic_title: string;
+      }
+    | undefined;
+  if (!post || post.deleted === 1) return null;
+
+  const versions: PostVersion[] = [
+    { bodyMd: post.body_md, bodyHtml: post.body_html, at: post.edited_at ?? post.created_at, current: true },
+    ...((revRes.results ?? []) as { body_md: string; body_html: string; replaced_at: number }[]).map((r) => ({
+      bodyMd: r.body_md,
+      bodyHtml: r.body_html,
+      at: r.replaced_at,
+      current: false,
+    })),
+  ];
+
+  return {
+    versions,
+    hidden: post.hidden === 1,
+    authorId: post.author_id,
+    topicId: post.topic_id,
+    topicSlug: post.topic_slug,
+    topicTitle: post.topic_title,
+  };
 }
 
 // ---------------------------------------------------------------------------

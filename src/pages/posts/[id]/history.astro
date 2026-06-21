@@ -1,0 +1,62 @@
+---
+// src/pages/posts/[id]/history.astro
+// Public, zero-JS edit history for one post: the no-JS / crawler fallback behind
+// the "(edited)" marker (the thread enhances that link into an inline modal).
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import { getPostHistory } from '@/lib/db/forum.js';
+import { isModerator } from '@/lib/auth/roles.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import { env } from 'cloudflare:workers';
+
+const { id } = Astro.params;
+const db = env.DB as D1Database | undefined;
+const history = id && db ? await getPostHistory(db, id) : null;
+
+const user = Astro.locals.user;
+const canSee =
+  history &&
+  (!history.hidden ||
+    (!!user && (user.id === history.authorId || isModerator(user.roles))));
+
+const notFound = !history || !canSee;
+if (notFound) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+const now = Date.now();
+---
+
+{notFound || !history ? (
+  <NotFound noun="Post history" />
+) : (
+  <Layout title={`Edit history - ${history.topicTitle} - DRepTalk`} description="Edit history for a post on DRepTalk.">
+    <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+      <a href="/">DRepTalk</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <a href={`/t/${history.topicSlug}#post-${id}`}>{history.topicTitle}</a>
+    </nav>
+
+    <h1 style="margin:0 0 0.5rem;line-height:1.3;font-size:1.375rem;">Edit history</h1>
+    <p style="color:var(--muted);font-size:0.875rem;margin:0 0 1.5rem;">
+      {history.versions.length} {history.versions.length === 1 ? 'version' : 'versions'}, newest first.
+    </p>
+
+    <div style="display:flex;flex-direction:column;gap:1.5rem;">
+      {history.versions.map((v) => (
+        <article style="border:1px solid var(--border);border-radius:0.5rem;padding:1rem 1.25rem;">
+          <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.5rem;align-items:center;">
+            {v.current && (
+              <span style="background:var(--accent);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">current</span>
+            )}
+            <span title={new Date(v.at).toISOString()}>{formatRelativeTime(v.at, now)}</span>
+          </div>
+          <div class="prose" set:html={v.bodyHtml} />
+        </article>
+      ))}
+    </div>
+  </Layout>
+)}

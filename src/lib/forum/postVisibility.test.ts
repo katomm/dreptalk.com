@@ -80,3 +80,27 @@ describe('postViewerContext: canSeeContent for a hidden post', () => {
     expect(c.canSeeContent).toBe(true);
   });
 });
+
+describe('postViewerContext: canEdit', () => {
+  const writer = { id: 'u1', roles: ['drep'] };
+  it('true for a writer editing their own non-hidden non-system post', () => {
+    const ctx = postViewerContext({ author_id: 'u1', hidden: false }, writer, false);
+    expect(ctx.canEdit).toBe(true);
+  });
+  it('false for someone else\'s post', () => {
+    const ctx = postViewerContext({ author_id: 'u2', hidden: false }, writer, false);
+    expect(ctx.canEdit).toBe(false);
+  });
+  it('false for a system/governance post', () => {
+    const ctx = postViewerContext({ author_id: 'u1', hidden: false }, writer, true);
+    expect(ctx.canEdit).toBe(false);
+  });
+  it('false for a hidden post', () => {
+    const ctx = postViewerContext({ author_id: 'u1', hidden: true }, writer, false);
+    expect(ctx.canEdit).toBe(false);
+  });
+  it('false for an anonymous viewer', () => {
+    const ctx = postViewerContext({ author_id: 'u1', hidden: false }, null, false);
+    expect(ctx.canEdit).toBe(false);
+  });
+});
