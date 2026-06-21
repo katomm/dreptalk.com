@@ -491,7 +491,7 @@ main.container {
 .drep-table__actions { text-align: right; }
 /* The fixed-width DRep cell bounds the inline identity; making it a flex with
    min-width:0 lets the name ellipsize rather than overflow. */
-.drep-table .author-identity { display: flex; min-width: 0; max-width: 100%; }
+.drep-table .author-identity { display: flex; min-width: 0; }
 .drep-table .author-identity__name { overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .drep-power { display: flex; align-items: center; justify-content: center; gap: 0.6rem; }
@@ -529,23 +529,15 @@ main.container {
 
 /* Actions cell: the desktop delegate quick-action sits to the left of the kebab. */
 .drep-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.4rem; }
+/* Compact pill variant of the secondary button (used as `btn btn-secondary
+   drep-delegate-btn`); only size and radius differ, so palette, border, and
+   hover stay in sync with .btn-secondary. */
 .drep-delegate-btn {
-  display: inline-flex;
-  align-items: center;
   gap: 0.3rem;
   padding: 0.35rem 0.75rem;
   font-size: 0.8125rem;
-  font-weight: 600;
-  white-space: nowrap;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--fg);
-  text-decoration: none;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
 }
-.drep-delegate-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* Mobile: reclaim width for the DRep name. Slim power column (bar drops out, ADA
    abbreviates, percentage stacks under the amount), the delegate quick-action
