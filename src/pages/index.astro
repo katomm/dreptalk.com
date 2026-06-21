@@ -4,11 +4,15 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import ActivityFeed from '@/components/ActivityFeed.astro';
+import Avatar from '@/components/Avatar.astro';
 import { getCategories } from '../../config/categories.js';
 import { getCategoryStats } from '@/lib/db/forum.js';
-import { getLatestGovernanceAction } from '@/lib/db/governance.js';
+import { getLatestGovernanceAction, getLatestActionWithVotes } from '@/lib/db/governance.js';
+import { getActionVoters } from '@/lib/db/drepVotes.js';
+import { getDrepsByIds } from '@/lib/db/dreps.js';
+import { voterDescriptor } from '@/lib/forum/author.js';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
-import { readableType, statusBadge, TONE_COLORS } from '@/lib/governance/view.js';
+import { readableType, statusBadge, voteTone, TONE_COLORS } from '@/lib/governance/view.js';
 import { cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 
@@ -16,15 +20,43 @@ const db = env.DB as D1Database | undefined;
 const now = Date.now();
 const user = Astro.locals.user;
 
-// Category stats, the latest activity feed, and the hero's newest governance
-// action are independent; load them together.
-const [stats, feed, heroAction] = db
+// How many real voter pills the hero ring shows; the action must have at least
+// this many DRep votes to drive the live hero, else we fall back to the plain
+// newest action with the six decorative pills.
+const HERO_VOTERS = 6;
+
+// Category stats, the activity feed, and the voted-hero candidate are
+// independent; load them together. votedHero is the newest action that already
+// has a full ring of DRep voters.
+const [stats, feed, votedHero] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 6 }).then((r) => r.events),
-      getLatestGovernanceAction(db),
+      getLatestActionWithVotes(db, { minVoters: HERO_VOTERS }),
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null];
+
+// Fall back to the plain newest action only when none has a full voter ring yet,
+// so the common path (a voted action exists) skips this query entirely.
+const latestHero = !votedHero && db ? await getLatestGovernanceAction(db) : null;
+const heroAction = votedHero ?? latestHero;
+
+// When a voted action drives the hero, resolve its top-6 voters into pill data
+// (identicon seed + stored-avatar hash + the vote). dreps are batched in one
+// follow-up query, mirroring the thread page's voter list.
+const heroVoters =
+  db && votedHero
+    ? await (async () => {
+        const voters = await getActionVoters(db, votedHero.action.id, { limit: HERO_VOTERS });
+        const dreps = await getDrepsByIds(db, voters.map((v) => v.voter_id));
+        return voters.map((v) => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote }));
+      })()
+    : [];
+
+// Only light up the real ring when all six slots are filled; a partial ring in
+// the symmetric six-pill layout would read as broken, so otherwise we keep the
+// decorative pills.
+const showVoterPills = heroVoters.length === HERO_VOTERS;
 
 const categories = getCategories();
 
@@ -180,12 +212,27 @@ const heroFeatures = [
           <span class="gov-card__badge" style={`--tone:${heroCard.tone}`}>{heroCard.badge}</span>
         </HeroCardTag>
 
-        <span class="pill pill--1" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-        <span class="pill pill--2" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-        <span class="pill pill--3" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-        <span class="pill pill--4" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-        <span class="pill pill--5" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-        <span class="pill pill--6" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+        {showVoterPills ? (
+          heroVoters.map((p, i) => (
+            <span
+              class:list={['pill', 'pill--vote', `pill--${i + 1}`]}
+              title={`${p.descriptor.displayName} voted ${p.vote}`}
+              aria-label={`${p.descriptor.displayName} voted ${p.vote}`}
+            >
+              <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={18} />
+              <span class="pill__vote" style={`--tone:${TONE_COLORS[voteTone(p.vote)]}`}>{p.vote}</span>
+            </span>
+          ))
+        ) : (
+          <>
+            <span class="pill pill--1" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+            <span class="pill pill--2" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+            <span class="pill pill--3" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+            <span class="pill pill--4" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+            <span class="pill pill--5" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+            <span class="pill pill--6" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
+          </>
+        )}
       </div>
     </div>
   </section>
@@ -455,6 +502,19 @@ const heroFeatures = [
     height: 7px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--accent) 30%, var(--border));
+  }
+  /* Real voter pills carry the DRep's vote as a word in its tone color, so they
+     need a touch more right padding than the decorative bubble variant. */
+  .pill--vote {
+    padding-right: 0.55rem;
+  }
+  .pill__vote {
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.4;
+    /* --tone is set inline from voteTone: green (Yes), red (No), muted (Abstain). */
+    color: var(--tone, var(--accent));
+    white-space: nowrap;
   }
   .pill--1 { top: 12%; left: 6%; }
   .pill--2 { top: 16%; right: 4%; }

@@ -20,6 +20,7 @@ import {
   markVotesSynced,
   getActionIdsMissingOnchainPayload,
   updateActionOnchainPayload,
+  getLatestActionWithVotes,
   type NewGovernanceAction,
 } from './governance.js';
 import { getAllTopicsByCategory } from './forum.js';
@@ -44,6 +45,8 @@ async function seedGovRow(o: {
   decidedEpoch?: number | null;
   trendingScore?: number | null;
   drepYes?: number | null;
+  /** Action title; left null by default so list queries that filter it out still apply. */
+  title?: string | null;
 }): Promise<void> {
   const categorySlug = o.categorySlug ?? GOV;
   const deleted = o.deleted ?? 0;
@@ -59,12 +62,13 @@ async function seedGovRow(o: {
     db()
       .prepare(
         `INSERT INTO governance_actions
-           (id, type, anchor_status, status, submitted_epoch, submitted_at, expiry_epoch, decided_epoch, drep_yes, trending_score, topic_id, created_at, last_synced_at)
-         VALUES (?, 'InfoAction', 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, type, anchor_status, status, title, submitted_epoch, submitted_at, expiry_epoch, decided_epoch, drep_yes, trending_score, topic_id, created_at, last_synced_at)
+         VALUES (?, 'InfoAction', 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         o.actionId,
         o.status ?? 'active',
+        o.title ?? null,
         o.submittedEpoch ?? null,
         o.submittedAt ?? null,
         o.expiryEpoch ?? null,
@@ -649,5 +653,67 @@ describe('onchain_payload', () => {
     await updateActionOnchainPayload(db(), without.id, '{"tag":"InfoAction"}');
     const after = await getActionIdsMissingOnchainPayload(db());
     expect(after.has(without.id)).toBe(false);
+  });
+});
+
+describe('getLatestActionWithVotes', () => {
+  // Seeds `n` distinct votes of the given role on one action.
+  async function seedVotes(gaId: string, n: number, role = 'DRep'): Promise<void> {
+    for (let i = 0; i < n; i++) {
+      await db()
+        .prepare(
+          `INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at)
+           VALUES (?, ?, ?, 'Yes', 1)`,
+        )
+        .bind(gaId, role, `${gaId}-${role}-${i}`)
+        .run();
+    }
+  }
+
+  it('returns the newest action that has at least minVoters DRep votes', async () => {
+    // Older action, clears the threshold.
+    await seedGovRow({ topicId: 't-old', actionId: 'a-old', submittedAt: 1000, title: 'Old action' });
+    await seedVotes('a-old', 6);
+    // Newer action, one vote short of the threshold.
+    await seedGovRow({ topicId: 't-new', actionId: 'a-new', submittedAt: 2000, title: 'New action' });
+    await seedVotes('a-new', 5);
+
+    const res = await getLatestActionWithVotes(db(), { minVoters: 6 });
+    expect(res?.action.id).toBe('a-old');
+    expect(res?.slug).toBe('slug-t-old');
+  });
+
+  it('counts only DRep votes, ignoring SPO and CC', async () => {
+    await seedGovRow({ topicId: 't-spo', actionId: 'a-spo', submittedAt: 3000, title: 'SPO and CC only' });
+    await seedVotes('a-spo', 6, 'SPO');
+    await seedVotes('a-spo', 6, 'ConstitutionalCommittee');
+
+    const res = await getLatestActionWithVotes(db(), { minVoters: 6 });
+    expect(res).toBeNull();
+  });
+
+  it('skips deleted topics', async () => {
+    await seedGovRow({ topicId: 't-del', actionId: 'a-del', submittedAt: 4000, deleted: 1, title: 'Deleted topic' });
+    await seedVotes('a-del', 6);
+
+    const res = await getLatestActionWithVotes(db(), { minVoters: 6 });
+    expect(res).toBeNull();
+  });
+
+  it('skips untitled actions', async () => {
+    // No title passed: seedGovRow leaves the action title null.
+    await seedGovRow({ topicId: 't-untitled', actionId: 'a-untitled', submittedAt: 4500 });
+    await seedVotes('a-untitled', 6);
+
+    const res = await getLatestActionWithVotes(db(), { minVoters: 6 });
+    expect(res).toBeNull();
+  });
+
+  it('returns null when no action reaches the threshold', async () => {
+    await seedGovRow({ topicId: 't-few', actionId: 'a-few', submittedAt: 5000, title: 'Few votes' });
+    await seedVotes('a-few', 2);
+
+    const res = await getLatestActionWithVotes(db(), { minVoters: 6 });
+    expect(res).toBeNull();
   });
 });
