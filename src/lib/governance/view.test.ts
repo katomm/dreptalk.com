@@ -10,7 +10,6 @@ import {
   tallyBar,
   voteTone,
   fmtPct,
-  formatAdaShort,
   stakeParticipation,
   formatEpochDate,
   govTypeTone,
@@ -28,7 +27,7 @@ describe('readableType / formatAda', () => {
     expect(readableType('TreasuryWithdrawals')).toBe('Treasury Withdrawals');
   });
   it('formats lovelace to ADA, null on garbage', () => {
-    expect(formatAda('100000000000')).toBe('100,000 ADA');
+    expect(formatAda('100000000000')).toBe('100,000 ₳');
     expect(formatAda(null)).toBeNull();
     expect(formatAda('abc')).toBeNull();
   });
@@ -181,15 +180,7 @@ describe('voteTone', () => {
   });
 });
 
-describe('stakeParticipation / formatAdaShort', () => {
-  it('formatAdaShort rounds lovelace to B/M/K ADA', () => {
-    expect(formatAdaShort(3_210_000_000_000_000)).toBe('3.21B ₳');
-    expect(formatAdaShort(1_840_000_000_000_000)).toBe('1.84B ₳');
-    expect(formatAdaShort(12_400_000_000_000)).toBe('12.4M ₳');   // M branch
-    expect(formatAdaShort(950_000_000_000)).toBe('950K ₳');        // K branch
-    expect(formatAdaShort(0)).toBe('0 ₳');
-  });
-
+describe('stakeParticipation', () => {
   it('stakeParticipation returns pct + parts, null when total is 0', () => {
     expect(stakeParticipation(0, 0)).toBeNull();
     const s = stakeParticipation(3_210_000_000_000_000, 6_660_000_000_000_000)!;

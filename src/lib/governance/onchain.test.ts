@@ -9,7 +9,7 @@ import {
 
 describe('formatValue', () => {
   it('formats lovelace as ada', () => {
-    expect(formatValue('lovelace', 1000000000)).toBe('1,000 ADA');
+    expect(formatValue('lovelace', 1000000000)).toBe('1,000 ₳');
   });
   it('formats a float ratio as percent', () => {
     expect(formatValue('ratio', 0.1)).toBe('10%');
@@ -83,7 +83,7 @@ describe('decodeOnchainChanges', () => {
     const p = JSON.stringify({ tag: 'ParameterChange', contents: [null, { govActionDeposit: 1000000000 }, 'fa'] });
     expect(decodeOnchainChanges(p, EP, 'preprod')).toEqual({
       kind: 'params',
-      rows: [{ group: 'Governance', label: 'Governance Action Deposit', oldValue: '100,000 ADA', newValue: '1,000 ADA' }],
+      rows: [{ group: 'Governance', label: 'Governance Action Deposit', oldValue: '100,000 ₳', newValue: '1,000 ₳' }],
     });
   });
 
@@ -114,8 +114,8 @@ describe('decodeOnchainChanges', () => {
       totalAda: string;
     };
     expect(r.kind).toBe('treasury');
-    expect(r.rows[0].ada).toBe('5 ADA');
-    expect(r.totalAda).toBe('5 ADA');
+    expect(r.rows[0].ada).toBe('5 ₳');
+    expect(r.totalAda).toBe('5 ₳');
     expect(r.rows[0].address.startsWith('stake_test1')).toBe(true);
   });
 

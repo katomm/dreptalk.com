@@ -1,6 +1,8 @@
 // Pure helpers for forum view rendering: pagination, cache headers, relative time, JSON-LD.
 // No I/O, no side effects; all functions are deterministic and testable.
 
+import { formatAda as adaFull, formatAdaCompact as adaCompact } from '../format/ada.js';
+
 /** Canonical origin for the site, used as fallback when Astro.site is not configured. */
 export const SITE_ORIGIN = 'https://dreptalk.com';
 
@@ -103,26 +105,22 @@ export function formatRelativeTime(unixMs: number, nowMs: number): string {
 }
 
 /**
- * Formats a lovelace string as whole ADA with the ada symbol and thousands
- * separators (rounded; profiles never do exact accounting). Null is treated as 0.
+ * Whole ADA with the ₳ symbol and thousands separators (rounded; profiles never
+ * do exact accounting). Null is treated as 0. Thin wrapper over the canonical
+ * {@link adaFull} that keeps the always-a-string, "0 ₳"-on-absent contract these
+ * profile/directory views rely on.
  */
 export function formatAda(lovelace: string | null): string {
-  const ada = Math.round(Number(lovelace ?? 0) / 1_000_000);
-  return `${ada.toLocaleString('en-US')} ₳`;
+  return adaFull(lovelace) ?? '0 ₳';
 }
 
 /**
- * Like {@link formatAda} but abbreviates large amounts (200k, 2.5M, 1.3B) so the
+ * Like {@link formatAda} but abbreviates large amounts (200K, 2.5M, 1.3B) so the
  * voting power fits where horizontal space is tight, e.g. the DRep table on
- * mobile. Amounts under 1000 ₳ stay exact. Null is treated as 0.
+ * mobile. Null is treated as 0.
  */
 export function formatAdaCompact(lovelace: string | null): string {
-  const ada = Math.round(Number(lovelace ?? 0) / 1_000_000);
-  const short = new Intl.NumberFormat('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(ada);
-  return `${short} ₳`;
+  return adaCompact(lovelace) ?? '0 ₳';
 }
 
 /**
