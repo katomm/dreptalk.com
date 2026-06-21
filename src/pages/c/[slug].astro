@@ -482,6 +482,12 @@ const breadcrumbLd = {
     .ga-list__head {
       display: none;
     }
+    /* Rows become standalone cards on mobile (see GovActionRow), so drop the
+       table's top border and space the cards apart instead. */
+    .ga-list {
+      border-top: none;
+      gap: 12px;
+    }
   }
 
   /* Staleness footnote: the cached on-chain numbers are never live. */

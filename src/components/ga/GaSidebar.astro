@@ -26,6 +26,9 @@ const { action, params, ccSize, network, topVoters, dreps, related } = Astro.pro
 ---
 
 <aside class="ga-sidebar">
+  {/* ActionStatusCard must stay first: on mobile the gov action detail page
+      promotes this sidebar's first child above the main column (the
+      display:contents + order rules in pages/t/[slug].astro). */}
   <ActionStatusCard action={action} network={network} />
   <VotingInfoCard action={action} params={params} ccSize={ccSize} network={network} />
   <TopParticipantsCard voters={topVoters} dreps={dreps} />

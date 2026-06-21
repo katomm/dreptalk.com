@@ -379,12 +379,30 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
     .ga-detail-layout__sidebar {
       position: static;
     }
-    /* The sidebar (status, voting info, participants) leads only on the
-       overview tab, where it is the at-a-glance summary. On the other tabs
-       the content the user navigated to (the posts, the voter list) comes
-       first and the sidebar stacks below it. */
-    .ga-detail-layout--sidebar-first .ga-detail-layout__sidebar {
-      order: -1;
+    /* Overview tab, mobile: lead with the status card, then the headline metrics
+       and rationale (the main column), then the remaining detail cards (voting
+       info, top participants, proposer, related). display:contents dissolves both
+       sidebar wrappers so the cards become items of this single-column grid and
+       can be ordered around the main column. The status card is always the
+       sidebar's first child; the rest keep their source order after the main.
+       On the other tabs the sidebar is untouched and stacks below the content the
+       user navigated to. */
+    .ga-detail-layout--sidebar-first {
+      gap: 1.25rem;
+    }
+    .ga-detail-layout--sidebar-first .ga-detail-layout__sidebar,
+    .ga-detail-layout--sidebar-first :global(.ga-sidebar) {
+      display: contents;
+    }
+    .ga-detail-layout--sidebar-first :global(.ga-sidebar > *) {
+      order: 3;
+      min-width: 0;
+    }
+    .ga-detail-layout--sidebar-first :global(.ga-sidebar > :first-child) {
+      order: 1;
+    }
+    .ga-detail-layout--sidebar-first .ga-detail-layout__main {
+      order: 2;
     }
   }
 </style>

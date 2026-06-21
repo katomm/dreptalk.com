@@ -219,7 +219,7 @@ const personLd = drep
 
     <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
 
-    <section style="margin-top:2rem;">
+    <section id="voting-history" style="margin-top:2rem;">
       <h2 style="font-size:1.125rem;">Voting history <span style="color:var(--muted);font-weight:400;">({votesCast})</span></h2>
       {votingHistory.length === 0 ? (
         <p style="color:var(--muted);">No recorded on-chain votes.</p>
