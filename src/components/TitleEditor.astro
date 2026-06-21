@@ -1,0 +1,87 @@
+---
+// src/components/TitleEditor.astro
+// Author-only inline editor for a user topic's title. Rendered next to the H1
+// only for the opening-post author on a non-locked user topic. The button reveals
+// an input prefilled with the current title; Save posts to /api/topics/:id/title
+// and reloads. Bundled <script> (not is:inline) keeps the strict CSP intact.
+interface Props {
+  topicId: string;
+  title: string;
+}
+const { topicId, title } = Astro.props;
+---
+
+<div class="title-editor" data-title-editor data-topic-id={topicId}>
+  <button type="button" class="title-editor__open" data-open>Edit title</button>
+  <form class="title-editor__form" data-form hidden>
+    <input type="text" data-input value={title} maxlength="200" required
+      style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:0.375rem;background:var(--bg);color:var(--fg);font-size:1rem;" />
+    <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+      <button type="submit" class="btn btn-primary" data-save>Save</button>
+      <button type="button" class="btn" data-cancel>Cancel</button>
+    </div>
+    <p class="title-editor__error" data-error role="alert" hidden style="color:var(--danger,#dc2626);font-size:0.8125rem;margin:0.5rem 0 0;"></p>
+  </form>
+</div>
+
+<style>
+  .title-editor { margin-top: 0.5rem; }
+  .title-editor__open {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .title-editor__open:hover { text-decoration: underline; }
+</style>
+
+<script>
+  // One handler per editor instance. Toggles the inline form and posts the title.
+  document.querySelectorAll('[data-title-editor]').forEach((root) => {
+    const topicId = root.getAttribute('data-topic-id') ?? '';
+    const openBtn = root.querySelector('[data-open]') as HTMLButtonElement | null;
+    const form = root.querySelector('[data-form]') as HTMLFormElement | null;
+    const input = root.querySelector('[data-input]') as HTMLInputElement | null;
+    const cancel = root.querySelector('[data-cancel]') as HTMLButtonElement | null;
+    const errorEl = root.querySelector('[data-error]') as HTMLParagraphElement | null;
+    if (!openBtn || !form || !input || !cancel) return;
+
+    const show = (on: boolean) => {
+      form.hidden = !on;
+      openBtn.hidden = on;
+      if (on) input.focus();
+    };
+    openBtn.addEventListener('click', () => show(true));
+    cancel.addEventListener('click', () => show(false));
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (errorEl) errorEl.hidden = true;
+      const title = input.value.trim();
+      try {
+        const res = await fetch(`/api/topics/${topicId}/title`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+        });
+        if (res.ok) {
+          window.location.reload();
+          return;
+        }
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (errorEl) {
+          errorEl.textContent = data?.error ?? 'Could not save the title.';
+          errorEl.hidden = false;
+        }
+      } catch {
+        if (errorEl) {
+          errorEl.textContent = 'Network error.';
+          errorEl.hidden = false;
+        }
+      }
+    });
+  });
+</script>

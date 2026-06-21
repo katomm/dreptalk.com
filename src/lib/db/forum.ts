@@ -21,6 +21,8 @@ export interface Topic {
   post_count: number;
   last_post_at: number;
   created_at: number;
+  /** Set when the title has been edited (marker only; no stored prior titles). */
+  title_edited_at: number | null;
 }
 
 export interface Post {
@@ -57,6 +59,7 @@ interface TopicRow {
   post_count: number;
   last_post_at: number;
   created_at: number;
+  title_edited_at: number | null;
 }
 
 interface PostRow {
@@ -101,6 +104,7 @@ function rowToTopic(row: TopicRow): Topic {
     post_count: row.post_count,
     last_post_at: row.last_post_at,
     created_at: row.created_at,
+    title_edited_at: row.title_edited_at,
   };
 }
 
@@ -216,6 +220,7 @@ export async function createTopic(
     post_count: 1,
     last_post_at: postedAt,
     created_at: postedAt,
+    title_edited_at: null,
   });
 
   const firstPost = rowToPost({
