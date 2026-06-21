@@ -9,12 +9,14 @@
 // client-supplied content type.
 
 import { bytesToHex } from '../crypto/hex.js';
-import { AVATAR_KEY_PREFIX, MAX_IMAGE_BYTES } from '../dreps/avatarStore.js';
+import { AVATAR_KEY_PREFIX, MAX_DOWNLOAD_BYTES, fitAvatarForStore, type ImageDownscaler } from '../dreps/avatarStore.js';
 
 export interface DrepImageUploadInput {
   bytes: ArrayBuffer;
   bucket: R2Bucket;
   origin: string;
+  /** Downscaler for uploads over MAX_IMAGE_BYTES; when absent, oversized uploads are rejected. */
+  downscale?: ImageDownscaler;
 }
 
 export interface DrepImageUploadResult {
@@ -47,22 +49,30 @@ export async function handleDrepImageUpload(input: DrepImageUploadInput): Promis
 }
 
 async function handleInternal(input: DrepImageUploadInput): Promise<DrepImageUploadResult> {
-  if (input.bytes.byteLength > MAX_IMAGE_BYTES) {
-    return { status: 413, json: { error: 'image too large (max 256 KB)' } };
+  if (input.bytes.byteLength > MAX_DOWNLOAD_BYTES) {
+    return { status: 413, json: { error: 'image too large (max 10 MB)' } };
   }
 
-  const contentType = sniffImageType(new Uint8Array(input.bytes));
-  if (!contentType) {
+  const sniffed = sniffImageType(new Uint8Array(input.bytes));
+  if (!sniffed) {
     return { status: 415, json: { error: 'only JPG and PNG images are supported' } };
   }
 
-  const sha256 = bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', input.bytes)));
+  // Store small images as-is; downscale anything over the cap to a WebP
+  // thumbnail. The returned sha256 is of the stored bytes, so the hash the
+  // client embeds on-chain matches what /api/avatar later serves.
+  const fitted = await fitAvatarForStore({ bytes: input.bytes, contentType: sniffed }, input.downscale);
+  if (!fitted) {
+    return { status: 413, json: { error: 'image too large (max 512 KB)' } };
+  }
+
+  const sha256 = bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', fitted.bytes)));
   const key = AVATAR_KEY_PREFIX + sha256;
 
   // Content-addressed: identical bytes already stored means nothing to do.
   const existing = await input.bucket.head(key);
   if (!existing) {
-    await input.bucket.put(key, input.bytes, { httpMetadata: { contentType } });
+    await input.bucket.put(key, fitted.bytes, { httpMetadata: { contentType: fitted.contentType } });
   }
 
   return { status: 200, json: { url: `${input.origin}/api/avatar/${sha256}`, sha256 } };

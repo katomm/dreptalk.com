@@ -10,7 +10,7 @@ import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
 import { handleDrepImageUpload } from '@/lib/governance/drepImageHandler';
-import { MAX_IMAGE_BYTES } from '@/lib/dreps/avatarStore';
+import { MAX_DOWNLOAD_BYTES, imagesDownscaler } from '@/lib/dreps/avatarStore';
 
 export const prerender = false;
 
@@ -38,10 +38,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   // Cheap pre-check before buffering the body; the handler re-checks the
-  // actual byte length (content-length can lie or be absent).
+  // actual byte length (content-length can lie or be absent). Images over the
+  // store-as-is cap are downscaled by the handler, not rejected; only the hard
+  // ceiling is enforced here.
   const declared = Number(request.headers.get('content-length') ?? '0');
-  if (declared > MAX_IMAGE_BYTES) {
-    return jsonResponse({ error: 'image too large (max 256 KB)' }, 413);
+  if (declared > MAX_DOWNLOAD_BYTES) {
+    return jsonResponse({ error: 'image too large (max 10 MB)' }, 413);
   }
 
   const bytes = await request.arrayBuffer();
@@ -49,6 +51,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     bytes,
     bucket,
     origin: new URL(request.url).origin,
+    downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
   });
   return jsonResponse(result.json, result.status);
 };

@@ -8,3 +8,8 @@ export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   }
   return true;
 }
+
+/** Copies a Uint8Array view into a standalone ArrayBuffer of exactly its bytes. */
+export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}

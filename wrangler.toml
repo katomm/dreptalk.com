@@ -37,6 +37,13 @@ migrations_dir = "migrations"
 binding = "AVATARS"
 bucket_name = "dreptalk-avatars"
 
+# Cloudflare Images binding: downscales oversized avatar uploads to a WebP
+# thumbnail before storing, instead of rejecting them. Requires Image
+# Transformations enabled on the zone. Carried into the preprod config by
+# scripts/preprod-config.mjs unchanged.
+[images]
+binding = "IMAGES"
+
 # KV namespace for server-side session storage.
 [[kv_namespaces]]
 binding = "SESSIONS"
