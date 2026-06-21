@@ -81,6 +81,7 @@ const voteFor = (author: AuthorDescriptor) =>
           flagged={flaggedPostIds.has(post.id)}
           viewerReaction={viewerReactions.get(post.id) ?? null}
           canReply={canParticipate && !isOpening}
+          topicLocked={topic.locked}
           now={now}
         />
         {children.length > 0 && (
@@ -96,6 +97,7 @@ const voteFor = (author: AuthorDescriptor) =>
                   flagged={flaggedPostIds.has(child.id)}
                   viewerReaction={viewerReactions.get(child.id) ?? null}
                   canReply={canParticipate}
+                  topicLocked={topic.locked}
                   now={now}
                   compact
                 />

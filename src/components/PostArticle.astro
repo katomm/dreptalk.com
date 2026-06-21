@@ -23,11 +23,13 @@ interface Props {
   now: number;
   /** Reply rendering: smaller avatar. */
   compact?: boolean;
+  /** The thread is locked: disables the Edit affordance. */
+  topicLocked?: boolean;
 }
 
-const { post, author, authorVote, user, flagged, viewerReaction, canReply, now, compact = false } = Astro.props;
+const { post, author, authorVote, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false } = Astro.props;
 
-const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, user, !!author.isSystem);
+const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
 ---
 
 <article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
@@ -56,6 +58,7 @@ const { canSeeContent, canFlag, canReact, isOwnPost } = postViewerContext(post, 
       flagged={flagged}
       viewerReaction={viewerReaction}
       canReply={canReply}
+      canEdit={canEdit && !topicLocked}
       authorName={author.displayName}
     />
   )}
