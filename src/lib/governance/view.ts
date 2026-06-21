@@ -4,20 +4,18 @@
 // and the thread header / list rows. Explorer links live in config/network.ts
 // (governanceActionUrl), since they are network-aware.
 
+import { formatAda, formatAdaCompact } from '../format/ada.js';
+
+// Re-exported so governance components keep importing the ADA formatters from
+// this view module; the implementations live in lib/format/ada.ts.
+export { formatAda, formatAdaCompact };
+
 // Cardano epochs are 5 days on both mainnet and preprod; used for the countdown.
 const EPOCH_DAYS = 5;
 
 /** "TreasuryWithdrawals" -> "Treasury Withdrawals". */
 export function readableType(type: string): string {
   return type.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
-}
-
-/** Lovelace string -> "100,000 ADA", or null when absent/non-numeric. */
-export function formatAda(lovelace: string | null | undefined): string | null {
-  if (!lovelace) return null;
-  const n = Number(lovelace);
-  if (!Number.isFinite(n)) return null;
-  return `${(n / 1_000_000).toLocaleString('en-US')} ADA`;
 }
 
 export type StatusTone = 'active' | 'positive' | 'negative' | 'neutral';
@@ -327,16 +325,6 @@ export function sentimentSubline(t: OverviewTally): string {
   return `${noShare} · ${fmtPct(t.bar.abstain)} abstain`;
 }
 
-/** Compact ADA from lovelace: "3.21B ₳" / "12.4M ₳" / "950K ₳" / "0 ₳". */
-export function formatAdaShort(lovelace: number): string {
-  const ada = lovelace / 1_000_000;
-  const sym = '₳';
-  if (ada >= 1_000_000_000) return `${(ada / 1_000_000_000).toFixed(2)}B ${sym}`;
-  if (ada >= 1_000_000) return `${(ada / 1_000_000).toFixed(1)}M ${sym}`;
-  if (ada >= 1_000) return `${Math.round(ada / 1_000)}K ${sym}`;
-  return `${Math.round(ada)} ${sym}`;
-}
-
 export interface StakeParticipation {
   pct: number;          // 0..100
   votedLabel: string;   // "3.21B ₳"
@@ -348,5 +336,8 @@ export function stakeParticipation(votedLovelace: number, totalLovelace: number)
   if (!Number.isFinite(totalLovelace) || totalLovelace <= 0) return null;
   if (!Number.isFinite(votedLovelace)) return null;
   const pct = Math.min(100, Math.max(0, (votedLovelace / totalLovelace) * 100));
-  return { pct, votedLabel: formatAdaShort(votedLovelace), totalLabel: formatAdaShort(totalLovelace) };
+  // Two fraction digits so billions-scale totals stay distinguishable (3.21B vs 3.2B).
+  const voted = formatAdaCompact(votedLovelace, 2) ?? '0 ₳';
+  const total = formatAdaCompact(totalLovelace, 2) ?? '0 ₳';
+  return { pct, votedLabel: voted, totalLabel: total };
 }

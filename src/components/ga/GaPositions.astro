@@ -5,7 +5,7 @@ import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
-import { voteTone, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
+import { voteTone, TONE_COLORS, formatAdaCompact } from '@/lib/governance/view.js';
 
 interface Props {
   voters: ActionVoterRow[];
@@ -37,7 +37,7 @@ function pageHref(p: number): string {
         const descriptor = voterDescriptor(v, dreps);
         const tone = voteTone(v.vote);
         const badgeColor = TONE_COLORS[tone];
-        const ada = formatAda(v.voting_power);
+        const ada = formatAdaCompact(v.voting_power);
         return (
           <li class="ga-positions__row">
             <div class="ga-positions__identity">
