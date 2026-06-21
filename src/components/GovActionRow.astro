@@ -203,6 +203,9 @@ const votingEnds =
     }
     .garow__main { grid-column:1 / -1; min-width:0; }
     .metric { grid-column:1 / -1; min-width:0; }
+    /* Drop the proposer/epoch line on mobile: mostly a truncated stake address
+       on a small screen; the proposer stays on the detail page. */
+    .garow__meta { display:none; }
     /* Activity holds the first two footer columns; the time block is the third. */
     .garow__activity { grid-column:1 / 3; flex-direction:row; gap:0; min-width:0; }
     .garow__stat { flex:1 1 0; min-width:0; padding:0 6px; align-items:center; text-align:center; }
