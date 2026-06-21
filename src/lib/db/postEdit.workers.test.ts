@@ -2,7 +2,7 @@
 // editPost: grace-window silent edits vs. marked edits with archived revisions.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { createTopic, createPost, editPost, getPostById } from './forum.js';
+import { createTopic, editPost } from './forum.js';
 import { EDIT_GRACE_MS } from '../forum/editPolicy.js';
 
 const db = () => env.DB;
