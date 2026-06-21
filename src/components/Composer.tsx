@@ -46,6 +46,8 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
     const onReply = (e: Event) => {
       const detail = (e as CustomEvent<ReplyEventDetail>).detail;
       if (!detail?.postId) return;
+      // Reply and edit are mutually exclusive: starting a reply leaves edit mode.
+      setEditingPostId(null);
       setReplyTo(detail);
       setShowPreview(false);
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
