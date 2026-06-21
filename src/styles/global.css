@@ -510,20 +510,22 @@ main.container {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* Rounded-square outlined button with accent dots, matching the mockup (and the
+   header icon buttons), not a borderless grey circle. */
 .drep-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 999px;
-  border: 1px solid transparent;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--border);
   background: transparent;
-  color: var(--muted);
+  color: var(--accent);
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.drep-action-btn:hover { background: var(--surface); color: var(--fg); border-color: var(--border); }
+.drep-action-btn:hover { background: var(--surface); border-color: var(--accent); }
 
 /* Actions cell: the desktop delegate quick-action sits to the left of the kebab. */
 .drep-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.4rem; }
