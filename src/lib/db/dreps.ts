@@ -212,6 +212,59 @@ export async function listDreps(
 }
 
 /**
+ * Drep ids currently marked active. The sync diffs this against the registered
+ * enumeration to find rows that still claim active voting power but have left the
+ * registered set (the DRep deregistered). Excludes the pseudo-DReps, which are
+ * standing options, never real voters.
+ */
+export async function listActiveDrepIds(db: D1Database): Promise<string[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT drep_id FROM dreps
+         WHERE active = 1 AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`,
+      )
+      .bind(...SPECIAL_DREP_IDS)
+      .all<{ drep_id: string }>()
+  ).results ?? [];
+  return rows.map((r) => r.drep_id);
+}
+
+/**
+ * Marks DReps that have left the registered set as inactive: refreshes ONLY the
+ * chain-derived columns (status, active=0, voting power, deposit, expiry) and the
+ * sync timestamp from a fresh drep_info, leaving the profile (name/bio/avatar/
+ * anchor/slug) untouched so a retired DRep stays viewable for its governance
+ * history. A plain UPDATE keeps the rowid stable, and name/bio are not touched,
+ * so the WHEN-guarded FTS triggers do not fire. Batched; no-op on an empty list.
+ * Returns the number of rows updated.
+ */
+export async function deactivateDreps(
+  db: D1Database,
+  rows: {
+    drepId: string;
+    status: string;
+    votingPower: string | null;
+    deposit: string | null;
+    expiresEpochNo: number | null;
+    lastSyncedAt: number;
+  }[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const stmts = rows.map((r) =>
+    db
+      .prepare(
+        `UPDATE dreps SET status = ?, active = 0, voting_power = ?, deposit = ?,
+           expires_epoch_no = ?, last_synced_at = ?
+         WHERE drep_id = ?`,
+      )
+      .bind(r.status, r.votingPower, r.deposit, r.expiresEpochNo, r.lastSyncedAt, r.drepId),
+  );
+  await db.batch(stmts);
+  return rows.length;
+}
+
+/**
  * Inserts or updates a drep row in place (upsert keyed on drep_id).
  * Deliberately NOT INSERT OR REPLACE: REPLACE is DELETE+INSERT, which would
  * reassign the rowid and fire the dreps FTS delete/insert triggers on every

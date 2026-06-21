@@ -382,6 +382,88 @@ describe('anchor fetch budget', () => {
   });
 });
 
+describe('deregistration', () => {
+  // A registered DRep that disappears from the registered enumeration (deposit
+  // returned) must be transitioned to inactive so it stops showing as a live,
+  // voting DRep, while its profile is kept for the governance record.
+  const anchored = (id: string, over: Partial<DrepInfoRow> = {}): DrepInfoRow =>
+    infoRow(id, { meta_url: `https://example.com/${id}.json`, meta_hash: profileHash, ...over });
+
+  it('deactivates a DRep that left the registered set, preserving its stored profile', async () => {
+    const stay = 'drep1-dereg-stay';
+    const gone = 'drep1-dereg-gone';
+
+    // Run 1: both registered and active, each with a CIP-119 profile.
+    const r1 = fakeKoios({
+      pages: [[listRow(stay), listRow(gone)]],
+      infoById: new Map([[stay, anchored(stay)], [gone, anchored(gone)]]),
+    });
+    await syncDreps({ koios: r1.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+    const goneAfter1 = await getDrepById(env.DB, gone);
+    expect(goneAfter1!.active).toBe(true);
+    expect(goneAfter1!.name).toBe('Alice DRep');
+    expect(goneAfter1!.votingPower).toBe('1000000000');
+
+    // Run 2: `gone` deregistered (registered:false in drep_list); drep_info now
+    // reports the deregistered chain state with zero voting power.
+    const r2k = fakeKoios({
+      pages: [[listRow(stay, true), listRow(gone, false)]],
+      infoById: new Map([
+        [stay, anchored(stay)],
+        [gone, infoRow(gone, { drep_status: 'deregistered', active: false, amount: '0', deposit: null, meta_url: null, meta_hash: null })],
+      ]),
+    });
+    const fetcher = countingProfileFetch();
+    const r2 = await syncDreps({ koios: r2k.koios, db: env.DB, fetchImpl: fetcher.fetchImpl, now: NOW + 1 });
+
+    expect(r2.deactivated).toBe(1);
+    expect(fetcher.calls()).toBe(0); // no anchor fetched: stay reuses, gone takes the deactivation path
+
+    const goneAfter2 = await getDrepById(env.DB, gone);
+    expect(goneAfter2!.active).toBe(false);
+    expect(goneAfter2!.status).toBe('deregistered');
+    expect(goneAfter2!.votingPower).toBe('0');
+    // Profile preserved for the governance record.
+    expect(goneAfter2!.name).toBe('Alice DRep');
+    expect(goneAfter2!.imageUrl).toBe('https://example.com/alice.png');
+    expect(goneAfter2!.anchorStatus).toBe('ok');
+    expect(goneAfter2!.lastSyncedAt).toBe(NOW + 1);
+
+    // The still-registered DRep is untouched.
+    expect((await getDrepById(env.DB, stay))!.active).toBe(true);
+  });
+
+  it('does not deactivate active rows when the enumeration is empty', async () => {
+    const id = 'drep1-dereg-empty';
+    const r1 = fakeKoios({ pages: [[listRow(id)]], infoById: new Map([[id, infoRow(id)]]) });
+    await syncDreps({ koios: r1.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+    expect((await getDrepById(env.DB, id))!.active).toBe(true);
+
+    // A transient empty drep_list must not be read as "everyone deregistered".
+    const r2k = fakeKoios({ pages: [[]], infoById: new Map() });
+    const r2 = await syncDreps({ koios: r2k.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW + 1 });
+    expect(r2.deactivated).toBe(0);
+    expect((await getDrepById(env.DB, id))!.active).toBe(true);
+  });
+
+  it('leaves a DRep that re-registered between enumeration and lookup for the next sync', async () => {
+    const a = 'drep1-dereg-race-a';
+    const b = 'drep1-dereg-race-b';
+    const r1 = fakeKoios({ pages: [[listRow(a), listRow(b)]], infoById: new Map([[a, infoRow(a)], [b, infoRow(b)]]) });
+    await syncDreps({ koios: r1.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+
+    // `b` dropped from the registered enumeration, but drep_info still reports it
+    // active (a re-registration landed in between). It must NOT be deactivated.
+    const r2k = fakeKoios({
+      pages: [[listRow(a, true), listRow(b, false)]],
+      infoById: new Map([[a, infoRow(a)], [b, infoRow(b, { active: true })]]),
+    });
+    const res = await syncDreps({ koios: r2k.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW + 1 });
+    expect(res.deactivated).toBe(0);
+    expect((await getDrepById(env.DB, b))!.active).toBe(true);
+  });
+});
+
 describe('stored-avatar preservation', () => {
   it('a re-sync write preserves the avatar-store-owned columns', async () => {
     const drepId = 'drep1avatarkeep';
