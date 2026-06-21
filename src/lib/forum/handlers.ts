@@ -2,7 +2,7 @@
 // Testable handler functions for forum write operations.
 // All I/O deps are injected; Astro routes are thin wrappers over these.
 
-import { createTopic, createPost, getPostById } from '../db/forum.js';
+import { createTopic, createPost, getPostById, editPost, editTitle } from '../db/forum.js';
 import { flagPost, unflagPost, type FlagState } from '../db/postFlags.js';
 import { setReaction, clearReaction, isReaction, type ReactionState, type Reaction } from '../db/postReactions.js';
 import { renderMarkdown } from '../markdown.js';
@@ -353,3 +353,98 @@ export async function handleReactToPost(
 /** Withdraws the caller's reaction (no-op if none). */
 export const handleClearReaction = (input: ReactPostInput): Promise<HandlerResult> =>
   handleReactionChange(input, null);
+
+// ---------------------------------------------------------------------------
+// handleEditPost / handleEditTitle (owner edits; grace window + revisions)
+// ---------------------------------------------------------------------------
+
+/** Maps editPost/editTitle domain errors to HTTP results. */
+function editError(err: unknown): HandlerResult {
+  const msg = err instanceof Error ? err.message : '';
+  if (msg === 'post_not_found' || msg === 'topic_not_found') {
+    return { status: 404, json: { ok: false, error: msg } };
+  }
+  if (msg === 'not_owner' || msg === 'post_hidden' || msg === 'topic_locked' || msg === 'not_user_topic') {
+    return { status: 403, json: { ok: false, error: msg } };
+  }
+  return { status: 500, json: { ok: false, error: 'internal error' } };
+}
+
+export interface EditPostInput {
+  user: User | null;
+  postId: string;
+  body: { bodyMd: unknown };
+  db: D1Database;
+  rateLimiter: DurableObjectNamespace<RateLimiter>;
+  now: number;
+}
+
+/**
+ * Edits the caller's own post body. Same writer gate as posting; rate-limited;
+ * validates length; re-renders+sanitizes markdown. Ownership, hidden, and topic
+ * lock/delete checks live in editPost (domain errors mapped via editError).
+ */
+export async function handleEditPost(input: EditPostInput): Promise<HandlerResult> {
+  try {
+    const { user, postId, body, db, rateLimiter, now } = input;
+    if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
+    if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
+
+    const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
+    if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };
+
+    const bodyMd = (typeof body.bodyMd === 'string' ? body.bodyMd : '').trim();
+    if (bodyMd.length === 0 || bodyMd.length > 20000) {
+      return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
+    }
+    const bodyHtml = renderMarkdown(bodyMd);
+
+    try {
+      const { edited } = await editPost(db, { postId, authorId: user.id, bodyMd, bodyHtml, now });
+      return { status: 200, json: { ok: true, edited } };
+    } catch (err) {
+      return editError(err);
+    }
+  } catch {
+    return { status: 500, json: { ok: false, error: 'internal error' } };
+  }
+}
+
+export interface EditTitleInput {
+  user: User | null;
+  topicId: string;
+  body: { title: unknown };
+  db: D1Database;
+  rateLimiter: DurableObjectNamespace<RateLimiter>;
+  now: number;
+}
+
+/**
+ * Edits the caller's own topic title (opening-post author). Same writer gate;
+ * rate-limited; validates 3..200 chars. Slug stays frozen. Ownership / governance
+ * / lock checks live in editTitle.
+ */
+export async function handleEditTitle(input: EditTitleInput): Promise<HandlerResult> {
+  try {
+    const { user, topicId, body, db, rateLimiter, now } = input;
+    if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
+    if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
+
+    const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
+    if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };
+
+    const title = (typeof body.title === 'string' ? body.title : '').trim();
+    if (title.length < 3 || title.length > 200) {
+      return { status: 400, json: { ok: false, error: 'title must be 3 to 200 characters' } };
+    }
+
+    try {
+      await editTitle(db, { topicId, authorId: user.id, title, now });
+      return { status: 200, json: { ok: true } };
+    } catch (err) {
+      return editError(err);
+    }
+  } catch {
+    return { status: 500, json: { ok: false, error: 'internal error' } };
+  }
+}
