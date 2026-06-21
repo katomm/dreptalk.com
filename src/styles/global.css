@@ -553,7 +553,9 @@ main.container {
    it overrides them. */
 @media (max-width: 640px) {
   .drep-table thead th.drep-table__power-h { width: 5.5rem; }
-  .drep-table thead th.drep-table__actions-h { width: 2.75rem; }
+  /* Wider than the 44px button so the right-aligned kebab keeps a gap to the
+     voting-power column; the DRep name (which truncates) yields the space. */
+  .drep-table thead th.drep-table__actions-h { width: 3.75rem; }
   .drep-delegate-btn { display: none; }
   .drep-action-btn { width: 2.75rem; height: 2.75rem; }
   .drep-power { flex-direction: column; align-items: flex-end; gap: 0.15rem; }
