@@ -104,6 +104,7 @@ const personLd = drep
     title={`${displayName} - DRep on DRepTalk`}
     description={drep.bio ? excerptFromHtml(drep.bio, 155) : `On-chain DRep profile and activity for ${displayName} on DRepTalk.`}
     noindex={!indexable}
+    ogImage={`/og/drep/${drep.slug ?? drep.drepId}.png`}
   >
     {personLd && <JsonLd data={personLd} />}
 

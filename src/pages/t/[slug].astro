@@ -231,9 +231,10 @@ const breadcrumbLd = topic
     }
   : null;
 
-// OG card: per governance-action type, a generic discussion card, or the site
-// default for a governance topic whose action has not synced yet.
-const ogImage = threadOgImage(govAction, isGovernanceTopic);
+// OG card: a per-action dynamic card for a synced governance action, a generic
+// discussion card for a plain thread, or the site default for a governance topic
+// whose action has not synced yet.
+const ogImage = govAction && topic ? `/og/t/${topic.slug}.png` : threadOgImage(govAction, isGovernanceTopic);
 ---
 
 {notFound ? (
