@@ -11,6 +11,7 @@ import {
   buildDrepTarget,
   stakeCredentialFromRewardAddress,
   queueDelegateVotesOps,
+  buildGovActionId,
 } from './drepTx.js';
 import { bytesToHex } from '../crypto/hex.js';
 
@@ -223,5 +224,21 @@ describe('queueDelegateVotesOps (fee: stake key required signer)', () => {
     expect(addSignerKeyHashHex(calls)).toBe(STAKE_HASH_HEX);
     // The CIP-20 attribution tag (label 674) rides along, like register/retire.
     expect(calls.some((c) => c.op === 'attachMetadata')).toBe(true);
+  });
+});
+
+describe('buildGovActionId', () => {
+  const txHash = 'a'.repeat(64);
+
+  it('parses "<txHash>#<index>" into a GovActionId with matching index', () => {
+    const id = buildGovActionId(`${txHash}#3`);
+    expect(id.govActionIndex).toBe(3n);
+    // transactionId.hash is the 32 raw bytes of the tx hash
+    expect(id.transactionId.hash.length).toBe(32);
+  });
+
+  it('rejects a malformed id', () => {
+    expect(() => buildGovActionId('not-an-id')).toThrow();
+    expect(() => buildGovActionId(`${txHash}#-1`)).toThrow();
   });
 });

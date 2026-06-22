@@ -2,7 +2,10 @@
 // Non-custodial: the server never sees a private key; the wallet extension signs and submits.
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
-import { Address, Anchor, Client, Credential, DRep, KeyHash, ScriptHash, Transaction, Url, UTxO, mainnet, preprod } from '@evolution-sdk/evolution';
+import {
+  Address, Anchor, Client, Credential, DRep, GovernanceAction, KeyHash, ScriptHash,
+  Transaction, TransactionHash, Url, UTxO, VotingProcedures, mainnet, preprod,
+} from '@evolution-sdk/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -349,6 +352,27 @@ export function buildDrepTarget(opts: { credentialHex: string; isScript: boolean
   return opts.isScript
     ? DRep.fromScriptHash(ScriptHash.fromBytes(bytes))
     : DRep.fromKeyHash(KeyHash.fromBytes(bytes));
+}
+
+/**
+ * Parses the stored governance action id ("<txHash>#<index>", the
+ * governance_actions.id form) into the SDK GovActionId the vote builder needs.
+ * The tx hash is 64 lowercase hex chars (32 bytes); the index is a uint16.
+ * Pure; exported for unit tests.
+ */
+export function buildGovActionId(id: string): GovernanceAction.GovActionId {
+  const m = /^([0-9a-fA-F]{64})#(\d{1,5})$/.exec(id.trim());
+  if (!m) {
+    throw new Error('Invalid governance action id; expected "<64-hex-txHash>#<index>".');
+  }
+  const index = Number(m[2]);
+  if (!Number.isInteger(index) || index < 0 || index > 0xffff) {
+    throw new Error('Governance action index out of range.');
+  }
+  return new GovernanceAction.GovActionId({
+    transactionId: TransactionHash.fromHex(m[1].toLowerCase()),
+    govActionIndex: BigInt(index),
+  });
 }
 
 /**
