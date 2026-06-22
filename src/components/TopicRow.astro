@@ -15,16 +15,18 @@ import { authorProfileHref } from '@/lib/forum/author.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
 import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
+import { resolveNetwork, epochStartMs, type CardanoNetwork } from '@/lib/config/network.js';
 
 interface Props {
   topic: Topic;
   now: number;
+  network: CardanoNetwork;
   author?: AuthorDescriptor;
   category?: Category;
   governance?: GovernanceAction;
 }
 
-const { topic, now, author, category, governance } = Astro.props;
+const { topic, now, network, author, category, governance } = Astro.props;
 
 // Left column: the author avatar, or the neutral system tile for a
 // system-authored (governance) topic, mirroring the activity feed row.
@@ -35,7 +37,11 @@ const badges = author?.badges ?? [];
 
 const gaBadge = governance ? statusBadge(governance.status) : null;
 const gaBar = governance ? tallyBar(governance.drepYesPct, governance.drepNoPct) : null;
-const gaCountdown = governance ? epochCountdown(governance.expiryEpoch, governance.tallyEpoch, governance.status) : null;
+const gaExpiryMs =
+  governance?.expiryEpoch != null ? epochStartMs(governance.expiryEpoch, resolveNetwork(network)) : null;
+const gaCountdown = governance
+  ? epochCountdown(governance.expiryEpoch, gaExpiryMs, governance.status, now)
+  : null;
 ---
 
 <div class="topic-row">

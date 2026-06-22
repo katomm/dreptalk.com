@@ -23,9 +23,10 @@ interface Props {
   proposerIcon?: string;   // bundled logo path for a known proposer
   stake: StakeParticipation | null;
   network: CardanoNetwork;
+  now: number;             // render instant, for the wall-clock voting countdown
   href: string;
 }
-const { topic, action, proposer, proposerIcon, stake, network, href } = Astro.props;
+const { topic, action, proposer, proposerIcon, stake, network, now, href } = Astro.props;
 // No bundled logo: fall back to the cardenticon, seeded by the reward address
 // (decodes stake1... natively), so the list mirrors the detail page rather than
 // showing a bare name. Skipped when there is no address (renders as "Unknown").
@@ -40,13 +41,13 @@ const tally = overviewTally(action);
 const votedLabel = tally?.role === 'SPO' ? 'SPOs' : 'DReps';
 const votedCount = tally?.voted ?? 0;
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
-const daysLeft = epochDaysLeft(action.expiryEpoch, action.tallyEpoch, action.status);
-// Calendar date of the expiry epoch boundary (when voting closes). Only shown
-// while voting is still open; once past, the status badge carries the outcome.
-const votingEnds =
-  daysLeft != null && action.expiryEpoch != null
-    ? formatEpochDate(epochStartUnix(action.expiryEpoch, resolveNetwork(network)))
-    : null;
+// Calendar boundary of the expiry epoch (when voting closes). Both the countdown
+// and the "Voting ends" date derive from this same instant, so they stay in step.
+const expiryUnix =
+  action.expiryEpoch != null ? epochStartUnix(action.expiryEpoch, resolveNetwork(network)) : null;
+const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, action.status, now);
+// Only shown while voting is still open; once past, the status badge carries the outcome.
+const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expiryUnix) : null;
 ---
 <a class="garow" href={href}>
   <div class="garow__main">

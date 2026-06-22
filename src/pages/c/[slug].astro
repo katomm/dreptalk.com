@@ -272,6 +272,7 @@ const breadcrumbLd = {
                 proposerIcon={proposerIcon}
                 stake={stakeByTopic.get(r.topic.id) ?? null}
                 network={network}
+                now={now}
                 href={`/t/${r.topic.slug}`}
               />
             );
@@ -297,6 +298,7 @@ const breadcrumbLd = {
           <TopicRow
             topic={topic}
             now={now}
+            network={network}
             author={identities ? identities.describe(topic.author_id) : undefined}
           />
         ))}
