@@ -33,6 +33,9 @@ interface Props {
 
 const { post, canReact, canFlag, isOwnPost, flagged, viewerReaction, canReply = false, canEdit = false, authorName = '' } = Astro.props;
 const disabledReason = isOwnPost ? 'You cannot react to your own posts' : undefined;
+// vote_rationale posts are frozen: the edit affordance is never shown,
+// regardless of what the caller passes for canEdit. Flag stays available.
+const showEdit = canEdit && post.source !== 'vote_rationale';
 ---
 
 <div style="margin-top:0.75rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
@@ -81,7 +84,7 @@ const disabledReason = isOwnPost ? 'You cannot react to your own posts' : undefi
     </svg>
     <span data-share-label>Share</span>
   </button>
-  {canEdit && (
+  {showEdit && (
     <button
       type="button"
       class="post-action"

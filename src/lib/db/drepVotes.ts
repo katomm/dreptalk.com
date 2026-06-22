@@ -148,17 +148,17 @@ export async function countActionVoters(db: D1Database, gaId: string): Promise<n
 export async function getVotesByGaId(
   db: D1Database,
   gaId: string,
-): Promise<Map<string, { role: string; vote: string }>> {
+): Promise<Map<string, { role: string; vote: string; meta_url: string | null }>> {
   const rows = (
     await db
-      .prepare('SELECT voter_id, voter_role, vote FROM drep_votes WHERE ga_id = ?')
+      .prepare('SELECT voter_id, voter_role, vote, meta_url FROM drep_votes WHERE ga_id = ?')
       .bind(gaId)
-      .all<{ voter_id: string; voter_role: string; vote: string }>()
+      .all<{ voter_id: string; voter_role: string; vote: string; meta_url: string | null }>()
   ).results ?? [];
 
-  const map = new Map<string, { role: string; vote: string }>();
+  const map = new Map<string, { role: string; vote: string; meta_url: string | null }>();
   for (const r of rows) {
-    map.set(r.voter_id, { role: r.voter_role, vote: r.vote });
+    map.set(r.voter_id, { role: r.voter_role, vote: r.vote, meta_url: r.meta_url ?? null });
   }
   return map;
 }

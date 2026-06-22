@@ -14,7 +14,7 @@ import type { SessionUser } from '@/lib/forum/postVisibility.js';
 interface Props {
   topic: Topic;
   thread: ThreadPage;
-  govVotes: Map<string, { role: string; vote: string }>;
+  govVotes: Map<string, { role: string; vote: string; meta_url?: string | null }>;
   /** Current user, or null when anonymous. */
   user: SessionUser | null;
   topicAuthor: AuthorDescriptor;
