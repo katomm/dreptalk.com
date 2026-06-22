@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { drepCardModel, type GovCardInput, govCardModel } from './model.js';
+import { discussionCardModel, drepCardModel, type GovCardInput, govCardModel } from './model.js';
 import { accentForType, BRAND_ACCENT } from './theme.js';
 
 const baseAction: GovCardInput = {
@@ -90,5 +90,32 @@ describe('drepCardModel', () => {
     expect(m.bio).toBeNull();
     expect(m.stats).toHaveLength(3);
     expect(m.stats[0].label).toBe('voting power');
+  });
+});
+
+describe('discussionCardModel', () => {
+  const topic = { title: 'How should we fund tooling?', categorySlug: 'general', postCount: 43 };
+
+  it('humanizes the category, counts replies and carries the author', () => {
+    const m = discussionCardModel(topic, { authorName: 'Ada Hernandez', avatarDataUrl: 'data:x' });
+    expect(m.category).toBe('General');
+    expect(m.title).toBe('How should we fund tooling?');
+    expect(m.authorName).toBe('Ada Hernandez');
+    expect(m.meta).toBe('42 replies');
+  });
+
+  it('singularizes one reply and humanizes a multi-word category', () => {
+    const m = discussionCardModel(
+      { title: 'Hi', categorySlug: 'governance-actions', postCount: 2 },
+      { authorName: null, avatarDataUrl: null },
+    );
+    expect(m.category).toBe('Governance Actions');
+    expect(m.meta).toBe('1 reply');
+    expect(m.authorName).toBeNull();
+  });
+
+  it('shows zero replies for a topic with only the opening post', () => {
+    const m = discussionCardModel({ ...topic, postCount: 1 }, { authorName: null, avatarDataUrl: null });
+    expect(m.meta).toBe('0 replies');
   });
 });

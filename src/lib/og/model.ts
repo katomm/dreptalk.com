@@ -120,3 +120,42 @@ export function drepCardModel(
     stats,
   };
 }
+
+/** "governance-actions" -> "Governance Actions". */
+function categoryLabel(slug: string): string {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+export interface DiscussionCardInput {
+  title: string;
+  categorySlug: string;
+  postCount: number;
+}
+
+export interface DiscussionCardModel {
+  accent: string;
+  category: string;
+  title: string;
+  authorName: string | null;
+  avatarDataUrl: string | null;
+  meta: string;
+}
+
+export function discussionCardModel(
+  t: DiscussionCardInput,
+  opts: { authorName: string | null; avatarDataUrl: string | null },
+): DiscussionCardModel {
+  const replies = Math.max(0, t.postCount - 1);
+  return {
+    accent: BRAND_ACCENT,
+    category: categoryLabel(t.categorySlug) || 'Discussion',
+    title: clamp(t.title, 96),
+    authorName: opts.authorName,
+    avatarDataUrl: opts.avatarDataUrl,
+    meta: `${replies} ${replies === 1 ? 'reply' : 'replies'}`,
+  };
+}

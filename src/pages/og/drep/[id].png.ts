@@ -9,7 +9,7 @@ import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { countDrepVotes, getDrepParticipation } from '@/lib/db/drepVotes.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { influencePct } from '@/lib/drep/profile.js';
-import { loadDrepAvatar, loadLogo } from '@/lib/og/assets.js';
+import { loadAvatar, loadLogo } from '@/lib/og/assets.js';
 import { loadOgFonts } from '@/lib/og/fonts.js';
 import { drepCardModel } from '@/lib/og/model.js';
 import { ogPng } from '@/lib/og/render.js';
@@ -30,7 +30,7 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     countDrepVotes(db, drep.drepId),
     getDrepParticipation(db, drep.drepId, drep.registeredEpoch),
     getActiveDrepStake(db),
-    loadDrepAvatar(env.AVATARS as R2Bucket | undefined, drep.hex ?? drep.drepId, drep.imageContentHash),
+    loadAvatar(env.AVATARS as R2Bucket | undefined, drep.hex ?? drep.drepId, drep.imageContentHash),
   ]);
 
   const model = drepCardModel(drep, {

@@ -1,20 +1,22 @@
 // GET /og/t/:slug.png
 //
-// Dynamic Open Graph card for a governance-action thread, rendered on demand and
-// cached. Keyed by the topic slug (the on-chain ga_id contains '#', so it is not
-// URL-safe). A non-governance or unknown slug 404s; the page then keeps its
-// static category card.
+// Dynamic Open Graph card for a forum thread, rendered on demand and cached.
+// Keyed by the topic slug (the on-chain ga_id contains '#', so it is not
+// URL-safe). A synced governance action renders the action card; any other topic
+// renders the discussion card. An unknown slug 404s and the page keeps the site
+// default image.
 import type { APIRoute } from 'astro';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { epochStartMs } from '@/lib/config/network.js';
-import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
 import { getTopicBySlug } from '@/lib/db/forum.js';
+import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
+import { loadAuthorIdentity } from '@/lib/forum/author.js';
 import { proposerView } from '@/lib/identity/proposer.js';
-import { loadLogo } from '@/lib/og/assets.js';
+import { loadAvatar, loadLogo } from '@/lib/og/assets.js';
 import { loadOgFonts } from '@/lib/og/fonts.js';
-import { govCardModel } from '@/lib/og/model.js';
+import { discussionCardModel, govCardModel } from '@/lib/og/model.js';
 import { ogPng } from '@/lib/og/render.js';
-import { govCardHtml } from '@/lib/og/templates.js';
+import { discussionCardHtml, govCardHtml } from '@/lib/og/templates.js';
 
 export const prerender = false;
 
@@ -25,21 +27,32 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   if (!db || !slug) return new Response('Not found', { status: 404 });
 
   const topic = await getTopicBySlug(db, slug);
-  const action = topic ? await getGovernanceActionByTopicId(db, topic.id) : null;
-  if (!action) return new Response('Not found', { status: 404 });
+  if (!topic) return new Response('Not found', { status: 404 });
 
-  const net = currentNetwork();
-  const expiryUnixMs = action.expiryEpoch != null ? epochStartMs(action.expiryEpoch, net) : null;
-  const pv = proposerView(action.returnAddress);
-  const model = govCardModel(action, {
-    expiryUnixMs,
-    now: Date.now(),
-    proposerName: pv.kind === 'known' ? pv.name : null,
-  });
+  const assets = env.ASSETS as unknown as Fetcher;
+  const [fonts, logo] = await Promise.all([loadOgFonts(assets, request.url), loadLogo(assets, request.url)]);
 
-  const [fonts, logo] = await Promise.all([
-    loadOgFonts(env.ASSETS as unknown as Fetcher, request.url),
-    loadLogo(env.ASSETS as unknown as Fetcher, request.url),
-  ]);
-  return ogPng(govCardHtml(model, logo), fonts);
+  const action = await getGovernanceActionByTopicId(db, topic.id);
+  if (action) {
+    const net = currentNetwork();
+    const expiryUnixMs = action.expiryEpoch != null ? epochStartMs(action.expiryEpoch, net) : null;
+    const pv = proposerView(action.returnAddress);
+    const model = govCardModel(action, {
+      expiryUnixMs,
+      now: Date.now(),
+      proposerName: pv.kind === 'known' ? pv.name : null,
+    });
+    return ogPng(govCardHtml(model, logo), fonts);
+  }
+
+  // Plain discussion thread: author identity + reply count.
+  const author = await loadAuthorIdentity(db, topic.author_id);
+  const avatarDataUrl = author.isSystem
+    ? null
+    : await loadAvatar(env.AVATARS as R2Bucket | undefined, author.identiconSeed ?? topic.author_id, author.imageHash);
+  const model = discussionCardModel(
+    { title: topic.title, categorySlug: topic.category_slug, postCount: topic.post_count },
+    { authorName: author.isSystem ? null : author.displayName, avatarDataUrl },
+  );
+  return ogPng(discussionCardHtml(model, logo), fonts);
 };

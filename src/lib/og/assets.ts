@@ -25,11 +25,11 @@ export async function loadLogo(assets: Fetcher, origin: string): Promise<string>
 }
 
 /**
- * Avatar data URL for a DRep: the self-hosted R2 image when one is stored,
- * otherwise the deterministic cardenticon identicon. Any R2 miss or error falls
- * through to the identicon so a card always renders.
+ * Avatar data URL for a DRep or forum author: the self-hosted R2 image when one
+ * is stored, otherwise the deterministic cardenticon identicon. Any R2 miss or
+ * error falls through to the identicon so a card always renders.
  */
-export async function loadDrepAvatar(
+export async function loadAvatar(
   avatars: R2Bucket | undefined,
   seed: string,
   imageContentHash: string | null | undefined,

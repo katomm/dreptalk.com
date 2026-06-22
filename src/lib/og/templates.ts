@@ -16,7 +16,7 @@ import {
   TRACK,
   tint,
 } from './theme.js';
-import type { DrepCardModel, DrepStat, GovCardModel } from './model.js';
+import type { DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel } from './model.js';
 
 function esc(s: string): string {
   return s
@@ -144,6 +144,25 @@ export function drepCardHtml(m: DrepCardModel, logoDataUrl: string): string {
         <img src="${m.avatarDataUrl}" width="160" height="160" style="border-radius:24px;" />
       </div>
       <div style="display:flex;">${m.stats.map((s) => statBlock(s, m.accent)).join('')}</div>
+    </div>
+  </div>`);
+}
+
+export function discussionCardHtml(m: DiscussionCardModel, logoDataUrl: string): string {
+  const meta = `<span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};">${esc(m.meta)}</span>`;
+  const footer = m.authorName
+    ? `<div style="display:flex;align-items:center;">
+        ${m.avatarDataUrl ? `<img src="${m.avatarDataUrl}" width="52" height="52" style="border-radius:999px;margin-right:14px;" />` : ''}
+        <span style="display:flex;font-size:28px;font-weight:700;color:${INK};">${esc(m.authorName)}</span>
+        <span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-left:14px;">· ${esc(m.meta)}</span>
+      </div>`
+    : `<div style="display:flex;">${meta}</div>`;
+  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
+    <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${m.accent};"></div>
+    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px;">
+      ${header(logoDataUrl, pill(m.category, m.accent))}
+      <div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:1010px;">${esc(m.title)}</div>
+      ${footer}
     </div>
   </div>`);
 }
