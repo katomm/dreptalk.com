@@ -375,6 +375,84 @@ export function buildGovActionId(id: string): GovernanceAction.GovActionId {
   });
 }
 
+/** Maps our vote string to the SDK Vote value. */
+function voteValue(vote: 'yes' | 'no' | 'abstain') {
+  return vote === 'yes' ? VotingProcedures.yes() : vote === 'no' ? VotingProcedures.no() : VotingProcedures.abstain();
+}
+
+/**
+ * Queues the voting procedure, the DRep-key required signer, and the CIP-20
+ * attribution tag. Like reg_drep, the vote is witnessed by the DRep key (which
+ * controls no input); EvolutionSDK sizes the fee only for declared signers, so
+ * the DRep key MUST be declared via addSigner or the fee falls one vkey short.
+ * Pure (no network); exported for unit tests.
+ */
+export function queueVoteOps(
+  txb: DrepTxBuilder,
+  parts: {
+    drepKeyHash: Uint8Array;
+    govActionId: GovernanceAction.GovActionId;
+    vote: 'yes' | 'no' | 'abstain';
+    anchor: Anchor.Anchor | null;
+  },
+): DrepTxBuilder {
+  const voter = new VotingProcedures.DRepVoter({
+    drep: DRep.fromKeyHash(KeyHash.fromBytes(parts.drepKeyHash)),
+  });
+  const procedure = new VotingProcedures.VotingProcedure({ vote: voteValue(parts.vote), anchor: parts.anchor });
+  const votingProcedures = VotingProcedures.singleVote(voter, parts.govActionId, procedure);
+
+  return txb
+    .vote({ votingProcedures })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+export interface CastDRepVoteOpts {
+  /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
+  walletApi: WalletApi;
+  network: CardanoNetwork;
+  /** 28-byte blake2b-224 of the CIP-95 DRep verification key. */
+  drepKeyHash: Uint8Array;
+  /** Stored governance action id, "<txHash>#<index>". */
+  govActionId: string;
+  vote: 'yes' | 'no' | 'abstain';
+  /** Hosted rationale URL from POST /api/vote/rationale; omit for no rationale. */
+  anchorUrl?: string;
+  /** 64-char blake2b-256 hex paired with anchorUrl. */
+  anchorHashHex?: string;
+  /** window.location.origin, base for the /api/koios proxy. */
+  origin: string;
+}
+
+/**
+ * Builds, signs, and submits a Conway vote transaction casting the connected
+ * DRep's vote on one governance action. Non-custodial: the wallet signs and
+ * submits. A CIP-20 attribution tag (label 674) is attached. No deposit, so the
+ * inputs only need to cover the fee. Requires a live wallet and a reachable
+ * Koios provider; covered by the preprod e2e suite.
+ */
+export async function castDRepVote(opts: CastDRepVoteOpts): Promise<{ txHash: string }> {
+  const govActionId = buildGovActionId(opts.govActionId);
+  const anchor =
+    opts.anchorUrl && opts.anchorHashHex
+      ? new Anchor.Anchor({
+          anchorUrl: new Url.Url({ href: opts.anchorUrl }),
+          anchorDataHash: hexToBytes(opts.anchorHashHex),
+        })
+      : null;
+
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
+
+  const built = await queueVoteOps(client.newTx(), { drepKeyHash: opts.drepKeyHash, govActionId, vote: opts.vote, anchor })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
+
+  return signAndSubmit(built, opts.walletApi);
+}
+
 /**
  * Queues the vote_deleg certificate, the stake-key required signer, and the
  * CIP-20 attribution tag. Like reg_drep, the vote_deleg certificate is witnessed

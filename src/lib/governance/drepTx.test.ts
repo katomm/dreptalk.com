@@ -12,6 +12,7 @@ import {
   stakeCredentialFromRewardAddress,
   queueDelegateVotesOps,
   buildGovActionId,
+  queueVoteOps,
 } from './drepTx.js';
 import { bytesToHex } from '../crypto/hex.js';
 
@@ -240,5 +241,32 @@ describe('buildGovActionId', () => {
   it('rejects a malformed id', () => {
     expect(() => buildGovActionId('not-an-id')).toThrow();
     expect(() => buildGovActionId(`${txHash}#-1`)).toThrow();
+  });
+});
+
+import { VotingProcedures } from '@evolution-sdk/evolution';
+
+describe('queueVoteOps', () => {
+  it('queues a single-vote procedure, the DRep signer, and the CIP-20 tag', () => {
+    const calls: Record<string, unknown[]> = {};
+    // Recording stub: every builder method records its args and returns the stub.
+    const stub: any = new Proxy(
+      {},
+      { get: (_t, prop: string) => (arg: unknown) => { (calls[prop] ||= []).push(arg); return stub; } },
+    );
+
+    const drepKeyHash = new Uint8Array(28).fill(7);
+    queueVoteOps(stub, {
+      drepKeyHash,
+      govActionId: buildGovActionId(`${'a'.repeat(64)}#0`),
+      vote: 'yes',
+      anchor: null,
+    });
+
+    expect(calls.vote).toHaveLength(1);
+    expect(calls.addSigner).toHaveLength(1);
+    expect(calls.attachMetadata).toHaveLength(1);
+    const voteArg = calls.vote[0] as { votingProcedures: VotingProcedures.VotingProcedures };
+    expect(voteArg.votingProcedures.procedures.size).toBe(1);
   });
 });
