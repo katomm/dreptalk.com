@@ -77,7 +77,7 @@ const [votableRows, historyRows] = drepId && db
           <div class="vote-list">
             {votableRows.map((row) => {
               const typeTone = govTypeTone(row.type);
-              const daysLeft = epochDaysLeft(row.expiry_epoch, null, row.status);
+              const daysLeft = epochDaysLeft(row.expiry_epoch, row.tally_epoch ?? null, row.status);
               const voteColor = row.viewerVote ? TONE_COLORS[voteTone(row.viewerVote)] : null;
               const threadHref = row.slug ? `/t/${row.slug}` : null;
               return (
@@ -166,9 +166,15 @@ const [votableRows, historyRows] = drepId && db
                         (row.title ?? row.ga_id)
                       )}
                     </p>
-                    {row.decided_epoch != null && (
+                    {(row.decided_epoch != null || row.meta_url) && (
                       <p class="history-row__meta">
-                        Decided epoch {row.decided_epoch}
+                        {row.decided_epoch != null && <>Decided epoch {row.decided_epoch}</>}
+                        {row.meta_url && (
+                          <>
+                            {row.decided_epoch != null && <>{' '}</>}
+                            <a href={row.meta_url} rel="nofollow noopener" target="_blank" class="rationale-link">Rationale</a>
+                          </>
+                        )}
                       </p>
                     )}
                   </div>
@@ -289,6 +295,15 @@ const [votableRows, historyRows] = drepId && db
   .btn--sm {
     padding: 0.375rem 0.875rem;
     font-size: 0.875rem;
+  }
+
+  .rationale-link {
+    color: var(--accent);
+    font-size: 0.8125rem;
+    text-decoration: none;
+  }
+  .rationale-link:hover {
+    text-decoration: underline;
   }
 
   @media (max-width: 600px) {

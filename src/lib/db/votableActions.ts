@@ -8,6 +8,7 @@ export interface VotableActionRow {
   type: string;
   status: string;
   expiry_epoch: number | null;
+  tally_epoch: number | null;
   slug: string | null;
   viewerVote: string | null;
   viewerStatus: string | null;
@@ -26,7 +27,7 @@ export async function getVotableActionsForViewer(
     await db
       .prepare(
         `SELECT g.id AS id, g.title AS title, g.type AS type, g.status AS status,
-                g.expiry_epoch AS expiry_epoch,
+                g.expiry_epoch AS expiry_epoch, g.tally_epoch AS tally_epoch,
                 t.slug AS slug,
                 v.vote AS viewerVote,
                 v.local_status AS viewerStatus
