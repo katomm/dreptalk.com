@@ -11,6 +11,7 @@ import { getUserById } from '@/lib/db/users';
 import { recordLocalVote } from '@/lib/db/drepVotes';
 import { upsertVoteRationalePost } from '@/lib/db/voteRationalePost';
 import { renderMarkdown } from '@/lib/markdown';
+import { buildVoteRationale } from '@/lib/governance/voteRationale';
 
 export const prerender = false;
 
@@ -65,12 +66,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
       .bind(gaId)
       .first<{ topic_id: string | null }>();
     if (ga?.topic_id) {
+      const canonical = buildVoteRationale({ rationale: rationaleText }).rationale;
       await upsertVoteRationalePost(db, {
         topicId: ga.topic_id,
         authorId: user.id,
         vote,
-        bodyMd: rationaleText,
-        bodyHtml: renderMarkdown(rationaleText),
+        bodyMd: canonical,
+        bodyHtml: renderMarkdown(canonical),
         now,
       });
     }
