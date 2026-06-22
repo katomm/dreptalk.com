@@ -8,7 +8,7 @@
 import type { APIRoute } from 'astro';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { epochStartMs } from '@/lib/config/network.js';
-import { getTopicBySlug } from '@/lib/db/forum.js';
+import { getOpeningPostBody, getTopicBySlug } from '@/lib/db/forum.js';
 import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
 import { loadAuthorIdentity } from '@/lib/forum/author.js';
 import { proposerView } from '@/lib/identity/proposer.js';
@@ -40,17 +40,20 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
       now: Date.now(),
       proposerName: pv.kind === 'known' ? pv.name : null,
     });
-    return renderOgCard(assets, request.url, (logo) => govCardHtml(model, logo));
+    return renderOgCard(assets, request.url, () => govCardHtml(model));
   }
 
-  // Plain discussion thread: author identity + reply count.
-  const author = await loadAuthorIdentity(db, topic.author_id);
+  // Plain discussion thread: author identity, opening-post excerpt, reply count.
+  const [author, openingPostHtml] = await Promise.all([
+    loadAuthorIdentity(db, topic.author_id),
+    getOpeningPostBody(db, topic.id),
+  ]);
   const avatarDataUrl = author.isSystem
     ? null
     : await loadAvatar(env.AVATARS as R2Bucket | undefined, author.identiconSeed ?? topic.author_id, author.imageHash);
   const model = discussionCardModel(
-    { title: topic.title, categorySlug: topic.category_slug, postCount: topic.post_count },
+    { title: topic.title, categorySlug: topic.category_slug, postCount: topic.post_count, openingPostHtml },
     { authorName: author.isSystem ? null : author.displayName, avatarDataUrl },
   );
-  return renderOgCard(assets, request.url, (logo) => discussionCardHtml(model, logo));
+  return renderOgCard(assets, request.url, () => discussionCardHtml(model));
 };

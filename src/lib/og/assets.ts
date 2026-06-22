@@ -1,8 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
-// Image helpers for the OG cards. satori embeds images as data URLs, so the logo
-// (a raster PNG, safe in satori) and any stored DRep avatar are read as bytes and
-// base64-encoded here. The generated identicon is already an SVG data URL from
-// cardenticon, used as the fallback when a DRep has no uploaded image.
+// Avatar helper for the OG cards. satori embeds images as data URLs, so a stored
+// DRep avatar is read from R2 and base64-encoded here. The generated identicon is
+// already an SVG data URL from cardenticon, used as the fallback when a DRep has
+// no uploaded image. (The brand mark is an inline SVG built in templates.ts.)
 
 import { AVATAR_KEY_PREFIX } from '../dreps/avatarStore.js';
 import { cardenticonDataURL } from '../../vendor/cardenticon/index.js';
@@ -12,17 +12,6 @@ function toBase64(buf: ArrayBuffer): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
-}
-
-let logoCache: string | null = null;
-
-/** The brand mark as a PNG data URL, cached per isolate. */
-export async function loadLogo(assets: Fetcher, origin: string): Promise<string> {
-  if (logoCache) return logoCache;
-  const res = await assets.fetch(new URL('/logo.png', origin));
-  if (!res.ok) throw new Error(`OG logo not found (${res.status})`);
-  logoCache = `data:image/png;base64,${toBase64(await res.arrayBuffer())}`;
-  return logoCache;
 }
 
 /**
