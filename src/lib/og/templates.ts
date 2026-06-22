@@ -59,8 +59,8 @@ function tallyBlock(t: { yes: number; no: number; abstain: number }): string {
   const label = (n: number, name: string, color: string) =>
     `<div style="display:flex;align-items:center;margin-right:34px;">
       <div style="display:flex;width:16px;height:16px;border-radius:8px;background:${color};margin-right:10px;"></div>
-      <span style="font-size:30px;font-weight:700;color:${INK};">${Math.round(n)}%</span>
-      <span style="font-size:30px;font-weight:500;color:${MUTED};margin-left:8px;">${name}</span>
+      <span style="font-size:40px;font-weight:800;color:${INK};">${Math.round(n)}%</span>
+      <span style="font-size:24px;font-weight:500;color:${MUTED};margin-left:8px;">${name}</span>
     </div>`;
   return `<div style="display:flex;flex-direction:column;">
     <div style="display:flex;width:1010px;height:20px;border-radius:10px;overflow:hidden;background:${TRACK};">
@@ -117,7 +117,7 @@ function statIcon(key: string | undefined, color: string): string {
 
 function statBlock(s: DrepStat, accent: string): string {
   const label = s.label
-    ? `<div style="display:flex;font-size:22px;font-weight:500;color:${MUTED};margin-top:4px;">${esc(s.label)}</div>`
+    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:4px;">${esc(s.label)}</div>`
     : '';
   return `<div style="display:flex;flex-direction:column;margin-right:40px;">
     <div style="display:flex;align-items:center;">
@@ -129,7 +129,6 @@ function statBlock(s: DrepStat, accent: string): string {
 }
 
 export function drepCardHtml(m: DrepCardModel, logoDataUrl: string): string {
-  const nameSize = m.name.length > 22 ? 48 : 64;
   const idLine = m.idShort
     ? `<div style="display:flex;font-size:24px;font-weight:500;color:${SUBTLE};margin-top:8px;">${esc(m.idShort)}</div>`
     : '';
@@ -138,7 +137,7 @@ export function drepCardHtml(m: DrepCardModel, logoDataUrl: string): string {
     : '';
   const body = `<div style="display:flex;align-items:center;">
       <div style="display:flex;flex-direction:column;flex:1;padding-right:32px;">
-        <div style="display:flex;font-size:${nameSize}px;font-weight:800;line-height:1.1;letter-spacing:-1px;">${esc(m.name)}</div>
+        <div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;">${esc(m.name)}</div>
         ${idLine}
         ${bioLine}
       </div>
