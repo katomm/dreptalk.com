@@ -430,7 +430,7 @@ export interface CastDRepVoteOpts {
  * DRep's vote on one governance action. Non-custodial: the wallet signs and
  * submits. A CIP-20 attribution tag (label 674) is attached. No deposit, so the
  * inputs only need to cover the fee. Requires a live wallet and a reachable
- * Koios provider; covered by the preprod e2e suite.
+ * Koios provider; not covered by offline unit tests.
  */
 export async function castDRepVote(opts: CastDRepVoteOpts): Promise<{ txHash: string }> {
   const govActionId = buildGovActionId(opts.govActionId);

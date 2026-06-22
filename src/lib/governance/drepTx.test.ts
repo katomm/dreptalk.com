@@ -3,6 +3,7 @@
 // The full registerDRep function is covered by the preprod e2e suite (Phase B-11).
 
 import { describe, it, expect } from 'vitest';
+import { VotingProcedures } from '@evolution-sdk/evolution';
 import {
   buildRegisterDrepParts,
   queueRegisterDrepOps,
@@ -243,8 +244,6 @@ describe('buildGovActionId', () => {
     expect(() => buildGovActionId(`${txHash}#-1`)).toThrow();
   });
 });
-
-import { VotingProcedures } from '@evolution-sdk/evolution';
 
 describe('queueVoteOps', () => {
   it('queues a single-vote procedure, the DRep signer, and the CIP-20 tag', () => {
