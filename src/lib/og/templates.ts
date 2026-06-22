@@ -57,10 +57,10 @@ function tallyBlock(t: { yes: number; no: number; abstain: number }): string {
   const seg = (w: number, c: string) => `<div style="display:flex;width:${w}%;height:20px;background:${c};"></div>`;
   // A filled dot in the segment colour leads each label, matching the mockup.
   const label = (n: number, name: string, color: string) =>
-    `<div style="display:flex;align-items:center;margin-right:28px;">
-      <div style="display:flex;width:14px;height:14px;border-radius:7px;background:${color};margin-right:9px;"></div>
-      <span style="font-size:24px;font-weight:700;color:${INK};">${Math.round(n)}%</span>
-      <span style="font-size:24px;font-weight:500;color:${MUTED};margin-left:6px;">${name}</span>
+    `<div style="display:flex;align-items:center;margin-right:34px;">
+      <div style="display:flex;width:16px;height:16px;border-radius:8px;background:${color};margin-right:10px;"></div>
+      <span style="font-size:30px;font-weight:700;color:${INK};">${Math.round(n)}%</span>
+      <span style="font-size:30px;font-weight:500;color:${MUTED};margin-left:8px;">${name}</span>
     </div>`;
   return `<div style="display:flex;flex-direction:column;">
     <div style="display:flex;width:1010px;height:20px;border-radius:10px;overflow:hidden;background:${TRACK};">
@@ -156,5 +156,9 @@ export function discussionCardHtml(m: DiscussionCardModel, logoDataUrl: string):
         <span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-left:14px;">· ${esc(m.meta)}</span>
       </div>`
     : `<div style="display:flex;"><span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};">${esc(m.meta)}</span></div>`;
-  return cardShell(m.accent, logoDataUrl, m.category, `${title(m.title)}${footer}`);
+  const subtitle = m.subtitle
+    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:16px;line-height:1.35;max-width:1010px;">${esc(m.subtitle)}</div>`
+    : '';
+  const titleBlock = `<div style="display:flex;flex-direction:column;">${title(m.title)}${subtitle}</div>`;
+  return cardShell(m.accent, logoDataUrl, m.category, `${titleBlock}${footer}`);
 }

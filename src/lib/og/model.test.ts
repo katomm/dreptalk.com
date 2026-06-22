@@ -102,29 +102,36 @@ describe('drepCardModel', () => {
 });
 
 describe('discussionCardModel', () => {
-  const topic = { title: 'How should we fund tooling?', categorySlug: 'general', postCount: 43 };
+  const topic = {
+    title: 'How should we fund tooling?',
+    categorySlug: 'general',
+    postCount: 43,
+    openingPostHtml: '<p>Curious what the community thinks about a dedicated tooling fund.</p>',
+  };
 
-  it('humanizes the category, counts replies and carries the author', () => {
+  it('humanizes the category, counts replies, carries the author and opening-post subtitle', () => {
     const m = discussionCardModel(topic, { authorName: 'Ada Hernandez', avatarDataUrl: 'data:x' });
     expect(m.category).toBe('General and Off-topic');
     expect(m.title).toBe('How should we fund tooling?');
     expect(m.authorName).toBe('Ada Hernandez');
     expect(m.meta).toBe('42 replies');
+    expect(m.subtitle).toContain('dedicated tooling fund');
   });
 
-  it('resolves the registry name for a known category and singularizes one reply', () => {
+  it('resolves the registry name, singularizes one reply, and has no subtitle without a post', () => {
     const m = discussionCardModel(
-      { title: 'Hi', categorySlug: 'governance-actions', postCount: 2 },
+      { title: 'Hi', categorySlug: 'governance-actions', postCount: 2, openingPostHtml: null },
       { authorName: null, avatarDataUrl: null },
     );
     expect(m.category).toBe('Governance Actions');
     expect(m.meta).toBe('1 reply');
     expect(m.authorName).toBeNull();
+    expect(m.subtitle).toBeNull();
   });
 
   it('falls back to Discussion for an unknown category', () => {
     const m = discussionCardModel(
-      { title: 'Hi', categorySlug: 'does-not-exist', postCount: 1 },
+      { title: 'Hi', categorySlug: 'does-not-exist', postCount: 1, openingPostHtml: null },
       { authorName: null, avatarDataUrl: null },
     );
     expect(m.category).toBe('Discussion');

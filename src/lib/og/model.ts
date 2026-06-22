@@ -130,12 +130,14 @@ export interface DiscussionCardInput {
   title: string;
   categorySlug: string;
   postCount: number;
+  openingPostHtml: string | null;
 }
 
 export interface DiscussionCardModel {
   accent: string;
   category: string;
   title: string;
+  subtitle: string | null;
   authorName: string | null;
   avatarDataUrl: string | null;
   meta: string;
@@ -150,6 +152,8 @@ export function discussionCardModel(
     accent: BRAND_ACCENT,
     category: getCategory(t.categorySlug)?.name ?? 'Discussion',
     title: clamp(t.title, 96),
+    // The opening post as a subtitle under the title, mirroring the action abstract.
+    subtitle: t.openingPostHtml ? excerptFromHtml(t.openingPostHtml, 140) : null,
     authorName: opts.authorName,
     avatarDataUrl: opts.avatarDataUrl,
     meta: `${replies} ${replies === 1 ? 'reply' : 'replies'}`,

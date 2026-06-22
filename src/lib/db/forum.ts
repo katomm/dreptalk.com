@@ -387,6 +387,19 @@ export async function getPostById(db: D1Database, postId: string): Promise<Post 
   return row ? rowToPost(row) : null;
 }
 
+/** The opening post's HTML for a topic (oldest top-level, visible), for previews. */
+export async function getOpeningPostBody(db: D1Database, topicId: string): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT body_html FROM posts
+       WHERE topic_id = ? AND parent_post_id IS NULL AND deleted = 0 AND hidden = 0
+       ORDER BY created_at ASC LIMIT 1`,
+    )
+    .bind(topicId)
+    .first<{ body_html: string }>();
+  return row?.body_html ?? null;
+}
+
 /** A post by one author, with its topic's title and slug for linking on a profile. */
 export interface AuthorPost {
   id: string;
