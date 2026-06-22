@@ -6,7 +6,6 @@
 // stable for a content version, so the CDN can serve it warm.
 
 import { ImageResponse } from 'workers-og';
-import { loadLogo } from './assets.js';
 import { loadOgFonts, type OgFont } from './fonts.js';
 import { OG_HEIGHT, OG_WIDTH } from './theme.js';
 
@@ -21,12 +20,8 @@ export function ogPng(html: string, fonts: OgFont[]): Response {
   return new Response(image.body, { status: image.status, headers });
 }
 
-/** Loads fonts + logo, builds the card HTML, and encodes the PNG. */
-export async function renderOgCard(
-  assets: Fetcher,
-  origin: string,
-  build: (logoDataUrl: string) => string,
-): Promise<Response> {
-  const [fonts, logo] = await Promise.all([loadOgFonts(assets, origin), loadLogo(assets, origin)]);
-  return ogPng(build(logo), fonts);
+/** Loads fonts, builds the card HTML, and encodes the PNG. */
+export async function renderOgCard(assets: Fetcher, origin: string, build: () => string): Promise<Response> {
+  const fonts = await loadOgFonts(assets, origin);
+  return ogPng(build(), fonts);
 }

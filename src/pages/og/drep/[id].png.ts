@@ -39,5 +39,5 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     participation,
   });
 
-  return renderOgCard(env.ASSETS as unknown as Fetcher, request.url, (logo) => drepCardHtml(model, logo));
+  return renderOgCard(env.ASSETS as unknown as Fetcher, request.url, () => drepCardHtml(model));
 };

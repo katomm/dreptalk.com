@@ -40,7 +40,7 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
       now: Date.now(),
       proposerName: pv.kind === 'known' ? pv.name : null,
     });
-    return renderOgCard(assets, request.url, (logo) => govCardHtml(model, logo));
+    return renderOgCard(assets, request.url, () => govCardHtml(model));
   }
 
   // Plain discussion thread: author identity, opening-post excerpt, reply count.
@@ -55,5 +55,5 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     { title: topic.title, categorySlug: topic.category_slug, postCount: topic.post_count, openingPostHtml },
     { authorName: author.isSystem ? null : author.displayName, avatarDataUrl },
   );
-  return renderOgCard(assets, request.url, (logo) => discussionCardHtml(model, logo));
+  return renderOgCard(assets, request.url, () => discussionCardHtml(model));
 };

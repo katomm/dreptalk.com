@@ -22,11 +22,25 @@ function compact(html: string): string {
   return html.replace(/>\s+</g, '><').trim();
 }
 
-function header(logoDataUrl: string, rightPill: string): string {
+// The DRepTalk burst mark, painted muted grey to match the site header (where the
+// "Talk" gradient is the only accent). Same geometry as LogoMark.astro, embedded
+// as an SVG data URL (the proven satori image path). The gradient matches --grad.
+const BRAND_MARK = `data:image/svg+xml;base64,${btoa(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" fill="${MUTED}"><g stroke="${MUTED}" stroke-width="2.4" stroke-linecap="round"><line x1="36" y1="27.5" x2="36" y2="19.5"/><line x1="42" y1="30" x2="47.7" y2="24.3"/><line x1="44.5" y1="36" x2="52.5" y2="36"/><line x1="42" y1="42" x2="47.7" y2="47.7"/><line x1="36" y1="44.5" x2="36" y2="52.5"/><line x1="30" y1="42" x2="24.3" y2="47.7"/><line x1="27.5" y1="36" x2="19.5" y2="36"/><line x1="30" y1="30" x2="24.3" y2="24.3"/></g><circle cx="36" cy="15" r="4"/><circle cx="50.85" cy="21.15" r="4"/><circle cx="57" cy="36" r="4"/><circle cx="50.85" cy="50.85" r="4"/><circle cx="36" cy="57" r="4"/><circle cx="21.15" cy="50.85" r="4"/><circle cx="15" cy="36" r="4"/><circle cx="21.15" cy="21.15" r="4"/><circle cx="47.1" cy="9.2" r="2"/><circle cx="62.8" cy="24.9" r="2"/><circle cx="62.8" cy="47.1" r="2"/><circle cx="47.1" cy="62.8" r="2"/><circle cx="24.9" cy="62.8" r="2"/><circle cx="9.2" cy="47.1" r="2"/><circle cx="9.2" cy="24.9" r="2"/><circle cx="24.9" cy="9.2" r="2"/><circle cx="36" cy="36" r="7"/></svg>`,
+)}`;
+
+const GRAD = 'linear-gradient(120deg, #8b5cf6 0%, #3b82f6 50%, #2dd4bf 100%)';
+
+// Brand lockup: muted burst mark + "DRep" in ink and "Talk" in the gradient
+// (background-clip:text), matching the site header.
+function header(rightPill: string): string {
   return `<div style="display:flex;align-items:center;justify-content:space-between;">
     <div style="display:flex;align-items:center;">
-      <img src="${logoDataUrl}" width="56" height="56" style="margin-right:14px;" />
-      <span style="font-size:32px;font-weight:700;letter-spacing:-0.3px;">DRepTalk</span>
+      <img src="${BRAND_MARK}" width="56" height="56" style="margin-right:14px;" />
+      <div style="display:flex;font-size:32px;font-weight:700;letter-spacing:-0.3px;">
+        <span style="color:${INK};">DRep</span>
+        <span style="background-image:${GRAD};-webkit-background-clip:text;background-clip:text;color:transparent;">Talk</span>
+      </div>
     </div>
     ${rightPill}
   </div>`;
@@ -39,11 +53,11 @@ function pill(text: string, color: string): string {
 // The shared frame for every card: white canvas, accent bar, padded content
 // column with the brand header on top and the card-specific body below. The
 // three builders differ only in their pill label and body.
-function cardShell(accent: string, logoDataUrl: string, pillText: string, body: string): string {
+function cardShell(accent: string, pillText: string, body: string): string {
   return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
     <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${accent};"></div>
     <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px 84px;">
-      ${header(logoDataUrl, pill(pillText, accent))}
+      ${header(pill(pillText, accent))}
       ${body}
     </div>
   </div>`);
@@ -76,7 +90,7 @@ function votingOpen(): string {
   </div>`;
 }
 
-export function govCardHtml(m: GovCardModel, logoDataUrl: string): string {
+export function govCardHtml(m: GovCardModel): string {
   const meta = m.meta
     ? `<span style="font-size:24px;font-weight:500;color:${MUTED};margin-left:16px;">${esc(m.meta)}</span>`
     : '';
@@ -91,7 +105,7 @@ export function govCardHtml(m: GovCardModel, logoDataUrl: string): string {
       </div>
       ${m.tally ? tallyBlock(m.tally) : votingOpen()}
     </div>`;
-  return cardShell(m.accent, logoDataUrl, m.typeLabel, body);
+  return cardShell(m.accent, m.typeLabel, body);
 }
 
 // Thin line icons (Lucide-style) drawn here so the stat row matches the design.
@@ -128,7 +142,7 @@ function statBlock(s: DrepStat, accent: string): string {
   </div>`;
 }
 
-export function drepCardHtml(m: DrepCardModel, logoDataUrl: string): string {
+export function drepCardHtml(m: DrepCardModel): string {
   const idLine = m.idShort
     ? `<div style="display:flex;font-size:24px;font-weight:500;color:${SUBTLE};margin-top:8px;">${esc(m.idShort)}</div>`
     : '';
@@ -144,10 +158,10 @@ export function drepCardHtml(m: DrepCardModel, logoDataUrl: string): string {
       <img src="${m.avatarDataUrl}" width="160" height="160" style="border-radius:24px;" />
     </div>
     <div style="display:flex;">${m.stats.map((s) => statBlock(s, m.accent)).join('')}</div>`;
-  return cardShell(m.accent, logoDataUrl, 'DRep', body);
+  return cardShell(m.accent, 'DRep', body);
 }
 
-export function discussionCardHtml(m: DiscussionCardModel, logoDataUrl: string): string {
+export function discussionCardHtml(m: DiscussionCardModel): string {
   const footer = m.authorName
     ? `<div style="display:flex;align-items:center;">
         ${m.avatarDataUrl ? `<img src="${m.avatarDataUrl}" width="52" height="52" style="border-radius:999px;margin-right:14px;" />` : ''}
@@ -159,5 +173,5 @@ export function discussionCardHtml(m: DiscussionCardModel, logoDataUrl: string):
     ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:16px;line-height:1.35;max-width:1010px;">${esc(m.subtitle)}</div>`
     : '';
   const titleBlock = `<div style="display:flex;flex-direction:column;">${title(m.title)}${subtitle}</div>`;
-  return cardShell(m.accent, logoDataUrl, m.category, `${titleBlock}${footer}`);
+  return cardShell(m.accent, m.category, `${titleBlock}${footer}`);
 }
