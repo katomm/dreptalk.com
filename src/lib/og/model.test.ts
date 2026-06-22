@@ -72,8 +72,7 @@ describe('drepCardModel', () => {
     expect(m.idShort).toContain('...');
     expect(m.bio).toBe('Community builder & governance advocate.');
     expect(m.stats).toHaveLength(4);
-    expect(m.stats[0].value).toBe('12.4M ADA');
-    expect(m.stats[0].value).not.toContain('₳');
+    expect(m.stats[0].value).toBe('12.4M ₳');
     expect(m.stats[0].label).toBe('voting power (0.83%)');
     expect(m.stats[1]).toEqual({ value: '47', label: 'votes cast', icon: 'votes' });
     expect(m.stats[2]).toEqual({ value: '80%', label: 'participation', icon: 'participation' });

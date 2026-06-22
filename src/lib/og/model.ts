@@ -93,11 +93,9 @@ export function drepCardModel(
 
   const stats: DrepStat[] = [
     {
-      // The ada sign (U+20B3) is absent from the Plus Jakarta Sans subset and
-      // satori has no system fallback, so it would render as tofu. Spell it out
-      // on the card; this is also clearer to the broad audience a share image
-      // reaches. The in-app UI keeps the ₳ glyph (browsers fall back).
-      value: (formatAdaCompact(d.votingPower) ?? '0 ₳').replace('₳', 'ADA'),
+      // The ada sign (U+20B3) renders via the bundled single-glyph fallback font
+      // (see fonts.ts), since it is absent from the Plus Jakarta Sans subset.
+      value: formatAdaCompact(d.votingPower) ?? '0 ₳',
       label: opts.influencePct != null ? `voting power (${opts.influencePct.toFixed(2)}%)` : 'voting power',
       icon: 'power',
     },

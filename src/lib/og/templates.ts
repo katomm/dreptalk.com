@@ -73,7 +73,7 @@ export function govCardHtml(m: GovCardModel, logoDataUrl: string): string {
   const meta = m.meta
     ? `<span style="font-size:24px;font-weight:500;color:${MUTED};margin-left:16px;">${esc(m.meta)}</span>`
     : '';
-  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans';color:${INK};">
+  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
     <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${m.accent};"></div>
     <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px;">
       ${header(logoDataUrl, pill(m.typeLabel, m.accent))}
@@ -131,7 +131,7 @@ export function drepCardHtml(m: DrepCardModel, logoDataUrl: string): string {
   const bioLine = m.bio
     ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:16px;line-height:1.35;">${esc(m.bio)}</div>`
     : '';
-  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans';color:${INK};">
+  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
     <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${m.accent};"></div>
     <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px;">
       ${header(logoDataUrl, pill('DRep', m.accent))}
