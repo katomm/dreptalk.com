@@ -11,9 +11,11 @@ import { TONE_COLORS, formatAdaCompact, voteTone } from '@/lib/governance/view.j
 interface Props {
   voters: ActionVoterRow[];
   dreps: Map<string, Drep>;
+  slug: string;
+  total: number;
 }
 
-const { voters, dreps } = Astro.props;
+const { voters, dreps, slug, total } = Astro.props;
 ---
 
 {voters.length > 0 && (
@@ -35,6 +37,11 @@ const { voters, dreps } = Astro.props;
         );
       })}
     </ul>
+    {total > voters.length && (
+      <a class="top-participants__more" href={`/t/${slug}?tab=positions`}>
+        See all {total.toLocaleString('en-US')} positions
+      </a>
+    )}
   </div>
 )}
 
@@ -101,5 +108,19 @@ const { voters, dreps } = Astro.props;
     font-size: 0.75rem;
     white-space: nowrap;
     flex-shrink: 0;
+  }
+
+  .top-participants__more {
+    display: block;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--accent);
+    font-size: 0.75rem;
+    text-decoration: none;
+  }
+
+  .top-participants__more:hover {
+    text-decoration: underline;
   }
 </style>

@@ -20,9 +20,12 @@ interface Props {
   topVoters: ActionVoterRow[];
   dreps: Map<string, Drep>;
   related: RelatedActionRow[];
+  slug: string;
+  positionsTotal: number;
 }
 
-const { action, params, ccSize, network, topVoters, dreps, related } = Astro.props;
+const { action, params, ccSize, network, topVoters, dreps, related, slug, positionsTotal } =
+  Astro.props;
 ---
 
 <aside class="ga-sidebar">
@@ -31,7 +34,7 @@ const { action, params, ccSize, network, topVoters, dreps, related } = Astro.pro
       display:contents + order rules in pages/t/[slug].astro). */}
   <ActionStatusCard action={action} network={network} />
   <VotingInfoCard action={action} params={params} ccSize={ccSize} network={network} />
-  <TopParticipantsCard voters={topVoters} dreps={dreps} />
+  <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} />
   <ProposerCard returnAddress={action.returnAddress} />
   <RelatedActionsCard actions={related} />
 </aside>
