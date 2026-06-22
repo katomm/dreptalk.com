@@ -18,6 +18,7 @@ function clamp(text: string, max: number): string {
 
 export interface GovCardInput extends RoleTallyInput {
   title: string | null;
+  abstract: string | null;
   expiryEpoch: number | null;
 }
 
@@ -25,6 +26,7 @@ export interface GovCardModel {
   accent: string;
   typeLabel: string;
   title: string;
+  subtitle: string | null;
   status: { label: string; color: string; tint: string };
   meta: string;
   tally: { yes: number; no: number; abstain: number; role: string } | null;
@@ -46,6 +48,8 @@ export function govCardModel(
     accent: accentForType(a.type),
     typeLabel: readableType(a.type),
     title: clamp(a.title?.trim() || readableType(a.type), 96),
+    // The metadata abstract as a subtitle under the title, mirroring the DRep bio.
+    subtitle: a.abstract ? excerptFromHtml(a.abstract, 140) : null,
     status: { label: badge.label, color: tone, tint: tint(tone) },
     meta,
     tally: t ? { yes: t.bar.yes, no: t.bar.no, abstain: t.bar.abstain, role: t.role } : null,

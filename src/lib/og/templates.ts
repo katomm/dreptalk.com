@@ -80,7 +80,10 @@ export function govCardHtml(m: GovCardModel, logoDataUrl: string): string {
   const meta = m.meta
     ? `<span style="font-size:24px;font-weight:500;color:${MUTED};margin-left:16px;">${esc(m.meta)}</span>`
     : '';
-  const body = `${title(m.title)}
+  const subtitle = m.subtitle
+    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:16px;line-height:1.35;max-width:1010px;">${esc(m.subtitle)}</div>`
+    : '';
+  const body = `<div style="display:flex;flex-direction:column;">${title(m.title)}${subtitle}</div>
     <div style="display:flex;flex-direction:column;">
       <div style="display:flex;align-items:center;margin-bottom:14px;">
         <span style="display:flex;font-size:24px;font-weight:700;color:${m.status.color};background:${m.status.tint};padding:6px 16px;border-radius:8px;">${esc(m.status.label)}</span>

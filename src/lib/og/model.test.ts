@@ -6,6 +6,7 @@ const baseAction: GovCardInput = {
   type: 'TreasuryWithdrawals',
   status: 'active',
   title: 'Fund the Cardano Summit 2026',
+  abstract: 'Funds the 2026 community summit and regional meetups across the ecosystem.',
   expiryEpoch: 294,
   drepYesPct: 62,
   drepNoPct: 9,
@@ -38,6 +39,13 @@ describe('govCardModel', () => {
   it('falls back to the readable type when the title is empty', () => {
     const m = govCardModel({ ...baseAction, title: null }, { expiryUnixMs: null, now: 0 });
     expect(m.title).toBe('Treasury Withdrawals');
+  });
+
+  it('exposes the abstract as the subtitle, or null when absent', () => {
+    const withAbstract = govCardModel(baseAction, { expiryUnixMs: null, now: 0 });
+    expect(withAbstract.subtitle).toContain('community summit');
+    const without = govCardModel({ ...baseAction, abstract: null }, { expiryUnixMs: null, now: 0 });
+    expect(without.subtitle).toBeNull();
   });
 
   it('returns no tally when nothing has synced', () => {
