@@ -3,8 +3,8 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSynced } from '../db/governance.js';
-import { getVotesByGaId } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes } from './tallySync.js';
+import { getVotesByGaId, recordLocalVote, getViewerVote } from '../db/drepVotes.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, reconcilePendingVotes } from './tallySync.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory } from '../db/drepVotes.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
@@ -419,6 +419,16 @@ describe('backfillFinalizedVotes', () => {
     expect(r.votes).toBe(3000);
     // Marked synced despite the cap, so it cannot stall the backfill every run.
     expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]);
+  });
+});
+
+describe('reconcilePendingVotes', () => {
+  it('flags votes older than the window failed', async () => {
+    const gaId = 'd'.repeat(64) + '#0', drepId = 'drep1' + 'z'.repeat(50);
+    // submit time 0; "now" far past the 6h window
+    await recordLocalVote(env.DB, { gaId, drepId, voterHex: null, vote: 'yes', metaUrl: null, txHash: 'tx', now: 0 });
+    await reconcilePendingVotes(env.DB, 7 * 3600);
+    expect((await getViewerVote(env.DB, gaId, drepId))?.local_status).toBe('failed');
   });
 });
 
