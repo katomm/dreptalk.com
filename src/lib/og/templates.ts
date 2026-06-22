@@ -42,7 +42,7 @@ function pill(text: string, color: string): string {
 function cardShell(accent: string, logoDataUrl: string, pillText: string, body: string): string {
   return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
     <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${accent};"></div>
-    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px;">
+    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px 84px;">
       ${header(logoDataUrl, pill(pillText, accent))}
       ${body}
     </div>
