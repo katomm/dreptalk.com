@@ -125,7 +125,7 @@ const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new 
 // Gate on ga.status === 'active'; deriveStatus already accounts for expiry boundary.
 const isDrep = user?.roles?.includes('drep') ?? false;
 const isVotable = govAction?.status === 'active';
-const dbUser = isDrep && db ? await getUserById(db, user!.id) : null;
+const dbUser = isDrep && isGovernanceTopic && db ? await getUserById(db, user!.id) : null;
 const viewerDrepId = isDrep ? (dbUser?.drep_id ?? null) : null;
 const viewerVote =
   isDrep && isVotable && viewerDrepId && db && govAction
@@ -342,8 +342,8 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
               related={related}
             />
             {isDrep && isVotable && (
-              <div style="margin-top:1.5rem;">
-                <h3 style="margin:0 0 0.75rem;font-size:0.9375rem;">Cast your vote</h3>
+              <div class="vote-panel-wrapper">
+                <h3 class="vote-panel-title">Cast your vote</h3>
                 <VotePanel
                   client:load
                   gaId={govAction.id}
@@ -395,6 +395,13 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
   .ga-detail-layout__sidebar {
     position: sticky;
     top: 1.5rem;
+  }
+  .vote-panel-wrapper {
+    margin-top: 1.5rem;
+  }
+  .vote-panel-title {
+    margin: 0 0 0.75rem;
+    font-size: 0.9375rem;
   }
   @media (max-width: 900px) {
     .ga-detail-layout {
