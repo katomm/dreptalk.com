@@ -72,34 +72,47 @@ describe('isTerminalStatus', () => {
   });
 });
 
-describe('epochCountdown', () => {
-  it('estimates days for a future expiry', () => {
-    expect(epochCountdown(294, 290, 'active')).toBe('~20 days left (epoch 294)');
+const DAY_MS = 24 * 60 * 60 * 1000;
+const NOW = 1_700_000_000_000; // fixed reference instant for deterministic tests
+
+describe('epochDaysLeft', () => {
+  it('counts whole calendar days (rounding up) from now to the expiry-epoch boundary', () => {
+    expect(epochDaysLeft(NOW + 5 * DAY_MS, 'active', NOW)).toBe(5);
+    // A partial day rounds up: an action whose voting closes in ~1.4 days reads as
+    // "2 days", never the old whole-epoch estimate of 5. This is the bug fixed here:
+    // the previous (expiryEpoch - tallyEpoch) * 5 ignored how far we already were
+    // into the current epoch and so over-counted by up to a full 5-day epoch.
+    expect(epochDaysLeft(NOW + Math.round(1.4 * DAY_MS), 'active', NOW)).toBe(2);
+    expect(epochDaysLeft(NOW + Math.round(0.1 * DAY_MS), 'active', NOW)).toBe(1);
   });
-  it('returns null when past or unknown', () => {
-    expect(epochCountdown(290, 290, 'active')).toBeNull();
-    expect(epochCountdown(290, 295, 'active')).toBeNull();
-    expect(epochCountdown(null, 290, 'active')).toBeNull();
-    expect(epochCountdown(294, null, 'active')).toBeNull();
+  it('returns null once the boundary has passed or is unknown', () => {
+    expect(epochDaysLeft(NOW, 'active', NOW)).toBeNull();
+    expect(epochDaysLeft(NOW - DAY_MS, 'active', NOW)).toBeNull();
+    expect(epochDaysLeft(null, 'active', NOW)).toBeNull();
   });
-  it('returns null for a terminal status even with a future expiry', () => {
-    // An action ratified or enacted before its expiry keeps a future epoch;
-    // it must not read as "still counting down".
-    expect(epochCountdown(294, 290, 'enacted')).toBeNull();
+  it('returns null for a terminal status even with a future boundary, counts for pending', () => {
+    expect(epochDaysLeft(NOW + 5 * DAY_MS, 'ratified', NOW)).toBeNull();
+    expect(epochDaysLeft(NOW + 5 * DAY_MS, 'pending', NOW)).toBe(5);
   });
 });
 
-describe('epochDaysLeft', () => {
-  it('returns whole days to a future expiry, null when past or unknown', () => {
-    expect(epochDaysLeft(294, 290, 'active')).toBe(20);
-    expect(epochDaysLeft(290, 290, 'active')).toBeNull();
-    expect(epochDaysLeft(290, 295, 'active')).toBeNull();
-    expect(epochDaysLeft(null, 290, 'active')).toBeNull();
-    expect(epochDaysLeft(294, null, 'active')).toBeNull();
+describe('epochCountdown', () => {
+  it('renders the day count to the boundary with the expiry epoch label', () => {
+    expect(epochCountdown(639, NOW + Math.round(1.4 * DAY_MS), 'active', NOW)).toBe(
+      '~2 days left (epoch 639)',
+    );
   });
-  it('returns null for a terminal status even with a future expiry', () => {
-    expect(epochDaysLeft(294, 290, 'ratified')).toBeNull();
-    expect(epochDaysLeft(294, 290, 'pending')).toBe(20);
+  it('singularizes a single remaining day', () => {
+    expect(epochCountdown(639, NOW + Math.round(0.5 * DAY_MS), 'active', NOW)).toBe(
+      '~1 day left (epoch 639)',
+    );
+  });
+  it('returns null when past, unknown, or terminal', () => {
+    expect(epochCountdown(639, NOW - DAY_MS, 'active', NOW)).toBeNull();
+    expect(epochCountdown(null, null, 'active', NOW)).toBeNull();
+    // An action ratified or enacted before its boundary keeps a future epoch;
+    // it must not read as "still counting down".
+    expect(epochCountdown(639, NOW + 5 * DAY_MS, 'enacted', NOW)).toBeNull();
   });
 });
 

@@ -10,8 +10,8 @@ import { formatAda, formatAdaCompact } from '../format/ada.js';
 // this view module; the implementations live in lib/format/ada.ts.
 export { formatAda, formatAdaCompact };
 
-// Cardano epochs are 5 days on both mainnet and preprod; used for the countdown.
-const EPOCH_DAYS = 5;
+// Milliseconds per day, for the wall-clock voting countdown.
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** "TreasuryWithdrawals" -> "Treasury Withdrawals". */
 export function readableType(type: string): string {
@@ -87,37 +87,45 @@ export function isTerminalStatus(status: string): boolean {
 }
 
 /**
- * Human countdown to an action's expiry epoch, computed against the epoch at the
- * last tally sync. Returns null when the epochs are unknown or already past, or
- * when the action's status is terminal (the status badge then carries the
- * outcome; an action ratified or enacted early keeps a future expiry epoch).
+ * Human countdown to voting close ("~3 days left (epoch 294)"), built on
+ * epochDaysLeft. Returns null whenever epochDaysLeft does. expiryEpoch is the
+ * label only; expiryUnixMs (the start of that epoch) drives the day count.
  */
 export function epochCountdown(
   expiryEpoch: number | null,
-  currentEpoch: number | null,
+  expiryUnixMs: number | null,
   status: string,
+  now: number,
 ): string | null {
-  const days = epochDaysLeft(expiryEpoch, currentEpoch, status);
+  const days = epochDaysLeft(expiryUnixMs, status, now);
   if (days == null) return null;
-  return `~${days} days left (epoch ${expiryEpoch})`;
+  return `~${days} ${days === 1 ? 'day' : 'days'} left (epoch ${expiryEpoch})`;
 }
 
 /**
- * Whole days until an action's expiry epoch, against the epoch at the last tally
- * sync. Null when unknown, already past, or the status is terminal (a concluded
- * action is not "counting down" even if its expiry epoch lies ahead). The bare
- * number powers the list row's "~N days left" headline (the date and epoch are
- * shown separately there).
+ * Whole calendar days until voting closes, rounded up, measured from `now` to the
+ * start of the expiry epoch (expiryUnixMs): on-chain an action is ratified or
+ * expired at the boundary into its expiration epoch, so that boundary is when
+ * votes stop counting. Null when unknown, already past, or the status is terminal
+ * (a concluded action is not "counting down" even if its boundary lies ahead).
+ * The bare number powers the list row's "~N days left" headline.
+ *
+ * Wall-clock, not epoch arithmetic: the previous (expiryEpoch - tallyEpoch) * 5
+ * rounded to whole 5-day epochs and assumed the current epoch had just begun, so
+ * it over-counted by however far we already were into it (e.g. "5 days" with ~1
+ * actually left). Callers pass epochStartMs(expiryEpoch), keeping this helper free
+ * of network config and consistent with the separately shown "Voting ends" date.
  */
 export function epochDaysLeft(
-  expiryEpoch: number | null,
-  currentEpoch: number | null,
+  expiryUnixMs: number | null,
   status: string,
+  now: number,
 ): number | null {
   if (isTerminalStatus(status)) return null;
-  if (expiryEpoch == null || currentEpoch == null) return null;
-  if (expiryEpoch <= currentEpoch) return null;
-  return (expiryEpoch - currentEpoch) * EPOCH_DAYS;
+  if (expiryUnixMs == null) return null;
+  const msLeft = expiryUnixMs - now;
+  if (msLeft <= 0) return null;
+  return Math.ceil(msLeft / DAY_MS);
 }
 
 export interface TallyBar {
