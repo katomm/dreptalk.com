@@ -48,6 +48,11 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     text: 'How achievement badges work: earned automatically from on-chain and forum activity, bronze/silver/gold tiers, permanent, never about the direction of a vote, plus a few hidden ones.',
   },
   {
+    href: '/help/voting',
+    title: 'Voting on governance actions',
+    text: 'How registered DReps cast Yes/No/Abstain votes on-chain from DRepTalk: the optional rationale (permanent, content-addressed, non-editable), re-voting, and the availability tradeoff for hosted rationale documents.',
+  },
+  {
     href: '/help/open-source',
     title: 'Open source',
     text: 'DRepTalk is open source under the Apache 2.0 license. The full code is on GitHub and contributions are welcome.',

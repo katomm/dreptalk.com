@@ -1,0 +1,168 @@
+---
+export const prerender = false;
+
+import HelpLayout from '@/layouts/HelpLayout.astro';
+import JsonLd from '@/components/JsonLd.astro';
+
+const siteOrigin = Astro.site?.origin ?? 'https://dreptalk.com';
+const pageUrl = `${siteOrigin}/help/voting`;
+
+// FAQ structured data targeting the real searches DReps make about voting on
+// DRepTalk. Answers mirror the visible copy below, as Google requires.
+const faqLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: 'Who can cast a vote on DRepTalk?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Registered, active, key-credential DReps can vote. Connect a CIP-95 capable wallet (for example Lace, Eternl, or Typhon) and sign in with your DRep key. Script-based DReps are not supported. Reading governance action threads and discussion is public and requires no wallet.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'How do I vote on a governance action?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Open the governance action thread and choose Yes, No, or Abstain in the vote panel. You can optionally add a rationale. Click Submit vote and approve in your wallet. DRepTalk is non-custodial: your wallet signs and submits the transaction; the site never touches your keys.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Can I edit my vote rationale after submitting?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'No. The rationale is stored as a permanent, content-addressed document and its hash is recorded on chain with your vote. It is shown as a frozen post on the action thread and cannot be edited. If you change your vote while the action is still open, the on-chain vote updates and the rationale post updates to reflect the new vote direction.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Can I change my vote after submitting?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes, while the governance action is still open. Open the action thread, choose a different option in the vote panel, and submit. The new vote overwrites the old one on chain. If your previous vote included a rationale, the rationale post on the thread updates to match.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'What happens to my vote rationale if DRepTalk goes offline?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Your vote on the blockchain is unaffected. The rationale document is hosted by dreptalk.com, so if the site ever goes away that URL stops resolving. The on-chain hash stays valid forever: anyone can take the same bytes and re-host them at a new URL to restore verifiability. The vote itself needs no rationale URL to remain valid.',
+      },
+    },
+  ],
+};
+
+const breadcrumbLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: `${siteOrigin}/` },
+    { '@type': 'ListItem', position: 2, name: 'Help', item: `${siteOrigin}/help` },
+    { '@type': 'ListItem', position: 3, name: 'Voting', item: pageUrl },
+  ],
+};
+---
+
+<HelpLayout
+  title="Voting on governance actions - DRepTalk"
+  description="How DReps cast on-chain votes from DRepTalk: who can vote, the optional rationale (permanent and non-editable), re-voting, and the availability tradeoff for hosted rationale documents."
+  crumb="Voting"
+>
+  <JsonLd data={faqLd} />
+  <JsonLd data={breadcrumbLd} />
+
+  <p style="color:var(--muted);max-width:62ch;line-height:1.6;">
+    DRepTalk lets registered DReps cast on-chain votes directly from a governance
+    action thread or from the <a href="/vote">vote dashboard</a>. Voting is
+    <strong>non-custodial</strong>: your wallet signs and submits every transaction;
+    dreptalk.com never sees your keys. Reading and discussion are always public;
+    voting requires a connected DRep wallet.
+  </p>
+
+  <section style="margin-top:1.75rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Who can vote?</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Only <strong>registered, active, key-credential DReps</strong> can cast
+      votes. You need a CIP-95 capable wallet (for example Lace, Eternl, or Typhon)
+      and must sign in with your DRep key. Script-based DReps are not supported.
+      SPOs, CC members, and direct voters cannot vote here; this flow is for DReps
+      only.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">How to vote</h2>
+    <p style="margin:0 0 0.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Open a governance action thread (or go to <a href="/vote">/vote</a> for the
+      full list of open actions) and click the vote panel. Choose
+      <strong>Yes</strong>, <strong>No</strong>, or <strong>Abstain</strong>, add
+      an optional rationale, and click <strong>Submit vote</strong>. Your wallet
+      shows you the transaction details; approve it there. The vote is on chain
+      once the transaction confirms.
+    </p>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      DRepTalk shows an optimistic result immediately so you do not have to wait
+      for the next sync. The displayed vote refreshes to the confirmed on-chain
+      value within about an hour.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Vote rationale</h2>
+    <p style="margin:0 0 0.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Adding a rationale is optional. If you include one, DRepTalk stores it as a
+      content-addressed document and records its hash on chain with your vote, making
+      the rationale verifiable. The rationale appears as a post on the action thread
+      attributed to your DRep.
+    </p>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      <strong>Rationale posts are permanent and cannot be edited.</strong> The
+      on-chain hash fixes the content; any change would produce a different hash and
+      invalidate it. If you change your vote (see below), the thread post updates to
+      reflect the new vote direction, but the rationale text itself stays as written.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Changing your vote</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      You can re-vote any time while the governance action is still open. Open the
+      action thread, select a different option in the vote panel, and submit. The
+      new vote overwrites the old one on chain. If you included a rationale with
+      your previous vote, the post on the thread updates to show the new vote
+      direction alongside the existing rationale text.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">Rationale availability tradeoff</h2>
+    <p style="margin:0 0 0.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      The rationale document is hosted by dreptalk.com. If the site ever goes
+      offline, the rationale URL stops resolving. The on-chain hash, however, stays
+      valid forever: it commits to the exact bytes of the document. Anyone who has
+      those bytes can re-host them at a new URL and anyone else can verify the hash
+      matches. Your vote on chain is not affected in any way by the availability of
+      the rationale URL.
+    </p>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      This is the same tradeoff any CIP-100 rationale hosted on a centralized
+      service has. The canonical solution is to pin the bytes to IPFS or another
+      content-addressed store; that is not built into DRepTalk today, but nothing
+      prevents you from doing it yourself and the on-chain hash will still match.
+    </p>
+  </section>
+
+  <section style="margin-top:1.5rem;">
+    <h2 style="margin:0 0 0.25rem;font-size:1.0625rem;">What voting never does</h2>
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+      Voting never moves your funds beyond the small network fee. DRepTalk never
+      asks for a seed phrase or private key. Your wallet shows you the full
+      transaction before anything is submitted; if anything looks unexpected,
+      reject it.
+    </p>
+  </section>
+</HelpLayout>
