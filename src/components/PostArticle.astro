@@ -71,9 +71,9 @@ const anchorUrl = isVoteRationale && authorVote?.meta_url ? authorVote.meta_url 
   {isVoteRationale && (
     <p class="vr-frozen-notice">
       {anchorUrl ? (
-        <>This rationale is frozen. <a href={anchorUrl} rel="nofollow noopener" target="_blank" class="vr-anchor-link">View the on-chain rationale document.</a></>
+        <>Frozen. <a href={anchorUrl} rel="nofollow noopener" target="_blank" class="vr-anchor-link">On-chain rationale, submitted {formatRelativeTime(post.created_at, now)}.</a></>
       ) : (
-        'This rationale is frozen and reflects the on-chain vote as submitted.'
+        <>Frozen. On-chain rationale, submitted {formatRelativeTime(post.created_at, now)}.</>
       )}
     </p>
   )}

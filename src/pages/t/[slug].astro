@@ -117,7 +117,7 @@ const related: RelatedActionRow[] = isGovernanceTopic && govAction && db
       limit: 6,
     })
   : [];
-const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string }>();
+const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string; meta_url: string | null }>();
 
 // Governance detail page extras: tab, protocol params, stake participation, tally.
 const tab = parseGaTab(Astro.url.searchParams.get('tab'));
