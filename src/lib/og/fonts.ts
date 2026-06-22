@@ -27,17 +27,20 @@ async function load(assets: Fetcher, origin: string, file: string): Promise<Arra
 }
 
 export async function loadOgFonts(assets: Fetcher, origin: string): Promise<OgFont[]> {
-  const fonts: OgFont[] = [];
-  for (const weight of PJS_WEIGHTS) {
-    fonts.push({
-      name: 'Plus Jakarta Sans',
-      data: await load(assets, origin, `plus-jakarta-sans-${weight}.ttf`),
-      weight,
-      style: 'normal',
-    });
-  }
-  // Fallback family listed after Plus Jakarta Sans in the templates' font-family,
-  // so satori uses it only for the ada glyph the primary subset lacks.
-  fonts.push({ name: 'Ada', data: await load(assets, origin, 'ada-symbol.ttf'), weight: 700, style: 'normal' });
-  return fonts;
+  // All files are independent; load them concurrently (cold isolate only, warm
+  // ones hit the cache). The Ada fallback is listed after Plus Jakarta Sans in
+  // the templates' font-family, so satori uses it only for the ada glyph the
+  // primary subset lacks.
+  const [pjs, ada] = await Promise.all([
+    Promise.all(
+      PJS_WEIGHTS.map(async (weight) => ({
+        name: 'Plus Jakarta Sans',
+        data: await load(assets, origin, `plus-jakarta-sans-${weight}.ttf`),
+        weight,
+        style: 'normal' as const,
+      })),
+    ),
+    load(assets, origin, 'ada-symbol.ttf'),
+  ]);
+  return [...pjs, { name: 'Ada', data: ada, weight: 700, style: 'normal' }];
 }

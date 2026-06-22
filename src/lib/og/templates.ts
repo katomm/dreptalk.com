@@ -1,21 +1,11 @@
-// HTML-string builders for the two OG cards. workers-og (satori) renders these
-// to a 1200x630 PNG. Constraints baked in: every multi-child container sets an
+// HTML-string builders for the OG cards. workers-og (satori) renders these to a
+// 1200x630 PNG. Constraints baked in: every multi-child container sets an
 // explicit display:flex (satori needs it), colours are literal hex, and images
 // are passed as data URLs. compact() strips inter-tag whitespace because satori
 // otherwise treats the newlines/indentation as empty flex children and skews
 // justify-content (it pushed the header logo off the left edge).
 
-import {
-  BRAND_ACCENT,
-  CARD_BG,
-  INK,
-  MUTED,
-  OG_HEIGHT,
-  SUBTLE,
-  TALLY,
-  TRACK,
-  tint,
-} from './theme.js';
+import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
 import type { DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel } from './model.js';
 
 function esc(s: string): string {
@@ -42,8 +32,25 @@ function header(logoDataUrl: string, rightPill: string): string {
   </div>`;
 }
 
-function pill(text: string, color: string, radius = 999): string {
-  return `<span style="display:flex;font-size:24px;font-weight:600;color:${color};background:${tint(color)};padding:10px 22px;border-radius:${radius}px;text-transform:uppercase;letter-spacing:0.5px;">${esc(text)}</span>`;
+function pill(text: string, color: string): string {
+  return `<span style="display:flex;font-size:24px;font-weight:600;color:${color};background:${tint(color)};padding:10px 22px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px;">${esc(text)}</span>`;
+}
+
+// The shared frame for every card: white canvas, accent bar, padded content
+// column with the brand header on top and the card-specific body below. The
+// three builders differ only in their pill label and body.
+function cardShell(accent: string, logoDataUrl: string, pillText: string, body: string): string {
+  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
+    <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${accent};"></div>
+    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px;">
+      ${header(logoDataUrl, pill(pillText, accent))}
+      ${body}
+    </div>
+  </div>`);
+}
+
+function title(text: string): string {
+  return `<div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:1010px;">${esc(text)}</div>`;
 }
 
 function tallyBlock(t: { yes: number; no: number; abstain: number }): string {
@@ -73,20 +80,15 @@ export function govCardHtml(m: GovCardModel, logoDataUrl: string): string {
   const meta = m.meta
     ? `<span style="font-size:24px;font-weight:500;color:${MUTED};margin-left:16px;">${esc(m.meta)}</span>`
     : '';
-  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
-    <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${m.accent};"></div>
-    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px;">
-      ${header(logoDataUrl, pill(m.typeLabel, m.accent))}
-      <div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:1010px;">${esc(m.title)}</div>
-      <div style="display:flex;flex-direction:column;">
-        <div style="display:flex;align-items:center;margin-bottom:14px;">
-          <span style="display:flex;font-size:24px;font-weight:700;color:${m.status.color};background:${m.status.tint};padding:6px 16px;border-radius:8px;">${esc(m.status.label)}</span>
-          ${meta}
-        </div>
-        ${m.tally ? tallyBlock(m.tally) : votingOpen()}
+  const body = `${title(m.title)}
+    <div style="display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;margin-bottom:14px;">
+        <span style="display:flex;font-size:24px;font-weight:700;color:${m.status.color};background:${m.status.tint};padding:6px 16px;border-radius:8px;">${esc(m.status.label)}</span>
+        ${meta}
       </div>
-    </div>
-  </div>`);
+      ${m.tally ? tallyBlock(m.tally) : votingOpen()}
+    </div>`;
+  return cardShell(m.accent, logoDataUrl, m.typeLabel, body);
 }
 
 // Thin line icons (Lucide-style) drawn here so the stat row matches the design.
@@ -131,38 +133,25 @@ export function drepCardHtml(m: DrepCardModel, logoDataUrl: string): string {
   const bioLine = m.bio
     ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:16px;line-height:1.35;">${esc(m.bio)}</div>`
     : '';
-  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
-    <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${m.accent};"></div>
-    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px;">
-      ${header(logoDataUrl, pill('DRep', m.accent))}
-      <div style="display:flex;align-items:center;">
-        <div style="display:flex;flex-direction:column;flex:1;padding-right:32px;">
-          <div style="display:flex;font-size:${nameSize}px;font-weight:800;line-height:1.1;letter-spacing:-1px;">${esc(m.name)}</div>
-          ${idLine}
-          ${bioLine}
-        </div>
-        <img src="${m.avatarDataUrl}" width="160" height="160" style="border-radius:24px;" />
+  const body = `<div style="display:flex;align-items:center;">
+      <div style="display:flex;flex-direction:column;flex:1;padding-right:32px;">
+        <div style="display:flex;font-size:${nameSize}px;font-weight:800;line-height:1.1;letter-spacing:-1px;">${esc(m.name)}</div>
+        ${idLine}
+        ${bioLine}
       </div>
-      <div style="display:flex;">${m.stats.map((s) => statBlock(s, m.accent)).join('')}</div>
+      <img src="${m.avatarDataUrl}" width="160" height="160" style="border-radius:24px;" />
     </div>
-  </div>`);
+    <div style="display:flex;">${m.stats.map((s) => statBlock(s, m.accent)).join('')}</div>`;
+  return cardShell(m.accent, logoDataUrl, 'DRep', body);
 }
 
 export function discussionCardHtml(m: DiscussionCardModel, logoDataUrl: string): string {
-  const meta = `<span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};">${esc(m.meta)}</span>`;
   const footer = m.authorName
     ? `<div style="display:flex;align-items:center;">
         ${m.avatarDataUrl ? `<img src="${m.avatarDataUrl}" width="52" height="52" style="border-radius:999px;margin-right:14px;" />` : ''}
         <span style="display:flex;font-size:28px;font-weight:700;color:${INK};">${esc(m.authorName)}</span>
         <span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-left:14px;">· ${esc(m.meta)}</span>
       </div>`
-    : `<div style="display:flex;">${meta}</div>`;
-  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
-    <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${m.accent};"></div>
-    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px;">
-      ${header(logoDataUrl, pill(m.category, m.accent))}
-      <div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:1010px;">${esc(m.title)}</div>
-      ${footer}
-    </div>
-  </div>`);
+    : `<div style="display:flex;"><span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};">${esc(m.meta)}</span></div>`;
+  return cardShell(m.accent, logoDataUrl, m.category, `${title(m.title)}${footer}`);
 }

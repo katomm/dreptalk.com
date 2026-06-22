@@ -9,10 +9,9 @@ import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { countDrepVotes, getDrepParticipation } from '@/lib/db/drepVotes.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { influencePct } from '@/lib/drep/profile.js';
-import { loadAvatar, loadLogo } from '@/lib/og/assets.js';
-import { loadOgFonts } from '@/lib/og/fonts.js';
+import { loadAvatar } from '@/lib/og/assets.js';
 import { drepCardModel } from '@/lib/og/model.js';
-import { ogPng } from '@/lib/og/render.js';
+import { renderOgCard } from '@/lib/og/render.js';
 import { drepCardHtml } from '@/lib/og/templates.js';
 
 export const prerender = false;
@@ -40,9 +39,5 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     participation,
   });
 
-  const [fonts, logo] = await Promise.all([
-    loadOgFonts(env.ASSETS as unknown as Fetcher, request.url),
-    loadLogo(env.ASSETS as unknown as Fetcher, request.url),
-  ]);
-  return ogPng(drepCardHtml(model, logo), fonts);
+  return renderOgCard(env.ASSETS as unknown as Fetcher, request.url, (logo) => drepCardHtml(model, logo));
 };

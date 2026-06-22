@@ -7,6 +7,7 @@ import { epochCountdown, overviewTally, readableType, statusBadge } from '../gov
 import type { RoleTallyInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
 import { formatAdaCompact } from '../format/ada.js';
+import { getCategory } from '../../../config/categories.js';
 import { accentForType, BRAND_ACCENT, statusColor, tint } from './theme.js';
 
 /** Hard character caps so a long title/name can never overflow the fixed canvas. */
@@ -121,15 +122,6 @@ export function drepCardModel(
   };
 }
 
-/** "governance-actions" -> "Governance Actions". */
-function categoryLabel(slug: string): string {
-  return slug
-    .split('-')
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
-
 export interface DiscussionCardInput {
   title: string;
   categorySlug: string;
@@ -152,7 +144,7 @@ export function discussionCardModel(
   const replies = Math.max(0, t.postCount - 1);
   return {
     accent: BRAND_ACCENT,
-    category: categoryLabel(t.categorySlug) || 'Discussion',
+    category: getCategory(t.categorySlug)?.name ?? 'Discussion',
     title: clamp(t.title, 96),
     authorName: opts.authorName,
     avatarDataUrl: opts.avatarDataUrl,

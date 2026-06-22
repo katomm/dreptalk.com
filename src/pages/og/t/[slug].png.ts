@@ -12,10 +12,9 @@ import { getTopicBySlug } from '@/lib/db/forum.js';
 import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
 import { loadAuthorIdentity } from '@/lib/forum/author.js';
 import { proposerView } from '@/lib/identity/proposer.js';
-import { loadAvatar, loadLogo } from '@/lib/og/assets.js';
-import { loadOgFonts } from '@/lib/og/fonts.js';
+import { loadAvatar } from '@/lib/og/assets.js';
 import { discussionCardModel, govCardModel } from '@/lib/og/model.js';
-import { ogPng } from '@/lib/og/render.js';
+import { renderOgCard } from '@/lib/og/render.js';
 import { discussionCardHtml, govCardHtml } from '@/lib/og/templates.js';
 
 export const prerender = false;
@@ -30,9 +29,8 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   if (!topic) return new Response('Not found', { status: 404 });
 
   const assets = env.ASSETS as unknown as Fetcher;
-  const [fonts, logo] = await Promise.all([loadOgFonts(assets, request.url), loadLogo(assets, request.url)]);
-
   const action = await getGovernanceActionByTopicId(db, topic.id);
+
   if (action) {
     const net = currentNetwork();
     const expiryUnixMs = action.expiryEpoch != null ? epochStartMs(action.expiryEpoch, net) : null;
@@ -42,7 +40,7 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
       now: Date.now(),
       proposerName: pv.kind === 'known' ? pv.name : null,
     });
-    return ogPng(govCardHtml(model, logo), fonts);
+    return renderOgCard(assets, request.url, (logo) => govCardHtml(model, logo));
   }
 
   // Plain discussion thread: author identity + reply count.
@@ -54,5 +52,5 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     { title: topic.title, categorySlug: topic.category_slug, postCount: topic.post_count },
     { authorName: author.isSystem ? null : author.displayName, avatarDataUrl },
   );
-  return ogPng(discussionCardHtml(model, logo), fonts);
+  return renderOgCard(assets, request.url, (logo) => discussionCardHtml(model, logo));
 };

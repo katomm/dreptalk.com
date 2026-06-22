@@ -98,13 +98,13 @@ describe('discussionCardModel', () => {
 
   it('humanizes the category, counts replies and carries the author', () => {
     const m = discussionCardModel(topic, { authorName: 'Ada Hernandez', avatarDataUrl: 'data:x' });
-    expect(m.category).toBe('General');
+    expect(m.category).toBe('General and Off-topic');
     expect(m.title).toBe('How should we fund tooling?');
     expect(m.authorName).toBe('Ada Hernandez');
     expect(m.meta).toBe('42 replies');
   });
 
-  it('singularizes one reply and humanizes a multi-word category', () => {
+  it('resolves the registry name for a known category and singularizes one reply', () => {
     const m = discussionCardModel(
       { title: 'Hi', categorySlug: 'governance-actions', postCount: 2 },
       { authorName: null, avatarDataUrl: null },
@@ -112,6 +112,14 @@ describe('discussionCardModel', () => {
     expect(m.category).toBe('Governance Actions');
     expect(m.meta).toBe('1 reply');
     expect(m.authorName).toBeNull();
+  });
+
+  it('falls back to Discussion for an unknown category', () => {
+    const m = discussionCardModel(
+      { title: 'Hi', categorySlug: 'does-not-exist', postCount: 1 },
+      { authorName: null, avatarDataUrl: null },
+    );
+    expect(m.category).toBe('Discussion');
   });
 
   it('shows zero replies for a topic with only the opening post', () => {
