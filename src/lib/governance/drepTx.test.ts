@@ -3,7 +3,7 @@
 // The full registerDRep function is covered by the preprod e2e suite (Phase B-11).
 
 import { describe, it, expect } from 'vitest';
-import { VotingProcedures } from '@evolution-sdk/evolution';
+import type { VotingProcedures } from '@evolution-sdk/evolution';
 import {
   buildRegisterDrepParts,
   queueRegisterDrepOps,
@@ -249,9 +249,10 @@ describe('queueVoteOps', () => {
   it('queues a single-vote procedure, the DRep signer, and the CIP-20 tag', () => {
     const calls: Record<string, unknown[]> = {};
     // Recording stub: every builder method records its args and returns the stub.
+    // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
     const stub: any = new Proxy(
       {},
-      { get: (_t, prop: string) => (arg: unknown) => { (calls[prop] ||= []).push(arg); return stub; } },
+      { get: (_t, prop: string) => (arg: unknown) => { if (!calls[prop]) calls[prop] = []; calls[prop].push(arg); return stub; } },
     );
 
     const drepKeyHash = new Uint8Array(28).fill(7);

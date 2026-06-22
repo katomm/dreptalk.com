@@ -424,7 +424,7 @@ describe('backfillFinalizedVotes', () => {
 
 describe('reconcilePendingVotes', () => {
   it('flags votes older than the window failed', async () => {
-    const gaId = 'd'.repeat(64) + '#0', drepId = 'drep1' + 'z'.repeat(50);
+    const gaId = `${'d'.repeat(64)}#0`, drepId = `drep1${'z'.repeat(50)}`;
     // submit time 0; "now" far past the 6h window
     await recordLocalVote(env.DB, { gaId, drepId, voterHex: null, vote: 'yes', metaUrl: null, txHash: 'tx', now: 0 });
     await reconcilePendingVotes(env.DB, 7 * 3600);

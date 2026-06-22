@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { handleVoteRationale } from './voteRationaleHandler.js';
 import { getVoteRationaleBody } from '@/lib/db/voteRationale.js';
 
-const drepId = 'drep1' + 'q'.repeat(50);
-const gaId = 'a'.repeat(64) + '#0';
+const drepId = `drep1${'q'.repeat(50)}`;
+const gaId = `${'a'.repeat(64)}#0`;
 
 describe('handleVoteRationale', () => {
   it('hosts the document and returns a content-addressed url + hash', async () => {
