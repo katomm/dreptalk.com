@@ -17,8 +17,10 @@ import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.j
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { threadOgImage, stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
+import { getUserById } from '@/lib/db/users.js';
+import VotePanel from '@/components/VotePanel.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { isWriter } from '@/lib/auth/roles.js';
@@ -118,6 +120,17 @@ const related: RelatedActionRow[] = isGovernanceTopic && govAction && db
     })
   : [];
 const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string; meta_url: string | null }>();
+
+// DRep vote panel: only for logged-in DReps on votable (active) actions.
+// Gate on ga.status === 'active'; deriveStatus already accounts for expiry boundary.
+const isDrep = user?.roles?.includes('drep') ?? false;
+const isVotable = govAction?.status === 'active';
+const dbUser = isDrep && db ? await getUserById(db, user!.id) : null;
+const viewerDrepId = isDrep ? (dbUser?.drep_id ?? null) : null;
+const viewerVote =
+  isDrep && isVotable && viewerDrepId && db && govAction
+    ? await getViewerVote(db, govAction.id, viewerDrepId)
+    : null;
 
 // Governance detail page extras: tab, protocol params, stake participation, tally.
 const tab = parseGaTab(Astro.url.searchParams.get('tab'));
@@ -328,6 +341,17 @@ const ogImage = threadOgImage(govAction, isGovernanceTopic);
               dreps={drepsMap}
               related={related}
             />
+            {isDrep && isVotable && (
+              <div style="margin-top:1.5rem;">
+                <h3 style="margin:0 0 0.75rem;font-size:0.9375rem;">Cast your vote</h3>
+                <VotePanel
+                  client:load
+                  gaId={govAction.id}
+                  network={network}
+                  initialViewerVote={viewerVote}
+                />
+              </div>
+            )}
           </div>
         </div>
       </>
