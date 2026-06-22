@@ -6,7 +6,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
-import { formatAdaCompact } from '@/lib/governance/view.js';
+import { TONE_COLORS, formatAdaCompact, voteTone } from '@/lib/governance/view.js';
 
 interface Props {
   voters: ActionVoterRow[];
@@ -23,11 +23,13 @@ const { voters, dreps } = Astro.props;
       {voters.map((v) => {
         const descriptor = voterDescriptor(v, dreps);
         const ada = formatAdaCompact(v.voting_power);
+        const badgeColor = TONE_COLORS[voteTone(v.vote)];
         return (
           <li class="top-participants__row">
             <div class="top-participants__identity">
               <AuthorIdentity author={descriptor} size={AVATAR_SIZE.compact} />
             </div>
+            <span class="top-participants__vote" style={`background:${badgeColor};`}>{v.vote}</span>
             {ada && <span class="top-participants__power">{ada}</span>}
           </li>
         );
@@ -80,6 +82,17 @@ const { voters, dreps } = Astro.props;
     min-width: 0;
     overflow: hidden;
     font-size: 0.8125rem;
+  }
+
+  .top-participants__vote {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #fff;
+    border-radius: 0.25rem;
+    padding: 0.15rem 0.4rem;
+    flex-shrink: 0;
   }
 
   .top-participants__power {
