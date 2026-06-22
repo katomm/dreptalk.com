@@ -4,6 +4,7 @@
 // base64-encoded here. The generated identicon is already an SVG data URL from
 // cardenticon, used as the fallback when a DRep has no uploaded image.
 
+import { AVATAR_KEY_PREFIX } from '../dreps/avatarStore.js';
 import { cardenticonDataURL } from '../../vendor/cardenticon/index.js';
 
 function toBase64(buf: ArrayBuffer): string {
@@ -36,7 +37,9 @@ export async function loadAvatar(
 ): Promise<string> {
   if (avatars && imageContentHash) {
     try {
-      const obj = await avatars.get(imageContentHash);
+      // Content-addressed objects are stored under the avatars/ key prefix
+      // (matches serveAvatar); the bare hash never resolves.
+      const obj = await avatars.get(AVATAR_KEY_PREFIX + imageContentHash);
       if (obj) {
         const ct = obj.httpMetadata?.contentType ?? 'image/webp';
         return `data:${ct};base64,${toBase64(await obj.arrayBuffer())}`;

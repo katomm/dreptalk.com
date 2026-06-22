@@ -54,10 +54,14 @@ const { seed, imageHash = null, size = 28, ring = false } = Astro.props;
     height: 100%;
     display: block;
   }
-  /* R2 avatar overlay as a background so a 404 falls through to the identicon. */
+  /* R2 avatar overlay as a background so a 404 falls through to the identicon.
+     Opaque fill underneath so a transparent stored image shows the surface, not
+     the identicon bleeding through (a 404 then shows a plain surface circle, but
+     the store clears image_content_hash on failure, so that is rare). */
   .avatar__img {
     position: absolute;
     inset: 0;
+    background-color: var(--surface);
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
