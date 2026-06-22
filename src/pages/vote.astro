@@ -1,0 +1,303 @@
+---
+// DRep voting dashboard: open actions with viewer status, plus the voting record.
+// Gated to DReps only: non-DRep sessions are redirected to /login.
+//
+// Vote action: links to the thread (/t/<slug>) where VotePanel is already
+// rendered inline in the sidebar. This avoids duplicating the dialog wiring
+// and is the simpler correct approach documented in the task brief.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import { runtimeEnv } from '@/lib/api/response';
+import { getUserById } from '@/lib/db/users';
+import { getVotableActionsForViewer } from '@/lib/db/votableActions';
+import { getDrepVotingHistory } from '@/lib/db/drepVotes';
+import { readableType, epochDaysLeft, voteTone, TONE_COLORS, govTypeTone } from '@/lib/governance/view';
+
+// --- resolve network + session ---
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login');
+}
+
+const isDrep = user.roles.includes('drep');
+if (!isDrep) {
+  return Astro.redirect('/login');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+
+// Resolve the drep_id from the database row (same pattern as settings.astro).
+const dbUser = db ? await getUserById(db, user.id) : null;
+const drepId = dbUser?.drep_id ?? null;
+
+// Fetch votable actions + voting history in parallel when the db is available.
+const [votableRows, historyRows] = drepId && db
+  ? await Promise.all([
+      getVotableActionsForViewer(db, drepId),
+      getDrepVotingHistory(db, drepId, { limit: 50 }),
+    ])
+  : [[], []];
+---
+<Layout
+  title="Vote - DRepTalk"
+  description="Your DRep voting dashboard: open governance actions ready to vote on, and your voting record."
+  noindex={true}
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Vote</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.25rem;">Vote</h1>
+  <p style="margin:0 0 2rem;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
+    Open governance actions you can vote on, and your voting record.
+  </p>
+
+  {!drepId && (
+    <div class="callout callout--info" role="status">
+      <div class="callout__body">
+        Your DRep id has not synced yet. Check back in a few minutes.
+      </div>
+    </div>
+  )}
+
+  {drepId && (
+    <>
+      <!-- Open actions -->
+      <section style="margin-bottom:3rem;">
+        <h2 style="margin:0 0 1rem;font-size:1.125rem;">Open actions</h2>
+        {votableRows.length === 0 ? (
+          <p style="color:var(--muted);font-size:0.9375rem;margin:0;">
+            No active governance actions to vote on right now.
+          </p>
+        ) : (
+          <div class="vote-list">
+            {votableRows.map((row) => {
+              const typeTone = govTypeTone(row.type);
+              const daysLeft = epochDaysLeft(row.expiry_epoch, null, row.status);
+              const voteColor = row.viewerVote ? TONE_COLORS[voteTone(row.viewerVote)] : null;
+              const threadHref = row.slug ? `/t/${row.slug}` : null;
+              return (
+                <div class="vote-row">
+                  <div class="vote-row__main">
+                    <div class="vote-row__tags">
+                      <span class="pill" style={`--ph:var(--gov-${typeTone})`}>
+                        {readableType(row.type)}
+                      </span>
+                      {row.viewerVote ? (
+                        <span
+                          class="vote-badge"
+                          style={`color:${voteColor};border-color:${voteColor}`}
+                        >
+                          {row.viewerStatus === 'pending'
+                            ? `Voted ${row.viewerVote} (pending)`
+                            : row.viewerStatus === 'failed'
+                              ? `Vote failed`
+                              : `Voted ${row.viewerVote}`}
+                        </span>
+                      ) : (
+                        <span class="vote-badge vote-badge--none">Not voted</span>
+                      )}
+                    </div>
+                    <p class="vote-row__title">
+                      {threadHref ? (
+                        <a href={threadHref}>{row.title ?? row.id}</a>
+                      ) : (
+                        (row.title ?? row.id)
+                      )}
+                    </p>
+                    {row.expiry_epoch != null && (
+                      <p class="vote-row__meta">
+                        {daysLeft != null
+                          ? `~${daysLeft} days left (epoch ${row.expiry_epoch})`
+                          : `Epoch ${row.expiry_epoch}`}
+                      </p>
+                    )}
+                  </div>
+                  <div class="vote-row__action">
+                    {threadHref ? (
+                      <a href={threadHref} class="btn btn-primary btn--sm">
+                        Vote
+                      </a>
+                    ) : (
+                      <span style="color:var(--muted);font-size:0.875rem;">No thread yet</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <!-- Voting record -->
+      <section>
+        <h2 style="margin:0 0 1rem;font-size:1.125rem;">Your voting record</h2>
+        {historyRows.length === 0 ? (
+          <p style="color:var(--muted);font-size:0.9375rem;margin:0;">
+            No recorded votes yet.
+          </p>
+        ) : (
+          <div class="history-list">
+            {historyRows.map((row) => {
+              const typeTone = govTypeTone(row.type);
+              const voteColor = TONE_COLORS[voteTone(row.vote)];
+              return (
+                <div class="history-row">
+                  <div class="history-row__main">
+                    <div class="history-row__tags">
+                      <span class="pill" style={`--ph:var(--gov-${typeTone})`}>
+                        {readableType(row.type)}
+                      </span>
+                      <span
+                        class="vote-badge"
+                        style={`color:${voteColor};border-color:${voteColor}`}
+                      >
+                        Voted {row.vote}
+                      </span>
+                    </div>
+                    <p class="history-row__title">
+                      {row.topic_slug ? (
+                        <a href={`/t/${row.topic_slug}`}>{row.title ?? row.ga_id}</a>
+                      ) : (
+                        (row.title ?? row.ga_id)
+                      )}
+                    </p>
+                    {row.decided_epoch != null && (
+                      <p class="history-row__meta">
+                        Decided epoch {row.decided_epoch}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </>
+  )}
+</Layout>
+
+<style>
+  /* ---- Open-action list -------------------------------------------------- */
+  .vote-list,
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .vote-row,
+  .history-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .vote-row:last-child,
+  .history-row:last-child {
+    border-bottom: none;
+  }
+  .vote-row:hover,
+  .history-row:hover {
+    background: var(--surface);
+  }
+
+  .vote-row__main,
+  .history-row__main {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .vote-row__tags,
+  .history-row__tags {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.375rem;
+  }
+
+  .pill {
+    display: inline-block;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ph) 14%, transparent);
+    color: var(--ph);
+  }
+
+  .vote-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border: 1px solid;
+    border-radius: 999px;
+    padding: 0.1rem 0.4rem;
+    line-height: 1;
+  }
+  .vote-badge--none {
+    color: var(--muted);
+    border-color: var(--border);
+  }
+
+  .vote-row__title,
+  .history-row__title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    margin: 0 0 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vote-row__title a,
+  .history-row__title a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .vote-row__title a:hover,
+  .history-row__title a:hover {
+    color: var(--accent);
+  }
+
+  .vote-row__meta,
+  .history-row__meta {
+    color: var(--muted);
+    font-size: 0.8125rem;
+    margin: 0;
+  }
+
+  .vote-row__action {
+    flex-shrink: 0;
+  }
+
+  /* Small primary button variant for the vote action. */
+  .btn--sm {
+    padding: 0.375rem 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  @media (max-width: 600px) {
+    .vote-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .vote-row__action {
+      align-self: flex-end;
+    }
+  }
+</style>
