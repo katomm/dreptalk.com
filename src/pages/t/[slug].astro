@@ -16,7 +16,7 @@ import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
-import { threadOgImage, stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
+import { stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
@@ -231,9 +231,10 @@ const breadcrumbLd = topic
     }
   : null;
 
-// OG card: per governance-action type, a generic discussion card, or the site
-// default for a governance topic whose action has not synced yet.
-const ogImage = threadOgImage(govAction, isGovernanceTopic);
+// OG card: one dynamic endpoint per thread renders the governance-action card or
+// the discussion card depending on the topic; the site default applies only when
+// the topic is missing.
+const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
 ---
 
 {notFound ? (
