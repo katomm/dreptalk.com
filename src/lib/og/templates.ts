@@ -74,7 +74,7 @@ function tallyBlock(t: { yes: number; no: number; abstain: number }): string {
     `<div style="display:flex;align-items:center;margin-right:34px;">
       <div style="display:flex;width:16px;height:16px;border-radius:8px;background:${color};margin-right:10px;"></div>
       <span style="font-size:40px;font-weight:800;color:${INK};">${Math.round(n)}%</span>
-      <span style="font-size:24px;font-weight:500;color:${MUTED};margin-left:8px;">${name}</span>
+      <span style="font-size:32px;font-weight:500;color:${MUTED};margin-left:8px;">${name}</span>
     </div>`;
   return `<div style="display:flex;flex-direction:column;">
     <div style="display:flex;width:1010px;height:20px;border-radius:10px;overflow:hidden;background:${TRACK};">
