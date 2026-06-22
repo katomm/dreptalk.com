@@ -38,6 +38,7 @@ type VoteChoice = 'yes' | 'no' | 'abstain';
 type Phase =
   | { status: 'idle' }
   | { status: 'connecting' }
+  | { status: 'checking'; identity: DRepIdentity }
   | { status: 'form'; identity: DRepIdentity }
   | { status: 'submitting'; identity: DRepIdentity }
   | { status: 'success'; txHash: string }
@@ -126,7 +127,10 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   // requests it. The connect step is shown regardless (wallet auth is required).
   const [changingVote, setChangingVote] = useState(!initialViewerVote);
 
-  const busy = phase.status === 'connecting' || phase.status === 'submitting';
+  const busy =
+    phase.status === 'connecting' ||
+    phase.status === 'checking' ||
+    phase.status === 'submitting';
 
   // ------------------------------------------------------------------
   // Step 1: connect wallet, run network guard, derive DRep identity.
@@ -177,6 +181,54 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
       return;
+    }
+
+    setPhase({ status: 'checking', identity });
+
+    // Verify this is a registered, active, key-credential DRep before showing
+    // the vote form. Mirrors DRepService's status preflight exactly: a Koios or
+    // network failure falls through so a legitimately registered DRep is never
+    // blocked by a transient read error. The wallet + chain remain the final
+    // authority at submit time.
+    try {
+      const res = await fetch('/api/koios/drep_info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _drep_ids: [identity.drepId] }),
+      });
+      if (res.ok) {
+        const rows = (await res.json()) as Array<{
+          has_script?: boolean;
+          drep_status?: string;
+          active?: boolean;
+        }>;
+        const row = Array.isArray(rows) ? rows[0] : undefined;
+        if (row) {
+          if (row.has_script === true) {
+            setPhase({
+              status: 'error',
+              message:
+                'Your wallet uses a script-credential DRep, which cannot sign votes directly. Only key-credential DReps can vote here.',
+            });
+            return;
+          }
+          if (row.drep_status !== 'registered' || row.active !== true) {
+            setPhase({
+              status: 'error',
+              message:
+                'Your wallet\'s DRep key is not a registered, active DRep. Register as a DRep before voting.',
+            });
+            return;
+          }
+        }
+        // If the row is absent the DRep has never been seen on-chain: also not
+        // eligible. However an absent row could also mean a brand-new DRep whose
+        // sync has not yet landed in Koios, so we fall through rather than block.
+      }
+      // Non-ok response: fall through and let the submit step be the final gate.
+    } catch {
+      // A failed status read must not block a legitimately registered DRep.
+      // Fall through to the form and let the wallet + chain decide at submit.
     }
 
     setPhase({ status: 'form', identity });
@@ -372,6 +424,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                   connect-step error (no identity yet). */}
               {(phase.status === 'idle' ||
                 phase.status === 'connecting' ||
+                phase.status === 'checking' ||
                 (phase.status === 'error' && !phase.identity)) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
                   <WalletConnection
@@ -398,13 +451,19 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                       alignSelf: 'flex-start',
                     }}
                   >
-                    {phase.status === 'connecting'
+                    {phase.status === 'connecting' || phase.status === 'checking'
                       ? 'Connecting...'
                       : phase.status === 'error'
                         ? 'Try again'
                         : 'Connect wallet'}
                   </button>
                 </div>
+              )}
+
+              {phase.status === 'checking' && (
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                  Checking your DRep status...
+                </p>
               )}
 
               {/* Connect-step error (no identity): state the problem. */}
