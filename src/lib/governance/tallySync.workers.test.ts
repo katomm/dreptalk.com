@@ -94,6 +94,19 @@ describe('deriveStatus', () => {
     expect(deriveStatus(lifeRow('x'), ga, 295)).toBe('expired');
     expect(deriveStatus(lifeRow('x'), ga, 290)).toBe('active');
   });
+  it('treats currentEpoch === expiry as decided (voting ends entering the expiry epoch)', () => {
+    // On-chain an action expires AT the start of its expiration epoch
+    // (expired_epoch === expiration), so currentEpoch === expiry is already over.
+    // The explicit lifecycle checks usually catch this first; this fallback only
+    // fires when Koios lags the boundary and has not yet set a terminal epoch.
+    expect(deriveStatus(lifeRow('x'), ga, 294)).toBe('expired'); // via ga.expiryEpoch
+    // Same boundary via the Koios proposal_list expiration field.
+    const noExpiry = { type: 'TreasuryWithdrawals' } as never;
+    expect(deriveStatus(lifeRow('x', { expiration: 294 }), noExpiry, 294)).toBe('expired');
+    // Info actions close rather than expire at the boundary.
+    const info = { type: 'InfoAction', expiryEpoch: 294 } as never;
+    expect(deriveStatus(lifeRow('x'), info, 294)).toBe('closed');
+  });
 });
 
 describe('syncGovernanceTallies', () => {
