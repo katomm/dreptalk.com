@@ -51,6 +51,14 @@ const pageQueryPrefix = isGovernanceTopic ? '?tab=discussion&page=' : '?page=';
 
 const voteFor = (author: AuthorDescriptor) =>
   author.drepId ? govVotes.get(author.drepId) : undefined;
+
+// On an action that already has recorded votes, a DRep who commented without
+// casting a vote gets a muted "Hasn't voted" marker for context. Gated on
+// govVotes being populated so brand-new actions (no votes synced yet) and plain
+// topics never mislabel everyone as not having voted.
+const hasVoteData = govVotes.size > 0;
+const notVoted = (author: AuthorDescriptor) =>
+  hasVoteData && !!author.drepId && !author.isSystem && !govVotes.has(author.drepId);
 ---
 
 {thread.stats && (
@@ -77,6 +85,7 @@ const voteFor = (author: AuthorDescriptor) =>
           post={post}
           author={author}
           authorVote={voteFor(author)}
+          authorHasNotVoted={notVoted(author)}
           user={user}
           flagged={flaggedPostIds.has(post.id)}
           viewerReaction={viewerReactions.get(post.id) ?? null}
@@ -93,6 +102,7 @@ const voteFor = (author: AuthorDescriptor) =>
                   post={child}
                   author={childAuthor}
                   authorVote={voteFor(childAuthor)}
+                  authorHasNotVoted={notVoted(childAuthor)}
                   user={user}
                   flagged={flaggedPostIds.has(child.id)}
                   viewerReaction={viewerReactions.get(child.id) ?? null}
