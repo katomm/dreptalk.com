@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { getCollection } from 'astro:content';
 import { env } from 'cloudflare:workers';
 import { getCategories } from '../../config/categories.js';
 import { listIndexableDrepIds } from '../lib/db/dreps.js';
@@ -18,6 +19,11 @@ export const GET: APIRoute = async ({ site }) => {
     { path: '/' },
     { path: '/register-drep' },
     { path: '/badges' },
+    { path: '/help' },
+    ...(await getCollection('guides')).map((g) => ({
+      path: `/help/${g.id}`,
+      ...(g.data.updated ? { lastmod: g.data.updated.toISOString() } : {}),
+    })),
     ...getCategories().map((c) => ({ path: `/c/${c.slug}` })),
   ];
 

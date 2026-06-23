@@ -2,21 +2,25 @@
 export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
-import { HELP_ARTICLES } from '@/lib/help/articles.js';
+import { getCollection } from 'astro:content';
+import { CATEGORY_ORDER } from '@/lib/help/categories.js';
 
-// Public help index; cache at the edge.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 
-// The one card pulled out as the entry point for new visitors. It spans the
-// full grid width, so it leads the list to keep the two columns gap-free.
-const FEATURED_HREF = '/help/managing-your-drep';
+const guides = await getCollection('guides');
+const featured = guides.find((g) => g.data.featured);
 
-const featured = HELP_ARTICLES.find((a) => a.href === FEATURED_HREF);
-const rest = HELP_ARTICLES.filter((a) => a.href !== FEATURED_HREF);
-const PAGES = featured ? [featured, ...rest] : [...HELP_ARTICLES];
+// Group the non-featured guides by category, preserving CATEGORY_ORDER and
+// sorting within each group by `order`.
+const groups = CATEGORY_ORDER.map((cat) => ({
+  category: cat,
+  items: guides
+    .filter((g) => g.data.category === cat && !g.data.featured)
+    .sort((a, b) => a.data.order - b.data.order),
+})).filter((grp) => grp.items.length > 0);
 ---
 
-<Layout title="Help - DRepTalk" description="DRepTalk help: data freshness, governance action statuses, and more.">
+<Layout title="Help - DRepTalk" description="DRepTalk help and guides: becoming a DRep, delegating, governance actions, and how DRepTalk works.">
   <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
     <a href="/">DRepTalk</a>
     <span style="margin:0 0.375rem;">/</span>
@@ -25,38 +29,41 @@ const PAGES = featured ? [featured, ...rest] : [...HELP_ARTICLES];
 
   <h1 style="margin:0 0 0.5rem;">Help</h1>
   <p class="help-lede">
-    Short pages explaining how DRepTalk works. More will be added over time.
+    Guides and short pages on becoming a DRep, delegating your voting power,
+    Cardano governance, and how DRepTalk works.
   </p>
 
-  <div class="help-list">
-    {PAGES.map((d, i) => (
-      <a
-        href={d.href}
-        class:list={['help-card', 'reveal', { 'help-card--featured': d.href === FEATURED_HREF }]}
-        style={`--reveal-delay:${60 + i * 60}ms`}
-      >
-        <span class="help-card__body">
-          <span class="help-card__head">
-            <span class="help-card__title">{d.title}</span>
-            {d.href === FEATURED_HREF && <span class="help-card__flag">Getting started</span>}
-          </span>
-          <p class="help-card__text">{d.text}</p>
+  {featured && (
+    <a href={`/help/${featured.id}`} class="help-card help-card--featured reveal" style="--reveal-delay:60ms">
+      <span class="help-card__body">
+        <span class="help-card__head">
+          <span class="help-card__title">{featured.data.cardLabel}</span>
+          <span class="help-card__flag">Getting started</span>
         </span>
-        <svg
-          class="help-card__chev"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="m9 5 7 7-7 7"/>
-        </svg>
-      </a>
-    ))}
-  </div>
+        <p class="help-card__text">{featured.data.description}</p>
+      </span>
+      <svg class="help-card__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+    </a>
+  )}
+
+  {groups.map((grp) => (
+    <section class="help-group">
+      <h2 class="help-group__title">{grp.category}</h2>
+      <div class="help-list">
+        {grp.items.map((g, i) => (
+          <a href={`/help/${g.id}`} class="help-card reveal" style={`--reveal-delay:${60 + i * 60}ms`}>
+            <span class="help-card__body">
+              <span class="help-card__head">
+                <span class="help-card__title">{g.data.cardLabel}</span>
+              </span>
+              <p class="help-card__text">{g.data.description}</p>
+            </span>
+            <svg class="help-card__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+          </a>
+        ))}
+      </div>
+    </section>
+  ))}
 </Layout>
 
 <style>
@@ -162,5 +169,23 @@ const PAGES = featured ? [featured, ...rest] : [...HELP_ARTICLES];
     .help-card__chev {
       display: none;
     }
+  }
+
+  .help-group {
+    margin-top: 2rem;
+  }
+  .help-group__title {
+    margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .help-list {
+    margin-top: 0;
+  }
+  .help-card--featured {
+    margin-top: 1.25rem;
   }
 </style>

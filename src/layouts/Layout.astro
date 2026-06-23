@@ -9,6 +9,8 @@ import LogoMark from '@/components/LogoMark.astro';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { NAV_LINKS } from '@/lib/config/nav.js';
 import { loadAuthorIdentity, type AuthorDescriptor } from '@/lib/forum/author';
+import { getCollection } from 'astro:content';
+import type { HelpEntry } from '@/lib/search/staticEntries.js';
 
 interface Props {
   title: string;
@@ -51,6 +53,12 @@ const navLinks = NAV_LINKS;
 // Highlight the link whose path prefixes the current page.
 const isActive = (href: string) =>
   pathname === href || pathname.startsWith(href + '/');
+
+const helpEntries: HelpEntry[] = (await getCollection('guides'))
+  // Keywords haystack is the page title plus the description, so a guide is
+  // findable by terms in either (the short cardLabel is matched separately).
+  .map((g) => ({ label: g.data.cardLabel, href: `/help/${g.id}`, keywords: `${g.data.title} ${g.data.description}` }))
+  .sort((a, b) => a.label.localeCompare(b.label));
 ---
 <!doctype html>
 <html lang="en">
@@ -125,7 +133,7 @@ const isActive = (href: string) =>
         </nav>
 
         <div class="header-actions">
-          <SearchTrigger client:idle />
+          <SearchTrigger client:idle helpEntries={helpEntries} />
           <ThemeToggle />
           <div class="header-actions__cta">
             <RoleEntry account={account} />
