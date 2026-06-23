@@ -25,8 +25,10 @@ that posts and reclaims the action deposit. Some organizations, such as
 Intersect, submit and administer many actions on behalf of various authors, so a
 known label reflects who submitted an action, not necessarily who wrote it.
 
-If you think a proposing organization should be on the known list, it can be
-added over time.
+The curated list is maintained in the open. You can see exactly which
+organizations and addresses are recognized, and suggest additions, in
+[config/proposers.ts](https://github.com/katomm/dreptalk.com/blob/main/config/proposers.ts)
+on GitHub.
 
 ## Related
 
