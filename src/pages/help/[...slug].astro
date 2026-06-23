@@ -1,0 +1,84 @@
+---
+// src/pages/help/[...slug].astro
+export const prerender = false;
+
+import { getEntry, render } from 'astro:content';
+import HelpLayout from '@/layouts/HelpLayout.astro';
+import JsonLd from '@/components/JsonLd.astro';
+import { buildBreadcrumbLd, buildArticleLd, buildFaqLd } from '@/lib/help/jsonld.js';
+
+const { slug } = Astro.params;
+const entry = slug ? await getEntry('guides', slug) : undefined;
+if (!entry) return new Response('Not found', { status: 404 });
+
+const { Content } = await render(entry);
+const d = entry.data;
+const origin = Astro.site?.origin ?? 'https://dreptalk.com';
+
+const breadcrumbLd = buildBreadcrumbLd(origin, entry.id, d.cardLabel);
+const articleLd = buildArticleLd(origin, entry.id, d.title, d.description, d.updated);
+const faqLd = buildFaqLd(d.faqs);
+
+// Public help pages: cache at the edge but keep them reasonably fresh.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+---
+
+<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel}>
+  <JsonLd data={breadcrumbLd} />
+  <JsonLd data={articleLd} />
+  {faqLd && <JsonLd data={faqLd} />}
+
+  {d.updated && (
+    <p class="guide-updated">Last updated {d.updated.toISOString().slice(0, 10)}</p>
+  )}
+
+  <article class="prose">
+    <Content />
+  </article>
+</HelpLayout>
+
+<style>
+  .guide-updated {
+    margin: 0 0 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .prose {
+    max-width: 64ch;
+  }
+  .prose :global(p),
+  .prose :global(li) {
+    color: var(--muted);
+    line-height: 1.65;
+    font-size: 0.9375rem;
+  }
+  .prose :global(h2) {
+    margin: 1.75rem 0 0.5rem;
+    font-size: 1.0625rem;
+    color: var(--fg);
+  }
+  .prose :global(h3) {
+    margin: 1.25rem 0 0.4rem;
+    font-size: 0.9875rem;
+    color: var(--fg);
+  }
+  .prose :global(a) {
+    color: var(--accent);
+  }
+  .prose :global(ul),
+  .prose :global(ol) {
+    padding-left: 1.25rem;
+  }
+  .prose :global(li) {
+    margin: 0.3rem 0;
+  }
+  .prose :global(strong) {
+    color: var(--fg);
+  }
+  .prose :global(code) {
+    font-size: 0.85em;
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+  }
+</style>
