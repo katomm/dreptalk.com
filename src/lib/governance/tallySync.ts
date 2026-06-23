@@ -9,6 +9,7 @@
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
 import {
   getStaleSyncableActions,
+  getVoteStaleSyncableActions,
   updateGovernanceTallyAndStatus,
   getActionsNeedingVotedPower,
   updateVotedPower,
@@ -285,11 +286,12 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
 export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncResult> {
   const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES } = deps;
 
-  // Same bounded, stale-first strategy as the tally sync: proposal_votes is even
-  // heavier (paginated per action), so a run must not fetch every action at once.
-  // Ordering is by tally recency (vote sync has no dedicated timestamp); in steady
-  // state the active set fits under the limit, so every action is covered each run.
-  const active = await getStaleSyncableActions(db, limit);
+  // Same bounded, stale-first strategy as the tally sync, but ordered by vote
+  // recency (votes_synced_at): proposal_votes is even heavier (paginated per
+  // action), so a run must not fetch every action at once, and ordering by its
+  // own timestamp keeps an action whose vote list is stale from starving behind
+  // the freshly tallied ones when the active set exceeds the per-run limit.
+  const active = await getVoteStaleSyncableActions(db, limit);
   let votes = 0;
   let failed = 0;
   let actions = 0;

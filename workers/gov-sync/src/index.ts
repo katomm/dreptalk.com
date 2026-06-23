@@ -3,7 +3,7 @@
 // event.cron against the constants in src/lib/freshness.js (kept in sync with
 // wrangler.toml's `crons`).
 //   */15 * * * *  discover governance actions + refresh active-action tallies.
-//   0 * * * *     refresh the larger per-post vote lists (active actions only).
+//   */20 * * * *  refresh the larger per-post vote lists (active actions only).
 //   0 */6 * * *   enumerate every registered DRep and persist profile data.
 // Shares the app's D1 database.
 //
@@ -24,6 +24,9 @@
 //               "new" sort orders by exact on-chain submission time.
 //   2026-06-21: ship the DRep sync deactivation pass so deregistered DReps stop
 //               showing as active with frozen voting power.
+//   2026-06-23: vote sync orders by votes_synced_at (not tally recency) and the
+//               budget covers the full active set, so per-post vote lists stop
+//               lagging hours behind; vote cron moved hourly -> every 20 min.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -80,8 +83,11 @@ const TALLY_LIMIT = 12;
 const TALLY_PACE_MS = 200;
 
 // Per-run vote-sync budget: proposal_votes is paginated and heavier than the tally
-// summary, so the hourly vote sync is bounded and paced the same way.
-const VOTE_LIMIT = 12;
+// summary, so the vote sync is bounded and paced the same way. Sized to cover the
+// whole active set in one run (active actions currently number ~20), so that on
+// the */20 cadence every active action's vote list refreshes each run rather than
+// rotating a 12-wide window and leaving the tail hours stale.
+const VOTE_LIMIT = 25;
 const VOTE_PACE_MS = 200;
 
 // Per-run anchor-fetch budget for the DRep sync. The first sync from an empty
@@ -195,8 +201,9 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
   });
 }
 
-// Refresh the per-post vote lists (active actions only). Hourly: vote lists are
-// larger and per-post badges do not need 15-minute freshness. Per-action vote
+// Refresh the per-post vote lists (active actions only). Every 20 min: vote lists
+// are larger than the tally summary, but the budget covers the whole active set
+// in one run, so each active action's vote list refreshes every run. Per-action vote
 // pagination is bounded (see MAX_VOTE_PAGES in tallySync) so one action with a
 // pathologically long vote list cannot run this invocation out of CPU and leave
 // the run stuck mid-loop.

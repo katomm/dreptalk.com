@@ -6,6 +6,7 @@ import {
   buildInsertGovernanceAction,
   getGovernanceActionByTopicId,
   getStaleSyncableActions,
+  getVoteStaleSyncableActions,
   getAllGovernanceActions,
   getGovernanceActionsByTopicIds,
   getGovernanceActionTopicIdsPage,
@@ -177,6 +178,54 @@ describe('getStaleSyncableActions', () => {
     });
     const ids = (await getStaleSyncableActions(db(), 10)).map((r) => r.id);
     expect(ids).toContain(pending.id);
+    expect(ids).not.toContain(frozen.id);
+  });
+});
+
+describe('getVoteStaleSyncableActions', () => {
+  // Marks a row active with a tally sync time, then sets its vote sync time
+  // separately so the two timestamps can diverge (the whole point of the query).
+  const markTallySynced = (id: string, tallySyncedAt: number) =>
+    updateGovernanceTallyAndStatus(db(), {
+      id, status: 'active',
+      drepYes: null, drepNo: null, drepAbstain: null,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: null,
+      tallyEpoch: 295, decidedEpoch: null, tallySyncedAt, now: tallySyncedAt,
+    });
+
+  it('orders by vote recency, independent of tally recency', async () => {
+    // freshTallyStaleVotes has the newest tally but the oldest (never) vote sync:
+    // tally-ordering would bury it, vote-ordering must surface it first.
+    const freshTallyStaleVotes = await insertAction({ expiryEpoch: 600 });
+    const oldTallyFreshVotes = await insertAction({ expiryEpoch: 700 });
+    await markTallySynced(freshTallyStaleVotes.id, NOW);
+    await markTallySynced(oldTallyFreshVotes.id, NOW - 10_000);
+    // Only the second one has ever been vote-synced.
+    await markVotesSynced(db(), oldTallyFreshVotes.id, NOW);
+
+    const ids = (await getVoteStaleSyncableActions(db(), 10)).map((r) => r.id);
+    expect(ids).toEqual([freshTallyStaleVotes.id, oldTallyFreshVotes.id]);
+  });
+
+  it('excludes frozen (terminal) actions', async () => {
+    const active = await insertAction();
+    const frozen = await insertAction();
+    await updateGovernanceTallyAndStatus(db(), {
+      id: frozen.id, status: 'expired',
+      drepYes: null, drepNo: null, drepAbstain: null,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: null,
+      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+    });
+    const ids = (await getVoteStaleSyncableActions(db(), 10)).map((r) => r.id);
+    expect(ids).toContain(active.id);
     expect(ids).not.toContain(frozen.id);
   });
 });
