@@ -8,12 +8,12 @@
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
 import type { DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel } from './model.js';
 
+// satori-html renders text nodes verbatim (it does not decode HTML entities), so
+// escaping &, " or ' would show the entity literally. We only neutralize the one
+// character that could start a tag; entity decoding happens upstream
+// (excerptFromHtml), so the text arrives as real glyphs.
 function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return s.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // Collapse whitespace that sits purely between tags. Text content (which always
