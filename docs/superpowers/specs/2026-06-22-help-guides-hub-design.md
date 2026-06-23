@@ -30,7 +30,8 @@ discoverable, durable reference material.
 - New file `src/content.config.ts` defines a `guides` collection using the
   `glob()` loader over `src/content/guides/*.md`.
 - Frontmatter schema (Zod-validated):
-  - `title: string`
+  - `title: string` (long, used for the page `<title>` and Article headline)
+  - `cardLabel: string` (short name for hub cards, breadcrumb, H1, and search)
   - `description: string`
   - `category: string` (free string, drives hub grouping; easy to reorganize)
   - `order: number` (sort within category and across the search/sitemap)

@@ -69,8 +69,9 @@ Besides delegating to a specific DRep, two special options exist:
 **Always Abstain** registers your stake as participating in governance but
 counts your weight on neither the Yes nor the No side of any action. Use this
 if you want to signal that you are an active participant but you prefer not to
-take a position on current proposals. Your stake contributes to quorum without
-influencing the outcome.
+take a position on current proposals. Abstaining stake is recorded as active
+participation but counts for neither side, so it does not push an action toward
+or away from its approval threshold.
 
 **No Confidence** signals that you do not recognize the current governance
 structure as legitimate. Your stake is counted toward the "no confidence" pool
