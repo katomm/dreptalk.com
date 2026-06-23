@@ -65,13 +65,13 @@ export default function WalletConnection({ wallets, selected, onSelect, disabled
 
   return (
     <div style={cardStyle}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
         {current.icon ? (
           <img src={current.icon} alt="" width={32} height={32} style={{ width: 32, height: 32, borderRadius: '0.5rem', objectFit: 'contain', flexShrink: 0 }} />
         ) : (
           <span aria-hidden="true" style={monoStyle}>{monogram(current.name)}</span>
         )}
-        <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ minWidth: 0, flex: '1 1 10rem' }}>
           <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--muted)' }}>{label}</p>
           <p style={{ margin: '0.1rem 0 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current.name}</span>

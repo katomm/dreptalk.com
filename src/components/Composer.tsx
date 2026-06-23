@@ -1,19 +1,8 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { submitComposer, submitEdit } from '@/lib/forum/composer.js';
 import { REPLY_EVENT, type ReplyEventDetail } from '@/lib/forum/replyEvent.js';
 import { EDIT_EVENT, type EditEventDetail } from '@/lib/forum/editEvent.js';
-import { applyMarkdown, type MarkdownAction } from '@/lib/forum/markdownToolbar.js';
-
-// Toolbar buttons: label is what shows in the button, title is the tooltip.
-const TOOLBAR: { action: MarkdownAction; label: string; title: string }[] = [
-  { action: 'bold', label: 'B', title: 'Bold' },
-  { action: 'italic', label: 'I', title: 'Italic' },
-  { action: 'heading', label: 'H', title: 'Heading' },
-  { action: 'link', label: '\u{1F517}', title: 'Link' },
-  { action: 'quote', label: '”', title: 'Quote' },
-  { action: 'list', label: '•', title: 'List' },
-  { action: 'code', label: '<>', title: 'Code' },
-];
+import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor.js';
 
 interface ComposerProps {
   mode: 'topic' | 'post';
@@ -24,19 +13,14 @@ interface ComposerProps {
 export default function Composer({ mode, categorySlug, topicId }: ComposerProps) {
   const [title, setTitle] = useState('');
   const [bodyMd, setBodyMd] = useState('');
-  const [previewHtml, setPreviewHtml] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
   // Reply target set by a post's Reply button (one-level threading).
   const [replyTo, setReplyTo] = useState<ReplyEventDetail | null>(null);
   // Post being edited, set by a post's Edit button. Mutually exclusive with replyTo.
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<MarkdownEditorHandle>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  // Selection to restore after a toolbar edit re-renders the textarea.
-  const pendingSelRef = useRef<{ start: number; end: number } | null>(null);
 
   // The Reply buttons live in server-rendered markup (no island), so they talk
   // to the composer via a window event. Scroll the form into view and focus the
@@ -49,9 +33,8 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
       // Reply and edit are mutually exclusive: starting a reply leaves edit mode.
       setEditingPostId(null);
       setReplyTo(detail);
-      setShowPreview(false);
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      textareaRef.current?.focus();
+      editorRef.current?.focus();
     };
     window.addEventListener(REPLY_EVENT, onReply);
     return () => window.removeEventListener(REPLY_EVENT, onReply);
@@ -67,66 +50,12 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
       setReplyTo(null);
       setEditingPostId(detail.postId);
       setBodyMd(detail.bodyMd);
-      setShowPreview(false);
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      textareaRef.current?.focus();
+      editorRef.current?.focus();
     };
     window.addEventListener(EDIT_EVENT, onEdit);
     return () => window.removeEventListener(EDIT_EVENT, onEdit);
   }, [mode]);
-
-  // Apply a toolbar action to the current textarea selection.
-  const runAction = useCallback(
-    (action: MarkdownAction) => {
-      const el = textareaRef.current;
-      if (!el) return;
-      const next = applyMarkdown({ text: bodyMd, start: el.selectionStart, end: el.selectionEnd }, action);
-      pendingSelRef.current = { start: next.start, end: next.end };
-      setBodyMd(next.text);
-    },
-    [bodyMd],
-  );
-
-  // Restore focus and selection after a toolbar edit updates the value.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: bodyMd is the intended re-run trigger (restore caret after the value updates), not read in the effect body
-  useLayoutEffect(() => {
-    const sel = pendingSelRef.current;
-    if (!sel || !textareaRef.current) return;
-    pendingSelRef.current = null;
-    textareaRef.current.focus();
-    textareaRef.current.setSelectionRange(sel.start, sel.end);
-  }, [bodyMd]);
-
-  const fetchPreview = useCallback(async (md: string) => {
-    if (!md.trim()) {
-      setPreviewHtml('');
-      return;
-    }
-    try {
-      const res = await fetch('/api/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bodyMd: md }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { html: string };
-        setPreviewHtml(data.html);
-      }
-    } catch {
-      // Preview errors are silent; the user can still compose.
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!showPreview) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      void fetchPreview(bodyMd);
-    }, 400);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [bodyMd, showPreview, fetchPreview]);
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -279,115 +208,17 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
         </div>
       )}
 
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-          <label
-            htmlFor="composer-body"
-            style={{ fontSize: '0.875rem', color: 'var(--muted)' }}
-          >
-            {mode === 'topic' ? 'Body' : 'Reply'}
-          </label>
-          <button
-            type="button"
-            onClick={() => setShowPreview((p) => !p)}
-            style={{
-              fontSize: '0.8125rem',
-              color: 'var(--accent)',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: 0,
-            }}
-          >
-            {showPreview ? 'Edit' : 'Preview'}
-          </button>
-        </div>
-
-        {showPreview ? (
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: previewHtml is server-sanitized markdown (renderMarkdown in src/lib/markdown.ts, via /api/preview)
-          <div dangerouslySetInnerHTML={{ __html: previewHtml || '<p style="color:var(--muted)">Nothing to preview yet.</p>' }}
-            className="prose"
-            style={{
-              minHeight: '7rem',
-              padding: '0.5rem 0.75rem',
-              border: '1px solid var(--border)',
-              borderRadius: '0.375rem',
-              fontSize: '0.9375rem',
-              lineHeight: '1.6',
-              overflowWrap: 'break-word',
-            }}
-          />
-        ) : (
-          <>
-            <div
-              role="toolbar"
-              aria-label="Markdown formatting"
-              style={{
-                display: 'flex',
-                gap: '0.25rem',
-                marginBottom: '0.375rem',
-                flexWrap: 'wrap',
-              }}
-            >
-              {TOOLBAR.map(({ action, label, title }) => (
-                <button
-                  key={action}
-                  type="button"
-                  title={title}
-                  aria-label={title}
-                  disabled={submitting}
-                  // Keep textarea focus/selection: prevent the button stealing it on mousedown.
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => runAction(action)}
-                  style={{
-                    minWidth: '2rem',
-                    height: '2rem',
-                    padding: '0 0.5rem',
-                    border: '1px solid var(--border)',
-                    borderRadius: '0.375rem',
-                    background: 'var(--bg)',
-                    color: 'var(--fg)',
-                    fontSize: '0.875rem',
-                    fontWeight: action === 'bold' ? 700 : 500,
-                    fontStyle: action === 'italic' ? 'italic' : 'normal',
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                    lineHeight: 1,
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <textarea
-              ref={textareaRef}
-              id="composer-body"
-              value={bodyMd}
-              onChange={(e) => setBodyMd(e.target.value)}
-            placeholder="Write your message in Markdown..."
-            maxLength={20000}
-            required
-            disabled={submitting}
-            rows={7}
-            style={{
-              width: '100%',
-              padding: '0.5rem 0.75rem',
-              border: '1px solid var(--border)',
-              borderRadius: '0.375rem',
-              background: 'var(--bg)',
-              color: 'var(--fg)',
-              fontSize: '0.9375rem',
-              lineHeight: '1.6',
-                resize: 'vertical',
-                fontFamily: 'inherit',
-              }}
-            />
-          </>
-        )}
-      </div>
-
-      <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
-        Use the toolbar or type Markdown directly: headings, bold, italics, links, quotes, lists, and code.
-      </p>
+      <MarkdownEditor
+        ref={editorRef}
+        value={bodyMd}
+        onChange={setBodyMd}
+        maxLength={20000}
+        label={mode === 'topic' ? 'Body' : 'Reply'}
+        idPrefix="composer"
+        placeholder="Write your message in Markdown..."
+        required
+        disabled={submitting}
+      />
 
       {error && (
         <div className="callout callout--error" role="alert">
