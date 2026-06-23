@@ -66,6 +66,8 @@ faqs:                           # optional; drives FAQPage JSON-LD
 
 `cardLabel` exists because page `title` is long/SEO-shaped, while cards, breadcrumbs, and search results want the short name (today's `HelpArticle.title`). The file's slug is its filename without `.md`.
 
+`description` doubles as the search-palette keyword haystack for that guide (Task 5), so write each `description` to include the terms a reader would actually type (for example "retire, deregister, refund deposit"), phrased as a natural sentence, not a keyword dump.
+
 ---
 
 ### Task 1: JSON-LD builders
