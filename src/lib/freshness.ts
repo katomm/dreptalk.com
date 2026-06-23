@@ -33,8 +33,8 @@ export const FRESHNESS: readonly FreshnessRow[] = [
   {
     key: 'vote-badges',
     label: 'Per-post vote badges',
-    refresh: 'About hourly, active actions only',
-    notes: 'Vote lists are larger and do not need 15-minute freshness.',
+    refresh: 'About every 20 minutes, active actions only',
+    notes: 'Vote lists are larger than the tallies but still refresh on a short cycle.',
   },
   {
     key: 'drep-profiles',
@@ -55,7 +55,7 @@ export const FRESHNESS: readonly FreshnessRow[] = [
 // dispatches on event.cron against these constants, so a mismatch is caught in the
 // first scheduled log after a deploy (the run falls through to the default branch).
 export const CRON_GOVERNANCE = '*/15 * * * *'; // discovery + active-action tallies
-export const CRON_VOTE_SYNC = '0 * * * *'; // per-post vote lists (hourly, active only)
+export const CRON_VOTE_SYNC = '*/20 * * * *'; // per-post vote lists (every 20 min, active only)
 export const CRON_DREP_SYNC = '0 */6 * * *'; // DRep profile sync
 
 // Matches one cron field against a value: '*', '*/n', or a plain number. This

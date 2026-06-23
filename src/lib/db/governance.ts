@@ -276,6 +276,31 @@ export async function getStaleSyncableActions(db: D1Database, limit: number): Pr
 }
 
 /**
+ * Like getStaleSyncableActions, but ordered for the vote-list sync: never-vote-
+ * synced rows first (votes_synced_at NULL), then the least-recently vote-synced.
+ * The vote sync has its own timestamp because it runs on a different cadence than
+ * the tally sync; ordering by tally recency would let active actions whose tally
+ * is fresh but whose vote list is hours stale starve when the active set exceeds
+ * the per-run limit.
+ */
+export async function getVoteStaleSyncableActions(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        // `votes_synced_at IS NOT NULL` sorts NULL (never-synced) first; then
+        // oldest vote sync first; expiry breaks ties deterministically.
+        `SELECT * FROM governance_actions
+         WHERE status IN ('active', 'pending')
+         ORDER BY votes_synced_at IS NOT NULL, votes_synced_at ASC, expiry_epoch ASC
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/**
  * Returns every governance action. The table holds one row per on-chain action
  * (low hundreds), so this is a single param-less query, used by the sorted
  * governance-actions list (which would otherwise exceed D1's bound-parameter cap
