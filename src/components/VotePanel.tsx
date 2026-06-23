@@ -58,6 +58,8 @@ export interface SubmitVoteDeps {
   hostRationale: (args: { gaId: string; drepId: string; rationale: string; origin: string }) => Promise<{ url: string; hash: string }>;
   castVote: (opts: CastDRepVoteOpts) => Promise<{ txHash: string }>;
   recordVote: (args: { gaId: string; vote: VoteChoice; txHash: string; rationaleUrl?: string; rationaleText?: string }) => Promise<void>;
+  /** Called immediately after rationale is hosted, before the wallet sign prompt. */
+  onRationaleHosted?: (anchor: { url: string; hash: string }) => void;
 }
 
 /**
@@ -86,6 +88,7 @@ export async function submitVote(
       rationale: args.rationaleText,
       origin: args.origin,
     });
+    deps.onRationaleHosted?.(anchor);
   }
   const { txHash } = await deps.castVote({
     walletApi: args.walletApi as TxWalletApi,
@@ -111,6 +114,44 @@ export async function submitVote(
 // React component
 // ---------------------------------------------------------------------------
 
+// Small inline component: shows the on-chain rationale anchor URL + hash.
+function AnchorInfo({
+  anchor,
+  copied,
+  onCopy,
+}: {
+  anchor: { url: string; hash: string };
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div style={{ marginTop: '0.625rem', padding: '0.625rem 0.75rem', borderRadius: '0.375rem', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', fontSize: '0.8125rem' }}>
+      <p style={{ margin: '0 0 0.25rem', fontWeight: 600, color: 'var(--accent)' }}>On-chain rationale anchor</p>
+      <p style={{ margin: '0 0 0.25rem', color: 'var(--muted)', wordBreak: 'break-all' }}>
+        URL:{' '}
+        <a href={anchor.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+          {anchor.url}
+        </a>
+        {' '}
+        <button
+          type="button"
+          onClick={onCopy}
+          style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '0.25rem', color: 'var(--accent)', cursor: 'pointer', fontSize: '0.75rem', padding: '0.1rem 0.4rem', fontFamily: 'inherit', lineHeight: 1.4 }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </p>
+      <p style={{ margin: 0, color: 'var(--muted)', wordBreak: 'break-all' }}>
+        Hash:{' '}
+        <span title={anchor.hash} style={{ fontFamily: 'monospace' }}>
+          {anchor.hash.slice(0, 12)}...
+        </span>
+        <span style={{ display: 'none' }}>{anchor.hash}</span>
+      </p>
+    </div>
+  );
+}
+
 export default function VotePanel({ gaId, network, initialViewerVote }: VotePanelProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
@@ -122,6 +163,11 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   // Vote form state.
   const [vote, setVote] = useState<VoteChoice>('yes');
   const [rationaleText, setRationaleText] = useState('');
+
+  // Rationale anchor: set after hosting succeeds, shown during submit + success.
+  const [rationaleAnchor, setRationaleAnchor] = useState<{ url: string; hash: string } | null>(null);
+  // Tracks whether the anchor URL was recently copied to give feedback.
+  const [anchorCopied, setAnchorCopied] = useState(false);
 
   // When a prior vote exists, start in "change vote" mode if the user explicitly
   // requests it. The connect step is shown regardless (wallet auth is required).
@@ -247,6 +293,9 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
     setPhase({ status: 'submitting', identity });
 
     const realDeps: SubmitVoteDeps = {
+      onRationaleHosted: (anchor) => {
+        setRationaleAnchor(anchor);
+      },
       async hostRationale({ gaId: gId, drepId, rationale, origin: _origin }) {
         const res = await fetch('/api/vote/rationale', {
           method: 'POST',
@@ -298,6 +347,8 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   function reset() {
     enabledApiRef.current = null;
     setPhase({ status: 'idle' });
+    setRationaleAnchor(null);
+    setAnchorCopied(false);
   }
 
   // ------------------------------------------------------------------
@@ -326,6 +377,14 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
               Your vote will appear on-chain once the transaction is confirmed.
             </p>
+            {rationaleAnchor && (
+              <AnchorInfo anchor={rationaleAnchor} copied={anchorCopied} onCopy={() => {
+                void navigator.clipboard.writeText(rationaleAnchor.url).then(() => {
+                  setAnchorCopied(true);
+                  setTimeout(() => setAnchorCopied(false), 2000);
+                });
+              }} />
+            )}
           </div>
         </div>
       </div>
@@ -611,9 +670,19 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                   </div>
 
                   {phase.status === 'submitting' && (
-                    <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                      Please review and approve the transaction in your wallet.
-                    </p>
+                    <>
+                      <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                        Please review and approve the transaction in your wallet.
+                      </p>
+                      {rationaleAnchor && (
+                        <AnchorInfo anchor={rationaleAnchor} copied={anchorCopied} onCopy={() => {
+                          void navigator.clipboard.writeText(rationaleAnchor.url).then(() => {
+                            setAnchorCopied(true);
+                            setTimeout(() => setAnchorCopied(false), 2000);
+                          });
+                        }} />
+                      )}
+                    </>
                   )}
                 </form>
               )}

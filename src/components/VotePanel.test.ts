@@ -25,6 +25,26 @@ describe('submitVote orchestration', () => {
     expect(deps.castVote).toHaveBeenCalledWith(expect.objectContaining({ anchorUrl: 'u', anchorHashHex: 'h' }));
   });
 
+  it('calls onRationaleHosted with the anchor on the rationale path', async () => {
+    const onRationaleHosted = vi.fn();
+    const deps = {
+      hostRationale: vi.fn(async () => ({ url: 'https://anchor.example/r.json', hash: 'abc123' })),
+      castVote: vi.fn(async () => ({ txHash: 'tx2' })),
+      recordVote: vi.fn(async () => {}),
+      onRationaleHosted,
+    };
+    await submitVote(deps, {
+      gaId: `${'a'.repeat(64)}#0`,
+      vote: 'yes',
+      rationaleText: 'rationale text',
+      drepKeyHash: new Uint8Array(28),
+      network: 'preprod',
+      origin: 'https://x',
+    });
+    expect(onRationaleHosted).toHaveBeenCalledOnce();
+    expect(onRationaleHosted).toHaveBeenCalledWith({ url: 'https://anchor.example/r.json', hash: 'abc123' });
+  });
+
   it('skips hosting when there is no rationale', async () => {
     const deps = {
       hostRationale: vi.fn(),
@@ -40,5 +60,24 @@ describe('submitVote orchestration', () => {
       origin: 'https://x',
     });
     expect(deps.hostRationale).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call onRationaleHosted when there is no rationale', async () => {
+    const onRationaleHosted = vi.fn();
+    const deps = {
+      hostRationale: vi.fn(),
+      castVote: vi.fn(async () => ({ txHash: 'tx' })),
+      recordVote: vi.fn(async () => {}),
+      onRationaleHosted,
+    };
+    await submitVote(deps, {
+      gaId: `${'a'.repeat(64)}#0`,
+      vote: 'abstain',
+      rationaleText: '   ',
+      drepKeyHash: new Uint8Array(28),
+      network: 'preprod',
+      origin: 'https://x',
+    });
+    expect(onRationaleHosted).not.toHaveBeenCalled();
   });
 });
