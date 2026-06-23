@@ -7,6 +7,7 @@ import VoteBadge from '@/components/VoteBadge.astro';
 import PostActions from '@/components/PostActions.astro';
 import { postViewerContext, type SessionUser } from '@/lib/forum/postVisibility.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { voteTone, TONE_COLORS } from '@/lib/governance/view.js';
 import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
@@ -16,7 +17,7 @@ interface Props {
   post: Post;
   author: AuthorDescriptor;
   /** The author's on-chain vote on the surrounding governance action, if any. */
-  authorVote?: { role: string; vote: string };
+  authorVote?: { role: string; vote: string; meta_url?: string | null };
   /** DRep author who commented on a voted-on action but cast no vote of their own. */
   authorHasNotVoted?: boolean;
   user: SessionUser | null;
@@ -33,20 +34,51 @@ interface Props {
 const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false } = Astro.props;
 
 const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
+
+const isVoteRationale = post.source === 'vote_rationale';
+
+// For vote_rationale posts: the badge color uses the same tone logic as the positions tab.
+const rationaleVoteColor = isVoteRationale && post.vote
+  ? TONE_COLORS[voteTone(post.vote)]
+  : null;
+
+// Anchor URL: the on-chain rationale document URL (from drep_votes.meta_url).
+// Available when the author's vote entry has a meta_url.
+const anchorUrl = isVoteRationale && authorVote?.meta_url ? authorVote.meta_url : null;
 ---
 
 <article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
   <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
     <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.post} />
-    {authorVote ? <VoteBadge vote={authorVote.vote} /> : authorHasNotVoted && <VoteBadge hasNotVoted />}
+    {!isVoteRationale && (authorVote ? <VoteBadge vote={authorVote.vote} /> : authorHasNotVoted && <VoteBadge hasNotVoted />)}
+    {isVoteRationale && post.vote && (
+      <span
+        class="vr-vote-badge"
+        style={`color:${rationaleVoteColor};border-color:${rationaleVoteColor};`}
+      >
+        Voted {post.vote.toUpperCase()}
+      </span>
+    )}
+    {isVoteRationale && (
+      <span class="vr-rationale-badge">Rationale</span>
+    )}
     <span>{formatRelativeTime(post.created_at, now)}</span>
-    {post.edited_at && canSeeContent && (
+    {post.edited_at && canSeeContent && !isVoteRationale && (
       <a href={`/posts/${post.id}/history`} data-history={post.id} class="post-edited">(edited)</a>
     )}
     {post.hidden && canSeeContent && (
       <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
     )}
   </div>
+  {isVoteRationale && (
+    <p class="vr-frozen-notice">
+      {anchorUrl ? (
+        <>Frozen. <a href={anchorUrl} rel="nofollow noopener" target="_blank" class="vr-anchor-link">On-chain rationale, submitted {formatRelativeTime(post.created_at, now)}.</a></>
+      ) : (
+        <>Frozen. On-chain rationale, submitted {formatRelativeTime(post.created_at, now)}.</>
+      )}
+    </p>
+  )}
   {canSeeContent ? (
     <div class="prose" set:html={post.body_html} />
   ) : (
@@ -63,7 +95,7 @@ const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerConte
       flagged={flagged}
       viewerReaction={viewerReaction}
       canReply={canReply}
-      canEdit={canEdit && !topicLocked}
+      canEdit={canEdit && !topicLocked && !isVoteRationale}
       authorName={author.displayName}
     />
   )}
@@ -93,5 +125,50 @@ const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerConte
   }
   .post-edited:hover {
     color: var(--fg);
+  }
+
+  /* Vote rationale post badges, matching the positions tab style. */
+  .vr-vote-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border: 1px solid;
+    border-radius: 999px;
+    padding: 0.1rem 0.4rem;
+    line-height: 1;
+  }
+
+  /* Secondary "Rationale" label badge. */
+  .vr-rationale-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.1rem 0.4rem;
+    line-height: 1;
+  }
+
+  /* Frozen notice bar shown above the post body for vote_rationale posts. */
+  .vr-frozen-notice {
+    margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  .vr-anchor-link {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .vr-anchor-link:hover {
+    text-decoration: underline;
   }
 </style>

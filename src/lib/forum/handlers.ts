@@ -364,7 +364,7 @@ function editError(err: unknown): HandlerResult {
   if (msg === 'post_not_found' || msg === 'topic_not_found') {
     return { status: 404, json: { ok: false, error: msg } };
   }
-  if (msg === 'not_owner' || msg === 'post_hidden' || msg === 'topic_locked' || msg === 'not_user_topic') {
+  if (msg === 'not_owner' || msg === 'post_hidden' || msg === 'topic_locked' || msg === 'not_user_topic' || msg === 'frozen_rationale') {
     return { status: 403, json: { ok: false, error: msg } };
   }
   return { status: 500, json: { ok: false, error: 'internal error' } };

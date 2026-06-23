@@ -2,7 +2,10 @@
 // Non-custodial: the server never sees a private key; the wallet extension signs and submits.
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
-import { Address, Anchor, Client, Credential, DRep, KeyHash, ScriptHash, Transaction, Url, UTxO, mainnet, preprod } from '@evolution-sdk/evolution';
+import {
+  Address, Anchor, Client, Credential, DRep, GovernanceAction, KeyHash, ScriptHash,
+  Transaction, TransactionHash, Url, UTxO, VotingProcedures, mainnet, preprod,
+} from '@evolution-sdk/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -349,6 +352,105 @@ export function buildDrepTarget(opts: { credentialHex: string; isScript: boolean
   return opts.isScript
     ? DRep.fromScriptHash(ScriptHash.fromBytes(bytes))
     : DRep.fromKeyHash(KeyHash.fromBytes(bytes));
+}
+
+/**
+ * Parses the stored governance action id ("<txHash>#<index>", the
+ * governance_actions.id form) into the SDK GovActionId the vote builder needs.
+ * The tx hash is 64 lowercase hex chars (32 bytes); the index is a uint16.
+ * Pure; exported for unit tests.
+ */
+export function buildGovActionId(id: string): GovernanceAction.GovActionId {
+  const m = /^([0-9a-fA-F]{64})#(\d{1,5})$/.exec(id.trim());
+  if (!m) {
+    throw new Error('Invalid governance action id; expected "<64-hex-txHash>#<index>".');
+  }
+  const index = Number(m[2]);
+  if (!Number.isInteger(index) || index < 0 || index > 0xffff) {
+    throw new Error('Governance action index out of range.');
+  }
+  return new GovernanceAction.GovActionId({
+    transactionId: TransactionHash.fromHex(m[1].toLowerCase()),
+    govActionIndex: BigInt(index),
+  });
+}
+
+/** Maps our vote string to the SDK Vote value. */
+function voteValue(vote: 'yes' | 'no' | 'abstain') {
+  return vote === 'yes' ? VotingProcedures.yes() : vote === 'no' ? VotingProcedures.no() : VotingProcedures.abstain();
+}
+
+/**
+ * Queues the voting procedure, the DRep-key required signer, and the CIP-20
+ * attribution tag. Like reg_drep, the vote is witnessed by the DRep key (which
+ * controls no input); EvolutionSDK sizes the fee only for declared signers, so
+ * the DRep key MUST be declared via addSigner or the fee falls one vkey short.
+ * Pure (no network); exported for unit tests.
+ */
+export function queueVoteOps(
+  txb: DrepTxBuilder,
+  parts: {
+    drepKeyHash: Uint8Array;
+    govActionId: GovernanceAction.GovActionId;
+    vote: 'yes' | 'no' | 'abstain';
+    anchor: Anchor.Anchor | null;
+  },
+): DrepTxBuilder {
+  const voter = new VotingProcedures.DRepVoter({
+    drep: DRep.fromKeyHash(KeyHash.fromBytes(parts.drepKeyHash)),
+  });
+  const procedure = new VotingProcedures.VotingProcedure({ vote: voteValue(parts.vote), anchor: parts.anchor });
+  const votingProcedures = VotingProcedures.singleVote(voter, parts.govActionId, procedure);
+
+  return txb
+    .vote({ votingProcedures })
+    .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+export interface CastDRepVoteOpts {
+  /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
+  walletApi: WalletApi;
+  network: CardanoNetwork;
+  /** 28-byte blake2b-224 of the CIP-95 DRep verification key. */
+  drepKeyHash: Uint8Array;
+  /** Stored governance action id, "<txHash>#<index>". */
+  govActionId: string;
+  vote: 'yes' | 'no' | 'abstain';
+  /** Hosted rationale URL from POST /api/vote/rationale; omit for no rationale. */
+  anchorUrl?: string;
+  /** 64-char blake2b-256 hex paired with anchorUrl. */
+  anchorHashHex?: string;
+  /** window.location.origin, base for the /api/koios proxy. */
+  origin: string;
+}
+
+/**
+ * Builds, signs, and submits a Conway vote transaction casting the connected
+ * DRep's vote on one governance action. Non-custodial: the wallet signs and
+ * submits. A CIP-20 attribution tag (label 674) is attached. No deposit, so the
+ * inputs only need to cover the fee. Requires a live wallet and a reachable
+ * Koios provider; not covered by offline unit tests.
+ */
+export async function castDRepVote(opts: CastDRepVoteOpts): Promise<{ txHash: string }> {
+  const govActionId = buildGovActionId(opts.govActionId);
+  const anchor =
+    opts.anchorUrl && opts.anchorHashHex
+      ? new Anchor.Anchor({
+          anchorUrl: new Url.Url({ href: opts.anchorUrl }),
+          anchorDataHash: hexToBytes(opts.anchorHashHex),
+        })
+      : null;
+
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
+
+  const built = await queueVoteOps(client.newTx(), { drepKeyHash: opts.drepKeyHash, govActionId, vote: opts.vote, anchor })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
+
+  return signAndSubmit(built, opts.walletApi);
 }
 
 /**

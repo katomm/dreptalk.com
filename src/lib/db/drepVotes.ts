@@ -33,8 +33,8 @@ export async function upsertVotes(
     const stmts = chunk.map((v) =>
       db
         .prepare(
-          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at, local_status, tx_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
         )
         .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.blockTime ?? null, now),
     );
@@ -52,6 +52,7 @@ export interface DrepVoteHistoryRow {
   status: string;
   decided_epoch: number | null;
   topic_slug: string | null;
+  meta_url: string | null;
 }
 
 /**
@@ -70,7 +71,8 @@ export async function getDrepVotingHistory(
     await db
       .prepare(
         `SELECT v.ga_id AS ga_id, v.vote AS vote, g.title AS title, g.type AS type,
-                g.status AS status, g.decided_epoch AS decided_epoch, t.slug AS topic_slug
+                g.status AS status, g.decided_epoch AS decided_epoch, t.slug AS topic_slug,
+                v.meta_url AS meta_url
          FROM drep_votes v
          JOIN governance_actions g ON g.id = v.ga_id
          LEFT JOIN topics t ON t.id = g.topic_id
@@ -148,17 +150,17 @@ export async function countActionVoters(db: D1Database, gaId: string): Promise<n
 export async function getVotesByGaId(
   db: D1Database,
   gaId: string,
-): Promise<Map<string, { role: string; vote: string }>> {
+): Promise<Map<string, { role: string; vote: string; meta_url: string | null }>> {
   const rows = (
     await db
-      .prepare('SELECT voter_id, voter_role, vote FROM drep_votes WHERE ga_id = ?')
+      .prepare('SELECT voter_id, voter_role, vote, meta_url FROM drep_votes WHERE ga_id = ?')
       .bind(gaId)
-      .all<{ voter_id: string; voter_role: string; vote: string }>()
+      .all<{ voter_id: string; voter_role: string; vote: string; meta_url: string | null }>()
   ).results ?? [];
 
-  const map = new Map<string, { role: string; vote: string }>();
+  const map = new Map<string, { role: string; vote: string; meta_url: string | null }>();
   for (const r of rows) {
-    map.set(r.voter_id, { role: r.voter_role, vote: r.vote });
+    map.set(r.voter_id, { role: r.voter_role, vote: r.vote, meta_url: r.meta_url ?? null });
   }
   return map;
 }
@@ -253,4 +255,55 @@ export async function getDrepParticipation(
     .bind(voterId, registeredEpoch)
     .first<{ eligible: number; voted: number }>();
   return { eligible: row?.eligible ?? 0, voted: row?.voted ?? 0 };
+}
+
+/**
+ * Optimistic local vote written immediately after the wallet submits, before
+ * the hourly sync sees it on chain. INSERT OR REPLACE on (ga_id, voter_id) so a
+ * re-vote overwrites. local_status='pending' until the authoritative sync
+ * replaces the row (clears it) or markStalePendingVotesFailed flags it.
+ */
+export async function recordLocalVote(
+  db: D1Database,
+  rec: { gaId: string; drepId: string; voterHex: string | null; vote: string; metaUrl: string | null; txHash: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at, local_status, tx_hash)
+       VALUES (?, 'DRep', ?, ?, ?, ?, NULL, ?, 'pending', ?)`,
+    )
+    .bind(rec.gaId, rec.drepId, rec.voterHex, rec.vote, rec.metaUrl, rec.now, rec.txHash)
+    .run();
+}
+
+export interface ViewerVoteRow {
+  vote: string;
+  local_status: string | null;
+  meta_url: string | null;
+  tx_hash: string | null;
+}
+
+/** The connected DRep's own vote on one action, for the vote panel state. */
+export async function getViewerVote(db: D1Database, gaId: string, drepId: string): Promise<ViewerVoteRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT vote, local_status, meta_url, tx_hash FROM drep_votes
+       WHERE ga_id = ? AND voter_id = ? AND voter_role = 'DRep'`,
+    )
+    .bind(gaId, drepId)
+    .first<ViewerVoteRow>();
+  return row ?? null;
+}
+
+/**
+ * Flags optimistic votes that never appeared on chain. A pending row whose
+ * synced_at (submit time, seconds) is older than the cutoff was not replaced by
+ * the authoritative sync, so its tx failed or rolled back. Returns rows changed.
+ */
+export async function markStalePendingVotesFailed(db: D1Database, cutoffSeconds: number): Promise<number> {
+  const res = await db
+    .prepare(`UPDATE drep_votes SET local_status = 'failed' WHERE local_status = 'pending' AND synced_at < ?`)
+    .bind(cutoffSeconds)
+    .run();
+  return res.meta.changes ?? 0;
 }

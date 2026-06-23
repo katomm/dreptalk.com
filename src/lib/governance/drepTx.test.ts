@@ -3,6 +3,7 @@
 // The full registerDRep function is covered by the preprod e2e suite (Phase B-11).
 
 import { describe, it, expect } from 'vitest';
+import type { VotingProcedures } from '@evolution-sdk/evolution';
 import {
   buildRegisterDrepParts,
   queueRegisterDrepOps,
@@ -11,6 +12,8 @@ import {
   buildDrepTarget,
   stakeCredentialFromRewardAddress,
   queueDelegateVotesOps,
+  buildGovActionId,
+  queueVoteOps,
 } from './drepTx.js';
 import { bytesToHex } from '../crypto/hex.js';
 
@@ -223,5 +226,47 @@ describe('queueDelegateVotesOps (fee: stake key required signer)', () => {
     expect(addSignerKeyHashHex(calls)).toBe(STAKE_HASH_HEX);
     // The CIP-20 attribution tag (label 674) rides along, like register/retire.
     expect(calls.some((c) => c.op === 'attachMetadata')).toBe(true);
+  });
+});
+
+describe('buildGovActionId', () => {
+  const txHash = 'a'.repeat(64);
+
+  it('parses "<txHash>#<index>" into a GovActionId with matching index', () => {
+    const id = buildGovActionId(`${txHash}#3`);
+    expect(id.govActionIndex).toBe(3n);
+    // transactionId.hash is the 32 raw bytes of the tx hash
+    expect(id.transactionId.hash.length).toBe(32);
+  });
+
+  it('rejects a malformed id', () => {
+    expect(() => buildGovActionId('not-an-id')).toThrow();
+    expect(() => buildGovActionId(`${txHash}#-1`)).toThrow();
+  });
+});
+
+describe('queueVoteOps', () => {
+  it('queues a single-vote procedure, the DRep signer, and the CIP-20 tag', () => {
+    const calls: Record<string, unknown[]> = {};
+    // Recording stub: every builder method records its args and returns the stub.
+    // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
+    const stub: any = new Proxy(
+      {},
+      { get: (_t, prop: string) => (arg: unknown) => { if (!calls[prop]) calls[prop] = []; calls[prop].push(arg); return stub; } },
+    );
+
+    const drepKeyHash = new Uint8Array(28).fill(7);
+    queueVoteOps(stub, {
+      drepKeyHash,
+      govActionId: buildGovActionId(`${'a'.repeat(64)}#0`),
+      vote: 'yes',
+      anchor: null,
+    });
+
+    expect(calls.vote).toHaveLength(1);
+    expect(calls.addSigner).toHaveLength(1);
+    expect(calls.attachMetadata).toHaveLength(1);
+    const voteArg = calls.vote[0] as { votingProcedures: VotingProcedures.VotingProcedures };
+    expect(voteArg.votingProcedures.procedures.size).toBe(1);
   });
 });

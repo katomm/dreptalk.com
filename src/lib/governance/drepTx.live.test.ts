@@ -17,14 +17,14 @@ import { mnemonicToEntropy } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { encode } from 'cborg';
 import * as E from '@evolution-sdk/evolution';
-import { Anchor, Client, Credential, Url, preprod } from '@evolution-sdk/evolution';
+import { Address, Anchor, Client, Credential, DRep, KeyHash, Transaction, Url, VotingProcedures, preprod } from '@evolution-sdk/evolution';
 import { blake2b224 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { drepCredentialAddress, drepIdFromPubKey } from '../cardano/identity.js';
 import { verifyCip8 } from '../auth/cose.js';
 import { createKoiosClient } from '../koios/client.js';
 import { resolveDRep } from '../auth/resolveRole.js';
-import { queueRegisterDrepOps } from './drepTx.js';
+import { buildGovActionId, queueRegisterDrepOps, queueVoteOps } from './drepTx.js';
 import { DREPTALK_CIP20_LABEL, dreptalkCip20Metadatum } from '../cardano/tx.js';
 
 const LIVE = process.env.DREPTALK_LIVE === '1';
@@ -103,6 +103,66 @@ describe.skipIf(!LIVE)('LIVE preprod e2e', () => {
     const delta = feeWith - feeWithout;
 
     // One extra vkey witness is ~100 bytes; at minFeeA=44 that is ~4400 lovelace.
+    expect(delta).toBeGreaterThan(2_000n);
+    expect(delta).toBeLessThan(8_000n);
+  }, 60_000);
+
+  it('builds a real DRep vote tx against live preprod params, serializes, and the fee covers the DRep-key witness', async () => {
+    const { paymentAddress, keyHash } = loadDrepKey();
+
+    // Pick a currently-votable preprod governance action (none of the terminal epochs set).
+    const list = (await (await fetch(`${KOIOS}/proposal_list?limit=200`)).json()) as Array<{
+      proposal_tx_hash: string;
+      proposal_index: number;
+      ratified_epoch: number | null;
+      enacted_epoch: number | null;
+      dropped_epoch: number | null;
+      expired_epoch: number | null;
+    }>;
+    const active = list.find(
+      (p) => !p.ratified_epoch && !p.enacted_epoch && !p.dropped_epoch && !p.expired_epoch,
+    );
+    expect(active, 'no active preprod proposal to vote on').toBeTruthy();
+    const govActionId = `${active!.proposal_tx_hash}#${active!.proposal_index}`;
+
+    // Fund the deposit-free vote tx from the wallet's UTxOs, exactly as castDRepVote
+    // does (collectFrom + availableUtxos); a vote-only tx has no output to drive
+    // automatic coin selection, so the inputs are supplied explicitly.
+    const reader = Client.make(preprod).withKoios({ baseUrl: KOIOS });
+    const utxos = await reader.getUtxos(Address.fromBech32(paymentAddress));
+    expect(utxos.length, 'test wallet has no UTxOs to cover the fee').toBeGreaterThan(0);
+
+    const client = Client.make(preprod).withKoios({ baseUrl: KOIOS }).withAddress(paymentAddress);
+
+    // WITH the fix: queueVoteOps declares the DRep key as a required signer.
+    const withSigner = await queueVoteOps(
+      client.newTx() as unknown as Parameters<typeof queueVoteOps>[0],
+      { drepKeyHash: keyHash, govActionId: buildGovActionId(govActionId), vote: 'abstain', anchor: null },
+    )
+      .collectFrom({ inputs: utxos })
+      .build({ availableUtxos: utxos });
+
+    const tx = await withSigner.toTransaction();
+    // The vote actually landed in the tx body (CDDL key 19, voting_procedures).
+    expect(tx.body.votingProcedures).toBeTruthy();
+    expect(tx.body.fee).toBeGreaterThan(0n);
+    // Serializes to CBOR exactly as signAndSubmit does before the wallet signs.
+    const cborHex = Transaction.toCBORHex(tx);
+    expect(cborHex).toMatch(/^[0-9a-f]+$/);
+    expect(cborHex.length).toBeGreaterThan(200);
+
+    // Control WITHOUT addSigner: the buggy path that underpays the vote witness.
+    const voter = new VotingProcedures.DRepVoter({ drep: DRep.fromKeyHash(KeyHash.fromBytes(keyHash)) });
+    const procedure = new VotingProcedures.VotingProcedure({ vote: VotingProcedures.abstain(), anchor: null });
+    const votingProcedures = VotingProcedures.singleVote(voter, buildGovActionId(govActionId), procedure);
+    const withoutSigner = await client
+      .newTx()
+      .vote({ votingProcedures })
+      .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
+      .collectFrom({ inputs: utxos })
+      .build({ availableUtxos: utxos });
+
+    const delta = tx.body.fee - (await withoutSigner.toTransaction()).body.fee;
     expect(delta).toBeGreaterThan(2_000n);
     expect(delta).toBeLessThan(8_000n);
   }, 60_000);

@@ -375,6 +375,44 @@ describe('badge engine', () => {
     expect(awards.has('open-book')).toBe(false); // needs 10 actions with rationale
   });
 
+  it('does not count vote_rationale posts toward badge tallies', async () => {
+    // One normal post and one vote_rationale post for the same author.
+    // The rationale post must not count: only the normal post should register.
+    await seedUser('u-rat');
+    await seedTopic('t-rat', 'u-rat');
+    // Normal post: counts toward hello-governance.
+    await seedPost('p-normal', 't-rat', 'u-rat');
+    // Frozen rationale post: must NOT count.
+    await env.DB
+      .prepare(
+        `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, up_count, created_at, source)
+         VALUES (?, ?, ?, 'b', '<p>b</p>', 0, ?, 'vote_rationale')`,
+      )
+      .bind('p-frozen', 't-rat', 'u-rat', MID_EPOCH)
+      .run();
+    await run();
+
+    const awards = await awardsOf('user', 'u-rat');
+    // Should earn hello-governance from the one normal post.
+    expect(awards.has('hello-governance')).toBe(true);
+
+    // Seed another user with ONLY a vote_rationale post: must NOT earn any post badge.
+    await seedUser('u-only-rat');
+    await seedTopic('t-only-rat', 'u-only-rat');
+    await env.DB
+      .prepare(
+        `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, up_count, created_at, source)
+         VALUES (?, ?, ?, 'b', '<p>b</p>', 0, ?, 'vote_rationale')`,
+      )
+      .bind('p-only-frozen', 't-only-rat', 'u-only-rat', MID_EPOCH)
+      .run();
+    await run();
+
+    const awardsOnlyRat = await awardsOf('user', 'u-only-rat');
+    // vote_rationale-only author must NOT earn hello-governance.
+    expect(awardsOnlyRat.has('hello-governance')).toBe(false);
+  });
+
   it('awards the collector once every visible forum badge is earned', async () => {
     await seedUser('u1');
     // Pre-seed everything except hello-governance, which one post then earns.

@@ -35,7 +35,7 @@ import {
   backfillGovTopicSubmittedAt,
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
-import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes } from '../../../src/lib/governance/tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
@@ -216,6 +216,15 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
     const bf = await backfillFinalizedVotes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
     console.log(`[gov-votes-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
     return { items: bf.votes, failed: bf.failed };
+  });
+
+  // Flag optimistic votes that never appeared on chain. Runs after the
+  // authoritative sync so any vote that DID land has already cleared its pending
+  // marker; only stragglers (tx dropped/rolled back) are flagged here.
+  await phase('reconcile-pending', async () => {
+    const changed = await reconcilePendingVotes(env.DB, Math.floor(Date.now() / 1000));
+    if (changed > 0) console.log(`[gov-votes-reconcile] failed=${changed}`);
+    return { items: changed };
   });
 
   // Award achievement badges from the freshly synced data: a set-based full

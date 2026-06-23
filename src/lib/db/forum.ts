@@ -42,6 +42,10 @@ export interface Post {
   edited_at: number | null;
   deleted: boolean;
   created_at: number;
+  /** 'vote_rationale' for frozen vote rationale posts; null/undefined for normal posts. */
+  source?: string | null;
+  /** On-chain vote value for vote_rationale posts (yes/no/abstain); null otherwise. */
+  vote?: string | null;
 }
 
 // Raw row shapes as stored in D1 (booleans as 0/1 integers).
@@ -76,6 +80,8 @@ interface PostRow {
   edited_at: number | null;
   deleted: number;
   created_at: number;
+  source: string | null;
+  vote: string | null;
 }
 
 // Subset returned by the thread/post readers (body_md excluded to avoid
@@ -86,7 +92,7 @@ interface PostRowNoBody extends Omit<PostRow, 'body_md'> {
 
 // The display column list shared by every post reader (body_md excluded).
 const POST_COLUMNS =
-  'id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at';
+  'id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at, source, vote';
 
 /** Maps a raw D1 row to the Topic type (0/1 integers to JS booleans). */
 function rowToTopic(row: TopicRow): Topic {
@@ -123,6 +129,8 @@ function rowToPost(row: PostRow | PostRowNoBody): Post {
     edited_at: row.edited_at,
     deleted: row.deleted === 1,
     created_at: row.created_at,
+    source: row.source ?? null,
+    vote: row.vote ?? null,
   };
   if ('body_md' in row && row.body_md !== undefined) {
     post.body_md = row.body_md;
@@ -237,6 +245,8 @@ export async function createTopic(
     edited_at: null,
     deleted: 0,
     created_at: postedAt,
+    source: null,
+    vote: null,
   });
 
   return { topic, firstPost };
@@ -539,6 +549,8 @@ export async function createPost(
     edited_at: null,
     deleted: 0,
     created_at: now,
+    source: null,
+    vote: null,
   });
 }
 
@@ -559,15 +571,18 @@ export async function editPost(
   // topic's state (depends on post.topic_id). Two sequential reads.
   const post = await db
     .prepare(
-      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at FROM posts WHERE id = ?',
+      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at, source FROM posts WHERE id = ?',
     )
     .bind(postId)
     .first<{
       id: string; topic_id: string; author_id: string; body_md: string;
       body_html: string; hidden: number; deleted: number; created_at: number;
+      source: string | null;
     }>();
   if (!post || post.deleted === 1) throw new Error('post_not_found');
   if (post.author_id !== authorId) throw new Error('not_owner');
+  // Vote rationale posts are frozen: their body must match the on-chain hash.
+  if (post.source === 'vote_rationale') throw new Error('frozen_rationale');
   if (post.hidden === 1) throw new Error('post_hidden');
 
   const topicRow = await db

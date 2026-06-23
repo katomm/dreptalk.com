@@ -1,0 +1,199 @@
+/// <reference types="@cloudflare/workers-types" />
+// Workers-runtime tests for POST /api/vote/record.
+// Calls the exported POST handler directly with a synthetic APIContext so
+// the test runs inside the real Workers runtime (D1, KV via cloudflare:test)
+// without needing an HTTP server or the Astro middleware chain.
+import { describe, it, expect } from 'vitest';
+import { env } from 'cloudflare:test';
+import { getViewerVote } from '@/lib/db/drepVotes';
+import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale';
+import { POST } from './record';
+
+const NOW = 1_752_000_000;
+const DREP_ID = `drep1${'a'.repeat(50)}`;
+const USER_ID = 'user-drep-1';
+const GA_ID = `${'a'.repeat(64)}#0`;
+const TX_HASH = 'b'.repeat(64);
+
+// Insert a governance_actions row with a topic so rationale upsert works.
+async function seedGovAction(topicId: string | null = null) {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO governance_actions (id, type, title, status, topic_id, created_at, last_synced_at)
+     VALUES (?, 'InfoAction', 'Test Action', 'active', ?, ?, ?)`,
+  )
+    .bind(GA_ID, topicId, NOW, NOW)
+    .run();
+}
+
+// Insert a topic so the governance_actions.topic_id FK is satisfied.
+// The topics table stores category_slug as a plain TEXT column, no separate
+// categories table.
+async function seedTopic(): Promise<string> {
+  const topicId = 'topic-vote-record-1';
+  const slug = 'test-vote-record-topic';
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO topics (id, category_slug, author_id, title, slug, created_at, last_post_at)
+     VALUES (?, 'general', ?, 'Test topic', ?, ?, ?)`,
+  )
+    .bind(topicId, USER_ID, slug, NOW, NOW)
+    .run();
+  return topicId;
+}
+
+// Insert a user row with is_drep=1 and drep_id set.
+async function seedUser() {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO users (id, drep_id, is_drep, is_spo, is_cc, is_proposer, role, status, created_at, last_verified_at)
+     VALUES (?, ?, 1, 0, 0, 0, 'drep', 'active', ?, ?)`,
+  )
+    .bind(USER_ID, DREP_ID, NOW, NOW)
+    .run();
+}
+
+// Build a synthetic APIContext for POST /api/vote/record.
+// locals.user is injected directly, bypassing the Astro middleware.
+function makeCtx(opts: {
+  user: { id: string; roles: string[] } | null;
+  body: Record<string, unknown>;
+}) {
+  const request = new Request('https://dreptalk.com/api/vote/record', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(opts.body),
+  });
+  // Provide the minimal App.Locals shape the handler reads.
+  const locals = { user: opts.user } as unknown as App.Locals;
+  // Minimal APIContext: handler only destructures { request, locals }.
+  return { request, locals } as Parameters<typeof POST>[0];
+}
+
+describe('POST /api/vote/record', () => {
+  it('returns 401 when the caller is not logged in', async () => {
+    const res = await POST(makeCtx({ user: null, body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH } }));
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 when the caller is logged in but not a DRep', async () => {
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['proposer'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH },
+    }));
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 on invalid input (bad gaId format)', async () => {
+    await seedUser();
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: 'not-a-valid-ga-id', vote: 'yes', txHash: TX_HASH },
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  it('writes a pending vote for the logged-in DRep', async () => {
+    await seedUser();
+    await seedGovAction();
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH },
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+
+    const v = await getViewerVote(env.DB, GA_ID, DREP_ID);
+    expect(v?.vote).toBe('yes');
+    expect(v?.local_status).toBe('pending');
+    expect(v?.tx_hash).toBe(TX_HASH);
+  });
+
+  it('creates a rationale post when rationaleText is present', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: {
+        gaId: GA_ID,
+        vote: 'no',
+        txHash: TX_HASH,
+        rationaleUrl: 'https://dreptalk.com/vote-rationale/x.json',
+        rationaleText: 'Because this is a bad idea.',
+      },
+    }));
+    expect(res.status).toBe(200);
+
+    const rows = (
+      await env.DB.prepare(
+        `SELECT * FROM posts WHERE source = 'vote_rationale' AND author_id = ?`,
+      )
+        .bind(USER_ID)
+        .all<{ vote: string; body_md: string }>()
+    ).results;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].vote).toBe('no');
+    expect(rows[0].body_md).toBe('Because this is a bad idea.');
+  });
+
+  it('stores the canonicalized rationale on the post, not the raw input', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+
+    // Dirty input: leading/trailing whitespace, CRLF line endings, 3+ blank
+    // lines, and more than MAX_VOTE_RATIONALE characters. The on-chain anchor
+    // hashes the sanitized/sliced text, so the frozen post (shown as the
+    // on-chain rationale) must store that same canonical text, never the raw
+    // client string. Otherwise the post diverges from the hashed/hosted bytes.
+    const dirty = `  \r\n\r\n  Leading whitespace and CRLFs.\r\n\r\n\r\n\r\nBlank lines collapse.\r\n${'x'.repeat(MAX_VOTE_RATIONALE)}  \r\n  `;
+    const canonical = buildVoteRationale({ rationale: dirty }).rationale;
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: dirty },
+    }));
+    expect(res.status).toBe(200);
+
+    const rows = (
+      await env.DB.prepare(
+        `SELECT body_md FROM posts WHERE source = 'vote_rationale' AND author_id = ?`,
+      )
+        .bind(USER_ID)
+        .all<{ body_md: string }>()
+    ).results;
+    expect(rows).toHaveLength(1);
+    // The stored body is exactly the text the anchor commits to.
+    expect(rows[0].body_md).toBe(canonical);
+    // And it is NOT the raw input: canonicalization actually happened.
+    expect(rows[0].body_md).not.toBe(dirty);
+    // Canonicalization invariants: capped, trimmed, no carriage returns.
+    expect(rows[0].body_md.length).toBeLessThanOrEqual(MAX_VOTE_RATIONALE);
+    expect(rows[0].body_md).toBe(rows[0].body_md.trim());
+    expect(rows[0].body_md).not.toContain('\r');
+  });
+
+  it('does not create a rationale post when the action has no topic', async () => {
+    await seedUser();
+    await seedGovAction(null); // no topic_id
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: {
+        gaId: GA_ID,
+        vote: 'yes',
+        txHash: TX_HASH,
+        rationaleText: 'Some rationale',
+      },
+    }));
+    // Vote still records OK; rationale post is silently skipped.
+    expect(res.status).toBe(200);
+    const rows = (
+      await env.DB.prepare(
+        `SELECT * FROM posts WHERE source = 'vote_rationale' AND author_id = ?`,
+      )
+        .bind(USER_ID)
+        .all()
+    ).results;
+    expect(rows).toHaveLength(0);
+  });
+});

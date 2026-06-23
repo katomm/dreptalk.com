@@ -17,7 +17,7 @@ import {
   type GovernanceAction,
   type GovernanceTally,
 } from '../db/governance.js';
-import { upsertVotes, type VoteInput } from '../db/drepVotes.js';
+import { upsertVotes, markStalePendingVotesFailed, type VoteInput } from '../db/drepVotes.js';
 import { activityInsert } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 
@@ -312,6 +312,19 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
   }
 
   return { actions, votes, failed };
+}
+
+// A pending optimistic vote that has not been confirmed by the authoritative
+// sync within this many seconds is treated as failed (tx dropped or rolled back).
+export const PENDING_VOTE_TTL_SEC = 6 * 3600;
+
+/**
+ * Flags optimistic votes that never appeared on chain. Call after the
+ * authoritative vote sync, so any vote that DID land has already cleared its
+ * pending marker via upsertVotes.
+ */
+export async function reconcilePendingVotes(db: D1Database, nowSeconds: number): Promise<number> {
+  return markStalePendingVotesFailed(db, nowSeconds - PENDING_VOTE_TTL_SEC);
 }
 
 export interface VoteBackfillResult { actions: number; votes: number; failed: number; }
