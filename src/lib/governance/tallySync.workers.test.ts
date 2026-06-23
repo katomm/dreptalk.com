@@ -149,7 +149,7 @@ describe('syncGovernanceTallies', () => {
   it('re-queues a frozen action for one final vote backfill, but not an active one', async () => {
     const a = await insertActive(290);
     const b = await insertActive(400);
-    // Both were vote-synced while active (the hourly sync set the marker).
+    // Both were vote-synced while active (the vote sync set the marker).
     await markVotesSynced(db(), a.id, NOW);
     await markVotesSynced(db(), b.id, NOW);
 
@@ -161,7 +161,7 @@ describe('syncGovernanceTallies', () => {
     });
 
     // a froze (past expiry) and must re-enter the finalized-votes backfill queue
-    // so votes cast between the last hourly sync and the freeze are picked up.
+    // so votes cast between the last vote sync and the freeze are picked up.
     expect((await getGovernanceActionByTopicId(db(), a.topicId))!.status).toBe('expired');
     expect((await getGovernanceActionByTopicId(db(), b.topicId))!.status).toBe('active');
     const queued = await getActionsNeedingVoteBackfill(db(), 10);

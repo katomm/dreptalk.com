@@ -9,8 +9,8 @@ describe('nextCronRunMs', () => {
     expect(nextCronRunMs(CRON_GOVERNANCE, NOW)).toBe(Date.UTC(2026, 5, 12, 10, 15));
   });
 
-  it('finds the top of the next hour for the vote cron', () => {
-    expect(nextCronRunMs(CRON_VOTE_SYNC, NOW)).toBe(Date.UTC(2026, 5, 12, 11, 0));
+  it('finds the next 20-minute boundary for the vote cron', () => {
+    expect(nextCronRunMs(CRON_VOTE_SYNC, NOW)).toBe(Date.UTC(2026, 5, 12, 10, 20));
   });
 
   it('finds the next 6-hour boundary for the drep cron', () => {
