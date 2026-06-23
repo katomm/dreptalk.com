@@ -57,7 +57,9 @@ const isActive = (href: string) =>
 const helpEntries: HelpEntry[] = (await getCollection('guides'))
   // Keywords haystack is the page title plus the description, so a guide is
   // findable by terms in either (the short cardLabel is matched separately).
-  .map((g) => ({ label: g.data.cardLabel, href: `/help/${g.id}`, keywords: `${g.data.title} ${g.data.description}` }))
+  // "Cardano" is added for every guide so the umbrella term surfaces the help
+  // section even when an individual title or description does not spell it out.
+  .map((g) => ({ label: g.data.cardLabel, href: `/help/${g.id}`, keywords: `Cardano ${g.data.title} ${g.data.description}` }))
   .sort((a, b) => a.label.localeCompare(b.label));
 ---
 <!doctype html>
