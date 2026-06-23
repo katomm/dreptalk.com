@@ -37,9 +37,9 @@ That is enough. Most published rationales are a paragraph or two. Longer is not 
 
 ## How it is published
 
-When you submit your vote on DRepTalk, you can attach a rationale in the voting form. The text is saved as a metadata document linked to your vote on-chain, following the community standard known as **CIP-100**. In practice, most rationales use a single comment field within that standard. The metadata is permanent and publicly readable from the chain; anyone can look it up via a governance explorer or block explorer.
+You cast your vote with the rationale through your wallet or governance tooling, the same place you submit the vote itself. The rationale travels with the vote as a metadata document, following the community standard known as **CIP-100**. In practice, most rationales use a single comment field within that standard. Once submitted, the metadata is permanent and publicly readable from the chain; anyone can look it up via a governance explorer, and DRepTalk shows it on your profile and on the governance action.
 
-You do not need to understand CIP-100 in detail to write a good rationale. The form handles the formatting. What matters is the content you put in it.
+You do not need to understand CIP-100 in detail to write a good rationale. The tooling handles the formatting. What matters is the content you put in it.
 
 ## Related
 
