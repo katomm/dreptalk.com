@@ -66,13 +66,39 @@ export function truncateIdMiddle(id: string, head = 9, tail = 8): string {
   return id.length > head + tail + 3 ? `${id.slice(0, head)}...${id.slice(-tail)}` : id;
 }
 
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+function codePoint(n: number): string {
+  if (!Number.isFinite(n) || n < 1 || n > 0x10ffff) return '';
+  try {
+    return String.fromCodePoint(n);
+  } catch {
+    return '';
+  }
+}
+
 /**
- * Strips HTML tags from a string, collapses whitespace, and truncates to
- * `maxLen` characters (appending "..." when truncated). For plain-text meta
- * descriptions and JSON-LD text derived from sanitized post HTML.
+ * Decodes the HTML entities that survive tag-stripping (numeric, hex, and the
+ * common named ones) into real characters, so a plain-text excerpt reads as text
+ * ("It's", not "It&#39;s"). A single /g pass never re-scans its own output, so
+ * "&amp;lt;" decodes to "&lt;" rather than "<".
+ */
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => codePoint(Number.parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => codePoint(Number.parseInt(d, 10)))
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, name) => NAMED_ENTITIES[name]);
+}
+
+/**
+ * Strips HTML tags, decodes entities to plain text, collapses whitespace, and
+ * truncates to `maxLen` characters (appending "..." when truncated). For
+ * plain-text meta descriptions and JSON-LD text derived from sanitized post HTML.
  */
 export function excerptFromHtml(html: string, maxLen = 155): string {
-  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const text = decodeEntities(html.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
   return text.length > maxLen ? `${text.slice(0, maxLen - 1).trimEnd()}...` : text;
 }
 
