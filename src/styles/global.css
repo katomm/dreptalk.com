@@ -468,7 +468,7 @@ main.container {
 .drep-stat__label { font-size: 0.8125rem; color: var(--muted); }
 .drep-stat__value { font-size: 1.4rem; font-weight: 700; line-height: 1.1; }
 
-.drep-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+.drep-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; table-layout: fixed; }
 .drep-table thead th {
   text-align: left;
   font-size: 0.7rem;
@@ -479,17 +479,19 @@ main.container {
   padding: 0 0 0.6rem;
   border-bottom: 1px solid var(--border);
 }
-/* Voting power header and content are centered; the DRep name sizes to content
-   and actions stay narrow, so the columns share the row and the numbers sit
-   centered rather than jammed to one edge. The DRep name is forced single-line
-   (overriding AuthorIdentity's break-anywhere, which otherwise stacks a squeezed
-   name into vertical text) and ellipsized when the column is tight. */
-.drep-table thead th.drep-table__power-h { text-align: center; }
-.drep-table thead th.drep-table__actions-h { text-align: right; width: 1%; white-space: nowrap; }
+/* Fixed layout so the DRep column is bounded: a long name ellipsizes instead of
+   widening the row past the viewport (which used to shove the power and actions
+   columns off-screen on phones). Power and actions get explicit widths; the DRep
+   column takes the rest. Power header and content stay centered. */
+.drep-table thead th.drep-table__power-h { text-align: center; width: 16rem; }
+.drep-table thead th.drep-table__actions-h { text-align: right; width: 8.5rem; white-space: nowrap; }
 .drep-table td { padding: 0.6rem 0; border-top: 1px solid var(--border); vertical-align: middle; }
 .drep-table tbody tr:first-child td { border-top: none; }
 .drep-table__power { text-align: center; }
-.drep-table__actions { text-align: right; width: 1%; }
+.drep-table__actions { text-align: right; }
+/* The fixed-width DRep cell bounds the inline identity; making it a flex with
+   min-width:0 lets the name ellipsize rather than overflow. */
+.drep-table .author-identity { display: flex; min-width: 0; }
 .drep-table .author-identity__name { overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .drep-power { display: flex; align-items: center; justify-content: center; gap: 0.6rem; }
@@ -508,9 +510,46 @@ main.container {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* On mobile the bar drops out, ADA abbreviates, and the percentage stacks under
-   the amount so the power column stays narrow and the DRep name keeps its room. */
+/* Rounded-square outlined button with accent dots, matching the mockup (and the
+   header icon buttons), not a borderless grey circle. */
+.drep-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.drep-action-btn:hover { background: var(--surface); border-color: var(--accent); }
+
+/* Actions cell: the desktop delegate quick-action sits to the left of the kebab. */
+.drep-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.4rem; }
+/* Compact pill variant of the secondary button (used as `btn btn-secondary
+   drep-delegate-btn`); only size and radius differ, so palette, border, and
+   hover stay in sync with .btn-secondary. */
+.drep-delegate-btn {
+  gap: 0.3rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8125rem;
+  border-radius: 999px;
+}
+
+/* Mobile: reclaim width for the DRep name. Slim power column (bar drops out, ADA
+   abbreviates, percentage stacks under the amount), the delegate quick-action
+   hides, and the kebab grows to a 44px tap target. Placed after the base rules so
+   it overrides them. */
 @media (max-width: 640px) {
+  .drep-table thead th.drep-table__power-h { width: 5.5rem; }
+  /* Wider than the 44px button so the right-aligned kebab keeps a gap to the
+     voting-power column; the DRep name (which truncates) yields the space. */
+  .drep-table thead th.drep-table__actions-h { width: 3.75rem; }
+  .drep-delegate-btn { display: none; }
+  .drep-action-btn { width: 2.75rem; height: 2.75rem; }
   .drep-power { flex-direction: column; align-items: flex-end; gap: 0.15rem; }
   .drep-power__bar { display: none; }
   .drep-power__ada-full { display: none; }
@@ -518,24 +557,9 @@ main.container {
   .drep-power__pct { min-width: 0; }
 }
 
-.drep-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-.drep-action-btn:hover { background: var(--surface); color: var(--fg); border-color: var(--border); }
-
 .drep-menu {
   z-index: 50;
-  min-width: 12rem;
+  min-width: 13rem;
   padding: 0.35rem;
   display: flex;
   flex-direction: column;
@@ -548,9 +572,8 @@ main.container {
 .drep-menu__item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.5rem 0.6rem;
+  gap: 0.6rem;
+  padding: 0.55rem 0.65rem;
   border: none;
   background: transparent;
   border-radius: calc(var(--radius-sm) - 4px);
@@ -563,7 +586,13 @@ main.container {
 }
 .drep-menu__item:hover:not(:disabled) { background: var(--surface); }
 .drep-menu__item:disabled { color: var(--muted); cursor: not-allowed; }
-.drep-menu__hint { font-size: 0.75rem; color: var(--muted); }
+/* Leading icon, accent-tinted like the mockup; dims with a disabled item. */
+.drep-menu__icon { flex: none; color: var(--accent); }
+.drep-menu__item:disabled .drep-menu__icon { color: var(--muted); }
+/* The "unavailable" hint trails to the right edge of its row. */
+.drep-menu__hint { margin-left: auto; font-size: 0.75rem; color: var(--muted); }
+/* Thin rule between the primary action and the navigation items. */
+.drep-menu__sep { height: 1px; margin: 0.25rem 0.3rem; background: var(--border); border: none; }
 
 .drep-dialog__backdrop {
   position: fixed;

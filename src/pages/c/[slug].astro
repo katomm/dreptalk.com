@@ -272,6 +272,7 @@ const breadcrumbLd = {
                 proposerIcon={proposerIcon}
                 stake={stakeByTopic.get(r.topic.id) ?? null}
                 network={network}
+                now={now}
                 href={`/t/${r.topic.slug}`}
               />
             );
@@ -297,6 +298,7 @@ const breadcrumbLd = {
           <TopicRow
             topic={topic}
             now={now}
+            network={network}
             author={identities ? identities.describe(topic.author_id) : undefined}
           />
         ))}
@@ -481,6 +483,12 @@ const breadcrumbLd = {
   @media (max-width: 720px) {
     .ga-list__head {
       display: none;
+    }
+    /* Rows become standalone cards on mobile (see GovActionRow), so drop the
+       table's top border and space the cards apart instead. */
+    .ga-list {
+      border-top: none;
+      gap: 12px;
     }
   }
 

@@ -18,6 +18,8 @@ interface Props {
   author: AuthorDescriptor;
   /** The author's on-chain vote on the surrounding governance action, if any. */
   authorVote?: { role: string; vote: string; meta_url?: string | null };
+  /** DRep author who commented on a voted-on action but cast no vote of their own. */
+  authorHasNotVoted?: boolean;
   user: SessionUser | null;
   flagged: boolean;
   viewerReaction: Reaction | null;
@@ -29,7 +31,7 @@ interface Props {
   topicLocked?: boolean;
 }
 
-const { post, author, authorVote, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false } = Astro.props;
+const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false } = Astro.props;
 
 const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
 
@@ -48,7 +50,7 @@ const anchorUrl = isVoteRationale && authorVote?.meta_url ? authorVote.meta_url 
 <article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
   <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
     <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.post} />
-    {!isVoteRationale && authorVote && <VoteBadge vote={authorVote.vote} />}
+    {!isVoteRationale && (authorVote ? <VoteBadge vote={authorVote.vote} /> : authorHasNotVoted && <VoteBadge hasNotVoted />)}
     {isVoteRationale && post.vote && (
       <span
         class="vr-vote-badge"

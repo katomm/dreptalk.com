@@ -1,8 +1,6 @@
-// Static palette entries: top-level pages and help articles. Matched
-// client-side, so the palette has useful content with zero server roundtrips
-// (and still works when the API is unreachable).
+// Static palette entries: top-level pages. Help entries are passed in from the
+// server (they come from the guides content collection, which is server-only).
 import { NAV_LINKS } from '../config/nav.js';
-import { HELP_ARTICLES } from '../help/articles.js';
 
 export interface StaticEntry {
   group: 'Pages' | 'Help';
@@ -11,7 +9,12 @@ export interface StaticEntry {
   keywords: string;
 }
 
-// Extra search keywords for nav pages, keyed by href.
+export interface HelpEntry {
+  label: string;
+  href: string;
+  keywords: string;
+}
+
 const PAGE_KEYWORDS: Record<string, string> = {
   '/dreps': 'delegate representatives directory voting power',
   '/c/governance-actions': 'proposals votes ga',
@@ -21,15 +24,19 @@ const PAGE_KEYWORDS: Record<string, string> = {
 export const STATIC_ENTRIES: readonly StaticEntry[] = [
   { group: 'Pages', label: 'Home', href: '/', keywords: 'home start dreptalk' },
   ...NAV_LINKS.map((l): StaticEntry => ({ group: 'Pages', label: l.label, href: l.href, keywords: PAGE_KEYWORDS[l.href] ?? '' })),
-  { group: 'Pages', label: 'Help', href: '/help', keywords: 'documentation guide faq' },
-  ...HELP_ARTICLES.map((a): StaticEntry => ({ group: 'Help', label: a.title, href: a.href, keywords: a.text })),
+  { group: 'Pages', label: 'Help', href: '/help', keywords: 'documentation guide faq guides' },
 ];
 
 /** Case-insensitive label/keyword filter; empty query returns everything. */
-export function matchStaticEntries(q: string): StaticEntry[] {
+export function matchEntries<T extends { label: string; keywords: string }>(entries: readonly T[], q: string): T[] {
   const needle = q.trim().toLowerCase();
-  if (!needle) return [...STATIC_ENTRIES];
-  return STATIC_ENTRIES.filter(
+  if (!needle) return [...entries];
+  return entries.filter(
     (e) => e.label.toLowerCase().includes(needle) || e.keywords.toLowerCase().includes(needle),
   );
+}
+
+/** Pages-group static entries matching the query. */
+export function matchStaticEntries(q: string): StaticEntry[] {
+  return matchEntries(STATIC_ENTRIES, q);
 }

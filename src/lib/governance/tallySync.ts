@@ -131,7 +131,10 @@ export function deriveStatus(
   if (life?.expired_epoch != null) return isInfo ? 'closed' : 'expired';
   if (life?.dropped_epoch != null) return isInfo ? 'closed' : 'dropped';
   const expiry = ga.expiryEpoch ?? life?.expiration ?? null;
-  if (expiry != null && currentEpoch != null && currentEpoch > expiry) return isInfo ? 'closed' : 'expired';
+  // An action expires AT the start of its expiration epoch (on-chain expired_epoch
+  // === expiration; votes count only through the end of epoch expiration - 1), so
+  // currentEpoch === expiry already means decided: use >=, not >.
+  if (expiry != null && currentEpoch != null && currentEpoch >= expiry) return isInfo ? 'closed' : 'expired';
   return 'active';
 }
 

@@ -315,6 +315,37 @@ export async function getLatestGovernanceAction(db: D1Database): Promise<LatestG
   return row ? { action: rowToGovernanceAction(row), slug: row.slug } : null;
 }
 
+/**
+ * The newest governance action that already has at least `minVoters` recorded
+ * DRep votes, for the homepage hero's ring of real voter pills. Same visibility
+ * filter and ordering as getLatestGovernanceAction, plus a correlated count that
+ * skips fresh actions whose pill ring would be empty (the card and its six pills
+ * describe the same action, so a half-empty ring is never shown). Returns null
+ * when none qualifies, leaving the caller on the decorative fallback hero.
+ */
+export async function getLatestActionWithVotes(
+  db: D1Database,
+  opts: { minVoters: number },
+): Promise<LatestGovernanceAction | null> {
+  const min = Math.max(opts.minVoters, 1);
+  const row = await db
+    .prepare(
+      `SELECT ga.*, t.slug AS slug
+         FROM governance_actions ga
+         JOIN topics t ON t.id = ga.topic_id
+        WHERE t.deleted = 0 AND ga.title IS NOT NULL
+          AND (
+            SELECT COUNT(*) FROM drep_votes v
+             WHERE v.ga_id = ga.id AND v.voter_role = 'DRep'
+          ) >= ?
+        ORDER BY ga.submitted_at IS NULL, ga.submitted_at DESC, ga.submitted_epoch DESC, ga.created_at DESC
+        LIMIT 1`,
+    )
+    .bind(min)
+    .first<GovernanceActionRow & { slug: string }>();
+  return row ? { action: rowToGovernanceAction(row), slug: row.slug } : null;
+}
+
 /** Batch-loads governance actions by topic id (no N+1 when rendering a list). */
 export async function getGovernanceActionsByTopicIds(
   db: D1Database,

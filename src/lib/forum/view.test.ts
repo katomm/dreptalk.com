@@ -270,6 +270,12 @@ describe('excerptFromHtml', () => {
   it('handles empty input', () => {
     expect(excerptFromHtml('')).toBe('');
   });
+
+  it('decodes named, numeric and hex entities to plain text', () => {
+    expect(excerptFromHtml('<p>It&#39;s a &quot;test&quot; with R&amp;D &amp; M&#x26;A</p>')).toBe(
+      'It\'s a "test" with R&D & M&A',
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

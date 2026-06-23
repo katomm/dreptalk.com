@@ -208,22 +208,42 @@ const barWidth = (pct: number): string => {
                 </div>
               </td>
               <td class="drep-table__actions">
-                <button
-                  type="button"
-                  class="drep-action-btn"
-                  data-drep-action
-                  data-drep-id={d.drepId}
-                  data-drep-slug={d.slug ?? ''}
-                  data-drep-name={descriptor.displayName}
-                  data-drep-cred={cred ?? ''}
-                  data-drep-script={d.hasScript ? '1' : '0'}
-                  aria-haspopup="menu"
-                  aria-label={`Actions for ${descriptor.displayName}`}
-                >
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-                    <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
-                  </svg>
-                </button>
+                <span class="drep-row-actions">
+                  {/* Desktop quick-action; hidden on mobile (the kebab carries it
+                      there). Only shown when the DRep can actually receive a
+                      delegation (script DReps without a credential cannot). */}
+                  {cred && (
+                    <button
+                      type="button"
+                      class="btn btn-secondary drep-delegate-btn"
+                      data-drep-delegate
+                      data-drep-id={d.drepId}
+                      data-drep-slug={d.slug ?? ''}
+                      data-drep-name={descriptor.displayName}
+                      data-drep-cred={cred}
+                      data-drep-script={d.hasScript ? '1' : '0'}
+                      aria-label={`Delegate voting power to ${descriptor.displayName}`}
+                    >
+                      Delegate
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    class="drep-action-btn"
+                    data-drep-action
+                    data-drep-id={d.drepId}
+                    data-drep-slug={d.slug ?? ''}
+                    data-drep-name={descriptor.displayName}
+                    data-drep-cred={cred ?? ''}
+                    data-drep-script={d.hasScript ? '1' : '0'}
+                    aria-haspopup="menu"
+                    aria-label={`Actions for ${descriptor.displayName}`}
+                  >
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+                      <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+                    </svg>
+                  </button>
+                </span>
               </td>
             </tr>
           );

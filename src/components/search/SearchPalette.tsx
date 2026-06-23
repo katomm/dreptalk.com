@@ -2,7 +2,7 @@ import type { KeyboardEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type React from 'react';
-import { matchStaticEntries } from '@/lib/search/staticEntries.js';
+import { matchStaticEntries, matchEntries, type HelpEntry } from '@/lib/search/staticEntries.js';
 import { parseSnippet, cleanMarkdownSnippet } from '@/lib/search/snippet.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
@@ -12,6 +12,7 @@ interface PaletteProps {
   open: boolean;
   onClose: () => void;
   returnFocusRef?: React.RefObject<HTMLButtonElement | null>;
+  helpEntries: HelpEntry[];
 }
 
 interface Row {
@@ -30,7 +31,7 @@ interface Row {
 const DEBOUNCE_MS = 250;
 const MIN_QUERY = 2;
 
-function buildRows(q: string, data: SearchResponseBody | null): Row[] {
+function buildRows(q: string, data: SearchResponseBody | null, helpEntries: HelpEntry[]): Row[] {
   const rows: Row[] = [];
   if (data?.exact) {
     rows.push({
@@ -80,6 +81,9 @@ function buildRows(q: string, data: SearchResponseBody | null): Row[] {
   for (const e of matchStaticEntries(q)) {
     rows.push({ key: `static-${e.href}`, href: e.href, group: e.group, label: e.label });
   }
+  for (const e of matchEntries(helpEntries, q)) {
+    rows.push({ key: `help-${e.href}`, href: e.href, group: 'Help', label: e.label });
+  }
   return rows;
 }
 
@@ -109,7 +113,7 @@ function Snippet({ raw }: { raw: string }) {
   );
 }
 
-export default function SearchPalette({ open, onClose, returnFocusRef }: PaletteProps) {
+export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries }: PaletteProps) {
   const [q, setQ] = useState('');
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
@@ -118,7 +122,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef }: Palette
   const prevOpenRef = useRef(false);
 
   // Derive rows and clamped index early so effects below can reference them.
-  const rows = useMemo(() => buildRows(q, q.trim().length >= MIN_QUERY ? data : null), [q, data]);
+  const rows = useMemo(() => buildRows(q, q.trim().length >= MIN_QUERY ? data : null, helpEntries), [q, data, helpEntries]);
   const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 
   // Focus + scroll lock while open.

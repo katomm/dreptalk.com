@@ -1,18 +1,31 @@
 ---
-// Per-post badge showing an author's on-chain vote on the governance action.
+// Per-post badge showing an author's on-chain vote on the governance action,
+// or, for a DRep who commented without casting a vote, a muted "Hasn't voted"
+// marker (dashed border) so the absence reads as context, not as an abstain.
 import { voteTone, TONE_COLORS } from '@/lib/governance/view.js';
 
 interface Props {
-  vote: string;
+  /** The author's vote (Yes/No/Abstain). Omit for the "hasn't voted" variant. */
+  vote?: string;
+  /** A DRep author with no recorded vote on this action. */
+  hasNotVoted?: boolean;
 }
 
-const { vote } = Astro.props;
-const color = TONE_COLORS[voteTone(vote)];
+const { vote, hasNotVoted = false } = Astro.props;
+
+const color = vote ? TONE_COLORS[voteTone(vote)] : 'var(--muted)';
+const borderStyle = vote ? 'solid' : 'dashed';
+const label = vote ? `Voted ${vote}` : "Hasn't voted";
+const title = vote
+  ? 'On-chain vote on this governance action'
+  : 'This DRep has not voted on this governance action';
 ---
 
-<span
-  title="On-chain vote on this governance action"
-  style={`display:inline-flex;align-items:center;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:${color};border:1px solid ${color};border-radius:999px;padding:0.1rem 0.4rem;line-height:1;`}
->
-  Voted {vote}
-</span>
+{(vote || hasNotVoted) && (
+  <span
+    title={title}
+    style={`display:inline-flex;align-items:center;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:${color};border:1px ${borderStyle} ${color};border-radius:999px;padding:0.1rem 0.4rem;line-height:1;`}
+  >
+    {label}
+  </span>
+)}
