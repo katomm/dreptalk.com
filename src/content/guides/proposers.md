@@ -1,5 +1,5 @@
 ---
-title: "Proposers"
+title: "Proposers of Cardano governance actions"
 description: "How DRepTalk identifies who proposed a governance action: a curated list of known organizations, with an identicon fallback for everyone else."
 cardLabel: "Proposers"
 category: "Understanding governance"

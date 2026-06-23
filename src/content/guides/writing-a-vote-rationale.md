@@ -1,5 +1,5 @@
 ---
-title: "How to write a DRep vote rationale"
+title: "How to write a Cardano DRep vote rationale"
 description: "How a DRep writes a clear, useful rationale for a governance vote, what to include, and how it is published as on-chain metadata following the CIP-100 standard."
 cardLabel: "Writing a vote rationale"
 category: "For DReps"

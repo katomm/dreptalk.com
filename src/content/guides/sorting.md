@@ -1,6 +1,6 @@
 ---
-title: "Sorting governance actions"
-description: "What the Trending, New, Closing Soon, and Recently Ratified sorts order by on the governance actions list."
+title: "Sorting Cardano governance actions"
+description: "What the Trending, New, Closing Soon, and Recently Ratified sorts order by on the Cardano governance actions list."
 cardLabel: "Sorting governance actions"
 category: "Understanding governance"
 order: 3

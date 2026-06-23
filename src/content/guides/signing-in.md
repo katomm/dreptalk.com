@@ -1,6 +1,6 @@
 ---
 title: "Signing in"
-description: "Who can sign in to DRepTalk and with which keys: DReps (CIP-95 DRep key), proposers (reward address), SPOs (Calidus key) and CC members (committee hot key). No password, no transaction, no fees."
+description: "Who can sign in to DRepTalk and with which Cardano keys: DReps (CIP-95 DRep key), proposers (reward address), SPOs (Calidus key) and CC members (committee hot key). No password, no transaction, no fees."
 cardLabel: "Signing in"
 category: "Start here"
 order: 3

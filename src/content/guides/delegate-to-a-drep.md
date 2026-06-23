@@ -1,5 +1,5 @@
 ---
-title: "How to delegate your voting power to a DRep"
+title: "How to delegate your voting power to a Cardano DRep"
 description: "How any ADA holder hands their Cardano voting power to a DRep, what Abstain and No Confidence mean, and how to switch DReps later."
 cardLabel: "Delegating to a DRep"
 category: "Start here"
