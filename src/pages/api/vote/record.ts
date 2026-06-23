@@ -11,7 +11,7 @@ import { getUserById } from '@/lib/db/users';
 import { recordLocalVote } from '@/lib/db/drepVotes';
 import { upsertVoteRationalePost } from '@/lib/db/voteRationalePost';
 import { renderMarkdown } from '@/lib/markdown';
-import { buildVoteRationale } from '@/lib/governance/voteRationale';
+import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale';
 
 export const prerender = false;
 
@@ -20,7 +20,11 @@ const schema = z.object({
   vote: z.enum(['yes', 'no', 'abstain']),
   txHash: z.string().regex(/^[0-9a-fA-F]{64}$/),
   rationaleUrl: z.string().url().optional(),
-  rationaleText: z.string().min(1).max(21000).optional(),
+  // Cap tied to MAX_VOTE_RATIONALE so the input contract can't drift from the
+  // canonical limit. A small buffer above it tolerates whitespace, CRLFs, and
+  // control chars that sanitizeExternalMultiline strips before the hard slice;
+  // anything past MAX_VOTE_RATIONALE is sliced off when the post is canonicalized.
+  rationaleText: z.string().min(1).max(MAX_VOTE_RATIONALE + 1000).optional(),
 });
 
 export const POST: APIRoute = async ({ request, locals }) => {

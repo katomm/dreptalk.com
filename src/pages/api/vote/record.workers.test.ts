@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { getViewerVote } from '@/lib/db/drepVotes';
+import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale';
 import { POST } from './record';
 
 const NOW = 1_752_000_000;
@@ -133,6 +134,43 @@ describe('POST /api/vote/record', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].vote).toBe('no');
     expect(rows[0].body_md).toBe('Because this is a bad idea.');
+  });
+
+  it('stores the canonicalized rationale on the post, not the raw input', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+
+    // Dirty input: leading/trailing whitespace, CRLF line endings, 3+ blank
+    // lines, and more than MAX_VOTE_RATIONALE characters. The on-chain anchor
+    // hashes the sanitized/sliced text, so the frozen post (shown as the
+    // on-chain rationale) must store that same canonical text, never the raw
+    // client string. Otherwise the post diverges from the hashed/hosted bytes.
+    const dirty = `  \r\n\r\n  Leading whitespace and CRLFs.\r\n\r\n\r\n\r\nBlank lines collapse.\r\n${'x'.repeat(MAX_VOTE_RATIONALE)}  \r\n  `;
+    const canonical = buildVoteRationale({ rationale: dirty }).rationale;
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: dirty },
+    }));
+    expect(res.status).toBe(200);
+
+    const rows = (
+      await env.DB.prepare(
+        `SELECT body_md FROM posts WHERE source = 'vote_rationale' AND author_id = ?`,
+      )
+        .bind(USER_ID)
+        .all<{ body_md: string }>()
+    ).results;
+    expect(rows).toHaveLength(1);
+    // The stored body is exactly the text the anchor commits to.
+    expect(rows[0].body_md).toBe(canonical);
+    // And it is NOT the raw input: canonicalization actually happened.
+    expect(rows[0].body_md).not.toBe(dirty);
+    // Canonicalization invariants: capped, trimmed, no carriage returns.
+    expect(rows[0].body_md.length).toBeLessThanOrEqual(MAX_VOTE_RATIONALE);
+    expect(rows[0].body_md).toBe(rows[0].body_md.trim());
+    expect(rows[0].body_md).not.toContain('\r');
   });
 
   it('does not create a rationale post when the action has no topic', async () => {
