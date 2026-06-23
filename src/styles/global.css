@@ -621,6 +621,22 @@ main.container {
 .drep-dialog__target-id { font-size: 0.8125rem; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .drep-dialog__note { margin: 0 0 1rem; font-size: 0.8125rem; color: var(--muted); }
 
+/* Rationale editor reuses the dialog backdrop but needs a wider panel for
+   comfortable writing, and goes full-screen on small viewports. */
+.drep-dialog--wide {
+  max-width: 44rem;
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .drep-dialog--wide {
+    max-width: none;
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+}
+
 /* DRep profile editor: form fields with a live preview beside them. Single
    column on small screens; on wide screens the fields take a readable column
    and the preview sits in a sticky column next to them. Media queries cannot
