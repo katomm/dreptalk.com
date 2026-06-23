@@ -8,11 +8,12 @@
 export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
-import { runtimeEnv } from '@/lib/api/response';
+import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
 import { getDrepVotingHistory } from '@/lib/db/drepVotes';
 import { readableType, epochDaysLeft, voteTone, TONE_COLORS, govTypeTone } from '@/lib/governance/view';
+import { resolveNetwork, epochStartUnix } from '@/lib/config/network';
 
 // --- resolve network + session ---
 const user = Astro.locals.user;
@@ -31,6 +32,10 @@ const db = env.DB as D1Database | undefined;
 // Resolve the drep_id from the database row (same pattern as settings.astro).
 const dbUser = db ? await getUserById(db, user.id) : null;
 const drepId = dbUser?.drep_id ?? null;
+
+// Network + render instant for the wall-clock voting countdown (mirrors GovActionRow).
+const network = resolveNetwork(currentNetwork().network);
+const now = Date.now();
 
 // Fetch votable actions + voting history in parallel when the db is available.
 const [votableRows, historyRows] = drepId && db
@@ -77,7 +82,8 @@ const [votableRows, historyRows] = drepId && db
           <div class="vote-list">
             {votableRows.map((row) => {
               const typeTone = govTypeTone(row.type);
-              const daysLeft = epochDaysLeft(row.expiry_epoch, row.tally_epoch ?? null, row.status);
+              const expiryUnix = row.expiry_epoch != null ? epochStartUnix(row.expiry_epoch, network) : null;
+              const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, row.status, now);
               const voteColor = row.viewerVote ? TONE_COLORS[voteTone(row.viewerVote)] : null;
               const threadHref = row.slug ? `/t/${row.slug}` : null;
               return (
