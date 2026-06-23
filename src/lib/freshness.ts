@@ -1,8 +1,14 @@
-// Single source of truth for how often each on-chain value is refreshed. The
-// public "Data freshness" page renders this table, and the README points at it,
-// so the documented cadences can never drift from the actual behavior. On-chain
-// values are synced on crons (lean and cheap): they are cached, not live, and
-// every place they appear shows an explicit "as of" time.
+// How often each on-chain value is refreshed. On-chain values are synced on
+// crons (lean and cheap): they are cached, not live, and every place they
+// appear shows an explicit "as of" time.
+//
+// The cadences live in TWO hand-maintained places that must stay in sync:
+//   1. The FRESHNESS array below (rendered by /debug/sync).
+//   2. The markdown table in src/content/guides/data-freshness.md (the public
+//      /help/data-freshness page).
+// Editing one means editing the other. freshness.table.test.ts is a drift guard:
+// it reads the markdown table and fails CI if it no longer matches FRESHNESS, so
+// the two copies cannot silently diverge.
 
 export interface FreshnessRow {
   key: string;
