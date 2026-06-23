@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic } from '../db/forum.js';
+import { upsertVoteRationalePost } from '../db/voteRationalePost.js';
 import { handleEditPost, handleEditTitle } from './handlers.js';
 import { EDIT_GRACE_MS } from './editPolicy.js';
 
@@ -53,6 +54,31 @@ describe('handleEditPost', () => {
     const row = await db().prepare('SELECT body_html FROM posts WHERE id = ?').bind(postId)
       .first<{ body_html: string }>();
     expect(row?.body_html).toContain('<strong>bold</strong>');
+  });
+
+  it('403 (frozen) editing a vote_rationale post is rejected', async () => {
+    // Seed a governance topic and a vote_rationale post directly.
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general', authorId: AUTHOR.id, title: `Frozen rationale ${++seq}`,
+      bodyMd: 'gov', bodyHtml: '<p>gov</p>', source: 'governance', now: NOW, rand: `fr${seq}`,
+    });
+    await upsertVoteRationalePost(db(), {
+      topicId: topic.id, authorId: AUTHOR.id, vote: 'yes',
+      bodyMd: 'rationale text', bodyHtml: '<p>rationale text</p>', now: NOW,
+    });
+    const frozen = await db()
+      .prepare(`SELECT id FROM posts WHERE topic_id = ? AND author_id = ? AND source = 'vote_rationale'`)
+      .bind(topic.id, AUTHOR.id)
+      .first<{ id: string }>();
+    const r = await handleEditPost(postInput(AUTHOR, frozen!.id, 'tampered'));
+    expect(r.status).toBe(403);
+    expect((r.json as { error: string }).error).toBe('frozen_rationale');
+  });
+
+  it('200 on a normal (source=null) post is unaffected', async () => {
+    const { postId } = await fixture('user');
+    const r = await handleEditPost(postInput(AUTHOR, postId, 'updated text'));
+    expect(r.status).toBe(200);
   });
 });
 

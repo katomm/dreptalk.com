@@ -558,15 +558,18 @@ export async function editPost(
   // topic's state (depends on post.topic_id). Two sequential reads.
   const post = await db
     .prepare(
-      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at FROM posts WHERE id = ?',
+      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at, source FROM posts WHERE id = ?',
     )
     .bind(postId)
     .first<{
       id: string; topic_id: string; author_id: string; body_md: string;
       body_html: string; hidden: number; deleted: number; created_at: number;
+      source: string | null;
     }>();
   if (!post || post.deleted === 1) throw new Error('post_not_found');
   if (post.author_id !== authorId) throw new Error('not_owner');
+  // Vote rationale posts are frozen: their body must match the on-chain hash.
+  if (post.source === 'vote_rationale') throw new Error('frozen_rationale');
   if (post.hidden === 1) throw new Error('post_hidden');
 
   const topicRow = await db
