@@ -111,6 +111,32 @@ export async function submitVote(
 }
 
 // ---------------------------------------------------------------------------
+// Error translation helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a human-friendly message when the error indicates the governance
+ * action is no longer votable (expired or already enacted). Returns null for
+ * unrelated errors so the caller can fall back to readableError.
+ */
+export function expiredActionMessage(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  // Ledger rejects with phrases like "voting period has expired",
+  // "gov action not active", "expired proposal", etc.
+  if (
+    (lower.includes('voting') && lower.includes('expired')) ||
+    lower.includes('gov action not active') ||
+    lower.includes('governance action not active') ||
+    lower.includes('expired proposal') ||
+    lower.includes('no longer votable')
+  ) {
+    return 'This governance action is no longer accepting votes (it may have expired). Please refresh the page.';
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // React component
 // ---------------------------------------------------------------------------
 
@@ -340,7 +366,8 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
       });
       setPhase({ status: 'success', txHash });
     } catch (err) {
-      setPhase({ status: 'error', message: readableError(err), identity });
+      const msg = expiredActionMessage(err) ?? readableError(err);
+      setPhase({ status: 'error', message: msg, identity });
     }
   }
 
