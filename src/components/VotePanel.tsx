@@ -17,8 +17,8 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
-import { MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale.js';
 import WalletConnection from '@/components/WalletConnection.js';
+import RationaleModal from '@/components/RationaleModal.js';
 import type { ViewerVoteRow } from '@/lib/db/drepVotes.js';
 
 // The enabled wallet api surface: CIP-30 tx methods + CIP-95 extension +
@@ -189,6 +189,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   // Vote form state.
   const [vote, setVote] = useState<VoteChoice>('yes');
   const [rationaleText, setRationaleText] = useState('');
+  const [rationaleModalOpen, setRationaleModalOpen] = useState(false);
 
   // Rationale anchor: set after hosting succeeds, shown during submit + success.
   const [rationaleAnchor, setRationaleAnchor] = useState<{ url: string; hash: string } | null>(null);
@@ -619,42 +620,43 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                     </div>
                   </fieldset>
 
-                  {/* Rationale (optional markdown) */}
+                  {/* Rationale (optional): opens a roomy modal editor with preview. */}
                   <div>
-                    <label
-                      htmlFor="vote-rationale"
-                      style={{ display: 'block', fontSize: '0.875rem', color: 'var(--muted)', fontWeight: 500, marginBottom: '0.375rem' }}
-                    >
-                      Rationale{' '}
-                      <span style={{ fontWeight: 400 }}>(optional, published on-chain as CIP-100)</span>
-                    </label>
-                    <p style={{ margin: '0 0 0.375rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                    <span style={{ display: 'block', fontSize: '0.875rem', color: 'var(--muted)', fontWeight: 500, marginBottom: '0.375rem' }}>
+                      Rationale <span style={{ fontWeight: 400 }}>(optional, published on-chain as CIP-100)</span>
+                    </span>
+                    {rationaleText.trim() ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.875rem' }}>Rationale added, {rationaleText.length} characters.</span>
+                        <button
+                          type="button"
+                          onClick={() => setRationaleModalOpen(true)}
+                          disabled={busy}
+                          style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRationaleText('')}
+                          disabled={busy}
+                          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setRationaleModalOpen(true)}
+                        disabled={busy}
+                        style={{ padding: '0.5rem 0.875rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg)', color: 'var(--fg)', cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}
+                      >
+                        Write a rationale
+                      </button>
+                    )}
+                    <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
                       Adding a rationale helps delegators understand your reasoning and builds trust.
-                    </p>
-                    <textarea
-                      id="vote-rationale"
-                      value={rationaleText}
-                      onChange={(e) => setRationaleText(e.target.value)}
-                      disabled={busy}
-                      rows={5}
-                      maxLength={MAX_VOTE_RATIONALE}
-                      style={{
-                        width: '100%',
-                        resize: 'vertical',
-                        fontFamily: 'inherit',
-                        fontSize: '0.9375rem',
-                        padding: '0.5rem 0.75rem',
-                        border: '1px solid var(--border)',
-                        borderRadius: '0.375rem',
-                        background: 'var(--surface)',
-                        color: 'inherit',
-                        boxSizing: 'border-box',
-                        opacity: busy ? 0.7 : 1,
-                      }}
-                      placeholder="Explain your vote (Markdown supported)..."
-                    />
-                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: rationaleText.length > MAX_VOTE_RATIONALE * 0.9 ? 'var(--accent)' : 'var(--muted)', textAlign: 'right' }}>
-                      {rationaleText.length} / {MAX_VOTE_RATIONALE}
                     </p>
                   </div>
 
@@ -716,6 +718,14 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
             </>
           )}
         </div>
+      )}
+
+      {rationaleModalOpen && (
+        <RationaleModal
+          value={rationaleText}
+          onChange={setRationaleText}
+          onClose={() => setRationaleModalOpen(false)}
+        />
       )}
     </div>
   );
