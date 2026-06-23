@@ -59,8 +59,8 @@ To register as a DRep you need:
   actions require a wallet that supports the CIP-95 governance standard. Lace,
   Eternl, and Typhon all support this. Standard staking-only wallets do not.
 - **A refundable 500 ADA deposit.** Registering locks 500 ADA on the chain.
-  This deposit is returned in full when you later deregister. It is not a fee
-  and you do not lose it unless you choose to retire without collecting it.
+  This deposit is returned in full when you deregister. It is not a fee; it
+  is automatically refunded to your wallet when you retire your DRep.
 - **A small amount of ADA for network fees.** The registration transaction
   itself costs a small fee (a few tenths of an ADA), similar to any other
   Cardano transaction.
@@ -74,7 +74,7 @@ stake to start.
 2. Fill in your profile: a display name, a short bio describing your background
    and governance philosophy, optional links (website, social profiles), and an
    optional profile image.
-3. Review and submit. Your wallet will show you the exact certificate and cost
+3. Review and submit. Your wallet will show you the exact registration details and cost
    before anything is sent. Confirm in your wallet to submit the transaction.
 
 Once the transaction confirms, your DRep is live on the chain.

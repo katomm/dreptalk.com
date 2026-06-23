@@ -7,8 +7,8 @@ order: 3
 ---
 
 The governance actions list can be ordered four ways, chosen with the tabs above the
-list. Trending is the default, because a DRep usually wants to see where attention is
-right now rather than the newest submission.
+list. New is the default, showing the most recently submitted actions first so you can
+catch up on what has just appeared on-chain.
 
 **New:** Newest submission first, by the epoch the action was proposed on-chain. Every action is included.
 
@@ -24,9 +24,8 @@ Each action gets a score from two parts. Engagement counts forum replies plus th
 number of on-chain votes cast, with the vote count damped so a few thousand votes do
 not drown out everything else. Recency measures how long since the last activity and
 halves every week. Decided actions are scored far lower so they settle at the bottom.
-An action with no comments yet still has a recency score, so it orders by its
-submission date, which is why a brand-new action can appear near the top before
-anyone has replied.
+An action with no comments yet still has a recency score based on its submission time,
+so it orders by when it was proposed on-chain.
 
 ## Related
 

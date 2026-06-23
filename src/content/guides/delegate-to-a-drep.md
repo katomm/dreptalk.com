@@ -72,10 +72,11 @@ if you want to signal that you are an active participant but you prefer not to
 take a position on current proposals. Your stake contributes to quorum without
 influencing the outcome.
 
-**No Confidence** votes against the current governance setup on every active
-action. Use this if you believe the existing governance structure lacks
-legitimacy and you want your stake to reflect that view consistently, without
-having to delegate to a specific DRep.
+**No Confidence** signals that you do not recognize the current governance
+structure as legitimate. Your stake is counted toward the "no confidence" pool
+of DRep voting power, which works against ratification thresholds on every
+action where DRep approval is required. Use this if you want your stake to
+reflect a consistent no-confidence stance without delegating to a specific DRep.
 
 Both options are selected from the same delegation flow in your wallet, in
 place of a specific DRep.
