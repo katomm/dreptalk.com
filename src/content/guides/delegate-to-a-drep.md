@@ -74,8 +74,8 @@ influencing the outcome.
 
 **No Confidence** signals that you do not recognize the current governance
 structure as legitimate. Your stake is counted toward the "no confidence" pool
-of DRep voting power, which works against ratification thresholds on every
-action where DRep approval is required. Use this if you want your stake to
+of DRep voting power: it supports motions of no confidence and counts against
+other actions that need DRep approval. Use this if you want your stake to
 reflect a consistent no-confidence stance without delegating to a specific DRep.
 
 Both options are selected from the same delegation flow in your wallet, in
