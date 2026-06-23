@@ -333,17 +333,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
             )}
           </div>
           <div class="ga-detail-layout__sidebar">
-            <GaSidebar
-              action={govAction}
-              params={params}
-              ccSize={ccSize}
-              network={network}
-              topVoters={topVoters}
-              dreps={drepsMap}
-              related={related}
-              slug={topic.slug}
-              positionsTotal={positionsTotal}
-            />
+            {/* Vote CTA leads the sidebar (above the status card) for a logged-in
+                DRep on a votable action. It renders only in that case, so other
+                viewers still see the status card first. */}
             {isDrep && isVotable && (
               <div class="vote-panel-wrapper">
                 <h3 class="vote-panel-title">Cast your vote</h3>
@@ -355,6 +347,17 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
                 />
               </div>
             )}
+            <GaSidebar
+              action={govAction}
+              params={params}
+              ccSize={ccSize}
+              network={network}
+              topVoters={topVoters}
+              dreps={drepsMap}
+              related={related}
+              slug={topic.slug}
+              positionsTotal={positionsTotal}
+            />
           </div>
         </div>
       </>
@@ -400,7 +403,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
     top: 1.5rem;
   }
   .vote-panel-wrapper {
-    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
   }
   .vote-panel-title {
     margin: 0 0 0.75rem;
@@ -437,6 +440,10 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
     }
     .ga-detail-layout--sidebar-first .ga-detail-layout__main {
       order: 2;
+    }
+    /* The DRep vote CTA leads the column, ahead of the status card. */
+    .ga-detail-layout--sidebar-first .vote-panel-wrapper {
+      order: 0;
     }
   }
 </style>
