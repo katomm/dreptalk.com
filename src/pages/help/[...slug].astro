@@ -23,7 +23,7 @@ const faqLd = buildFaqLd(d.faqs);
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 
-<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel}>
+<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel} heading={d.title}>
   <JsonLd data={breadcrumbLd} />
   <JsonLd data={articleLd} />
   {faqLd && <JsonLd data={faqLd} />}
