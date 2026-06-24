@@ -17,7 +17,7 @@ import {
 } from '../validation/input.js';
 import type { ModeratorRole } from '../../../config/moderators.js';
 import { drepIdFromPubKey, stakeAddressFromPubKey, ccHotKeyHashHex, isDrepCredentialAddress } from '../cardano/identity.js';
-import { resolveDRep, resolveProposer, resolveSpo, resolveCc } from './resolveRole.js';
+import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
 import { upsertUserFromAuth, type AuthRole } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
@@ -72,6 +72,8 @@ export interface VerifyBody {
   // Raw 32-byte Ed25519 public key (hex), present for the paste flow (spo / cc).
   publicKeyHex?: string;
   role: string;
+  // CIP-129 drep1 id (script credential) the signer claims membership of.
+  scriptDrepId?: string;
 }
 
 export interface VerifyInput {
@@ -139,6 +141,11 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
   // DRep and Proposer prove identity with a CIP-8 wallet signature; SPO (Calidus)
   // and CC members paste a raw Ed25519 signature produced by cardano-signer.
   if (role === 'drep' || role === 'proposer') {
+    // A script-DRep member signing offline pastes a raw Ed25519 sig (publicKeyHex),
+    // not a COSE key (keyHex); route that to the raw verifier.
+    if (role === 'drep' && typeof body.scriptDrepId === 'string' && typeof body.keyHex !== 'string') {
+      return await verifyRawEd25519(role, input, deps);
+    }
     return await verifyWalletCip8(role, input, deps);
   }
   return await verifyRawEd25519(role, input, deps);
@@ -187,6 +194,20 @@ async function verifyWalletCip8(
   // 28-byte key hash. The identity is bound separately via drepIdFromPubKey.
   if (addressBytes.length === 0) {
     return { status: 401, json: { ok: false, error: 'invalid address in signature' } };
+  }
+
+  // Script (multisig) DRep membership: prove the signer holds one of the native
+  // script's authorized keys. Identity is the script drep id the client claims.
+  if (role === 'drep' && typeof body.scriptDrepId === 'string') {
+    if (!isLikelyDrepId(body.scriptDrepId)) {
+      return { status: 400, json: { ok: false, error: 'invalid request' } };
+    }
+    const candidateKeyHashHex = ccHotKeyHashHex(pubKey);
+    const resolution = await resolveScriptDRep(koios, body.scriptDrepId, candidateKeyHashHex);
+    if (!resolution.isMember) {
+      return { status: 401, json: { ok: false, error: 'not a script DRep member' } };
+    }
+    return finishLogin(input, { drepId: body.scriptDrepId, grantedRoles: ['drep'], modRole: null });
   }
 
   // A correctly typed address for the OTHER network means the wallet is on the
@@ -240,9 +261,9 @@ async function verifyWalletCip8(
   return finishLogin(input, { drepId, stakeAddr, grantedRoles, modRole });
 }
 
-/** SPO (Calidus) / CC member login: raw Ed25519 signature pasted by the user. */
+/** SPO (Calidus) / CC member / script-DRep login: raw Ed25519 signature pasted by the user. */
 async function verifyRawEd25519(
-  role: 'spo' | 'cc',
+  role: 'drep' | 'spo' | 'cc',
   input: VerifyInput,
   deps?: VerifyDeps,
 ): Promise<VerifyResult> {
@@ -277,6 +298,18 @@ async function verifyRawEd25519(
   const grantedRoles: AuthRole[] = [];
   let poolId: string | undefined;
   let ccCred: string | undefined;
+
+  if (role === 'drep') {
+    if (typeof body.scriptDrepId !== 'string' || !isLikelyDrepId(body.scriptDrepId)) {
+      return { status: 400, json: { ok: false, error: 'invalid request' } };
+    }
+    const candidateKeyHashHex = ccHotKeyHashHex(pubKey);
+    const resolution = await resolveScriptDRep(koios, body.scriptDrepId, candidateKeyHashHex);
+    if (!resolution.isMember) {
+      return { status: 401, json: { ok: false, error: 'not a script DRep member' } };
+    }
+    return finishLogin(input, { drepId: body.scriptDrepId, grantedRoles: ['drep'], modRole: null });
+  }
 
   if (role === 'spo') {
     const resolution = await resolveSpo(koios, body.publicKeyHex.toLowerCase());
@@ -344,6 +377,15 @@ async function finishLogin(
     json: { ok: true, user: { id: user.id, roles } },
     setCookie,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Cheap shape check for a bech32 drep1 id before any Koios call (bounds + prefix).
+function isLikelyDrepId(s: string): boolean {
+  return s.length <= 70 && /^drep1[0-9a-z]+$/.test(s);
 }
 
 // ---------------------------------------------------------------------------

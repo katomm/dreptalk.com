@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDRep, resolveProposer, resolveSpo, resolveCc } from './resolveRole';
-import type { DrepInfo, AccountInfo, PoolCalidusKeyRow, CommitteeMember } from '../koios/client';
+import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep } from './resolveRole';
+import type { DrepInfo, AccountInfo, PoolCalidusKeyRow, CommitteeMember, ScriptInfo } from '../koios/client';
 
 // Minimal fake koios client: only the methods under test need to be present.
 type FakeKoios = {
@@ -9,6 +9,7 @@ type FakeKoios = {
   proposalsByReturnAddress: (addr: string) => Promise<Array<{ proposal_id: string; return_address: string; proposal_type: string }>>;
   poolCalidusKey: (pubKeyHex: string) => Promise<PoolCalidusKeyRow | null>;
   committeeInfo: () => Promise<CommitteeMember[]>;
+  scriptInfo: (scriptHash: string) => Promise<ScriptInfo | null>;
 };
 
 function makeKoios(overrides: Partial<FakeKoios> = {}): FakeKoios {
@@ -18,6 +19,7 @@ function makeKoios(overrides: Partial<FakeKoios> = {}): FakeKoios {
     proposalsByReturnAddress: () => Promise.resolve([]),
     poolCalidusKey: () => Promise.resolve(null),
     committeeInfo: () => Promise.resolve([]),
+    scriptInfo: () => Promise.resolve(null),
     ...overrides,
   };
 }
@@ -264,5 +266,69 @@ describe('resolveCc', () => {
     });
     const result = await resolveCc(koios, CC_HOT_HEX);
     expect(result.isCc).toBe(false);
+  });
+});
+
+// --- resolveScriptDRep ---
+
+const SCRIPT_DREP_ID = 'drep1yvsah2upqmwdtea8c37pac2aw3lv6z7qggcu76243p72msqjnp259';
+const SCRIPT_HASH = '21dbab8106dcd5e7a7c47c1ee15d747ecd0bc04231cf6955887cadc0';
+const MEMBER_KH = 'e4569cc95f7744c6d39dfa15384e5283fa2dbb39b6fea279621f504f';
+
+function scriptInfoFixture(overrides: Partial<ScriptInfo> = {}): ScriptInfo {
+  return {
+    script_hash: SCRIPT_HASH,
+    type: 'timelock',
+    value: { type: 'any', scripts: [{ type: 'sig', keyHash: MEMBER_KH }] },
+    ...overrides,
+  } as ScriptInfo;
+}
+
+describe('resolveScriptDRep', () => {
+  it('returns isMember true when the drep is an active script and the key is a sig leaf', async () => {
+    const koios = makeKoios({
+      drepInfo: () => Promise.resolve(drepFixture({ has_script: true, drep_id: SCRIPT_DREP_ID })),
+      scriptInfo: () => Promise.resolve(scriptInfoFixture()),
+    });
+    const result = await resolveScriptDRep(koios, SCRIPT_DREP_ID, MEMBER_KH);
+    expect(result.isMember).toBe(true);
+  });
+
+  it('rejects a key that is not a sig leaf', async () => {
+    const koios = makeKoios({
+      drepInfo: () => Promise.resolve(drepFixture({ has_script: true, drep_id: SCRIPT_DREP_ID })),
+      scriptInfo: () => Promise.resolve(scriptInfoFixture()),
+    });
+    const result = await resolveScriptDRep(koios, SCRIPT_DREP_ID, 'aa'.repeat(28));
+    expect(result.isMember).toBe(false);
+    expect(result.reason).toBe('not a signer');
+  });
+
+  it('rejects when the returned script does not hash to the credential (defense in depth)', async () => {
+    const koios = makeKoios({
+      drepInfo: () => Promise.resolve(drepFixture({ has_script: true, drep_id: SCRIPT_DREP_ID })),
+      scriptInfo: () =>
+        Promise.resolve(scriptInfoFixture({ value: { type: 'any', scripts: [{ type: 'sig', keyHash: 'cc'.repeat(28) }] } })),
+    });
+    const result = await resolveScriptDRep(koios, SCRIPT_DREP_ID, 'cc'.repeat(28));
+    expect(result.isMember).toBe(false);
+    expect(result.reason).toBe('script hash mismatch');
+  });
+
+  it('rejects a Plutus / unsupported script', async () => {
+    const koios = makeKoios({
+      drepInfo: () => Promise.resolve(drepFixture({ has_script: true, drep_id: SCRIPT_DREP_ID })),
+      scriptInfo: () => Promise.resolve(scriptInfoFixture({ type: 'plutusV2', value: null })),
+    });
+    const result = await resolveScriptDRep(koios, SCRIPT_DREP_ID, MEMBER_KH);
+    expect(result.isMember).toBe(false);
+    expect(result.reason).toBe('unsupported script');
+  });
+
+  it('rejects a non-script drep id', async () => {
+    const koios = makeKoios({ drepInfo: () => Promise.resolve(drepFixture({ has_script: false })) });
+    const result = await resolveScriptDRep(koios, DREP_ID, MEMBER_KH);
+    expect(result.isMember).toBe(false);
+    expect(result.reason).toBe('not a script drep');
   });
 });

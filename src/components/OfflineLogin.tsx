@@ -3,7 +3,7 @@
 // server challenge offline with cardano-signer and pastes the result back.
 // All flow logic lives in offlineLogin.ts (tested); this is the UI shell.
 import { useState, useEffect, useCallback, type CSSProperties } from 'react';
-import { requestChallenge, loginOffline, type OfflineRole } from '@/lib/auth/offlineLogin.js';
+import { requestChallenge, loginOffline } from '@/lib/auth/offlineLogin.js';
 
 type State =
   | { status: 'loading-challenge' }
@@ -13,7 +13,7 @@ type State =
   | { status: 'error'; payload: string; message: string }
   | { status: 'success'; userId: string; roles: string[] };
 
-const ROLE_COPY: Record<OfflineRole, { title: string; keyFile: string; what: string; notMember: string }> = {
+const ROLE_COPY: Record<'spo' | 'cc', { title: string; keyFile: string; what: string; notMember: string }> = {
   spo: {
     title: 'Sign in as a Stake Pool Operator',
     keyFile: 'calidus.skey',
@@ -31,7 +31,7 @@ const ROLE_COPY: Record<OfflineRole, { title: string; keyFile: string; what: str
 };
 
 // Turn the server's terse error into a clear, role-aware sentence.
-function friendlyError(error: string | undefined, role: OfflineRole): string {
+function friendlyError(error: string | undefined, role: 'spo' | 'cc'): string {
   const e = (error ?? '').toLowerCase();
   if (!e) return 'Login failed. Please try again.';
   if (e.includes('nonce')) return 'Your login challenge expired. Get a fresh challenge and sign it again.';
@@ -45,7 +45,7 @@ function friendlyError(error: string | undefined, role: OfflineRole): string {
   return /[.!?]$/.test(msg) ? msg : `${msg}.`;
 }
 
-export default function OfflineLogin({ role }: { role: OfflineRole }) {
+export default function OfflineLogin({ role }: { role: 'spo' | 'cc' }) {
   const [state, setState] = useState<State>({ status: 'loading-challenge' });
   const [pasted, setPasted] = useState('');
   const copy = ROLE_COPY[role];

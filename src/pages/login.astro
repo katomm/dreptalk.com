@@ -2,6 +2,7 @@
 import Layout from '@/layouts/Layout.astro';
 import WalletLogin from '@/components/WalletLogin.tsx';
 import OfflineLogin from '@/components/OfflineLogin.tsx';
+import LogoMark from '@/components/LogoMark.astro';
 import { currentNetwork } from '@/lib/api/response';
 
 export const prerender = false;
@@ -20,17 +21,57 @@ const network = currentNetwork().network;
   title="Sign in - DRepTalk"
   description="Sign in to DRepTalk with your Cardano governance identity. No password, no transaction; just a one-time signed challenge."
 >
-  <h1>Sign in</h1>
-  {offlineRole ? (
-    <OfflineLogin role={offlineRole} client:load />
-  ) : (
-    <>
-      <p style="color:var(--muted);max-width:38rem;margin-bottom:2rem;">
-        DRepTalk uses wallet-based authentication. Connect your Cardano wallet and sign a
-        one-time challenge to prove ownership of your DRep or reward address. No password
-        required, no transaction, no fees.
-      </p>
+  <div class="login">
+    <header class="login__head">
+      <LogoMark style="width:3rem;height:3rem;color:var(--accent);margin:0 auto;" label="DRepTalk" />
+      <h1 class="login__title">Sign in to DRepTalk</h1>
+      {!offlineRole && (
+        <p class="login__intro">
+          Connect your Cardano wallet to prove ownership of your DRep or reward address.
+          No password. No transaction. No fees.
+        </p>
+      )}
+    </header>
+
+    {offlineRole ? (
+      <OfflineLogin role={offlineRole} client:load />
+    ) : (
       <WalletLogin network={network} client:load />
-    </>
-  )}
+    )}
+
+    <footer class="login__foot">
+      Need help? <a href="/help">View documentation</a>
+    </footer>
+  </div>
 </Layout>
+
+<style>
+  .login {
+    max-width: 40rem;
+    margin: 0 auto;
+  }
+  .login__head {
+    text-align: center;
+    margin-bottom: 1.75rem;
+  }
+  .login__title {
+    font-size: clamp(1.6rem, 4vw, 2rem);
+    margin: 0.85rem 0 0;
+  }
+  .login__intro {
+    color: var(--muted);
+    margin: 0.65rem auto 0;
+    max-width: 30rem;
+    line-height: 1.55;
+  }
+  .login__foot {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.875rem;
+    margin-top: 1.75rem;
+  }
+  .login__foot a {
+    color: var(--accent);
+    font-weight: 600;
+  }
+</style>

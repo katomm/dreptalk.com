@@ -10,6 +10,8 @@ import {
   cip105ToCip129,
   ccHotKeyHashHex,
   drepCredentialHexFromId,
+  DREP_SCRIPT_HEADER,
+  parseDrepId,
 } from './identity.js';
 import { hexToBytes, bytesToHex } from '../crypto/hex.js';
 import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
@@ -261,5 +263,34 @@ describe('cip105ToCip129', () => {
 
   it('drepCredentialHexFromId returns null for an undecodable id', () => {
     expect(drepCredentialHexFromId('not-a-bech32-id')).toBeNull();
+  });
+});
+
+describe('parseDrepId', () => {
+  it('parses a CIP-129 script DRep id (header 0x23) to its credential hash', () => {
+    // Real preprod script DRep: native any([sig(...)]), script hash 21dbab...
+    const parsed = parseDrepId('drep1yvsah2upqmwdtea8c37pac2aw3lv6z7qggcu76243p72msqjnp259');
+    expect(parsed).toEqual({
+      kind: 'script',
+      hashHex: '21dbab8106dcd5e7a7c47c1ee15d747ecd0bc04231cf6955887cadc0',
+    });
+  });
+
+  it('parses a CIP-129 key DRep id (header 0x22) as kind key', () => {
+    const keyId = 'drep1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7vlc9n';
+    expect(parseDrepId(keyId)).toEqual({ kind: 'key', hashHex: '00'.repeat(28) });
+  });
+
+  it('treats a bare 28-byte CIP-105 hash (no header) as a key credential', () => {
+    const bare = encodeBech32('drep', new Uint8Array(28));
+    expect(parseDrepId(bare)).toEqual({ kind: 'key', hashHex: '00'.repeat(28) });
+  });
+
+  it('returns null for a non-bech32 or wrong-length input', () => {
+    expect(parseDrepId('not-a-drep')).toBeNull();
+  });
+
+  it('exposes the script header constant', () => {
+    expect(DREP_SCRIPT_HEADER).toBe(0x23);
   });
 });

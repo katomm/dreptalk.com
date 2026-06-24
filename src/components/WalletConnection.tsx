@@ -72,7 +72,7 @@ export default function WalletConnection({ wallets, selected, onSelect, disabled
           <span aria-hidden="true" style={monoStyle}>{monogram(current.name)}</span>
         )}
         <div style={{ minWidth: 0, flex: '1 1 10rem' }}>
-          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--muted)' }}>{label}</p>
+          {label ? <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--muted)' }}>{label}</p> : null}
           <p style={{ margin: '0.1rem 0 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current.name}</span>
             {current.supportsCip95 && <span style={badgeStyle}>CIP-95</span>}

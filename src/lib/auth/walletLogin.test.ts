@@ -284,6 +284,42 @@ describe('loginWithWallet: verify 401', () => {
   });
 });
 
+describe('loginWithWallet: multisig script DRep', () => {
+  it('includes scriptDrepId in the verify body when multisig drep key is chosen', async () => {
+    const fetchMock = makeDRepFetch();
+    const api = makeDRepApi();
+
+    const result = await loginWithWallet(api, 'drep', 'preprod', {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      multisig: { scriptDrepId: 'drep1yscript...', keyChoice: 'drep' },
+    });
+
+    expect(result.ok).toBe(true);
+    const verifyCall = fetchMock.mock.calls.find(([url]) => url.toString().includes('verify'));
+    const body = JSON.parse(verifyCall![1]!.body as string) as Record<string, string>;
+    expect(body.role).toBe('drep');
+    expect(body.scriptDrepId).toBe('drep1yscript...');
+  });
+
+  it('signs with the reward address when multisig stake key is chosen', async () => {
+    const fetchMock = makeDRepFetch();
+    // For stake key choice, signData is called on the base api (reward addr path).
+    const api = makeDRepApi();
+
+    const result = await loginWithWallet(api, 'drep', 'preprod', {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      multisig: { scriptDrepId: 'drep1yscript...', keyChoice: 'stake' },
+    });
+
+    expect(result.ok).toBe(true);
+    // The reward address must have been used for signing, not the DRep key hash.
+    const rewardAddrs = await api.getRewardAddresses();
+    expect(api.signData).toHaveBeenCalledWith(rewardAddrs[0], expect.any(String));
+    // CIP-95 signData must NOT be called when signing with the reward address.
+    expect(api.cip95!.signData).not.toHaveBeenCalled();
+  });
+});
+
 describe('loginWithWallet: wallet network guard', () => {
   it('fails fast with a clear message when the wallet is on the wrong network', async () => {
     const fetchMock = makeFetch(FAKE_PAYLOAD, true);
