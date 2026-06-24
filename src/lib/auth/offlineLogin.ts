@@ -9,7 +9,7 @@
 
 import { isHexExact, RAW_SIG_HEX_LEN, RAW_PUBKEY_HEX_LEN } from '../validation/input.js';
 
-export type OfflineRole = 'spo' | 'cc';
+export type OfflineRole = 'spo' | 'cc' | 'drep';
 
 export interface SignerOutput {
   signatureHex: string;
@@ -100,7 +100,7 @@ export async function requestChallenge(
  * all failures are returned as { ok: false, error }.
  */
 export async function loginOffline(
-  args: { role: OfflineRole; payload: string; pastedText: string },
+  args: { role: OfflineRole; payload: string; pastedText: string; scriptDrepId?: string },
   deps?: Deps,
 ): Promise<LoginResult> {
   const fetchFn = deps?.fetchImpl ?? fetch;
@@ -121,6 +121,7 @@ export async function loginOffline(
         signatureHex: parsed.signatureHex,
         publicKeyHex: parsed.publicKeyHex,
         role: args.role,
+        ...(args.scriptDrepId ? { scriptDrepId: args.scriptDrepId } : {}),
       }),
     });
 

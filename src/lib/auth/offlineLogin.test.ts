@@ -116,4 +116,19 @@ describe('loginOffline', () => {
     expect(result.ok).toBe(false);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it('posts a script DRep membership body for a pasted cardano-signer output', async () => {
+    const fetchImpl = makeFetch({ verifyOk: true });
+    const pasted = JSON.stringify({ signature: 'ab'.repeat(64), publicKey: 'cd'.repeat(32) });
+    const result = await loginOffline(
+      { role: 'drep', payload: PAYLOAD, pastedText: pasted, scriptDrepId: 'drep1yscript...' },
+      { fetchImpl },
+    );
+    expect(result.ok).toBe(true);
+    const verifyCall = fetchImpl.mock.calls.find((c) => c[0].toString().includes('verify'))!;
+    const body = JSON.parse((verifyCall[1] as RequestInit).body as string);
+    expect(body.role).toBe('drep');
+    expect(body.scriptDrepId).toBe('drep1yscript...');
+    expect(body.publicKeyHex).toBe('cd'.repeat(32));
+  });
 });
