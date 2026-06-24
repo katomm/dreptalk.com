@@ -7,6 +7,8 @@ import { bytesToHex } from '../crypto/hex.js';
 
 // CIP-129 header byte for DRep key hash credentials.
 export const DREP_KEY_HEADER = 0x22;
+// CIP-129 header byte for DRep script-hash credentials.
+export const DREP_SCRIPT_HEADER = 0x23;
 // CIP-19 header byte for testnet reward addresses (stake_test).
 const REWARD_TESTNET_HEADER = 0xe0;
 // CIP-19 header byte for mainnet reward addresses (stake).
@@ -184,5 +186,32 @@ export function drepCredentialHexFromId(drepId: string): string | null {
   } catch {
     return null;
   }
+}
+
+export interface ParsedDrepId {
+  kind: 'key' | 'script';
+  hashHex: string; // 28-byte credential hash, lowercase hex
+}
+
+/**
+ * Decodes a bech32 DRep id into its credential kind and 28-byte hash hex.
+ * CIP-129 (29 bytes): header 0x22 -> key, 0x23 -> script. Legacy CIP-105
+ * (bare 28-byte hash, no header) is treated as a key credential. Returns null
+ * when the input is not a valid DRep credential.
+ */
+export function parseDrepId(drepId: string): ParsedDrepId | null {
+  let data: Uint8Array;
+  try {
+    ({ data } = decodeBech32(drepId));
+  } catch {
+    return null;
+  }
+  if (data.length === 29) {
+    if (data[0] === DREP_KEY_HEADER) return { kind: 'key', hashHex: bytesToHex(data.slice(1)) };
+    if (data[0] === DREP_SCRIPT_HEADER) return { kind: 'script', hashHex: bytesToHex(data.slice(1)) };
+    return null;
+  }
+  if (data.length === 28) return { kind: 'key', hashHex: bytesToHex(data) };
+  return null;
 }
 
