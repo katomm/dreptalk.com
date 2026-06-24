@@ -222,7 +222,7 @@ export function govTypeTone(type: string): GovTypeTone {
 // site default OG image.
 export function govActionOgImage(type: string): string {
   const tone = govTypeTone(type);
-  return tone === 'other' ? '/og.png' : `/og/gov-${tone}.png`;
+  return tone === 'other' ? '/og.jpg' : `/og/gov-${tone}.png`;
 }
 
 // OG card for a forum thread: the per-type card for a governance action, the
