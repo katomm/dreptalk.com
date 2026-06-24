@@ -58,13 +58,18 @@ const show =
       <>
         <ul class="ocx__rows">
           {changes.rows.map((r) => (
-            <li class="ocx__row">
-              <span class="ocx__name mono">{r.address}</span>
-              <span class="ocx__val"><span class="ocx__new">{r.ada}</span></span>
+            <li class="ocx__row ocx__pay">
+              <span class="ocx__new ocx__payamt">{r.ada}</span>
+              <span class="ocx__payto">paid to</span>
+              <span class="ocx__payaddr mono">{r.address}</span>
             </li>
           ))}
         </ul>
-        <p class="ocx__total">Total: <span class="ocx__new">{changes.totalAda}</span></p>
+        {/* The total only adds information with more than one recipient; for a
+            single payout it just repeats the row above. */}
+        {changes.rows.length > 1 && (
+          <p class="ocx__total">Total: <span class="ocx__new">{changes.totalAda}</span></p>
+        )}
       </>
     )}
 
@@ -172,6 +177,20 @@ const show =
   .ocx__new {
     color: var(--fg);
     font-weight: 600;
+  }
+  /* Treasury payout row reads as a sentence: "<amount> paid to <stake address>",
+     so the long bech32 string is no longer an unexplained value. The address wraps
+     onto its own line on narrow widths via the shared flex-wrap + mono break. */
+  .ocx__payamt {
+    font-weight: 700;
+  }
+  .ocx__payto {
+    color: var(--muted);
+  }
+  .ocx__payaddr {
+    color: var(--fg);
+    flex: 1 1 12rem;
+    min-width: 0;
   }
   .ocx__single,
   .ocx__total,

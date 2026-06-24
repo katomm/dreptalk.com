@@ -48,7 +48,7 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
 
 const groupNum = (v: number): string => v.toLocaleString('en-US');
 
-function fmtRatio(v: unknown): string {
+function fmtRatio(v: unknown, maxDecimals = 2): string {
   let n: number | null = null;
   if (v && typeof v === 'object' && 'numerator' in v && 'denominator' in v) {
     const o = v as { numerator: number; denominator: number };
@@ -57,7 +57,10 @@ function fmtRatio(v: unknown): string {
     n = v;
   }
   if (n === null || Number.isNaN(n)) return String(v);
-  return `${(n * 100).toFixed(2).replace(/\.?0+$/, '')}%`;
+  const s = (n * 100).toFixed(maxDecimals);
+  // Strip trailing zeros only inside the fractional part ("50.00" -> "50",
+  // "66.70" -> "66.7"); a whole number like "50" must stay "50", not "5".
+  return `${s.includes('.') ? s.replace(/\.?0+$/, '') : s}%`;
 }
 
 function fmtExUnits(v: unknown): string {
@@ -129,7 +132,7 @@ export type OnchainChanges =
   | { kind: 'treasury'; rows: TreasuryRow[]; totalAda: string }
   | { kind: 'committee'; added: CommitteeMember[]; removed: string[]; threshold: string | null }
   | { kind: 'constitution'; anchorUrl: string | null; scriptHash: string | null }
-  | { kind: 'note'; text: string };
+  | { kind: 'note'; text: string; tag: 'NoConfidence' | 'InfoAction' };
 
 function shortenHash(h: string): string {
   return h.length > 16 ? `${h.slice(0, 8)}…${h.slice(-6)}` : h;
@@ -219,7 +222,9 @@ function decodeCommittee(contents: unknown[]): OnchainChanges {
     termEpoch: typeof epoch === 'number' ? epoch : null,
   }));
   const removed = removedRaw.map(labelMemberObj);
-  return { kind: 'committee', added, removed, threshold: thrRaw ? fmtRatio(thrRaw) : null };
+  // Committee thresholds are conventionally read as whole percents (2/3 -> 67%);
+  // the fractional precision that param ratios need would only add noise here.
+  return { kind: 'committee', added, removed, threshold: thrRaw ? fmtRatio(thrRaw, 0) : null };
 }
 
 function decodeConstitution(contents: unknown[]): OnchainChanges {
@@ -268,10 +273,75 @@ export function decodeOnchainChanges(
     case 'UpdateConstitution':
       return decodeConstitution(contents);
     case 'NoConfidence':
-      return { kind: 'note', text: 'Motion of no-confidence in the constitutional committee.' };
+      return {
+        kind: 'note',
+        tag: 'NoConfidence',
+        text: 'Motion of no-confidence in the constitutional committee.',
+      };
     case 'InfoAction':
-      return { kind: 'note', text: 'Informational action. No on-chain effect; the vote signals opinion only.' };
+      return {
+        kind: 'note',
+        tag: 'InfoAction',
+        text: 'Informational action. No on-chain effect; the vote signals opinion only.',
+      };
     default:
       return null;
+  }
+}
+
+// One-line summary of an action's on-chain effect, for the list row. `tone` picks
+// the styling: 'amount' is the headline figure (treasury), 'change' is an old→new
+// pair (a single param, the protocol version), 'plain' is neutral prose. Returns
+// null when there is nothing worth a line (info actions carry no on-chain change).
+export interface OnchainSummary {
+  prefix: string | null; // leading label, e.g. "Requesting", "Min Pool Cost", "Protocol"
+  oldValue: string | null; // struck-through previous value (change tone only)
+  value: string; // the new or headline value
+  tone: 'amount' | 'change' | 'plain';
+}
+
+function summarizeCommittee(c: Extract<OnchainChanges, { kind: 'committee' }>): OnchainSummary | null {
+  // Plain "-" (not a typographic dash) keeps removals readable as "+2 / -1 members".
+  const members: string[] = [];
+  if (c.added.length) members.push(`+${c.added.length}`);
+  if (c.removed.length) members.push(`-${c.removed.length}`);
+  const parts: string[] = [];
+  if (members.length) parts.push(`${members.join(' / ')} members`);
+  if (c.threshold !== null) parts.push(`threshold ${c.threshold}`);
+  return parts.length ? { prefix: null, oldValue: null, value: parts.join(' · '), tone: 'plain' } : null;
+}
+
+export function summarizeOnchain(changes: OnchainChanges | null): OnchainSummary | null {
+  if (!changes) return null;
+  switch (changes.kind) {
+    case 'treasury':
+      return { prefix: 'Requesting', oldValue: null, value: changes.totalAda, tone: 'amount' };
+    case 'params': {
+      if (changes.rows.length === 0) return null;
+      // A single param reads as old→new; several would overflow the row, so just
+      // count them. The full breakdown stays on the detail page.
+      if (changes.rows.length === 1) {
+        const r = changes.rows[0];
+        return { prefix: r.label, oldValue: r.oldValue, value: r.newValue, tone: 'change' };
+      }
+      return { prefix: null, oldValue: null, value: `${changes.rows.length} parameters changed`, tone: 'plain' };
+    }
+    case 'hardfork':
+      return { prefix: 'Protocol', oldValue: changes.fromVersion, value: changes.toVersion, tone: 'change' };
+    case 'committee':
+      return summarizeCommittee(changes);
+    case 'constitution':
+      return {
+        prefix: null,
+        oldValue: null,
+        value: changes.scriptHash ? 'New constitution with guardrails script' : 'New constitution',
+        tone: 'plain',
+      };
+    case 'note':
+      // No-confidence is a real motion worth a line; an info action has no on-chain
+      // effect, so the row stays clean.
+      return changes.tag === 'NoConfidence'
+        ? { prefix: null, oldValue: null, value: 'No-confidence motion', tone: 'plain' }
+        : null;
   }
 }
