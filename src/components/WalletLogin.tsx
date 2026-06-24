@@ -66,6 +66,9 @@ interface WalletLoginProps {
 export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
   const { wallets, selected: selectedWallet, setSelected: setSelectedWallet } = useCardanoWallets();
   const [role, setRole] = useState<'drep' | 'proposer'>('drep');
+  const [multiSig, setMultiSig] = useState(false);
+  const [scriptDrepId, setScriptDrepId] = useState('');
+  const [keyChoice, setKeyChoice] = useState<'drep' | 'stake'>('drep');
   const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
 
   // Preselect the role from a ?role= deep link (e.g. the header entry menu).
@@ -97,7 +100,15 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
 
     setLoginState({ status: 'awaiting-signature' });
 
-    const result = await loginWithWallet(api, role, network);
+    const result = await loginWithWallet(
+      api,
+      // MultiSig script membership is always a DRep login; preserve the chosen role otherwise.
+      multiSig ? 'drep' : role,
+      network,
+      multiSig && scriptDrepId.trim()
+        ? { multisig: { scriptDrepId: scriptDrepId.trim(), keyChoice } }
+        : undefined,
+    );
 
     if (result.ok && result.user) {
       // Remember the wallet so registration and settings preselect it later.
@@ -187,6 +198,34 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
                   Proposer
                 </label>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={multiSig}
+                  onChange={(e) => { setMultiSig(e.target.checked); if (e.target.checked) setRole('drep'); }}
+                  disabled={busy}
+                />
+                MultiSig / Script DRep
+              </label>
+              {multiSig && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+                  <input
+                    type="text"
+                    value={scriptDrepId}
+                    onChange={(e) => setScriptDrepId(e.target.value)}
+                    placeholder="Script DRep ID (drep1...)"
+                    disabled={busy}
+                    style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem' }}
+                  />
+                  <label style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
+                    Sign with:{' '}
+                    <select value={keyChoice} onChange={(e) => setKeyChoice(e.target.value as 'drep' | 'stake')} disabled={busy}>
+                      <option value="drep">DRep key</option>
+                      <option value="stake">Stake key</option>
+                    </select>
+                  </label>
+                </div>
+              )}
             </fieldset>
 
             {/* Status message */}
@@ -230,7 +269,7 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
             <button
               type="button"
               onClick={handleLogin}
-              disabled={busy}
+              disabled={busy || (multiSig && !scriptDrepId.trim())}
               style={{
                 padding: '0.625rem 1.25rem',
                 background: 'var(--accent)',
@@ -239,8 +278,8 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
                 borderRadius: '0.375rem',
                 fontSize: '1rem',
                 fontWeight: 500,
-                cursor: busy ? 'not-allowed' : 'pointer',
-                opacity: busy ? 0.7 : 1,
+                cursor: busy || (multiSig && !scriptDrepId.trim()) ? 'not-allowed' : 'pointer',
+                opacity: busy || (multiSig && !scriptDrepId.trim()) ? 0.7 : 1,
                 alignSelf: 'flex-start',
               }}
             >
