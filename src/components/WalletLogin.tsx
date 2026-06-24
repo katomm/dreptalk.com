@@ -1,6 +1,7 @@
 // React island: Cardano wallet picker and wallet-sign login flow.
-// Uses loginWithWallet for the testable flow logic.
-import { useState, useEffect } from 'react';
+// Standard wallet sign-in is the primary path; multisig/script DReps live behind
+// an Advanced disclosure. Flow logic lives in loginWithWallet / loginOffline.
+import { useState, useEffect, type CSSProperties } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { requestChallenge, loginOffline } from '@/lib/auth/offlineLogin.js';
@@ -15,6 +16,8 @@ type LoginState =
   | { status: 'awaiting-signature' }
   | { status: 'success'; userId: string; roles: string[] }
   | { status: 'error'; message: string };
+
+type SignMethod = 'wallet' | 'signer';
 
 // Maps the server's terse error codes to a clear, role-aware explanation with a
 // next step. Unknown codes fall back to the (capitalized) server message.
@@ -33,6 +36,9 @@ function friendlyLoginError(
   }
   if (e.includes('nonce')) {
     return 'Your login challenge expired. Please try signing in again.';
+  }
+  if (e.includes('not a script drep member')) {
+    return 'This key is not one of the script DRep’s authorized signers, or the DRep id is wrong. Check the id and sign with a member key.';
   }
   if (e.includes('signature verification') || e.includes('invalid address in signature')) {
     return 'We could not verify your wallet signature. Please try signing again.';
@@ -58,6 +64,100 @@ function friendlyLoginError(
   return /[.!?]$/.test(msg) ? msg : `${msg}.`;
 }
 
+interface SegmentOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+// Two-or-more button toggle that reads as a single control, used for role and
+// signing-method choices instead of bare radios.
+function SegmentedControl<T extends string>({
+  value,
+  onChange,
+  options,
+  disabled,
+  ariaLabel,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: SegmentOption<T>[];
+  disabled?: boolean;
+  ariaLabel: string;
+}) {
+  return (
+    <fieldset
+      aria-label={ariaLabel}
+      style={{
+        display: 'flex',
+        gap: '0.25rem',
+        margin: 0,
+        minInlineSize: 0,
+        padding: '0.25rem',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-sm, 9px)',
+        background: 'var(--surface)',
+      }}
+    >
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            disabled={disabled}
+            aria-pressed={active}
+            style={{
+              flex: 1,
+              padding: '0.5rem 0.75rem',
+              borderRadius: '0.45rem',
+              border: 'none',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              fontSize: '0.9375rem',
+              fontWeight: 600,
+              fontFamily: 'inherit',
+              background: active ? 'var(--accent)' : 'transparent',
+              color: active ? 'var(--accent-fg)' : 'var(--fg)',
+              transition: 'background-color 0.15s ease, color 0.15s ease',
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </fieldset>
+  );
+}
+
+const cardStyle: CSSProperties = {
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius, 14px)',
+  background: 'var(--bg)',
+  boxShadow: 'var(--shadow)',
+  padding: '1.5rem',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1.25rem',
+};
+
+const fieldLabelStyle: CSSProperties = {
+  display: 'block',
+  fontSize: '0.8125rem',
+  fontWeight: 600,
+  color: 'var(--muted)',
+  marginBottom: '0.4rem',
+};
+
+const inputStyle: CSSProperties = {
+  width: '100%',
+  padding: '0.6rem 0.75rem',
+  border: '1px solid var(--border)',
+  borderRadius: '0.5rem',
+  background: 'var(--bg)',
+  color: 'var(--fg)',
+  fontSize: '0.9375rem',
+};
+
 interface WalletLoginProps {
   // Resolved at build time from the .astro shell; defaults to preprod. Drives
   // the CIP-19 type-6 DRep address header (0x60 preprod / 0x61 mainnet).
@@ -67,35 +167,36 @@ interface WalletLoginProps {
 export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
   const { wallets, selected: selectedWallet, setSelected: setSelectedWallet } = useCardanoWallets();
   const [role, setRole] = useState<'drep' | 'proposer'>('drep');
-  const [multiSig, setMultiSig] = useState(false);
+  const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
+
+  // Advanced (multisig / script DRep) state.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [scriptDrepId, setScriptDrepId] = useState('');
   const [keyChoice, setKeyChoice] = useState<'drep' | 'stake'>('drep');
-  const [useSigner, setUseSigner] = useState(false);
+  const [signMethod, setSignMethod] = useState<SignMethod>('wallet');
   const [signerPayload, setSignerPayload] = useState('');
   const [pasted, setPasted] = useState('');
-  const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
+  const [copied, setCopied] = useState(false);
 
   // Preselect the role from a ?role= deep link (e.g. the header entry menu).
   // Only the roles this flow supports are honored; the server validates the
-  // role independently, so this just sets the initial radio choice.
+  // role independently, so this just sets the initial choice.
   useEffect(() => {
     const r = new URLSearchParams(window.location.search).get('role');
     if (r === 'drep' || r === 'proposer') setRole(r);
   }, []);
 
-  // Request a fresh challenge when the CardanoSigner paste panel opens. A login
+  // Fetch a challenge whenever the cardano-signer method is active. A login
   // challenge is single-use and expires after a few minutes, so retries refetch
   // via refreshSignerChallenge below.
   useEffect(() => {
-    if (!multiSig || !useSigner) return;
+    if (!advancedOpen || signMethod !== 'signer') return;
     let active = true;
     setSignerPayload('');
     requestChallenge().then((r) => { if (active && r.ok && r.payload) setSignerPayload(r.payload); });
     return () => { active = false; };
-  }, [multiSig, useSigner]);
+  }, [advancedOpen, signMethod]);
 
-  // Pull a new challenge after a failed or retried paste attempt: the previous
-  // one is consumed or expired, so reusing it would be rejected immediately.
   async function refreshSignerChallenge() {
     setPasted('');
     setSignerPayload('');
@@ -103,19 +204,21 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
     if (r.ok && r.payload) setSignerPayload(r.payload);
   }
 
-  async function handleLogin() {
+  const busy = loginState.status === 'connecting' || loginState.status === 'awaiting-signature';
+
+  // Wallet sign-in. Standard login passes no multisig; the advanced member path
+  // passes { scriptDrepId, keyChoice } and always signs as a DRep.
+  async function doWalletLogin(multisig?: { scriptDrepId: string; keyChoice: 'drep' | 'stake' }) {
     const walletInfo = wallets.find((w) => w.key === selectedWallet);
     if (!walletInfo) return;
 
     setLoginState({ status: 'connecting' });
 
+    const signRole: 'drep' | 'proposer' = multisig ? 'drep' : role;
     let api: WalletApi;
     try {
-      // Request CIP-95 extension when the wallet reports support.
       const enableOpts =
-        walletInfo.supportsCip95 || role === 'drep'
-          ? { extensions: [{ cip: 95 }] }
-          : undefined;
+        walletInfo.supportsCip95 || signRole === 'drep' ? { extensions: [{ cip: 95 }] } : undefined;
       api = await walletInfo.raw.enable(enableOpts);
     } catch {
       setLoginState({ status: 'error', message: 'Wallet connection was rejected.' });
@@ -124,269 +227,287 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
 
     setLoginState({ status: 'awaiting-signature' });
 
-    const result = await loginWithWallet(
-      api,
-      // MultiSig script membership is always a DRep login; preserve the chosen role otherwise.
-      multiSig ? 'drep' : role,
-      network,
-      multiSig && scriptDrepId.trim()
-        ? { multisig: { scriptDrepId: scriptDrepId.trim(), keyChoice } }
-        : undefined,
-    );
+    const result = await loginWithWallet(api, signRole, network, multisig ? { multisig } : undefined);
 
     if (result.ok && result.user) {
-      // Remember the wallet so registration and settings preselect it later.
       rememberWallet(selectedWallet);
       setLoginState({ status: 'success', userId: result.user.id, roles: result.user.roles });
-      // Navigate to the discussions feed; the full page load lets the SSR header
-      // pick up the new session cookie and render the signed-in state.
+      // Full page load lets the SSR header pick up the new session cookie.
       window.location.assign('/discussions');
     } else {
-      setLoginState({ status: 'error', message: friendlyLoginError(result.error, role, network) });
+      setLoginState({ status: 'error', message: friendlyLoginError(result.error, signRole, network) });
+    }
+  }
+
+  // Offline (cardano-signer) member sign-in for a script DRep.
+  async function doPasteLogin() {
+    setLoginState({ status: 'awaiting-signature' });
+    const r = await loginOffline({ role: 'drep', payload: signerPayload, pastedText: pasted, scriptDrepId: scriptDrepId.trim() });
+    if (r.ok && r.user) {
+      window.location.assign('/discussions');
+    } else {
+      setLoginState({ status: 'error', message: friendlyLoginError(r.error, 'drep', network) });
+      // This attempt consumed the challenge; load a fresh one so the user can
+      // re-sign without reloading the page.
+      void refreshSignerChallenge();
     }
   }
 
   function reset() {
     setLoginState({ status: 'idle' });
-    // In the paste flow the shown challenge is now stale or consumed; pull a fresh
-    // one so the next signed command is not instantly rejected as expired.
-    if (multiSig && useSigner) void refreshSignerChallenge();
+    // In the paste flow the shown challenge is now stale or consumed; pull a
+    // fresh one so the next signed command is not rejected as expired.
+    if (advancedOpen && signMethod === 'signer') void refreshSignerChallenge();
   }
 
-  const busy =
-    loginState.status === 'connecting' || loginState.status === 'awaiting-signature';
+  const command = `cardano-signer sign --data "${signerPayload}" --secret-key drep.skey --json`;
+  async function copyCommand() {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard blocked (e.g. insecure context); the command stays selectable.
+    }
+  }
+
+  // Status / error region, shown in whichever section is active.
+  function statusBlock() {
+    if (loginState.status === 'connecting') {
+      return <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>Connecting to wallet...</p>;
+    }
+    if (loginState.status === 'awaiting-signature') {
+      const msg =
+        advancedOpen && signMethod === 'signer'
+          ? 'Verifying your signature...'
+          : 'Please sign the login challenge in your wallet.';
+      return <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>{msg}</p>;
+    }
+    if (loginState.status === 'error') {
+      return (
+        <div className="callout callout--error" role="alert">
+          <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <div className="callout__body">
+            {loginState.message}
+            <div style={{ marginTop: '0.6rem' }}>
+              <button
+                type="button"
+                onClick={reset}
+                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+              >
+                Try again
+              </button>
+              <span style={{ color: 'var(--muted)', margin: '0 0.5rem' }}>or</span>
+              <a href="/register-drep" style={{ color: 'var(--accent)' }}>register as a DRep</a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  if (loginState.status === 'success') {
+    return (
+      <div style={cardStyle}>
+        <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>Logged in</p>
+        <p style={{ margin: '0 0 0.25rem', fontSize: '0.875rem', color: 'var(--muted)' }}>User: {loginState.userId}</p>
+        <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)' }}>Roles: {loginState.roles.join(', ')}</p>
+      </div>
+    );
+  }
+
+  if (wallets.length === 0) {
+    return (
+      <div style={cardStyle}>
+        <p style={{ color: 'var(--muted)', margin: 0 }}>
+          No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
+        </p>
+      </div>
+    );
+  }
+
+  const pasteDisabled = busy || !signerPayload || !scriptDrepId.trim();
+  const memberWalletDisabled = busy || !scriptDrepId.trim();
 
   return (
-    <div style={{ maxWidth: '28rem' }}>
-      {/* Note shown to user before signing */}
-      <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1.25rem' }}>
-        You are signing a one-time login challenge for dreptalk.com (no transaction, no fees).
-      </p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {/* Primary card: standard wallet sign-in */}
+      <div style={cardStyle}>
+        <WalletConnection
+          wallets={wallets}
+          selected={selectedWallet}
+          onSelect={setSelectedWallet}
+          disabled={busy}
+          label="Connected wallet"
+        />
 
-      {loginState.status === 'success' ? (
-        <div style={{ border: '1px solid var(--border)', borderRadius: '0.5rem', padding: '1rem' }}>
-          <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>Logged in</p>
-          <p style={{ margin: '0 0 0.25rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
-            User: {loginState.userId}
-          </p>
-          <p style={{ margin: '0', fontSize: '0.875rem', color: 'var(--muted)' }}>
-            Roles: {loginState.roles.join(', ')}
-          </p>
+        <div>
+          <span style={fieldLabelStyle}>Sign in as</span>
+          <SegmentedControl
+            ariaLabel="Sign in as"
+            value={role}
+            onChange={setRole}
+            disabled={busy}
+            options={[
+              { value: 'drep', label: 'DRep' },
+              { value: 'proposer', label: 'Proposer' },
+            ]}
+          />
         </div>
-      ) : (
-        wallets.length === 0 ? (
-          <p style={{ color: 'var(--muted)' }}>
-            No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
-          </p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {/* Wallet picker (compact; reveals the full list via Change wallet) */}
-            <WalletConnection
-              wallets={wallets}
-              selected={selectedWallet}
-              onSelect={setSelectedWallet}
-              disabled={busy}
-              label="Signing wallet"
-            />
 
-            {/* Role toggle: the two exclusive roles only. */}
-            <fieldset
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: '0.375rem',
-                padding: '0.5rem 0.75rem',
-                margin: 0,
-              }}
-            >
-              <legend style={{ fontSize: '0.875rem', fontWeight: 500, padding: '0 0.25rem' }}>
-                Role
-              </legend>
-              <div style={{ display: 'flex', gap: '1.5rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    name="role"
-                    value="drep"
-                    checked={role === 'drep'}
-                    onChange={() => setRole('drep')}
-                    disabled={busy}
-                  />
-                  DRep
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    name="role"
-                    value="proposer"
-                    checked={role === 'proposer'}
-                    onChange={() => { setRole('proposer'); setMultiSig(false); setUseSigner(false); }}
-                    disabled={busy}
-                  />
-                  Proposer
-                </label>
-              </div>
-            </fieldset>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => doWalletLogin()}
+          disabled={busy}
+          style={{ width: '100%', padding: '0.8rem 1.25rem', fontSize: '1rem', opacity: busy ? 0.7 : 1 }}
+        >
+          {busy ? 'Signing in...' : 'Sign in with wallet'}
+        </button>
 
-            {/* MultiSig is a DRep-only modifier, kept out of the Role group so the
-                exclusive role radios and this opt-in toggle do not read as one set. */}
-            {role === 'drep' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={multiSig}
-                    onChange={(e) => { setMultiSig(e.target.checked); if (!e.target.checked) { setUseSigner(false); setPasted(''); } }}
-                    disabled={busy}
-                  />
-                  Sign as a multisig (script) DRep
-                </label>
-                {multiSig && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingLeft: '1.625rem' }}>
-                    <input
-                      type="text"
-                      value={scriptDrepId}
-                      onChange={(e) => setScriptDrepId(e.target.value)}
-                      placeholder="Script DRep ID (drep1...)"
-                      disabled={busy}
-                      style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem' }}
-                    />
-                    {/* Key choice only affects how the wallet signs; in the paste flow
-                        the key is chosen by the cardano-signer command, so hide it. */}
-                    {!useSigner && (
-                      <label style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                        Sign with:{' '}
-                        <select value={keyChoice} onChange={(e) => setKeyChoice(e.target.value as 'drep' | 'stake')} disabled={busy}>
-                          <option value="drep">DRep key</option>
-                          <option value="stake">Stake key</option>
-                        </select>
-                      </label>
-                    )}
-                    {/* Sub-toggle: wallet sign vs. CardanoSigner paste */}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={useSigner}
-                        onChange={(e) => { setUseSigner(e.target.checked); setPasted(''); setSignerPayload(''); }}
-                        disabled={busy}
-                      />
-                      Paste CardanoSigner output
-                    </label>
-                  </div>
-                )}
-              </div>
-            )}
+        <p style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" />
+          </svg>
+          You will sign a one-time message. This does not submit a transaction or cost fees.
+        </p>
 
-            {/* CardanoSigner paste panel: shown only when MultiSig + useSigner are both active */}
-            {multiSig && useSigner && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
-                  Run this command with your member key, then paste the JSON output below:
-                </p>
-                <code style={{ fontSize: '0.75rem', wordBreak: 'break-all', background: 'var(--surface-alt, var(--border))', padding: '0.5rem', borderRadius: '0.25rem', display: 'block' }}>
-                  {signerPayload
-                    ? `cardano-signer sign --data "${signerPayload}" --secret-key drep.skey --json`
-                    : 'Loading challenge...'}
-                </code>
-                <textarea
-                  value={pasted}
-                  onChange={(e) => setPasted(e.target.value)}
-                  placeholder="Paste the cardano-signer JSON output"
-                  rows={4}
-                  disabled={busy}
-                  style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem', fontFamily: 'monospace', fontSize: '0.8125rem', resize: 'vertical' }}
-                />
+        {!advancedOpen && statusBlock()}
+      </div>
+
+      {/* Advanced disclosure: multisig / script DRep */}
+      <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius, 14px)', background: 'var(--bg)', overflow: 'hidden' }}>
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((o) => !o)}
+          aria-expanded={advancedOpen}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', padding: '0.9rem 1.1rem', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'var(--fg)', fontFamily: 'inherit' }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span style={{ flex: 1 }}>
+            <span style={{ display: 'block', fontWeight: 600, fontSize: '0.9375rem', color: 'var(--accent)' }}>Advanced options</span>
+            <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.1rem' }}>For multisig or script-based DRep sign-in</span>
+          </span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, color: 'var(--muted)', transform: advancedOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }}>
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+
+        {advancedOpen && (
+          <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.55 }}>
+              Use this if your DRep credential is controlled by a native script or multisig setup. Prove membership by signing as one of its authorized keys.
+            </p>
+
+            <div>
+              <label htmlFor="script-drep-id" style={fieldLabelStyle}>Script DRep ID</label>
+              <input
+                id="script-drep-id"
+                type="text"
+                value={scriptDrepId}
+                onChange={(e) => setScriptDrepId(e.target.value)}
+                placeholder="drep1..."
+                disabled={busy}
+                style={inputStyle}
+              />
+            </div>
+
+            <div>
+              <span style={fieldLabelStyle}>Signing method</span>
+              <SegmentedControl
+                ariaLabel="Signing method"
+                value={signMethod}
+                onChange={setSignMethod}
+                disabled={busy}
+                options={[
+                  { value: 'wallet', label: 'Connected wallet' },
+                  { value: 'signer', label: 'cardano-signer' },
+                ]}
+              />
+            </div>
+
+            {signMethod === 'wallet' ? (
+              <>
+                <div>
+                  <label htmlFor="member-key" style={fieldLabelStyle}>Sign with</label>
+                  <select
+                    id="member-key"
+                    value={keyChoice}
+                    onChange={(e) => setKeyChoice(e.target.value as 'drep' | 'stake')}
+                    disabled={busy}
+                    style={inputStyle}
+                  >
+                    <option value="drep">DRep key</option>
+                    <option value="stake">Stake key</option>
+                  </select>
+                </div>
                 <button
                   type="button"
-                  disabled={busy || !signerPayload || !scriptDrepId.trim()}
-                  onClick={async () => {
-                    setLoginState({ status: 'awaiting-signature' });
-                    const r = await loginOffline({ role: 'drep', payload: signerPayload, pastedText: pasted, scriptDrepId: scriptDrepId.trim() });
-                    if (r.ok && r.user) { window.location.assign('/discussions'); }
-                    else {
-                      setLoginState({ status: 'error', message: friendlyLoginError(r.error, 'drep', network) });
-                      // This attempt consumed the challenge; load a fresh one so the
-                      // user can re-sign without reloading the page.
-                      void refreshSignerChallenge();
-                    }
-                  }}
-                  style={{
-                    padding: '0.625rem 1.25rem',
-                    background: 'var(--accent)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '0.375rem',
-                    fontSize: '1rem',
-                    fontWeight: 500,
-                    cursor: busy || !signerPayload || !scriptDrepId.trim() ? 'not-allowed' : 'pointer',
-                    opacity: busy || !signerPayload || !scriptDrepId.trim() ? 0.7 : 1,
-                    alignSelf: 'flex-start',
-                  }}
+                  className="btn btn-primary"
+                  onClick={() => doWalletLogin({ scriptDrepId: scriptDrepId.trim(), keyChoice })}
+                  disabled={memberWalletDisabled}
+                  style={{ width: '100%', padding: '0.8rem 1.25rem', fontSize: '1rem', opacity: memberWalletDisabled ? 0.6 : 1, cursor: memberWalletDisabled ? 'not-allowed' : 'pointer' }}
+                >
+                  {busy ? 'Signing in...' : 'Sign in as script DRep'}
+                </button>
+              </>
+            ) : (
+              <>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                    <span style={{ ...fieldLabelStyle, marginBottom: 0 }}>Signing challenge</span>
+                    <button
+                      type="button"
+                      onClick={copyCommand}
+                      disabled={!signerPayload}
+                      className="btn btn-secondary"
+                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.8125rem' }}
+                    >
+                      {copied ? 'Copied' : 'Copy command'}
+                    </button>
+                  </div>
+                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                    Run this command locally with your member signing key, then paste the JSON output below.
+                  </p>
+                  <code style={{ display: 'block', fontSize: '0.75rem', wordBreak: 'break-all', background: 'var(--bg)', border: '1px solid var(--border)', padding: '0.6rem', borderRadius: '0.5rem' }}>
+                    {signerPayload ? command : 'Loading challenge...'}
+                  </code>
+                </div>
+
+                <div>
+                  <label htmlFor="signer-output" style={fieldLabelStyle}>Paste cardano-signer JSON output</label>
+                  <textarea
+                    id="signer-output"
+                    value={pasted}
+                    onChange={(e) => setPasted(e.target.value)}
+                    placeholder="Paste the JSON output here..."
+                    rows={4}
+                    disabled={busy}
+                    style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '0.8125rem', resize: 'vertical' }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={doPasteLogin}
+                  disabled={pasteDisabled}
+                  style={{ width: '100%', padding: '0.8rem 1.25rem', fontSize: '1rem', opacity: pasteDisabled ? 0.6 : 1, cursor: pasteDisabled ? 'not-allowed' : 'pointer' }}
                 >
                   {busy ? 'Verifying...' : 'Sign in with pasted signature'}
                 </button>
-              </div>
+              </>
             )}
 
-            {/* Status message */}
-            {loginState.status === 'connecting' && (
-              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                Connecting to wallet...
-              </p>
-            )}
-            {loginState.status === 'awaiting-signature' && !(multiSig && useSigner) && (
-              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                Please sign the login challenge in your wallet.
-              </p>
-            )}
-            {loginState.status === 'error' && (
-              <div className="callout callout--error" role="alert">
-                <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <div className="callout__body">
-                  {loginState.message}
-                  <div style={{ marginTop: '0.6rem' }}>
-                    <button
-                      type="button"
-                      onClick={reset}
-                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
-                    >
-                      Try again
-                    </button>
-                    {role === 'drep' && (
-                      <>
-                        <span style={{ color: 'var(--muted)', margin: '0 0.5rem' }}>or</span>
-                        <a href="/register-drep" style={{ color: 'var(--accent)' }}>register as a DRep</a>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Connect button: hidden when the CardanoSigner paste panel is active */}
-            {!(multiSig && useSigner) && <button
-              type="button"
-              onClick={handleLogin}
-              disabled={busy || (multiSig && !scriptDrepId.trim())}
-              style={{
-                padding: '0.625rem 1.25rem',
-                background: 'var(--accent)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '0.375rem',
-                fontSize: '1rem',
-                fontWeight: 500,
-                cursor: busy || (multiSig && !scriptDrepId.trim()) ? 'not-allowed' : 'pointer',
-                opacity: busy || (multiSig && !scriptDrepId.trim()) ? 0.7 : 1,
-                alignSelf: 'flex-start',
-              }}
-            >
-              {busy ? 'Connecting...' : 'Connect and sign in'}
-            </button>}
+            {statusBlock()}
           </div>
-        )
-      )}
+        )}
+      </div>
     </div>
   );
 }
