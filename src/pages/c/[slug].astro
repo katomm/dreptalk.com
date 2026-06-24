@@ -50,6 +50,17 @@ const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
 // OG card per category kind: the governance-actions overview gets its own card,
 // discussion categories share the generic discussion card.
 const categoryOgImage = isGovernanceCategory ? '/og-governance-actions.jpg' : '/og/discussion.png';
+// Governance actions are the flagship, most-shared category, so give them a
+// fuller SEO title and meta description. The meta description is deliberately
+// separate from the on-page category.description below (which stays a short
+// human subtitle) so SEO copy does not bloat the visible page text. Other
+// categories keep the generic pattern.
+const metaTitle = isGovernanceCategory
+  ? 'Cardano Governance Actions - On-Chain Proposals - DRepTalk'
+  : `${category?.name ?? ''} - DRepTalk`;
+const metaDescription = isGovernanceCategory
+  ? 'Every on-chain Cardano governance action gets its own thread. Track treasury withdrawals, parameter changes, and votes, with live tallies and DRep deliberation.'
+  : (category?.description ?? '');
 // Governance actions get their own sort modes (a DRep wants trending / closing
 // soon, not the newest submission); discussion categories stay activity-ordered.
 const sort = parseGovSort(Astro.url.searchParams.get('sort'));
@@ -180,8 +191,8 @@ const breadcrumbLd = {
   <NotFound noun="Category" />
 ) : (
   <Layout
-    title={`${category.name} - DRepTalk`}
-    description={category.description}
+    title={metaTitle}
+    description={metaDescription}
     ogImage={categoryOgImage}
   >
     <JsonLd data={breadcrumbLd} />
