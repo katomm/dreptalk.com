@@ -192,5 +192,5 @@ export async function resolveScriptDRep(
   if (!collectSigKeyHashes(native).has(candidateKeyHashHex.toLowerCase())) {
     return { isMember: false, active: info.active, reason: 'not a signer' };
   }
-  return { isMember: true, active: true };
+  return { isMember: true, active: info.active };
 }
