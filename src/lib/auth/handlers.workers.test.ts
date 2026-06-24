@@ -998,3 +998,94 @@ describe('handleVerify: script DRep (COSE path)', () => {
     expect(result.status).toBe(401);
   });
 });
+
+// ---------------------------------------------------------------------------
+// handleVerify -- script DRep membership (offline / raw Ed25519 path)
+// ---------------------------------------------------------------------------
+
+describe('handleVerify: script DRep (offline raw-Ed25519 path)', () => {
+  it('logs in a script DRep member via the offline (raw) path', async () => {
+    const payload = 'dreptalk:dreptalk.com:script-drep-raw-nonce:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+
+    // Sign with a raw Ed25519 key (no COSE envelope, no keyHex).
+    const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, new Uint8Array(32).fill(44));
+    // Derive the 28-byte key hash the same way verifyRawEd25519 does internally.
+    const memberKeyHashHex = ccHotKeyHashHex(pubKey);
+
+    // Build a native script whose only sig leaf is the signer's key hash.
+    // nativeScriptInfoWith computes the real script_hash from CBOR so the
+    // defense-in-depth re-hash inside resolveScriptDRep passes.
+    const scriptInfo = nativeScriptInfoWith(memberKeyHashHex);
+    const scriptDrepId = scriptDrepIdFromHash(scriptInfo.script_hash);
+
+    const result = await handleVerify({
+      body: {
+        payload,
+        signatureHex,
+        publicKeyHex,
+        role: 'drep',
+        scriptDrepId,
+        // No keyHex: this is the offline paste path, not the COSE wallet path.
+      },
+      nonceKv: env.NONCES,
+      sessionKv: env.SESSIONS,
+      db: env.DB,
+      koios: {
+        drepInfo: async () => scriptDrepInfo(scriptInfo.script_hash),
+        accountInfo: async () => null,
+        proposalsByReturnAddress: async () => [],
+        scriptInfo: async () => scriptInfo,
+      },
+      network: 'preprod',
+      now: 1_700_000_100,
+      secure: false,
+    }, { consumeNonce: consumeOverride });
+
+    expect(result.status).toBe(200);
+    const json = result.json as { ok: boolean; user: { id: string; roles: string[] } };
+    expect(json.ok).toBe(true);
+    expect(json.user.roles).toContain('drep');
+    expect(json.user.id).toBe(scriptDrepId);
+  });
+
+  it('rejects an offline script DRep login when the signer is not a member', async () => {
+    const payload = 'dreptalk:dreptalk.com:script-drep-raw-nonmember-nonce:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+
+    // Sign with a raw Ed25519 key.
+    const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(45));
+
+    // The script lists a different key hash, not the signer's, so membership
+    // check fails. The hash is still real so resolveScriptDRep's re-hash passes
+    // and only the membership assertion fires.
+    const nonMemberScriptInfo = nativeScriptInfoWith('aa'.repeat(28));
+    const scriptDrepId = scriptDrepIdFromHash(nonMemberScriptInfo.script_hash);
+
+    const result = await handleVerify({
+      body: {
+        payload,
+        signatureHex,
+        publicKeyHex,
+        role: 'drep',
+        scriptDrepId,
+      },
+      nonceKv: env.NONCES,
+      sessionKv: env.SESSIONS,
+      db: env.DB,
+      koios: {
+        drepInfo: async () => scriptDrepInfo(nonMemberScriptInfo.script_hash),
+        accountInfo: async () => null,
+        proposalsByReturnAddress: async () => [],
+        scriptInfo: async () => nonMemberScriptInfo,
+      },
+      network: 'preprod',
+      now: 1_700_000_100,
+      secure: false,
+    }, { consumeNonce: consumeOverride });
+
+    expect(result.status).toBe(401);
+  });
+});
