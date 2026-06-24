@@ -1,4 +1,6 @@
-import type { DrepInfo, Proposal, PoolCalidusKeyRow, CommitteeMember } from '../koios/client';
+import type { DrepInfo, Proposal, PoolCalidusKeyRow, CommitteeMember, ScriptInfo } from '../koios/client';
+import { parseDrepId } from '../cardano/identity.js';
+import { parseNativeScriptJson, collectSigKeyHashes, nativeScriptHash } from '../cardano/nativeScript.js';
 
 // Minimal interface satisfied by createKoiosClient's return value.
 // Using a structural interface keeps this module testable with fake clients.
@@ -7,6 +9,7 @@ export interface KoiosClient {
   proposalsByReturnAddress(stakeAddress: string): Promise<Proposal[]>;
   poolCalidusKey(calidusPubKeyHex: string): Promise<PoolCalidusKeyRow | null>;
   committeeInfo(): Promise<CommitteeMember[]>;
+  scriptInfo(scriptHash: string): Promise<ScriptInfo | null>;
 }
 
 export interface DRepResolution {
@@ -147,4 +150,47 @@ export async function resolveCc(
     ccHotId: match.cc_hot_id ?? undefined,
     ccColdId: match.cc_cold_id ?? undefined,
   };
+}
+
+export interface ScriptDRepResolution {
+  isMember: boolean;
+  active: boolean;
+  reason?: string;
+}
+
+/**
+ * Determines whether candidateKeyHashHex (blake2b-224 of the signer's pubkey)
+ * is an authorized signer of an active native-script DRep. Verifies the drep is
+ * a registered, active script drep, fetches its native script from Koios,
+ * re-hashes it to bind the returned script to the credential (defense in depth),
+ * and checks membership against the script's sig leaves.
+ */
+export async function resolveScriptDRep(
+  koios: KoiosClient,
+  drepId: string,
+  candidateKeyHashHex: string,
+): Promise<ScriptDRepResolution> {
+  const info = await koios.drepInfo(drepId);
+  if (!info) return { isMember: false, active: false, reason: 'not found' };
+  if (!info.has_script) return { isMember: false, active: info.active, reason: 'not a script drep' };
+  if (info.drep_status !== 'registered') return { isMember: false, active: info.active, reason: 'not registered' };
+  if (!info.active) return { isMember: false, active: false, reason: 'inactive' };
+
+  const parsed = parseDrepId(drepId);
+  if (!parsed || parsed.kind !== 'script') return { isMember: false, active: info.active, reason: 'not a script id' };
+
+  const scriptData = await koios.scriptInfo(parsed.hashHex);
+  if (!scriptData) return { isMember: false, active: info.active, reason: 'script not found' };
+
+  const native = parseNativeScriptJson(scriptData.value);
+  if (!native) return { isMember: false, active: info.active, reason: 'unsupported script' };
+
+  if (nativeScriptHash(native) !== parsed.hashHex.toLowerCase()) {
+    return { isMember: false, active: info.active, reason: 'script hash mismatch' };
+  }
+
+  if (!collectSigKeyHashes(native).has(candidateKeyHashHex.toLowerCase())) {
+    return { isMember: false, active: info.active, reason: 'not a signer' };
+  }
+  return { isMember: true, active: true };
 }
