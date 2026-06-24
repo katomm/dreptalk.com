@@ -83,13 +83,25 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
     if (r === 'drep' || r === 'proposer') setRole(r);
   }, []);
 
-  // Request a fresh challenge when the CardanoSigner paste panel opens.
+  // Request a fresh challenge when the CardanoSigner paste panel opens. A login
+  // challenge is single-use and expires after a few minutes, so retries refetch
+  // via refreshSignerChallenge below.
   useEffect(() => {
     if (!multiSig || !useSigner) return;
     let active = true;
+    setSignerPayload('');
     requestChallenge().then((r) => { if (active && r.ok && r.payload) setSignerPayload(r.payload); });
     return () => { active = false; };
   }, [multiSig, useSigner]);
+
+  // Pull a new challenge after a failed or retried paste attempt: the previous
+  // one is consumed or expired, so reusing it would be rejected immediately.
+  async function refreshSignerChallenge() {
+    setPasted('');
+    setSignerPayload('');
+    const r = await requestChallenge();
+    if (r.ok && r.payload) setSignerPayload(r.payload);
+  }
 
   async function handleLogin() {
     const walletInfo = wallets.find((w) => w.key === selectedWallet);
@@ -136,6 +148,9 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
 
   function reset() {
     setLoginState({ status: 'idle' });
+    // In the paste flow the shown challenge is now stale or consumed; pull a fresh
+    // one so the next signed command is not instantly rejected as expired.
+    if (multiSig && useSigner) void refreshSignerChallenge();
   }
 
   const busy =
@@ -174,7 +189,7 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
               label="Signing wallet"
             />
 
-            {/* Role toggle */}
+            {/* Role toggle: the two exclusive roles only. */}
             <fieldset
               style={{
                 border: '1px solid var(--border)',
@@ -204,51 +219,62 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
                     name="role"
                     value="proposer"
                     checked={role === 'proposer'}
-                    onChange={() => setRole('proposer')}
+                    onChange={() => { setRole('proposer'); setMultiSig(false); setUseSigner(false); }}
                     disabled={busy}
                   />
                   Proposer
                 </label>
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={multiSig}
-                  onChange={(e) => { setMultiSig(e.target.checked); if (e.target.checked) setRole('drep'); }}
-                  disabled={busy}
-                />
-                MultiSig / Script DRep
-              </label>
-              {multiSig && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
-                  <input
-                    type="text"
-                    value={scriptDrepId}
-                    onChange={(e) => setScriptDrepId(e.target.value)}
-                    placeholder="Script DRep ID (drep1...)"
-                    disabled={busy}
-                    style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem' }}
-                  />
-                  <label style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                    Sign with:{' '}
-                    <select value={keyChoice} onChange={(e) => setKeyChoice(e.target.value as 'drep' | 'stake')} disabled={busy}>
-                      <option value="drep">DRep key</option>
-                      <option value="stake">Stake key</option>
-                    </select>
-                  </label>
-                  {/* Sub-toggle: wallet sign vs. CardanoSigner paste */}
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={useSigner}
-                      onChange={(e) => { setUseSigner(e.target.checked); setPasted(''); setSignerPayload(''); }}
-                      disabled={busy}
-                    />
-                    Paste CardanoSigner output
-                  </label>
-                </div>
-              )}
             </fieldset>
+
+            {/* MultiSig is a DRep-only modifier, kept out of the Role group so the
+                exclusive role radios and this opt-in toggle do not read as one set. */}
+            {role === 'drep' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={multiSig}
+                    onChange={(e) => { setMultiSig(e.target.checked); if (!e.target.checked) { setUseSigner(false); setPasted(''); } }}
+                    disabled={busy}
+                  />
+                  Sign as a multisig (script) DRep
+                </label>
+                {multiSig && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingLeft: '1.625rem' }}>
+                    <input
+                      type="text"
+                      value={scriptDrepId}
+                      onChange={(e) => setScriptDrepId(e.target.value)}
+                      placeholder="Script DRep ID (drep1...)"
+                      disabled={busy}
+                      style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem' }}
+                    />
+                    {/* Key choice only affects how the wallet signs; in the paste flow
+                        the key is chosen by the cardano-signer command, so hide it. */}
+                    {!useSigner && (
+                      <label style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
+                        Sign with:{' '}
+                        <select value={keyChoice} onChange={(e) => setKeyChoice(e.target.value as 'drep' | 'stake')} disabled={busy}>
+                          <option value="drep">DRep key</option>
+                          <option value="stake">Stake key</option>
+                        </select>
+                      </label>
+                    )}
+                    {/* Sub-toggle: wallet sign vs. CardanoSigner paste */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={useSigner}
+                        onChange={(e) => { setUseSigner(e.target.checked); setPasted(''); setSignerPayload(''); }}
+                        disabled={busy}
+                      />
+                      Paste CardanoSigner output
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* CardanoSigner paste panel: shown only when MultiSig + useSigner are both active */}
             {multiSig && useSigner && (
@@ -276,7 +302,12 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
                     setLoginState({ status: 'awaiting-signature' });
                     const r = await loginOffline({ role: 'drep', payload: signerPayload, pastedText: pasted, scriptDrepId: scriptDrepId.trim() });
                     if (r.ok && r.user) { window.location.assign('/discussions'); }
-                    else setLoginState({ status: 'error', message: friendlyLoginError(r.error, 'drep', network) });
+                    else {
+                      setLoginState({ status: 'error', message: friendlyLoginError(r.error, 'drep', network) });
+                      // This attempt consumed the challenge; load a fresh one so the
+                      // user can re-sign without reloading the page.
+                      void refreshSignerChallenge();
+                    }
                   }}
                   style={{
                     padding: '0.625rem 1.25rem',
@@ -302,7 +333,7 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
                 Connecting to wallet...
               </p>
             )}
-            {loginState.status === 'awaiting-signature' && (
+            {loginState.status === 'awaiting-signature' && !(multiSig && useSigner) && (
               <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
                 Please sign the login challenge in your wallet.
               </p>
