@@ -67,6 +67,19 @@ const drepInfoSchema = z
 
 export type DrepInfo = z.infer<typeof drepInfoSchema>;
 
+// ScriptInfo schema: native scripts carry type "timelock" with the JSON tree in
+// `value`; Plutus scripts use type "plutusV1|2|3". Permissive on purpose: the
+// caller validates `value` with parseNativeScriptJson and rejects non-native.
+const scriptInfoSchema = z
+  .object({
+    script_hash: z.string(),
+    type: z.string(),
+    value: z.unknown().nullable(),
+  })
+  .passthrough();
+
+export type ScriptInfo = z.infer<typeof scriptInfoSchema>;
+
 // AccountInfo schema: tolerate extra fields, nullable delegation/balance fields.
 const accountInfoSchema = z.object({
   stake_address: z.string(),
@@ -406,6 +419,11 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     // Single-drep lookup (auth flow): returns the basic DrepInfo or null.
     async drepInfo(drepId: string): Promise<DrepInfo | null> {
       return postSingleRow('/drep_info', '_drep_ids', drepId, drepInfoSchema);
+    },
+
+    // Single-script lookup: returns the script's type and native JSON, or null.
+    async scriptInfo(scriptHash: string): Promise<ScriptInfo | null> {
+      return postSingleRow('/script_info', '_script_hashes', scriptHash, scriptInfoSchema);
     },
 
     // Batch lookup (sync flow): returns the full DrepInfoRow (incl. anchor +

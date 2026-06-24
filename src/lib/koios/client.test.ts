@@ -494,6 +494,37 @@ describe('createKoiosClient.committeeInfo', () => {
   });
 });
 
+// --- scriptInfo ---
+
+describe('createKoiosClient.scriptInfo', () => {
+  it('POSTs to /script_info with _script_hashes and parses the native script value', async () => {
+    const fixture = {
+      script_hash: '21dbab8106dcd5e7a7c47c1ee15d747ecd0bc04231cf6955887cadc0',
+      type: 'timelock',
+      value: { type: 'any', scripts: [{ type: 'sig', keyHash: 'e4569cc95f7744c6d39dfa15384e5283fa2dbb39b6fea279621f504f' }] },
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([fixture]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    const result = await client.scriptInfo(fixture.script_hash);
+
+    expect(result).not.toBeNull();
+    expect(result!.type).toBe('timelock');
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.koios.rest/api/v1/script_info',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const callInit = fetchImpl.mock.calls[0][1] as { body: string };
+    expect(JSON.parse(callInit.body)).toEqual({ _script_hashes: [fixture.script_hash] });
+  });
+
+  it('returns null when Koios returns an empty array', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    expect(await client.scriptInfo('deadbeef')).toBeNull();
+  });
+});
+
 // --- proposalListRowSchema ---
 
 describe('proposalListRowSchema', () => {
