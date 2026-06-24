@@ -5,6 +5,7 @@ import {
   PARAM_REGISTRY,
   rewardAccountToBech32,
   decodeOnchainChanges,
+  summarizeOnchain,
 } from './onchain.js';
 
 describe('formatValue', () => {
@@ -135,15 +136,68 @@ describe('decodeOnchainChanges', () => {
       threshold: string;
     };
     expect(r.kind).toBe('committee');
-    expect(r.threshold).toBe('66.67%');
+    expect(r.threshold).toBe('67%');
     expect(r.added[0].who).toContain('scriptHash');
+  });
+
+  it('renders a whole-percent committee threshold without dropping the trailing zero', () => {
+    const p = JSON.stringify({ tag: 'UpdateCommittee', contents: [null, [], {}, { numerator: 1, denominator: 2 }] });
+    const r = decodeOnchainChanges(p, EP, 'preprod') as { threshold: string };
+    expect(r.threshold).toBe('50%');
   });
 
   it('returns a note for InfoAction', () => {
     const p = JSON.stringify({ tag: 'InfoAction' });
     expect(decodeOnchainChanges(p, EP, 'preprod')).toEqual({
       kind: 'note',
+      tag: 'InfoAction',
       text: 'Informational action. No on-chain effect; the vote signals opinion only.',
     });
+  });
+});
+
+describe('summarizeOnchain', () => {
+  it('summarizes treasury as a requested amount', () => {
+    const p = JSON.stringify({
+      tag: 'TreasuryWithdrawals',
+      contents: [[[{ credential: { keyHash: '3c79df2221075f32327bbf2aa8ccc22b3d2bc316b076e652eea9b2cd' } }, 5000000]], 'fa'],
+    });
+    expect(summarizeOnchain(decodeOnchainChanges(p, EP, 'preprod'))).toEqual({
+      prefix: 'Requesting',
+      oldValue: null,
+      value: '5 ₳',
+      tone: 'amount',
+    });
+  });
+
+  it('summarizes a single param as an old→new change', () => {
+    const p = JSON.stringify({ tag: 'ParameterChange', contents: [null, { minPoolCost: 170000000 }, 'fa'] });
+    const s = summarizeOnchain(decodeOnchainChanges(p, EP, 'preprod'));
+    expect(s?.tone).toBe('change');
+    expect(s?.prefix).toBe('Min Pool Cost');
+    expect(s?.value).toBe('170 ₳');
+  });
+
+  it('counts multiple params instead of listing them', () => {
+    const p = JSON.stringify({ tag: 'ParameterChange', contents: [null, { minPoolCost: 1, dRepDeposit: 2 }, 'fa'] });
+    expect(summarizeOnchain(decodeOnchainChanges(p, EP, 'preprod'))).toEqual({
+      prefix: null,
+      oldValue: null,
+      value: '2 parameters changed',
+      tone: 'plain',
+    });
+  });
+
+  it('summarizes a hard fork as a protocol version change', () => {
+    const p = JSON.stringify({ tag: 'HardForkInitiation', contents: [null, { major: 11, minor: 0 }] });
+    const s = summarizeOnchain(decodeOnchainChanges(p, EP, 'preprod'));
+    expect(s).toMatchObject({ prefix: 'Protocol', value: '11.0', tone: 'change' });
+  });
+
+  it('shows a line for no-confidence but not for an info action', () => {
+    const nc = JSON.stringify({ tag: 'NoConfidence' });
+    expect(summarizeOnchain(decodeOnchainChanges(nc, EP, 'preprod'))).toMatchObject({ value: 'No-confidence motion' });
+    const info = JSON.stringify({ tag: 'InfoAction' });
+    expect(summarizeOnchain(decodeOnchainChanges(info, EP, 'preprod'))).toBeNull();
   });
 });

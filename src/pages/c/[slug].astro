@@ -10,6 +10,7 @@ import GovActionRow from '@/components/GovActionRow.astro';
 import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory, getTopicsByIds, type Topic } from '@/lib/db/forum.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import {
   parseGovSort,
   GOV_SORTS,
@@ -59,6 +60,8 @@ let govTotal = 0;
 // stake-participation map. Empty for non-governance categories.
 let pageRows: GovActionTopic[] = [];
 let stakeByTopic = new Map<string, StakeParticipation | null>();
+// Current protocol params, so a ParameterChange row can show its old→new pair.
+let govParamsRawJson: string | null = null;
 // Freshness of the cached on-chain numbers shown on this page (ms; null when
 // nothing to disclose). Stake from the dreps sync, sentiment from per-action tallies.
 let stakeAsOf: number | null = null;
@@ -75,10 +78,12 @@ if (category && db) {
       limit: PAGE_SIZE,
       offset,
     });
-    const [topicById, actionByTopic] = await Promise.all([
+    const [topicById, actionByTopic, protoParams] = await Promise.all([
       getTopicsByIds(db, topicIds),
       getGovernanceActionsByTopicIds(db, topicIds),
+      getProtocolParams(db),
     ]);
+    govParamsRawJson = protoParams?.rawJson ?? null;
     // Preserve the database order; drop any id whose topic or action is missing
     // (a soft-delete racing the page read), mirroring the old inner-join filter.
     pageRows = topicIds
@@ -274,6 +279,7 @@ const breadcrumbLd = {
                 network={network}
                 now={now}
                 href={`/t/${r.topic.slug}`}
+                epochParamsJson={govParamsRawJson}
               />
             );
           })}

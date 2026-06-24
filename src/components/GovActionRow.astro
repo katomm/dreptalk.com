@@ -10,6 +10,7 @@ import {
   govTypeTone,
 } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
+import { decodeOnchainChanges, summarizeOnchain } from '@/lib/governance/onchain.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { Topic } from '@/lib/db/forum.js';
@@ -25,8 +26,9 @@ interface Props {
   network: CardanoNetwork;
   now: number;             // render instant, for the wall-clock voting countdown
   href: string;
+  epochParamsJson?: string | null; // current protocol params, for the param old→new summary
 }
-const { topic, action, proposer, proposerIcon, stake, network, now, href } = Astro.props;
+const { topic, action, proposer, proposerIcon, stake, network, now, href, epochParamsJson } = Astro.props;
 // No bundled logo: fall back to the cardenticon, seeded by the reward address
 // (decodes stake1... natively), so the list mirrors the detail page rather than
 // showing a bare name. Skipped when there is no address (renders as "Unknown").
@@ -34,6 +36,13 @@ const proposerIdenticon =
   !proposerIcon && action.returnAddress ? identiconSvg(action.returnAddress, 14) : null;
 const badge = statusBadge(action.status);
 const typeTone = govTypeTone(action.type);
+// One-line on-chain summary in a fixed spot, so the substance of each action reads
+// the same on every row regardless of how the proposer wrote the title. Treasury
+// shows the requested total, a param change shows old→new, etc. Null types (info
+// actions) and rows without a stored payload simply omit the line.
+const onchain = summarizeOnchain(
+  decodeOnchainChanges(action.onchainPayload ?? null, epochParamsJson ?? null, network),
+);
 // Sentiment + voter count follow the action's leading role (SPO for hard fork,
 // no-confidence, committee; else DRep). The label is shown so the bar is never
 // ambiguous about whose votes it represents.
@@ -56,6 +65,18 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
       <span class={`badge badge--${badge.tone}`}>{badge.label}</span>
     </span>
     <p class="garow__title">{action.title ?? topic.title}</p>
+    {onchain && (
+      <p class={`garow__onchain garow__onchain--${onchain.tone}`}>
+        {onchain.prefix && <span class="garow__oc-prefix">{onchain.prefix}</span>}
+        {onchain.oldValue && (
+          <>
+            <span class="garow__oc-old">{onchain.oldValue}</span>
+            <span class="garow__oc-arrow">&rarr;</span>
+          </>
+        )}
+        <span class="garow__oc-val">{onchain.value}</span>
+      </p>
+    )}
     {action.abstract && <p class="garow__desc">{action.abstract}</p>}
     <p class="garow__meta">
       {proposerIcon
@@ -140,6 +161,21 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
     padding:3px 8px; border-radius:999px;
     background:color-mix(in srgb, var(--ph) 14%, transparent); color:var(--ph); }
   .garow__title { font-weight:700; font-size:0.95rem; margin:0 0 3px; }
+  /* On-chain summary: a fixed line under the title so each action's substance sits
+     in the same place on every row. Wraps on narrow widths rather than overflowing. */
+  .garow__onchain { font-size:0.85rem; margin:0 0 5px; min-width:0;
+    display:flex; flex-wrap:wrap; align-items:baseline; gap:5px; }
+  .garow__oc-prefix { color:var(--muted); }
+  .garow__oc-old { color:var(--muted); text-decoration:line-through; }
+  .garow__oc-arrow { color:var(--muted); }
+  .garow__oc-val { font-weight:600; color:var(--fg); }
+  /* Treasury headline figure: accent + small uppercase label, since a bare number
+     would be ambiguous. */
+  .garow__onchain--amount .garow__oc-prefix { font-size:0.65rem; font-weight:600;
+    text-transform:uppercase; letter-spacing:0.04em; }
+  .garow__onchain--amount .garow__oc-val { color:var(--accent); font-weight:700; }
+  /* old→new pair (single param, protocol version): label gets a trailing colon. */
+  .garow__onchain--change .garow__oc-prefix::after { content:':'; }
   .garow__desc { color:var(--muted); font-size:0.8rem; margin:0 0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .garow__meta { color:var(--muted); font-size:0.75rem; margin:0; }
   .garow__pico { vertical-align:-2px; margin-right:4px; border-radius:3px; }
