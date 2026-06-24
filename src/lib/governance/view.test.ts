@@ -169,7 +169,7 @@ describe('govActionOgImage', () => {
     expect(govActionOgImage('NoConfidence')).toBe('/og/gov-noconfidence.png');
   });
   it('falls back to the site OG image for unknown types', () => {
-    expect(govActionOgImage('SomethingElse')).toBe('/og.png');
+    expect(govActionOgImage('SomethingElse')).toBe('/og.jpg');
   });
 });
 

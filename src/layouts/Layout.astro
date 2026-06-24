@@ -18,9 +18,13 @@ interface Props {
   noindex?: boolean;
   ogImage?: string;
 }
-const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.png' } = Astro.props;
+const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg' } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const ogImageUrl = new URL(ogImage, Astro.site).href;
+// Declare the OG image MIME from its extension: the site mixes JPEG cards
+// (overviews, default) with the per-type PNG governance cards, so a single
+// hard-coded type would be wrong for half of them.
+const ogImageType = ogImage.endsWith('.png') ? 'image/png' : 'image/jpeg';
 // Cloudflare Web Analytics beacon token. The token is public by design: the
 // beacon embeds it in the page HTML for every visitor, so it is committed here
 // instead of being configured per environment. Gated on import.meta.env.PROD so
@@ -92,7 +96,7 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
     <meta property="og:url" content={canonical} />
     <meta property="og:site_name" content="DRepTalk" />
     <meta property="og:image" content={ogImageUrl} />
-    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:type" content={ogImageType} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />

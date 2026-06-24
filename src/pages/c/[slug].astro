@@ -47,6 +47,9 @@ const offset = pageToOffset(page, PAGE_SIZE);
 const now = Date.now();
 
 const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
+// OG card per category kind: the governance-actions overview gets its own card,
+// discussion categories share the generic discussion card.
+const categoryOgImage = isGovernanceCategory ? '/og-governance-actions.jpg' : '/og/discussion.png';
 // Governance actions get their own sort modes (a DRep wants trending / closing
 // soon, not the newest submission); discussion categories stay activity-ordered.
 const sort = parseGovSort(Astro.url.searchParams.get('sort'));
@@ -179,6 +182,7 @@ const breadcrumbLd = {
   <Layout
     title={`${category.name} - DRepTalk`}
     description={category.description}
+    ogImage={categoryOgImage}
   >
     <JsonLd data={breadcrumbLd} />
 
