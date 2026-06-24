@@ -1,7 +1,7 @@
 // React island: Cardano wallet picker and wallet-sign login flow.
 // Standard wallet sign-in is the primary path; multisig/script DReps live behind
 // an Advanced disclosure. Flow logic lives in loginWithWallet / loginOffline.
-import { useState, useEffect, type CSSProperties } from 'react';
+import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { requestChallenge, loginOffline } from '@/lib/auth/offlineLogin.js';
@@ -67,10 +67,12 @@ function friendlyLoginError(
 interface SegmentOption<T extends string> {
   value: T;
   label: string;
+  icon?: ReactNode;
 }
 
 // Two-or-more button toggle that reads as a single control, used for role and
-// signing-method choices instead of bare radios.
+// signing-method choices instead of bare radios. The selected segment is a
+// subtle tint, not a solid fill, so it never competes with the primary button.
 function SegmentedControl<T extends string>({
   value,
   onChange,
@@ -109,18 +111,24 @@ function SegmentedControl<T extends string>({
             aria-pressed={active}
             style={{
               flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.4rem',
               padding: '0.5rem 0.75rem',
               borderRadius: '0.45rem',
               border: 'none',
               cursor: disabled ? 'not-allowed' : 'pointer',
               fontSize: '0.9375rem',
-              fontWeight: 600,
+              fontWeight: active ? 600 : 500,
               fontFamily: 'inherit',
-              background: active ? 'var(--accent)' : 'transparent',
-              color: active ? 'var(--accent-fg)' : 'var(--fg)',
-              transition: 'background-color 0.15s ease, color 0.15s ease',
+              background: active ? 'color-mix(in srgb, var(--accent) 12%, var(--bg))' : 'transparent',
+              color: active ? 'var(--accent)' : 'var(--muted)',
+              boxShadow: active ? 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent)' : 'none',
+              transition: 'background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
             }}
           >
+            {o.icon}
             {o.label}
           </button>
         );
@@ -128,6 +136,20 @@ function SegmentedControl<T extends string>({
     </fieldset>
   );
 }
+
+// Person icons for the role segments: a filled mark for DRep, an outline for Proposer.
+const drepIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <circle cx="12" cy="8" r="4" />
+    <path d="M12 14c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
+  </svg>
+);
+const proposerIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 20v-1a6 6 0 0 1 12 0v1" />
+  </svg>
+);
 
 const cardStyle: CSSProperties = {
   border: '1px solid var(--border)',
@@ -146,6 +168,15 @@ const fieldLabelStyle: CSSProperties = {
   fontWeight: 600,
   color: 'var(--muted)',
   marginBottom: '0.4rem',
+};
+
+// Numbered step heading for the primary card sections ("1. Your wallet", etc.).
+const stepHeadingStyle: CSSProperties = {
+  display: 'block',
+  fontSize: '0.9375rem',
+  fontWeight: 700,
+  color: 'var(--fg)',
+  marginBottom: '0.6rem',
 };
 
 const inputStyle: CSSProperties = {
@@ -336,24 +367,27 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {/* Primary card: standard wallet sign-in */}
       <div style={cardStyle}>
-        <WalletConnection
-          wallets={wallets}
-          selected={selectedWallet}
-          onSelect={setSelectedWallet}
-          disabled={busy}
-          label="Connected wallet"
-        />
+        <div>
+          <span style={stepHeadingStyle}>1. Your wallet</span>
+          <WalletConnection
+            wallets={wallets}
+            selected={selectedWallet}
+            onSelect={setSelectedWallet}
+            disabled={busy}
+            label=""
+          />
+        </div>
 
         <div>
-          <span style={fieldLabelStyle}>Sign in as</span>
+          <span style={stepHeadingStyle}>2. Sign in as</span>
           <SegmentedControl
             ariaLabel="Sign in as"
             value={role}
             onChange={setRole}
             disabled={busy}
             options={[
-              { value: 'drep', label: 'DRep' },
-              { value: 'proposer', label: 'Proposer' },
+              { value: 'drep', label: 'DRep', icon: drepIcon },
+              { value: 'proposer', label: 'Proposer', icon: proposerIcon },
             ]}
           />
         </div>
@@ -363,8 +397,11 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
           className="btn btn-primary"
           onClick={() => doWalletLogin()}
           disabled={busy}
-          style={{ width: '100%', padding: '0.8rem 1.25rem', fontSize: '1rem', opacity: busy ? 0.7 : 1 }}
+          style={{ width: '100%', padding: '0.65rem 1rem', fontSize: '0.9375rem', opacity: busy ? 0.7 : 1 }}
         >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" />
+          </svg>
           {busy ? 'Signing in...' : 'Sign in with wallet'}
         </button>
 
