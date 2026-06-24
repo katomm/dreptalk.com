@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
+import { requestChallenge, loginOffline } from '@/lib/auth/offlineLogin.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
@@ -69,6 +70,9 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
   const [multiSig, setMultiSig] = useState(false);
   const [scriptDrepId, setScriptDrepId] = useState('');
   const [keyChoice, setKeyChoice] = useState<'drep' | 'stake'>('drep');
+  const [useSigner, setUseSigner] = useState(false);
+  const [signerPayload, setSignerPayload] = useState('');
+  const [pasted, setPasted] = useState('');
   const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
 
   // Preselect the role from a ?role= deep link (e.g. the header entry menu).
@@ -78,6 +82,14 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
     const r = new URLSearchParams(window.location.search).get('role');
     if (r === 'drep' || r === 'proposer') setRole(r);
   }, []);
+
+  // Request a fresh challenge when the CardanoSigner paste panel opens.
+  useEffect(() => {
+    if (!multiSig || !useSigner) return;
+    let active = true;
+    requestChallenge().then((r) => { if (active && r.ok && r.payload) setSignerPayload(r.payload); });
+    return () => { active = false; };
+  }, [multiSig, useSigner]);
 
   async function handleLogin() {
     const walletInfo = wallets.find((w) => w.key === selectedWallet);
@@ -224,9 +236,65 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
                       <option value="stake">Stake key</option>
                     </select>
                   </label>
+                  {/* Sub-toggle: wallet sign vs. CardanoSigner paste */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={useSigner}
+                      onChange={(e) => { setUseSigner(e.target.checked); setPasted(''); setSignerPayload(''); }}
+                      disabled={busy}
+                    />
+                    Paste CardanoSigner output
+                  </label>
                 </div>
               )}
             </fieldset>
+
+            {/* CardanoSigner paste panel: shown only when MultiSig + useSigner are both active */}
+            {multiSig && useSigner && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                  Run this command with your member key, then paste the JSON output below:
+                </p>
+                <code style={{ fontSize: '0.75rem', wordBreak: 'break-all', background: 'var(--surface-alt, var(--border))', padding: '0.5rem', borderRadius: '0.25rem', display: 'block' }}>
+                  {signerPayload
+                    ? `cardano-signer sign --data "${signerPayload}" --secret-key drep.skey --json`
+                    : 'Loading challenge...'}
+                </code>
+                <textarea
+                  value={pasted}
+                  onChange={(e) => setPasted(e.target.value)}
+                  placeholder="Paste the cardano-signer JSON output"
+                  rows={4}
+                  disabled={busy}
+                  style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem', fontFamily: 'monospace', fontSize: '0.8125rem', resize: 'vertical' }}
+                />
+                <button
+                  type="button"
+                  disabled={busy || !signerPayload || !scriptDrepId.trim()}
+                  onClick={async () => {
+                    setLoginState({ status: 'awaiting-signature' });
+                    const r = await loginOffline({ role: 'drep', payload: signerPayload, pastedText: pasted, scriptDrepId: scriptDrepId.trim() });
+                    if (r.ok && r.user) { window.location.assign('/discussions'); }
+                    else setLoginState({ status: 'error', message: friendlyLoginError(r.error, 'drep', network) });
+                  }}
+                  style={{
+                    padding: '0.625rem 1.25rem',
+                    background: 'var(--accent)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '0.375rem',
+                    fontSize: '1rem',
+                    fontWeight: 500,
+                    cursor: busy || !signerPayload || !scriptDrepId.trim() ? 'not-allowed' : 'pointer',
+                    opacity: busy || !signerPayload || !scriptDrepId.trim() ? 0.7 : 1,
+                    alignSelf: 'flex-start',
+                  }}
+                >
+                  {busy ? 'Verifying...' : 'Sign in with pasted signature'}
+                </button>
+              </div>
+            )}
 
             {/* Status message */}
             {loginState.status === 'connecting' && (
@@ -265,8 +333,8 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
               </div>
             )}
 
-            {/* Connect button */}
-            <button
+            {/* Connect button: hidden when the CardanoSigner paste panel is active */}
+            {!(multiSig && useSigner) && <button
               type="button"
               onClick={handleLogin}
               disabled={busy || (multiSig && !scriptDrepId.trim())}
@@ -284,7 +352,7 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
               }}
             >
               {busy ? 'Connecting...' : 'Connect and sign in'}
-            </button>
+            </button>}
           </div>
         )
       )}
