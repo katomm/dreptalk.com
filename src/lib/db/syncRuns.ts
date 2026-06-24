@@ -114,6 +114,21 @@ export async function listSyncRuns(db: D1Database, limit: number): Promise<SyncR
   return res.results.map(fromRow);
 }
 
+/**
+ * The single most recent run for each kind, regardless of how many runs other
+ * kinds have logged since. The status page uses this for its per-kind "last run"
+ * cards: a frequent cron (votes every 20 min) would otherwise push a rare one's
+ * run (dreps every 6 h) out of any fixed-size recent-runs window, making the card
+ * read "no runs yet" while the sync is in fact healthy. id is autoincrement, so
+ * MAX(id) per kind is the latest-started run for that kind.
+ */
+export async function latestSyncRunByKind(db: D1Database): Promise<SyncRun[]> {
+  const res = await db
+    .prepare(`SELECT * FROM sync_runs WHERE id IN (SELECT MAX(id) FROM sync_runs GROUP BY kind)`)
+    .all<Row>();
+  return res.results.map(fromRow);
+}
+
 /** Deletes run rows older than the cutoff; returns how many were removed. */
 export async function pruneSyncRuns(db: D1Database, olderThanMs: number): Promise<number> {
   const res = await db.prepare(`DELETE FROM sync_runs WHERE started_at < ?`).bind(olderThanMs).run();

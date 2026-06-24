@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { startSyncRun, finishSyncRun, listSyncRuns, pruneSyncRuns, reapStaleSyncRuns, STALE_RUN_MS } from './syncRuns.js';
+import { startSyncRun, finishSyncRun, listSyncRuns, latestSyncRunByKind, pruneSyncRuns, reapStaleSyncRuns, STALE_RUN_MS } from './syncRuns.js';
 
 const NOW = 1_748_000_000_000;
 
@@ -46,6 +46,20 @@ describe('sync_runs', () => {
     const after = await listSyncRuns(env.DB, 50);
     expect(after.find((r) => r.id === oldId)).toBeUndefined();
     expect(after.find((r) => r.id === newId)).toBeDefined();
+  });
+
+  it('returns the latest run per kind even when another kind logs many runs after it', async () => {
+    // A single dreps run, then several governance runs started afterwards. A
+    // recent-runs window would push the dreps run out; latestSyncRunByKind must
+    // still surface it, since id is autoincrement and these are the highest ids.
+    const drepId = await startSyncRun(env.DB, 'dreps', NOW + 1_000);
+    let lastGov = 0;
+    for (let i = 0; i < 5; i++) lastGov = await startSyncRun(env.DB, 'governance', NOW + 2_000 + i);
+
+    const latest = await latestSyncRunByKind(env.DB);
+    const byKind = new Map(latest.map((r) => [r.kind, r]));
+    expect(byKind.get('dreps')!.id).toBe(drepId);
+    expect(byKind.get('governance')!.id).toBe(lastGov);
   });
 
   it('reaps a stale running row as killed but leaves a fresh one running', async () => {

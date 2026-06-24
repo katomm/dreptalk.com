@@ -8,7 +8,7 @@ export const prerender = false;
 
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
-import { listSyncRuns, type SyncRun } from '@/lib/db/syncRuns.js';
+import { listSyncRuns, latestSyncRunByKind, type SyncRun } from '@/lib/db/syncRuns.js';
 import { countGivenUpMetaActions } from '@/lib/db/governance.js';
 import { countGivenUpAvatars } from '@/lib/db/dreps.js';
 import { AVATAR_FETCH_MAX_ATTEMPTS } from '@/lib/dreps/avatarStore.js';
@@ -37,6 +37,11 @@ const db = env.DB as D1Database;
 // sync_runs table surfaces as loadError, while a count failure (same likely
 // cause) stays silent so the run history still renders.
 const runsPromise = listSyncRuns(db, 30);
+// The per-kind "last run" cards read from a dedicated latest-per-kind query, not
+// from the recent-runs list: a rare cron (dreps every 6 h) would otherwise drop
+// out of the fixed-size list once the frequent crons (governance + votes) log
+// enough runs to fill it, making its card read "no runs yet" while it is healthy.
+const latestPromise = latestSyncRunByKind(db).catch(() => [] as SyncRun[]);
 const givenUpPromise = countGivenUpMetaActions(db, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS).catch(() => 0);
 const givenUpAvatarsPromise = countGivenUpAvatars(db, AVATAR_FETCH_MAX_ATTEMPTS).catch(() => 0);
 
@@ -55,8 +60,8 @@ const givenUp = await givenUpPromise;
 const givenUpAvatars = await givenUpAvatarsPromise;
 
 const latestByKind = new Map<string, SyncRun>();
-for (const run of runs) {
-  if (!latestByKind.has(run.kind)) latestByKind.set(run.kind, run);
+for (const run of await latestPromise) {
+  latestByKind.set(run.kind, run);
 }
 
 const groupedRuns = groupRunsByDay(runs);
