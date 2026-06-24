@@ -36,6 +36,7 @@ export interface LoginResult {
 
 interface Deps {
   fetchImpl?: typeof fetch;
+  multisig?: { scriptDrepId: string; keyChoice: 'drep' | 'stake' };
 }
 
 /**
@@ -92,7 +93,7 @@ export async function loginWithWallet(
     // Step 2: derive the signing address candidate(s) and select the signer.
     let addrCandidates: string[];
     let signData = api.signData.bind(api);
-    if (role === 'proposer') {
+    if (role === 'proposer' || deps?.multisig?.keyChoice === 'stake') {
       const addrs = await api.getRewardAddresses();
       addrCandidates = [addrs[0]];
     } else {
@@ -131,6 +132,7 @@ export async function loginWithWallet(
         signatureHex: signature,
         keyHex: key,
         role,
+        ...(deps?.multisig ? { scriptDrepId: deps.multisig.scriptDrepId } : {}),
       }),
     });
 
