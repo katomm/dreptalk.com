@@ -14,6 +14,8 @@ import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
+import { detectIdentifier } from '@/lib/search/identifiers.js';
+import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
@@ -36,6 +38,20 @@ import { env } from 'cloudflare:workers';
 const { slug } = Astro.params;
 
 const db = env.DB as D1Database | undefined;
+
+// A pasted governance-action id (the bech32 gov_action1... form shown on
+// explorers and in vote links) routes to its discussion: resolve it to the
+// canonical topic slug and 301-redirect, mirroring the DRep id->slug redirect.
+// Real topic slugs always carry a hyphen, so they never collide with the
+// hyphen-free bech32 form. Detection and resolution are the same helpers the
+// search uses, so both stay one source of truth.
+if (slug && db) {
+  const ident = detectIdentifier(slug);
+  if (ident?.kind === 'gov-action' && ident.by === 'proposal_id') {
+    const hit = await resolveIdentifier(db, ident);
+    if (hit) return Astro.redirect(hit.href, 301);
+  }
+}
 
 const topic = slug && db ? await getTopicBySlug(db, slug) : null;
 
