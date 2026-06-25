@@ -206,7 +206,7 @@ async function verifyWalletCip8(
     const candidateKeyHashHex = ccHotKeyHashHex(pubKey);
     const resolution = await resolveScriptDRep(koios, body.scriptDrepId, candidateKeyHashHex);
     if (!resolution.isMember) {
-      return { status: 401, json: { ok: false, error: 'not a script DRep member' } };
+      return { status: 401, json: { ok: false, error: scriptMembershipError(resolution.reason) } };
     }
     return finishLogin(input, { drepId: body.scriptDrepId, grantedRoles: ['drep'], modRole: null });
   }
@@ -309,7 +309,7 @@ async function verifyRawEd25519(
       const candidateKeyHashHex = ccHotKeyHashHex(pubKey);
       const resolution = await resolveScriptDRep(koios, body.scriptDrepId, candidateKeyHashHex);
       if (!resolution.isMember) {
-        return { status: 401, json: { ok: false, error: 'not a script DRep member' } };
+        return { status: 401, json: { ok: false, error: scriptMembershipError(resolution.reason) } };
       }
       return finishLogin(input, { drepId: body.scriptDrepId, grantedRoles: ['drep'], modRole: null });
     }
@@ -399,6 +399,15 @@ async function finishLogin(
 // Cheap shape check for a bech32 drep1 id before any Koios call (bounds + prefix).
 function isLikelyDrepId(s: string): boolean {
   return s.length <= 70 && /^drep1[0-9a-z]+$/.test(s);
+}
+
+// Distinguishes the script-DRep membership failure modes so the UI can guide the
+// user: a key-based DRep that wandered into the script flow, or a Plutus-script
+// DRep (no keys to prove membership), instead of one opaque "not a member".
+function scriptMembershipError(reason?: string): string {
+  if (reason === 'not a script drep' || reason === 'not a script id') return 'key-based drep in script flow';
+  if (reason === 'unsupported script') return 'plutus script drep unsupported';
+  return 'not a script DRep member';
 }
 
 // ---------------------------------------------------------------------------

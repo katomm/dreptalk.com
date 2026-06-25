@@ -313,6 +313,73 @@ describe('handleVerify: happy path (key DRep, offline)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleVerify -- script-flow guidance errors (wrong DRep kind in script flow)
+// ---------------------------------------------------------------------------
+
+describe('handleVerify: script-flow guidance', () => {
+  it('flags a key-based DRep id used in the script flow as the wrong path', async () => {
+    const payload = 'dreptalk:dreptalk.com:keydrep-in-script:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(31));
+
+    const result = await handleVerify(
+      {
+        body: { payload, signatureHex, publicKeyHex, role: 'drep', scriptDrepId: 'drep1ykeybaseddrepidusedinthescriptflowplaceholderxxxx' },
+        nonceKv: env.NONCES,
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: {
+          // has_script:false -> it's a key DRep, resolveScriptDRep rejects early.
+          drepInfo: async (id: string) => ({ drep_id: id, hex: 'aa', has_script: false, drep_status: 'registered', active: true, deposit: '0', expires_epoch_no: null }),
+          scriptInfo: async () => null,
+          accountInfo: async () => null,
+          proposalsByReturnAddress: async () => [],
+        },
+        network: 'preprod',
+        now: 1_700_000_100,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(401);
+    expect((result.json as { error: string }).error).toBe('key-based drep in script flow');
+  });
+
+  it('flags a Plutus-script DRep as unsupported', async () => {
+    const payload = 'dreptalk:dreptalk.com:plutus-drep:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(32));
+    // A real CIP-129 script drep id (0x23), but Koios reports a Plutus script.
+    const scriptDrepId = 'drep1yvsah2upqmwdtea8c37pac2aw3lv6z7qggcu76243p72msqjnp259';
+
+    const result = await handleVerify(
+      {
+        body: { payload, signatureHex, publicKeyHex, role: 'drep', scriptDrepId },
+        nonceKv: env.NONCES,
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: {
+          drepInfo: async (id: string) => ({ drep_id: id, hex: 'bb', has_script: true, drep_status: 'registered', active: true, deposit: '0', expires_epoch_no: null }),
+          scriptInfo: async () => ({ script_hash: '21dbab8106dcd5e7a7c47c1ee15d747ecd0bc04231cf6955887cadc0', type: 'plutusV2', value: null }),
+          accountInfo: async () => null,
+          proposalsByReturnAddress: async () => [],
+        },
+        network: 'preprod',
+        now: 1_700_000_100,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(401);
+    expect((result.json as { error: string }).error).toBe('plutus script drep unsupported');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleVerify -- happy path: SPO (Calidus, raw Ed25519)
 // ---------------------------------------------------------------------------
 
