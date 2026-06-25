@@ -5,6 +5,7 @@ import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { requestChallenge, loginOffline } from '@/lib/auth/offlineLogin.js';
+import { bytesToHex } from '@/lib/crypto/hex.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
@@ -297,7 +298,11 @@ export default function WalletLogin({ network = 'preprod' }: WalletLoginProps) {
     if (advancedOpen && signMethod === 'signer') void refreshSignerChallenge();
   }
 
-  const command = `cardano-signer sign --data "${signerPayload}" --secret-key drep.skey --json`;
+  // Hex (--data-hex), not plain --data: some cardano-signer versions treat --data
+  // as hex and reject text. Same signed bytes, so server verification is unchanged.
+  const command = signerPayload
+    ? `cardano-signer sign --data-hex "${bytesToHex(new TextEncoder().encode(signerPayload))}" --secret-key drep.skey --json`
+    : '';
   async function copyCommand() {
     try {
       await navigator.clipboard.writeText(command);

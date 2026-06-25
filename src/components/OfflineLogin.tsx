@@ -4,6 +4,7 @@
 // All flow logic lives in offlineLogin.ts (tested); this is the UI shell.
 import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import { requestChallenge, loginOffline } from '@/lib/auth/offlineLogin.js';
+import { bytesToHex } from '@/lib/crypto/hex.js';
 
 type State =
   | { status: 'loading-challenge' }
@@ -73,7 +74,11 @@ export default function OfflineLogin({ role }: { role: 'spo' | 'cc' | 'drep' }) 
   }, [loadChallenge]);
 
   const payload = 'payload' in state ? state.payload : '';
-  const command = `cardano-signer sign --data "${payload}" --secret-key ${copy.keyFile} --json`;
+  // Pass the challenge as hex (--data-hex), not plain --data: some cardano-signer
+  // versions treat --data as hex and reject the text. The signed bytes are the
+  // same (hex of the UTF-8 challenge), so server verification is unchanged.
+  const dataHex = payload ? bytesToHex(new TextEncoder().encode(payload)) : '';
+  const command = `cardano-signer sign --data-hex "${dataHex}" --secret-key ${copy.keyFile} --json`;
 
   async function handleSubmit() {
     if (!payload) return;
