@@ -273,6 +273,30 @@ export async function setTopicPostedAt(db: D1Database, topicId: string, postedAt
 }
 
 /**
+ * Corrects a governance topic's title and its opening (system) post body in one
+ * atomic batch. Used by the metadata backfill when an anchor that was unreachable
+ * at discovery (so the topic got a fallback title and an "abstract unavailable"
+ * opening post) is fetched successfully later. The slug is intentionally left
+ * unchanged so existing links stay valid, and title_edited_at is NOT set (this is
+ * a system correction, not a human edit). The post update targets only the
+ * earliest top-level post, so a racing reply (always later) is never affected.
+ */
+export async function setGovTopicTitleAndBody(
+  db: D1Database,
+  args: { topicId: string; title: string; bodyMd: string; bodyHtml: string },
+): Promise<void> {
+  await db.batch([
+    db.prepare('UPDATE topics SET title = ? WHERE id = ?').bind(args.title, args.topicId),
+    db
+      .prepare(
+        `UPDATE posts SET body_md = ?, body_html = ?
+         WHERE id = (SELECT id FROM posts WHERE topic_id = ? AND parent_post_id IS NULL ORDER BY created_at ASC LIMIT 1)`,
+      )
+      .bind(args.bodyMd, args.bodyHtml, args.topicId),
+  ]);
+}
+
+/**
  * Returns the topic for the given slug, or null if not found.
  * Parameterized SELECT.
  */

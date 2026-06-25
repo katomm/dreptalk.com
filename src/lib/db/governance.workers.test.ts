@@ -17,6 +17,7 @@ import {
   getActionsNeedingMetaReextract,
   countGivenUpMetaActions,
   updateActionMetadata,
+  getGovActionsWithStaleTopicTitle,
   getActionsNeedingVoteBackfill,
   markVotesSynced,
   getActionIdsMissingOnchainPayload,
@@ -435,6 +436,32 @@ describe('getActionsNeedingMetaReextract', () => {
     expect(ids).toContain(live.id);
     expect(ids).not.toContain(giveUp.id);
   });
+
+  it('returns a row whose anchor failed even when meta_version is already current', async () => {
+    // The latent bug: an anchor that failed at discovery is stamped at the current
+    // version, so meta_version < currentVersion never matches and it is never retried.
+    // It must still be picked up because its anchor_status is not 'ok'.
+    const failedCurrent = await insertAction({
+      anchorUrl: 'https://example.com/failed-current.json', anchorHash: 'fc', anchorStatus: 'fetch-failed', metaVersion: 1,
+    });
+    // A successfully-extracted current row has nothing to do and must NOT be retried.
+    const okCurrent = await insertAction({
+      anchorUrl: 'https://example.com/ok-current.json', anchorHash: 'oc', anchorStatus: 'ok', metaVersion: 1,
+    });
+
+    const ids = (await getActionsNeedingMetaReextract(db(), 1, 100, 10)).map((c) => c.id);
+    expect(ids).toContain(failedCurrent.id);
+    expect(ids).not.toContain(okCurrent.id);
+  });
+
+  it('stops retrying a failed-anchor current-version row once it hits the give-up cap', async () => {
+    const dead = await insertAction({
+      anchorUrl: 'https://example.com/failed-dead.json', anchorHash: 'fd', anchorStatus: 'fetch-failed', metaVersion: 1,
+    });
+    await db().prepare('UPDATE governance_actions SET meta_attempts = ? WHERE id = ?').bind(10, dead.id).run();
+    const ids = (await getActionsNeedingMetaReextract(db(), 1, 100, 10)).map((c) => c.id);
+    expect(ids).not.toContain(dead.id);
+  });
 });
 
 describe('countGivenUpMetaActions', () => {
@@ -455,6 +482,39 @@ describe('countGivenUpMetaActions', () => {
 
     const after = await countGivenUpMetaActions(db(), 1, 10);
     expect(after - before).toBe(1);
+  });
+
+  it('counts a failed-anchor row at the cap even when its meta_version is current', async () => {
+    const before = await countGivenUpMetaActions(db(), 1, 10);
+    const dead = await insertAction({
+      anchorUrl: 'https://example.com/gu-failed.json', anchorHash: 'guf', anchorStatus: 'fetch-failed', metaVersion: 1,
+    });
+    await db().prepare('UPDATE governance_actions SET meta_attempts = ? WHERE id = ?').bind(10, dead.id).run();
+    const after = await countGivenUpMetaActions(db(), 1, 10);
+    expect(after - before).toBe(1);
+  });
+});
+
+describe('getGovActionsWithStaleTopicTitle', () => {
+  it('returns gov actions whose topic title differs from the action title', async () => {
+    // seedGovRow sets the topic title to `Title <topicId>` and the action title to o.title.
+    await seedGovRow({ topicId: 'stale-tt', actionId: 'stale-tt#0', title: 'Real Anchor Title' });
+    // Action title equals the seeded topic title: not stale, must be excluded.
+    await seedGovRow({ topicId: 'match-tt', actionId: 'match-tt#0', title: 'Title match-tt' });
+    // Null action title (only a fallback exists): nothing to sync, must be excluded.
+    await seedGovRow({ topicId: 'null-tt', actionId: 'null-tt#0', title: null });
+
+    const ids = (await getGovActionsWithStaleTopicTitle(db(), 100)).map((a) => a.id);
+    expect(ids).toContain('stale-tt#0');
+    expect(ids).not.toContain('match-tt#0');
+    expect(ids).not.toContain('null-tt#0');
+  });
+
+  it('excludes a row once its topic title has been reconciled', async () => {
+    await seedGovRow({ topicId: 'fixed-tt', actionId: 'fixed-tt#0', title: 'Synced Title' });
+    await db().prepare('UPDATE topics SET title = ? WHERE id = ?').bind('Synced Title', 'fixed-tt').run();
+    const ids = (await getGovActionsWithStaleTopicTitle(db(), 100)).map((a) => a.id);
+    expect(ids).not.toContain('fixed-tt#0');
   });
 });
 
@@ -490,6 +550,18 @@ describe('updateActionMetadata', () => {
     expect(got!.status).toBe('active');
     expect(got!.drepYes).toBe(7);
     expect(got!.tallyEpoch).toBe(300);
+  });
+
+  it('clears a failed anchor_status back to ok on a successful re-extract', async () => {
+    // A row recovered by the backfill must settle as 'ok', otherwise the
+    // anchor_status != 'ok' retry predicate would re-fetch it on every run forever.
+    const a = await insertAction({ anchorStatus: 'fetch-failed', metaVersion: 0, title: null });
+    await updateActionMetadata(db(), a.id, {
+      title: 'Recovered', abstract: 'abs', rationaleHtml: '<p>r</p>', metaVersion: 1,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.anchorStatus).toBe('ok');
+    expect(got!.title).toBe('Recovered');
   });
 
   it('allows null metadata fields (legitimately empty anchor doc)', async () => {

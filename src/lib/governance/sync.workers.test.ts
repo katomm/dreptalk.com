@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt, refreshTrendingScores } from './sync.js';
+import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt, backfillGovTopicTitles, refreshTrendingScores } from './sync.js';
 import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
+import { createTopic, getOpeningPostBody } from '../db/forum.js';
 import type { ProposalListRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
@@ -133,6 +134,42 @@ describe('syncGovernanceActions', () => {
     // Row may already exist from the previous test; either way meta_version must
     // be META_EXTRACT_VERSION (1) because discovery always writes the current version.
     expect(row?.meta_version).toBe(META_EXTRACT_VERSION);
+  });
+
+  it('leaves a failed-anchor action retriable instead of stamping the current version', async () => {
+    // An action with an anchor whose fetch fails at discovery must NOT be stamped at
+    // the current extractor version: otherwise the metadata backfill (meta_version <
+    // current) would skip it forever and the topic would keep its fallback title.
+    const failProposal: ProposalListRow = {
+      proposal_id: 'gov_action1fail',
+      proposal_tx_hash: 'ef'.repeat(32),
+      proposal_index: 0,
+      proposal_type: 'TreasuryWithdrawals',
+      deposit: '100000000000',
+      return_address: 'stake_test1fail',
+      proposed_epoch: 250,
+      expiration: 260,
+      meta_url: 'https://example.com/fail-meta.json',
+      meta_hash: anchorHash,
+    };
+    const fetchFail: typeof fetch = async () => {
+      throw new Error('gateway down');
+    };
+    let n = 500;
+    await syncGovernanceActions({
+      koios: fakeKoios([failProposal]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_500_000,
+      rand: () => `rf${n++}`,
+      fetchImpl: fetchFail,
+    });
+    const row = await env.DB
+      .prepare('SELECT meta_version, anchor_status FROM governance_actions WHERE id = ?')
+      .bind(`${'ef'.repeat(32)}#0`)
+      .first<{ meta_version: number; anchor_status: string }>();
+    expect(row?.anchor_status).toBe('fetch-failed');
+    expect(row!.meta_version).toBeLessThan(META_EXTRACT_VERSION);
   });
 
   it('stores proposal_description as onchain_payload on discovery', async () => {
@@ -362,6 +399,87 @@ describe('backfillActionMetadata', () => {
     expect(got!.status).toBe('pending');
     // Row id must not have changed.
     expect(got!.id).toBe(id);
+  });
+
+  it('re-fetches and recovers a failed-anchor row stamped at the current version', async () => {
+    // Latent data shape: the anchor failed at discovery, so title is null, anchor_status
+    // is 'fetch-failed', and meta_version was (wrongly) stamped current. The backfill must
+    // still pick it up (anchor_status != 'ok') and settle it to 'ok' on a successful fetch.
+    const topicId = 'recover1-topic';
+    await env.DB.batch([
+      buildInsertGovernanceAction(env.DB, {
+        id: 'recover1#0',
+        proposalId: 'gov_recover1',
+        type: 'TreasuryWithdrawals',
+        title: null,
+        abstract: null,
+        rationaleHtml: null,
+        anchorUrl: 'https://example.com/recover1.json',
+        anchorHash: backfillHash,
+        anchorStatus: 'fetch-failed',
+        returnAddress: 'stake_test_r1',
+        deposit: '200000000000',
+        submittedEpoch: 300,
+        expiryEpoch: 310,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId,
+        now: NOW_BF,
+      }),
+    ]);
+    const fetchImpl: typeof fetch = async () =>
+      new Response(backfillJson, { headers: { 'content-type': 'application/json' } });
+    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 30, fetchImpl, limit: 200 });
+    const got = await getGovernanceActionByTopicId(env.DB, topicId);
+    expect(got!.title).toBe('Backfill Action');
+    expect(got!.anchorStatus).toBe('ok');
+  });
+
+  it('backfillGovTopicTitles syncs a stale fallback topic title and re-renders the opening post', async () => {
+    // A governance topic whose action carries a real title but whose topic title is still
+    // the discovery-time fallback (and the opening post still says no abstract): the case
+    // for both newly re-fetched anchors and older action-only recoveries.
+    const { topic } = await createTopic(env.DB, {
+      categorySlug: 'governance-actions',
+      authorId: 'gov-sync',
+      title: 'Treasury Withdrawals (cccc0000#0)',
+      bodyMd: '**On-chain governance action** (Treasury Withdrawals).\n\nNo abstract was provided in the action metadata.',
+      bodyHtml: '<p>No abstract was provided in the action metadata.</p>',
+      source: 'governance',
+      now: NOW_BF,
+      postedAt: NOW_BF,
+      rand: 'sweep',
+    });
+    await env.DB.batch([
+      buildInsertGovernanceAction(env.DB, {
+        id: 'cccc0000aaaa#0',
+        proposalId: 'gov_sweep',
+        type: 'TreasuryWithdrawals',
+        title: 'Withdraw 540,750 ada for Oura by TxPipe',
+        abstract: 'This Treasury Withdrawal funds Oura by TxPipe.',
+        rationaleHtml: '<p>r</p>',
+        anchorUrl: 'https://example.com/sweep.json',
+        anchorHash: 'h',
+        anchorStatus: 'ok',
+        returnAddress: 'stake_test_sweep',
+        deposit: '540750000000',
+        submittedEpoch: 638,
+        expiryEpoch: 645,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId: topic.id,
+        now: NOW_BF,
+      }),
+    ]);
+
+    const r = await backfillGovTopicTitles({ db: env.DB, network: 'preprod', limit: 200 });
+    expect(r.updated).toBeGreaterThanOrEqual(1);
+
+    // The topic title is corrected away from the fallback (drives the page H1 + list).
+    const t = await env.DB.prepare('SELECT title FROM topics WHERE id = ?').bind(topic.id).first<{ title: string }>();
+    expect(t!.title).toBe('Withdraw 540,750 ada for Oura by TxPipe');
+
+    // The opening post is re-rendered with the now-available abstract.
+    const body = await getOpeningPostBody(env.DB, topic.id);
+    expect(body).toContain('This Treasury Withdrawal funds Oura by TxPipe.');
   });
 
   it('does not bump meta_version when the fetch fails, and counts as failed', async () => {

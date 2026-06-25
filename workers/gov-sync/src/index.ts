@@ -27,6 +27,10 @@
 //   2026-06-23: vote sync orders by votes_synced_at (not tally recency) and the
 //               budget covers the full active set, so per-post vote lists stop
 //               lagging hours behind; vote cron moved hourly -> every 20 min.
+//   2026-06-25: re-fetch governance anchors that failed at discovery (previously
+//               stamped current-version and never retried), and add a gov-titles phase
+//               that reconciles topic titles + opening posts with the recovered action
+//               title (also fixes older action-only recoveries).
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -36,6 +40,7 @@ import {
   syncGovernanceActions,
   backfillActionMetadata,
   backfillGovTopicSubmittedAt,
+  backfillGovTopicTitles,
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
@@ -134,6 +139,15 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     const metaBackfill = await backfillActionMetadata({ db: env.DB, now: Date.now(), fetchImpl: fetch, limit: 10 });
     console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
     return { items: metaBackfill.updated, failed: metaBackfill.failed };
+  });
+
+  // Reconcile topic titles + opening posts with the (now-present) action title. Runs
+  // after the metadata phase so a title recovered this run is propagated to its topic in
+  // the same run. Pure D1, only-changed; a settled run writes nothing.
+  await phase('gov-titles', async () => {
+    const titles = await backfillGovTopicTitles({ db: env.DB, network, limit: 200 });
+    console.log(`[gov-title-backfill] scanned=${titles.scanned} updated=${titles.updated}`);
+    return { items: titles.updated };
   });
 
   // Correct post dates for existing no-reply governance topics (sync-time -> submission
