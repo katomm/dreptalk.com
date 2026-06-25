@@ -414,9 +414,10 @@ interface StatusCalloutProps {
   loginState: LoginState;
   onReset: () => void;
   role: WalletRole | SignerRole;
+  method: SignInMethod;
 }
 
-function StatusCallout({ loginState, onReset, role }: StatusCalloutProps) {
+function StatusCallout({ loginState, onReset, role, method }: StatusCalloutProps) {
   if (loginState.status === 'connecting') {
     return (
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
@@ -427,7 +428,9 @@ function StatusCallout({ loginState, onReset, role }: StatusCalloutProps) {
   if (loginState.status === 'awaiting-signature') {
     return (
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-        Please sign the login challenge in your wallet.
+        {method === 'cardano-signer'
+          ? 'Verifying your signature...'
+          : 'Please sign the login challenge in your wallet.'}
       </p>
     );
   }
@@ -595,6 +598,7 @@ function WalletTab({ network, loginState, onLoginStateChange }: WalletTabProps) 
         loginState={loginState}
         onReset={() => onLoginStateChange({ status: 'idle' })}
         role={role}
+        method="wallet"
       />
     </div>
   );
@@ -815,6 +819,7 @@ function SignerTab({ network, loginState, onLoginStateChange }: SignerTabProps) 
             loginState={loginState}
             onReset={() => { onLoginStateChange({ status: 'idle' }); }}
             role={role}
+            method="cardano-signer"
           />
 
           {/* Back to identity step */}
