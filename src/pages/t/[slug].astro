@@ -126,11 +126,11 @@ const [govAction, viewerPostState] = await Promise.all([
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 
-// Load related actions now that govAction is known (needs its id, type, returnAddress).
+// Other actions from the same proposer, for the sidebar (needs the action's
+// id to exclude itself and its return_address to match the proposer).
 const related: RelatedActionRow[] = isGovernanceTopic && govAction && db
   ? await getRelatedActions(db, {
       excludeId: govAction.id,
-      type: govAction.type,
       returnAddress: govAction.returnAddress,
       limit: 6,
     })

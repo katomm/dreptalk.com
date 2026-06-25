@@ -644,7 +644,7 @@ export async function markVotesSynced(db: D1Database, id: string, now: number): 
   await db.prepare('UPDATE governance_actions SET votes_synced_at = ? WHERE id = ?').bind(now, id).run();
 }
 
-/** A related governance action, with the topic slug for linking. */
+/** A governance action by the same proposer, with the topic slug for linking. */
 export interface RelatedActionRow {
   id: string;
   title: string | null;
@@ -654,29 +654,34 @@ export interface RelatedActionRow {
 }
 
 /**
- * Related governance actions for the detail-page sidebar: same type or same
- * proposer (return_address), excluding the current action, same-type first then
- * most recent. Only actions that have a forum topic (so they are linkable).
+ * Other governance actions from the same proposer (return_address) for the
+ * detail-page sidebar, most recent first, excluding the current action. Only
+ * actions that have a forum topic (so they are linkable). Returns [] when the
+ * action has no proposer, since a null return_address relates to nothing.
+ *
+ * Type is deliberately not a relatedness signal: with only seven action types,
+ * two actions sharing a type (say, two unrelated treasury withdrawals) say
+ * nothing about being about the same thing. Proposer is the meaningful link.
  */
 export async function getRelatedActions(
   db: D1Database,
-  opts: { excludeId: string; type: string; returnAddress: string | null; limit?: number },
+  opts: { excludeId: string; returnAddress: string | null; limit?: number },
 ): Promise<RelatedActionRow[]> {
+  if (opts.returnAddress === null) return [];
   const limit = Math.min(Math.max(opts.limit ?? 6, 1), 20);
-  const rows = (
+  return (
     await db
       .prepare(
         `SELECT g.id AS id, g.title AS title, g.type AS type, g.status AS status, t.slug AS topic_slug
          FROM governance_actions g
          JOIN topics t ON t.id = g.topic_id
-         WHERE g.id != ? AND (g.type = ? OR (? IS NOT NULL AND g.return_address = ?))
-         ORDER BY (g.type = ?) DESC, g.submitted_epoch DESC
+         WHERE g.return_address = ? AND g.id != ?
+         ORDER BY g.submitted_epoch DESC
          LIMIT ?`,
       )
-      .bind(opts.excludeId, opts.type, opts.returnAddress, opts.returnAddress, opts.type, limit)
+      .bind(opts.returnAddress, opts.excludeId, limit)
       .all<RelatedActionRow>()
   ).results ?? [];
-  return rows;
 }
 
 /** Updates an action's extracted metadata fields and bumps its meta_version. */

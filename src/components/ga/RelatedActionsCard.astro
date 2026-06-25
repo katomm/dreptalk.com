@@ -1,5 +1,5 @@
 ---
-// Sidebar card: related governance actions (same type or same proposer).
+// Sidebar card: other governance actions from the same proposer.
 // Renders nothing when the list is empty.
 import type { RelatedActionRow } from '@/lib/db/governance.js';
 import { readableType, statusBadge, TONE_COLORS } from '@/lib/governance/view.js';
@@ -13,7 +13,7 @@ const { actions } = Astro.props;
 
 {actions.length > 0 && (
   <div class="sidebar-card">
-    <p class="sidebar-card__title">Related Actions</p>
+    <p class="sidebar-card__title">More from this proposer</p>
     <ul class="related-list">
       {actions.map((a) => {
         const badge = statusBadge(a.status);
