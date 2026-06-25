@@ -23,7 +23,7 @@ import { handleChallenge, handleVerify, handleLogout } from './handlers.js';
 import { getSession } from './session.js';
 import { getUserById } from '../db/users.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
-import { ccHotKeyHashHex, DREP_SCRIPT_HEADER } from '../cardano/identity.js';
+import { ccHotKeyHashHex, DREP_SCRIPT_HEADER, drepIdFromPubKey } from '../cardano/identity.js';
 import { nativeScriptHash, parseNativeScriptJson } from '../cardano/nativeScript.js';
 import { encodeBech32 } from '../crypto/bech32.js';
 
@@ -231,6 +231,84 @@ describe('handleVerify: happy path (drep)', () => {
 
     expect(result.status).toBe(200);
     expect((result.json as { ok: boolean }).ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleVerify -- happy path: key-based CLI DRep (raw Ed25519, cardano-signer)
+// ---------------------------------------------------------------------------
+
+describe('handleVerify: happy path (key DRep, offline)', () => {
+  it('logs in a key-based DRep that signs the challenge with cardano-signer (raw, no keyHex)', async () => {
+    const payload = 'dreptalk:dreptalk.com:cli-drep-nonce:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+
+    const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, new Uint8Array(32).fill(21));
+    const expectedDrepId = drepIdFromPubKey(pubKey);
+
+    const result = await handleVerify(
+      {
+        // No keyHex (COSE) and no scriptDrepId: a plain key DRep signing offline.
+        body: { payload, signatureHex, publicKeyHex, role: 'drep' },
+        nonceKv: env.NONCES,
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: {
+          drepInfo: async (id: string) => ({
+            drep_id: id,
+            hex: 'dd',
+            has_script: false,
+            drep_status: 'registered',
+            active: true,
+            deposit: '500000000',
+            expires_epoch_no: null,
+          }),
+          accountInfo: async () => null,
+          proposalsByReturnAddress: async () => [],
+        },
+        network: 'preprod',
+        now: 1_700_000_100,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(200);
+    const json = result.json as { ok: boolean; user: { id: string; roles: string[] } };
+    expect(json.ok).toBe(true);
+    expect(json.user.id).toBe(expectedDrepId);
+    expect(json.user.roles).toContain('drep');
+    const row = await getUserById(env.DB, json.user.id);
+    expect(row!.is_drep).toBe(true);
+  });
+
+  it('rejects a key-based DRep whose id is not a registered active DRep', async () => {
+    const payload = 'dreptalk:dreptalk.com:cli-drep-reject-nonce:1700000000';
+    await preloadNonce(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+
+    const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(22));
+
+    const result = await handleVerify(
+      {
+        body: { payload, signatureHex, publicKeyHex, role: 'drep' },
+        nonceKv: env.NONCES,
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: {
+          drepInfo: async () => null,
+          accountInfo: async () => null,
+          proposalsByReturnAddress: async () => [],
+        },
+        network: 'preprod',
+        now: 1_700_000_100,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(401);
   });
 });
 

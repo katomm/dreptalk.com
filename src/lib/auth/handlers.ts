@@ -141,9 +141,10 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
   // DRep and Proposer prove identity with a CIP-8 wallet signature; SPO (Calidus)
   // and CC members paste a raw Ed25519 signature produced by cardano-signer.
   if (role === 'drep' || role === 'proposer') {
-    // A script-DRep member signing offline pastes a raw Ed25519 sig (publicKeyHex),
-    // not a COSE key (keyHex); route that to the raw verifier.
-    if (role === 'drep' && typeof body.scriptDrepId === 'string' && typeof body.keyHex !== 'string') {
+    // A DRep signing offline pastes a raw Ed25519 sig (publicKeyHex), not a COSE
+    // key (keyHex): route to the raw verifier. Covers a key-based CLI DRep (no
+    // scriptDrepId) and a script-DRep member (with scriptDrepId).
+    if (role === 'drep' && typeof body.keyHex !== 'string' && typeof body.publicKeyHex === 'string') {
       return await verifyRawEd25519(role, input, deps);
     }
     return await verifyWalletCip8(role, input, deps);
@@ -300,15 +301,27 @@ async function verifyRawEd25519(
   let ccCred: string | undefined;
 
   if (role === 'drep') {
-    if (typeof body.scriptDrepId !== 'string' || !isLikelyDrepId(body.scriptDrepId)) {
-      return { status: 400, json: { ok: false, error: 'invalid request' } };
+    if (typeof body.scriptDrepId === 'string') {
+      // Script (multisig) DRep: prove membership of the native script.
+      if (!isLikelyDrepId(body.scriptDrepId)) {
+        return { status: 400, json: { ok: false, error: 'invalid request' } };
+      }
+      const candidateKeyHashHex = ccHotKeyHashHex(pubKey);
+      const resolution = await resolveScriptDRep(koios, body.scriptDrepId, candidateKeyHashHex);
+      if (!resolution.isMember) {
+        return { status: 401, json: { ok: false, error: 'not a script DRep member' } };
+      }
+      return finishLogin(input, { drepId: body.scriptDrepId, grantedRoles: ['drep'], modRole: null });
     }
-    const candidateKeyHashHex = ccHotKeyHashHex(pubKey);
-    const resolution = await resolveScriptDRep(koios, body.scriptDrepId, candidateKeyHashHex);
-    if (!resolution.isMember) {
-      return { status: 401, json: { ok: false, error: 'not a script DRep member' } };
+    // Key-based CLI DRep signing offline with cardano-signer (no browser wallet):
+    // derive the DRep id from the signed key and resolve it on-chain, the same
+    // identity binding as the wallet path, just from a raw pubkey instead of COSE.
+    const drepId = drepIdFromPubKey(pubKey);
+    const resolution = await resolveDRep(koios, drepId);
+    if (!resolution.isDrep) {
+      return { status: 401, json: { ok: false, error: 'not an active DRep' } };
     }
-    return finishLogin(input, { drepId: body.scriptDrepId, grantedRoles: ['drep'], modRole: null });
+    return finishLogin(input, { drepId, grantedRoles: ['drep'], modRole: null });
   }
 
   if (role === 'spo') {

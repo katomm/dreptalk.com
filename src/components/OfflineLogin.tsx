@@ -13,7 +13,7 @@ type State =
   | { status: 'error'; payload: string; message: string }
   | { status: 'success'; userId: string; roles: string[] };
 
-const ROLE_COPY: Record<'spo' | 'cc', { title: string; keyFile: string; what: string; notMember: string }> = {
+const ROLE_COPY: Record<'spo' | 'cc' | 'drep', { title: string; keyFile: string; what: string; notMember: string }> = {
   spo: {
     title: 'Sign in as a Stake Pool Operator',
     keyFile: 'calidus.skey',
@@ -28,24 +28,32 @@ const ROLE_COPY: Record<'spo' | 'cc', { title: string; keyFile: string; what: st
     notMember:
       'This hot key is not an authorized, key-based Constitutional Committee credential on this network.',
   },
+  drep: {
+    title: 'Sign in as a DRep (CLI)',
+    keyFile: 'drep.skey',
+    what: 'your DRep key',
+    notMember:
+      'This key is not a registered, active DRep on this network. Register as a DRep first, then try again.',
+  },
 };
 
 // Turn the server's terse error into a clear, role-aware sentence.
-function friendlyError(error: string | undefined, role: 'spo' | 'cc'): string {
+function friendlyError(error: string | undefined, role: 'spo' | 'cc' | 'drep'): string {
   const e = (error ?? '').toLowerCase();
   if (!e) return 'Login failed. Please try again.';
   if (e.includes('nonce')) return 'Your login challenge expired. Get a fresh challenge and sign it again.';
   if (e.includes('signature verification')) {
     return `We could not verify your signature. Make sure you signed the exact challenge with ${ROLE_COPY[role].what}.`;
   }
-  if (e.includes('not an active spo') || e.includes('not an authorized cc')) return ROLE_COPY[role].notMember;
+  if (e.includes('not an active spo') || e.includes('not an authorized cc') || e.includes('not an active drep'))
+    return ROLE_COPY[role].notMember;
   if (e.includes('invalid request')) return 'The pasted signature or key was not in the expected format.';
   if (e.includes('could not read')) return error!;
   const msg = error!.charAt(0).toUpperCase() + error!.slice(1);
   return /[.!?]$/.test(msg) ? msg : `${msg}.`;
 }
 
-export default function OfflineLogin({ role }: { role: 'spo' | 'cc' }) {
+export default function OfflineLogin({ role }: { role: 'spo' | 'cc' | 'drep' }) {
   const [state, setState] = useState<State>({ status: 'loading-challenge' });
   const [pasted, setPasted] = useState('');
   const copy = ROLE_COPY[role];

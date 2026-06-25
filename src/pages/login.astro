@@ -11,7 +11,14 @@ export const prerender = false;
 // result; DRep and Proposer connect a CIP-30 wallet. The role query param picks
 // the flow (the server re-validates the role independently).
 const roleParam = Astro.url.searchParams.get('role');
-const offlineRole = roleParam === 'spo' || roleParam === 'cc' ? roleParam : null;
+// Key-based DReps with CLI keys and no browser wallet sign offline too, via ?cli=1.
+const cli = Astro.url.searchParams.get('cli') === '1';
+const offlineRole =
+  roleParam === 'spo' || roleParam === 'cc'
+    ? roleParam
+    : roleParam === 'drep' && cli
+      ? 'drep'
+      : null;
 
 // Resolve the deployment network (CARDANO_NETWORK, defaults mainnet) so the DRep
 // island builds the correct CIP-19 type-6 address header when signing.
@@ -39,6 +46,13 @@ const network = currentNetwork().network;
       <WalletLogin network={network} client:load />
     )}
 
+    {!offlineRole && (
+      <p class="login__cli">
+        DRep with CLI keys and no browser wallet?{' '}
+        <a href="/login?role=drep&cli=1">Sign in with cardano-signer</a>
+      </p>
+    )}
+
     <footer class="login__foot">
       Need help? <a href="/help">View documentation</a>
     </footer>
@@ -63,6 +77,16 @@ const network = currentNetwork().network;
     margin: 0.65rem auto 0;
     max-width: 30rem;
     line-height: 1.55;
+  }
+  .login__cli {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.875rem;
+    margin-top: 1.1rem;
+  }
+  .login__cli a {
+    color: var(--accent);
+    font-weight: 600;
   }
   .login__foot {
     text-align: center;
