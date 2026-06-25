@@ -8,7 +8,7 @@ import { governanceActionUrl, epochStartMs, resolveNetwork, type CardanoNetwork 
 import { readableType, formatAda } from './view.js';
 import { fetchAnchorMetadata, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
-import { createTopic, setTopicPostedAt, getAllTopicsByCategory } from '../db/forum.js';
+import { createTopic, setTopicPostedAt, setGovTopicTitleAndBody, getAllTopicsByCategory } from '../db/forum.js';
 import { activityInsert } from '../db/activity.js';
 import {
   getKnownActionIds,
@@ -17,6 +17,7 @@ import {
   incrementActionMetaAttempts,
   updateActionMetadata,
   getGovTopicsForSubmittedAtBackfill,
+  getGovActionsWithStaleTopicTitle,
   getAllGovernanceActions,
   batchUpdateTrendingScores,
   getActionIdsMissingOnchainPayload,
@@ -49,23 +50,38 @@ export interface GovSyncDeps {
 }
 
 /**
+ * The on-chain fields the first post renders. Both discovery (from a Koios
+ * ProposalListRow) and the metadata backfill (from a stored governance_actions
+ * row) build this shape, so the opening post can be re-rendered identically when
+ * a late anchor recovery fills in the previously-missing abstract.
+ */
+interface FirstPostFields {
+  proposalType: string;
+  returnAddress: string | null;
+  deposit: string | null;
+  proposedEpoch: number | null;
+  expiration: number | null;
+  proposalId: string | null;
+}
+
+/**
  * Composes the first post as Markdown. Everything (including the untrusted
  * abstract and return address) is rendered through renderMarkdown, whose xss
  * allowlist is the backstop against injection.
  */
-function composeFirstPostMd(p: ProposalListRow, abstract: string | null, network: CardanoNetwork): string {
+function composeFirstPostMd(p: FirstPostFields, abstract: string | null, network: CardanoNetwork): string {
   const lines: string[] = [
-    `**On-chain governance action** (${readableType(p.proposal_type)}).`,
+    `**On-chain governance action** (${readableType(p.proposalType)}).`,
     '',
     abstract || 'No abstract was provided in the action metadata.',
     '',
   ];
-  if (p.return_address) lines.push(`- Proposer return address: \`${p.return_address}\``);
+  if (p.returnAddress) lines.push(`- Proposer return address: \`${p.returnAddress}\``);
   const dep = formatAda(p.deposit);
   if (dep) lines.push(`- Deposit: ${dep}`);
-  if (p.proposed_epoch != null) lines.push(`- Submitted: epoch ${p.proposed_epoch}`);
+  if (p.proposedEpoch != null) lines.push(`- Submitted: epoch ${p.proposedEpoch}`);
   if (p.expiration != null) lines.push(`- Expires: epoch ${p.expiration}`);
-  lines.push('', `[View in explorer](${governanceActionUrl(network, p.proposal_id)})`);
+  if (p.proposalId) lines.push('', `[View in explorer](${governanceActionUrl(network, p.proposalId)})`);
   return lines.join('\n');
 }
 
@@ -100,7 +116,18 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
       const title =
         meta?.title || `${readableType(p.proposal_type)} (${p.proposal_tx_hash.slice(0, 8)}#${p.proposal_index})`;
 
-      const bodyMd = composeFirstPostMd(p, meta?.abstract ?? null, network);
+      const bodyMd = composeFirstPostMd(
+        {
+          proposalType: p.proposal_type,
+          returnAddress: p.return_address ?? null,
+          deposit: p.deposit ?? null,
+          proposedEpoch: p.proposed_epoch ?? null,
+          expiration: p.expiration ?? null,
+          proposalId: p.proposal_id,
+        },
+        meta?.abstract ?? null,
+        network,
+      );
       const bodyHtml = renderMarkdown(bodyMd);
 
       // Post date = on-chain submission time (epoch start; ~5-day granularity, always
@@ -137,7 +164,11 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
             submittedAt: p.block_time != null ? p.block_time * 1000 : null,
             expiryEpoch: p.expiration ?? null,
             onchainPayload: p.proposal_description != null ? JSON.stringify(p.proposal_description) : null,
-            metaVersion: META_EXTRACT_VERSION,
+            // Only claim the current extractor version when the anchor actually
+            // extracted ok (or there is no anchor to read). A failed fetch leaves
+            // the row below current so the metadata backfill retries it later,
+            // instead of treating the empty metadata as final and never revisiting.
+            metaVersion: anchor.status === 'ok' || anchor.status === 'no-anchor' ? META_EXTRACT_VERSION : 0,
             topicId,
             now,
           }),
@@ -248,7 +279,9 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
         await incrementActionMetaAttempts(db, ga.id);
         continue;
       }
-      // Successful fetch (even when the doc has no rationale): bump version.
+      // Successful fetch (even when the doc has no rationale): bump version. The
+      // topic title + opening post are reconciled separately by backfillGovTopicTitles,
+      // so this stays focused on the action row.
       await updateActionMetadata(db, ga.id, {
         title: result.metadata.title,
         abstract: result.metadata.abstract,
@@ -295,6 +328,58 @@ export async function backfillGovTopicSubmittedAt(deps: SubmittedAtBackfillDeps)
     const submittedAtMs = epochStartMs(c.submittedEpoch, cfg);
     if (c.createdAt === submittedAtMs && c.lastPostAt === submittedAtMs) continue;
     await setTopicPostedAt(db, c.topicId, submittedAtMs);
+    updated++;
+  }
+  return { scanned: candidates.length, updated };
+}
+
+export interface TopicTitleBackfillResult {
+  scanned: number;
+  updated: number;
+}
+
+export interface TopicTitleBackfillDeps {
+  db: D1Database;
+  network: CardanoNetwork;
+  /** Max stale-title topics to reconcile per run (bounds the sweep). */
+  limit: number;
+}
+
+/**
+ * Idempotent topic-title reconciliation: for governance topics whose stored action has a
+ * real title that differs from the topic's title, sync the topic title and re-render the
+ * opening post from the stored action fields + abstract. This corrects topics left on a
+ * discovery-time fallback because the anchor failed then (the action title is filled in
+ * later by the metadata backfill) as well as older rows recovered by a backfill that
+ * updated only the action row. Pure D1 (no Koios/anchor fetch); the slug is left unchanged
+ * so links stay valid. Only-changed: once every topic matches its action, this writes
+ * nothing, so it is safe to call every sync.
+ */
+export async function backfillGovTopicTitles(deps: TopicTitleBackfillDeps): Promise<TopicTitleBackfillResult> {
+  const { db, network, limit } = deps;
+  const candidates = await getGovActionsWithStaleTopicTitle(db, limit);
+  let updated = 0;
+  for (const ga of candidates) {
+    // The query guarantees both, but the types are nullable: guard for safety.
+    if (!ga.topicId || ga.title === null) continue;
+    const bodyMd = composeFirstPostMd(
+      {
+        proposalType: ga.type,
+        returnAddress: ga.returnAddress,
+        deposit: ga.deposit,
+        proposedEpoch: ga.submittedEpoch,
+        expiration: ga.expiryEpoch,
+        proposalId: ga.proposalId,
+      },
+      ga.abstract,
+      network,
+    );
+    await setGovTopicTitleAndBody(db, {
+      topicId: ga.topicId,
+      title: ga.title,
+      bodyMd,
+      bodyHtml: renderMarkdown(bodyMd),
+    });
     updated++;
   }
   return { scanned: candidates.length, updated };

@@ -531,16 +531,44 @@ export async function getGovTopicsForSubmittedAtBackfill(
   return rows;
 }
 
+/**
+ * Governance actions whose stored title differs from their topic's title: the topic
+ * kept a discovery-time fallback while the action later got the real anchor title
+ * (the anchor failed at discovery and was re-fetched, or an older backfill updated
+ * only the action row). The topic-title reconciliation sweep reads these and syncs
+ * the topic + opening post. Excludes rows with a null action title (only a fallback
+ * exists, nothing to sync) and deleted topics. `t.title IS NOT ga.title` is the
+ * null-safe inequality (action title is already non-null here).
+ */
+export async function getGovActionsWithStaleTopicTitle(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT ga.* FROM governance_actions ga
+         JOIN topics t ON t.id = ga.topic_id
+         WHERE t.source = 'governance' AND t.deleted = 0 AND ga.title IS NOT NULL AND t.title IS NOT ga.title
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
 /** Surgically sets only drep_voted_power for one action (leaves status/tally untouched). */
 export async function updateVotedPower(db: D1Database, id: string, votedPower: number): Promise<void> {
   await db.prepare('UPDATE governance_actions SET drep_voted_power = ? WHERE id = ?').bind(votedPower, id).run();
 }
 
 /**
- * Actions whose stored metadata predates the current extractor and have an
- * anchor to re-read. Rows that have failed re-extraction maxAttempts times are
- * excluded: their anchor is treated as permanently dead so the backfill stops
- * retrying it every run.
+ * Actions the metadata backfill should (re-)read an anchor for: either their
+ * stored metadata predates the current extractor (meta_version < current), OR
+ * their last anchor fetch did not succeed (anchor_status != 'ok'). The second
+ * arm is what self-heals an anchor that was momentarily unreachable at discovery:
+ * such a row is stamped at the current version with empty metadata, so the
+ * version check alone would never revisit it. Rows that have failed
+ * re-extraction maxAttempts times are excluded: their anchor is treated as
+ * permanently dead so the backfill stops retrying it every run.
  */
 export async function getActionsNeedingMetaReextract(
   db: D1Database,
@@ -552,7 +580,7 @@ export async function getActionsNeedingMetaReextract(
     await db
       .prepare(
         `SELECT * FROM governance_actions
-         WHERE anchor_url IS NOT NULL AND meta_version < ? AND meta_attempts < ?
+         WHERE anchor_url IS NOT NULL AND (meta_version < ? OR anchor_status != 'ok') AND meta_attempts < ?
          LIMIT ?`,
       )
       .bind(currentVersion, maxAttempts, limit)
@@ -583,7 +611,7 @@ export async function countGivenUpMetaActions(
   const row = await db
     .prepare(
       `SELECT COUNT(*) AS n FROM governance_actions
-       WHERE anchor_url IS NOT NULL AND meta_version < ? AND meta_attempts >= ?`,
+       WHERE anchor_url IS NOT NULL AND (meta_version < ? OR anchor_status != 'ok') AND meta_attempts >= ?`,
     )
     .bind(currentVersion, maxAttempts)
     .first<{ n: number }>();
@@ -657,11 +685,15 @@ export async function updateActionMetadata(
   id: string,
   m: { title: string | null; abstract: string | null; rationaleHtml: string | null; metaVersion: number },
 ): Promise<void> {
-  // A successful extract clears meta_attempts so a future version bump starts
-  // this row's retry budget fresh (a past dead spell must not count against it).
+  // Only ever called after a successful, hash-verified extraction, so the row
+  // settles as anchor_status 'ok'. This is essential for rows recovered from a
+  // failed fetch: without it they keep anchor_status != 'ok' and the retry
+  // predicate would re-fetch them on every run forever. A successful extract also
+  // clears meta_attempts so a future version bump starts this row's retry budget
+  // fresh (a past dead spell must not count against it).
   await db
     .prepare(
-      'UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, meta_version = ?, meta_attempts = 0 WHERE id = ?',
+      "UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, anchor_status = 'ok', meta_version = ?, meta_attempts = 0 WHERE id = ?",
     )
     .bind(m.title, m.abstract, m.rationaleHtml, m.metaVersion, id)
     .run();
