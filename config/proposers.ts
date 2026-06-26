@@ -99,6 +99,36 @@ export const PROPOSERS: Proposer[] = [
     addresses: ['stake1uxx5zvsjds4mha66z6y0ftd40ztzt7f90eqlf85hmvhlukc6p4ue3'],
     website: 'https://5am.earth',
   },
+  {
+    slug: 'se7en-labs',
+    name: 'Se7en Labs',
+    addresses: ['stake1u85was6qks0exltkfl74clay4p6l272ry6kpkgweyfs7vtcvaj7xm'],
+    icon: '/orgs/se7en-labs.jpg',
+  },
+  {
+    slug: 'anvil',
+    name: 'Anvil',
+    addresses: ['stake1uy8vr53guapag0rfvwnumlteyls8agysvrv87pdgukp8cugm6qjgj'],
+    icon: '/orgs/anvil.jpg',
+  },
+  {
+    slug: 'cardano-builder-dao',
+    name: 'Cardano Builder DAO',
+    addresses: ['stake1uymdrk3whg82qfvwcw2avzy9zud95sx3w0sfyfsr5td445ccujqn6'],
+    icon: '/orgs/cardano-builder-dao.jpg',
+  },
+  {
+    slug: 'rare-network',
+    name: 'Rare Network',
+    addresses: ['stake1u9glfx6kyekq983rk70wvppyz3mqvq5cvkzpj528vs4gs4cknjdxx'],
+    icon: '/orgs/rare-network.jpg',
+  },
+  {
+    slug: 'yuta',
+    name: 'YUTA',
+    addresses: ['stake1uy5mx9230r5c0a8tp69kpw6773ycm9spghazx9t8gnyfzgs8ymlec'],
+    icon: '/orgs/yuta.jpg',
+  },
 ];
 
 /** Lowercase + trim, so lookups are case/whitespace-insensitive. */
