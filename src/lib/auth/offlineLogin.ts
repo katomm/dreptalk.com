@@ -7,14 +7,20 @@
 // which prints { "signature": "<hex>", "publicKey": "<hex>" }. They paste that
 // output back; we parse it, then POST the raw signature + public key to verify.
 
-import { isHexExact, RAW_SIG_HEX_LEN, RAW_PUBKEY_HEX_LEN } from '../validation/input.js';
+import { isHex, isHexExact, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN, RAW_SIG_HEX_LEN, RAW_PUBKEY_HEX_LEN } from '../validation/input.js';
 
 export type OfflineRole = 'spo' | 'cc' | 'drep';
 
-export interface SignerOutput {
-  signatureHex: string;
-  publicKeyHex: string;
-}
+// cardano-signer prints two shapes depending on the flags used:
+//   plain  (--data-hex):  { signature, publicKey }            -> raw Ed25519
+//   CIP-30 (--cip30):     { COSE_Sign1_hex, COSE_Key_hex }    -> COSE_Sign1 + COSE_Key
+// The raw pair routes to the raw verifier; the COSE pair reuses the wallet's
+// CIP-8 verifier (the same COSE structure a CIP-30 wallet produces). COSE only
+// applies to DRep sign-in: a single key cannot COSE-sign for a script address,
+// and SPO/CC are never offered a --cip30 command.
+export type SignerOutput =
+  | { kind: 'raw'; signatureHex: string; publicKeyHex: string }
+  | { kind: 'cose'; signatureHex: string; keyHex: string };
 
 export interface LoginResult {
   ok: boolean;
@@ -27,11 +33,12 @@ interface Deps {
 }
 
 /**
- * Extracts a raw Ed25519 signature (64 bytes) and public key (32 bytes) from
- * whatever the user pasted. Accepts cardano-signer's JSON output
- * ({signature, publicKey} or {signatureHex, publicKeyHex}) or two bare hex
- * strings in any order (disambiguated by length). Returns null if a valid pair
- * cannot be found, so the caller never sends junk to the server.
+ * Extracts the signer material from whatever the user pasted. Accepts:
+ *  - cardano-signer plain JSON ({signature, publicKey} or {signatureHex,
+ *    publicKeyHex}) -> a raw Ed25519 pair;
+ *  - cardano-signer --cip30 JSON ({COSE_Sign1_hex, COSE_Key_hex}) -> a COSE pair;
+ *  - two bare hex strings in any order (disambiguated by length) -> raw.
+ * Returns null if nothing valid is found, so the caller never sends junk.
  */
 export function parseSignerOutput(text: string): SignerOutput | null {
   const trimmed = text.trim();
@@ -41,11 +48,22 @@ export function parseSignerOutput(text: string): SignerOutput | null {
   if (trimmed.startsWith('{')) {
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      // Plain raw output: { signature, publicKey }.
       const sig = firstString(obj.signature, obj.signatureHex);
       const pub = firstString(obj.publicKey, obj.publicKeyHex, obj.pubKey);
       if (sig && pub) {
         const out = { signatureHex: sig.toLowerCase(), publicKeyHex: pub.toLowerCase() };
-        return isValidPair(out) ? out : null;
+        return isValidRawPair(out) ? { kind: 'raw', ...out } : null;
+      }
+      // CIP-30 COSE output (cardano-signer --cip30): { COSE_Sign1_hex, COSE_Key_hex }.
+      const coseSig = firstString(obj.COSE_Sign1_hex, obj.cose_sign1_hex);
+      const coseKey = firstString(obj.COSE_Key_hex, obj.cose_key_hex);
+      if (coseSig && coseKey) {
+        const signatureHex = coseSig.toLowerCase();
+        const keyHex = coseKey.toLowerCase();
+        if (isHex(signatureHex, MAX_SIG_HEX_LEN) && isHex(keyHex, MAX_KEY_HEX_LEN)) {
+          return { kind: 'cose', signatureHex, keyHex };
+        }
       }
       return null;
     } catch {
@@ -59,7 +77,7 @@ export function parseSignerOutput(text: string): SignerOutput | null {
   const pub = runs.find((r) => r.length === RAW_PUBKEY_HEX_LEN);
   if (sig && pub) {
     const out = { signatureHex: sig, publicKeyHex: pub };
-    return isValidPair(out) ? out : null;
+    return isValidRawPair(out) ? { kind: 'raw', ...out } : null;
   }
   return null;
 }
@@ -71,7 +89,7 @@ function firstString(...vals: unknown[]): string | null {
   return null;
 }
 
-function isValidPair(out: SignerOutput): boolean {
+function isValidRawPair(out: { signatureHex: string; publicKeyHex: string }): boolean {
   return isHexExact(out.signatureHex, RAW_SIG_HEX_LEN) && isHexExact(out.publicKeyHex, RAW_PUBKEY_HEX_LEN);
 }
 
@@ -108,9 +126,27 @@ export async function loginOffline(
   if (!parsed) {
     return {
       ok: false,
-      error: 'Could not read a signature and public key from what you pasted. Paste the full JSON output of cardano-signer.',
+      error:
+        'Could not read a signature from what you pasted. Paste the full JSON output of cardano-signer: either the plain {"signature", "publicKey"} or, with --cip30, {"COSE_Sign1_hex", "COSE_Key_hex"}.',
     };
   }
+
+  // COSE (--cip30) only applies to DRep sign-in. SPOs and CC members must use the
+  // plain command; a single key cannot COSE-sign for those, and they are never
+  // shown a --cip30 command.
+  if (parsed.kind === 'cose' && args.role !== 'drep') {
+    return {
+      ok: false,
+      error: 'The --cip30 (COSE) output is only for DRep sign-in. SPOs and CC members use the plain command, without --cip30.',
+    };
+  }
+
+  // raw -> {signatureHex, publicKeyHex} (raw verifier); cose -> {signatureHex,
+  // keyHex} (the wallet CIP-8 verifier). The server dispatches on keyHex.
+  const sigFields =
+    parsed.kind === 'cose'
+      ? { signatureHex: parsed.signatureHex, keyHex: parsed.keyHex }
+      : { signatureHex: parsed.signatureHex, publicKeyHex: parsed.publicKeyHex };
 
   try {
     const res = await fetchFn('/api/auth/verify', {
@@ -118,8 +154,7 @@ export async function loginOffline(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         payload: args.payload,
-        signatureHex: parsed.signatureHex,
-        publicKeyHex: parsed.publicKeyHex,
+        ...sigFields,
         role: args.role,
         ...(args.scriptDrepId ? { scriptDrepId: args.scriptDrepId } : {}),
       }),

@@ -170,14 +170,18 @@ export async function resolveScriptDRep(
   drepId: string,
   candidateKeyHashHex: string,
 ): Promise<ScriptDRepResolution> {
+  // Check the id form first: a key-credential DRep id (header 0x22) entered in
+  // the script field is the common mistake, and it must yield the actionable
+  // "not a script id" reason whether or not it is registered (no Koios call
+  // needed to know it is the wrong kind).
+  const parsed = parseDrepId(drepId);
+  if (!parsed || parsed.kind !== 'script') return { isMember: false, active: false, reason: 'not a script id' };
+
   const info = await koios.drepInfo(drepId);
   if (!info) return { isMember: false, active: false, reason: 'not found' };
   if (!info.has_script) return { isMember: false, active: info.active, reason: 'not a script drep' };
   if (info.drep_status !== 'registered') return { isMember: false, active: info.active, reason: 'not registered' };
   if (!info.active) return { isMember: false, active: false, reason: 'inactive' };
-
-  const parsed = parseDrepId(drepId);
-  if (!parsed || parsed.kind !== 'script') return { isMember: false, active: info.active, reason: 'not a script id' };
 
   const scriptData = await koios.scriptInfo(parsed.hashHex);
   if (!scriptData) return { isMember: false, active: info.active, reason: 'script not found' };

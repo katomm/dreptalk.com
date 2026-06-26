@@ -325,9 +325,25 @@ describe('resolveScriptDRep', () => {
     expect(result.reason).toBe('unsupported script');
   });
 
-  it('rejects a non-script drep id', async () => {
+  it('rejects a key-form drep id in the script field by its form (not a script id)', async () => {
     const koios = makeKoios({ drepInfo: () => Promise.resolve(drepFixture({ has_script: false })) });
     const result = await resolveScriptDRep(koios, DREP_ID, MEMBER_KH);
+    expect(result.isMember).toBe(false);
+    expect(result.reason).toBe('not a script id');
+  });
+
+  it('rejects an unregistered key-form drep id as "not a script id" (no Koios round trip needed)', async () => {
+    // The id form (header 0x22) already tells us it is the wrong kind, so an
+    // unregistered key-DRep id still gets the actionable reason rather than "not found".
+    const koios = makeKoios({ drepInfo: () => Promise.resolve(null) });
+    const result = await resolveScriptDRep(koios, DREP_ID, MEMBER_KH);
+    expect(result.isMember).toBe(false);
+    expect(result.reason).toBe('not a script id');
+  });
+
+  it('rejects a script-form id whose on-chain DRep is not a script', async () => {
+    const koios = makeKoios({ drepInfo: () => Promise.resolve(drepFixture({ has_script: false, drep_id: SCRIPT_DREP_ID })) });
+    const result = await resolveScriptDRep(koios, SCRIPT_DREP_ID, MEMBER_KH);
     expect(result.isMember).toBe(false);
     expect(result.reason).toBe('not a script drep');
   });
