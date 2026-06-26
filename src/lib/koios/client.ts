@@ -224,6 +224,20 @@ const drepUpdateRowSchema = z
 
 export type DrepUpdateRow = z.infer<typeof drepUpdateRowSchema>;
 
+// One row of /drep_voting_power_history: a DRep's voting power snapshot for a
+// single epoch. amount is the snapshotted lovelace (nullable in the Koios
+// response). Unfiltered (no _drep_id) the endpoint returns every DRep for the
+// requested epoch, which is how the trend sync captures a whole epoch at once.
+const drepVotingPowerHistoryRowSchema = z
+  .object({
+    drep_id: z.string(),
+    epoch_no: z.number(),
+    amount: z.string().nullable(),
+  })
+  .passthrough();
+
+export type DrepVotingPowerHistoryRow = z.infer<typeof drepVotingPowerHistoryRowSchema>;
+
 // One row of /pool_calidus_keys. Koios already applies the CIP-151 highest-nonce
 // and revocation rules, exposing only the currently valid key per pool with
 // `registered: true`. calidus_pub_key is the raw 32-byte Ed25519 public key (hex)
@@ -486,6 +500,19 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/drep_updates?limit=${limit}&offset=${offset}`;
       const data = await request(path, { method: 'GET' });
       return z.array(drepUpdateRowSchema).parse(data);
+    },
+
+    // Every DRep's voting power snapshot for one epoch (paginated). Without a
+    // _drep_id filter the endpoint returns the whole epoch, so the trend sync
+    // pages through it to capture all DReps; callers increment offset by limit.
+    async drepVotingPowerHistory(
+      epochNo: number,
+      limit = 1000,
+      offset = 0,
+    ): Promise<DrepVotingPowerHistoryRow[]> {
+      const path = `/drep_voting_power_history?_epoch_no=${epochNo}&limit=${limit}&offset=${offset}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(drepVotingPowerHistoryRowSchema).parse(data);
     },
 
     // Calidus-key lookup (SPO auth flow): resolves a raw Ed25519 calidus public

@@ -14,6 +14,15 @@ export interface Drep {
   active: boolean;
   deposit: string | null;
   votingPower: string | null;
+  /**
+   * Voting power snapshot for the latest captured epoch and the one before it,
+   * projected from drep_voting_power_history by the trend sync. Drive the list
+   * delta chip; a null prev means no previous-epoch snapshot, so no chip. Owned by
+   * the trend sync, not the profile upsert.
+   */
+  votingPowerSnapshot: string | null;
+  votingPowerPrev: string | null;
+  votingPowerSnapshotEpoch: number | null;
   expiresEpochNo: number | null;
   /** Epoch the DRep first registered (from /drep_updates), or null until backfilled. */
   registeredEpoch: number | null;
@@ -53,6 +62,9 @@ interface DrepRow {
   active: number;
   deposit: string | null;
   voting_power: string | null;
+  voting_power_snapshot: string | null;
+  voting_power_prev: string | null;
+  voting_power_snapshot_epoch: number | null;
   expires_epoch_no: number | null;
   registered_epoch: number | null;
   name: string | null;
@@ -84,6 +96,9 @@ function rowToDrep(row: DrepRow): Drep {
     active: row.active === 1,
     deposit: row.deposit,
     votingPower: row.voting_power,
+    votingPowerSnapshot: row.voting_power_snapshot,
+    votingPowerPrev: row.voting_power_prev,
+    votingPowerSnapshotEpoch: row.voting_power_snapshot_epoch,
     expiresEpochNo: row.expires_epoch_no,
     registeredEpoch: row.registered_epoch,
     name: row.name,

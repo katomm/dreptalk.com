@@ -11,6 +11,7 @@ import { listDreps, listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { influencePct } from '@/lib/drep/profile.js';
+import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/drep/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
 import { parsePage, pageToOffset, cacheControlForSynced, formatAda, formatAdaCompact, truncateId } from '@/lib/forum/view.js';
@@ -146,6 +147,13 @@ const barWidth = (pct: number): string => {
   const w = maxPct > 0 ? Math.min((pct / maxPct) * 100, 100) : 0;
   return `${w.toFixed(2)}%`;
 };
+
+const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
+  dir === 'up'
+    ? 'Voting power up since the previous epoch'
+    : dir === 'down'
+      ? 'Voting power down since the previous epoch'
+      : 'Voting power unchanged since the previous epoch';
 ---
 
 <Layout title="Cardano DReps - Delegate Representatives - DRepTalk" description="Browse every Cardano DRep ranked by active voting power. See each delegate representative's voting record, delegation, and governance participation on DRepTalk." ogImage="/og-dreps.jpg">
@@ -182,6 +190,7 @@ const barWidth = (pct: number): string => {
         <tr>
           <th scope="col">DRep</th>
           <th scope="col" class="drep-table__power-h">Voting power</th>
+          <th scope="col" class="drep-table__trend-h">Trend <span class="drep-table__trend-sub">(vs last epoch)</span></th>
           <th scope="col" class="drep-table__actions-h">Actions</th>
         </tr>
       </thead>
@@ -189,6 +198,7 @@ const barWidth = (pct: number): string => {
         {dreps.map((d) => {
           const descriptor = descriptorFor(d);
           const pct = influencePct(d.votingPower, totalActivePower);
+          const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
           const cred = credentialHexFor(d);
           return (
             <tr>
@@ -200,12 +210,31 @@ const barWidth = (pct: number): string => {
                     <span class="drep-power__ada-compact">{formatAdaCompact(d.votingPower)}</span>
                   </span>
                   {pct != null && (
-                    <span class="drep-power__bar" aria-hidden="true">
-                      <span class="drep-power__fill" style={`width:${barWidth(pct)}`}></span>
+                    <span class="drep-power__meter">
+                      <span class="drep-power__pct">{pctLabel(pct)}</span>
+                      <span class="drep-power__bar" aria-hidden="true">
+                        <span class="drep-power__fill" style={`width:${barWidth(pct)}`}></span>
+                      </span>
                     </span>
                   )}
-                  {pct != null && <span class="drep-power__pct">{pctLabel(pct)}</span>}
                 </div>
+              </td>
+              <td class="drep-table__trend">
+                {delta && (
+                  <span class={`drep-trend drep-trend--${delta.direction}`} title={deltaTitle(delta.direction)}>
+                    <span class="drep-trend__main">
+                      {delta.direction === 'flat' ? (
+                        <span class="drep-trend__flat" aria-hidden="true"></span>
+                      ) : (
+                        <span class="drep-trend__arrow" aria-hidden="true">{delta.direction === 'up' ? '▲' : '▼'}</span>
+                      )}
+                      {delta.pct != null && <span class="drep-trend__pct">{formatTrendPct(delta.pct)}</span>}
+                    </span>
+                    {delta.direction !== 'flat' && (
+                      <span class="drep-trend__ada">({formatAdaCompact(absLovelace(delta.deltaLovelace))})</span>
+                    )}
+                  </span>
+                )}
               </td>
               <td class="drep-table__actions">
                 <span class="drep-row-actions">

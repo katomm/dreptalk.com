@@ -1,0 +1,184 @@
+---
+// SSR voting-power trend card for a DRep profile: an area chart over the last few
+// epoch snapshots with gridlines and axis labels, the single-epoch delta in the
+// header, and the whole-window change in the footer. No client JS; renders nothing
+// when there are fewer than two snapshots. Colored by the latest step (gain green,
+// loss red); the footer total is colored independently of the header.
+import { buildPowerChart, computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/drep/votingPowerTrend.js';
+import { formatAdaCompact } from '@/lib/forum/view.js';
+
+interface Props {
+  series: { epoch: number; amount: string }[];
+}
+const { series } = Astro.props;
+
+const values = series.map((s) => Number(s.amount)).filter((n) => Number.isFinite(n));
+const chart = buildPowerChart(values, { width: 480, height: 180, padLeft: 4, padRight: 60, padTop: 18, padBottom: 30 });
+
+// Latest single-epoch step (matches the directory list chip): newest vs the one before.
+const lastAmount = series.length >= 1 ? series[series.length - 1].amount : null;
+const prevAmount = series.length >= 2 ? series[series.length - 2].amount : null;
+const delta = computeVotingPowerDelta(lastAmount, prevAmount);
+const dir = delta?.direction ?? 'flat';
+
+// Net change across the whole window (first vs last), a muted secondary so the
+// multi-epoch span is never read as the single-epoch step. Only with 3+ points.
+const firstAmount = series.length >= 1 ? series[0].amount : null;
+const spanDelta = series.length >= 3 ? computeVotingPowerDelta(lastAmount, firstAmount) : null;
+
+const firstEpoch = series[0]?.epoch;
+const lastEpoch = series[series.length - 1]?.epoch;
+
+const arrow = (d: 'up' | 'down' | 'flat'): string => (d === 'up' ? '▲' : d === 'down' ? '▼' : '');
+const adaTick = (lovelace: number): string => formatAdaCompact(String(Math.round(lovelace))) ?? '';
+
+// The absolute change moves to the hover so the card surfaces only the percent.
+// Flat carries no magnitude worth showing.
+const hoverText = (d: ReturnType<typeof computeVotingPowerDelta>, label: string): string | undefined => {
+  if (!d) return undefined;
+  if (d.direction === 'flat') return `No change ${label}`;
+  const word = d.direction === 'up' ? 'Up' : 'Down';
+  return `${word} ${formatAdaCompact(absLovelace(d.deltaLovelace)) ?? '0 ₳'} ${label}`;
+};
+---
+
+{chart && (
+  <section class={`vptrend vptrend--${dir}`} aria-label="Voting power trend">
+    <header class="vptrend__head">
+      <span class="vptrend__badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 16l5-5 4 4 6-8" />
+          <path d="M3 21h18" opacity="0.4" />
+        </svg>
+      </span>
+      <span class="vptrend__title">Voting power trend</span>
+      {delta && (
+        <span class="vptrend__delta" title={hoverText(delta, 'since last epoch')}>
+          {dir !== 'flat' && <span class="vptrend__arrow" aria-hidden="true">{arrow(dir)}</span>}
+          {delta.pct != null && <span class="vptrend__pct">{formatTrendPct(delta.pct)}</span>}
+          <span class="vptrend__label">vs last epoch</span>
+        </span>
+      )}
+    </header>
+
+    <svg
+      class="vptrend__chart"
+      viewBox={`0 0 ${chart.width} ${chart.height}`}
+      role="img"
+      aria-label={`Voting power from epoch ${firstEpoch} to ${lastEpoch}`}
+    >
+      <defs>
+        <linearGradient id="vptrend-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="currentColor" stop-opacity="0.2" />
+          <stop offset="100%" stop-color="currentColor" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      {chart.yTicks.map((t) => (
+        <line class="vptrend__grid" x1={chart.plot.x} y1={t.y} x2={chart.plot.x + chart.plot.w} y2={t.y} />
+      ))}
+      <path class="vptrend__area" d={chart.area} />
+      <polyline class="vptrend__line" points={chart.line} vector-effect="non-scaling-stroke" />
+      <circle class="vptrend__dot-ring" cx={chart.last.x} cy={chart.last.y} r="5.5" />
+      <circle class="vptrend__dot" cx={chart.last.x} cy={chart.last.y} r="3.5" />
+      {chart.yTicks.map((t) => (
+        <text class="vptrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{adaTick(t.value)}</text>
+      ))}
+      <text class="vptrend__xlabel" x={chart.plot.x} y={chart.height - 8} text-anchor="start">Epoch {firstEpoch}</text>
+      <text class="vptrend__xlabel" x={chart.plot.x + chart.plot.w} y={chart.height - 8} text-anchor="end">Epoch {lastEpoch}</text>
+    </svg>
+
+    {spanDelta && (
+      <footer class="vptrend__foot">
+        <span class={`vptrend__total vptrend__total--${spanDelta.direction}`} title={hoverText(spanDelta, `over ${series.length} epochs`)}>
+          {spanDelta.direction !== 'flat' && <span class="vptrend__arrow" aria-hidden="true">{arrow(spanDelta.direction)}</span>}
+          {spanDelta.pct != null && <span>{formatTrendPct(spanDelta.pct)}</span>}
+          <span class="vptrend__label">over {series.length} epochs</span>
+        </span>
+      </footer>
+    )}
+  </section>
+)}
+
+<style>
+  .vptrend {
+    --vp-color: var(--c-pos);
+    /* A compact widget, not a full-width banner: caps at ~32rem on desktop and
+       falls back to full width on narrow screens. The page places it in a summary
+       row, which owns the surrounding margin. */
+    max-width: 32rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    padding: 1.1rem 1.25rem 0.9rem;
+    margin: 0;
+    box-shadow: var(--shadow);
+  }
+  .vptrend--up { --vp-color: var(--c-pos); }
+  .vptrend--down { --vp-color: var(--c-neg); }
+  .vptrend--flat { --vp-color: var(--muted); }
+
+  .vptrend__head { display: flex; align-items: center; gap: 0.6rem; }
+  .vptrend__badge {
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-fg);
+    flex: none;
+  }
+  .vptrend__title { font-weight: 650; font-size: 1.05rem; color: var(--fg); }
+  .vptrend__delta {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    color: var(--vp-color);
+    font-variant-numeric: tabular-nums;
+  }
+  .vptrend__arrow { font-size: 0.7em; }
+  .vptrend__pct { font-size: 1.15rem; font-weight: 700; }
+  .vptrend__label { color: var(--muted); font-size: 0.8125rem; font-weight: 400; }
+
+  .vptrend__chart {
+    color: var(--vp-color);
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0.4rem 0 0.2rem;
+  }
+  .vptrend__grid { stroke: var(--border); stroke-dasharray: 4 5; }
+  .vptrend__ylabel,
+  .vptrend__xlabel { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .vptrend__area { fill: url(#vptrend-fill); }
+  .vptrend__line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .vptrend__dot-ring { fill: var(--surface-2); }
+  .vptrend__dot { fill: currentColor; }
+
+  .vptrend__foot {
+    border-top: 1px solid var(--border);
+    margin-top: 0.4rem;
+    padding-top: 0.7rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .vptrend__total {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .vptrend__total--up { color: var(--c-pos); }
+  .vptrend__total--down { color: var(--c-neg); }
+  .vptrend__total--flat { color: var(--muted); }
+
+  /* Narrow screens: drop the in-chart axis labels (they scale down too far); the
+     trend shape and the header/footer percentages stay. */
+  @media (max-width: 560px) {
+    .vptrend__ylabel,
+    .vptrend__xlabel { display: none; }
+    .vptrend__head { flex-wrap: wrap; }
+    .vptrend__delta { margin-left: 2.7rem; flex-basis: 100%; }
+  }
+</style>

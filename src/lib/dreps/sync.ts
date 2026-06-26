@@ -223,6 +223,11 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     active: info.active,
     deposit: info.deposit,
     votingPower: info.amount,
+    // Owned by the voting-power-history sync, not the chain sync: carry them over
+    // so a profile upsert never wipes the denormalized snapshots.
+    votingPowerSnapshot: existing?.votingPowerSnapshot ?? null,
+    votingPowerPrev: existing?.votingPowerPrev ?? null,
+    votingPowerSnapshotEpoch: existing?.votingPowerSnapshotEpoch ?? null,
     expiresEpochNo: info.expires_epoch_no,
     // Owned by the registration-epoch backfill, not the chain sync: carry it over
     // so a profile upsert never wipes a resolved value.

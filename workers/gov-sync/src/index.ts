@@ -45,6 +45,7 @@ import {
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
+import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
@@ -281,6 +282,20 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
     );
     return { items: r.total, failed: r.failed };
   }, { primary: true });
+
+  // Capture per-epoch voting power snapshots for the list delta chip and the
+  // profile sparkline. Self-healing: fetches only epochs not yet stored, prunes
+  // the rolling window, and projects the latest two snapshots onto the dreps rows.
+  // A fetch failure here must not fail the DRep sync that already succeeded.
+  await phase('voting-power-history', async () => {
+    const tip = await koios.tip();
+    const r = await syncDrepVotingPowerHistory({ koios, db: env.DB, currentEpoch: tip.epoch_no });
+    console.log(
+      `[drep-vp-history] window=${r.window[0]}..${r.window[r.window.length - 1]} ` +
+        `fetched=${r.fetchedEpochs.length} inserted=${r.inserted} pruned=${r.pruned}`,
+    );
+    return { items: r.inserted };
+  });
 
   // Backfill registration epochs for any DReps still missing one (drives the
   // participation stat). No-op once all are filled; only new DReps cost a page.
