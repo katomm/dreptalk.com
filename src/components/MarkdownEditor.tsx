@@ -40,8 +40,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 ) {
   const [showPreview, setShowPreview] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
+  const [loading, setLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True until the first fetch after opening preview, so that toggle renders
+  // immediately while later keystrokes still debounce.
+  const firstPreviewRef = useRef(true);
   const pendingSelRef = useRef<{ start: number; end: number } | null>(null);
   const bodyId = `${idPrefix}-body`;
 
@@ -77,8 +81,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const fetchPreview = useCallback(async (md: string) => {
     if (!md.trim()) {
       setPreviewHtml('');
+      setLoading(false);
       return;
     }
+    setLoading(true);
     try {
       const res = await fetch('/api/preview', {
         method: 'POST',
@@ -91,15 +97,26 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       }
     } catch {
       // Preview errors are silent; the user can still compose.
+    } finally {
+      setLoading(false);
     }
   }, []);
+
+  // Re-arm the immediate-render flag whenever preview closes, so the next open
+  // fetches without waiting on the debounce.
+  useEffect(() => {
+    if (!showPreview) firstPreviewRef.current = true;
+  }, [showPreview]);
 
   useEffect(() => {
     if (!showPreview) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    // First fetch after opening preview is instant; subsequent keystrokes debounce.
+    const delay = firstPreviewRef.current ? 0 : 400;
+    firstPreviewRef.current = false;
     debounceRef.current = setTimeout(() => {
       void fetchPreview(value);
-    }, 400);
+    }, delay);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -124,7 +141,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
       {showPreview ? (
         // biome-ignore lint/security/noDangerouslySetInnerHtml: previewHtml is server-sanitized markdown (renderMarkdown in src/lib/markdown.ts, via /api/preview)
-        <div dangerouslySetInnerHTML={{ __html: previewHtml || '<p style="color:var(--muted)">Nothing to preview yet.</p>' }}
+        <div dangerouslySetInnerHTML={{ __html: previewHtml || `<p style="color:var(--muted)">${loading ? 'Loading preview...' : 'Nothing to preview yet.'}</p>` }}
           className="prose"
           style={{ minHeight: '7rem', padding: '0.5rem 0.75rem', border: '1px solid var(--border)', borderRadius: '0.375rem', fontSize: '0.9375rem', lineHeight: '1.6', overflowWrap: 'break-word' }}
         />
