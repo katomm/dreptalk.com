@@ -1,20 +1,13 @@
 ---
 import Layout from '@/layouts/Layout.astro';
-import WalletLogin from '@/components/WalletLogin.tsx';
-import OfflineLogin from '@/components/OfflineLogin.tsx';
+import SignIn from '@/components/SignIn.tsx';
 import LogoMark from '@/components/LogoMark.astro';
 import { currentNetwork } from '@/lib/api/response';
 
 export const prerender = false;
 
-// SPO (Calidus) and CC members sign offline with cardano-signer and paste the
-// result; DRep and Proposer connect a CIP-30 wallet. The role query param picks
-// the flow (the server re-validates the role independently).
-const roleParam = Astro.url.searchParams.get('role');
-const offlineRole = roleParam === 'spo' || roleParam === 'cc' ? roleParam : null;
-
-// Resolve the deployment network (CARDANO_NETWORK, defaults mainnet) so the DRep
-// island builds the correct CIP-19 type-6 address header when signing.
+// Resolve the deployment network so the DRep island builds the correct CIP-19
+// type-6 address header when signing.
 const network = currentNetwork().network;
 ---
 <Layout
@@ -25,19 +18,12 @@ const network = currentNetwork().network;
     <header class="login__head">
       <LogoMark style="width:3rem;height:3rem;color:var(--accent);margin:0 auto;" label="DRepTalk" />
       <h1 class="login__title">Sign in to DRepTalk</h1>
-      {!offlineRole && (
-        <p class="login__intro">
-          Connect your Cardano wallet to prove ownership of your DRep or reward address.
-          No password. No transaction. No fees.
-        </p>
-      )}
+      <p class="login__intro">
+        Prove ownership of your governance identity. No password. No transaction. No fees.
+      </p>
     </header>
 
-    {offlineRole ? (
-      <OfflineLogin role={offlineRole} client:load />
-    ) : (
-      <WalletLogin network={network} client:load />
-    )}
+    <SignIn network={network} client:load />
 
     <footer class="login__foot">
       Need help? <a href="/help">View documentation</a>
