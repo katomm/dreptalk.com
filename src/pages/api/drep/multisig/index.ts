@@ -2,9 +2,10 @@
 // Validates and stores a client-built unsigned vote tx for a native-script
 // (multisig) DRep. The tx is built client-side (only the browser has the
 // funder wallet's UTxOs); this endpoint does membership gating, native-script
-// validation, and storage only.
+// validation, tx-body-hash binding, and storage only.
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
+import { type DRep, ScriptHash, Transaction, TransactionBody, TransactionHash, type VotingProcedures } from '@evolution-sdk/evolution';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { parseDrepId } from '@/lib/cardano/identity';
@@ -84,6 +85,63 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
   if (nativeScriptHash(script) !== parsedDrep.hashHex) {
     return jsonResponse({ error: 'script hash mismatch' }, 422);
+  }
+
+  // Decode the client-supplied CBOR to bind the stored record to the actual tx.
+  let tx: ReturnType<typeof Transaction.fromCBORHex>;
+  try {
+    tx = Transaction.fromCBORHex(body.unsignedTxCbor);
+  } catch {
+    return jsonResponse({ error: 'invalid transaction' }, 422);
+  }
+
+  // BODY-HASH BINDING: recompute the tx body hash from the decoded body and
+  // reject any request where the client-supplied bodyHash does not match.
+  // This prevents a member from storing a bodyHash that does not correspond
+  // to the actual tx the co-signers will be asked to sign.
+  const realBodyHash = TransactionHash.toHex(TransactionBody.toHash(tx.body));
+  if (realBodyHash !== body.bodyHash.toLowerCase()) {
+    return jsonResponse({ error: 'body hash does not match transaction' }, 422);
+  }
+
+  // VOTING-PROCEDURE CONTENT BINDING: verify the tx contains exactly one
+  // voting procedure whose voter, governance action id, and vote match the
+  // declared action params. This stops a member from submitting a tx that
+  // votes on a different action or casts a different vote than advertised.
+  const vp = tx.body.votingProcedures;
+  if (!vp || vp.procedures.size === 0) {
+    return jsonResponse({ error: 'transaction does not match the declared vote' }, 422);
+  }
+  // Walk the nested map: voter -> govActionId -> procedure.
+  // We expect exactly one entry total across all voters.
+  let foundVoteMatch = false;
+  for (const [voter, actionMap] of vp.procedures) {
+    // Only DRep voters are accepted; the voter must be a script-hash DRep
+    // matching the authenticated script DRep id.
+    if (voter._tag !== 'DRepVoter') continue;
+    const drep = (voter as VotingProcedures.DRepVoter).drep;
+    if (drep._tag !== 'ScriptHashDRep') continue;
+    const voterScriptHash = ScriptHash.toHex((drep as DRep.ScriptHashDRep).scriptHash);
+    if (voterScriptHash !== parsedDrep.hashHex) continue;
+
+    for (const [govActionId, procedure] of actionMap) {
+      const txGaId = `${TransactionHash.toHex(govActionId.transactionId)}#${govActionId.govActionIndex}`;
+      if (txGaId !== body.gaId) continue;
+
+      // Map SDK vote tag to our canonical string.
+      const txVote =
+        procedure.vote._tag === 'YesVote'
+          ? 'yes'
+          : procedure.vote._tag === 'NoVote'
+            ? 'no'
+            : 'abstain';
+      if (txVote !== body.vote) continue;
+
+      foundVoteMatch = true;
+    }
+  }
+  if (!foundVoteMatch) {
+    return jsonResponse({ error: 'transaction does not match the declared vote' }, 422);
   }
 
   // Generate a stable token id and store the pending tx.

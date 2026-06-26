@@ -24,7 +24,46 @@ vi.mock('@/lib/koios/client', () => ({
   createKoiosClient: () => koiosMock,
 }));
 
-// Import the handler AFTER the mock is registered (vitest hoists vi.mock above
+// ---------------------------------------------------------------------------
+// Evolution SDK mock: the endpoint decodes the tx CBOR and checks the body
+// hash plus the voting-procedure content. We stub the relevant functions so
+// tests can run without a real CBOR-encoded transaction.
+//
+// fromCBORHexImpl is replaced per-test via evoCbor.fromCBORHex.mockImplementation
+// to control what the decoded tx looks like.
+// ---------------------------------------------------------------------------
+
+const evoCbor = {
+  fromCBORHex: vi.fn<[string], unknown>(),
+  toHash: vi.fn<[unknown], unknown>(),
+  toHex: vi.fn<[unknown], string>(),
+  scriptHashToHex: vi.fn<[unknown], string>(),
+};
+
+vi.mock('@evolution-sdk/evolution', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evolution-sdk/evolution')>();
+  return {
+    ...actual,
+    Transaction: {
+      ...actual.Transaction,
+      fromCBORHex: (...args: unknown[]) => evoCbor.fromCBORHex(...args),
+    },
+    TransactionBody: {
+      ...actual.TransactionBody,
+      toHash: (...args: unknown[]) => evoCbor.toHash(...args),
+    },
+    TransactionHash: {
+      ...actual.TransactionHash,
+      toHex: (...args: unknown[]) => evoCbor.toHex(...args),
+    },
+    ScriptHash: {
+      ...actual.ScriptHash,
+      toHex: (...args: unknown[]) => evoCbor.scriptHashToHex(...args),
+    },
+  };
+});
+
+// Import the handler AFTER the mocks are registered (vitest hoists vi.mock above
 // the import, but placing it here makes the dependency order explicit).
 import { POST } from './index';
 
@@ -50,7 +89,7 @@ function scriptDrepIdFromHash(scriptHashHex: string): string {
 const SCRIPT_DREP_ID = scriptDrepIdFromHash(SCRIPT_HASH);
 
 const GA_ID = `${'b'.repeat(64)}#0`;
-const TX_CBOR = 'c'.repeat(128); // arbitrary hex string
+const TX_CBOR = 'c'.repeat(128); // arbitrary hex string (real decode is mocked)
 const BODY_HASH = 'd'.repeat(64); // 32-byte hash hex
 const USER_ID = 'script-drep-user-1';
 const NOW = 1_752_000_000;
@@ -99,6 +138,45 @@ function timelockScriptInfo() {
     type: 'timelock' as const,
     value: SCRIPT_VALUE,
   };
+}
+
+// Returns a minimal fake tx whose voting procedures match GA_ID, BODY_HASH,
+// vote='yes', and the given script hash as the DRep voter.
+function makeFakeTx(scriptHashHex = SCRIPT_HASH) {
+  const scriptHashObj = { _tag: 'ScriptHash', hash: scriptHashHex };
+  const drep = { _tag: 'ScriptHashDRep', scriptHash: scriptHashObj };
+  const voter = { _tag: 'DRepVoter', drep };
+  const govActionId = {
+    transactionId: { _tag: 'TransactionHash', hash: 'b'.repeat(64) },
+    govActionIndex: 0n,
+  };
+  const procedure = { vote: { _tag: 'YesVote' }, anchor: null };
+  const actionMap = new Map([[govActionId, procedure]]);
+  const procedures = new Map([[voter, actionMap]]);
+  return {
+    body: {
+      _tag: 'TransactionBody',
+      votingProcedures: { procedures },
+    },
+  };
+}
+
+// Configures the evolution mocks for the happy path: fromCBORHex succeeds,
+// toHash returns a sentinel, toHex returns BODY_HASH, scriptHashToHex returns
+// the script hash so the voter check passes.
+function setupHappyPathMocks() {
+  const sentinelHash = {};
+  evoCbor.fromCBORHex.mockImplementation(() => makeFakeTx());
+  evoCbor.toHash.mockReturnValue(sentinelHash);
+  evoCbor.toHex.mockImplementation((h) => {
+    // toHex is called for two different objects: the body hash and the tx id
+    // inside the voting procedures. Both must return values that match what
+    // the handler compares against, so we check whether h is the sentinel.
+    if (h === sentinelHash) return BODY_HASH;
+    // This is the transactionId inside govActionId; match 'b'.repeat(64).
+    return 'b'.repeat(64);
+  });
+  evoCbor.scriptHashToHex.mockReturnValue(SCRIPT_HASH);
 }
 
 beforeEach(() => {
@@ -160,9 +238,63 @@ describe('POST /api/drep/multisig', () => {
     expect((body.error as string).toLowerCase()).toContain('plutus');
   });
 
+  it('returns 422 when the native-script hash recomputed from the script value does not match the DRep id', async () => {
+    // The hash in script_hash disagrees with what parseNativeScriptJson+nativeScriptHash computes.
+    // To trigger the mismatch, supply a script_value that hashes to a different value.
+    await seedScriptDrepUser();
+    koiosMock.scriptInfo.mockResolvedValue({
+      script_hash: SCRIPT_HASH,
+      type: 'timelock' as const,
+      // A different sig key so nativeScriptHash produces a different hash.
+      value: { type: 'any', scripts: [{ type: 'sig', keyHash: 'f'.repeat(56) }] },
+    });
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody(),
+    }));
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('script hash mismatch');
+  });
+
+  it('returns 422 when koios returns null (script not found)', async () => {
+    await seedScriptDrepUser();
+    koiosMock.scriptInfo.mockResolvedValue(null);
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody(),
+    }));
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('script not found');
+  });
+
+  it('returns 422 when the tx body hash does not match the supplied bodyHash', async () => {
+    await seedScriptDrepUser();
+    koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
+    // fromCBORHex succeeds, but toHex for the body hash returns a different value.
+    const sentinelHash = {};
+    evoCbor.fromCBORHex.mockImplementation(() => makeFakeTx());
+    evoCbor.toHash.mockReturnValue(sentinelHash);
+    evoCbor.toHex.mockImplementation((h) => {
+      if (h === sentinelHash) return 'e'.repeat(64); // wrong hash
+      return 'b'.repeat(64);
+    });
+    evoCbor.scriptHashToHex.mockReturnValue(SCRIPT_HASH);
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody(), // bodyHash is BODY_HASH = 'd'.repeat(64)
+    }));
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('body hash does not match transaction');
+  });
+
   it('stores a pending multisig tx and returns an id for a valid native-script drep', async () => {
     await seedScriptDrepUser();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
+    setupHappyPathMocks();
 
     const res = await POST(makeCtx({
       user: { id: USER_ID, roles: ['drep'] },
@@ -184,11 +316,14 @@ describe('POST /api/drep/multisig', () => {
     const params = JSON.parse(row!.action_params) as Record<string, unknown>;
     expect(params.gaId).toBe(GA_ID);
     expect(params.vote).toBe('yes');
+    // Stored script is the serialized native-script JSON from the fixture.
+    expect(row!.native_script).toBe(JSON.stringify(PARSED_SCRIPT));
   });
 
   it('includes optional anchor fields in action_params when provided', async () => {
     await seedScriptDrepUser();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
+    setupHappyPathMocks();
     const anchorUrl = 'https://example.com/rationale.json';
     const anchorHashHex = 'e'.repeat(64);
 
