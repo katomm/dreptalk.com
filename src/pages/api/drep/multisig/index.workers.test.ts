@@ -320,6 +320,104 @@ describe('POST /api/drep/multisig', () => {
     expect(row!.native_script).toBe(JSON.stringify(PARSED_SCRIPT));
   });
 
+  // -------------------------------------------------------------------------
+  // Voting-procedure binding: negative tests.
+  // Each test drives the !foundVoteMatch 422 branch WITHOUT tripping the
+  // body-hash check first. setupHappyPathMocks() wires the body-hash sentinel
+  // so that check passes; only the voting-procedure content differs.
+  // -------------------------------------------------------------------------
+
+  it('returns 422 when the tx voting procedure gov action id does not match the request gaId', async () => {
+    await seedScriptDrepUser();
+    koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
+
+    // Build a fake tx where govActionId.transactionId has a different hex
+    // (all 'c' bytes instead of 'b') so txGaId != GA_ID.
+    const sentinelHash = {};
+    evoCbor.fromCBORHex.mockImplementation(() => {
+      const fakeTx = makeFakeTx();
+      // Override the transactionId hash so it does not equal 'b'.repeat(64).
+      fakeTx.body.votingProcedures.procedures.forEach((actionMap) => {
+        actionMap.forEach((_, govActionId) => {
+          govActionId.transactionId = { _tag: 'TransactionHash', hash: 'c'.repeat(64) };
+        });
+      });
+      return fakeTx;
+    });
+    evoCbor.toHash.mockReturnValue(sentinelHash);
+    evoCbor.toHex.mockImplementation((h) => {
+      if (h === sentinelHash) return BODY_HASH;
+      // This is called for the govActionId.transactionId: return its stored hash.
+      return (h as { hash: string }).hash;
+    });
+    evoCbor.scriptHashToHex.mockReturnValue(SCRIPT_HASH);
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody(), // gaId is still GA_ID = 'b'.repeat(64) + '#0'
+    }));
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('transaction does not match the declared vote');
+  });
+
+  it('returns 422 when the tx vote tag maps to a different choice than the request vote', async () => {
+    await seedScriptDrepUser();
+    koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
+
+    // Build a fake tx where the vote tag is NoVote; the request says 'yes'.
+    const sentinelHash = {};
+    evoCbor.fromCBORHex.mockImplementation(() => {
+      const fakeTx = makeFakeTx();
+      // Override the vote tag on every procedure entry.
+      fakeTx.body.votingProcedures.procedures.forEach((actionMap) => {
+        actionMap.forEach((procedure) => {
+          procedure.vote = { _tag: 'NoVote' };
+        });
+      });
+      return fakeTx;
+    });
+    evoCbor.toHash.mockReturnValue(sentinelHash);
+    evoCbor.toHex.mockImplementation((h) => {
+      if (h === sentinelHash) return BODY_HASH;
+      return 'b'.repeat(64); // govActionId.transactionId matches GA_ID
+    });
+    evoCbor.scriptHashToHex.mockReturnValue(SCRIPT_HASH);
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody({ vote: 'yes' }), // request says yes, tx says no
+    }));
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('transaction does not match the declared vote');
+  });
+
+  it('returns 422 when the tx DRep voter script hash does not match the script DRep credential', async () => {
+    await seedScriptDrepUser();
+    koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
+
+    // The body-hash sentinel passes as usual, but scriptHashToHex returns
+    // a different hash so voterScriptHash != parsedDrep.hashHex.
+    const sentinelHash = {};
+    evoCbor.fromCBORHex.mockImplementation(() => makeFakeTx());
+    evoCbor.toHash.mockReturnValue(sentinelHash);
+    evoCbor.toHex.mockImplementation((h) => {
+      if (h === sentinelHash) return BODY_HASH;
+      return 'b'.repeat(64);
+    });
+    // Return a script hash that does not equal SCRIPT_HASH.
+    evoCbor.scriptHashToHex.mockReturnValue('f'.repeat(64));
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody(),
+    }));
+    expect(res.status).toBe(422);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('transaction does not match the declared vote');
+  });
+
   it('includes optional anchor fields in action_params when provided', async () => {
     await seedScriptDrepUser();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
