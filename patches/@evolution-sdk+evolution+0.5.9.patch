@@ -1,0 +1,22 @@
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Vote.js b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Vote.js
+index 4742d8d..455f416 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Vote.js
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Vote.js
+@@ -59,13 +59,10 @@ export const createVoteProgram = params => Effect.gen(function* () {
+   if (params.redeemer && scriptVoters.size === 0) {
+     yield* Effect.logWarning("[Vote] Redeemer provided but no script-controlled voters found. Redeemer will be ignored.");
+   }
+-  // 4. If script voters exist but no redeemer, fail
+-  if (scriptVoters.size > 0 && !params.redeemer) {
+-    return yield* Effect.fail(new TransactionBuilderError({
+-      message: "Redeemer required for script-controlled voters",
+-      cause: Array.from(scriptVoters)
+-    }));
+-  }
++  // 4. Patched (dreptalk): native-script (multisig) voters are valid without a
++  // redeemer; the build phase witnesses/sizes them via the attached native script.
++  // A Plutus voter missing a redeemer still fails later at script evaluation.
++  // Upstream fix moves this check to the build phase (native vs Plutus). See issue.
+   // 5. Update state: merge voting procedures and track redeemers
+   yield* Ref.update(ctx, state => {
+     // Merge voting procedures

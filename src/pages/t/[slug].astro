@@ -23,6 +23,8 @@ import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, type
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
 import { getUserById } from '@/lib/db/users.js';
 import VotePanel from '@/components/VotePanel.js';
+import MultisigVotePanel from '@/components/MultisigVotePanel.js';
+import { parseDrepId } from '@/lib/cardano/identity.js';
 import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { isWriter } from '@/lib/auth/roles.js';
@@ -147,6 +149,10 @@ const viewerVote =
   isDrep && isVotable && viewerDrepId && db && govAction
     ? await getViewerVote(db, govAction.id, viewerDrepId)
     : null;
+
+// A script-credential DRep cannot sign votes directly: it needs the multisig
+// initiate/co-sign flow instead of the key-DRep VotePanel.
+const isScriptDrep = viewerDrepId ? parseDrepId(viewerDrepId)?.kind === 'script' : false;
 
 // Governance detail page extras: tab, protocol params, stake participation, tally.
 const tab = parseGaTab(Astro.url.searchParams.get('tab'));
@@ -355,12 +361,22 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
             {isDrep && isVotable && (
               <div class="vote-panel-wrapper">
                 <h3 class="vote-panel-title">Cast your vote</h3>
-                <VotePanel
-                  client:load
-                  gaId={govAction.id}
-                  network={network}
-                  initialViewerVote={viewerVote}
-                />
+                {isScriptDrep ? (
+                  <MultisigVotePanel
+                    client:load
+                    mode="initiate"
+                    gaId={govAction.id}
+                    scriptDrepId={viewerDrepId!}
+                    network={network}
+                  />
+                ) : (
+                  <VotePanel
+                    client:load
+                    gaId={govAction.id}
+                    network={network}
+                    initialViewerVote={viewerVote}
+                  />
+                )}
               </div>
             )}
             <GaSidebar
