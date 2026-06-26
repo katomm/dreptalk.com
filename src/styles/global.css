@@ -480,36 +480,56 @@ main.container {
   border-bottom: 1px solid var(--border);
 }
 /* Fixed layout so the DRep column is bounded: a long name ellipsizes instead of
-   widening the row past the viewport (which used to shove the power and actions
-   columns off-screen on phones). Power and actions get explicit widths; the DRep
-   column takes the rest. Power header and content stay centered. */
-.drep-table thead th.drep-table__power-h { text-align: center; width: 16rem; }
+   widening the row past the viewport (which used to shove the other columns
+   off-screen on phones). Power, trend, and actions get explicit widths; the DRep
+   column takes the rest. */
+.drep-table thead th.drep-table__power-h { text-align: left; width: 12rem; }
+.drep-table thead th.drep-table__trend-h { text-align: left; width: 9rem; }
 .drep-table thead th.drep-table__actions-h { text-align: right; width: 8.5rem; white-space: nowrap; }
+/* "TREND" stays in the uppercase header style; the "(vs last epoch)" qualifier is
+   set back to sentence case so it reads as a note, not a shouted label. */
+.drep-table__trend-sub { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); font-size: 0.85em; }
 .drep-table td { padding: 0.6rem 0; border-top: 1px solid var(--border); vertical-align: middle; }
 .drep-table tbody tr:first-child td { border-top: none; }
-.drep-table__power { text-align: center; }
+.drep-table__power { text-align: left; }
+.drep-table__trend { text-align: left; }
 .drep-table__actions { text-align: right; }
 /* The fixed-width DRep cell bounds the inline identity; making it a flex with
    min-width:0 lets the name ellipsize rather than overflow. */
 .drep-table .author-identity { display: flex; min-width: 0; }
 .drep-table .author-identity__name { overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.drep-power { display: flex; align-items: center; justify-content: center; gap: 0.6rem; }
-.drep-power__ada { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Stacked power cell: the ada figure on top, the influence percent and its bar on
+   the line below (matches the directory mockup). Left-aligned under the header. */
+.drep-power { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+.drep-power__ada { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Two ADA renderings ship in the markup: the exact figure for desktop and an
    abbreviated one (200k, 2.5M) swapped in on mobile. Toggled via CSS so the page
    stays SSR-only with no client JS. */
 .drep-power__ada-compact { display: none; }
-.drep-power__bar { flex: 0 1 110px; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
-.drep-power__fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.drep-power__meter { display: flex; align-items: center; gap: 0.5rem; }
 .drep-power__pct {
-  min-width: 4rem;
-  text-align: right;
   color: var(--muted);
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.drep-power__bar { flex: 0 1 90px; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.drep-power__fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+
+/* Trend column: per-epoch change, arrow + relative % over the absolute change.
+   Direction drives the color via --c-pos / --c-neg; flat shows a neutral bar (a
+   CSS rule, never a typographic dash). Hidden on mobile (the profile page carries
+   the full trend there). */
+.drep-trend { display: inline-flex; flex-direction: column; gap: 0.1rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.drep-trend--up { color: var(--c-pos); }
+.drep-trend--down { color: var(--c-neg); }
+.drep-trend--flat { color: var(--muted); }
+.drep-trend__main { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; }
+.drep-trend__arrow { font-size: 0.7em; }
+.drep-trend__pct { font-size: 0.9375rem; }
+.drep-trend__ada { opacity: 0.8; font-size: 0.8125rem; }
+.drep-trend__flat { display: inline-block; width: 0.7rem; height: 0.14rem; border-radius: 999px; background: currentColor; opacity: 0.6; }
 /* Rounded-square outlined button with accent dots, matching the mockup (and the
    header icon buttons), not a borderless grey circle. */
 .drep-action-btn {
@@ -544,17 +564,102 @@ main.container {
    hides, and the kebab grows to a 44px tap target. Placed after the base rules so
    it overrides them. */
 @media (max-width: 640px) {
-  .drep-table thead th.drep-table__power-h { width: 5.5rem; }
+  .drep-table thead th.drep-table__power-h { width: 6.5rem; }
   /* Wider than the 44px button so the right-aligned kebab keeps a gap to the
      voting-power column; the DRep name (which truncates) yields the space. */
   .drep-table thead th.drep-table__actions-h { width: 3.75rem; }
+  /* No room for a dedicated trend column on phones; the profile page carries the
+     full trend there. */
+  .drep-table thead th.drep-table__trend-h,
+  .drep-table__trend { display: none; }
   .drep-delegate-btn { display: none; }
   .drep-action-btn { width: 2.75rem; height: 2.75rem; }
-  .drep-power { flex-direction: column; align-items: flex-end; gap: 0.15rem; }
+  .drep-power { align-items: flex-end; gap: 0.15rem; }
   .drep-power__bar { display: none; }
   .drep-power__ada-full { display: none; }
   .drep-power__ada-compact { display: inline; }
-  .drep-power__pct { min-width: 0; }
+}
+
+/* DRep voting history: a card holding a four-column table (vote, action, outcome,
+   when). The page's header row and the DrepVoteRow data rows share this grid so
+   columns line up; rules live here (not scoped) because they style both. */
+.vhist-section {
+  margin-top: 2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: var(--shadow);
+  padding: 1.25rem 1.5rem;
+}
+.vhist-section__title { font-size: 1.125rem; margin: 0 0 0.5rem; }
+.vhist-section__count { color: var(--muted); font-weight: 400; }
+.vhist__empty { color: var(--muted); margin: 0; }
+
+.vhist__row {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr) 7rem 5rem;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--border);
+}
+.vhist__row--head {
+  border-top: none;
+  padding: 0 0 0.5rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.vhist__when-h { text-align: right; }
+
+.vhist__vote { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; }
+.vhist__vote--yes { color: var(--c-pos); }
+.vhist__vote--no { color: var(--c-neg); }
+.vhist__vote--abstain { color: var(--muted); }
+.vhist__icon { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; color: #fff; flex: none; }
+.vhist__vote--yes .vhist__icon { background: var(--c-pos); }
+.vhist__vote--no .vhist__icon { background: var(--c-neg); }
+.vhist__vote--abstain .vhist__icon { background: var(--muted); }
+
+.vhist__action { min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.vhist__title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vhist__epoch { font-size: 0.8125rem; color: var(--muted); }
+.vhist__badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vhist__badge--positive { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
+.vhist__badge--negative { background: color-mix(in srgb, var(--c-neg) 14%, transparent); color: var(--c-neg); }
+.vhist__badge--neutral { background: color-mix(in srgb, var(--muted) 13%, transparent); color: var(--muted); }
+.vhist__badge--active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.vhist__when { text-align: right; color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
+
+.vhist__more-toggle {
+  list-style: none;
+  cursor: pointer;
+  text-align: center;
+  padding: 0.75rem 0 0.2rem;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+.vhist__more-toggle::-webkit-details-marker { display: none; }
+.vhist__more-hide { display: none; }
+.vhist__more[open] > .vhist__more-toggle .vhist__more-show { display: none; }
+.vhist__more[open] > .vhist__more-toggle .vhist__more-hide { display: inline; }
+
+@media (max-width: 640px) {
+  .vhist-section { padding: 1.1rem; }
+  .vhist__row { grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.7rem; }
+  .vhist__row--head { display: none; }
+  .vhist__vote-label { display: none; }
+  .vhist__when { display: none; }
 }
 
 .drep-menu {

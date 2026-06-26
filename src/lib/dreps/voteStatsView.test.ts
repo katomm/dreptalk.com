@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildVoteDonut, formatRationale, formatParticipation } from './voteStatsView.js';
+import { buildVoteDonut, rationaleStat, participationStat } from './voteStatsView.js';
 
 describe('buildVoteDonut', () => {
   it('skips zero-count slices, keeps all three in the legend with percentages', () => {
@@ -17,23 +17,23 @@ describe('buildVoteDonut', () => {
   });
 });
 
-describe('formatRationale', () => {
-  it('formats the rationale rate', () => {
-    expect(formatRationale({ total: 41, withRationale: 27 })).toBe('27 of 41 votes with rationale (66%)');
+describe('rationaleStat', () => {
+  it('returns the counts and the rounded percent', () => {
+    expect(rationaleStat({ total: 41, withRationale: 27 })).toEqual({ withRationale: 27, total: 41, pct: 66 });
   });
   it('returns null with no votes', () => {
-    expect(formatRationale({ total: 0, withRationale: 0 })).toBeNull();
+    expect(rationaleStat({ total: 0, withRationale: 0 })).toBeNull();
   });
 });
 
-describe('formatParticipation', () => {
-  it('formats the participation rate', () => {
-    expect(formatParticipation({ eligible: 22, voted: 18 })).toBe('Voted on 18 of 22 concluded actions (82%)');
+describe('participationStat', () => {
+  it('returns ok with the rounded percent', () => {
+    expect(participationStat({ eligible: 22, voted: 18 })).toEqual({ kind: 'ok', voted: 18, eligible: 22, pct: 82 });
   });
-  it('shows pending when the registration epoch is unknown', () => {
-    expect(formatParticipation(null)).toBe('Registration date pending');
+  it('flags pending when the registration epoch is unknown', () => {
+    expect(participationStat(null)).toEqual({ kind: 'pending' });
   });
-  it('shows a no-actions note instead of 0%', () => {
-    expect(formatParticipation({ eligible: 0, voted: 0 })).toBe('No concluded governance actions yet');
+  it('flags none when there are no concluded actions', () => {
+    expect(participationStat({ eligible: 0, voted: 0 })).toEqual({ kind: 'none' });
   });
 });

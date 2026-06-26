@@ -6,7 +6,10 @@ import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
+import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
+import DrepVoteRow from '@/components/DrepVoteRow.astro';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
+import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory.js';
 import { linkDisplayLabel } from '@/lib/dreps/linkLabel.js';
 import { getUserByDrepId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
@@ -19,6 +22,7 @@ import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
 import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam } from '@/lib/drep/profile.js';
+import { statusBadge } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
 import Avatar from '@/components/Avatar.astro';
@@ -45,20 +49,26 @@ if (!drep) {
 
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts] =
+const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries] =
   await Promise.all([
     drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
     db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
-    drep && db ? getDrepVotingHistory(db, drep.drepId, { limit: 20 }) : Promise.resolve([]),
+    drep && db ? getDrepVotingHistory(db, drep.drepId, { limit: 50 }) : Promise.resolve([]),
     drep && db ? countDrepVotes(db, drep.drepId) : Promise.resolve(0),
     drep && db ? getDrepVoteBreakdown(db, drep.drepId) : Promise.resolve({ yes: 0, no: 0, abstain: 0, total: 0 }),
     drep && db ? getDrepRationaleStats(db, drep.drepId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
     drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : Promise.resolve(null),
     drep && db ? loadEarnedBadges(db, drep.drepId, drepUser?.id ?? null) : Promise.resolve([]),
     drep && db ? getBadgeHolderCounts(db) : Promise.resolve(new Map<string, number>()),
+    drep && db ? getDrepVotingPowerSeries(db, drep.drepId) : Promise.resolve([]),
   ]);
 
 const showcase = pickShowcase(earnedBadges, holderCounts, 3);
+
+// Voting history: show the first few, fold the rest into a pure-HTML "Show more".
+const HISTORY_HEAD = 5;
+const historyHead = votingHistory.slice(0, HISTORY_HEAD);
+const historyTail = votingHistory.slice(HISTORY_HEAD);
 
 const hasMetadata = !!(drep?.name || drep?.bio);
 const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length, votesCast });
@@ -114,20 +124,71 @@ const personLd = drep
       <a href="/dreps">DReps</a>
     </nav>
 
-    <header style="display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.5rem;">
-      <Avatar seed={drep.hex ?? drep.drepId} imageHash={drep.imageContentHash} size={96} />
-      <div style="min-width:0;">
-        <h1 style="margin:0 0 0.25rem;overflow-wrap:anywhere;">{displayName}</h1>
-        <div style="font-size:0.8125rem;color:var(--muted);word-break:break-all;">{drep.drepId}</div>
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.8125rem;">
-          <span style={`border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;${drep.active ? '' : 'color:var(--muted);'}`}>{statusLabel}</span>
-          <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{formatAda(drep.votingPower)} voting power</span>
+    <header class="drep-hd">
+      <span class="drep-hd__avatar">
+        <Avatar seed={drep.hex ?? drep.drepId} imageHash={drep.imageContentHash} size={96} />
+      </span>
+      <div class="drep-hd__main">
+        <span class="drep-hd__kind">DRep</span>
+        <h1 class="drep-hd__name">{displayName}</h1>
+        <div class="drep-hd__id">{drep.drepId}</div>
+        <div class="drep-hd__stats">
+          <span class={`drep-hd__status drep-hd__status--${drep.active ? 'active' : isRetired ? 'retired' : 'other'}`}>
+            <span class="drep-hd__dot" aria-hidden="true"></span>
+            {statusLabel}
+          </span>
+          <span class="drep-hd__card">
+            <span class="drep-hd__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1" />
+                <circle cx="9" cy="8" r="3.2" />
+                <path d="M22 19v-1a4 4 0 0 0-3-3.87" />
+                <path d="M16 4.2a4 4 0 0 1 0 7.6" />
+              </svg>
+            </span>
+            <span class="drep-hd__cardbody">
+              <span class="drep-hd__value">{formatAda(drep.votingPower)}</span>
+              <span class="drep-hd__caption">Voting power</span>
+            </span>
+          </span>
           {influence != null && (
-            <span style="border:1px solid var(--border);border-radius:999px;padding:0.15rem 0.5rem;">{influence.toFixed(2)}% influence</span>
+            <span class="drep-hd__card">
+              <span class="drep-hd__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15.5A9 9 0 1 1 8.5 3" />
+                  <path d="M21.5 12A9.5 9.5 0 0 0 12 2.5V12z" />
+                </svg>
+              </span>
+              <span class="drep-hd__cardbody">
+                <span class="drep-hd__value">{influence.toFixed(2)}%</span>
+                <span class="drep-hd__caption">Influence</span>
+              </span>
+            </span>
           )}
         </div>
       </div>
     </header>
+
+    <div class="drep-summary">
+      <DrepPowerSparkline series={powerSeries} />
+      <section class="drep-summary__badges">
+        <h2 class="drep-summary__h">Badges <span class="drep-summary__count">({earnedBadges.length})</span></h2>
+        {showcase.length === 0 ? (
+          <p class="drep-summary__empty">
+            No badges yet. <a href={`${drepPath(drep)}/badges`}>See what can be earned</a>.
+          </p>
+        ) : (
+          <Fragment>
+            <div class="drep-summary__badgegrid">
+              {showcase.map((t) => (
+                <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} size={72} />
+              ))}
+            </div>
+            <a href={`${drepPath(drep)}/badges`} class="drep-summary__all">All badges →</a>
+          </Fragment>
+        )}
+      </section>
+    </div>
 
     {isRetired && (
       <p style="border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.75rem;color:var(--muted);font-size:0.875rem;max-width:65ch;margin:0 0 1rem;">
@@ -182,26 +243,6 @@ const personLd = drep
     )}
 
     <section style="margin-top:2rem;">
-        <h2 style="font-size:1.125rem;">
-          Badges <span style="color:var(--muted);font-weight:400;">({earnedBadges.length})</span>
-        </h2>
-        {showcase.length === 0 ? (
-          <p style="color:var(--muted);">
-            No badges yet. <a href={`${drepPath(drep)}/badges`}>See what can be earned</a>.
-          </p>
-        ) : (
-          <div style="display:flex;gap:1.5rem;align-items:flex-start;flex-wrap:wrap;">
-            {showcase.map((t) => (
-              <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} size={80} />
-            ))}
-            <a href={`${drepPath(drep)}/badges`} style="align-self:center;font-size:0.9375rem;">
-              All badges →
-            </a>
-          </div>
-        )}
-      </section>
-
-    <section style="margin-top:2rem;">
       <h2 style="font-size:1.125rem;">Forum activity</h2>
       {posts.length === 0 ? (
         <p style="color:var(--muted);">No forum posts yet.</p>
@@ -220,23 +261,137 @@ const personLd = drep
 
     <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
 
-    <section id="voting-history" style="margin-top:2rem;">
-      <h2 style="font-size:1.125rem;">Voting history <span style="color:var(--muted);font-weight:400;">({votesCast})</span></h2>
+    <section id="voting-history" class="vhist-section">
+      <h2 class="vhist-section__title">Voting history <span class="vhist-section__count">({votesCast})</span></h2>
       {votingHistory.length === 0 ? (
-        <p style="color:var(--muted);">No recorded on-chain votes.</p>
+        <p class="vhist__empty">No recorded on-chain votes.</p>
       ) : (
-        <ul style="list-style:none;padding:0;display:flex;flex-direction:column;gap:0.5rem;">
-          {votingHistory.map((h) => (
-            <li style="display:flex;gap:0.75rem;align-items:center;border-top:1px solid var(--border);padding-top:0.5rem;">
-              <span style="font-weight:600;min-width:4rem;">{h.vote}</span>
-              {h.topic_slug
-                ? <a href={`/t/${h.topic_slug}`}>{h.title ?? h.ga_id}</a>
-                : <span>{h.title ?? h.ga_id}</span>}
-              <span style="color:var(--muted);font-size:0.8125rem;margin-left:auto;">{h.status}</span>
-            </li>
-          ))}
-        </ul>
+        <div class="vhist">
+          <div class="vhist__row vhist__row--head" aria-hidden="true">
+            <span>Vote</span>
+            <span>Action</span>
+            <span>Outcome</span>
+            <span class="vhist__when-h">Voted</span>
+          </div>
+          {historyHead.map((h) => <DrepVoteRow row={h} now={now} />)}
+          {historyTail.length > 0 && (
+            <details class="vhist__more">
+              <summary class="vhist__more-toggle">
+                <span class="vhist__more-show">Show {historyTail.length} more</span>
+                <span class="vhist__more-hide">Show less</span>
+              </summary>
+              {historyTail.map((h) => <DrepVoteRow row={h} now={now} />)}
+            </details>
+          )}
+        </div>
       )}
     </section>
   </Layout>
 )}
+
+<style>
+  .drep-hd {
+    display: flex;
+    gap: 1.25rem;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+  }
+  .drep-hd__avatar {
+    flex: none;
+    line-height: 0;
+    border-radius: 50%;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .drep-hd__main { min-width: 0; flex: 1; }
+  .drep-hd__kind {
+    display: inline-block;
+    margin-bottom: 0.45rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .drep-hd__name { margin: 0 0 0.2rem; font-size: 2rem; line-height: 1.1; overflow-wrap: anywhere; }
+  .drep-hd__id { font-size: 0.8125rem; color: var(--muted); word-break: break-all; margin-bottom: 0.9rem; }
+  .drep-hd__stats { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+
+  .drep-hd__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 0.8125rem;
+  }
+  .drep-hd__status--active {
+    color: var(--c-pos);
+    background: color-mix(in srgb, var(--c-pos) 9%, transparent);
+    border-color: color-mix(in srgb, var(--c-pos) 18%, transparent);
+  }
+  .drep-hd__dot { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; flex: none; }
+
+  .drep-hd__card {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.9rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .drep-hd__icon {
+    display: grid;
+    place-items: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    flex: none;
+  }
+  .drep-hd__cardbody { display: flex; flex-direction: column; line-height: 1.15; }
+  .drep-hd__value { font-weight: 700; font-size: 1.05rem; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .drep-hd__caption { font-size: 0.75rem; color: var(--muted); }
+
+  /* Desktop summary row: trend card beside the badges card, stacking on narrow
+     screens. The trend card keeps its own max-width; the badges card fills the
+     remaining width. */
+  .drep-summary {
+    display: grid;
+    /* Two columns when both fit at >= 22rem, otherwise one (stacked). Grid sizes
+       row heights after the column widths are known, so the badges card never
+       overflows the way an equal-height flex row did. */
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .drep-summary__badges {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    padding: 1.1rem 1.25rem;
+  }
+  .drep-summary__h { font-size: 1.05rem; margin: 0 0 0.85rem; }
+  .drep-summary__count { color: var(--muted); font-weight: 400; }
+  .drep-summary__empty { color: var(--muted); margin: 0; }
+  .drep-summary__badgegrid { display: flex; flex-wrap: wrap; gap: 1rem 1.25rem; align-items: flex-start; }
+  /* Anchor the link to the card's bottom so the two summary cards line up. */
+  .drep-summary__all { margin-top: auto; align-self: flex-start; padding-top: 0.95rem; font-size: 0.9375rem; }
+
+  @media (max-width: 560px) {
+    .drep-hd { gap: 0.85rem; }
+    .drep-hd__name { font-size: 1.5rem; }
+    .drep-hd__stats { gap: 0.5rem; }
+  }
+</style>

@@ -65,20 +65,32 @@ export function buildVoteDonut(b: DrepVoteBreakdown): VoteDonut {
   return { total: b.total, arcs, legend };
 }
 
-/** "27 of 41 votes with rationale (66%)", or null when the DRep has no votes. */
-export function formatRationale(s: Pick<DrepRationaleStats, 'total' | 'withRationale'>): string | null {
+export interface RationaleStat {
+  withRationale: number;
+  total: number;
+  /** Rounded share of votes carrying a rationale anchor. */
+  pct: number;
+}
+
+/** Structured rationale stat (counts plus the rounded percent), or null with no votes. */
+export function rationaleStat(s: Pick<DrepRationaleStats, 'total' | 'withRationale'>): RationaleStat | null {
   if (s.total === 0) return null;
-  const pct = Math.round((s.withRationale / s.total) * 100);
-  return `${s.withRationale} of ${s.total} votes with rationale (${pct}%)`;
+  return { withRationale: s.withRationale, total: s.total, pct: Math.round((s.withRationale / s.total) * 100) };
 }
 
 /**
- * Participation line. null = registration epoch not yet backfilled (pending);
- * eligible 0 = no concluded actions in the DRep's window yet. Never shows 0%.
+ * Participation, as a tagged state so the UI renders a percent only when one is
+ * meaningful: 'pending' = registration epoch not yet backfilled; 'none' = no
+ * concluded actions in the DRep's window yet (never a misleading 0%); 'ok' = a
+ * real rate.
  */
-export function formatParticipation(p: DrepParticipation | null): string {
-  if (p === null) return 'Registration date pending';
-  if (p.eligible === 0) return 'No concluded governance actions yet';
-  const pct = Math.round((p.voted / p.eligible) * 100);
-  return `Voted on ${p.voted} of ${p.eligible} concluded actions (${pct}%)`;
+export type ParticipationStat =
+  | { kind: 'pending' }
+  | { kind: 'none' }
+  | { kind: 'ok'; voted: number; eligible: number; pct: number };
+
+export function participationStat(p: DrepParticipation | null): ParticipationStat {
+  if (p === null) return { kind: 'pending' };
+  if (p.eligible === 0) return { kind: 'none' };
+  return { kind: 'ok', voted: p.voted, eligible: p.eligible, pct: Math.round((p.voted / p.eligible) * 100) };
 }
