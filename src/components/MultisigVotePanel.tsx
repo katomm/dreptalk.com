@@ -162,6 +162,9 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
   // to build the share link and to poll progress.
   const [createdId, setCreatedId] = useState<string | null>(null);
 
+  // Open votes fetched from /api/drep/multisig/list (initiate mode only).
+  const [openVotes, setOpenVotes] = useState<Array<{ id: string; gaId: string; vote: string; expiresAt: number }>>([]);
+
   // ---- witness/submit state (and initiate progress after creation) ----
   const [pending, setPending] = useState<PendingState | null>(null);
   const [signerPaste, setSignerPaste] = useState('');
@@ -221,6 +224,17 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
     const timer = setInterval(() => void refresh(), 4000);
     return () => clearInterval(timer);
   }, [trackedId, submittedTxHash, refresh]);
+
+  // Fetch open pending votes once on mount (initiate mode only, before a vote is created).
+  useEffect(() => {
+    if (mode !== 'initiate' || createdId) return;
+    fetch('/api/drep/multisig/list')
+      .then((r) => (r.ok ? (r.json() as Promise<{ items: typeof openVotes }>) : Promise.resolve({ items: [] })))
+      .then((body) => setOpenVotes(body.items))
+      .catch(() => {
+        // Non-fatal: the list is a convenience only.
+      });
+  }, [mode, createdId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- initiate: build + store the pending vote ----
   async function handleInitiate() {
@@ -656,6 +670,27 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
 
         {error && <ErrorCallout message={error} />}
       </div>
+
+      {/* Open multisig votes: list below the form so members can find pending co-signs. */}
+      {openVotes.length > 0 && (
+        <div style={{ marginTop: '1.25rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+          <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', fontWeight: 500 }}>
+            Open multisig votes
+          </p>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+            {openVotes.map((item) => (
+              <li key={item.id} style={{ fontSize: '0.8125rem', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                <a
+                  href={`/drep/cosign/${item.id}`}
+                  style={{ color: 'var(--accent)', textDecoration: 'underline', wordBreak: 'break-all' }}
+                >
+                  {item.vote.toUpperCase()} on {item.gaId}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {rationaleModalOpen && (
         <RationaleModal value={rationaleText} onChange={setRationaleText} onClose={() => setRationaleModalOpen(false)} />

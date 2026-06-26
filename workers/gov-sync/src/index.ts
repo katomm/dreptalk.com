@@ -48,6 +48,7 @@ import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../..
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
+import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
 
 interface Env {
@@ -246,6 +247,14 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
     const changed = await reconcilePendingVotes(env.DB, Math.floor(Date.now() / 1000));
     if (changed > 0) console.log(`[gov-votes-reconcile] failed=${changed}`);
     return { items: changed };
+  });
+
+  // Remove multisig pending votes whose collection window has elapsed. Runs
+  // alongside reconcile-pending; a cleanup failure must not abort the sync.
+  await phase('expire-multisig', async () => {
+    const deleted = await deleteExpiredPending(env.DB, Math.floor(Date.now() / 1000));
+    if (deleted > 0) console.log(`[multisig-expire] deleted=${deleted}`);
+    return { items: deleted };
   });
 
   // Award achievement badges from the freshly synced data: a set-based full
