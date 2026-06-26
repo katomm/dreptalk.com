@@ -1,0 +1,47 @@
+---
+// Co-sign page for a native-script (multisig) DRep vote. The link token (the id)
+// is the read capability; the page itself requires a logged-in DRep session
+// because adding a witness and submitting are DRep-gated endpoints. The panel
+// fetches the action, vote, progress and script DRep id from the GET endpoint,
+// so gaId and scriptDrepId are passed empty here.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import MultisigVotePanel from '@/components/MultisigVotePanel.js';
+import { currentNetwork } from '@/lib/api/response.js';
+
+const { id } = Astro.params;
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login');
+}
+if (!user.roles.includes('drep')) {
+  return Astro.redirect('/login');
+}
+
+const network = currentNetwork().network;
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+---
+
+<Layout title="Co-sign a multisig vote - DRepTalk" noindex={true}>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Co-sign a multisig vote</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.25rem;">Co-sign a multisig vote</h1>
+  <p style="margin:0 0 2rem;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
+    Review the vote, add your DRep signature, and submit once enough members have signed.
+  </p>
+
+  {id ? (
+    <MultisigVotePanel client:load mode="witness" pendingId={id} gaId={''} scriptDrepId={''} network={network} />
+  ) : (
+    <div class="callout callout--error" role="alert">
+      <div class="callout__body">Missing co-sign id.</div>
+    </div>
+  )}
+</Layout>
