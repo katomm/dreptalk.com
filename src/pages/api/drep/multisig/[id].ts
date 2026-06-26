@@ -19,19 +19,34 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const row = await getPendingMultisig(db, id);
   if (!row) return jsonResponse({ error: 'not found' }, 404);
 
-  const script = parseNativeScriptJson(JSON.parse(row.native_script));
-  if (!script) return jsonResponse({ error: 'corrupt script' }, 500);
-
-  const witnesses = JSON.parse(row.witnesses) as Array<{ key_hash: string; witness_hex: string }>;
-  const signers = new Set(witnesses.map((w) => w.key_hash));
-  const progress = satisfactionProgress(script, signers);
-
-  const actionParams = JSON.parse(row.action_params) as {
+  let script: ReturnType<typeof parseNativeScriptJson>;
+  let witnesses: Array<{ key_hash: string; witness_hex: string }>;
+  let actionParams: {
     gaId: string;
     vote: string;
     anchorUrl?: string;
     anchorHashHex?: string;
   };
+
+  try {
+    script = parseNativeScriptJson(JSON.parse(row.native_script));
+    if (!script) return jsonResponse({ error: 'corrupt script' }, 500);
+
+    const parsedWitnesses = JSON.parse(row.witnesses) as Array<{ key_hash: string; witness_hex: string }> | null;
+    witnesses = (parsedWitnesses ?? []) as Array<{ key_hash: string; witness_hex: string }>;
+
+    actionParams = JSON.parse(row.action_params) as {
+      gaId: string;
+      vote: string;
+      anchorUrl?: string;
+      anchorHashHex?: string;
+    };
+  } catch {
+    return jsonResponse({ error: 'corrupt record' }, 500);
+  }
+
+  const signers = new Set(witnesses.map((w) => w.key_hash));
+  const progress = satisfactionProgress(script, signers);
 
   return jsonResponse(
     {
