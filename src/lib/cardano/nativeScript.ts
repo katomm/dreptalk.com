@@ -136,3 +136,51 @@ function concat(...arrs: Uint8Array[]): Uint8Array {
   }
   return out;
 }
+
+/**
+ * True iff the set of signer key hashes satisfies the native script tree.
+ * Timelocks (before/after) are treated as satisfied: vote validity is bounded
+ * by the tx interval, not by the off-chain progress view.
+ */
+export function isNativeScriptSatisfied(s: NativeScript, signers: Set<string>): boolean {
+  switch (s.type) {
+    case 'sig':
+      return signers.has(s.keyHash);
+    case 'all':
+      return s.scripts.every((c) => isNativeScriptSatisfied(c, signers));
+    case 'any':
+      return s.scripts.some((c) => isNativeScriptSatisfied(c, signers));
+    case 'atLeast':
+      return s.scripts.filter((c) => isNativeScriptSatisfied(c, signers)).length >= s.required;
+    case 'before':
+    case 'after':
+      return true;
+  }
+}
+
+/**
+ * Human-facing progress. threshold is only meaningful for a flat top-level
+ * all/any/atLeast over sig leaves; otherwise null (nested tree, show satisfied
+ * plus leaf counts).
+ */
+export function satisfactionProgress(
+  s: NativeScript,
+  signers: Set<string>,
+): { satisfied: boolean; signedLeaves: number; totalLeaves: number; threshold: number | null } {
+  const leaves = [...collectSigKeyHashes(s)];
+  const signedLeaves = leaves.filter((k) => signers.has(k)).length;
+  const flatThreshold =
+    s.type === 'all' && s.scripts.every((c) => c.type === 'sig')
+      ? s.scripts.length
+      : s.type === 'any' && s.scripts.every((c) => c.type === 'sig')
+        ? 1
+        : s.type === 'atLeast' && s.scripts.every((c) => c.type === 'sig')
+          ? s.required
+          : null;
+  return {
+    satisfied: isNativeScriptSatisfied(s, signers),
+    signedLeaves,
+    totalLeaves: leaves.length,
+    threshold: flatThreshold,
+  };
+}
