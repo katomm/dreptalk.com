@@ -52,7 +52,7 @@ function friendlyLoginError(
     return 'Your login challenge expired. Get a fresh challenge and sign it again.';
   }
   if (e.includes('key-based drep in script flow')) {
-    return 'That is a key-based DRep ID, not a script DRep. Use the wallet sign-in, or for CLI keys with no browser wallet, the cardano-signer sign-in (no Script DRep ID needed).';
+    return 'That is a key-based DRep, not a script DRep. Turn off the "multisig / script DRep" toggle and sign in as a regular DRep (no Script DRep ID needed).';
   }
   if (e.includes('plutus script drep unsupported')) {
     return 'This is a Plutus-script DRep, which cannot sign in: there are no keys to prove membership. Only native-script (multisig) DReps are supported here.';
