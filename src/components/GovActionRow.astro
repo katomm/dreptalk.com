@@ -77,7 +77,12 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
         <span class="garow__oc-val">{onchain.value}</span>
       </p>
     )}
-    {action.abstract && <p class="garow__desc">{action.abstract}</p>}
+    {/* Abstract only when there is no structured on-chain line. For actions with an
+        on-chain effect that line already carries the substance (money, params), so the
+        abstract would just repeat below it. Info actions (and the rare action without a
+        usable payload) have no on-chain line, so the abstract becomes the preview, with
+        room for two lines. */}
+    {!onchain && action.abstract && <p class="garow__desc">{action.abstract}</p>}
     <p class="garow__meta">
       {proposerIcon
         ? <img class="garow__pico" src={proposerIcon} alt="" width="14" height="14" loading="lazy" />
@@ -176,7 +181,11 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .garow__onchain--amount .garow__oc-val { color:var(--accent); font-weight:700; }
   /* old→new pair (single param, protocol version): label gets a trailing colon. */
   .garow__onchain--change .garow__oc-prefix::after { content:':'; }
-  .garow__desc { color:var(--muted); font-size:0.8rem; margin:0 0 6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Two-line preview (only shown when there is no on-chain line, i.e. info actions):
+     clamp to two lines so a long abstract gets more room than the old single line
+     without pushing the row taller than the metric columns. */
+  .garow__desc { color:var(--muted); font-size:0.8rem; margin:0 0 6px;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .garow__meta { color:var(--muted); font-size:0.75rem; margin:0; }
   .garow__pico { vertical-align:-2px; margin-right:4px; border-radius:3px; }
   /* Identicon fallback: an inline SVG span has no intrinsic size, so pin it to the
