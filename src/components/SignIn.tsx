@@ -854,6 +854,14 @@ export default function SignIn({ network = 'preprod' }: SignInProps) {
   const [method, setMethod] = useState<SignInMethod>('wallet');
   const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
 
+  // SPO and CC sign offline only, so their entry links (?role=spo|cc) open the
+  // cardano-signer method directly; the tab then preselects the matching role.
+  // DRep and Proposer default to the wallet method.
+  useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get('role');
+    if (r === 'spo' || r === 'cc') setMethod('cardano-signer');
+  }, []);
+
   // Reset transient login state when switching methods.
   function handleMethodChange(m: SignInMethod) {
     setMethod(m);
