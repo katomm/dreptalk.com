@@ -31,6 +31,9 @@
 //               stamped current-version and never retried), and add a gov-titles phase
 //               that reconciles topic titles + opening posts with the recovered action
 //               title (also fixes older action-only recoveries).
+//   2026-06-27: keep re-checking ratified actions until Koios sets enacted_epoch, so
+//               an action frozen during the ~1-epoch ratified window flips to "Enacted"
+//               instead of staying stuck on "Ratified".
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -126,8 +129,8 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
       limit: TALLY_LIMIT,
       paceMs: TALLY_PACE_MS,
     });
-    console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} failed=${tally.failed}`);
-    return { items: tally.updated, failed: tally.failed };
+    console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} reSynced=${tally.reSynced} failed=${tally.failed}`);
+    return { items: tally.updated + tally.reSynced, failed: tally.failed };
   });
 
   await phase('voted-power', async () => {

@@ -3,14 +3,19 @@
 // power-weighted vote summary, derive its lifecycle status from the proposal_list
 // epoch fields, and persist both. A 'pending' action (freshly discovered, not yet
 // verified) becomes 'active' or a terminal status here. Once an action reaches a
-// terminal status (ratified / enacted / dropped / expired) it is frozen and no
-// longer polled (its final tallies stay). Per-action failures are isolated.
+// terminal status (enacted / dropped / expired / closed) it is frozen and no
+// longer polled (its final tallies stay). 'ratified' is the exception: Koios sets
+// enacted_epoch ~1 epoch after ratified_epoch, so a ratified row keeps getting a
+// lightweight, status-only lifecycle re-check (no tally re-fetch) until it flips
+// to enacted. Per-action failures are isolated.
 
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
 import {
   getStaleSyncableActions,
   getVoteStaleSyncableActions,
+  getRatifiedActions,
   updateGovernanceTallyAndStatus,
+  updateGovernanceActionStatus,
   getActionsNeedingVotedPower,
   updateVotedPower,
   getActionsNeedingVoteBackfill,
@@ -34,6 +39,8 @@ export interface TallySyncResult {
   updated: number;
   frozen: number;
   failed: number;
+  /** Ratified rows advanced to a later terminal status (usually 'enacted') this run. */
+  reSynced: number;
 }
 
 export interface VoteSyncResult {
@@ -179,7 +186,13 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
   // Stale-first + capped: never-synced actions go first, so the backlog drains
   // over several runs instead of the same front rows being re-synced each time.
   const active = await getStaleSyncableActions(db, limit);
-  if (active.length === 0) return { active: 0, updated: 0, frozen: 0, failed: 0 };
+  // Ratified rows are not frozen: they need a status-only re-check until enacted
+  // (see getRatifiedActions). Fetched up front so one proposal_list read serves
+  // both passes and the re-check still runs on a tick with no active actions.
+  const ratified = await getRatifiedActions(db, limit);
+  if (active.length === 0 && ratified.length === 0) {
+    return { active: 0, updated: 0, frozen: 0, failed: 0, reSynced: 0 };
+  }
 
   // One proposal_list read gives lifecycle epochs for every action this cycle.
   const lifecycle = new Map<string, ProposalListRow>();
@@ -190,6 +203,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
   let updated = 0;
   let frozen = 0;
   let failed = 0;
+  let reSynced = 0;
 
   for (const [i, ga] of active.entries()) {
     // Space out the Koios calls so a run does not hammer proposal_voting_summary
@@ -240,7 +254,39 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
     }
   }
 
-  return { active: active.length, updated, frozen, failed };
+  // Lifecycle re-check for ratified rows: re-derive status from the shared
+  // proposal_list and advance the row when Koios has since set enacted_epoch
+  // (or another terminal epoch). Status-only via updateGovernanceActionStatus,
+  // so the already-final tally and per-voter votes are left untouched. Skips a
+  // row absent from this run's proposal_list (no fresh lifecycle => don't guess)
+  // or still genuinely ratified (enacted_epoch not set yet).
+  for (const ga of ratified) {
+    try {
+      const life = lifecycle.get(ga.id);
+      if (!life) continue;
+      const status = deriveStatus(life, ga, currentEpoch);
+      if (status === ga.status) continue;
+      const decidedEpoch =
+        life.enacted_epoch ?? life.ratified_epoch ?? life.expired_epoch ?? life.dropped_epoch ?? ga.decidedEpoch ?? null;
+      await updateGovernanceActionStatus(db, { id: ga.id, status, decidedEpoch, now });
+      // Enactment (ratified -> enacted) is itself a feed milestone, mirroring the
+      // active-loop rule: a transition into a terminal status with a topic emits one.
+      if (isTerminalStatus(status) && ga.topicId) {
+        await activityInsert(db, {
+          type: 'gov_status',
+          topicId: ga.topicId,
+          payload: { from: ga.status, to: status },
+          createdAt: now,
+        }).run();
+      }
+      reSynced++;
+    } catch (err) {
+      failed++;
+      console.warn(`[gov-tally] ratified re-check ${ga.id} failed:`, err);
+    }
+  }
+
+  return { active: active.length, updated, frozen, failed, reSynced };
 }
 
 export interface VotedPowerBackfillResult {

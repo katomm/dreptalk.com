@@ -79,6 +79,12 @@ describe('deriveStatus', () => {
     expect(deriveStatus(lifeRow('x', { ratified_epoch: 300 }), ga, 290)).toBe('ratified');
     expect(deriveStatus(lifeRow('x', { dropped_epoch: 300 }), ga, 290)).toBe('dropped');
   });
+  it('resolves enacted once enacted_epoch has passed, even with ratified_epoch also set', () => {
+    // The real stuck-on-ratified scenario: an action carries BOTH ratified_epoch
+    // and (a later) enacted_epoch, with the current epoch past enacted_epoch.
+    // enacted wins over ratified, so the row is 'enacted', not 'ratified'.
+    expect(deriveStatus(lifeRow('x', { ratified_epoch: 637, enacted_epoch: 638 }), ga, 639)).toBe('enacted');
+  });
   it('labels an expired-then-dropped action as expired (expiry is the real outcome)', () => {
     // The chain marks a timed-out action expired, then drops it the next epoch,
     // so both epochs are set; expiry must win over the dropped bookkeeping.
@@ -215,6 +221,90 @@ describe('syncGovernanceTallies', () => {
     expect(r2.updated).toBe(1);
     const afterRun2 = await Promise.all([a, b, c].map((x) => getGovernanceActionByTopicId(db(), x.topicId)));
     expect(afterRun2.filter((g) => g!.tallySyncedAt != null).length).toBe(3);
+  });
+});
+
+describe('syncGovernanceTallies re-syncs ratified actions until enacted', () => {
+  it('flips a frozen ratified action to enacted once Koios sets enacted_epoch', async () => {
+    const a = await insertActive(640);
+
+    // First run: Koios reports ratified_epoch but not yet enacted_epoch (the
+    // ~1-epoch window between ratification and enactment). The action freezes
+    // as 'ratified'. Before the fix this was the end of the line: a ratified row
+    // was excluded from the syncable set and never re-read.
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 637 })]),
+      db: db(),
+      currentEpoch: 638,
+      now: NOW + 10,
+    });
+    expect((await getGovernanceActionByTopicId(db(), a.topicId))!.status).toBe('ratified');
+
+    // A later run: Koios has now set enacted_epoch (already in the past). The
+    // ratified row must be re-checked against the fresh lifecycle and advanced
+    // to 'enacted', not left stuck on 'ratified' forever.
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 637, enacted_epoch: 638 })]),
+      db: db(),
+      currentEpoch: 639,
+      now: NOW + 20,
+    });
+    expect((await getGovernanceActionByTopicId(db(), a.topicId))!.status).toBe('enacted');
+  });
+
+  it('advances ratified -> enacted without re-pulling the frozen tally or votes', async () => {
+    const a = await insertActive(640);
+
+    // Freeze to ratified with a real tally, then simulate the one finalised-vote
+    // backfill that runs when an action freezes (it set votes_synced_at).
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 637 })]),
+      db: db(),
+      currentEpoch: 638,
+      now: NOW + 10,
+    });
+    await markVotesSynced(db(), a.id, NOW + 12);
+    const frozen = (await getGovernanceActionByTopicId(db(), a.topicId))!;
+    expect(frozen.status).toBe('ratified');
+    expect(frozen.drepNo).toBe(5);
+
+    const r = await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 637, enacted_epoch: 638 })]),
+      db: db(),
+      currentEpoch: 639,
+      now: NOW + 20,
+    });
+    expect(r.reSynced).toBe(1);
+
+    const got = (await getGovernanceActionByTopicId(db(), a.topicId))!;
+    expect(got.status).toBe('enacted');
+    expect(got.decidedEpoch).toBe(638); // advanced from ratified_epoch to enacted_epoch
+    expect(got.drepNo).toBe(5); // frozen tally left intact (no re-fetch)
+    // The status-only re-check must NOT null votes_synced_at: re-queuing an
+    // already-pulled finalised vote list every run would be wasteful.
+    const queued = await getActionsNeedingVoteBackfill(db(), 50);
+    expect(queued.map((g) => g.id)).not.toContain(a.id);
+  });
+
+  it('leaves an action ratified while enacted_epoch is still unset', async () => {
+    const a = await insertActive(640);
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 637 })]),
+      db: db(),
+      currentEpoch: 638,
+      now: NOW + 10,
+    });
+
+    // Still inside the ratified window (Koios has not set enacted_epoch): the row
+    // stays ratified and nothing is re-synced.
+    const r = await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 637 })]),
+      db: db(),
+      currentEpoch: 638,
+      now: NOW + 20,
+    });
+    expect(r.reSynced).toBe(0);
+    expect((await getGovernanceActionByTopicId(db(), a.topicId))!.status).toBe('ratified');
   });
 });
 
@@ -491,5 +581,31 @@ describe('syncGovernanceTallies emits gov_status', () => {
     const events = await statusEvents(topicId);
     expect(events.length).toBe(1);
     expect(events[0]).toEqual({ from: 'pending', to: 'enacted' });
+  });
+
+  it('emits ratified -> enacted when the lifecycle re-check advances a frozen row', async () => {
+    const { txHash, topicId } = await insertActive(640);
+
+    // First freeze to ratified (emits pending -> ratified).
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(txHash, { ratified_epoch: 637 })]),
+      db: db(),
+      currentEpoch: 638,
+      now: NOW,
+    });
+    // Later run with enacted_epoch set: the re-check advances it and emits a
+    // second milestone so the feed shows both "was ratified" and "was enacted".
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(txHash, { ratified_epoch: 637, enacted_epoch: 638 })]),
+      db: db(),
+      currentEpoch: 639,
+      now: NOW + 1000,
+    });
+
+    const events = await statusEvents(topicId);
+    expect(events).toEqual([
+      { from: 'pending', to: 'ratified' },
+      { from: 'ratified', to: 'enacted' },
+    ]);
   });
 });
