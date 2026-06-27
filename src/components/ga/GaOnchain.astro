@@ -5,6 +5,7 @@ import type { GovernanceAction } from '@/lib/db/governance.js';
 import { readableType, formatAda } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, governanceActionUrl, type CardanoNetwork } from '@/lib/config/network.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
+import CopyButton from '@/components/CopyButton.astro';
 
 interface Props {
   action: GovernanceAction;
@@ -37,7 +38,7 @@ const decidedDate = action.decidedEpoch != null
       <>
         <dt>Governance action id</dt>
         <dd>
-          <span class="mono wrap">{action.proposalId}</span>
+          <span class="mono wrap">{action.proposalId}</span><CopyButton value={action.proposalId} label="Copy governance action id" />
           {explorerUrl && (
             <a class="explorer-link" href={explorerUrl} target="_blank" rel="noopener noreferrer">
               View on explorer
@@ -60,7 +61,7 @@ const decidedDate = action.decidedEpoch != null
     {action.returnAddress != null && (
       <>
         <dt>Return address</dt>
-        <dd><span class="mono wrap">{action.returnAddress}</span></dd>
+        <dd><span class="mono wrap">{action.returnAddress}</span><CopyButton value={action.returnAddress} label="Copy return address" /></dd>
       </>
     )}
 
@@ -106,7 +107,7 @@ const decidedDate = action.decidedEpoch != null
     {action.anchorHash != null && (
       <>
         <dt>Anchor hash</dt>
-        <dd><span class="mono wrap">{action.anchorHash}</span></dd>
+        <dd><span class="mono wrap">{action.anchorHash}</span><CopyButton value={action.anchorHash} label="Copy anchor hash" /></dd>
       </>
     )}
 

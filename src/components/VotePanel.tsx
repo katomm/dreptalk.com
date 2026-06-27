@@ -7,6 +7,7 @@
 // optimistic result via POST /api/vote/record, (4) shows success with an
 // explorer link. Connect/identity derivation mirrors DRepService exactly.
 import { useState, useRef } from 'react';
+import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import type { CastDRepVoteOpts } from '@/lib/governance/drepTx.js';
@@ -401,6 +402,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
               >
                 {phase.txHash}
               </a>
+              <CopyButton value={phase.txHash} label="Copy transaction hash" />
             </p>
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
               Your vote will appear on-chain once the transaction is confirmed.
@@ -449,6 +451,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                     >
                       View transaction
                     </a>
+                    <CopyButton value={priorVote.tx_hash} label="Copy transaction hash" />
                   </p>
                 )}
                 <button

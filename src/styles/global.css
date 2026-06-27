@@ -764,3 +764,49 @@ main.container {
     top: 1.5rem;
   }
 }
+
+/* Copy-to-clipboard icon button. Shared by the Astro CopyButton (SSR, driven by
+   one delegated listener) and the React CopyButton island (own state). Both swap
+   the clipboard icon for a check while the is-copied class is on. Sits inline
+   after an identifier (stake key, DRep id, address, hash) so it flows with text
+   and wraps naturally after long, break-all values. */
+.copy-btn {
+  /* Sized in em so the button scales with the identifier it sits beside, from
+     small captions to body text. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0;
+  margin-left: 0.15em;
+  background: none;
+  border: none;
+  border-radius: 0.35em;
+  color: var(--muted);
+  cursor: pointer;
+  vertical-align: text-bottom;
+}
+.copy-btn:hover {
+  background: var(--surface);
+  color: var(--accent);
+}
+.copy-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.copy-btn svg {
+  width: 0.9em;
+  height: 0.9em;
+}
+.copy-btn__check {
+  display: none;
+  color: var(--accent);
+}
+.copy-btn.is-copied .copy-btn__copy {
+  display: none;
+}
+.copy-btn.is-copied .copy-btn__check {
+  display: inline;
+}

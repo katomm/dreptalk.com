@@ -1,6 +1,7 @@
 ---
 import { proposerView } from '@/lib/identity/proposer.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
+import CopyButton from '@/components/CopyButton.astro';
 
 interface Props {
   /** The action's return_address (reward address), or null. */
@@ -32,7 +33,8 @@ const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, si
 {v.kind === 'unknown' && (
   <span class="proposer" style={`--s:${size}px`}>
     <span class="proposer__icon" set:html={iconSvg} />
-    <code class="proposer__addr">{v.short}</code>
+    <code class="proposer__addr" title={returnAddress}>{v.short}</code>
+    {returnAddress && <CopyButton value={returnAddress} label="Copy proposer address" />}
   </span>
 )}
 

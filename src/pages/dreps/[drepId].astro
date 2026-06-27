@@ -26,6 +26,7 @@ import { statusBadge } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
 import Avatar from '@/components/Avatar.astro';
+import CopyButton from '@/components/CopyButton.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
 import {
   cacheControlForSynced, formatAda, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN,
@@ -131,7 +132,7 @@ const personLd = drep
       <div class="drep-hd__main">
         <span class="drep-hd__kind">DRep</span>
         <h1 class="drep-hd__name">{displayName}</h1>
-        <div class="drep-hd__id">{drep.drepId}</div>
+        <div class="drep-hd__id"><span>{drep.drepId}</span><CopyButton value={drep.drepId} label="Copy DRep id" /></div>
         <div class="drep-hd__stats">
           <span class={`drep-hd__status drep-hd__status--${drep.active ? 'active' : isRetired ? 'retired' : 'other'}`}>
             <span class="drep-hd__dot" aria-hidden="true"></span>
@@ -220,7 +221,7 @@ const personLd = drep
     )}
     {drep.paymentAddress && (
       <p style="font-size:0.8125rem;color:var(--muted);margin-top:0.5rem;">
-        Payment address: <span style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;word-break:break-all;">{drep.paymentAddress}</span>
+        Payment address: <span style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;word-break:break-all;">{drep.paymentAddress}</span><CopyButton value={drep.paymentAddress} label="Copy payment address" />
       </p>
     )}
 

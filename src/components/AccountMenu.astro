@@ -7,6 +7,7 @@
 import { authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author';
 import { truncateIdMiddle } from '@/lib/forum/view';
 import Avatar from '@/components/Avatar.astro';
+import CopyButton from '@/components/CopyButton.astro';
 
 interface Props {
   /** Resolved identity of the signed-in user. */
@@ -46,14 +47,7 @@ const items = [
       <span class="account-menu__head-name">{name}</span>
       <span class="account-menu__head-id" title={id}>{truncateIdMiddle(id)}</span>
     </span>
-    <button type="button" class="account-menu__copy" data-copy={id} aria-label="Copy your id" title="Copy your id">
-      <svg class="account-menu__copy-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-      </svg>
-      <svg class="account-menu__copied-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M20 6 9 17l-5-5" />
-      </svg>
-    </button>
+    <CopyButton value={id} label="Copy your id" />
   </div>
   {items.map((item) => (
     <a class="account-menu__item" href={item.href} role="menuitem">
@@ -68,24 +62,6 @@ const items = [
     </button>
   </form>
 </div>
-
-<script>
-  // Copy-to-clipboard for the account id. One delegated listener covers the
-  // desktop and the mobile-menu instance.
-  document.addEventListener('click', (event) => {
-    const btn = (event.target as Element | null)?.closest<HTMLButtonElement>('.account-menu__copy');
-    if (!btn?.dataset.copy) return;
-    navigator.clipboard
-      .writeText(btn.dataset.copy)
-      .then(() => {
-        btn.classList.add('is-copied');
-        setTimeout(() => btn.classList.remove('is-copied'), 1500);
-      })
-      .catch(() => {
-        // Clipboard can be blocked (no permission / insecure context); ignore.
-      });
-  });
-</script>
 
 <style>
   /* Rows divided by hairlines; the hover surface keeps a small radius inside
@@ -126,36 +102,6 @@ const items = [
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     color: var(--muted);
     white-space: nowrap;
-  }
-
-  /* Copy button swaps to the check icon while the is-copied class is on. */
-  .account-menu__copy {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    background: none;
-    border: none;
-    border-radius: var(--radius-sm);
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .account-menu__copy:hover {
-    background: var(--surface);
-    color: var(--accent);
-  }
-  .account-menu__copied-icon {
-    display: none;
-    color: var(--accent);
-  }
-  .account-menu__copy.is-copied .account-menu__copy-icon {
-    display: none;
-  }
-  .account-menu__copy.is-copied .account-menu__copied-icon {
-    display: block;
   }
 
   .account-menu__item {

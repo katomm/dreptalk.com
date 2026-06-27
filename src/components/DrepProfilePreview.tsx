@@ -4,6 +4,7 @@
 // payment address. doNotList is not shown, matching the public page. Driven by
 // the in-progress form value so it updates as the DRep edits.
 import type { CSSProperties } from 'react';
+import { CopyButton } from '@/components/CopyButton.js';
 import type { DrepProfileValue } from '@/components/DrepProfileFields.js';
 import { linkDisplayLabel } from '@/lib/dreps/linkLabel.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
@@ -124,6 +125,7 @@ export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewPr
             <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', wordBreak: 'break-all' }}>
               {value.paymentAddress.trim()}
             </span>
+            <CopyButton value={value.paymentAddress.trim()} label="Copy payment address" />
           </p>
         )}
       </div>
