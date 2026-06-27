@@ -286,6 +286,7 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   // Capture per-epoch voting power snapshots for the list delta chip and the
   // profile sparkline. Self-healing: fetches only epochs not yet stored, prunes
   // the rolling window, and projects the latest two snapshots onto the dreps rows.
+  // Inserts are chunked to stay under D1's 100 bound-parameter-per-query limit.
   // A fetch failure here must not fail the DRep sync that already succeeded.
   await phase('voting-power-history', async () => {
     const tip = await koios.tip();

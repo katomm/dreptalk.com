@@ -9,9 +9,11 @@ export interface VotingPowerHistoryRow {
   amount: string;
 }
 
-// SQLite caps bound parameters per statement (~999). Three binds per row, so 300
-// rows per multi-row INSERT stays comfortably under the cap.
-const INSERT_CHUNK = 300;
+// D1 caps bound parameters per query at 100 (not SQLite's higher native limit;
+// the local Miniflare test runtime does not enforce it, so this must be sized for
+// the real database). Three binds per row, so 33 rows per multi-row INSERT stays
+// at 99 parameters, just under the cap.
+const INSERT_CHUNK = 33;
 
 /** The distinct epochs already captured, so a sync only fetches the missing ones. */
 export async function getStoredEpochs(db: D1Database): Promise<Set<number>> {
