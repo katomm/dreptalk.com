@@ -386,7 +386,10 @@ const personLd = drep
   .drep-summary__h { font-size: 1.05rem; margin: 0 0 0.85rem; }
   .drep-summary__count { color: var(--muted); font-weight: 400; }
   .drep-summary__empty { color: var(--muted); margin: 0; }
-  .drep-summary__badgegrid { display: flex; flex-wrap: wrap; gap: 1rem 1.25rem; align-items: flex-start; }
+  /* Grid, not flex-wrap: the tiles use height:100% to align across a row, which
+     needs a grid parent. In a wrapping flex row WebKit fails to reserve the
+     second row's height, so the third badge spilled out of the card on mobile. */
+  .drep-summary__badgegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: 1rem 1.25rem; align-items: start; }
   /* Anchor the link to the card's bottom so the two summary cards line up. */
   .drep-summary__all { margin-top: auto; align-self: flex-start; padding-top: 0.95rem; font-size: 0.9375rem; }
 
