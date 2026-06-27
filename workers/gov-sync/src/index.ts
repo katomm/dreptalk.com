@@ -34,6 +34,9 @@
 //   2026-06-27: keep re-checking ratified actions until Koios sets enacted_epoch, so
 //               an action frozen during the ~1-epoch ratified window flips to "Enacted"
 //               instead of staying stuck on "Ratified".
+//   2026-06-27: date gov_status feed events at their on-chain epoch boundary (not
+//               detection time) + add a gov-status-times backfill that re-dates the
+//               catch-up burst of "was enacted" events to when they actually enacted.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -46,7 +49,7 @@ import {
   backfillGovTopicTitles,
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
-import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
@@ -127,11 +130,21 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
       db: env.DB,
       currentEpoch: tip.epoch_no,
       now,
+      network,
       limit: TALLY_LIMIT,
       paceMs: TALLY_PACE_MS,
     });
     console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} reSynced=${tally.reSynced} failed=${tally.failed}`);
     return { items: tally.updated + tally.reSynced, failed: tally.failed };
+  });
+
+  // Re-date gov_status feed events to their on-chain epoch boundary when the stored
+  // time drifted (e.g. a backlog of terminal transitions caught up in one run, which
+  // would otherwise all read "just now"). Pure D1, only-changed; a no-op once settled.
+  await phase('gov-status-times', async () => {
+    const fixed = await backfillGovStatusTimes({ db: env.DB, network, limit: 500 });
+    console.log(`[gov-status-times] scanned=${fixed.scanned} updated=${fixed.updated}`);
+    return { items: fixed.updated };
   });
 
   await phase('voted-power', async () => {

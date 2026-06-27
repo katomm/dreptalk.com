@@ -668,6 +668,44 @@ export async function markVotesSynced(db: D1Database, id: string, now: number): 
   await db.prepare('UPDATE governance_actions SET votes_synced_at = ? WHERE id = ?').bind(now, id).run();
 }
 
+/** A gov_status feed event whose time can be re-derived from its action's epoch. */
+export interface GovStatusEventTime {
+  id: string;
+  decidedEpoch: number;
+  createdAt: number;
+}
+
+/**
+ * gov_status feed events whose stored time should be re-derived from the on-chain
+ * epoch boundary: the event marks the action's CURRENT terminal status, so the
+ * action's single decided_epoch IS this transition's epoch. Older transitions of
+ * the same action (e.g. a prior 'ratified' before it enacted) are excluded, since
+ * their epoch is not recoverable from decided_epoch; they keep their detection
+ * time. Drives backfillGovStatusTimes. Bounded by `limit`.
+ */
+export async function getGovStatusEventsForTimeFix(db: D1Database, limit: number): Promise<GovStatusEventTime[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT a.id AS id, ga.decided_epoch AS decidedEpoch, a.created_at AS createdAt
+           FROM activity a
+           JOIN governance_actions ga ON ga.topic_id = a.topic_id
+          WHERE a.type = 'gov_status'
+            AND ga.decided_epoch IS NOT NULL
+            AND json_extract(a.payload, '$.to') = ga.status
+          LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovStatusEventTime>()
+  ).results ?? [];
+  return rows;
+}
+
+/** Sets one activity event's created_at (used by the gov_status time backfill). */
+export async function updateActivityCreatedAt(db: D1Database, id: string, createdAt: number): Promise<void> {
+  await db.prepare('UPDATE activity SET created_at = ? WHERE id = ?').bind(createdAt, id).run();
+}
+
 /** A governance action by the same proposer, with the topic slug for linking. */
 export interface RelatedActionRow {
   id: string;
