@@ -276,6 +276,30 @@ export async function getStaleSyncableActions(db: D1Database, limit: number): Pr
 }
 
 /**
+ * Ratified-but-not-yet-enacted actions, for the lightweight lifecycle re-check.
+ * Koios sets enacted_epoch ~1 epoch after ratified_epoch, so 'ratified' is a
+ * transient resting state, not a frozen one: getStaleSyncableActions excludes it
+ * (its tally is final), but the re-check keeps reading these from the shared
+ * proposal_list until they flip to a truly terminal status (usually 'enacted'),
+ * so a row first synced inside that gap is not stuck on 'ratified' forever.
+ * Least-recently-synced first, bounded by `limit`, mirroring the tally sync.
+ */
+export async function getRatifiedActions(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM governance_actions
+         WHERE status = 'ratified'
+         ORDER BY last_synced_at ASC, expiry_epoch ASC
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/**
  * Like getStaleSyncableActions, but ordered for the vote-list sync: never-vote-
  * synced rows first (votes_synced_at NULL), then the least-recently vote-synced.
  * The vote sync has its own timestamp because it runs on a different cadence than
@@ -724,6 +748,27 @@ export type GovernanceTallyUpdate = GovernanceTally & {
   tallySyncedAt: number;
   now: number;
 };
+
+/**
+ * Advances only the lifecycle status (and the decided epoch) of an action,
+ * leaving the frozen tally and the votes_synced_at marker untouched. Used by the
+ * ratified -> enacted re-check, which derives the new status from the shared
+ * proposal_list: the tally and per-voter votes were already finalised when the
+ * action first froze, so re-pulling or wiping them here would be wasteful.
+ */
+export async function updateGovernanceActionStatus(
+  db: D1Database,
+  u: { id: string; status: string; decidedEpoch: number | null; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE governance_actions
+         SET status = ?, decided_epoch = ?, last_synced_at = ?
+       WHERE id = ?`,
+    )
+    .bind(u.status, u.decidedEpoch, u.now, u.id)
+    .run();
+}
 
 /**
  * Updates the tally columns, pct columns, status, and sync timestamps in place.
