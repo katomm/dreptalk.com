@@ -20,12 +20,15 @@ import {
   updateVotedPower,
   getActionsNeedingVoteBackfill,
   markVotesSynced,
+  getGovStatusEventsForTimeFix,
+  updateActivityCreatedAt,
   type GovernanceAction,
   type GovernanceTally,
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, type VoteInput } from '../db/drepVotes.js';
 import { activityInsert } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
+import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
 
 // Max actions a single tally/vote run processes when the caller does not specify
 // one. Koios is latency-limited under a large burst (proposal_voting_summary and
@@ -57,6 +60,10 @@ export interface TallySyncDeps {
   db: D1Database;
   currentEpoch: number | null;
   now: number;
+  /** Network, for dating a gov_status feed event at its on-chain epoch boundary
+      (epochStartMs(decidedEpoch)) instead of detection time. Falls back to `now`
+      when absent (keeps older callers/tests working). */
+  network?: CardanoNetwork;
   /** Max actions to tally this run. Bounds the Koios burst; defaults to DEFAULT_TALLY_LIMIT. */
   limit?: number;
   /** Delay between per-action Koios calls (ms) so a run does not burst Koios. Default 0. */
@@ -181,7 +188,15 @@ function tallyFields(s: VotingSummary | null): GovernanceTally {
 }
 
 export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallySyncResult> {
-  const { koios, db, currentEpoch, now, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
+  const { koios, db, currentEpoch, now, network, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
+
+  // A status change's feed time is its on-chain boundary (start of the decided
+  // epoch), not when this sync noticed it: a backlog catch-up can detect a months-
+  // old enactment, and "now" would wrongly float it to the top of the feed. Falls
+  // back to `now` when the network (or the decided epoch) is unknown.
+  const cfg = network ? resolveNetwork(network) : null;
+  const statusEventTime = (decidedEpoch: number | null): number =>
+    cfg && decidedEpoch != null ? epochStartMs(decidedEpoch, cfg) : now;
 
   // Stale-first + capped: never-synced actions go first, so the backlog drains
   // over several runs instead of the same front rows being re-synced each time.
@@ -233,14 +248,14 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       // a feed event. pending -> active is suppressed: on-chain an action is votable
       // from submission, so "moved to voting" right after "new governance action" is
       // just our two-phase sync (discover, then tally) settling, not a milestone. A
-      // same-status tally refresh emits nothing either. created_at = now, since the
-      // change is happening now (unlike gov_created's submission time).
+      // same-status tally refresh emits nothing either. created_at is the on-chain
+      // boundary of the decided epoch (statusEventTime), not detection time.
       if (status !== ga.status && isTerminalStatus(status) && ga.topicId) {
         await activityInsert(db, {
           type: 'gov_status',
           topicId: ga.topicId,
           payload: { from: ga.status, to: status },
-          createdAt: now,
+          createdAt: statusEventTime(decidedEpoch),
         }).run();
       }
 
@@ -271,12 +286,14 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       await updateGovernanceActionStatus(db, { id: ga.id, status, decidedEpoch, now });
       // Enactment (ratified -> enacted) is itself a feed milestone, mirroring the
       // active-loop rule: a transition into a terminal status with a topic emits one.
+      // Dated at the enacted-epoch boundary (statusEventTime), not detection time,
+      // so a backlog catch-up does not float a weeks-old enactment to "just now".
       if (isTerminalStatus(status) && ga.topicId) {
         await activityInsert(db, {
           type: 'gov_status',
           topicId: ga.topicId,
           payload: { from: ga.status, to: status },
-          createdAt: now,
+          createdAt: statusEventTime(decidedEpoch),
         }).run();
       }
       reSynced++;
@@ -287,6 +304,42 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
   }
 
   return { active: active.length, updated, frozen, failed, reSynced };
+}
+
+export interface GovStatusTimeBackfillResult {
+  scanned: number;
+  updated: number;
+}
+
+export interface GovStatusTimeBackfillDeps {
+  db: D1Database;
+  network: CardanoNetwork;
+  /** Max gov_status events to inspect this run (bounds the sweep). */
+  limit: number;
+}
+
+/**
+ * Self-healing backfill: re-dates gov_status feed events to their on-chain epoch
+ * boundary (epochStartMs(decided_epoch)) when the stored created_at drifted from
+ * it. This corrects events written at detection time before that became the epoch
+ * boundary, e.g. a backlog of terminal transitions caught up in one run (which
+ * would otherwise all read "just now" and crowd the feed). Only the event marking
+ * the action's current terminal status is touched (see getGovStatusEventsForTimeFix).
+ * Only-changed: once every event sits on its boundary this writes nothing.
+ */
+export async function backfillGovStatusTimes(deps: GovStatusTimeBackfillDeps): Promise<GovStatusTimeBackfillResult> {
+  const { db, network, limit } = deps;
+  const cfg = resolveNetwork(network);
+  const candidates = await getGovStatusEventsForTimeFix(db, limit);
+  let updated = 0;
+  for (const e of candidates) {
+    const correct = epochStartMs(e.decidedEpoch, cfg);
+    if (e.createdAt !== correct) {
+      await updateActivityCreatedAt(db, e.id, correct);
+      updated++;
+    }
+  }
+  return { scanned: candidates.length, updated };
 }
 
 export interface VotedPowerBackfillResult {

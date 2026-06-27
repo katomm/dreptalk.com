@@ -4,10 +4,12 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId, recordLocalVote, getViewerVote } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, reconcilePendingVotes } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes } from './tallySync.js';
+import { activityInsert } from '../db/activity.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory } from '../db/drepVotes.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
+import { epochStartMs, resolveNetwork } from '../config/network.js';
 
 const db = () => env.DB;
 const NOW = 1_754_000_000_000;
@@ -525,6 +527,36 @@ describe('backfillFinalizedVotes', () => {
   });
 });
 
+describe('backfillGovStatusTimes', () => {
+  it('redates a stale gov_status event to its on-chain epoch boundary, leaving others, and is idempotent', async () => {
+    const a = await insertActive(294);
+    // The action is now enacted, decided in epoch 292.
+    await db().prepare("UPDATE governance_actions SET status = 'enacted', decided_epoch = 292 WHERE id = ?").bind(a.id).run();
+    // A backlog catch-up wrote the enacted event at detection time (wrong). The
+    // older ratified event is already near its true time and must be left alone
+    // (its epoch is not recoverable from the action's single decided_epoch).
+    await activityInsert(db(), { type: 'gov_status', topicId: a.topicId, payload: { from: 'ratified', to: 'enacted' }, createdAt: NOW }).run();
+    await activityInsert(db(), { type: 'gov_status', topicId: a.topicId, payload: { from: 'active', to: 'ratified' }, createdAt: NOW - 500 }).run();
+
+    const r = await backfillGovStatusTimes({ db: db(), network: 'mainnet', limit: 100 });
+    expect(r.updated).toBe(1);
+
+    const expected = epochStartMs(292, resolveNetwork('mainnet'));
+    const rows = (
+      await db()
+        .prepare("SELECT json_extract(payload, '$.to') AS to_status, created_at FROM activity WHERE type = 'gov_status' AND topic_id = ?")
+        .bind(a.topicId)
+        .all<{ to_status: string; created_at: number }>()
+    ).results;
+    expect(rows.find((x) => x.to_status === 'enacted')!.created_at).toBe(expected);
+    expect(rows.find((x) => x.to_status === 'ratified')!.created_at).toBe(NOW - 500);
+
+    // Settled: a second run rewrites nothing.
+    const r2 = await backfillGovStatusTimes({ db: db(), network: 'mainnet', limit: 100 });
+    expect(r2.updated).toBe(0);
+  });
+});
+
 describe('reconcilePendingVotes', () => {
   it('flags votes older than the window failed', async () => {
     const gaId = `${'d'.repeat(64)}#0`, drepId = `drep1${'z'.repeat(50)}`;
@@ -581,6 +613,29 @@ describe('syncGovernanceTallies emits gov_status', () => {
     const events = await statusEvents(topicId);
     expect(events.length).toBe(1);
     expect(events[0]).toEqual({ from: 'pending', to: 'enacted' });
+  });
+
+  it('dates a gov_status event at the on-chain epoch boundary, not detection time', async () => {
+    const { txHash, topicId } = await insertActive(294);
+
+    // Detected now (NOW), but enacted on-chain back in epoch 292. The feed time
+    // must read the enactment boundary, not when our sync happened to notice it
+    // (which for a backlog catch-up can be many days late).
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(txHash, { enacted_epoch: 292 })]),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW,
+      network: 'mainnet',
+    });
+
+    const expected = epochStartMs(292, resolveNetwork('mainnet'));
+    const row = await db()
+      .prepare("SELECT created_at FROM activity WHERE type = 'gov_status' AND topic_id = ?")
+      .bind(topicId)
+      .first<{ created_at: number }>();
+    expect(row!.created_at).toBe(expected);
+    expect(row!.created_at).not.toBe(NOW);
   });
 
   it('emits ratified -> enacted when the lifecycle re-check advances a frozen row', async () => {
