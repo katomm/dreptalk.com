@@ -2,6 +2,7 @@
 // "On-chain changes" block for the Overview: renders the decoded payload per type.
 // Renders nothing when there is no decodable payload.
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
+import CopyButton from '@/components/CopyButton.astro';
 
 interface Props {
   changes: OnchainChanges | null;
@@ -61,7 +62,7 @@ const show =
             <li class="ocx__row ocx__pay">
               <span class="ocx__new ocx__payamt">{r.ada}</span>
               <span class="ocx__payto">paid to</span>
-              <span class="ocx__payaddr mono">{r.address}</span>
+              <span class="ocx__payaddr mono">{r.address}</span><CopyButton value={r.address} label="Copy address" />
             </li>
           ))}
         </ul>
@@ -85,7 +86,7 @@ const show =
           <li class="ocx__row">
             <span class="ocx__name">Added</span>
             <span class="ocx__val mono">
-              {m.who}
+              {m.who}<CopyButton value={m.who} label="Copy committee member id" />
               {m.termEpoch !== null && <span class="ocx__group"> term to epoch {m.termEpoch}</span>}
             </span>
           </li>
@@ -93,7 +94,7 @@ const show =
         {changes.removed.map((m) => (
           <li class="ocx__row">
             <span class="ocx__name">Removed</span>
-            <span class="ocx__val mono">{m}</span>
+            <span class="ocx__val mono">{m}<CopyButton value={m} label="Copy committee member id" /></span>
           </li>
         ))}
       </ul>
@@ -110,7 +111,7 @@ const show =
         {changes.scriptHash && (
           <li class="ocx__row">
             <span class="ocx__name">Guardrails script</span>
-            <span class="ocx__val mono">{changes.scriptHash}</span>
+            <span class="ocx__val mono">{changes.scriptHash}<CopyButton value={changes.scriptHash} label="Copy script hash" /></span>
           </li>
         )}
       </ul>

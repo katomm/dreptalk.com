@@ -5,6 +5,7 @@
 // lazily (dynamic import at submit time) so callers do not ship the heavy tx
 // bundle on first load.
 import { useEffect, useRef, useState } from 'react';
+import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -182,7 +183,8 @@ export default function DelegateDialog({
 
         <p className="drep-dialog__target">
           To <strong>{target.name}</strong>
-          <span className="drep-dialog__target-id">{shortId}</span>
+          <span className="drep-dialog__target-id" title={target.drepId}>{shortId}</span>
+          <CopyButton value={target.drepId} label="Copy DRep id" />
         </p>
 
         {phase.status === 'success' ? (
@@ -199,6 +201,7 @@ export default function DelegateDialog({
                 >
                   {phase.txHash}
                 </a>
+                <CopyButton value={phase.txHash} label="Copy transaction hash" />
               </p>
               <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
                 Your voting power moves to this DRep once the transaction is confirmed.

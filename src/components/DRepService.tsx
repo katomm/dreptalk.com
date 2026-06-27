@@ -6,6 +6,7 @@
 // (see registerDRep). The only server calls here are reading public chain data
 // via the Koios proxy and hosting the metadata document.
 import { useState, useRef } from 'react';
+import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { registerDRep, retireDRep } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
@@ -301,6 +302,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               >
                 {phase.txHash}
               </a>
+              <CopyButton value={phase.txHash} label="Copy transaction hash" />
             </p>
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
               {phase.action === 'retire'
@@ -383,6 +385,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
                 <p style={{ margin: '0 0 0.25rem', fontWeight: 600 }}>You are already a registered DRep</p>
                 <p style={{ margin: '0 0 0.75rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
                   DRep id: {phase.identity.drepId}
+                  <CopyButton value={phase.identity.drepId} label="Copy DRep id" />
                 </p>
                 <p style={{ margin: '0 0 0.75rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
                   This submits a deregistration. Your DRep deposit is refunded once the
@@ -429,6 +432,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
             >
               <p style={{ margin: 0, maxWidth: '32rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
                 DRep id: {formIdentity.drepId}
+                <CopyButton value={formIdentity.drepId} label="Copy DRep id" />
               </p>
 
               <DrepProfileFields value={profile} onChange={setProfile} disabled={busy} idPrefix="reg-drep" seed={formIdentity.drepId} />

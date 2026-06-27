@@ -18,6 +18,7 @@
 // submit (witness). The funder's wallet is the only one that can sign the inputs,
 // so submission must happen from the wallet that built the tx.
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { CopyButton as CopyIdButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
@@ -432,6 +433,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
               <a href={txExplorerUrl(network, submittedTxHash)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
                 {submittedTxHash}
               </a>
+              <CopyIdButton value={submittedTxHash} label="Copy transaction hash" />
             </p>
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
               The vote will appear on-chain once the transaction is confirmed.
@@ -488,6 +490,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
                   View transaction
                 </a>
               )}
+              {pending.txHash && <CopyIdButton value={pending.txHash} label="Copy transaction hash" />}
             </div>
           </div>
         </div>
@@ -503,9 +506,11 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
           </p>
           <p style={{ margin: '0 0 0.35rem', fontSize: '0.8125rem', color: 'var(--muted)', wordBreak: 'break-all' }}>
             {pending.gaId}
+            <CopyIdButton value={pending.gaId} label="Copy governance action id" />
           </p>
           <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)', wordBreak: 'break-all' }}>
             as {pending.drepId}
+            <CopyIdButton value={pending.drepId} label="Copy DRep id" />
           </p>
         </div>
 
