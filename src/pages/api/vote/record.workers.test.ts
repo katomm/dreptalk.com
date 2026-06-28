@@ -207,6 +207,22 @@ describe('POST /api/vote/record', () => {
     expect(rows[0].body_md).not.toContain('\r');
   });
 
+  it('mirrors a self-cast rationale into action_rationale for the Positions tab', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'Native rationale.' },
+    }));
+    expect(res.status).toBe(200);
+    const row = await env.DB
+      .prepare(`SELECT body_html, source FROM action_rationale WHERE ga_id = ? AND voter_id = ?`)
+      .bind(GA_ID, DREP_ID).first<{ body_html: string; source: string }>();
+    expect(row?.source).toBe('dreptalk');
+    expect(row?.body_html).toContain('Native rationale');
+  });
+
   it('does not create a rationale post when the action has no topic', async () => {
     await seedUser();
     await seedGovAction(null); // no topic_id
