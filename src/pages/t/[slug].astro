@@ -351,6 +351,10 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
                 tally={tally}
                 onchain={onchainChanges}
                 now={now}
+                slug={topic.slug}
+                commentCount={Math.max(0, topic.post_count - 1)}
+                loggedIn={!!user}
+                locked={!!topic.locked}
               />
             )}
           </div>

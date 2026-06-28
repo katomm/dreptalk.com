@@ -14,10 +14,20 @@ interface Props {
   tally: OverviewTally | null;
   onchain: OnchainChanges | null;
   now: number;
+  /** Thread slug, comment count and viewer state drive the join-discussion CTA. */
+  slug: string;
+  commentCount: number;
+  loggedIn: boolean;
+  locked: boolean;
 }
 
-const { action, stake, tally, onchain, now } = Astro.props;
+const { action, stake, tally, onchain, now, slug, commentCount, loggedIn, locked } = Astro.props;
 const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
+
+// The discussion lives behind its own tab; the overview only links into it. The
+// composer sits at the bottom of that tab under the #reply anchor.
+const discussionHref = `/t/${slug}?tab=discussion`;
+const commentLabel = commentCount === 1 ? '1 comment' : `${commentCount} comments`;
 
 // Clamp + CSS-only expand, but only for rationales that are genuinely a wall of
 // text, several times a normal post length (forum posts render unclamped). A
@@ -57,6 +67,34 @@ const isLongRationale = rationaleText.length > 5000;
   {!action.rationaleHtml && (
     <p class="ga-overview__empty">No rationale available for this action.</p>
   )}
+
+  {/* Bridge from the overview into the discussion. Readers land here, so this is
+      the page's main nudge to weigh in; the discussion tab itself owns the
+      composer and the signed-out sign-in banner. */}
+  <aside class="ga-join">
+    <div class="ga-join__text">
+      <p class="ga-join__title">Join the discussion</p>
+      <p class="ga-join__sub">
+        {locked
+          ? `${commentLabel}. This topic is locked, but you can still read what DReps said.`
+          : commentCount > 0
+            ? `${commentLabel} so far. Read the debate or add your perspective.`
+            : 'No comments yet. Be the first to share your perspective.'}
+      </p>
+    </div>
+    <div class="ga-join__actions">
+      {locked ? (
+        <a class="btn btn-secondary" href={discussionHref}>Read the discussion</a>
+      ) : loggedIn ? (
+        <a class="btn btn-primary" href={`${discussionHref}#reply`}>Add your comment</a>
+      ) : (
+        <>
+          <a class="btn btn-primary" href="/login">Sign in to post</a>
+          <a class="ga-join__link" href={discussionHref}>Read the discussion</a>
+        </>
+      )}
+    </div>
+  </aside>
 </section>
 
 <style>
@@ -82,4 +120,23 @@ const isLongRationale = rationaleText.length > 5000;
   .ga-rationale__toggle::after { content: 'Show full rationale'; }
   .ga-rationale__cb:checked ~ .ga-rationale__toggle::after { content: 'Show less'; }
   .ga-rationale__cb:focus-visible ~ .ga-rationale__toggle { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+  /* Join-discussion CTA */
+  .ga-join {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 2rem;
+    padding: 1.1rem 1.25rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .ga-join__text { flex: 1 1 16rem; min-width: 0; }
+  .ga-join__title { margin: 0; font-weight: 600; font-size: 0.975rem; color: var(--fg); }
+  .ga-join__sub { margin: 0.15rem 0 0; font-size: 0.875rem; color: var(--muted); line-height: 1.45; }
+  .ga-join__actions { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
+  .ga-join__link { color: var(--accent); text-decoration: none; font-size: 0.875rem; font-weight: 600; }
+  .ga-join__link:hover { text-decoration: underline; }
 </style>
