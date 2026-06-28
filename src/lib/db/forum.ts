@@ -808,6 +808,7 @@ export async function getThreadPage(
            p.up_count, p.down_count
          FROM posts p
          WHERE p.topic_id = ?1 AND p.deleted = 0
+           AND (p.source IS NULL OR p.source != 'vote_rationale')
          ORDER BY p.created_at ASC
          LIMIT 1`,
       )
@@ -832,10 +833,17 @@ export async function getThreadPage(
     ? { participants: statsRow.participants, supporting: statsRow.up_count, opposing: statsRow.down_count }
     : null;
 
+  // The opening post is the earliest post that is NOT a frozen vote rationale.
+  // A rationale is dated at its vote time, while a governance topic's opening
+  // post is dated at the on-chain submission epoch start; a vote cast before
+  // that epoch boundary (preprod test data) would otherwise sort first and
+  // steal the opening-post role, the system identity, and the meta excerpt.
+  const opening = offset === 0 ? (topLevel.find((p) => p.source !== 'vote_rationale') ?? null) : null;
+
   return {
     topLevel,
     childrenByParent,
-    openingPost: offset === 0 ? (topLevel[0] ?? null) : null,
+    openingPost: opening,
     stats,
   };
 }

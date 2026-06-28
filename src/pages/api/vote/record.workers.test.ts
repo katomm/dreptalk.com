@@ -136,6 +136,40 @@ describe('POST /api/vote/record', () => {
     expect(rows[0].body_md).toBe('Because this is a bad idea.');
   });
 
+  it('stamps the rationale post in ms and the vote in seconds', async () => {
+    // Regression: a single seconds-valued clock was shared between drep_votes
+    // (block_time, Unix seconds) and posts (created_at, ms). The seconds value
+    // sorted the rationale before the opening post, so it inherited the System
+    // identity and rendered as "56y ago". Each table must get its own unit.
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+
+    const before = Date.now();
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'Timestamped rationale.' },
+    }));
+    expect(res.status).toBe(200);
+
+    const post = await env.DB.prepare(
+      `SELECT created_at FROM posts WHERE source = 'vote_rationale' AND author_id = ?`,
+    )
+      .bind(USER_ID)
+      .first<{ created_at: number }>();
+    // posts.created_at is milliseconds, in the same range as Date.now().
+    expect(post?.created_at).toBeGreaterThanOrEqual(before);
+
+    const vote = await env.DB.prepare(
+      `SELECT synced_at FROM drep_votes WHERE ga_id = ? AND voter_id = ?`,
+    )
+      .bind(GA_ID, DREP_ID)
+      .first<{ synced_at: number }>();
+    // drep_votes.synced_at is Unix seconds: ~1000x smaller than the ms post stamp.
+    expect(vote?.synced_at).toBeLessThan(before / 1000 + 60);
+    expect(vote?.synced_at).toBeGreaterThan(before / 1000 - 60);
+  });
+
   it('stores the canonicalized rationale on the post, not the raw input', async () => {
     await seedUser();
     const topicId = await seedTopic();
