@@ -20,6 +20,7 @@ import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPos
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getActionRationales } from '@/lib/db/actionRationale.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
 import { getUserById } from '@/lib/db/users.js';
 import VotePanel from '@/components/VotePanel.js';
@@ -177,6 +178,11 @@ const voterIds = [
 const drepsMap = db && voterIds.length > 0
   ? await getDrepsByIds(db, voterIds)
   : new Map<string, Drep>();
+
+// Rationales for the positions tab: keyed by voter_id, loaded only when needed.
+const rationales = tab === 'positions' && db && govAction
+  ? await getActionRationales(db, govAction.id)
+  : new Map<string, { bodyHtml: string | null; source: string }>();
 
 // Only compute these for governance topics with a synced action.
 const [params, activeDrepStake] = isGovernanceTopic && govAction && db
@@ -339,6 +345,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
                 page={page}
                 pageSize={PAGE_SIZE}
                 slug={topic.slug}
+                rationales={rationales}
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />
