@@ -31,7 +31,7 @@ const HERO_VOTERS = 6;
 const [stats, feed, votedHero] = db
   ? await Promise.all([
       getCategoryStats(db),
-      loadActivityFeed(db, { limit: 6 }).then((r) => r.events),
+      loadActivityFeed(db, { limit: 8 }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_VOTERS }),
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null];
