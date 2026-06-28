@@ -26,6 +26,18 @@ describe('getDrepVotingHistory + countDrepVotes', () => {
     expect(await countDrepVotes(env.DB, 'drepOther')).toBe(1);
   });
 
+  it('upsertVotes persists the vote anchor hash', async () => {
+    const gaId = `${'a'.repeat(64)}#0`;
+    await upsertVotes(env.DB, gaId, [{
+      voterRole: 'DRep', voterId: 'drep1power', voterHex: null, vote: 'yes',
+      metaUrl: 'https://example.org/r.json', metaHash: 'ff'.repeat(32), blockTime: 1_700_000_000,
+    }], 1_700_000_100);
+    const row = await env.DB
+      .prepare(`SELECT meta_hash FROM drep_votes WHERE ga_id = ? AND voter_id = ?`)
+      .bind(gaId, 'drep1power').first<{ meta_hash: string }>();
+    expect(row?.meta_hash).toBe('ff'.repeat(32));
+  });
+
   it('upsertVotes persists the rationale anchor (meta_url)', async () => {
     await env.DB.prepare(
       `INSERT INTO governance_actions (id, type, title, status, decided_epoch, topic_id, created_at, last_synced_at)

@@ -9,12 +9,16 @@ export interface VoteInput {
   vote: string;
   /** Rationale anchor on the vote (Koios proposal_votes.meta_url); null when none. */
   metaUrl?: string | null;
+  /** blake2b-256 hash of the vote anchor doc (Koios meta_hash); null when absent. */
+  metaHash?: string | null;
   /** Unix seconds of the vote tx (Koios proposal_votes.block_time); null when unknown. */
   blockTime?: number | null;
 }
 
-// Bound parameters per row in the upsert; stays well under the SQLite limit.
-const UPSERT_CHUNK = 100;
+// Max rows per db.batch() call in upsertVotes. D1 caps bound params at 100 per
+// query; each INSERT binds 9 params (ga_id, voter_role, voter_id, voter_hex,
+// vote, meta_url, meta_hash, block_time, synced_at), so floor(100/9) = 11.
+const UPSERT_CHUNK = 11;
 
 /**
  * Upserts on-chain votes for one governance action (INSERT OR REPLACE on the
@@ -33,10 +37,10 @@ export async function upsertVotes(
     const stmts = chunk.map((v) =>
       db
         .prepare(
-          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at, local_status, tx_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, local_status, tx_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
         )
-        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.blockTime ?? null, now),
+        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now),
     );
     await db.batch(stmts);
   }

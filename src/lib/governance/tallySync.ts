@@ -115,6 +115,7 @@ async function collectProposalVotes(
         voterHex: v.voter_hex ?? null,
         vote: v.vote,
         metaUrl: v.meta_url ?? null,
+        metaHash: v.meta_hash ?? null,
         blockTime: v.block_time ?? null,
       });
     }
