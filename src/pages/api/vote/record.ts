@@ -53,7 +53,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const drepId = dbUser?.drep_id ?? null;
   if (!drepId) return jsonResponse({ error: 'not a drep' }, 403);
 
-  const now = Math.floor(Date.now() / 1000);
+  // Two clocks, two conventions: drep_votes.block_time is Unix seconds (matches
+  // Koios), while posts.created_at is milliseconds (matches every other forum
+  // write). Sharing one value mislabels the rationale post and sorts it before
+  // the opening post, so each table gets its own unit.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const nowMs = Date.now();
   await recordLocalVote(db, {
     gaId,
     drepId,
@@ -61,7 +66,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     vote,
     metaUrl: rationaleUrl ?? null,
     txHash,
-    now,
+    now: nowSec,
   });
 
   if (rationaleText) {
@@ -77,7 +82,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         vote,
         bodyMd: canonical,
         bodyHtml: renderMarkdown(canonical),
-        now,
+        now: nowMs,
       });
     }
   }
