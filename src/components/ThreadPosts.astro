@@ -134,7 +134,7 @@ const notVoted = (author: AuthorDescriptor) =>
 )}
 
 {canParticipate && (
-  <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
+  <section id="reply" style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;scroll-margin-top:5rem;">
     <h2 style="margin:0 0 1rem;font-size:1.125rem;">Reply</h2>
     <Composer client:load mode="post" topicId={topic.id} />
   </section>

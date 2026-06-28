@@ -1,7 +1,8 @@
 ---
-// Role-aware sign-in control. Signed out, the primary action enters as a DRep
-// and the chevron reveals every writer role (the menu repeats the DRep entry so
-// the list is complete). Signed in (Astro.locals.user is set by the middleware,
+// Role-aware sign-in control. Signed out, the primary action is a generic Sign
+// in (the role-agnostic /login that offers both the wallet and the signer flow)
+// and the chevron reveals every writer role as a direct shortcut (the menu
+// repeats the DRep entry so the list is complete). Signed in (Astro.locals.user is set by the middleware,
 // the resolved identity arrives via the account prop), the pill shows the
 // account's avatar, name and role and opens the AccountMenu. Reading the forum
 // is public, this only gates who can post. SPO (Calidus key) and CC-member
@@ -98,7 +99,7 @@ const display = user && account
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
-    Enter as DRep
+    Sign in
   </a>
 
   {layout === 'split' ? (
