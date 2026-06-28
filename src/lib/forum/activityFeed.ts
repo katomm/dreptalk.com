@@ -22,9 +22,13 @@ export const ACTIVITY_TABS: readonly { filter: ActivityFilter; label: string }[]
 
 const VALID_FILTERS = new Set<string>(ACTIVITY_TABS.map((t) => t.filter));
 
-/** Parses the ?filter= param; defaults to 'all' for anything unrecognized. */
+// Default tab/feed: forum comments, the human-written activity, over the
+// auto-imported on-chain governance events.
+export const DEFAULT_ACTIVITY_FILTER: ActivityFilter = 'comments';
+
+/** Parses the ?filter= param; defaults to comments for anything unrecognized. */
 export function parseActivityFilter(value: string | null): ActivityFilter {
-  return value && VALID_FILTERS.has(value) ? (value as ActivityFilter) : 'all';
+  return value && VALID_FILTERS.has(value) ? (value as ActivityFilter) : DEFAULT_ACTIVITY_FILTER;
 }
 
 export interface ActivityEvent {
@@ -67,7 +71,7 @@ export async function loadActivityFeed(
   db: D1Database,
   opts: { filter?: ActivityFilter; limit: number; offset?: number },
 ): Promise<{ events: ActivityEvent[]; total: number }> {
-  const filter = opts.filter ?? 'all';
+  const filter = opts.filter ?? DEFAULT_ACTIVITY_FILTER;
   const limit = Math.min(Math.max(opts.limit, 1), 50);
   const offset = Math.max(opts.offset ?? 0, 0);
 
