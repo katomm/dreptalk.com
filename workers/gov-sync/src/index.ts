@@ -50,6 +50,7 @@ import {
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
+import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
@@ -248,6 +249,15 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
     console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
     return { items: r.votes, failed: r.failed };
   }, { primary: true });
+
+  // Fetch and store CIP-100/CIP-136 vote rationale anchors for votes that have
+  // a metadata_url but no rationale stored yet. Paced with the same interval as
+  // the votes phase to avoid hammering anchor hosts. Not the primary phase.
+  await phase('rationales', async () => {
+    const r = await syncVoteRationales({ db: env.DB, now: Date.now(), paceMs: VOTE_PACE_MS });
+    console.log(`[vote-rationales] fetched=${r.fetched} ok=${r.ok} failed=${r.failed}`);
+    return { items: r.ok, failed: r.failed };
+  });
 
   // One-time historical fill for finalised actions never vote-synced. Small,
   // paced budget so the hourly run stays light; drains over many hours.

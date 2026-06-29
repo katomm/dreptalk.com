@@ -2,20 +2,23 @@
 // Sidebar card: top DRep participants (by voting power) for a governance action.
 // Renders nothing when the voter list is empty (action has no recorded votes yet).
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import VoteBadge from '@/components/VoteBadge.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
-import { TONE_COLORS, formatAdaCompact, voteTone } from '@/lib/governance/view.js';
+import { formatAdaCompact } from '@/lib/governance/view.js';
 
 interface Props {
   voters: ActionVoterRow[];
   dreps: Map<string, Drep>;
   slug: string;
   total: number;
+  /** Action-wide count of readable rationales, surfaced on the "See all" link. */
+  rationaleCount?: number;
 }
 
-const { voters, dreps, slug, total } = Astro.props;
+const { voters, dreps, slug, total, rationaleCount = 0 } = Astro.props;
 ---
 
 {voters.length > 0 && (
@@ -25,21 +28,20 @@ const { voters, dreps, slug, total } = Astro.props;
       {voters.map((v) => {
         const descriptor = voterDescriptor(v, dreps);
         const ada = formatAdaCompact(v.voting_power);
-        const badgeColor = TONE_COLORS[voteTone(v.vote)];
         return (
           <li class="top-participants__row">
             <div class="top-participants__identity">
               <AuthorIdentity author={descriptor} size={AVATAR_SIZE.compact} />
             </div>
-            <span class="top-participants__vote" style={`background:${badgeColor};`}>{v.vote}</span>
-            {ada && <span class="top-participants__power">{ada}</span>}
+            <VoteBadge vote={v.vote} compact />
+            <span class="top-participants__power">{ada ?? ''}</span>
           </li>
         );
       })}
     </ul>
     {total > voters.length && (
       <a class="top-participants__more" href={`/t/${slug}?tab=positions`}>
-        See all {total.toLocaleString('en-US')} positions
+        See all {total.toLocaleString('en-US')} positions{rationaleCount > 0 ? ` and ${rationaleCount.toLocaleString('en-US')} rationale${rationaleCount === 1 ? '' : 's'}` : ''}
       </a>
     )}
   </div>
@@ -91,23 +93,14 @@ const { voters, dreps, slug, total } = Astro.props;
     font-size: 0.8125rem;
   }
 
-  .top-participants__vote {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: #fff;
-    border-radius: 0.25rem;
-    padding: 0.15rem 0.4rem;
-    flex-shrink: 0;
-  }
-
   .top-participants__power {
-    margin-left: auto;
+    flex-shrink: 0;
+    width: 4.75rem;
+    text-align: right;
     color: var(--muted);
     font-size: 0.75rem;
     white-space: nowrap;
-    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
   }
 
   .top-participants__more {

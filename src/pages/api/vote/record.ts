@@ -10,6 +10,7 @@ import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { recordLocalVote } from '@/lib/db/drepVotes';
 import { upsertVoteRationalePost } from '@/lib/db/voteRationalePost';
+import { upsertActionRationale } from '@/lib/db/actionRationale';
 import { renderMarkdown } from '@/lib/markdown';
 import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale';
 
@@ -83,6 +84,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
         bodyMd: canonical,
         bodyHtml: renderMarkdown(canonical),
         now: nowMs,
+      });
+      await upsertActionRationale(db, {
+        gaId, voterId: drepId, bodyHtml: renderMarkdown(canonical),
+        source: 'dreptalk', anchorUrl: rationaleUrl ?? null,
+        status: 'ok', createdAt: nowMs, now: nowMs,
       });
     }
   }

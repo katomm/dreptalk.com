@@ -1,12 +1,14 @@
 ---
 // DRep Positions tab: paginated list of all DReps who voted on the governance action,
 // ordered by voting power desc. Each row shows identity, vote badge, and power.
+// Rows with a rationale become expandable via native <details> (no inline script, CSP-safe).
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import VoteBadge from '@/components/VoteBadge.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
-import { voteTone, TONE_COLORS, formatAdaCompact } from '@/lib/governance/view.js';
+import { formatAdaCompact } from '@/lib/governance/view.js';
 
 interface Props {
   voters: ActionVoterRow[];
@@ -15,9 +17,13 @@ interface Props {
   page: number;
   pageSize: number;
   slug: string;
+  rationales: Map<string, { bodyHtml: string | null; source: string }>;
 }
 
-const { voters, dreps, total, page, pageSize, slug } = Astro.props;
+const { voters, dreps, total, page, pageSize, slug, rationales } = Astro.props;
+
+// Action-wide rationale count (the map covers the whole action, not just this page).
+const withRationale = rationales.size;
 
 const prevPage = page > 1 ? page - 1 : null;
 const nextPage = voters.length === pageSize ? page + 1 : null;
@@ -29,29 +35,58 @@ function pageHref(p: number): string {
 
 <div class="ga-positions">
   <p class="ga-positions__count">
-    {total === 0 ? 'No DRep votes recorded yet.' : `${total} DRep${total === 1 ? '' : 's'} voted`}
+    {total === 0
+      ? 'No DRep votes recorded yet.'
+      : `${total} DRep${total === 1 ? '' : 's'} voted`}
+    {withRationale > 0 && (
+      <span class="ga-positions__count-rationale">{` · ${withRationale} with a rationale`}</span>
+    )}
   </p>
+
+  {withRationale > 0 && (
+    <p class="ga-positions__hint">Open a row to read the rationale.</p>
+  )}
 
   {total > 0 && (
     <ul class="ga-positions__list">
       {voters.map((v) => {
         const descriptor = voterDescriptor(v, dreps);
-        const tone = voteTone(v.vote);
-        const badgeColor = TONE_COLORS[tone];
         const ada = formatAdaCompact(v.voting_power);
-        return (
-          <li class="ga-positions__row">
+        const bodyHtml = rationales.get(descriptor.authorId)?.bodyHtml ?? null;
+        // Identity, vote, and power render identically whether or not the row
+        // expands; the power slot is always present (empty when unknown) so the
+        // amount column lines up across every row.
+        const lead = (
+          <>
             <div class="ga-positions__identity">
               <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} />
             </div>
-            <span
-              class="ga-positions__vote"
-              style={`background:${badgeColor};`}
-            >
-              {v.vote}
-            </span>
-            {ada && (
-              <span class="ga-positions__power">{ada}</span>
+            <VoteBadge vote={v.vote} compact />
+            <span class="ga-positions__power">{ada ?? ''}</span>
+          </>
+        );
+        return (
+          <li class="ga-positions__row">
+            {bodyHtml ? (
+              <details class="ga-positions__details">
+                <summary class="ga-positions__summary">
+                  {lead}
+                  <span class="ga-positions__cta">
+                    <span class="ga-positions__cta-label">Rationale</span>
+                    <svg class="ga-positions__chev" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </span>
+                </summary>
+                <div class="ga-positions__rationale-body" set:html={bodyHtml} />
+              </details>
+            ) : (
+              <div class="ga-positions__summary ga-positions__summary--static">
+                {lead}
+                <span class="ga-positions__cta ga-positions__cta--none">
+                  <span class="ga-positions__cta-label">No rationale</span>
+                </span>
+              </div>
             )}
           </li>
         );
@@ -71,6 +106,16 @@ function pageHref(p: number): string {
   .ga-positions__count {
     font-size: 0.8125rem;
     color: var(--muted);
+    margin: 0 0 0.25rem;
+  }
+
+  .ga-positions__count-rationale {
+    color: var(--accent);
+  }
+
+  .ga-positions__hint {
+    font-size: 0.75rem;
+    color: var(--muted);
     margin: 0 0 0.875rem;
   }
 
@@ -84,11 +129,30 @@ function pageHref(p: number): string {
   }
 
   .ga-positions__row {
+    border-top: 1px solid var(--border);
+  }
+
+  .ga-positions__details {
+    width: 100%;
+  }
+
+  /* Shared row layout: identity grows, vote/power/chevron are fixed columns so
+     badges and amounts line up across every row, expandable or not. */
+  .ga-positions__summary {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    border-top: 1px solid var(--border);
+    gap: 0.625rem;
     padding: 0.6rem 0;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .ga-positions__summary--static {
+    cursor: default;
+  }
+
+  .ga-positions__summary::-webkit-details-marker {
+    display: none;
   }
 
   .ga-positions__identity {
@@ -98,23 +162,72 @@ function pageHref(p: number): string {
     overflow: hidden;
   }
 
-  .ga-positions__vote {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #fff;
-    border-radius: 0.25rem;
-    padding: 0.2rem 0.45rem;
-    flex-shrink: 0;
-  }
-
   .ga-positions__power {
-    margin-left: auto;
+    flex-shrink: 0;
+    width: 5rem;
+    text-align: right;
     color: var(--muted);
     font-size: 0.875rem;
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Expand affordance column. Mobile: just the chevron (compact). Desktop: a
+     "Rationale" / "No rationale" label too. Fixed width so the amount column to
+     its left stays aligned across every row. */
+  .ga-positions__cta {
     flex-shrink: 0;
+    width: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.3rem;
+    color: var(--accent);
+    font-size: 0.75rem;
+  }
+
+  .ga-positions__cta--none {
+    color: var(--muted);
+  }
+
+  .ga-positions__cta-label {
+    display: none;
+  }
+
+  .ga-positions__chev {
+    flex-shrink: 0;
+    width: 0.9rem;
+    height: 0.9rem;
+    transition: transform 0.15s ease;
+  }
+
+  .ga-positions__details[open] .ga-positions__chev {
+    transform: rotate(90deg);
+  }
+
+  @media (min-width: 40rem) {
+    .ga-positions__cta {
+      width: 6.5rem;
+    }
+    .ga-positions__cta-label {
+      display: inline;
+    }
+  }
+
+  .ga-positions__rationale-body {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--text);
+    padding: 0.5rem 0 0.75rem;
+    border-top: 1px dashed var(--border);
+  }
+
+  .ga-positions__rationale-body :global(p) {
+    margin: 0 0 0.75rem;
+  }
+
+  .ga-positions__rationale-body :global(p:last-child) {
+    margin-bottom: 0;
   }
 
   .ga-positions__nav {

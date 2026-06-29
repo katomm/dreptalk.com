@@ -206,6 +206,7 @@ const proposalVoteRowSchema = z
     vote: z.string(),
     block_time: z.number().nullable().optional(),
     meta_url: z.string().nullable().optional(),
+    meta_hash: z.string().nullable().optional(),
   })
   .passthrough();
 
