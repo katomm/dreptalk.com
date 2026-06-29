@@ -169,6 +169,59 @@ async function fetchValidatedImage(
   return { bytes, contentType };
 }
 
+/**
+ * Decodes a base64 `data:` image URI into raster bytes, or null. Rejects
+ * non-data URIs, non-base64 payloads, empty payloads, and any media type
+ * outside ALLOWED_TYPES (so SVG stays out, exactly as for fetched images). The
+ * declared media type is trusted to the same degree as a fetched image's
+ * Content-Type, since both are equally source controlled.
+ */
+export function decodeDataUriImage(uri: string): { bytes: ArrayBuffer; contentType: string } | null {
+  if (!uri.startsWith('data:')) return null;
+  const comma = uri.indexOf(',');
+  if (comma < 0) return null;
+  // The part between "data:" and "," is "<mediatype>[;param][;base64]".
+  const params = uri.slice(5, comma).split(';').map((p) => p.trim().toLowerCase());
+  const contentType = params[0];
+  if (!ALLOWED_TYPES.includes(contentType)) return null;
+  if (!params.includes('base64')) return null;
+
+  let binary: string;
+  try {
+    // Tolerate stray whitespace/newlines some encoders insert into the payload.
+    binary = atob(uri.slice(comma + 1).replace(/\s/g, ''));
+  } catch {
+    return null;
+  }
+  if (binary.length === 0 || binary.length > MAX_DOWNLOAD_BYTES) return null;
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return { bytes: bytes.buffer, contentType };
+}
+
+/**
+ * Stores an inline base64 `data:` avatar (carried in the CIP-119 doc itself) to
+ * R2, content addressed by the sha256 of its bytes, and returns the hash. Reuses
+ * the same validation, downscaling, and key layout as the fetched-URL path; no
+ * network request is made because the bytes are already in the document. Returns
+ * null when the URI is not a storable image (so the caller keeps the identicon).
+ */
+export async function ingestDataUriAvatar(
+  bucket: R2Bucket,
+  dataUri: string,
+  downscale?: ImageDownscaler,
+): Promise<string | null> {
+  const decoded = decodeDataUriImage(dataUri);
+  if (!decoded) return null;
+  const toStore = await fitAvatarForStore(decoded, downscale);
+  if (!toStore) return null;
+  const hash = await sha256Hex(toStore.bytes);
+  await bucket.put(AVATAR_KEY_PREFIX + hash, toStore.bytes, {
+    httpMetadata: { contentType: toStore.contentType },
+  });
+  return hash;
+}
+
 export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarStoreResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const limit = deps.limit ?? 25;

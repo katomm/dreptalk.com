@@ -73,10 +73,35 @@ describe('extractCip119Profile', () => {
     expect(profile.imageUrl).toBeNull();
   });
 
-  it('drops a data: image URL', () => {
-    const doc = { body: { givenName: 'Evil', image: 'data:image/png;base64,abc123' } };
+  it('captures a base64 data: image as imageDataUri, not imageUrl', () => {
+    const uri = 'data:image/png;base64,abc123';
+    const doc = { body: { givenName: 'Inline', image: uri } };
+    const profile = extractCip119Profile(doc);
+    // The inline image is self-contained; it never becomes a fetchable URL.
+    expect(profile.imageUrl).toBeNull();
+    expect(profile.imageDataUri).toBe(uri);
+  });
+
+  it('captures a data: image carried in an ImageObject contentUrl', () => {
+    const uri = 'data:image/jpeg;base64,/9j/abc';
+    const doc = { body: { image: { '@type': 'ImageObject', contentUrl: uri } } };
     const profile = extractCip119Profile(doc);
     expect(profile.imageUrl).toBeNull();
+    expect(profile.imageDataUri).toBe(uri);
+  });
+
+  it('leaves imageDataUri null for an http(s) image', () => {
+    const doc = { body: { image: 'https://example.com/avatar.png' } };
+    const profile = extractCip119Profile(doc);
+    expect(profile.imageUrl).toBe('https://example.com/avatar.png');
+    expect(profile.imageDataUri).toBeNull();
+  });
+
+  it('drops an oversize data: image URL', () => {
+    const uri = `data:image/png;base64,${'A'.repeat(20_000_000)}`;
+    const doc = { body: { image: uri } };
+    const profile = extractCip119Profile(doc);
+    expect(profile.imageDataUri).toBeNull();
   });
 
   it('resolves an ipfs: image URL to the public gateway', () => {

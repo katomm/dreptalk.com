@@ -2,7 +2,14 @@
 // (AVATARS) and D1. The image fetch is injected.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { storeDrepAvatars, gcDrepAvatars, AVATAR_KEY_PREFIX, type ImageDownscaler } from './avatarStore.js';
+import {
+  storeDrepAvatars,
+  gcDrepAvatars,
+  decodeDataUriImage,
+  ingestDataUriAvatar,
+  AVATAR_KEY_PREFIX,
+  type ImageDownscaler,
+} from './avatarStore.js';
 import { upsertDrep, getDrepById, listDrepsNeedingAvatar, countGivenUpAvatars } from '../db/dreps.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { toArrayBuffer } from '../crypto/bytes.js';
@@ -302,5 +309,60 @@ describe('avatar give-up', () => {
       .prepare("SELECT image_fetch_attempts AS a FROM dreps WHERE drep_id = 'gu-recover'")
       .first<{ a: number }>();
     expect(row?.a).toBe(0);
+  });
+});
+
+// Inline base64 data: URI helper for the data-URI avatar path.
+function dataUri(bytes: Uint8Array, mime = 'image/png'): string {
+  return `data:${mime};base64,${btoa(String.fromCharCode(...bytes))}`;
+}
+
+describe('decodeDataUriImage', () => {
+  it('decodes a base64 png data URI to bytes and type', () => {
+    const decoded = decodeDataUriImage(dataUri(PNG_BYTES));
+    expect(decoded).not.toBeNull();
+    expect(new Uint8Array(decoded!.bytes)).toEqual(PNG_BYTES);
+    expect(decoded!.contentType).toBe('image/png');
+  });
+
+  it('decodes a jpeg data URI, lowercasing the declared type', () => {
+    const decoded = decodeDataUriImage(dataUri(PNG_BYTES, 'IMAGE/JPEG'));
+    expect(decoded?.contentType).toBe('image/jpeg');
+  });
+
+  it('rejects an svg data URI (can carry scripts)', () => {
+    expect(decodeDataUriImage('data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=')).toBeNull();
+  });
+
+  it('rejects a non-data string', () => {
+    expect(decodeDataUriImage('https://example.com/x.png')).toBeNull();
+  });
+
+  it('rejects a non-base64 data URI', () => {
+    expect(decodeDataUriImage('data:image/png,not-base64-payload')).toBeNull();
+  });
+
+  it('rejects an empty payload', () => {
+    expect(decodeDataUriImage('data:image/png;base64,')).toBeNull();
+  });
+
+  it('rejects an unknown media type', () => {
+    expect(decodeDataUriImage(dataUri(PNG_BYTES, 'image/tiff'))).toBeNull();
+  });
+});
+
+describe('ingestDataUriAvatar', () => {
+  it('stores the decoded bytes at avatars/<sha256> and returns the hash', async () => {
+    const hash = await ingestDataUriAvatar(bucket(), dataUri(PNG_BYTES));
+    expect(hash).toBe(await sha256Of(PNG_BYTES));
+
+    const obj = await bucket().get(AVATAR_KEY_PREFIX + hash);
+    expect(obj).not.toBeNull();
+    expect(obj!.httpMetadata?.contentType).toBe('image/png');
+  });
+
+  it('returns null for an svg data URI without storing anything', async () => {
+    const hash = await ingestDataUriAvatar(bucket(), 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=');
+    expect(hash).toBeNull();
   });
 });

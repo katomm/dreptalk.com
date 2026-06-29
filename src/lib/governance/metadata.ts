@@ -123,6 +123,11 @@ function extractCip108(doc: unknown): AnchorMetadata {
 const MAX_PROFILE_NAME_LEN = 80;
 const MAX_PROFILE_BIO_LEN = 1_000;
 const MAX_PROFILE_IMAGE_URL_LEN = 2_048;
+// Cap on an inline base64 data: image kept for the avatar store to decode. Sized
+// to admit up to a ~10 MB image (base64 inflates by ~4/3); the avatar store
+// enforces the real byte limit on the decoded result. Bounds memory so a
+// pathological multi-MB string never rides along in the resolved profile.
+const MAX_PROFILE_IMAGE_DATA_LEN = 14_000_000;
 const MAX_PROFILE_LINK_LABEL_LEN = 100;
 const MAX_PROFILE_LINK_URI_LEN = 2_048;
 const MAX_PROFILE_LINKS = 10;
@@ -134,6 +139,12 @@ export interface Cip119Profile {
   name: string | null;
   bio: string | null;
   imageUrl: string | null;
+  /**
+   * A base64 `data:` image embedded directly in the metadata doc, kept verbatim
+   * for the avatar store to decode and persist. Mutually exclusive with imageUrl
+   * (a data: image is never a fetchable URL). Null for linked or absent images.
+   */
+  imageDataUri: string | null;
   /** sha256 (64 hex) of the image bytes, when the ImageObject carries one. */
   imageSha256: string | null;
   links: { label: string; uri: string }[] | null;
@@ -171,11 +182,13 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
     '';
   const bio = sanitizeExternalMultiline(rawBio, MAX_PROFILE_BIO_LEN) || null;
 
-  // imageUrl: body.image may be a plain string URL or a CIP-119 ImageObject with
-  // contentUrl. http(s) is kept, ipfs:// resolves to the gateway, anything else
-  // (data:, javascript:, ...) is dropped. http:// survives extraction but the
-  // avatar store is https-only, so it is never fetched or stored.
+  // image: body.image may be a plain string URL or a CIP-119 ImageObject with
+  // contentUrl. http(s) is kept as imageUrl, ipfs:// resolves to the gateway, a
+  // base64 data: URI is kept verbatim as imageDataUri for the avatar store to
+  // decode, and anything else (javascript:, ...) is dropped. http:// survives as
+  // a URL but the avatar store is https-only, so it is never fetched or stored.
   let imageUrl: string | null = null;
+  let imageDataUri: string | null = null;
   const imgField = body.image;
   const imgRecord = imgField && typeof imgField === 'object' ? asRecord(imgField) : null;
   const rawImageUrl =
@@ -184,7 +197,9 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
       : typeof imgRecord?.contentUrl === 'string'
         ? imgRecord.contentUrl
         : '';
-  if (rawImageUrl) {
+  if (rawImageUrl.startsWith('data:')) {
+    if (rawImageUrl.length <= MAX_PROFILE_IMAGE_DATA_LEN) imageDataUri = rawImageUrl;
+  } else if (rawImageUrl) {
     const resolved = resolveAnchorUrl(rawImageUrl);
     if (resolved) imageUrl = resolved.slice(0, MAX_PROFILE_IMAGE_URL_LEN);
   }
@@ -231,7 +246,7 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
       : null;
   const doNotList = body.doNotList === true || body.doNotList === 'true';
 
-  return { name, bio, imageUrl, imageSha256, links, motivations, qualifications, paymentAddress, doNotList };
+  return { name, bio, imageUrl, imageDataUri, imageSha256, links, motivations, qualifications, paymentAddress, doNotList };
 }
 
 // Discriminated union returning the raw parsed doc on success. The doc is the

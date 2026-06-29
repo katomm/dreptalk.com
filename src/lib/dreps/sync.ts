@@ -18,6 +18,7 @@ import { assignSlugs } from './slug.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { gcDrepMetadata } from '../db/drepMetadata.js';
 import { fetchAnchorDoc, extractCip119Profile } from '../governance/metadata.js';
+import { ingestDataUriAvatar, type ImageDownscaler } from './avatarStore.js';
 
 // Koios paginates drep_list at 1000 rows; page through by incrementing offset.
 const PAGE_SIZE = 1000;
@@ -57,6 +58,15 @@ export interface DrepSyncDeps {
   /** Anchor fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
   /**
+   * R2 bucket for inline `data:` avatars embedded in a CIP-119 doc: the sync
+   * decodes and stores them here directly (no work-queue round-trip), since the
+   * bytes are self-contained and the image_url column cannot hold a data URI.
+   * When absent, such DReps simply keep the identicon.
+   */
+  bucket?: R2Bucket;
+  /** Downscaler for inline avatars over the store-as-is cap; oversized fail without it. */
+  downscale?: ImageDownscaler;
+  /**
    * Cap on anchor fetches per run. DReps beyond the cap are written with
    * anchorStatus 'deferred' (profile preserved) and picked up by the next run,
    * because only anchorStatus 'ok' allows the no-fetch reuse path. Bounds the
@@ -71,7 +81,7 @@ export interface DrepSyncDeps {
 // like status/votingPower are filled later by buildRow).
 type ResolvedProfile = Pick<
   Drep,
-  'name' | 'bio' | 'imageUrl' | 'links' | 'motivations' | 'qualifications' | 'paymentAddress' | 'doNotList' | 'anchorUrl' | 'anchorHash' | 'anchorStatus'
+  'name' | 'bio' | 'imageUrl' | 'imageContentHash' | 'imageStoredUrl' | 'links' | 'motivations' | 'qualifications' | 'paymentAddress' | 'doNotList' | 'anchorUrl' | 'anchorHash' | 'anchorStatus'
 >;
 
 /** Splits an array into fixed-size chunks. */
@@ -131,6 +141,8 @@ async function resolveProfile(
           name: existing.name,
           bio: existing.bio,
           imageUrl: existing.imageUrl,
+          imageContentHash: existing.imageContentHash,
+          imageStoredUrl: existing.imageStoredUrl,
           links: existing.links,
           motivations: existing.motivations,
           qualifications: existing.qualifications,
@@ -153,11 +165,27 @@ async function resolveProfile(
       : { status: 'deferred' as const, doc: null };
     if (result.status === 'ok') {
       const cip119 = extractCip119Profile(result.doc);
+      // Inline base64 avatar: decode and store it in R2 now, since it is
+      // self-contained and the avatar-store work queue (keyed on image_url)
+      // cannot carry it. A linked URL keeps the existing stored hash and is
+      // handled later by the avatar-store pass. On ingest failure (or no bucket)
+      // the stored hash is left untouched and the identicon shows.
+      let imageContentHash = existing?.imageContentHash ?? null;
+      let imageStoredUrl = existing?.imageStoredUrl ?? null;
+      if (cip119.imageDataUri && deps.bucket) {
+        const hash = await ingestDataUriAvatar(deps.bucket, cip119.imageDataUri, deps.downscale);
+        if (hash) {
+          imageContentHash = hash;
+          imageStoredUrl = null; // sourced from the doc, not a URL
+        }
+      }
       return {
         profile: {
           name: cip119.name,
           bio: cip119.bio,
           imageUrl: cip119.imageUrl,
+          imageContentHash,
+          imageStoredUrl,
           links: cip119.links,
           motivations: cip119.motivations,
           qualifications: cip119.qualifications,
@@ -181,6 +209,8 @@ async function resolveProfile(
         name: existing?.name ?? null,
         bio: existing?.bio ?? null,
         imageUrl: existing?.imageUrl ?? null,
+        imageContentHash: existing?.imageContentHash ?? null,
+        imageStoredUrl: existing?.imageStoredUrl ?? null,
         links: existing?.links ?? null,
         motivations: existing?.motivations ?? null,
         qualifications: existing?.qualifications ?? null,
@@ -200,6 +230,10 @@ async function resolveProfile(
       name: null,
       bio: null,
       imageUrl: null,
+      // Preserve any stored avatar (owned by the avatar-store pass) rather than
+      // wiping it: matches the rest of the row's carry-over semantics.
+      imageContentHash: existing?.imageContentHash ?? null,
+      imageStoredUrl: existing?.imageStoredUrl ?? null,
       links: null,
       motivations: null,
       qualifications: null,
@@ -237,10 +271,11 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     slug: existing?.slug ?? null,
     bio: profile.bio,
     imageUrl: profile.imageUrl,
-    // The stored-avatar columns are owned by the avatar store pass, not by the
-    // chain sync: carry them over so an upsert never wipes them.
-    imageContentHash: existing?.imageContentHash ?? null,
-    imageStoredUrl: existing?.imageStoredUrl ?? null,
+    // For a linked image these carry over the avatar-store pass's values (the
+    // resolver passes them through). For an inline data: image the resolver
+    // computes the hash itself, having just stored the bytes in R2.
+    imageContentHash: profile.imageContentHash,
+    imageStoredUrl: profile.imageStoredUrl,
     imageFetchFailedAt: existing?.imageFetchFailedAt ?? null,
     links: profile.links,
     motivations: profile.motivations,
@@ -272,6 +307,9 @@ function hasChanged(next: Drep, existing: Drep | undefined): boolean {
     next.name !== existing.name ||
     next.bio !== existing.bio ||
     next.imageUrl !== existing.imageUrl ||
+    // An inline data: avatar ingested this run changes only this column; without
+    // it a freshly stored avatar would be skipped when no other field moved.
+    next.imageContentHash !== existing.imageContentHash ||
     linksKey(next.links) !== linksKey(existing.links) ||
     next.motivations !== existing.motivations ||
     next.qualifications !== existing.qualifications ||
