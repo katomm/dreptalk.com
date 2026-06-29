@@ -22,9 +22,10 @@ interface Props {
   related: RelatedActionRow[];
   slug: string;
   positionsTotal: number;
+  rationaleCount: number;
 }
 
-const { action, params, ccSize, network, topVoters, dreps, related, slug, positionsTotal } =
+const { action, params, ccSize, network, topVoters, dreps, related, slug, positionsTotal, rationaleCount } =
   Astro.props;
 ---
 
@@ -34,7 +35,7 @@ const { action, params, ccSize, network, topVoters, dreps, related, slug, positi
       display:contents + order rules in pages/t/[slug].astro). */}
   <ActionStatusCard action={action} network={network} />
   <VotingInfoCard action={action} params={params} ccSize={ccSize} network={network} />
-  <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} />
+  <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} rationaleCount={rationaleCount} />
   <ProposerCard returnAddress={action.returnAddress} />
   <RelatedActionsCard actions={related} />
 </aside>

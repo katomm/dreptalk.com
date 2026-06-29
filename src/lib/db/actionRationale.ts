@@ -56,6 +56,15 @@ export async function getActionRationales(
   return map;
 }
 
+/** Count of readable rationales for one action (cheap; no bodies loaded). */
+export async function countActionRationales(db: D1Database, gaId: string): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM action_rationale WHERE ga_id = ? AND body_html IS NOT NULL`)
+    .bind(gaId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 // Retry a failed fetch at most this many times, and not within this window.
 const MAX_ATTEMPTS = 4;
 const RETRY_AFTER_MS = 24 * 60 * 60 * 1000;

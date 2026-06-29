@@ -1,7 +1,9 @@
 ---
-// Per-post badge showing an author's on-chain vote on the governance action,
-// or, for a DRep who commented without casting a vote, a muted "Hasn't voted"
-// marker (dashed border) so the absence reads as context, not as an abstain.
+// The single vote badge used across the site (post headers, the positions tab,
+// the top-participants sidebar). Soft tinted pill: the tone color as text over a
+// faint wash of itself, with a hairline border. A DRep who commented without
+// casting a vote gets a muted dashed "Hasn't voted" marker so the absence reads
+// as context, not as an abstain.
 import { voteTone, TONE_COLORS } from '@/lib/governance/view.js';
 
 interface Props {
@@ -9,23 +11,25 @@ interface Props {
   vote?: string;
   /** A DRep author with no recorded vote on this action. */
   hasNotVoted?: boolean;
+  /** Compact label ("YES") for dense voter lists; default is the prefixed "Voted YES". */
+  compact?: boolean;
 }
 
-const { vote, hasNotVoted = false } = Astro.props;
+const { vote, hasNotVoted = false, compact = false } = Astro.props;
 
 const color = vote ? TONE_COLORS[voteTone(vote)] : 'var(--muted)';
-const borderStyle = vote ? 'solid' : 'dashed';
-const label = vote ? `Voted ${vote}` : "Hasn't voted";
+const base =
+  'display:inline-flex;align-items:center;font-size:0.6875rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;border-radius:0.25rem;padding:0.15rem 0.4rem;line-height:1;flex-shrink:0;';
+// Voted: tone text over a 13% wash with a 30% border. Not voted: muted dashed outline, no fill.
+const tint = vote
+  ? `color:${color};background:color-mix(in srgb, ${color} 13%, transparent);border:1px solid color-mix(in srgb, ${color} 30%, transparent);`
+  : `color:${color};border:1px dashed ${color};`;
+const label = vote ? (compact ? vote : `Voted ${vote}`) : "Hasn't voted";
 const title = vote
   ? 'On-chain vote on this governance action'
   : 'This DRep has not voted on this governance action';
 ---
 
 {(vote || hasNotVoted) && (
-  <span
-    title={title}
-    style={`display:inline-flex;align-items:center;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:${color};border:1px ${borderStyle} ${color};border-radius:999px;padding:0.1rem 0.4rem;line-height:1;`}
-  >
-    {label}
-  </span>
+  <span title={title} style={`${base}${tint}`}>{label}</span>
 )}

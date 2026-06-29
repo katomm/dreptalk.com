@@ -1,10 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { upsertActionRationale, getActionRationales, getRationaleFetchQueue } from './actionRationale.js';
+import { upsertActionRationale, getActionRationales, getRationaleFetchQueue, countActionRationales } from './actionRationale.js';
 
 const GA = `${'a'.repeat(64)}#0`;
 
 describe('action_rationale', () => {
+  it('counts only rows with a readable body', async () => {
+    const ga = `${'e'.repeat(64)}#0`;
+    await upsertActionRationale(env.DB, { gaId: ga, voterId: 'drep1x', bodyHtml: '<p>hi</p>', source: 'onchain', anchorUrl: 'u', status: 'ok', createdAt: 1000, now: 2000 });
+    await upsertActionRationale(env.DB, { gaId: ga, voterId: 'drep1y', bodyHtml: null, source: 'onchain', anchorUrl: 'u2', status: 'failed', createdAt: 1000, now: 2000 });
+    expect(await countActionRationales(env.DB, ga)).toBe(1);
+  });
+
   it('upserts and reads back only rows with body_html', async () => {
     await upsertActionRationale(env.DB, { gaId: GA, voterId: 'drep1a', bodyHtml: '<p>hi</p>', source: 'onchain', anchorUrl: 'u', status: 'ok', createdAt: 1000, now: 2000 });
     await upsertActionRationale(env.DB, { gaId: GA, voterId: 'drep1b', bodyHtml: null, source: 'onchain', anchorUrl: 'u2', status: 'failed', createdAt: 1000, now: 2000 });
