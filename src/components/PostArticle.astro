@@ -7,6 +7,7 @@ import VoteBadge from '@/components/VoteBadge.astro';
 import PostActions from '@/components/PostActions.astro';
 import { postViewerContext, type SessionUser } from '@/lib/forum/postVisibility.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { ensureLinkTarget } from '@/lib/markdown.js';
 import { voteTone, TONE_COLORS } from '@/lib/governance/view.js';
 import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
@@ -80,7 +81,7 @@ const anchorUrl = isVoteRationale && authorVote?.meta_url ? authorVote.meta_url 
     </p>
   )}
   {canSeeContent ? (
-    <div class="prose" set:html={post.body_html} />
+    <div class="prose" set:html={ensureLinkTarget(post.body_html)} />
   ) : (
     <p style="margin:0;color:var(--muted);font-style:italic;font-size:0.9375rem;">
       This post was hidden after being flagged by the community.

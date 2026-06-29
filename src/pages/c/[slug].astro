@@ -210,12 +210,6 @@ const breadcrumbLd = {
         <h1 style="margin:0 0 0.25rem;">{category.name}</h1>
         <p style="margin:0;color:var(--muted);font-size:0.875rem;">
           {category.description}
-          {isGovernanceCategory && (
-            <>
-              {' '}
-              <a href="/help/governance-statuses" style="color:var(--accent);">What do the status labels mean?</a>
-            </>
-          )}
         </p>
       </div>
     </div>
@@ -232,7 +226,6 @@ const breadcrumbLd = {
               {s.label}
             </a>
           ))}
-          <a class="ga-tab-help" href="/help/sorting">How sorting works</a>
         </nav>
         <div class="ga-controls__right">
           <div class="ga-toggle" role="group" aria-label="Metric">
@@ -390,19 +383,6 @@ const breadcrumbLd = {
     background: var(--surface-2);
     border-color: var(--fg);
     font-weight: 600;
-  }
-
-  /* Quiet help affordance trailing the sort tabs: a muted link, not a pill. */
-  .ga-tab-help {
-    align-self: center;
-    margin-left: 0.25rem;
-    font-size: 0.8rem;
-    color: var(--muted);
-    text-decoration: none;
-  }
-  .ga-tab-help:hover {
-    color: var(--fg);
-    text-decoration: underline;
   }
 
   /* Metric toggle as a segmented control; the active option uses --accent. */

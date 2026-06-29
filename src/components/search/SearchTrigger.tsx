@@ -16,14 +16,9 @@ interface TriggerProps {
 export default function SearchTrigger({ helpEntries }: TriggerProps) {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [hint, setHint] = useState('');
   const btnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    // Show keyboard hint only for fine-pointer devices (mouse/trackpad, not touch).
-    if (window.matchMedia('(pointer: fine)').matches) {
-      setHint(/Mac|iPhone|iPad/.test(navigator.userAgent) ? '⌘K' : 'Ctrl K');
-    }
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -71,7 +66,7 @@ export default function SearchTrigger({ helpEntries }: TriggerProps) {
           <circle cx="11" cy="11" r="7" />
           <line x1="21" y1="21" x2="16.5" y2="16.5" />
         </svg>
-        {hint && <span aria-hidden="true">{hint}</span>}
+        <span aria-hidden="true">Search</span>
       </button>
       {loaded && (
         <Suspense fallback={null}>

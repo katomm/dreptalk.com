@@ -182,7 +182,7 @@ const personLd = drep
           <Fragment>
             <div class="drep-summary__badgegrid">
               {showcase.map((t) => (
-                <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} size={72} />
+                <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} tip={t.badge.description} size={72} />
               ))}
             </div>
             <a href={`${drepPath(drep)}/badges`} class="drep-summary__all">All badges →</a>

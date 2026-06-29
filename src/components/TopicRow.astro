@@ -10,6 +10,7 @@ import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import type { Category } from '../../config/categories.js';
 import Avatar from './Avatar.astro';
+import LogoMark from './LogoMark.astro';
 import TallyBar from './TallyBar.astro';
 import { authorProfileHref } from '@/lib/forum/author.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
@@ -47,7 +48,7 @@ const gaCountdown = governance
 <div class="topic-row">
   {isSystem ? (
     <span class="topic-row__tile" aria-hidden="true">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M9 21v-6h6v6" /></svg>
+      <LogoMark style="width:22px;height:22px;color:var(--muted);" />
     </span>
   ) : (
     <Avatar seed={seed} imageHash={author?.imageHash} size={AVATAR_SIZE.rowLead} />
@@ -100,7 +101,7 @@ const gaCountdown = governance
     padding: 0.875rem 0;
     border-bottom: 1px solid var(--border);
   }
-  /* System/governance tile: rounded square, faint accent (matches the feed). */
+  /* System tile: neutral rounded square carrying the grey DRepTalk mark. */
   .topic-row__tile {
     display: inline-flex;
     width: 40px;
@@ -109,8 +110,8 @@ const gaCountdown = governance
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--accent);
+    background: var(--surface);
+    border: 1px solid var(--border);
   }
   .topic-row__body { flex: 1; min-width: 0; }
   .topic-row__titleline {

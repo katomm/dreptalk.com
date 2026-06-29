@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { renderMarkdown } from './markdown';
+import { ensureLinkTarget, renderMarkdown } from './markdown';
 
 // Helpers for negative assertions.
 function assertInert(html: string, label: string): void {
@@ -242,7 +242,7 @@ describe('renderMarkdown - correctness (positive cases)', () => {
     expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
   });
 
-  it('does NOT add target= to links', () => {
+  it('does NOT bake target= into stored HTML (new tab is a display concern)', () => {
     const out = renderMarkdown('[text](https://example.com)');
     expect(out).not.toMatch(/\btarget\s*=/i);
   });
@@ -274,5 +274,28 @@ describe('renderMarkdown - correctness (positive cases)', () => {
     expect(out).toContain('<table>');
     assertInert(out, 'table with embedded script');
     expect(out).not.toContain('alert(1)');
+  });
+});
+
+describe('ensureLinkTarget', () => {
+  it('adds target="_blank" to a link that lacks it', () => {
+    const out = ensureLinkTarget('<a href="https://example.com" rel="noopener">x</a>');
+    expect(out).toBe('<a href="https://example.com" rel="noopener" target="_blank">x</a>');
+  });
+
+  it('is idempotent and leaves an existing target untouched', () => {
+    const html = '<a href="https://example.com" target="_blank">x</a>';
+    expect(ensureLinkTarget(html)).toBe(html);
+  });
+
+  it('preserves rel and text on stored markdown output', () => {
+    const out = ensureLinkTarget(renderMarkdown('[text](https://example.com)'));
+    expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
+    expect(out).toContain('target="_blank"');
+    expect(out).toContain('text');
+  });
+
+  it('does not touch content without links', () => {
+    expect(ensureLinkTarget('<p>Hello world</p>')).toBe('<p>Hello world</p>');
   });
 });

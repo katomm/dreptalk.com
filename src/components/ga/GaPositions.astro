@@ -8,6 +8,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
+import { ensureLinkTarget } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
 
 interface Props {
@@ -78,7 +79,7 @@ function pageHref(p: number): string {
                     </svg>
                   </span>
                 </summary>
-                <div class="ga-positions__rationale-body" set:html={bodyHtml} />
+                <div class="ga-positions__rationale-body" set:html={ensureLinkTarget(bodyHtml)} />
               </details>
             ) : (
               <div class="ga-positions__summary ga-positions__summary--static">
