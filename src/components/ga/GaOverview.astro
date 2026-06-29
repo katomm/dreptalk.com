@@ -7,6 +7,7 @@ import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { StakeParticipation, OverviewTally } from '@/lib/governance/view.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { ensureLinkTarget } from '@/lib/markdown.js';
 
 interface Props {
   action: GovernanceAction;
@@ -55,11 +56,11 @@ const isLongRationale = rationaleText.length > 5000;
       {isLongRationale ? (
         <>
           <input type="checkbox" id="ga-rationale-more" class="ga-rationale__cb" aria-hidden="true" tabindex="-1" />
-          <div class="prose ga-rationale__body" set:html={action.rationaleHtml} />
+          <div class="prose ga-rationale__body" set:html={ensureLinkTarget(action.rationaleHtml)} />
           <label for="ga-rationale-more" class="ga-rationale__toggle"></label>
         </>
       ) : (
-        <div class="prose" style="font-size:0.9375rem;" set:html={action.rationaleHtml} />
+        <div class="prose" style="font-size:0.9375rem;" set:html={ensureLinkTarget(action.rationaleHtml)} />
       )}
     </div>
   )}

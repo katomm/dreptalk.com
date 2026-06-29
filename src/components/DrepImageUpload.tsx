@@ -22,6 +22,7 @@ export default function DrepImageUpload({ value, onChange, disabled }: DrepImage
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   async function handleFile(file: File) {
     setError(null);
@@ -49,8 +50,39 @@ export default function DrepImageUpload({ value, onChange, disabled }: DrepImage
     }
   }
 
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    if (disabled || busy) return;
+    const f = e.dataTransfer.files?.[0];
+    if (f) void handleFile(f);
+  }
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+    // biome-ignore lint/a11y/noStaticElementInteractions: drop zone augments the accessible file-picker button below; keyboard users still use that button.
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!disabled && !busy) setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        // Ignore leave events fired when crossing onto a child element.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+      }}
+      onDrop={onDrop}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem',
+        padding: '0.5rem',
+        margin: '-0.5rem',
+        borderRadius: '0.5rem',
+        outline: `2px dashed ${dragOver ? 'var(--accent)' : 'transparent'}`,
+        outlineOffset: '2px',
+        background: dragOver ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent',
+        transition: 'background 0.12s, outline-color 0.12s',
+      }}
+    >
       {value ? (
         <img
           src={value.url}
@@ -103,7 +135,7 @@ export default function DrepImageUpload({ value, onChange, disabled }: DrepImage
             </button>
           )}
         </div>
-        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>JPG or PNG, max 256 KB.</span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>JPG or PNG, max 256 KB. Or drop one here.</span>
         {error && (
           <span role="alert" style={{ fontSize: '0.8125rem', color: 'var(--danger)' }}>
             {error}

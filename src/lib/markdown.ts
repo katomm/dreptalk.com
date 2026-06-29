@@ -7,6 +7,10 @@
  *      dangerous protocols via onTagAttr (a href) and safeAttrValue (other attrs).
  *   3. injectRel: ensures every surviving <a> has rel="noopener noreferrer nofollow ugc".
  *
+ * Opening links in a new tab is a display concern handled by ensureLinkTarget at
+ * render time (it also covers content stored before that behavior existed), not
+ * baked into the stored HTML here.
+ *
  * Link href policy: ONLY http:// and https:// are accepted. data:, javascript:,
  * vbscript:, protocol-relative (//), bare relative paths, and all other schemes
  * are neutralized to an empty href. This prevents the safeAttrValue data:image/
@@ -107,6 +111,21 @@ function injectRel(html: string): string {
     }
     const attrStr = attrs ?? '';
     return `<a${attrStr} rel="noopener noreferrer nofollow ugc">`;
+  });
+}
+
+/**
+ * Add target="_blank" to every <a> that lacks it, so links in rendered user
+ * content open in a new tab. A cheap, idempotent regex pass applied at DISPLAY
+ * time over already-sanitized stored HTML: it covers posts and rationales saved
+ * before this behavior existed, without re-rendering or a data backfill. Links
+ * keep their existing rel (set by injectRel at write time).
+ */
+export function ensureLinkTarget(html: string): string {
+  return html.replace(/<a(\s[^>]*)?>/gi, (match: string, attrs: string | undefined): string => {
+    const attrStr = attrs ?? '';
+    if (/\btarget\s*=/i.test(attrStr)) return match;
+    return `<a${attrStr} target="_blank">`;
   });
 }
 
