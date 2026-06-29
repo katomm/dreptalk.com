@@ -300,6 +300,10 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   await phase('dreps', async () => {
     const r = await syncDreps({
       koios, db: env.DB, fetchImpl: fetch, now: Date.now(), maxAnchorFetches: DREP_ANCHOR_LIMIT,
+      // Inline base64 avatars are decoded and stored in R2 during the sync (they
+      // are self-contained); linked images are handled by the avatars phase below.
+      bucket: env.AVATARS,
+      downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
     });
     console.log(
       `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} ` +

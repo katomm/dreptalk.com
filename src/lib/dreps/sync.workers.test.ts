@@ -526,4 +526,45 @@ describe('stored-avatar preservation', () => {
     expect(after!.imageStoredUrl).toBe('https://example.com/keep.png');
     expect(after!.imageFetchFailedAt).toBe(1234);
   });
+
+  it('ingests an inline data: avatar into R2 and sets image_content_hash', async () => {
+    const id = 'drep1-inline-avatar';
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 9, 8, 7, 6]);
+    const uri = `data:image/png;base64,${btoa(String.fromCharCode(...png))}`;
+    const doc = { '@context': {}, hashAlgorithm: 'blake2b-256', body: { givenName: 'Pixel', image: uri } };
+    const json = JSON.stringify(doc);
+    const hash = bytesToHex(blake2b256(new TextEncoder().encode(json)));
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { meta_url: 'https://example.com/p.json', meta_hash: hash })]]),
+    });
+    const fetchImpl: typeof fetch = async () => jsonResponse(json);
+
+    await syncDreps({ koios, db: env.DB, fetchImpl, now: NOW, bucket: env.AVATARS as R2Bucket });
+
+    const expected = bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', png)));
+    const stored = await getDrepById(env.DB, id);
+    // The inline image is stored in R2 and addressed by content hash; no URL.
+    expect(stored!.imageUrl).toBeNull();
+    expect(stored!.imageContentHash).toBe(expected);
+    expect(await (env.AVATARS as R2Bucket).get(`avatars/${expected}`)).not.toBeNull();
+  });
+
+  it('falls back to no stored avatar for an inline data: image when no bucket is wired', async () => {
+    const id = 'drep1-inline-no-bucket';
+    const uri = `data:image/png;base64,${btoa('\x89PNGabcd')}`;
+    const doc = { '@context': {}, hashAlgorithm: 'blake2b-256', body: { givenName: 'NoBucket', image: uri } };
+    const json = JSON.stringify(doc);
+    const hash = bytesToHex(blake2b256(new TextEncoder().encode(json)));
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { meta_url: 'https://example.com/p.json', meta_hash: hash })]]),
+    });
+
+    await syncDreps({ koios, db: env.DB, fetchImpl: (async () => jsonResponse(json)) as typeof fetch, now: NOW });
+
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.imageUrl).toBeNull();
+    expect(stored!.imageContentHash).toBeNull();
+  });
 });
