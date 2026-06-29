@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId, recordLocalVote, getViewerVote } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, spoTallyPct } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory } from '../db/drepVotes.js';
@@ -662,5 +662,49 @@ describe('syncGovernanceTallies emits gov_status', () => {
       { from: 'pending', to: 'ratified' },
       { from: 'ratified', to: 'enacted' },
     ]);
+  });
+});
+
+describe('spoTallyPct', () => {
+  it('passes Koios percentages through unchanged for non-hard-fork actions', () => {
+    const s: VotingSummary = {
+      proposal_type: 'TreasuryWithdrawals',
+      pool_yes_pct: 73.1,
+      pool_no_pct: 26.9,
+      // Power buckets present but must be ignored for non-hard-fork types.
+      pool_active_yes_vote_power: '1000',
+      pool_no_vote_power: '500',
+      pool_passive_always_abstain_vote_power: '9000',
+    };
+    expect(spoTallyPct(s)).toEqual({ yesPct: 73.1, noPct: 26.9 });
+  });
+
+  it('recomputes a hard fork by folding always-abstain back into the denominator', () => {
+    // Real mainnet Van Rossem PV11 hard fork snapshot. Koios reports 51.64 / 48.36
+    // (always-abstain wrongly dropped from the denominator); the ledger-correct
+    // value folds always-abstain + always-no-confidence back into the No side.
+    const s: VotingSummary = {
+      proposal_type: 'HardForkInitiation',
+      pool_yes_pct: 51.64,
+      pool_no_pct: 48.36,
+      pool_active_yes_vote_power: '7207875459435309',
+      pool_no_vote_power: '6749855063953702',
+      pool_passive_always_abstain_vote_power: '6928038498115586',
+      pool_passive_always_no_confidence_vote_power: '54457503120251',
+    };
+    const { yesPct, noPct } = spoTallyPct(s);
+    expect(yesPct).toBeCloseTo(34.42, 2);
+    expect(noPct).toBeCloseTo(65.58, 2);
+    // Well below the 51% hard-fork SPO threshold, unlike Koios' inflated 51.64%.
+    expect(yesPct!).toBeLessThan(51);
+  });
+
+  it('falls back to Koios percentages for a hard fork when the power fields are absent', () => {
+    const s: VotingSummary = {
+      proposal_type: 'HardForkInitiation',
+      pool_yes_pct: 51.64,
+      pool_no_pct: 48.36,
+    };
+    expect(spoTallyPct(s)).toEqual({ yesPct: 51.64, noPct: 48.36 });
   });
 });
