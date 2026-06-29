@@ -67,7 +67,7 @@ const grid = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1
         </p>
         <div style={grid}>
           {gallery.earned.map((t) => (
-            <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} progress={t.progress} />
+            <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} tip={t.badge.description} progress={t.progress} />
           ))}
         </div>
       </section>
@@ -81,7 +81,7 @@ const grid = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1
         </p>
         <div style={grid}>
           {gallery.inProgress.map((t) => (
-            <BadgeTile name={t.badge.name} image={t.image} earned={false} progress={t.progress} />
+            <BadgeTile name={t.badge.name} image={t.image} earned={false} tip={t.badge.description} progress={t.progress} />
           ))}
         </div>
       </section>
@@ -95,7 +95,7 @@ const grid = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1
         </p>
         <div style={grid}>
           {Array.from({ length: gallery.hiddenLockedCount }).map(() => (
-            <BadgeTile name="???" image={MYSTERY_BADGE_IMAGE} earned={false} />
+            <BadgeTile name="???" image={MYSTERY_BADGE_IMAGE} earned={false} tip="A hidden badge, revealed once earned." />
           ))}
         </div>
       </section>

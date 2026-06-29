@@ -6,10 +6,11 @@
 //
 // The avatar layering (identicon base, stored R2 copy as an overlay that falls
 // through on 404) lives in the shared Avatar component; the system author shows
-// a neutral "S" instead.
+// the grey DRepTalk mark instead.
 
 import { authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
 import Avatar from '@/components/Avatar.astro';
+import LogoMark from '@/components/LogoMark.astro';
 export type { AuthorDescriptor };
 
 interface Props {
@@ -29,7 +30,7 @@ const profileHref = authorProfileHref(author);
 <span class="author-identity" style={`--avatar-size:${size}px;`}>
   {isSystem ? (
     <span class="author-identity__avatar" aria-hidden="true">
-      <span class="author-identity__initial">S</span>
+      <LogoMark style={`width:${Math.round(size * 0.6)}px;height:${Math.round(size * 0.6)}px;color:var(--muted);`} />
     </span>
   ) : (
     <Avatar seed={seed} imageHash={imageHash} size={size} />
@@ -54,9 +55,12 @@ const profileHref = authorProfileHref(author);
     min-width: 0;
   }
 
-  /* The neutral system avatar; member avatars render via the shared Avatar. */
+  /* The neutral system avatar carrying the grey DRepTalk mark; member avatars
+     render via the shared Avatar. */
   .author-identity__avatar {
-    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: var(--avatar-size);
     height: var(--avatar-size);
     flex-shrink: 0;
@@ -64,19 +68,6 @@ const profileHref = authorProfileHref(author);
     overflow: hidden;
     background: var(--surface);
     border: 1px solid var(--border);
-  }
-
-  .author-identity__initial {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(var(--avatar-size) * 0.46);
-    font-weight: 600;
-    line-height: 1;
-    color: var(--muted);
-    user-select: none;
   }
 
   .author-identity__name {
