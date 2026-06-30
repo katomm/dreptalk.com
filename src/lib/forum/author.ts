@@ -6,6 +6,7 @@
 
 import { getUsersByIds, type User } from '../db/users.js';
 import { getDrepsByIds, type Drep } from '../db/dreps.js';
+import { getPoolsByIds, type Pool } from '../db/pools.js';
 import type { ActionVoterRow } from '../db/drepVotes.js';
 import { drepPath } from '../drep/profile.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
@@ -17,7 +18,7 @@ import { truncateId } from './view.js';
 export interface AuthorDescriptor {
   /** The raw post/topic author_id. */
   authorId: string;
-  /** Display name: the DRep name when known, else a truncated id. */
+  /** Display name, in precedence order: user display_name, then DRep name, then pool name, then ticker, else a truncated id. */
   displayName: string;
   /** drep id when this author has a synced on-chain DRep, used for the profile link. */
   drepId?: string | null;
@@ -65,19 +66,22 @@ export function describeAuthor(
   authorId: string,
   usersById: Map<string, User>,
   drepsById: Map<string, Drep>,
+  poolsById: Map<string, Pool>,
 ): AuthorDescriptor {
   if (authorId === GOV_SYNC_AUTHOR) return systemAuthor(authorId);
 
   const u = usersById.get(authorId);
   const drep = u?.drep_id ? drepsById.get(u.drep_id) : undefined;
+  const pool = u?.pool_id ? poolsById.get(u.pool_id) : undefined;
 
   return {
     authorId,
-    displayName: drep?.name ?? u?.display_name ?? truncateId(authorId),
+    displayName:
+      u?.display_name ?? drep?.name ?? pool?.name ?? pool?.ticker ?? truncateId(authorId),
     drepId: u?.drep_id ?? null,
     drepSlug: drep?.slug ?? null,
-    imageHash: drep?.imageContentHash ?? null,
-    identiconSeed: drep?.hex ?? authorId,
+    imageHash: drep?.imageContentHash ?? pool?.imageContentHash ?? null,
+    identiconSeed: drep?.hex ?? pool?.poolHash ?? authorId,
     badges: roleBadges(u),
   };
 }
@@ -116,8 +120,15 @@ export async function loadAuthorIdentities(
     ? await getDrepsByIds(db, drepIds)
     : new Map<string, Drep>();
 
+  const poolIds = [
+    ...new Set(
+      [...usersById.values()].map((u) => u.pool_id).filter((id): id is string => !!id),
+    ),
+  ];
+  const poolsById = poolIds.length ? await getPoolsByIds(db, poolIds) : new Map<string, Pool>();
+
   return {
-    describe: (authorId: string) => describeAuthor(authorId, usersById, drepsById),
+    describe: (authorId: string) => describeAuthor(authorId, usersById, drepsById, poolsById),
   };
 }
 
@@ -140,17 +151,35 @@ export async function loadAuthorIdentity(
   db: D1Database | undefined,
   authorId: string,
 ): Promise<AuthorDescriptor> {
-  if (!db) return describeAuthor(authorId, new Map(), new Map());
+  if (!db) return describeAuthor(authorId, new Map(), new Map(), new Map());
   return (await loadAuthorIdentities(db, [authorId])).describe(authorId);
 }
 
 /**
  * Builds the descriptor for a governance-action voter row from the already-batched
- * dreps map. Pure mapping, performs no I/O. A nameless DRep falls back to the
- * truncated id so a full bech32 string never overruns a narrow row. Shared by the
- * positions tab and the top-participants sidebar, which render identical rows.
+ * dreps and (optionally) pools maps. Pure mapping, performs no I/O. A nameless DRep
+ * falls back to the truncated id so a full bech32 string never overruns a narrow row.
+ * Shared by the positions tab and the top-participants sidebar, which render identical
+ * rows. When a pools map is supplied and voter_id matches a pool, resolves to the pool
+ * identity with no DRep profile link (drepId: null).
  */
-export function voterDescriptor(v: ActionVoterRow, dreps: Map<string, Drep>): AuthorDescriptor {
+export function voterDescriptor(
+  v: ActionVoterRow,
+  dreps: Map<string, Drep>,
+  pools?: Map<string, Pool>,
+): AuthorDescriptor {
+  const pool = pools?.get(v.voter_id);
+  if (pool) {
+    return {
+      authorId: v.voter_id,
+      displayName: pool.name ?? pool.ticker ?? truncateId(v.voter_id),
+      drepId: null, // no pool profile page; authorProfileHref must not build a /drep link
+      drepSlug: null,
+      imageHash: pool.imageContentHash ?? null,
+      identiconSeed: pool.poolHash ?? v.voter_hex ?? v.voter_id,
+      badges: ['SPO'],
+    };
+  }
   const d = dreps.get(v.voter_id);
   return {
     authorId: v.voter_id,
