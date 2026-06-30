@@ -3,10 +3,10 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSynced } from '../db/governance.js';
-import { getVotesByGaId, recordLocalVote, getViewerVote } from '../db/drepVotes.js';
+import { getVotesByGaId, recordLocalVote, getViewerVote, upsertVotes } from '../db/drepVotes.js';
 import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, spoTallyPct } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
-import { getActionsNeedingVoteBackfill } from '../db/governance.js';
+import { getActionsNeedingVoteBackfill, getActionsNeedingMetaHashBackfill } from '../db/governance.js';
 import { getDrepVotingHistory } from '../db/drepVotes.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
 import { epochStartMs, resolveNetwork } from '../config/network.js';
@@ -706,5 +706,65 @@ describe('spoTallyPct', () => {
       pool_no_pct: 48.36,
     };
     expect(spoTallyPct(s)).toEqual({ yesPct: 51.64, noPct: 48.36 });
+  });
+});
+
+describe('getActionsNeedingMetaHashBackfill', () => {
+  it('selects a finalized action with an anchored vote missing meta_hash', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaMH', 'TreasuryWithdrawals', 'Old', 'ratified', 'propMH', NULL, 0, 0)`,
+    ).run();
+    // Pre-#198 shape: anchor URL present, hash missing.
+    await upsertVotes(
+      env.DB,
+      'gaMH',
+      [{ voterRole: 'DRep', voterId: 'drep1', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://x', metaHash: null }],
+      0,
+    );
+
+    const ids = (await getActionsNeedingMetaHashBackfill(env.DB, 10)).map((g) => g.id);
+    expect(ids).toContain('gaMH');
+  });
+
+  it('excludes an action whose anchored votes all have a hash', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaMH2', 'TreasuryWithdrawals', 'Hashed', 'ratified', 'propMH2', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaMH2',
+      [{ voterRole: 'DRep', voterId: 'drep2', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://y', metaHash: 'deadbeef' }],
+      0,
+    );
+    const ids = (await getActionsNeedingMetaHashBackfill(env.DB, 10)).map((g) => g.id);
+    expect(ids).not.toContain('gaMH2');
+  });
+
+  it('excludes active actions and actions with no anchored votes', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaActive', 'TreasuryWithdrawals', 'Active', 'active', 'propAct', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaActive',
+      [{ voterRole: 'DRep', voterId: 'drep3', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://z', metaHash: null }],
+      0,
+    );
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaNoAnchor', 'InfoAction', 'NoAnchor', 'enacted', 'propNo', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaNoAnchor',
+      [{ voterRole: 'DRep', voterId: 'drep4', voterHex: null, vote: 'Yes', metaUrl: null, metaHash: null }],
+      0,
+    );
+    const ids = (await getActionsNeedingMetaHashBackfill(env.DB, 10)).map((g) => g.id);
+    expect(ids).not.toContain('gaActive');
+    expect(ids).not.toContain('gaNoAnchor');
   });
 });
