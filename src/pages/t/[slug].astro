@@ -19,9 +19,10 @@ import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getActionRationales, countActionRationales } from '@/lib/db/actionRationale.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
+import { getPoolsByIds, type Pool } from '@/lib/db/pools.js';
 import { getUserById } from '@/lib/db/users.js';
 import VotePanel from '@/components/VotePanel.js';
 import MultisigVotePanel from '@/components/MultisigVotePanel.js';
@@ -178,6 +179,16 @@ const voterIds = [
 const drepsMap = db && voterIds.length > 0
   ? await getDrepsByIds(db, voterIds)
   : new Map<string, Drep>();
+
+// SPO voters for the positions tab role segment, plus their pool identities.
+const spoTotal = isGovernanceTopic && govAction && db
+  ? await countActionSpoVoters(db, govAction.id)
+  : 0;
+const spoVoters = tab === 'positions' && govAction && db
+  ? await getActionSpoVoters(db, govAction.id, { limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) })
+  : ([] as Awaited<ReturnType<typeof getActionSpoVoters>>);
+const poolIds = [...new Set(spoVoters.map((v) => v.voter_id))];
+const poolsMap = db && poolIds.length > 0 ? await getPoolsByIds(db, poolIds) : new Map<string, Pool>();
 
 // Rationales for the positions tab: keyed by voter_id, loaded only when needed.
 const rationales = tab === 'positions' && db && govAction
@@ -344,6 +355,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
               <GaPositions
                 voters={positionVoters}
                 dreps={drepsMap}
+                spoVoters={spoVoters}
+                pools={poolsMap}
+                spoTotal={spoTotal}
                 total={positionsTotal}
                 page={page}
                 pageSize={PAGE_SIZE}

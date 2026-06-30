@@ -1,12 +1,14 @@
 ---
-// DRep Positions tab: paginated list of all DReps who voted on the governance action,
+// Positions tab: paginated list of all DReps and SPOs who voted on the governance action,
 // ordered by voting power desc. Each row shows identity, vote badge, and power.
 // Rows with a rationale become expandable via native <details> (no inline script, CSP-safe).
+// A role segment (DReps / SPOs) toggles which voter list is shown.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
+import type { Pool } from '@/lib/db/pools.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { ensureLinkTarget } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
@@ -14,6 +16,9 @@ import { formatAdaCompact } from '@/lib/governance/view.js';
 interface Props {
   voters: ActionVoterRow[];
   dreps: Map<string, Drep>;
+  spoVoters: ActionVoterRow[];
+  pools: Map<string, Pool>;
+  spoTotal: number;
   total: number;
   page: number;
   pageSize: number;
@@ -21,37 +26,72 @@ interface Props {
   rationales: Map<string, { bodyHtml: string | null; source: string }>;
 }
 
-const { voters, dreps, total, page, pageSize, slug, rationales } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales } = Astro.props;
+
+// Determine active role from the query string; default to DReps.
+const role = (Astro.url.searchParams.get('role') === 'spo' ? 'spo' : 'drep') as 'drep' | 'spo';
+const activeVoters = role === 'spo' ? spoVoters : voters;
 
 // Action-wide rationale count (the map covers the whole action, not just this page).
 const withRationale = rationales.size;
 
 const prevPage = page > 1 ? page - 1 : null;
-const nextPage = voters.length === pageSize ? page + 1 : null;
+// For the active list, use the appropriate length to determine whether a next page exists.
+const nextPage = activeVoters.length === pageSize ? page + 1 : null;
 
+// Build hrefs that preserve tab=positions and role, replacing only the page param.
 function pageHref(p: number): string {
-  return `/t/${slug}?tab=positions&page=${p}`;
+  return `/t/${slug}?tab=positions&role=${role}&page=${p}`;
 }
+
+// Role toggle hrefs: preserve tab=positions, reset page to avoid stale offsets.
+const drepHref = `/t/${slug}?tab=positions&role=drep`;
+const spoHref = `/t/${slug}?tab=positions&role=spo`;
 ---
 
 <div class="ga-positions">
-  <p class="ga-positions__count">
-    {total === 0
-      ? 'No DRep votes recorded yet.'
-      : `${total} DRep${total === 1 ? '' : 's'} voted`}
-    {withRationale > 0 && (
-      <span class="ga-positions__count-rationale">{` · ${withRationale} with a rationale`}</span>
-    )}
-  </p>
+  <div class="ga-positions__segment" role="tablist" aria-label="Voter role">
+    <a
+      role="tab"
+      aria-selected={role === 'drep'}
+      class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'drep' }]}
+      href={drepHref}
+    >DReps <span class="ga-positions__seg-count">{total}</span></a>
+    <a
+      role="tab"
+      aria-selected={role === 'spo'}
+      class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'spo' }]}
+      href={spoHref}
+    >SPOs <span class="ga-positions__seg-count">{spoTotal}</span></a>
+  </div>
 
-  {withRationale > 0 && (
+  {role === 'drep' && (
+    <p class="ga-positions__count">
+      {total === 0
+        ? 'No DRep votes recorded yet.'
+        : `${total} DRep${total === 1 ? '' : 's'} voted`}
+      {withRationale > 0 && (
+        <span class="ga-positions__count-rationale">{` · ${withRationale} with a rationale`}</span>
+      )}
+    </p>
+  )}
+
+  {role === 'spo' && (
+    <p class="ga-positions__count">
+      {spoTotal === 0
+        ? 'No SPO votes recorded for this action.'
+        : `${spoTotal} SPO${spoTotal === 1 ? '' : 's'} voted`}
+    </p>
+  )}
+
+  {role === 'drep' && withRationale > 0 && (
     <p class="ga-positions__hint">Open a row to read the rationale.</p>
   )}
 
-  {total > 0 && (
+  {activeVoters.length > 0 && (
     <ul class="ga-positions__list">
-      {voters.map((v) => {
-        const descriptor = voterDescriptor(v, dreps);
+      {activeVoters.map((v) => {
+        const descriptor = role === 'spo' ? voterDescriptor(v, dreps, pools) : voterDescriptor(v, dreps);
         const ada = formatAdaCompact(v.voting_power);
         const bodyHtml = rationales.get(descriptor.authorId)?.bodyHtml ?? null;
         // Identity, vote, and power render identically whether or not the row
@@ -236,5 +276,55 @@ function pageHref(p: number): string {
     gap: 1rem;
     margin-top: 1.5rem;
     font-size: 0.875rem;
+  }
+
+  /* Role segment toggle: DReps / SPOs switcher above the voter list. */
+  .ga-positions__segment {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    overflow: hidden;
+    width: fit-content;
+  }
+
+  .ga-positions__seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.875rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    border-right: 1px solid var(--border);
+    background: transparent;
+    transition: background 0.1s ease, color 0.1s ease;
+  }
+
+  .ga-positions__seg:last-child {
+    border-right: none;
+  }
+
+  .ga-positions__seg:hover {
+    background: var(--surface-hover, color-mix(in srgb, var(--border) 40%, transparent));
+    color: var(--text);
+  }
+
+  .ga-positions__seg--active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .ga-positions__seg--active:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .ga-positions__seg-count {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.75rem;
+    opacity: 0.8;
   }
 </style>
