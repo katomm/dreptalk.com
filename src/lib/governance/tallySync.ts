@@ -19,6 +19,7 @@ import {
   getActionsNeedingVotedPower,
   updateVotedPower,
   getActionsNeedingVoteBackfill,
+  getActionsNeedingMetaHashBackfill,
   markVotesSynced,
   getGovStatusEventsForTimeFix,
   updateActivityCreatedAt,
@@ -501,6 +502,37 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     } catch (err) {
       failed++;
       console.warn(`[gov-votes-backfill] action ${ga.id} failed:`, err);
+    }
+  }
+  return { actions, votes, failed };
+}
+
+/**
+ * One-time historical backfill: fills meta_hash on votes for finalized actions
+ * synced before meta_hash capture existed, so the rationale queue can pick them
+ * up. Re-fetches each candidate's votes (Koios returns the hash) and re-upserts.
+ * Does NOT call markVotesSynced: these actions are already vote-synced, and the
+ * candidate query self-drains once their anchored votes all carry a hash.
+ */
+export async function backfillVoteMetaHashes(deps: VoteSyncDeps): Promise<VoteBackfillResult> {
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES } = deps;
+  const candidates = await getActionsNeedingMetaHashBackfill(db, limit);
+  let votes = 0;
+  let failed = 0;
+  let actions = 0;
+  for (const [i, ga] of candidates.entries()) {
+    if (!ga.proposalId) continue;
+    if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
+    actions++;
+    try {
+      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
+      votes += await upsertVotes(db, ga.id, collected, now);
+      if (capped) {
+        console.warn(`[gov-rationale-hash-backfill] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; refreshed a capped prefix`);
+      }
+    } catch (err) {
+      failed++;
+      console.warn(`[gov-rationale-hash-backfill] action ${ga.id} failed:`, err);
     }
   }
   return { actions, votes, failed };

@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId, recordLocalVote, getViewerVote, upsertVotes } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, spoTallyPct } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, spoTallyPct, backfillVoteMetaHashes } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
 import { getActionsNeedingVoteBackfill, getActionsNeedingMetaHashBackfill } from '../db/governance.js';
 import { getDrepVotingHistory } from '../db/drepVotes.js';
@@ -706,6 +706,81 @@ describe('spoTallyPct', () => {
       pool_no_pct: 48.36,
     };
     expect(spoTallyPct(s)).toEqual({ yesPct: 51.64, noPct: 48.36 });
+  });
+});
+
+describe('backfillVoteMetaHashes', () => {
+  it('refills meta_hash for a finalized action and drops it from the candidate set', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaBF', 'TreasuryWithdrawals', 'BF', 'ratified', 'propBF', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaBF',
+      [{ voterRole: 'DRep', voterId: 'drepBF', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://doc', metaHash: null }],
+      0,
+    );
+
+    const koios = {
+      proposalVotes: async (_p: string, _l?: number, offset = 0): Promise<ProposalVoteRow[]> =>
+        offset === 0
+          ? [
+              {
+                voter_role: 'DRep',
+                voter_id: 'drepBF',
+                voter_hex: null,
+                vote: 'Yes',
+                meta_url: 'ipfs://doc',
+                meta_hash: 'abc123',
+              },
+            ]
+          : [],
+    };
+
+    const r = await backfillVoteMetaHashes({ koios, db: env.DB, now: 999, limit: 10 });
+    expect(r.actions).toBe(1);
+    expect(r.votes).toBe(1);
+
+    const row = await env.DB
+      .prepare("SELECT meta_hash FROM drep_votes WHERE ga_id='gaBF' AND voter_id='drepBF'")
+      .first<{ meta_hash: string | null }>();
+    expect(row?.meta_hash).toBe('abc123');
+
+    const ids = (await getActionsNeedingMetaHashBackfill(env.DB, 10)).map((g) => g.id);
+    expect(ids).not.toContain('gaBF');
+  });
+
+  it('caps a pathological vote list without throwing', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaBFcap', 'TreasuryWithdrawals', 'Huge', 'ratified', 'propBFcap', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaBFcap',
+      [{ voterRole: 'DRep', voterId: 'seed', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://seed', metaHash: null }],
+      0,
+    );
+
+    let calls = 0;
+    const koios = {
+      proposalVotes: async (_p: string, limit = 1000, offset = 0): Promise<ProposalVoteRow[]> => {
+        calls++;
+        return Array.from({ length: limit }, (_, k) => ({
+          voter_role: 'DRep',
+          voter_id: `drep_${offset + k}`,
+          voter_hex: null,
+          vote: 'Yes',
+          meta_url: 'ipfs://d',
+          meta_hash: 'h',
+        }));
+      },
+    };
+
+    const r = await backfillVoteMetaHashes({ koios, db: env.DB, now: 999, limit: 10, maxPages: 3 });
+    expect(calls).toBe(3); // bounded; did not run away
+    expect(r.votes).toBe(3000);
   });
 });
 
