@@ -2,6 +2,7 @@
 // "On-chain changes" block for the Overview: renders the decoded payload per type.
 // Renders nothing when there is no decodable payload.
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
+import { truncateIdMiddle } from '@/lib/forum/view.js';
 import CopyButton from '@/components/CopyButton.astro';
 
 interface Props {
@@ -62,7 +63,7 @@ const show =
             <li class="ocx__row ocx__pay">
               <span class="ocx__new ocx__payamt">{r.ada}</span>
               <span class="ocx__payto">paid to</span>
-              <span class="ocx__payaddr mono">{r.address}</span><CopyButton value={r.address} label="Copy address" />
+              <span class="ocx__payaddr mono" title={r.address}>{truncateIdMiddle(r.address)}</span><CopyButton value={r.address} label="Copy address" />
             </li>
           ))}
         </ul>
@@ -180,8 +181,9 @@ const show =
     font-weight: 600;
   }
   /* Treasury payout row reads as a sentence: "<amount> paid to <stake address>",
-     so the long bech32 string is no longer an unexplained value. The address wraps
-     onto its own line on narrow widths via the shared flex-wrap + mono break. */
+     so the long bech32 string is no longer an unexplained value. The address is
+     middle-truncated (full value on the copy button and the title tooltip) so it
+     stays on one line instead of breaking a single char onto the next row. */
   .ocx__payamt {
     font-weight: 700;
   }
@@ -190,8 +192,6 @@ const show =
   }
   .ocx__payaddr {
     color: var(--fg);
-    flex: 1 1 12rem;
-    min-width: 0;
   }
   .ocx__single,
   .ocx__total,
