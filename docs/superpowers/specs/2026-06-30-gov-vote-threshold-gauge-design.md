@@ -13,15 +13,21 @@ from the line and what was actually cast.
 One component: `src/components/ga/VotingInfoCard.astro`. Possibly a tiny pure
 helper for the marker position. No new dependency, no donut, no new data source.
 
-## The key decision: denominator
+## The key decision: gauge fill vs the threshold marker
 
-`drepYesPct` / `drepNoPct` (and the SPO/CC equivalents) come from Koios on the
-same scale as the threshold, which is why the existing `Yes vs Threshold`
-comparison already works. The existing `tallyBar(yesPct, noPct)` helper builds a
-yes/no/abstain bar with abstain as the remainder (100 - yes - no) on that same
-scale. We reuse it unchanged, so the threshold marker is guaranteed to sit
-correctly on the bar. No new denominator interpretation is introduced; this stays
-consistent with the overview tally bar already shipped.
+`drepYesPct` (and the SPO/CC equivalents) come from Koios on the same scale as the
+threshold, which is why the existing `Yes vs Threshold` comparison works. The
+gauge is therefore a single green Yes fill at `yesPct` against a neutral track,
+with the threshold marker at `thresholdPct`: both sit on the same ratification
+scale, so the fill reaching (or not reaching) the marker always agrees with the
+Met / Not met verdict.
+
+We deliberately do NOT paint a no/abstain segment in the bar. The `*_no_pct`
+figures are an unreliable "No" share: e.g. `cc_no_pct` counts absent committee
+members, so a stacked bar shows red opposition where there were zero No votes (and
+on thin data the percentages and absolute amounts disagree outright). The real
+no/abstain magnitudes are printed in the amounts line below, from the absolute
+tallies, where they are honest.
 
 ## Per-body row layout
 
@@ -29,14 +35,14 @@ For each body returned by `evaluateThresholds` (DRep / SPO / CC, depending on
 action type):
 
 1. Head: body name + `Met` (check) / `Not met`. Unchanged.
-2. Threshold gauge: a slim stacked bar, Yes (green) / No (red) / Abstain-remainder
-   (grey) from `tallyBar`, using the existing `TONE_BAR_COLORS`. A vertical
-   threshold marker overlaid at `thresholdPct` of the bar width. Visualizes
-   whether the green fill reaches the line.
-3. Numbers line: `Yes 1.98% / No 0.5% / Abstain ...` plus absolute amounts below:
-   `104m yes / 565m no / 176m abstain` (compact ADA via `formatAdaCompact`). For
-   CC the amounts are member counts instead (`4 yes / 2 no / 1 abstain`).
-4. Turnout (DRep only): a muted line `Turnout: 5.27b of 14.76b (37%)` via
+2. Threshold gauge: a green Yes fill at `yesPct` on a neutral track, with a
+   vertical threshold marker at `thresholdPct`. Whether the fill reaches the
+   marker reads at a glance and matches the Met / Not met verdict.
+3. Numbers line: `Threshold X% / Yes Y%` plus absolute amounts below:
+   `104.4M ₳ yes / 565.3M ₳ no / 175.8M ₳ abstain` (compact ADA via
+   `formatAdaCompact`). For CC the amounts are member counts instead
+   (`4 yes / 0 no / 1 abstain`).
+4. Turnout (DRep only): a muted line `Turnout 5.27B ₳ of 14.76B ₳ (37%)` via
    `stakeParticipation`. We have the total only for DRep, so SPO/CC omit it rather
    than invent a denominator.
 5. Footnote `Thresholds as of epoch X`. Unchanged.
@@ -45,7 +51,7 @@ action type):
 
 - InfoAction: no threshold, no gauge; existing note stays.
 - Tally not yet synced: existing "Thresholds not yet available" note.
-- CC: gauge on a count basis + the existing "N of min 7 members" quorum line.
+- CC: gauge fill from `ccYesPct` + the existing "N of min 7 members" quorum line.
 - Voting window (Start / End) at the top is unchanged.
 
 ## Out of scope
@@ -60,5 +66,5 @@ action type):
 `GovernanceAction` carries absolute amounts (`drepYes/No/Abstain` lovelace,
 `spo*`, `cc*` counts), percentages (`drepYesPct/NoPct`, `spo*`, `cc*`), and
 `drepVotedPower`. The page already fetches `getActiveDrepStake()` for the DRep
-total. Helpers `tallyBar`, `stakeParticipation`, `formatAdaCompact`,
-`evaluateThresholds`, `TONE_BAR_COLORS`, `fmtPct` all exist.
+total. Helpers `stakeParticipation`, `formatAdaCompact`, `evaluateThresholds`,
+`fmtPct` all exist; the new `bodyVoteAmounts` helper formats the amounts line.

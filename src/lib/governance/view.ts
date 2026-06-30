@@ -5,6 +5,7 @@
 // (governanceActionUrl), since they are network-aware.
 
 import { formatAda, formatAdaCompact } from '../format/ada.js';
+import type { Body } from './thresholds.js';
 
 // Re-exported so governance components keep importing the ADA formatters from
 // this view module; the implementations live in lib/format/ada.ts.
@@ -348,4 +349,59 @@ export function stakeParticipation(votedLovelace: number, totalLovelace: number)
   const voted = formatAdaCompact(votedLovelace, 2) ?? '0 ₳';
   const total = formatAdaCompact(totalLovelace, 2) ?? '0 ₳';
   return { pct, votedLabel: voted, totalLabel: total };
+}
+
+// The per-body vote fields the threshold gauge reads. A subset of
+// GovernanceAction, so the full action is assignable without a cast.
+export interface BodyVoteInput {
+  drepYesPct: number | null; drepNoPct: number | null;
+  drepYes: number | null; drepNo: number | null; drepAbstain: number | null;
+  spoYesPct: number | null; spoNoPct: number | null;
+  spoYes: number | null; spoNo: number | null; spoAbstain: number | null;
+  ccYesPct: number | null; ccNoPct: number | null;
+  ccYes: number | null; ccNo: number | null; ccAbstain: number | null;
+}
+
+// Pre-formatted yes/no/abstain amounts for a body: compact ADA for DRep/SPO,
+// plain member counts for CC.
+export interface VoteAmounts {
+  yes: string;
+  no: string;
+  abstain: string;
+}
+
+// Compact ADA amounts (DRep/SPO power, lovelace). A present-but-zero option still
+// renders "0 ₳"; only an all-absent body yields null (no tally to show).
+function adaAmounts(yes: number | null, no: number | null, abstain: number | null): VoteAmounts | null {
+  if (yes == null && no == null && abstain == null) return null;
+  return {
+    yes: formatAdaCompact(yes ?? 0) ?? '0 ₳',
+    no: formatAdaCompact(no ?? 0) ?? '0 ₳',
+    abstain: formatAdaCompact(abstain ?? 0) ?? '0 ₳',
+  };
+}
+
+// CC amounts are member counts, not stake.
+function countAmounts(yes: number | null, no: number | null, abstain: number | null): VoteAmounts | null {
+  if (yes == null && no == null && abstain == null) return null;
+  return { yes: String(yes ?? 0), no: String(no ?? 0), abstain: String(abstain ?? 0) };
+}
+
+/**
+ * The real yes/no/abstain amounts for one voting body, for the sidebar gauge's
+ * breakdown line. These come from the absolute tallies (lovelace for DRep/SPO,
+ * member counts for CC), not the percentages: the gauge fill itself is yesPct
+ * (ratification scale, so the threshold marker lines up), but the no/abstain
+ * percentages are unreliable as a "No" share (e.g. cc_no_pct counts absent
+ * members), so the literal counts are the honest figures to print.
+ */
+export function bodyVoteAmounts(a: BodyVoteInput, body: Body): VoteAmounts | null {
+  switch (body) {
+    case 'DRep':
+      return adaAmounts(a.drepYes, a.drepNo, a.drepAbstain);
+    case 'SPO':
+      return adaAmounts(a.spoYes, a.spoNo, a.spoAbstain);
+    case 'CC':
+      return countAmounts(a.ccYes, a.ccNo, a.ccAbstain);
+  }
 }
