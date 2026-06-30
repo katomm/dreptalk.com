@@ -6,6 +6,7 @@ import {
   rewardAccountToBech32,
   decodeOnchainChanges,
   summarizeOnchain,
+  parameterChangeScope,
 } from './onchain.js';
 
 describe('formatValue', () => {
@@ -199,5 +200,44 @@ describe('summarizeOnchain', () => {
     expect(summarizeOnchain(decodeOnchainChanges(nc, EP, 'preprod'))).toMatchObject({ value: 'No-confidence motion' });
     const info = JSON.stringify({ tag: 'InfoAction' });
     expect(summarizeOnchain(decodeOnchainChanges(info, EP, 'preprod'))).toBeNull();
+  });
+});
+
+describe('parameterChangeScope', () => {
+  const pc = (map: Record<string, unknown>) =>
+    JSON.stringify({ tag: 'ParameterChange', contents: [null, map, 'fa'] });
+
+  it('classifies a governance-only change with no security parameter', () => {
+    expect(parameterChangeScope(pc({ committeeMinSize: 5 }))).toEqual({
+      groups: ['governance'],
+      touchesSecurity: false,
+    });
+  });
+
+  it('flags a security-relevant change with its DRep group', () => {
+    // minFeeA is economic for DReps and security-relevant for SPOs.
+    expect(parameterChangeScope(pc({ minFeeA: 50 }))).toEqual({
+      groups: ['economic'],
+      touchesSecurity: true,
+    });
+  });
+
+  it('treats govActionDeposit as governance group and security-relevant', () => {
+    expect(parameterChangeScope(pc({ govActionDeposit: 100_000_000_000 }))).toEqual({
+      groups: ['governance'],
+      touchesSecurity: true,
+    });
+  });
+
+  it('collects every touched group; security is true if any parameter qualifies', () => {
+    const s = parameterChangeScope(pc({ committeeMinSize: 5, maxTxSize: 16384 }))!;
+    expect([...s.groups].sort()).toEqual(['governance', 'network']);
+    expect(s.touchesSecurity).toBe(true); // maxTxSize is security-relevant
+  });
+
+  it('returns null for a missing, malformed, or non-parameter-change payload', () => {
+    expect(parameterChangeScope(null)).toBeNull();
+    expect(parameterChangeScope('{bad')).toBeNull();
+    expect(parameterChangeScope(JSON.stringify({ tag: 'HardForkInitiation', contents: [] }))).toBeNull();
   });
 });

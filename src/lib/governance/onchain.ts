@@ -5,6 +5,7 @@
 import { formatAda } from './view.js';
 import { rewardAddressToStakeBech32 } from './stakeAccount.js';
 import type { CardanoNetwork } from '../config/network.js';
+import type { ParamGroup, ParamChangeScope } from './thresholds.js';
 
 export type Fmt = 'lovelace' | 'ratio' | 'int' | 'bytes' | 'exUnits' | 'costModels';
 
@@ -45,6 +46,61 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   maxCollateralInputs: { snake: 'max_collateral_inputs', group: 'Technical', label: 'Max Collateral Inputs', format: 'int' },
   costModels: { snake: 'cost_models', group: 'Technical', label: 'Cost Models', format: 'costModels' },
 };
+
+// The security-relevant parameters: the constitution's "Parameters Critical to the
+// Operation of the Blockchain" (constitution section 2.1, guardrail PARAM-03a).
+// Changing any one requires an SPO vote (pvtPPSecurityGroup) on top of the DRep
+// vote; a parameter change touching none of these has no SPO vote at all. Keys are
+// the camelCase ledger names as they appear in the on-chain payload.
+export const SECURITY_PARAMS: ReadonlySet<string> = new Set([
+  'maxBlockBodySize',
+  'maxTxSize',
+  'maxBlockHeaderSize',
+  'maxValueSize',
+  'maxBlockExecutionUnits',
+  'minFeeA',
+  'minFeeB',
+  'minFeeRefScriptCostPerByte',
+  'coinsPerUTxOByte',
+  'govActionDeposit',
+]);
+
+// PARAM_REGISTRY's display group to the DRep voting group it counts toward.
+const GROUP_TO_DREP: Record<string, ParamGroup> = {
+  Network: 'network',
+  Economic: 'economic',
+  Technical: 'technical',
+  Governance: 'governance',
+};
+
+/**
+ * The voting scope of a ParameterChange: which DRep groups it touches and whether
+ * any changed parameter is security-relevant (which adds the SPO vote). Reads the
+ * changed-parameter map (contents[1]) of the on-chain payload, the same shape
+ * decodeParams uses. Returns null when the payload is absent, malformed, or not a
+ * parameter change, so callers can decide how to handle an unknown scope.
+ */
+export function parameterChangeScope(payloadJson: string | null): ParamChangeScope | null {
+  if (!payloadJson) return null;
+  let payload: { tag?: string; contents?: unknown[] };
+  try {
+    payload = JSON.parse(payloadJson);
+  } catch {
+    return null;
+  }
+  if (payload?.tag !== 'ParameterChange') return null;
+  const contents = Array.isArray(payload.contents) ? payload.contents : [];
+  const map = contents[1];
+  if (!map || typeof map !== 'object') return null;
+  const groups = new Set<ParamGroup>();
+  let touchesSecurity = false;
+  for (const key of Object.keys(map)) {
+    if (SECURITY_PARAMS.has(key)) touchesSecurity = true;
+    const g = GROUP_TO_DREP[PARAM_REGISTRY[key]?.group ?? ''];
+    if (g) groups.add(g);
+  }
+  return { groups: [...groups], touchesSecurity };
+}
 
 const groupNum = (v: number): string => v.toLocaleString('en-US');
 
