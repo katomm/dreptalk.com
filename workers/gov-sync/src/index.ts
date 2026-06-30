@@ -37,6 +37,8 @@
 //   2026-06-27: date gov_status feed events at their on-chain epoch boundary (not
 //               detection time) + add a gov-status-times backfill that re-dates the
 //               catch-up burst of "was enacted" events to when they actually enacted.
+//   2026-06-30: stop the avatar pass from wiping inline data: URI DRep avatars
+//               (clearOrphanedImageStore now spares rows with no stored source URL).
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
