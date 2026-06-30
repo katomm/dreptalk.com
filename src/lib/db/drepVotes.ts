@@ -150,6 +150,47 @@ export async function countActionVoters(db: D1Database, gaId: string): Promise<n
 }
 
 /**
+ * SPO votes (role 'SPO') on one action, joined to pools for the identicon seed,
+ * ordered by vote time (newest first, NULL block_time last). SPOs are not power-ranked
+ * (we do not store pool stake). Identity (name/ticker/logo) is resolved by the caller
+ * via the pools map; this returns the same ActionVoterRow shape as getActionVoters for
+ * component reuse, with voting_power null. Default limit 50, capped 200.
+ */
+export async function getActionSpoVoters(
+  db: D1Database,
+  gaId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<ActionVoterRow[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
+  const offset = Math.max(opts?.offset ?? 0, 0);
+  const rows = (
+    await db
+      .prepare(
+        `SELECT v.voter_id AS voter_id, v.vote AS vote,
+                NULL AS voting_power, p.pool_hash AS hex, v.voter_hex AS voter_hex,
+                p.image_stored_url AS image_url
+         FROM drep_votes v
+         LEFT JOIN pools p ON p.pool_id = v.voter_id
+         WHERE v.ga_id = ? AND v.voter_role = 'SPO'
+         ORDER BY (v.block_time IS NULL), v.block_time DESC, v.voter_id
+         LIMIT ? OFFSET ?`,
+      )
+      .bind(gaId, limit, offset)
+      .all<ActionVoterRow>()
+  ).results ?? [];
+  return rows;
+}
+
+/** Count of SPO votes (role 'SPO') on one action. */
+export async function countActionSpoVoters(db: D1Database, gaId: string): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ? AND voter_role = 'SPO'`)
+    .bind(gaId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
  * Returns the votes on one action keyed by voter id, for the per-post badge.
  * The thread view matches each post author's drep_id / pool_id / cc_cred here.
  */
