@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeAuthor } from './author.js';
+import { describeAuthor, voterDescriptor } from './author.js';
 import type { User } from '../db/users.js';
 import type { Drep } from '../db/dreps.js';
 import type { Pool } from '../db/pools.js';
@@ -63,5 +63,25 @@ describe('describeAuthor SPO pool resolution', () => {
       homepage: null, description: null, imageContentHash: null, imageStoredUrl: null,
     }]]);
     expect(describeAuthor('u3', users, new Map(), pools).displayName).toBe('Alice');
+  });
+});
+
+describe('voterDescriptor SPO resolution', () => {
+  it('resolves an SPO voter to pool identity and no drep link', () => {
+    const pools = new Map<string, Pool>([['pool1a', {
+      poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool',
+      homepage: null, description: null, imageContentHash: 'imghash', imageStoredUrl: '/api/avatar/imghash',
+    }]]);
+    const v = { voter_id: 'pool1a', vote: 'Yes', voting_power: null, hex: 'aa', voter_hex: 'aa', image_url: null };
+    const d = voterDescriptor(v, new Map(), pools);
+    expect(d.displayName).toBe('Hephaestus Stake Pool');
+    expect(d.imageHash).toBe('imghash');
+    expect(d.drepId).toBeNull();
+  });
+
+  it('still resolves a DRep voter when no pool matches', () => {
+    const v = { voter_id: 'drep1', vote: 'Yes', voting_power: null, hex: 'h', voter_hex: 'h', image_url: null };
+    const d = voterDescriptor(v, new Map(), new Map());
+    expect(d.drepId).toBe('drep1');
   });
 });

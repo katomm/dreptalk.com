@@ -157,11 +157,29 @@ export async function loadAuthorIdentity(
 
 /**
  * Builds the descriptor for a governance-action voter row from the already-batched
- * dreps map. Pure mapping, performs no I/O. A nameless DRep falls back to the
- * truncated id so a full bech32 string never overruns a narrow row. Shared by the
- * positions tab and the top-participants sidebar, which render identical rows.
+ * dreps and (optionally) pools maps. Pure mapping, performs no I/O. A nameless DRep
+ * falls back to the truncated id so a full bech32 string never overruns a narrow row.
+ * Shared by the positions tab and the top-participants sidebar, which render identical
+ * rows. When a pools map is supplied and voter_id matches a pool, resolves to the pool
+ * identity with no DRep profile link (drepId: null).
  */
-export function voterDescriptor(v: ActionVoterRow, dreps: Map<string, Drep>): AuthorDescriptor {
+export function voterDescriptor(
+  v: ActionVoterRow,
+  dreps: Map<string, Drep>,
+  pools?: Map<string, Pool>,
+): AuthorDescriptor {
+  const pool = pools?.get(v.voter_id);
+  if (pool) {
+    return {
+      authorId: v.voter_id,
+      displayName: pool.name ?? pool.ticker ?? truncateId(v.voter_id),
+      drepId: null, // no pool profile page; authorProfileHref must not build a /drep link
+      drepSlug: null,
+      imageHash: pool.imageContentHash ?? null,
+      identiconSeed: pool.poolHash ?? v.voter_hex ?? v.voter_id,
+      badges: ['SPO'],
+    };
+  }
   const d = dreps.get(v.voter_id);
   return {
     authorId: v.voter_id,
