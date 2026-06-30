@@ -51,7 +51,7 @@ import {
   backfillGovTopicTitles,
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
-import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
@@ -266,6 +266,15 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
   await phase('finalized-backfill', async () => {
     const bf = await backfillFinalizedVotes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
     console.log(`[gov-votes-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
+    return { items: bf.votes, failed: bf.failed };
+  });
+
+  // One-time historical fill: votes synced before meta_hash capture have no hash,
+  // so the rationale queue skips them. Re-fetch a few finalized actions per run to
+  // fill the hash; self-draining, becomes a no-op once every action is filled.
+  await phase('meta-hash-backfill', async () => {
+    const bf = await backfillVoteMetaHashes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
+    console.log(`[gov-rationale-hash-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
     return { items: bf.votes, failed: bf.failed };
   });
 
