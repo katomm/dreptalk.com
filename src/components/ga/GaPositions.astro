@@ -53,13 +53,13 @@ const spoHref = `/t/${slug}?tab=positions&role=spo`;
   <div class="ga-positions__segment" role="tablist" aria-label="Voter role">
     <a
       role="tab"
-      aria-selected={role === 'drep'}
+      aria-selected={role === 'drep' ? 'true' : 'false'}
       class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'drep' }]}
       href={drepHref}
     >DReps <span class="ga-positions__seg-count">{total}</span></a>
     <a
       role="tab"
-      aria-selected={role === 'spo'}
+      aria-selected={role === 'spo' ? 'true' : 'false'}
       class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'spo' }]}
       href={spoHref}
     >SPOs <span class="ga-positions__seg-count">{spoTotal}</span></a>
