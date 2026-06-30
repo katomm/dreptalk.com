@@ -38,3 +38,4 @@ While an action is still open you can change your vote. Cast again with the new 
 - [Writing a vote rationale](/help/writing-a-vote-rationale)
 - [Governance action types](/help/governance-action-types)
 - [Managing your DRep](/help/managing-your-drep)
+- [Data freshness](/help/data-freshness)
