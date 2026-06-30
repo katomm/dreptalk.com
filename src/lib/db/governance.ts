@@ -663,6 +663,34 @@ export async function getActionsNeedingVoteBackfill(db: D1Database, limit: numbe
   return rows.map(rowToGovernanceAction);
 }
 
+/**
+ * Finalized actions that still have at least one anchored vote without a stored
+ * meta_hash. These are votes synced before meta_hash capture existed, so the
+ * rationale queue (which requires both meta_url and meta_hash) skips them. The
+ * meta_hash backfill re-fetches each action's votes to fill the hash. Self-
+ * draining: an action drops out once none of its anchored votes lack a hash.
+ */
+export async function getActionsNeedingMetaHashBackfill(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM governance_actions g
+         WHERE g.status NOT IN ('active', 'pending')
+           AND g.proposal_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM drep_votes v
+             WHERE v.ga_id = g.id
+               AND v.meta_url IS NOT NULL AND v.meta_url != ''
+               AND (v.meta_hash IS NULL OR v.meta_hash = '')
+           )
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
 /** Marks an action's per-voter vote list as fully synced as of `now` (ms). */
 export async function markVotesSynced(db: D1Database, id: string, now: number): Promise<void> {
   await db.prepare('UPDATE governance_actions SET votes_synced_at = ? WHERE id = ?').bind(now, id).run();

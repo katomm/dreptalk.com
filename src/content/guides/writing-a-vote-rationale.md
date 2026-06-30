@@ -50,3 +50,4 @@ You do not need to understand CIP-100 to write a good rationale. What matters is
 
 - [Governance action types](/help/governance-action-types)
 - [Managing your DRep](/help/managing-your-drep)
+- [Data freshness](/help/data-freshness)
