@@ -6,6 +6,7 @@
 
 import { getUsersByIds, type User } from '../db/users.js';
 import { getDrepsByIds, type Drep } from '../db/dreps.js';
+import { getPoolsByIds, type Pool } from '../db/pools.js';
 import type { ActionVoterRow } from '../db/drepVotes.js';
 import { drepPath } from '../drep/profile.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
@@ -65,19 +66,22 @@ export function describeAuthor(
   authorId: string,
   usersById: Map<string, User>,
   drepsById: Map<string, Drep>,
+  poolsById: Map<string, Pool>,
 ): AuthorDescriptor {
   if (authorId === GOV_SYNC_AUTHOR) return systemAuthor(authorId);
 
   const u = usersById.get(authorId);
   const drep = u?.drep_id ? drepsById.get(u.drep_id) : undefined;
+  const pool = u?.pool_id ? poolsById.get(u.pool_id) : undefined;
 
   return {
     authorId,
-    displayName: drep?.name ?? u?.display_name ?? truncateId(authorId),
+    displayName:
+      u?.display_name ?? drep?.name ?? pool?.name ?? pool?.ticker ?? truncateId(authorId),
     drepId: u?.drep_id ?? null,
     drepSlug: drep?.slug ?? null,
-    imageHash: drep?.imageContentHash ?? null,
-    identiconSeed: drep?.hex ?? authorId,
+    imageHash: drep?.imageContentHash ?? pool?.imageContentHash ?? null,
+    identiconSeed: drep?.hex ?? pool?.poolHash ?? authorId,
     badges: roleBadges(u),
   };
 }
@@ -116,8 +120,15 @@ export async function loadAuthorIdentities(
     ? await getDrepsByIds(db, drepIds)
     : new Map<string, Drep>();
 
+  const poolIds = [
+    ...new Set(
+      [...usersById.values()].map((u) => u.pool_id).filter((id): id is string => !!id),
+    ),
+  ];
+  const poolsById = poolIds.length ? await getPoolsByIds(db, poolIds) : new Map<string, Pool>();
+
   return {
-    describe: (authorId: string) => describeAuthor(authorId, usersById, drepsById),
+    describe: (authorId: string) => describeAuthor(authorId, usersById, drepsById, poolsById),
   };
 }
 
@@ -140,7 +151,7 @@ export async function loadAuthorIdentity(
   db: D1Database | undefined,
   authorId: string,
 ): Promise<AuthorDescriptor> {
-  if (!db) return describeAuthor(authorId, new Map(), new Map());
+  if (!db) return describeAuthor(authorId, new Map(), new Map(), new Map());
   return (await loadAuthorIdentities(db, [authorId])).describe(authorId);
 }
 
