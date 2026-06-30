@@ -92,11 +92,11 @@ export async function upsertPoolMeta(db: D1Database, a: PoolMetaUpsert): Promise
          meta_url    = excluded.meta_url,
          meta_hash   = excluded.meta_hash,
          synced_at   = excluded.synced_at,
-         image_url   = excluded.image_url,
-         image_content_hash    = CASE WHEN pools.image_url IS excluded.image_url THEN pools.image_content_hash ELSE NULL END,
-         image_stored_url      = CASE WHEN pools.image_url IS excluded.image_url THEN pools.image_stored_url ELSE NULL END,
-         image_fetch_failed_at = CASE WHEN pools.image_url IS excluded.image_url THEN pools.image_fetch_failed_at ELSE NULL END,
-         image_fetch_attempts  = CASE WHEN pools.image_url IS excluded.image_url THEN pools.image_fetch_attempts ELSE 0 END`,
+         image_url             = COALESCE(excluded.image_url, pools.image_url),
+         image_content_hash    = CASE WHEN excluded.image_url IS NOT NULL AND excluded.image_url IS NOT pools.image_url THEN NULL ELSE pools.image_content_hash END,
+         image_stored_url      = CASE WHEN excluded.image_url IS NOT NULL AND excluded.image_url IS NOT pools.image_url THEN NULL ELSE pools.image_stored_url END,
+         image_fetch_failed_at = CASE WHEN excluded.image_url IS NOT NULL AND excluded.image_url IS NOT pools.image_url THEN NULL ELSE pools.image_fetch_failed_at END,
+         image_fetch_attempts  = CASE WHEN excluded.image_url IS NOT NULL AND excluded.image_url IS NOT pools.image_url THEN 0 ELSE pools.image_fetch_attempts END`,
     )
     .bind(
       a.poolId, a.poolHash, a.ticker, a.name, a.homepage, a.description,
