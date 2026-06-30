@@ -52,4 +52,16 @@ describe('describeAuthor SPO pool resolution', () => {
     }]]);
     expect(describeAuthor('u2', users, new Map(), pools).displayName).toBe('COOL');
   });
+
+  it('lets a user display_name win over the pool name', () => {
+    const users = new Map([['u3', user({
+      id: 'u3', drep_id: null, pool_id: 'pool1a', display_name: 'Alice',
+      is_drep: false, is_spo: true, is_cc: false, is_proposer: false, role: 'user',
+    } as never)]]);
+    const pools = new Map<string, Pool>([['pool1a', {
+      poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool',
+      homepage: null, description: null, imageContentHash: null, imageStoredUrl: null,
+    }]]);
+    expect(describeAuthor('u3', users, new Map(), pools).displayName).toBe('Alice');
+  });
 });

@@ -18,7 +18,7 @@ import { truncateId } from './view.js';
 export interface AuthorDescriptor {
   /** The raw post/topic author_id. */
   authorId: string;
-  /** Display name: the DRep name when known, else a truncated id. */
+  /** Display name, in precedence order: user display_name, then DRep name, then pool name, then ticker, else a truncated id. */
   displayName: string;
   /** drep id when this author has a synced on-chain DRep, used for the profile link. */
   drepId?: string | null;
