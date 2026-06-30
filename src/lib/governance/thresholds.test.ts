@@ -37,4 +37,33 @@ describe('evaluateThresholds', () => {
     expect(r.find((b) => b.body === 'DRep')!.thresholdPct).toBe(75);
     expect(r.some((b) => b.body === 'SPO')).toBe(false);
   });
+
+  describe('ParameterChange', () => {
+    const base = { type: 'ParameterChange', drepYesPct: 80, spoYesPct: 60, ccYesPct: 80, ccSize: 7 } as const;
+
+    it('governance-only change: DRep gov threshold + CC, no SPO', () => {
+      const r = evaluateThresholds({ ...base, paramScope: { groups: ['governance'], touchesSecurity: false } }, P);
+      expect(r.find((b) => b.body === 'DRep')!.thresholdPct).toBe(75);
+      expect(r.some((b) => b.body === 'SPO')).toBe(false);
+      expect(r.some((b) => b.body === 'CC')).toBe(true);
+    });
+
+    it('security-relevant change: adds the SPO security-group threshold', () => {
+      const r = evaluateThresholds({ ...base, paramScope: { groups: ['economic'], touchesSecurity: true } }, P);
+      expect(r.find((b) => b.body === 'DRep')!.thresholdPct).toBe(67);
+      expect(r.find((b) => b.body === 'SPO')!.thresholdPct).toBe(51);
+    });
+
+    it('multiple groups: DRep takes the strictest group threshold', () => {
+      const r = evaluateThresholds({ ...base, paramScope: { groups: ['network', 'governance'], touchesSecurity: false } }, P);
+      expect(r.find((b) => b.body === 'DRep')!.thresholdPct).toBe(75); // max(67, 75)
+      expect(r.some((b) => b.body === 'SPO')).toBe(false);
+    });
+
+    it('no scope (payload missing): DRep strictest of all groups, SPO omitted', () => {
+      const r = evaluateThresholds({ ...base }, P);
+      expect(r.find((b) => b.body === 'DRep')!.thresholdPct).toBe(75); // max of all four
+      expect(r.some((b) => b.body === 'SPO')).toBe(false);
+    });
+  });
 });

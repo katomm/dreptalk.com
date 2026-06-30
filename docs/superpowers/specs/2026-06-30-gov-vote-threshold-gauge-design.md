@@ -54,6 +54,22 @@ action type):
 - CC: gauge fill from `ccYesPct` + the existing "N of min 7 members" quorum line.
 - Voting window (Start / End) at the top is unchanged.
 
+## ParameterChange voting bodies (correctness fix)
+
+The threshold evaluation previously showed an SPO threshold for every
+ParameterChange and used the strictest of all four DRep groups. Per the Cardano
+constitution (section 2.1, guardrail PARAM-03a), SPOs vote on a parameter change
+only when it touches a security-relevant parameter, and the DRep threshold is the
+strictest of the groups the change actually touches.
+
+`parameterChangeScope(payload)` (in `onchain.ts`) reads the changed-parameter map
+and returns `{ groups, touchesSecurity }`. `evaluateThresholds` uses it: DRep
+threshold = strictest of the touched groups; SPO included only when
+`touchesSecurity`. The security set is the ten parameters the constitution lists as
+"Critical to the Operation of the Blockchain". When the payload is absent (scope
+null) DReps fall back to the strictest of all groups and the SPO vote is omitted,
+so we never invent an SPO requirement we cannot justify.
+
 ## Out of scope
 
 - adastats-style "Excluded stake" / "Not Voted" denominator breakdown (we lack the

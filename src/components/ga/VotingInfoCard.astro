@@ -4,6 +4,7 @@
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import { evaluateThresholds } from '@/lib/governance/thresholds.js';
+import { parameterChangeScope } from '@/lib/governance/onchain.js';
 import { fmtPct, formatEpochDate, bodyVoteAmounts, type StakeParticipation } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 
@@ -30,6 +31,11 @@ const expiryDate = action.expiryEpoch != null
   ? formatEpochDate(epochStartUnix(action.expiryEpoch, netCfg))
   : null;
 
+// ParameterChange voting bodies depend on which parameters change: SPOs vote only
+// on security-relevant ones. Derive that from the payload; null for other types.
+const paramScope =
+  action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload) : null;
+
 // Threshold evaluation: empty array = InfoAction (no on-chain threshold).
 const results = params
   ? evaluateThresholds(
@@ -39,6 +45,7 @@ const results = params
         spoYesPct: action.spoYesPct,
         ccYesPct: action.ccYesPct,
         ccSize,
+        paramScope,
       },
       params,
     )
