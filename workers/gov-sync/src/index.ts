@@ -57,6 +57,9 @@ import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../..
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
+import { syncPools } from '../../../src/lib/pools/sync.js';
+import { storePoolAvatars } from '../../../src/lib/pools/avatarStore.js';
+import { listReferencedPoolImageHashes } from '../../../src/lib/db/pools.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
@@ -356,6 +359,15 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: slugs.assigned };
   });
 
+  // Fetch pool metadata and logo URLs from Koios for active pools. Only-changed
+  // writes; pools not yet due for a refresh are skipped. A failure here must not
+  // fail the DRep sync that already succeeded (phase isolation).
+  await phase('pools', async () => {
+    const r = await syncPools({ koios, db: env.DB, fetchImpl: fetch, nowMs: Date.now() });
+    console.log(`[pools] scanned=${r.scanned} updated=${r.updated} logos=${r.logos}`);
+    return { items: r.updated };
+  });
+
   // Store new/changed avatars in R2 and GC orphaned objects. A failure here
   // must not fail the DRep sync that already succeeded (phase isolation).
   if (env.AVATARS) {
@@ -371,9 +383,17 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
         downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
       });
       console.log(`[drep-avatars] scanned=${a.scanned} stored=${a.stored} cleared=${a.cleared} failed=${a.failed}`);
-      const gc = await gcDrepAvatars({ db: env.DB, bucket, nowMs: Date.now() });
+      const p = await storePoolAvatars({
+        db: env.DB,
+        bucket,
+        fetchImpl: fetch,
+        downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
+      });
+      console.log(`[pool-avatars] scanned=${p.scanned} stored=${p.stored} cleared=${p.cleared} failed=${p.failed}`);
+      const poolHashes = await listReferencedPoolImageHashes(env.DB);
+      const gc = await gcDrepAvatars({ db: env.DB, bucket, nowMs: Date.now(), extraReferenced: poolHashes });
       console.log(`[drep-avatars-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);
-      return { items: a.stored, failed: a.failed };
+      return { items: a.stored + p.stored, failed: a.failed + p.failed };
     });
   } else {
     console.warn('[drep-avatars] AVATARS binding missing; skipping avatar store');
