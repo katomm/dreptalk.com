@@ -291,6 +291,19 @@ describe('avatar store queries', () => {
     expect((await getDrepById(db(), 'av-live'))!.imageContentHash).toBe('1'.repeat(64));
   });
 
+  it('clearOrphanedImageStore keeps inline data: avatars (no image_url, no stored_url)', async () => {
+    // A data: URI avatar is ingested with image_url null and image_stored_url
+    // null (it is sourced from the doc, not a fetched URL). It must NOT be
+    // treated as an orphan, or the avatar pass would wipe it every run.
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-datauri', imageUrl: null, imageContentHash: 'a'.repeat(64), imageStoredUrl: null });
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-orphan2', imageUrl: null, imageContentHash: 'b'.repeat(64), imageStoredUrl: 'https://a.example/gone.png' });
+
+    const cleared = await clearOrphanedImageStore(db());
+    expect(cleared).toBe(1);
+    expect((await getDrepById(db(), 'av-datauri'))!.imageContentHash).toBe('a'.repeat(64));
+    expect((await getDrepById(db(), 'av-orphan2'))!.imageContentHash).toBeNull();
+  });
+
   it('listReferencedImageHashes returns the distinct non-null hash set', async () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-h1', imageContentHash: '2'.repeat(64), imageStoredUrl: 'u' });
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'av-h2', imageContentHash: '2'.repeat(64), imageStoredUrl: 'u' });
