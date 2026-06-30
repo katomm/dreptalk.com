@@ -21,7 +21,8 @@ describe('poolInfoBatch', () => {
     const rows = await koios.poolInfoBatch(['pool1a']);
     expect(rows[0].meta_json?.ticker).toBe('COOL');
     expect(rows[0].pool_id_hex).toBe('aa');
-    const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string);
+    const calls = fetchImpl.mock.calls as unknown as Array<[unknown, RequestInit]>;
+    const body = JSON.parse(calls[0][1].body as string);
     expect(body._pool_bech32_ids).toEqual(['pool1a']);
   });
 
