@@ -790,7 +790,7 @@ describe('getActionsNeedingMetaHashBackfill', () => {
       `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
        VALUES ('gaMH', 'TreasuryWithdrawals', 'Old', 'ratified', 'propMH', NULL, 0, 0)`,
     ).run();
-    // Pre-#198 shape: anchor URL present, hash missing.
+    // Historical shape: anchor URL present, hash missing.
     await upsertVotes(
       env.DB,
       'gaMH',
