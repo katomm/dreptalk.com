@@ -303,13 +303,12 @@ describe('sentimentSubline', () => {
 
 describe('bodyVoteAmounts', () => {
   const a: BodyVoteInput = {
-    drepYesPct: 1.98, drepNoPct: 10.72,
-    drepYes: 104_420_000_000_000, drepNo: 565_310_000_000_000, drepAbstain: 175_830_000_000_000,
-    spoYesPct: null, spoNoPct: null, spoYes: null, spoNo: null, spoAbstain: null,
-    ccYesPct: 100, ccNoPct: 0, ccYes: 4, ccNo: 0, ccAbstain: 1,
+    drepYesPower: 104_420_000_000_000, drepNoPower: 565_310_000_000_000, drepAbstainPower: 175_830_000_000_000,
+    spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
+    ccYes: 4, ccNo: 0, ccAbstain: 1,
   };
 
-  it('formats DRep amounts as compact ADA from the absolute tallies', () => {
+  it('formats DRep amounts as compact ADA from the per-option power', () => {
     expect(bodyVoteAmounts(a, 'DRep')).toEqual({ yes: '104.4M ₳', no: '565.3M ₳', abstain: '175.8M ₳' });
   });
 
@@ -317,12 +316,12 @@ describe('bodyVoteAmounts', () => {
     expect(bodyVoteAmounts(a, 'CC')).toEqual({ yes: '4', no: '0', abstain: '1' });
   });
 
-  it('returns null for a body with no tally', () => {
+  it('returns null for a body with no power data', () => {
     expect(bodyVoteAmounts(a, 'SPO')).toBeNull();
   });
 
   it('treats a present-but-zero option as 0, not absent', () => {
-    expect(bodyVoteAmounts({ ...a, drepYes: 0, drepNo: null, drepAbstain: null }, 'DRep')).toEqual({
+    expect(bodyVoteAmounts({ ...a, drepYesPower: 0, drepNoPower: null, drepAbstainPower: null }, 'DRep')).toEqual({
       yes: '0 ₳', no: '0 ₳', abstain: '0 ₳',
     });
   });
