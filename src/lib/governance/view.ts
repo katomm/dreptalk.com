@@ -351,14 +351,12 @@ export function stakeParticipation(votedLovelace: number, totalLovelace: number)
   return { pct, votedLabel: voted, totalLabel: total };
 }
 
-// The per-body vote fields the threshold gauge reads. A subset of
-// GovernanceAction, so the full action is assignable without a cast.
+// The per-body amount fields the gauge breakdown reads. A subset of
+// GovernanceAction, so the full action is assignable without a cast. DRep/SPO use
+// per-option vote power (lovelace); CC uses member counts (it has no stake).
 export interface BodyVoteInput {
-  drepYesPct: number | null; drepNoPct: number | null;
-  drepYes: number | null; drepNo: number | null; drepAbstain: number | null;
-  spoYesPct: number | null; spoNoPct: number | null;
-  spoYes: number | null; spoNo: number | null; spoAbstain: number | null;
-  ccYesPct: number | null; ccNoPct: number | null;
+  drepYesPower: number | null; drepNoPower: number | null; drepAbstainPower: number | null;
+  spoYesPower: number | null; spoNoPower: number | null; spoAbstainPower: number | null;
   ccYes: number | null; ccNo: number | null; ccAbstain: number | null;
 }
 
@@ -388,19 +386,18 @@ function countAmounts(yes: number | null, no: number | null, abstain: number | n
 }
 
 /**
- * The real yes/no/abstain amounts for one voting body, for the sidebar gauge's
- * breakdown line. These come from the absolute tallies (lovelace for DRep/SPO,
- * member counts for CC), not the percentages: the gauge fill itself is yesPct
- * (ratification scale, so the threshold marker lines up), but the no/abstain
- * percentages are unreliable as a "No" share (e.g. cc_no_pct counts absent
- * members), so the literal counts are the honest figures to print.
+ * The yes/no/abstain breakdown for one voting body, for the sidebar gauge. DRep
+ * and SPO show per-option vote power as compact ADA; CC shows member counts (it
+ * has no stake). The gauge fill itself is yesPct (ratification scale, so the
+ * threshold marker lines up); these amounts give the stake/seats behind each
+ * option. Returns null when the body has no data (e.g. power not yet backfilled).
  */
 export function bodyVoteAmounts(a: BodyVoteInput, body: Body): VoteAmounts | null {
   switch (body) {
     case 'DRep':
-      return adaAmounts(a.drepYes, a.drepNo, a.drepAbstain);
+      return adaAmounts(a.drepYesPower, a.drepNoPower, a.drepAbstainPower);
     case 'SPO':
-      return adaAmounts(a.spoYes, a.spoNo, a.spoAbstain);
+      return adaAmounts(a.spoYesPower, a.spoNoPower, a.spoAbstainPower);
     case 'CC':
       return countAmounts(a.ccYes, a.ccNo, a.ccAbstain);
   }

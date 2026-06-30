@@ -174,6 +174,21 @@ function powerNum(v: string | null | undefined): number | null {
   return v == null ? null : Number(v);
 }
 
+/** Per-option vote power (lovelace) for the sidebar breakdown. DRep buckets are
+    the clean active yes/no/abstain. For SPO, yes/no are the active buckets and
+    abstain is the always-abstain delegated stake (Koios has no separate active
+    abstain pool bucket). Null-tolerant for older Koios without power fields. */
+function votePowers(s: VotingSummary | null) {
+  return {
+    drepYesPower: powerNum(s?.drep_active_yes_vote_power),
+    drepNoPower: powerNum(s?.drep_active_no_vote_power),
+    drepAbstainPower: powerNum(s?.drep_active_abstain_vote_power),
+    spoYesPower: powerNum(s?.pool_active_yes_vote_power),
+    spoNoPower: powerNum(s?.pool_no_vote_power),
+    spoAbstainPower: powerNum(s?.pool_passive_always_abstain_vote_power),
+  };
+}
+
 /**
  * SPO yes/no percentages for the tally. Koios' pool_yes_pct / pool_no_pct are
  * correct for every action type EXCEPT HardForkInitiation. The Conway ledger does
@@ -219,6 +234,7 @@ function tallyFields(s: VotingSummary | null): GovernanceTally {
     ccYes: s?.committee_yes_votes_cast ?? null,
     ccNo: s?.committee_no_votes_cast ?? null,
     ccAbstain: s?.committee_abstain_votes_cast ?? null,
+    ...votePowers(s),
     drepYesPct: s?.drep_yes_pct ?? null,
     drepNoPct: s?.drep_no_pct ?? null,
     spoYesPct: spo?.yesPct ?? null,
@@ -412,9 +428,12 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
     if (!ga.proposalId) continue;
     try {
       const summary = await koios.proposalVotingSummary(ga.proposalId);
+      if (!summary) continue;
       const vp = votedPower(summary);
-      if (vp != null) {
-        await updateVotedPower(db, ga.id, vp);
+      const powers = votePowers(summary);
+      const hasData = vp != null || Object.values(powers).some((v) => v != null);
+      if (hasData) {
+        await updateVotedPower(db, ga.id, { votedPower: vp, ...powers });
         updated++;
       }
     } catch (err) {

@@ -302,7 +302,7 @@ describe('getActionsNeedingVotedPower', () => {
     // Active action: excluded (active/pending are handled by normal tally).
     const active = await insertAction();
 
-    // Terminal but already filled: excluded.
+    // Terminal but already filled (both turnout and per-option power): excluded.
     const filled = await insertAction();
     await updateGovernanceTallyAndStatus(db(), {
       id: filled.id,
@@ -313,6 +313,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: 999_000_000,
+      drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
     });
 
@@ -377,10 +378,11 @@ describe('updateVotedPower', () => {
       tallyEpoch: 297, decidedEpoch: 297, tallySyncedAt: NOW, now: NOW,
     });
 
-    await updateVotedPower(db(), a.id, 5_000_000_000);
+    await updateVotedPower(db(), a.id, { votedPower: 5_000_000_000, drepYesPower: 5_000_000_000 });
 
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.drepVotedPower).toBe(5_000_000_000);
+    expect(got!.drepYesPower).toBe(5_000_000_000);
     // Status must not have been touched.
     expect(got!.status).toBe('ratified');
     // Other tally fields must be unchanged.
