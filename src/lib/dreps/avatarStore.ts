@@ -114,7 +114,7 @@ export interface AvatarStoreResult {
 }
 
 /** sha256 of the given bytes as lowercase hex. */
-async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
 }
 
@@ -122,7 +122,7 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
  * Downloads and validates one image. Returns null on any rejection: non-https,
  * fetch error/timeout, disallowed type, oversize, or empty body.
  */
-async function fetchValidatedImage(
+export async function fetchValidatedImage(
   url: string,
   fetchImpl: typeof fetch,
 ): Promise<{ bytes: ArrayBuffer; contentType: string } | null> {
@@ -280,6 +280,8 @@ export interface AvatarGcDeps {
   nowMs: number;
   /** Max deletions per run; the backlog drains over successive cron runs. */
   deleteLimit?: number;
+  /** Additional referenced hashes (e.g. pool logos) that share the avatars/ prefix. */
+  extraReferenced?: Set<string>;
 }
 
 /**
@@ -290,6 +292,7 @@ export interface AvatarGcDeps {
 export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: number; deleted: number }> {
   const deleteLimit = deps.deleteLimit ?? 200;
   const referenced = await listReferencedImageHashes(deps.db);
+  if (deps.extraReferenced) for (const h of deps.extraReferenced) referenced.add(h);
 
   // Collect deletable keys first (each page is scanned fully so `scanned` is
   // accurate), then delete in batches: R2 accepts up to 1000 keys per call, so
