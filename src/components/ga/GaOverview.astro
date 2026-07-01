@@ -7,7 +7,7 @@ import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { StakeParticipation, OverviewTally } from '@/lib/governance/view.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { ensureLinkTarget } from '@/lib/markdown.js';
+import { ensureLinkTarget, renderMarkdown } from '@/lib/markdown.js';
 
 interface Props {
   action: GovernanceAction;
@@ -30,12 +30,15 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
 const discussionHref = `/t/${slug}?tab=discussion`;
 const commentLabel = commentCount === 1 ? '1 comment' : `${commentCount} comments`;
 
-// Clamp + CSS-only expand, but only for rationales that are genuinely a wall of
-// text, several times a normal post length (forum posts render unclamped). A
-// multi-paragraph rationale of a couple thousand characters reads better in one
-// piece than behind a "show full rationale" click. The clamp height (32em below)
-// shows a couple of paragraphs before the fade, yet stays well under what a
-// 5000+ char wall occupies, so the toggle is never a no-op.
+// Every CIP-108 action carries an abstract (a short summary). It is the always-
+// visible lede and the natural fold line: the reader gets the summary, and the
+// full motivation + rationale sits behind a "show full rationale" toggle. Rendered
+// from the stored abstract markdown (short, so per-request rendering is cheap).
+const abstractHtml = action.abstract ? renderMarkdown(action.abstract) : null;
+
+// The full body (motivation + rationale) collapses behind the toggle only when it
+// is genuinely long; a short rationale reads better shown in one piece than behind
+// a click. The plain-text length drives the threshold so markup does not inflate it.
 const rationaleText = action.rationaleHtml
   ? action.rationaleHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   : '';
@@ -50,14 +53,24 @@ const isLongRationale = rationaleText.length > 5000;
     <p class="ga-overview__asof">Tallies as of {asOf}. Cached, not live.</p>
   )}
 
+  {abstractHtml && (
+    <div class="ga-abstract">
+      <p class="ga-abstract__label">Abstract</p>
+      <div class="prose ga-abstract__body" set:html={ensureLinkTarget(abstractHtml)} />
+    </div>
+  )}
+
   {action.rationaleHtml && (
     <div class="ga-rationale">
       <p class="ga-rationale__label">Motivation &amp; rationale</p>
       {isLongRationale ? (
         <>
+          {/* Collapsed by default: the abstract above is the summary, so the full
+              body opens only on demand. Toggle sits before the body so it stays put
+              when the body is hidden. */}
           <input type="checkbox" id="ga-rationale-more" class="ga-rationale__cb" aria-hidden="true" tabindex="-1" />
-          <div class="prose ga-rationale__body" set:html={ensureLinkTarget(action.rationaleHtml)} />
           <label for="ga-rationale-more" class="ga-rationale__toggle"></label>
+          <div class="prose ga-rationale__body" set:html={ensureLinkTarget(action.rationaleHtml)} />
         </>
       ) : (
         <div class="prose" style="font-size:0.9375rem;" set:html={ensureLinkTarget(action.rationaleHtml)} />
@@ -65,8 +78,8 @@ const isLongRationale = rationaleText.length > 5000;
     </div>
   )}
 
-  {!action.rationaleHtml && (
-    <p class="ga-overview__empty">No rationale available for this action.</p>
+  {!action.rationaleHtml && !abstractHtml && (
+    <p class="ga-overview__empty">No details available for this action.</p>
   )}
 
   {/* Bridge from the overview into the discussion. Readers land here, so this is
@@ -111,13 +124,20 @@ const isLongRationale = rationaleText.length > 5000;
     margin: 0;
   }
 
-  /* Rationale block */
-  .ga-rationale { margin-top: 0.875rem; }
+  /* Section labels shared by abstract + rationale blocks */
+  .ga-abstract__label,
   .ga-rationale__label { font-size: 0.8125rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.4rem; }
+
+  /* Abstract: the always-visible summary / lede */
+  .ga-abstract { margin-top: 0.875rem; }
+  .ga-abstract__body { font-size: 0.9375rem; }
+
+  /* Rationale block: collapsed by default, opened via the toggle */
+  .ga-rationale { margin-top: 1.125rem; }
   .ga-rationale__cb { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-  .ga-rationale__body { font-size: 0.9375rem; max-height: 32em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 80%, transparent); mask-image: linear-gradient(#000 80%, transparent); }
-  .ga-rationale__cb:checked ~ .ga-rationale__body { max-height: none; -webkit-mask-image: none; mask-image: none; }
-  .ga-rationale__toggle { display: inline-block; margin-top: 0.4rem; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; }
+  .ga-rationale__body { font-size: 0.9375rem; max-height: 0; overflow: hidden; }
+  .ga-rationale__cb:checked ~ .ga-rationale__body { max-height: none; margin-top: 0.6rem; }
+  .ga-rationale__toggle { display: inline-block; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; }
   .ga-rationale__toggle::after { content: 'Show full rationale'; }
   .ga-rationale__cb:checked ~ .ga-rationale__toggle::after { content: 'Show less'; }
   .ga-rationale__cb:focus-visible ~ .ga-rationale__toggle { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
