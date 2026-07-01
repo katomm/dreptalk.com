@@ -29,9 +29,11 @@ export const ANCHOR_FETCH_TIMEOUT_MS = 8_000;
  * extractor is changed so that existing rows (stored at a lower version) are
  * re-fetched and re-extracted by the backfill on the next sync run. Bumped to 2
  * when MAX_ANCHOR_BYTES was raised, so actions previously marked too-large get
- * their title backfilled.
+ * their title backfilled. Bumped to 3 when the extractor started merging
+ * motivation + rationale (instead of dropping motivation) and the abstract/rationale
+ * caps were raised, so every existing row re-renders with the full body.
  */
-export const META_EXTRACT_VERSION = 2;
+export const META_EXTRACT_VERSION = 3;
 
 /**
  * How many times the metadata backfill may fail to fetch or verify an action's
@@ -44,8 +46,13 @@ export const META_EXTRACT_VERSION = 2;
  */
 export const META_REEXTRACT_MAX_ATTEMPTS = 10;
 const MAX_TITLE_LEN = 300;
-const MAX_ABSTRACT_LEN = 1_000;
-const MAX_RATIONALE_LEN = 20_000;
+// Abstract is the always-visible lede of a governance action (it is the fold line
+// above the collapsible rationale), so it must not be cut mid-sentence: most
+// mainnet abstracts run 1-2.5k chars. Rationale merges motivation + rationale and
+// is deposit-gated (100k ADA per action), so spam risk is negligible; the 100k cap
+// is purely a page-weight guard against the rare multi-hundred-KB outlier.
+const MAX_ABSTRACT_LEN = 4_000;
+const MAX_RATIONALE_LEN = 100_000;
 
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/';
 
@@ -100,17 +107,41 @@ function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 }
 
-/** Extracts title/abstract/rationale from a parsed CIP-108 document. */
-function extractCip108(doc: unknown): AnchorMetadata {
+/**
+ * Extracts title/abstract/rationale from a parsed CIP-108 document.
+ *
+ * `anchorUrl` (the untrusted on-chain anchor) is only used to build the "read the
+ * full document" link appended when the merged body is truncated at the cap.
+ */
+function extractCip108(doc: unknown, anchorUrl?: string): AnchorMetadata {
   const body = asRecord(asRecord(doc).body);
   const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
   const title = sanitizeExternalText(str(body.title), MAX_TITLE_LEN);
   // abstract and rationale are prose; use multiline sanitizer so Markdown structure survives.
   const abstract = sanitizeExternalMultiline(str(body.abstract), MAX_ABSTRACT_LEN);
-  // motivation/rationale may carry Markdown; render through the hardened
-  // sanitizer (marked + xss). Cap length before rendering.
-  const rationaleRaw = sanitizeExternalMultiline(str(body.rationale) || str(body.motivation), MAX_RATIONALE_LEN);
+
+  // CIP-108 defines `motivation` and `rationale` as two separate fields, and
+  // proposers routinely split one document across both (motivation = intro/early
+  // sections, rationale = later sections). Merge them in document order so nothing
+  // is dropped; the old `rationale || motivation` silently discarded the motivation
+  // whenever a rationale was present. Dedupe the occasional doc that puts identical
+  // text in both fields. motivation/rationale may carry Markdown; render through the
+  // hardened sanitizer (marked + xss). Cap length before rendering.
+  const motivation = str(body.motivation).trim();
+  const rationale = str(body.rationale).trim();
+  const merged = (motivation && motivation === rationale ? [rationale] : [motivation, rationale].filter(Boolean)).join(
+    '\n\n',
+  );
+  let rationaleRaw = sanitizeExternalMultiline(merged, MAX_RATIONALE_LEN);
+  // The cap slices at MAX_RATIONALE_LEN, so hitting it means the tail was dropped.
+  // Tell the reader and point at the on-chain anchor for the complete document.
+  if (rationaleRaw.length >= MAX_RATIONALE_LEN) {
+    const link = anchorUrl ? resolveAnchorUrl(anchorUrl) : null;
+    rationaleRaw += link
+      ? `\n\n*Content truncated. Read the full document at the [on-chain anchor](${link}).*`
+      : '\n\n*Content truncated. See the on-chain anchor for the full document.*';
+  }
 
   return {
     title: title || null,
@@ -336,5 +367,5 @@ export async function fetchAnchorMetadata(
 ): Promise<AnchorResult> {
   const result = await fetchAnchorDoc(anchorUrl, anchorHash, deps);
   if (result.status !== 'ok') return { status: result.status, metadata: null };
-  return { status: 'ok', metadata: extractCip108(result.doc) };
+  return { status: 'ok', metadata: extractCip108(result.doc, anchorUrl) };
 }
