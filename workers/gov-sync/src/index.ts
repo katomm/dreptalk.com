@@ -39,6 +39,9 @@
 //               catch-up burst of "was enacted" events to when they actually enacted.
 //   2026-06-30: stop the avatar pass from wiping inline data: URI DRep avatars
 //               (clearOrphanedImageStore now spares rows with no stored source URL).
+//   2026-07-01: pick up META_EXTRACT_VERSION 3 so the metadata backfill re-extracts
+//               action bodies with motivation + rationale merged (was dropping the
+//               motivation section, cutting the body off at the start).
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
