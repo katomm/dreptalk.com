@@ -1,0 +1,35 @@
+---
+// The four inline SVG glyphs for the DReps directory stat cards. Consistent 24x24
+// line icons (stroke: currentColor) so they inherit the card's tint colour. Kept
+// out of the page so the markup there stays about layout, not path data.
+interface Props {
+  name: 'people' | 'power' | 'gauge' | 'share';
+}
+const { name } = Astro.props;
+---
+{name === 'people' && (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+    <path d="M16 5.2a3.2 3.2 0 0 1 0 5.6" />
+    <path d="M17.6 13.6A5.5 5.5 0 0 1 20.5 19" />
+  </svg>
+)}
+{name === 'power' && (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
+  </svg>
+)}
+{name === 'gauge' && (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 18a8 8 0 0 1 16 0" />
+    <path d="M12 18l4.2-5" />
+    <circle cx="12" cy="18" r="1.3" fill="currentColor" stroke="none" />
+  </svg>
+)}
+{name === 'share' && (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8" opacity="0.4" />
+    <path d="M12 4a8 8 0 0 1 6.9 4L12 12z" fill="currentColor" stroke="none" />
+  </svg>
+)}
