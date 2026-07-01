@@ -266,10 +266,11 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
   });
 
   if (env.AVATARS) {
+    const bucket = env.AVATARS;
     await phase('pool-avatars', async () => {
       const p = await storePoolAvatars({
         db: env.DB,
-        bucket: env.AVATARS,
+        bucket,
         fetchImpl: fetch,
         downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
       });
