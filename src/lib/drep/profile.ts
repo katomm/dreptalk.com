@@ -55,6 +55,69 @@ export function drepMetaDescription(p: {
   return `${p.displayName}: ${role} with ${p.votingPowerFormatted} voting power and ${votes}. See the full voting record, rationales, and delegation on DRepTalk.`;
 }
 
+/**
+ * Human-readable summary paragraph for a DRep profile, composed from on-chain
+ * facts. Rendered when the DRep has no free-text bio so the profile still
+ * carries unique, substantive prose (registration, voting power, record,
+ * participation) instead of only stat widgets. Every clause is guarded, so a
+ * brand-new DRep with no votes still gets a clean, shorter summary.
+ */
+export function drepProfileSummary(p: {
+  displayName: string;
+  active: boolean;
+  retired: boolean;
+  registeredEpoch: number | null;
+  votingPowerFormatted: string | null;
+  influencePct: number | null;
+  votesCast: number;
+  breakdown: { yes: number; no: number; abstain: number };
+  withRationale: number;
+  participation: { eligible: number; voted: number } | null;
+  forumPosts: number;
+}): string {
+  const name = p.displayName;
+  const sentences: string[] = [];
+
+  const role = p.retired ? 'a retired Cardano DRep' : p.active ? 'an active Cardano DRep' : 'a Cardano DRep';
+  let intro = `${name} is ${role}`;
+  if (p.registeredEpoch != null) intro += `, registered in epoch ${p.registeredEpoch}`;
+  sentences.push(`${intro}.`);
+
+  if (p.retired) {
+    sentences.push('The credential has been deregistered on-chain and no longer holds voting power.');
+  } else if (p.votingPowerFormatted) {
+    let power = `They hold ${p.votingPowerFormatted} of delegated voting power`;
+    if (p.influencePct != null) power += `, about ${p.influencePct.toFixed(2)}% of the active stake`;
+    sentences.push(`${power}.`);
+  }
+
+  if (p.votesCast > 0) {
+    const noun = p.votesCast === 1 ? 'vote' : 'votes';
+    sentences.push(
+      `${name} has cast ${p.votesCast} on-chain governance ${noun} (${p.breakdown.yes} yes, ${p.breakdown.no} no, ${p.breakdown.abstain} abstain).`,
+    );
+    if (p.participation && p.participation.eligible > 0) {
+      const rate = Math.round((p.participation.voted / p.participation.eligible) * 100);
+      sentences.push(
+        `Since registering, they have taken part in ${p.participation.voted} of ${p.participation.eligible} decided actions (${rate}%).`,
+      );
+    }
+    if (p.withRationale > 0) {
+      const rnoun = p.withRationale === 1 ? 'rationale' : 'rationales';
+      sentences.push(`They have published ${p.withRationale} ${rnoun} explaining their votes.`);
+    }
+  } else {
+    sentences.push(`${name} has no recorded on-chain governance votes yet.`);
+  }
+
+  if (p.forumPosts > 0) {
+    const pnoun = p.forumPosts === 1 ? 'post' : 'posts';
+    sentences.push(`${name} has also contributed ${p.forumPosts} forum ${pnoun} on DRepTalk.`);
+  }
+
+  return sentences.join(' ');
+}
+
 /** A DRep's share of total active voting power, in percent, or null when unknown. */
 export function influencePct(
   votingPowerLovelace: string | null,

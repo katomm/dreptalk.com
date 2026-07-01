@@ -21,7 +21,7 @@ import {
 import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
-import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam, drepMetaDescription } from '@/lib/drep/profile.js';
+import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary } from '@/lib/drep/profile.js';
 import { statusBadge } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
@@ -120,6 +120,27 @@ const breadcrumbLd = drep
       ],
     }
   : null;
+
+// Fallback profile prose, shown when the DRep has no free-text bio so the page
+// still carries unique, indexable content instead of only stat widgets. Built
+// from the same on-chain reads already loaded above.
+const powerFormatted =
+  drep && drep.votingPower && Number(drep.votingPower) > 0 ? formatAdaCompact(drep.votingPower) : null;
+const profileSummary = drep
+  ? drepProfileSummary({
+      displayName,
+      active: drep.active,
+      retired: isRetired,
+      registeredEpoch: drep.registeredEpoch ?? null,
+      votingPowerFormatted: powerFormatted,
+      influencePct: influence,
+      votesCast,
+      breakdown: voteBreakdown,
+      withRationale: rationaleStats.withRationale,
+      participation,
+      forumPosts: posts.length,
+    })
+  : '';
 ---
 
 {!drep ? (
@@ -217,7 +238,9 @@ const breadcrumbLd = drep
       </p>
     )}
 
-    {drep.bio && <p style="color:var(--fg);max-width:65ch;">{drep.bio}</p>}
+    {drep.bio
+      ? <p style="color:var(--fg);max-width:65ch;">{drep.bio}</p>
+      : <p style="color:var(--muted);max-width:65ch;">{profileSummary}</p>}
 
     {drep.links && drep.links.length > 0 && (
       <ul style="list-style:none;padding:0;display:flex;gap:1rem;flex-wrap:wrap;">
