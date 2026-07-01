@@ -99,7 +99,14 @@ export function excerptFromHtml(html: string, maxLen = 155): string {
   const text = decodeEntities(html.replace(/<[^>]+>/g, ' '))
     .replace(/\s+/g, ' ')
     .trim();
-  return text.length > maxLen ? `${text.slice(0, maxLen - 1).trimEnd()}...` : text;
+  if (text.length <= maxLen) return text;
+  // Cut on a word boundary so the excerpt never ends mid-word (the ellipsis
+  // takes one of the maxLen characters). Back off to the last space within
+  // budget; a single over-long token with no space still gets a hard cut.
+  const slice = text.slice(0, maxLen - 1);
+  const lastSpace = slice.lastIndexOf(' ');
+  const clipped = lastSpace > 0 ? slice.slice(0, lastSpace) : slice.trimEnd();
+  return `${clipped}...`;
 }
 
 /**
