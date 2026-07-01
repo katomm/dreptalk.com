@@ -35,7 +35,10 @@ export async function storePoolAvatars(deps: PoolAvatarStoreDeps): Promise<{
   failed: number;
 }> {
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const limit = deps.limit ?? 25;
+  // Default per-run downloads. Larger than the DRep default so a several-hundred
+  // logo backlog drains over a handful of the frequent (20 min) cron runs; each
+  // download is one subrequest, so this stays well under the Workers budget.
+  const limit = deps.limit ?? 100;
   const maxAttempts = deps.maxAttempts ?? AVATAR_FETCH_MAX_ATTEMPTS;
   const nowMs = deps.nowMs ?? Date.now();
 
