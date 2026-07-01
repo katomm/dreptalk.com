@@ -41,7 +41,7 @@ const ENTERPRISE_ADDR_MAINNET = 0x61;
 // ---------------------------------------------------------------------------
 
 export interface ChallengeInput {
-  nonceKv: KVNamespace;
+  db: D1Database;
   domain: string;
   now?: number;
 }
@@ -55,8 +55,8 @@ export interface ChallengeResult {
  * Returns the opaque payload the client must sign.
  */
 export async function handleChallenge(input: ChallengeInput): Promise<ChallengeResult> {
-  const { nonceKv, domain, now } = input;
-  const { payload } = await issueNonce(nonceKv, { domain, now });
+  const { db, domain, now } = input;
+  const { payload } = await issueNonce(db, { domain, now });
   return { payload };
 }
 
@@ -78,7 +78,6 @@ export interface VerifyBody {
 
 export interface VerifyInput {
   body: VerifyBody;
-  nonceKv: KVNamespace;
   sessionKv: KVNamespace;
   db: D1Database;
   koios: KoiosClient;
@@ -89,7 +88,7 @@ export interface VerifyInput {
 
 /** Injected dependencies for handleVerify. All fields are optional; defaults are the real implementations. */
 export interface VerifyDeps {
-  consumeNonce?: (kv: KVNamespace, payload: string, opts?: { now?: number }) => Promise<boolean>;
+  consumeNonce?: (db: D1Database, payload: string, opts?: { now?: number }) => Promise<boolean>;
   // Resolves a derived stake address to a moderator role, or null when the
   // address is not on the allowlist. Defaults to "no moderators".
   getModeratorRole?: (stakeAddr: string) => ModeratorRole | null;
@@ -158,7 +157,7 @@ async function verifyWalletCip8(
   input: VerifyInput,
   deps?: VerifyDeps,
 ): Promise<VerifyResult> {
-  const { body, nonceKv, koios, network, now } = input;
+  const { body, db, koios, network, now } = input;
   const consumeNonceFn = deps?.consumeNonce ?? consumeNonce;
   const getModeratorRole = deps?.getModeratorRole ?? (() => null);
 
@@ -172,7 +171,7 @@ async function verifyWalletCip8(
   }
 
   // Consume nonce (single-use, unexpired).
-  const nonceValid = await consumeNonceFn(nonceKv, body.payload, { now });
+  const nonceValid = await consumeNonceFn(db, body.payload, { now });
   if (!nonceValid) {
     return { status: 401, json: { ok: false, error: 'invalid or expired nonce' } };
   }
@@ -268,7 +267,7 @@ async function verifyRawEd25519(
   input: VerifyInput,
   deps?: VerifyDeps,
 ): Promise<VerifyResult> {
-  const { body, nonceKv, koios, now } = input;
+  const { body, db, koios, now } = input;
   const consumeNonceFn = deps?.consumeNonce ?? consumeNonce;
 
   // Raw Ed25519: signature is exactly 64 bytes, public key exactly 32 bytes.
@@ -281,7 +280,7 @@ async function verifyRawEd25519(
   }
 
   // Consume nonce (single-use, unexpired).
-  const nonceValid = await consumeNonceFn(nonceKv, body.payload, { now });
+  const nonceValid = await consumeNonceFn(db, body.payload, { now });
   if (!nonceValid) {
     return { status: 401, json: { ok: false, error: 'invalid or expired nonce' } };
   }

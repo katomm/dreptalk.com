@@ -16,12 +16,11 @@ const RATE_WINDOW_SEC = 60;
 
 export const POST: APIRoute = async ({ request }) => {
   try {
-    const nonceKv = env.NONCES as KVNamespace | undefined;
     const sessionKv = env.SESSIONS as KVNamespace | undefined;
     const db = env.DB as D1Database | undefined;
     const rateLimiter = env.RATE_LIMITER;
 
-    if (!nonceKv || !sessionKv || !db || !rateLimiter) {
+    if (!sessionKv || !db || !rateLimiter) {
       return new Response(JSON.stringify({ ok: false, error: 'service unavailable' }), {
         status: 503,
         headers: { 'content-type': 'application/json' },
@@ -67,7 +66,6 @@ export const POST: APIRoute = async ({ request }) => {
     const result = await handleVerify(
       {
         body: body as Parameters<typeof handleVerify>[0]['body'],
-        nonceKv,
         sessionKv,
         db,
         koios,

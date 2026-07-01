@@ -7,7 +7,7 @@ import { clientIpFrom } from '@/lib/http/clientIp';
 export const prerender = false;
 
 // Per-IP rate limit: nonce issuance is unauthenticated, so cap it to stop a
-// single client from flooding the NONCES KV. Users legitimately issue ~1 per
+// single client from flooding the nonce store. Users legitimately issue ~1 per
 // login attempt; 30/min/IP is generous.
 const RATE_MAX = 30;
 const RATE_WINDOW_SEC = 60;
@@ -18,9 +18,9 @@ const RATE_WINDOW_SEC = 60;
 const HOST_RE = /^[a-zA-Z0-9.-]+(?::\d{1,5})?$/;
 
 export const POST: APIRoute = async ({ request }) => {
-  const nonceKv = env.NONCES as KVNamespace | undefined;
+  const db = env.DB as D1Database | undefined;
   const rateLimiter = env.RATE_LIMITER;
-  if (!nonceKv || !rateLimiter) {
+  if (!db || !rateLimiter) {
     return new Response(JSON.stringify({ ok: false, error: 'service unavailable' }), {
       status: 503,
       headers: { 'content-type': 'application/json' },
@@ -42,7 +42,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const rawHost = request.headers.get('Host') ?? 'unknown';
   const domain = HOST_RE.test(rawHost) ? rawHost : 'unknown';
-  const result = await handleChallenge({ nonceKv, domain });
+  const result = await handleChallenge({ db, domain });
   return new Response(JSON.stringify(result), {
     status: 200,
     headers: { 'content-type': 'application/json' },

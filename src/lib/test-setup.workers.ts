@@ -9,7 +9,6 @@ declare module 'cloudflare:test' {
   interface ProvidedEnv {
     DB: D1Database;
     SESSIONS: KVNamespace;
-    NONCES: KVNamespace;
     AVATARS: R2Bucket;
     RATE_LIMITER: DurableObjectNamespace<import('./rateLimiterDO.js').RateLimiter>;
     TEST_D1_MIGRATIONS: string;
@@ -71,9 +70,9 @@ beforeEach(async () => {
     }
   }
 
-  for (const ns of [env.SESSIONS, env.NONCES]) {
-    const { keys } = await ns.list();
-    await Promise.all(keys.map((k) => ns.delete(k.name)));
+  {
+    const { keys } = await env.SESSIONS.list();
+    await Promise.all(keys.map((k) => env.SESSIONS.delete(k.name)));
   }
 
   // Clear the R2 avatar bucket so each test starts with an empty bucket.

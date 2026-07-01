@@ -1,6 +1,11 @@
 /// <reference types="@cloudflare/workers-types" />
 // Single-use nonce issuance and consumption for challenge-response auth flows.
-// Nonces are stored in KV with a 5-minute TTL and deleted on first use.
+//
+// Nonces live in D1 (not KV) so that consumption is atomic. KV has no
+// compare-and-delete, so a get-check-delete would let two concurrent verifies
+// carrying the same signed payload both succeed. In D1 the consume is a single
+// DELETE ... RETURNING and SQLite serializes writes, so at most one concurrent
+// request gets a row back. Rows carry a 5-minute expiry and are swept on issue.
 
 import { toBase64Url } from '../crypto/base64url.js';
 
@@ -8,15 +13,15 @@ const NONCE_TTL_SEC = 300;
 const PAYLOAD_PREFIX = 'dreptalk';
 
 /**
- * Issues a new single-use nonce, stores it in KV, and returns the nonce and
- * its binding payload.
+ * Issues a new single-use nonce, stores it in D1, and returns the nonce and
+ * its binding payload. Also sweeps expired rows so the table stays small.
  *
- * @param kv - The KV namespace to store the nonce in.
+ * @param db - The D1 database.
  * @param opts.domain - Domain scope bound into the payload (prevents cross-domain replay).
  * @param opts.now - Override for current time in seconds (defaults to Date.now()/1000).
  */
 export async function issueNonce(
-  kv: KVNamespace,
+  db: D1Database,
   opts: { domain: string; now?: number },
 ): Promise<{ nonce: string; payload: string }> {
   const issuedAt = Math.floor(opts.now ?? Date.now() / 1000);
@@ -24,22 +29,32 @@ export async function issueNonce(
   crypto.getRandomValues(rawBytes);
   const nonce = toBase64Url(rawBytes);
   const payload = `${PAYLOAD_PREFIX}:${opts.domain}:${nonce}:${issuedAt}`;
-  await kv.put(nonce, payload, { expirationTtl: NONCE_TTL_SEC });
+  const expiresAt = issuedAt + NONCE_TTL_SEC;
+
+  // Sweep expired rows (indexed, cheap) and insert the new nonce in one batch.
+  await db.batch([
+    db.prepare('DELETE FROM auth_nonces WHERE expires_at <= ?1').bind(issuedAt),
+    db
+      .prepare('INSERT INTO auth_nonces (nonce, payload, expires_at) VALUES (?1, ?2, ?3)')
+      .bind(nonce, payload, expiresAt),
+  ]);
+
   return { nonce, payload };
 }
 
 /**
- * Consumes a nonce payload: verifies it exists in KV, matches the stored
- * value exactly, and is within the allowed age window. Deletes the key on
- * success (single-use enforcement). Never throws; returns false on any failure.
+ * Consumes a nonce payload: verifies it is well-formed and within the age
+ * window, then atomically deletes it only if the stored nonce AND payload match
+ * exactly. Returns true only for the single request that removes the row.
+ * Never throws; returns false on any failure.
  *
- * @param kv - The KV namespace containing stored nonces.
- * @param payload - The full payload string from the client (e.g. the signed message).
+ * @param db - The D1 database.
+ * @param payload - The full payload string from the client (the signed message).
  * @param opts.now - Override for current time in seconds.
  * @param opts.maxAgeSec - Maximum allowed age of the nonce in seconds (default 300).
  */
 export async function consumeNonce(
-  kv: KVNamespace,
+  db: D1Database,
   payload: string,
   opts?: { now?: number; maxAgeSec?: number },
 ): Promise<boolean> {
@@ -47,18 +62,15 @@ export async function consumeNonce(
     const maxAge = opts?.maxAgeSec ?? NONCE_TTL_SEC;
     const now = Math.floor(opts?.now ?? Date.now() / 1000);
 
-    // Parse payload shape: "dreptalk:<domain>:<nonce>:<issuedAt>"
+    // Parse payload shape: "dreptalk:<domain>:<nonce>:<issuedAt>".
     // Nonce is base64url (no colons); issuedAt is a decimal integer.
-    // Split off prefix, issuedAt, and nonce from the right; domain is whatever is in the middle.
-    // Domain may contain colons, so we split once and extract from the ends.
+    // Domain may contain colons, so extract nonce and issuedAt from the ends.
     const [prefix, ...rest] = payload.split(':');
     if (prefix !== PAYLOAD_PREFIX) return false;
     if (rest.length < 3) return false;
 
     const issuedAtStr = rest[rest.length - 1];
     const nonce = rest[rest.length - 2];
-    // domain = rest[0..rest.length-3] joined by ":"
-    // (simple domain strings won't have colons, but this keeps the split logic safe)
 
     // Reject non-numeric issuedAt before parsing to prevent parseInt coercion surprises.
     if (!/^\d{1,15}$/.test(issuedAtStr)) return false;
@@ -67,14 +79,15 @@ export async function consumeNonce(
     if (issuedAt > now) return false; // issued in the future
     if (now - issuedAt > maxAge) return false; // too old
 
-    // Look up nonce in KV and verify stored payload matches exactly.
-    const stored = await kv.get(nonce);
-    if (stored === null) return false;
-    if (stored !== payload) return false;
-
-    // Single-use: delete before returning success.
-    await kv.delete(nonce);
-    return true;
+    // Atomic single-use: delete only if the nonce AND full payload match. A
+    // tampered payload (right nonce, altered domain/issuedAt) matches no row and
+    // therefore never burns the stored nonce. RETURNING tells us whether this
+    // request is the one that consumed it.
+    const row = await db
+      .prepare('DELETE FROM auth_nonces WHERE nonce = ?1 AND payload = ?2 RETURNING nonce')
+      .bind(nonce, payload)
+      .first<{ nonce: string }>();
+    return row !== null;
   } catch {
     return false;
   }

@@ -49,11 +49,6 @@ binding = "IMAGES"
 binding = "SESSIONS"
 id = "2e999274a29a41319b3e1214653b4fee"
 
-# KV namespace for ephemeral auth nonces (challenge-response).
-[[kv_namespaces]]
-binding = "NONCES"
-id = "9b7873fb79c04d6eb34ec2fb2170a30b"
-
 # Atomic rate-limit counters. One Durable Object instance per rate-limit key, so a
 # key's increment is serialized and cannot be raced (unlike the prior KV counter).
 [[durable_objects.bindings]]

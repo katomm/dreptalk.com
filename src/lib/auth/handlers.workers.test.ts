@@ -53,24 +53,21 @@ function koiosRejectAll() {
 
 // ---------------------------------------------------------------------------
 // Nonce injection helper for fixture-based tests.
-// Stores a sentinel key in KV. On first call, deletes it and returns true.
-// On subsequent calls, returns false (replay rejection).
+// The CIP-8 fixtures sign a fixed payload that does not match the real
+// dreptalk:<domain>:<nonce>:<issuedAt> format, so happy-path tests inject a
+// consumeNonce override rather than seeding the D1 store. Storage-agnostic:
+// allows exactly one consume of the matching payload, then rejects (replay
+// protection) without touching the database.
 // ---------------------------------------------------------------------------
 
-function makeSingleUseNonceOverride(_kv: KVNamespace, payload: string) {
-  const sentinelKey = `fixture-nonce:${payload}`;
-  return async (kvArg: KVNamespace, payloadArg: string): Promise<boolean> => {
+function makeSingleUseNonceOverride(payload: string) {
+  let used = false;
+  return async (_db: D1Database, payloadArg: string): Promise<boolean> => {
     if (payloadArg !== payload) return false;
-    const stored = await kvArg.get(sentinelKey);
-    if (stored === null) return false;
-    await kvArg.delete(sentinelKey);
+    if (used) return false;
+    used = true;
     return true;
   };
-}
-
-async function preloadNonce(kv: KVNamespace, payload: string): Promise<void> {
-  const sentinelKey = `fixture-nonce:${payload}`;
-  await kv.put(sentinelKey, '1');
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +77,7 @@ async function preloadNonce(kv: KVNamespace, payload: string): Promise<void> {
 describe('handleChallenge', () => {
   it('returns a payload in the dreptalk:<domain>:<nonce>:<ts> format', async () => {
     const result = await handleChallenge({
-      nonceKv: env.NONCES,
+      db: env.DB,
       domain: 'dreptalk.com',
     });
     expect(typeof result.payload).toBe('string');
@@ -95,8 +92,7 @@ describe('handleChallenge', () => {
 describe('handleVerify: happy path (proposer)', () => {
   it('returns 200, ok:true, a Set-Cookie, and inserts a users row', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
-    await preloadNonce(env.NONCES, fixturePayload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
 
     // The stake-key-valid fixture signs as a preprod reward address (header 0xe0).
     // stakeAddressFromPubKey will derive the stake address from the pubKey,
@@ -108,7 +104,6 @@ describe('handleVerify: happy path (proposer)', () => {
         keyHex: stakeVector.keyHex,
         role: 'proposer',
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -148,8 +143,7 @@ describe('handleVerify: happy path (proposer)', () => {
 describe('handleVerify: happy path (drep)', () => {
   it('returns 200 and inserts a drep user row for a real type-6 DRep signature', async () => {
     const payload = 'dreptalk:dreptalk.com:drep-happy-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     // A CIP-95 wallet signs with the DRep key over a CIP-19 type-6 enterprise
     // address (preprod header 0x60 + the 28-byte DRep key hash). The fake koios
@@ -165,7 +159,6 @@ describe('handleVerify: happy path (drep)', () => {
         keyHex: cose.keyHex,
         role: 'drep',
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -199,8 +192,7 @@ describe('handleVerify: happy path (drep)', () => {
 
   it('accepts a bare 28-byte DRep key hash address form', async () => {
     const payload = 'dreptalk:dreptalk.com:drep-bare-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     const seed = new Uint8Array(32).fill(10);
     const { keyHash } = makeCoseSignature({ seed, payload, addressBytes: new Uint8Array(28) });
@@ -208,7 +200,6 @@ describe('handleVerify: happy path (drep)', () => {
 
     const result = await handleVerify({
       body: { payload, signatureHex: cose.signatureHex, keyHex: cose.keyHex, role: 'drep' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -241,8 +232,7 @@ describe('handleVerify: happy path (drep)', () => {
 describe('handleVerify: happy path (key DRep, offline)', () => {
   it('logs in a key-based DRep that signs the challenge with cardano-signer (raw, no keyHex)', async () => {
     const payload = 'dreptalk:dreptalk.com:cli-drep-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, new Uint8Array(32).fill(21));
     const expectedDrepId = drepIdFromPubKey(pubKey);
@@ -251,7 +241,6 @@ describe('handleVerify: happy path (key DRep, offline)', () => {
       {
         // No keyHex (COSE) and no scriptDrepId: a plain key DRep signing offline.
         body: { payload, signatureHex, publicKeyHex, role: 'drep' },
-        nonceKv: env.NONCES,
         sessionKv: env.SESSIONS,
         db: env.DB,
         koios: {
@@ -285,15 +274,13 @@ describe('handleVerify: happy path (key DRep, offline)', () => {
 
   it('rejects a key-based DRep whose id is not a registered active DRep', async () => {
     const payload = 'dreptalk:dreptalk.com:cli-drep-reject-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(22));
 
     const result = await handleVerify(
       {
         body: { payload, signatureHex, publicKeyHex, role: 'drep' },
-        nonceKv: env.NONCES,
         sessionKv: env.SESSIONS,
         db: env.DB,
         koios: {
@@ -319,14 +306,12 @@ describe('handleVerify: happy path (key DRep, offline)', () => {
 describe('handleVerify: script-flow guidance', () => {
   it('flags a key-based DRep id used in the script flow as the wrong path', async () => {
     const payload = 'dreptalk:dreptalk.com:keydrep-in-script:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(31));
 
     const result = await handleVerify(
       {
         body: { payload, signatureHex, publicKeyHex, role: 'drep', scriptDrepId: 'drep1ykeybaseddrepidusedinthescriptflowplaceholderxxxx' },
-        nonceKv: env.NONCES,
         sessionKv: env.SESSIONS,
         db: env.DB,
         koios: {
@@ -349,8 +334,7 @@ describe('handleVerify: script-flow guidance', () => {
 
   it('flags a Plutus-script DRep as unsupported', async () => {
     const payload = 'dreptalk:dreptalk.com:plutus-drep:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(32));
     // A real CIP-129 script drep id (0x23), but Koios reports a Plutus script.
     const scriptDrepId = 'drep1yvsah2upqmwdtea8c37pac2aw3lv6z7qggcu76243p72msqjnp259';
@@ -358,7 +342,6 @@ describe('handleVerify: script-flow guidance', () => {
     const result = await handleVerify(
       {
         body: { payload, signatureHex, publicKeyHex, role: 'drep', scriptDrepId },
-        nonceKv: env.NONCES,
         sessionKv: env.SESSIONS,
         db: env.DB,
         koios: {
@@ -386,14 +369,12 @@ describe('handleVerify: script-flow guidance', () => {
 describe('handleVerify: happy path (spo)', () => {
   it('returns 200 and inserts an spo user for a registered calidus key', async () => {
     const payload = 'dreptalk:dreptalk.com:spo-happy-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(11));
     const POOL = 'pool1test-spo-happy';
 
     const result = await handleVerify({
       body: { payload, signatureHex, publicKeyHex, role: 'spo' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -426,13 +407,11 @@ describe('handleVerify: happy path (spo)', () => {
 
   it('returns 401 when the calidus key is not registered to any pool', async () => {
     const payload = 'dreptalk:dreptalk.com:spo-unknown-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(12));
 
     const result = await handleVerify({
       body: { payload, signatureHex, publicKeyHex, role: 'spo' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: { ...koiosRejectAll(), poolCalidusKey: async () => null },
@@ -446,14 +425,12 @@ describe('handleVerify: happy path (spo)', () => {
 
   it('returns 401 when the raw signature does not verify (flipped byte)', async () => {
     const payload = 'dreptalk:dreptalk.com:spo-badsig-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(11));
     const badSig = signatureHex.slice(0, -2) + (signatureHex.endsWith('00') ? 'ff' : '00');
 
     const result = await handleVerify({
       body: { payload, signatureHex: badSig, publicKeyHex, role: 'spo' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -477,13 +454,11 @@ describe('handleVerify: happy path (spo)', () => {
 
   it('returns 400 when the signature has the wrong length', async () => {
     const payload = 'dreptalk:dreptalk.com:spo-badlen-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex } = rawSign(payload, new Uint8Array(32).fill(11));
 
     const result = await handleVerify({
       body: { payload, signatureHex: 'abcd', publicKeyHex, role: 'spo' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -497,13 +472,11 @@ describe('handleVerify: happy path (spo)', () => {
 
   it('returns 400 when publicKeyHex is missing for an spo login', async () => {
     const payload = 'dreptalk:dreptalk.com:spo-nopub-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { signatureHex } = rawSign(payload, new Uint8Array(32).fill(11));
 
     const result = await handleVerify({
       body: { payload, signatureHex, role: 'spo' } as Parameters<typeof handleVerify>[0]['body'],
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -523,15 +496,13 @@ describe('handleVerify: happy path (spo)', () => {
 describe('handleVerify: happy path (cc)', () => {
   it('returns 200 and inserts a cc user for an authorized key-based member', async () => {
     const payload = 'dreptalk:dreptalk.com:cc-happy-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, new Uint8Array(32).fill(13));
     const hotHex = ccHotKeyHashHex(pubKey);
     const COLD = 'cc_cold1test-cc-happy';
 
     const result = await handleVerify({
       body: { payload, signatureHex, publicKeyHex, role: 'cc' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -566,14 +537,12 @@ describe('handleVerify: happy path (cc)', () => {
 
   it('returns 401 when the member exists but is not authorized', async () => {
     const payload = 'dreptalk:dreptalk.com:cc-unauth-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, new Uint8Array(32).fill(14));
     const hotHex = ccHotKeyHashHex(pubKey);
 
     const result = await handleVerify({
       body: { payload, signatureHex, publicKeyHex, role: 'cc' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -601,14 +570,12 @@ describe('handleVerify: happy path (cc)', () => {
 
   it('returns 401 when the matching credential is a native script (not key-based)', async () => {
     const payload = 'dreptalk:dreptalk.com:cc-script-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, new Uint8Array(32).fill(15));
     const hotHex = ccHotKeyHashHex(pubKey);
 
     const result = await handleVerify({
       body: { payload, signatureHex, publicKeyHex, role: 'cc' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -642,13 +609,11 @@ describe('handleVerify: happy path (cc)', () => {
 describe('handleVerify: reject replayed nonce (spo)', () => {
   it('returns 401 on the second call with the same nonce', async () => {
     const payload = 'dreptalk:dreptalk.com:spo-replay-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
     const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(16));
 
     const input = {
       body: { payload, signatureHex, publicKeyHex, role: 'spo' as const },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -682,8 +647,7 @@ describe('handleVerify: reject replayed nonce', () => {
   it('returns 401 on the second call with the same nonce', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     // Pre-load: only one use allowed.
-    await preloadNonce(env.NONCES, fixturePayload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
 
     const commonInput = {
       body: {
@@ -692,7 +656,6 @@ describe('handleVerify: reject replayed nonce', () => {
         keyHex: stakeVector.keyHex,
         role: 'proposer' as const,
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -724,8 +687,7 @@ describe('handleVerify: reject replayed nonce', () => {
 describe('handleVerify: reject bad signature', () => {
   it('returns 401 when the signature has a flipped byte', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
-    await preloadNonce(env.NONCES, fixturePayload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
 
     // Flip last byte of signatureHex.
     const badSig = `${stakeVector.signatureHex.slice(0, -2)}ff`;
@@ -737,7 +699,6 @@ describe('handleVerify: reject bad signature', () => {
         keyHex: stakeVector.keyHex,
         role: 'proposer',
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -757,8 +718,7 @@ describe('handleVerify: reject bad signature', () => {
 describe('handleVerify: reject when koios returns no proposals', () => {
   it('returns 401 when koios returns empty proposals', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
-    await preloadNonce(env.NONCES, fixturePayload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
 
     const result = await handleVerify({
       body: {
@@ -767,7 +727,6 @@ describe('handleVerify: reject when koios returns no proposals', () => {
         keyHex: stakeVector.keyHex,
         role: 'proposer',
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -787,8 +746,7 @@ describe('handleVerify: reject when koios returns no proposals', () => {
 describe('handleVerify: moderator allowlist', () => {
   it('logs in an allowlisted stake address that has no proposals, with the admin role', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
-    await preloadNonce(env.NONCES, fixturePayload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
 
     const result = await handleVerify(
       {
@@ -798,7 +756,6 @@ describe('handleVerify: moderator allowlist', () => {
           keyHex: stakeVector.keyHex,
           role: 'proposer',
         },
-        nonceKv: env.NONCES,
         sessionKv: env.SESSIONS,
         db: env.DB,
         koios: koiosRejectAll(), // no proposals: access is granted only by the allowlist
@@ -825,8 +782,7 @@ describe('handleVerify: reject wrong address type for role', () => {
     // The stake-key fixture has a reward address header (0xe0), which is not a
     // DRep credential (type-6 0x60/0x61 or bare key hash), so role=drep is rejected.
     const fixturePayload = stakeVector.payloadUtf8;
-    await preloadNonce(env.NONCES, fixturePayload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
 
     const result = await handleVerify({
       body: {
@@ -835,7 +791,6 @@ describe('handleVerify: reject wrong address type for role', () => {
         keyHex: stakeVector.keyHex,
         role: 'drep',
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -850,8 +805,7 @@ describe('handleVerify: reject wrong address type for role', () => {
 
   it('rejects drep-key fixture (header 0x22) when role=proposer on preprod (expects 0xe0)', async () => {
     const fixturePayload = drepVector.payloadUtf8;
-    await preloadNonce(env.NONCES, fixturePayload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, fixturePayload);
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
 
     const result = await handleVerify({
       body: {
@@ -860,7 +814,6 @@ describe('handleVerify: reject wrong address type for role', () => {
         keyHex: drepVector.keyHex,
         role: 'proposer',
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -881,7 +834,6 @@ describe('handleVerify: reject malformed body', () => {
   it('returns 400 when body is missing required fields', async () => {
     const result = await handleVerify({
       body: { payload: '', signatureHex: '', keyHex: '', role: '' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -894,7 +846,6 @@ describe('handleVerify: reject malformed body', () => {
   it('returns 400 when role is not drep or proposer', async () => {
     const result = await handleVerify({
       body: { payload: 'x', signatureHex: 'y', keyHex: 'z', role: 'admin' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -906,7 +857,6 @@ describe('handleVerify: reject malformed body', () => {
   it('does not throw for a completely wrong body (no throw guarantee)', async () => {
     const result = await handleVerify({
       body: null as unknown as Parameters<typeof handleVerify>[0]['body'],
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -961,8 +911,7 @@ describe('handleLogout', () => {
 describe('handleVerify: reject wrong-network addresses with a specific error', () => {
   it('rejects a mainnet reward address (0xe1) on preprod as a network mismatch', async () => {
     const payload = 'dreptalk:dreptalk.com:proposer-wrong-net-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     // Reward address for the OTHER network: header 0xe1 + 28-byte stake key hash.
     const seed = new Uint8Array(32).fill(11);
@@ -974,7 +923,6 @@ describe('handleVerify: reject wrong-network addresses with a specific error', (
 
     const result = await handleVerify({
       body: { payload, signatureHex: cose.signatureHex, keyHex: cose.keyHex, role: 'proposer' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -989,8 +937,7 @@ describe('handleVerify: reject wrong-network addresses with a specific error', (
 
   it('rejects a mainnet type-6 DRep address (0x61) on preprod as a network mismatch', async () => {
     const payload = 'dreptalk:dreptalk.com:drep-wrong-net-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     const seed = new Uint8Array(32).fill(12);
     const { keyHash } = makeCoseSignature({ seed, payload, addressBytes: new Uint8Array(28) });
@@ -998,7 +945,6 @@ describe('handleVerify: reject wrong-network addresses with a specific error', (
 
     const result = await handleVerify({
       body: { payload, signatureHex: cose.signatureHex, keyHex: cose.keyHex, role: 'drep' },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: koiosRejectAll(),
@@ -1055,8 +1001,7 @@ function scriptDrepInfo(scriptHashHex: string) {
 describe('handleVerify: script DRep (COSE path)', () => {
   it('logs in a script DRep member via the wallet (COSE) path', async () => {
     const payload = 'dreptalk:dreptalk.com:script-drep-cose-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     // Sign with the member key: use ccHotKeyHashHex to get the 28-byte key hash
     // that resolveScriptDRep will look for in the script's sig leaves.
@@ -1080,7 +1025,6 @@ describe('handleVerify: script DRep (COSE path)', () => {
         role: 'drep',
         scriptDrepId,
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -1103,8 +1047,7 @@ describe('handleVerify: script DRep (COSE path)', () => {
 
   it('rejects a script DRep login when the signer is not a member', async () => {
     const payload = 'dreptalk:dreptalk.com:script-drep-nonmember-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     const seed = new Uint8Array(32).fill(43);
     const { keyHash } = makeCoseSignature({ seed, payload, addressBytes: new Uint8Array(28) });
@@ -1125,7 +1068,6 @@ describe('handleVerify: script DRep (COSE path)', () => {
         role: 'drep',
         scriptDrepId,
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -1151,8 +1093,7 @@ describe('handleVerify: script DRep (COSE path)', () => {
 describe('handleVerify: script DRep (offline raw-Ed25519 path)', () => {
   it('logs in a script DRep member via the offline (raw) path', async () => {
     const payload = 'dreptalk:dreptalk.com:script-drep-raw-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     // Sign with a raw Ed25519 key (no COSE envelope, no keyHex).
     const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, new Uint8Array(32).fill(44));
@@ -1174,7 +1115,6 @@ describe('handleVerify: script DRep (offline raw-Ed25519 path)', () => {
         scriptDrepId,
         // No keyHex: this is the offline paste path, not the COSE wallet path.
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
@@ -1197,8 +1137,7 @@ describe('handleVerify: script DRep (offline raw-Ed25519 path)', () => {
 
   it('rejects an offline script DRep login when the signer is not a member', async () => {
     const payload = 'dreptalk:dreptalk.com:script-drep-raw-nonmember-nonce:1700000000';
-    await preloadNonce(env.NONCES, payload);
-    const consumeOverride = makeSingleUseNonceOverride(env.NONCES, payload);
+    const consumeOverride = makeSingleUseNonceOverride(payload);
 
     // Sign with a raw Ed25519 key.
     const { publicKeyHex, signatureHex } = rawSign(payload, new Uint8Array(32).fill(45));
@@ -1217,7 +1156,6 @@ describe('handleVerify: script DRep (offline raw-Ed25519 path)', () => {
         role: 'drep',
         scriptDrepId,
       },
-      nonceKv: env.NONCES,
       sessionKv: env.SESSIONS,
       db: env.DB,
       koios: {
