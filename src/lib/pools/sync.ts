@@ -8,7 +8,10 @@ import type { PoolInfoRow } from '../koios/client.js';
 import { activePoolIdsNeedingSync, upsertPoolMeta } from '../db/pools.js';
 import { extractExtendedUrl, extractLogoUrl } from './logo.js';
 
-const DEFAULT_LIMIT = 40;
+// Per-run work-set size. Sized to drain a several-hundred-pool backlog over a
+// handful of the frequent (20 min) cron runs while staying well under the
+// Workers subrequest budget (each pool costs up to two off-chain fetches).
+const DEFAULT_LIMIT = 150;
 const DEFAULT_REFRESH_MS = 14 * 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_META_BYTES = 256 * 1024;

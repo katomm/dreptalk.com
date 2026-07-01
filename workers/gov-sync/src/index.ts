@@ -255,6 +255,29 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: r.votes, failed: r.failed };
   }, { primary: true });
 
+  // Resolve stake-pool metadata (ticker/name/logo) for the pools that appear on
+  // the platform, and mirror logos to R2. Runs here on the frequent cron (not
+  // only the 6h DRep sync) so a large active-pool backlog drains in hours and
+  // newly-active SPO pools appear within one cron cycle; a no-op once drained.
+  await phase('pools', async () => {
+    const r = await syncPools({ koios, db: env.DB, fetchImpl: fetch, nowMs: Date.now() });
+    console.log(`[pools] scanned=${r.scanned} updated=${r.updated} logos=${r.logos}`);
+    return { items: r.updated };
+  });
+
+  if (env.AVATARS) {
+    await phase('pool-avatars', async () => {
+      const p = await storePoolAvatars({
+        db: env.DB,
+        bucket: env.AVATARS,
+        fetchImpl: fetch,
+        downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
+      });
+      console.log(`[pool-avatars] scanned=${p.scanned} stored=${p.stored} cleared=${p.cleared} failed=${p.failed}`);
+      return { items: p.stored, failed: p.failed };
+    });
+  }
+
   // Fetch and store CIP-100/CIP-136 vote rationale anchors for votes that have
   // a metadata_url but no rationale stored yet. Paced with the same interval as
   // the votes phase to avoid hammering anchor hosts. Not the primary phase.
