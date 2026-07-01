@@ -18,7 +18,7 @@ import { detectIdentifier } from '@/lib/search/identifiers.js';
 import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
-import { stakeParticipation, overviewTally, isSpoLedType } from '@/lib/governance/view.js';
+import { stakeParticipation, isSpoLedType } from '@/lib/governance/view.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getActionRationales, countActionRationales } from '@/lib/db/actionRationale.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
@@ -156,7 +156,7 @@ const viewerVote =
 // initiate/co-sign flow instead of the key-DRep VotePanel.
 const isScriptDrep = viewerDrepId ? parseDrepId(viewerDrepId)?.kind === 'script' : false;
 
-// Governance detail page extras: tab, protocol params, stake participation, tally.
+// Governance detail page extras: tab, protocol params, stake participation.
 const tab = parseGaTab(Astro.url.searchParams.get('tab'));
 
 // Positions tab: paginated voter list. Top participants and total count are always
@@ -212,8 +212,6 @@ const stake =
   govAction && activeDrepStake && govAction.drepVotedPower != null
     ? stakeParticipation(govAction.drepVotedPower, activeDrepStake.total)
     : null;
-
-const tally = govAction ? overviewTally(govAction) : null;
 
 // Decode the on-chain payload for the Overview's "On-chain changes" block. Old→new
 // reads the cached epoch_params blob; both are null-safe and render nothing if absent.
@@ -371,10 +369,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
             ) : (
               <GaOverview
                 action={govAction}
-                stake={stake}
-                tally={tally}
                 onchain={onchainChanges}
-                now={now}
                 slug={topic.slug}
                 commentCount={Math.max(0, topic.post_count - 1)}
                 loggedIn={!!user}
@@ -419,6 +414,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
               slug={topic.slug}
               positionsTotal={positionsTotal}
               rationaleCount={rationaleCount}
+              now={now}
             />
           </div>
         </div>
