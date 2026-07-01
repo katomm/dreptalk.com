@@ -318,6 +318,11 @@ main.container {
   padding: 0.4rem 0.7rem;
   text-align: left;
   vertical-align: top;
+  /* Override the .prose default (overflow-wrap: anywhere), which lets the auto
+     table layout shrink columns to a single character and break mid-word
+     (e.g. "TVL" into "TV" / "L"). break-word sizes columns to whole words and
+     only splits genuinely long tokens as a last resort. */
+  overflow-wrap: break-word;
 }
 .prose th {
   background: var(--surface);
