@@ -267,6 +267,14 @@ describe('excerptFromHtml', () => {
     expect(out.length).toBeLessThanOrEqual(13);
   });
 
+  it('cuts on a word boundary, never mid-word', () => {
+    expect(excerptFromHtml('<p>Governance parameters proposal</p>', 20)).toBe('Governance...');
+  });
+
+  it('hard-cuts a single over-long token with no space', () => {
+    expect(excerptFromHtml('<p>Supercalifragilistic</p>', 10)).toBe('Supercali...');
+  });
+
   it('handles empty input', () => {
     expect(excerptFromHtml('')).toBe('');
   });

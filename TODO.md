@@ -58,3 +58,37 @@ Watch-outs (lean hosting):
   the emitted SVG contains no script before using `set:html`.
 
 Until then the role badge alone marks the signed-in state.
+
+## Glossary: definitional pages for governance terms
+
+The help guides (`src/content/guides/*`) answer "how do I X" (become a DRep, vote,
+delegate). They do not cover "what is X" as standalone, linkable definitions. A
+glossary would add short reference pages for the core governance vocabulary so
+each term has its own discoverable entry, complementing the task-oriented guides.
+
+What it would add:
+- A `/glossary` hub listing every term, each with its own page: DRep, Constitutional
+  Committee, SPO, voting power, delegation, No Confidence, Abstain, and one page per
+  governance action type (treasury withdrawal, parameter change, hard fork, info, etc.).
+- Each entry is a couple of plain paragraphs that cross-link the relevant help guide
+  and the live data it describes (e.g. the "treasury withdrawal" entry links to
+  `/c/budget`; the "DRep" entry links to `/dreps` and `/help/become-a-drep`). The
+  interlinking is the point: definitions tie into guides and real governance actions.
+
+Approach:
+- Reuse the content-collection pattern already used for guides: a `glossary`
+  collection under `src/content/`, an index page (`/glossary`) and a
+  `[slug]` route, mirroring `src/pages/help/`.
+- Feed the hub into the existing search index (`staticEntries`) and the sitemap
+  (`src/pages/sitemap.xml.ts`) the same way guides already are.
+- Much of the copy already exists as fragments in the guides and in
+  `config/categories` / governance action-type labels; the work is consolidating
+  it into canonical, nachschlagbare entries and writing clean definitions.
+
+Watch-outs:
+- Primarily an editorial task: the definitions need someone with Cardano
+  governance knowledge to write and review, not just scaffolding.
+- Keep entries genuinely definitional, not duplicated guide content, so the two
+  layers stay distinct (what-is vs how-to).
+
+Until then the how-to guides cover the task flows but there is no term-by-term reference.

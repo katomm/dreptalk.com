@@ -21,7 +21,7 @@ import {
 import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
-import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam } from '@/lib/drep/profile.js';
+import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary } from '@/lib/drep/profile.js';
 import { statusBadge } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
@@ -29,7 +29,7 @@ import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
 import {
-  cacheControlForSynced, formatAda, formatRelativeTime, truncateId, truncateIdMiddle, excerptFromHtml, SITE_ORIGIN,
+  cacheControlForSynced, formatAda, formatAdaCompact, formatRelativeTime, truncateId, truncateIdMiddle, excerptFromHtml, SITE_ORIGIN,
 } from '@/lib/forum/view.js';
 
 const { drepId } = Astro.params;
@@ -106,6 +106,41 @@ const personLd = drep
       ...(drep.imageContentHash ? { image: `${siteOrigin}/api/avatar/${drep.imageContentHash}` } : {}),
     }
   : null;
+
+// Breadcrumb trail (DRepTalk / DReps / this profile), matching the visible nav
+// below and the pattern used on threads and categories.
+const breadcrumbLd = drep
+  ? {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: siteOrigin + '/' },
+        { '@type': 'ListItem', position: 2, name: 'DReps', item: siteOrigin + '/dreps' },
+        { '@type': 'ListItem', position: 3, name: displayName, item: canonical },
+      ],
+    }
+  : null;
+
+// Fallback profile prose, shown when the DRep has no free-text bio so the page
+// still carries unique, indexable content instead of only stat widgets. Built
+// from the same on-chain reads already loaded above.
+const powerFormatted =
+  drep && drep.votingPower && Number(drep.votingPower) > 0 ? formatAdaCompact(drep.votingPower) : null;
+const profileSummary = drep
+  ? drepProfileSummary({
+      displayName,
+      active: drep.active,
+      retired: isRetired,
+      registeredEpoch: drep.registeredEpoch ?? null,
+      votingPowerFormatted: powerFormatted,
+      influencePct: influence,
+      votesCast,
+      breakdown: voteBreakdown,
+      withRationale: rationaleStats.withRationale,
+      participation,
+      forumPosts: posts.length,
+    })
+  : '';
 ---
 
 {!drep ? (
@@ -113,11 +148,17 @@ const personLd = drep
 ) : (
   <Layout
     title={`${displayName} - DRep on DRepTalk`}
-    description={drep.bio ? excerptFromHtml(drep.bio, 155) : `On-chain DRep profile and activity for ${displayName} on DRepTalk.`}
+    description={drepMetaDescription({
+      displayName,
+      votingPowerFormatted: formatAdaCompact(drep.votingPower),
+      votesCast,
+      retired: isRetired,
+    })}
     noindex={!indexable}
     ogImage={`/og/drep/${drep.slug ?? drep.drepId}.png`}
   >
     {personLd && <JsonLd data={personLd} />}
+    {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
 
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
       <a href="/">DRepTalk</a>
@@ -197,7 +238,9 @@ const personLd = drep
       </p>
     )}
 
-    {drep.bio && <p style="color:var(--fg);max-width:65ch;">{drep.bio}</p>}
+    {drep.bio
+      ? <p style="color:var(--fg);max-width:65ch;">{drep.bio}</p>
+      : <p style="color:var(--muted);max-width:65ch;">{profileSummary}</p>}
 
     {drep.links && drep.links.length > 0 && (
       <ul style="list-style:none;padding:0;display:flex;gap:1rem;flex-wrap:wrap;">
