@@ -120,6 +120,7 @@ export interface GovernanceAction {
   expiryEpoch: number | null;
   status: string;
   onchainPayload: string | null;
+  // Per-option vote COUNTS (number of DReps / pools / CC members voting each way).
   drepYes: number | null;
   drepNo: number | null;
   drepAbstain: number | null;
@@ -129,6 +130,14 @@ export interface GovernanceAction {
   ccYes: number | null;
   ccNo: number | null;
   ccAbstain: number | null;
+  // Per-option vote POWER in lovelace (DRep/SPO only; CC has no stake). The amount
+  // of stake behind each option, distinct from the counts above.
+  drepYesPower: number | null;
+  drepNoPower: number | null;
+  drepAbstainPower: number | null;
+  spoYesPower: number | null;
+  spoNoPower: number | null;
+  spoAbstainPower: number | null;
   drepYesPct: number | null;
   drepNoPct: number | null;
   spoYesPct: number | null;
@@ -174,6 +183,12 @@ interface GovernanceActionRow {
   cc_yes: number | null;
   cc_no: number | null;
   cc_abstain: number | null;
+  drep_yes_power: number | null;
+  drep_no_power: number | null;
+  drep_abstain_power: number | null;
+  spo_yes_power: number | null;
+  spo_no_power: number | null;
+  spo_abstain_power: number | null;
   drep_yes_pct: number | null;
   drep_no_pct: number | null;
   spo_yes_pct: number | null;
@@ -218,6 +233,12 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     ccYes: r.cc_yes,
     ccNo: r.cc_no,
     ccAbstain: r.cc_abstain,
+    drepYesPower: r.drep_yes_power,
+    drepNoPower: r.drep_no_power,
+    drepAbstainPower: r.drep_abstain_power,
+    spoYesPower: r.spo_yes_power,
+    spoNoPower: r.spo_no_power,
+    spoAbstainPower: r.spo_abstain_power,
     drepYesPct: r.drep_yes_pct,
     drepNoPct: r.drep_no_pct,
     spoYesPct: r.spo_yes_pct,
@@ -502,8 +523,9 @@ export async function batchUpdateTrendingScores(
 }
 
 /**
- * Terminal actions still missing their voted-power backfill. Active/pending
- * actions get drep_voted_power from the normal tally, so they are excluded here.
+ * Terminal actions still missing power data: either the turnout sum
+ * (drep_voted_power) or the per-option power buckets (drep_yes_power). Active/
+ * pending actions get both from the normal tally, so they are excluded here.
  * Bounded by `limit` so a cron tick stays within Koios/subrequest budgets.
  */
 export async function getActionsNeedingVotedPower(db: D1Database, limit: number): Promise<GovernanceAction[]> {
@@ -511,7 +533,7 @@ export async function getActionsNeedingVotedPower(db: D1Database, limit: number)
     await db
       .prepare(
         `SELECT * FROM governance_actions
-         WHERE proposal_id IS NOT NULL AND drep_voted_power IS NULL
+         WHERE proposal_id IS NOT NULL AND (drep_voted_power IS NULL OR drep_yes_power IS NULL)
            AND status NOT IN ('active', 'pending')
          LIMIT ?`,
       )
@@ -579,9 +601,39 @@ export async function getGovActionsWithStaleTopicTitle(db: D1Database, limit: nu
   return rows.map(rowToGovernanceAction);
 }
 
-/** Surgically sets only drep_voted_power for one action (leaves status/tally untouched). */
-export async function updateVotedPower(db: D1Database, id: string, votedPower: number): Promise<void> {
-  await db.prepare('UPDATE governance_actions SET drep_voted_power = ? WHERE id = ?').bind(votedPower, id).run();
+/** The power fields the backfill sets: turnout sum plus per-option DRep/SPO buckets.
+    All optional; an omitted field writes null. */
+export interface VotePowerFields {
+  votedPower?: number | null;
+  drepYesPower?: number | null;
+  drepNoPower?: number | null;
+  drepAbstainPower?: number | null;
+  spoYesPower?: number | null;
+  spoNoPower?: number | null;
+  spoAbstainPower?: number | null;
+}
+
+/** Surgically sets the power columns for one action (leaves status/tally/pct untouched). */
+export async function updateVotedPower(db: D1Database, id: string, p: VotePowerFields): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE governance_actions
+         SET drep_voted_power = ?,
+             drep_yes_power = ?, drep_no_power = ?, drep_abstain_power = ?,
+             spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?
+       WHERE id = ?`,
+    )
+    .bind(
+      p.votedPower ?? null,
+      p.drepYesPower ?? null,
+      p.drepNoPower ?? null,
+      p.drepAbstainPower ?? null,
+      p.spoYesPower ?? null,
+      p.spoNoPower ?? null,
+      p.spoAbstainPower ?? null,
+      id,
+    )
+    .run();
 }
 
 /**
@@ -655,6 +707,34 @@ export async function getActionsNeedingVoteBackfill(db: D1Database, limit: numbe
         `SELECT * FROM governance_actions
          WHERE status NOT IN ('active', 'pending')
            AND proposal_id IS NOT NULL AND votes_synced_at IS NULL
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/**
+ * Finalized actions that still have at least one anchored vote without a stored
+ * meta_hash. These are votes synced before meta_hash capture existed, so the
+ * rationale queue (which requires both meta_url and meta_hash) skips them. The
+ * meta_hash backfill re-fetches each action's votes to fill the hash. Self-
+ * draining: an action drops out once none of its anchored votes lack a hash.
+ */
+export async function getActionsNeedingMetaHashBackfill(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM governance_actions g
+         WHERE g.status NOT IN ('active', 'pending')
+           AND g.proposal_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM drep_votes v
+             WHERE v.ga_id = g.id
+               AND v.meta_url IS NOT NULL AND v.meta_url != ''
+               AND (v.meta_hash IS NULL OR v.meta_hash = '')
+           )
          LIMIT ?`,
       )
       .bind(limit)
@@ -776,7 +856,15 @@ export type GovernanceTally = Pick<
   | 'drepYesPct' | 'drepNoPct' | 'spoYesPct' | 'spoNoPct' | 'ccYesPct' | 'ccNoPct'
   | 'drepVotedPower'
   | 'tallyEpoch'
->;
+> &
+  // Per-option power is optional on the update so older callers/tests need not
+  // supply it; tallyFields always does. Omitted means the column is left null.
+  Partial<
+    Pick<
+      GovernanceAction,
+      'drepYesPower' | 'drepNoPower' | 'drepAbstainPower' | 'spoYesPower' | 'spoNoPower' | 'spoAbstainPower'
+    >
+  >;
 
 export type GovernanceTallyUpdate = GovernanceTally & {
   id: string;
@@ -824,6 +912,8 @@ export async function updateGovernanceTallyAndStatus(
          SET status = ?, drep_yes = ?, drep_no = ?, drep_abstain = ?,
              spo_yes = ?, spo_no = ?, spo_abstain = ?,
              cc_yes = ?, cc_no = ?, cc_abstain = ?,
+             drep_yes_power = ?, drep_no_power = ?, drep_abstain_power = ?,
+             spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?,
              drep_yes_pct = ?, drep_no_pct = ?, spo_yes_pct = ?, spo_no_pct = ?,
              cc_yes_pct = ?, cc_no_pct = ?,
              drep_voted_power = ?,
@@ -842,6 +932,12 @@ export async function updateGovernanceTallyAndStatus(
       u.ccYes,
       u.ccNo,
       u.ccAbstain,
+      u.drepYesPower ?? null,
+      u.drepNoPower ?? null,
+      u.drepAbstainPower ?? null,
+      u.spoYesPower ?? null,
+      u.spoNoPower ?? null,
+      u.spoAbstainPower ?? null,
       u.drepYesPct,
       u.drepNoPct,
       u.spoYesPct,

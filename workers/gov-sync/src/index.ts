@@ -37,6 +37,11 @@
 //   2026-06-27: date gov_status feed events at their on-chain epoch boundary (not
 //               detection time) + add a gov-status-times backfill that re-dates the
 //               catch-up burst of "was enacted" events to when they actually enacted.
+//   2026-06-30: stop the avatar pass from wiping inline data: URI DRep avatars
+//               (clearOrphanedImageStore now spares rows with no stored source URL).
+//   2026-07-01: pick up META_EXTRACT_VERSION 3 so the metadata backfill re-extracts
+//               action bodies with motivation + rationale merged (was dropping the
+//               motivation section, cutting the body off at the start).
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -49,12 +54,15 @@ import {
   backfillGovTopicTitles,
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
-import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
+import { syncPools } from '../../../src/lib/pools/sync.js';
+import { storePoolAvatars } from '../../../src/lib/pools/avatarStore.js';
+import { listReferencedPoolImageHashes } from '../../../src/lib/db/pools.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
@@ -250,6 +258,30 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: r.votes, failed: r.failed };
   }, { primary: true });
 
+  // Resolve stake-pool metadata (ticker/name/logo) for the pools that appear on
+  // the platform, and mirror logos to R2. Runs here on the frequent cron (not
+  // only the 6h DRep sync) so a large active-pool backlog drains in hours and
+  // newly-active SPO pools appear within one cron cycle; a no-op once drained.
+  await phase('pools', async () => {
+    const r = await syncPools({ koios, db: env.DB, fetchImpl: fetch, nowMs: Date.now() });
+    console.log(`[pools] scanned=${r.scanned} updated=${r.updated} logos=${r.logos}`);
+    return { items: r.updated };
+  });
+
+  if (env.AVATARS) {
+    const bucket = env.AVATARS;
+    await phase('pool-avatars', async () => {
+      const p = await storePoolAvatars({
+        db: env.DB,
+        bucket,
+        fetchImpl: fetch,
+        downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
+      });
+      console.log(`[pool-avatars] scanned=${p.scanned} stored=${p.stored} cleared=${p.cleared} failed=${p.failed}`);
+      return { items: p.stored, failed: p.failed };
+    });
+  }
+
   // Fetch and store CIP-100/CIP-136 vote rationale anchors for votes that have
   // a metadata_url but no rationale stored yet. Paced with the same interval as
   // the votes phase to avoid hammering anchor hosts. Not the primary phase.
@@ -264,6 +296,15 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
   await phase('finalized-backfill', async () => {
     const bf = await backfillFinalizedVotes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
     console.log(`[gov-votes-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
+    return { items: bf.votes, failed: bf.failed };
+  });
+
+  // One-time historical fill: votes synced before meta_hash capture have no hash,
+  // so the rationale queue skips them. Re-fetch a few finalized actions per run to
+  // fill the hash; self-draining, becomes a no-op once every action is filled.
+  await phase('meta-hash-backfill', async () => {
+    const bf = await backfillVoteMetaHashes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
+    console.log(`[gov-rationale-hash-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
     return { items: bf.votes, failed: bf.failed };
   });
 
@@ -345,6 +386,15 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: slugs.assigned };
   });
 
+  // Fetch pool metadata and logo URLs from Koios for active pools. Only-changed
+  // writes; pools not yet due for a refresh are skipped. A failure here must not
+  // fail the DRep sync that already succeeded (phase isolation).
+  await phase('pools', async () => {
+    const r = await syncPools({ koios, db: env.DB, fetchImpl: fetch, nowMs: Date.now() });
+    console.log(`[pools] scanned=${r.scanned} updated=${r.updated} logos=${r.logos}`);
+    return { items: r.updated };
+  });
+
   // Store new/changed avatars in R2 and GC orphaned objects. A failure here
   // must not fail the DRep sync that already succeeded (phase isolation).
   if (env.AVATARS) {
@@ -360,9 +410,17 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
         downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
       });
       console.log(`[drep-avatars] scanned=${a.scanned} stored=${a.stored} cleared=${a.cleared} failed=${a.failed}`);
-      const gc = await gcDrepAvatars({ db: env.DB, bucket, nowMs: Date.now() });
+      const p = await storePoolAvatars({
+        db: env.DB,
+        bucket,
+        fetchImpl: fetch,
+        downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
+      });
+      console.log(`[pool-avatars] scanned=${p.scanned} stored=${p.stored} cleared=${p.cleared} failed=${p.failed}`);
+      const poolHashes = await listReferencedPoolImageHashes(env.DB);
+      const gc = await gcDrepAvatars({ db: env.DB, bucket, nowMs: Date.now(), extraReferenced: poolHashes });
       console.log(`[drep-avatars-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);
-      return { items: a.stored, failed: a.failed };
+      return { items: a.stored + p.stored, failed: a.failed + p.failed };
     });
   } else {
     console.warn('[drep-avatars] AVATARS binding missing; skipping avatar store');

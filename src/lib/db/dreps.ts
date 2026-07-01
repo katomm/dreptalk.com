@@ -541,12 +541,18 @@ export async function markDrepImageFetchFailed(
 /**
  * Clears the stored-avatar columns for rows whose on-chain image disappeared,
  * so the GC can reap the now-unreferenced R2 object. Returns rows cleared.
+ *
+ * Only URL-sourced avatars are orphaned: image_stored_url holds the source URL
+ * an avatar was fetched from, so a non-null one with image_url now gone means
+ * the link was removed. Inline data: avatars carry image_stored_url null (they
+ * are decoded from the doc, never fetched), so the IS NOT NULL guard keeps them
+ * out, otherwise the avatar pass would wipe them the same run the sync stores them.
  */
 export async function clearOrphanedImageStore(db: D1Database): Promise<number> {
   const res = await db
     .prepare(
       `UPDATE dreps SET image_content_hash = NULL, image_stored_url = NULL
-       WHERE image_url IS NULL AND image_content_hash IS NOT NULL`,
+       WHERE image_url IS NULL AND image_content_hash IS NOT NULL AND image_stored_url IS NOT NULL`,
     )
     .run();
   return res.meta.changes ?? 0;

@@ -26,6 +26,17 @@ below no longer match FRESHNESS (label, refresh, and notes columns, in order). -
 | DRep profiles (name, bio, avatar) and status | About every 4 to 6 hours | The drep-sync cron keeps every DRep profile current. |
 | DRep role re-check (write access) | Daily | Independent of the login session. |
 
+## Which vote rationales appear
+
+On a governance action's Positions tab we show the on-chain rationales attached to
+votes. Each rationale is a separate document the DRep links from their vote, often
+hosted on IPFS or their own server, so reading one means fetching an external file.
+To keep the page fast and reliable we surface the rationales behind the largest
+share of the voting weight first, and widen coverage from there over time. A
+rationale that is not shown here yet is in no way diminished: it stays permanently
+recorded on-chain, fully valid, and you can open it directly from the vote's
+on-chain link.
+
 ## Related
 
 - [Governance action statuses](/help/governance-statuses)

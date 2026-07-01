@@ -318,6 +318,11 @@ main.container {
   padding: 0.4rem 0.7rem;
   text-align: left;
   vertical-align: top;
+  /* Override the .prose default (overflow-wrap: anywhere), which lets the auto
+     table layout shrink columns to a single character and break mid-word
+     (e.g. "TVL" into "TV" / "L"). break-word sizes columns to whole words and
+     only splits genuinely long tokens as a last resort. */
+  overflow-wrap: break-word;
 }
 .prose th {
   background: var(--surface);
@@ -454,19 +459,46 @@ main.container {
 .dreps-intro { color: var(--muted); max-width: 60ch; margin: 0 0 1.25rem; }
 .dreps-filter { font-size: 0.8125rem; color: var(--muted); margin: 1rem 0; }
 
-.drep-stats { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0 0 1.25rem; }
+.drep-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+}
+@media (max-width: 900px) { .drep-stats { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .drep-stats { grid-template-columns: 1fr; } }
 .drep-stat {
-  flex: 1 1 12rem;
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.85rem 1rem;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
 }
+.drep-stat__icon {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.65rem;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.drep-stat--alt .drep-stat__icon {
+  background: color-mix(in srgb, var(--c-pos) 14%, transparent);
+  color: var(--c-pos);
+}
+.drep-stat__icon svg { width: 1.35rem; height: 1.35rem; }
+.drep-stat__body { min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
 .drep-stat__label { font-size: 0.8125rem; color: var(--muted); }
 .drep-stat__value { font-size: 1.4rem; font-weight: 700; line-height: 1.1; }
+.drep-stat__delta { font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+.drep-stat__delta--up { color: var(--c-pos); }
+.drep-stat__delta--down { color: var(--c-neg); }
+.drep-stat__delta--flat, .drep-stat__sub { color: var(--muted); font-size: 0.75rem; }
+.drep-stat__arrow { font-size: 0.8em; line-height: 1; }
 
 .drep-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; table-layout: fixed; }
 .drep-table thead th {

@@ -2,11 +2,51 @@
 // Parameterized D1 access for drep_voting_power_history: per-epoch voting power
 // snapshots that feed the directory list delta chip and the profile sparkline.
 // All writes use .prepare().bind(); never string-concatenated values.
+import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 
 export interface VotingPowerHistoryRow {
   drepId: string;
   epoch: number;
   amount: string;
+}
+
+export interface VotingPowerEpochAggregate {
+  epoch: number;
+  /** DReps with a snapshot this epoch (special auto-voting ids excluded). */
+  count: number;
+  /**
+   * Summed voting power in lovelace, as a JS number. Network totals reach ~2e16
+   * lovelace, past Number's exact-integer range, so this is only precise enough
+   * for epoch-over-epoch ratios; never treat it as an exact lovelace amount.
+   */
+  total: number;
+}
+
+/**
+ * The two most recent epochs' aggregate DRep voting power, newest first, for the
+ * directory stat cards' "this epoch" deltas. One grouped scan of the rolling
+ * history window; the special auto-voting DReps are excluded so the totals line
+ * up with the concentration figures. Returns 0, 1, or 2 rows depending on how
+ * many epochs have synced.
+ */
+export async function getVotingPowerEpochAggregates(
+  db: D1Database,
+): Promise<VotingPowerEpochAggregate[]> {
+  const placeholders = SPECIAL_DREP_IDS.map(() => '?').join(', ');
+  const rows = (
+    await db
+      .prepare(
+        `SELECT epoch, COUNT(*) AS count, SUM(CAST(amount AS INTEGER)) AS total
+         FROM drep_voting_power_history
+         WHERE drep_id NOT IN (${placeholders})
+         GROUP BY epoch
+         ORDER BY epoch DESC
+         LIMIT 2`,
+      )
+      .bind(...SPECIAL_DREP_IDS)
+      .all<{ epoch: number; count: number; total: number | null }>()
+  ).results ?? [];
+  return rows.map((r) => ({ epoch: r.epoch, count: r.count, total: Number(r.total ?? 0) }));
 }
 
 // D1 caps bound parameters per query at 100 (not SQLite's higher native limit;

@@ -18,8 +18,10 @@ import {
   isSpoLedType,
   overviewTally,
   sentimentSubline,
+  bodyVoteAmounts,
   TERMINAL_STATUSES,
   type RoleTallyInput,
+  type BodyVoteInput,
 } from './view.js';
 
 describe('readableType / formatAda', () => {
@@ -296,6 +298,32 @@ describe('sentimentSubline', () => {
   it('reads as "against" for a normal tally', () => {
     const t = overviewTally(make({ type: 'TreasuryWithdrawals', status: 'active', drepYesPct: 79, drepNoPct: 21, drepYes: 200, drepNo: 70, drepAbstain: 6 }))!;
     expect(sentimentSubline(t)).toBe('21% against · 0% abstain');
+  });
+});
+
+describe('bodyVoteAmounts', () => {
+  const a: BodyVoteInput = {
+    drepYesPower: 104_420_000_000_000, drepNoPower: 565_310_000_000_000, drepAbstainPower: 175_830_000_000_000,
+    spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
+    ccYes: 4, ccNo: 0, ccAbstain: 1,
+  };
+
+  it('formats DRep amounts as compact ADA from the per-option power', () => {
+    expect(bodyVoteAmounts(a, 'DRep')).toEqual({ yes: '104.4M ₳', no: '565.3M ₳', abstain: '175.8M ₳' });
+  });
+
+  it('renders CC amounts as plain member counts, not ADA', () => {
+    expect(bodyVoteAmounts(a, 'CC')).toEqual({ yes: '4', no: '0', abstain: '1' });
+  });
+
+  it('returns null for a body with no power data', () => {
+    expect(bodyVoteAmounts(a, 'SPO')).toBeNull();
+  });
+
+  it('treats a present-but-zero option as 0, not absent', () => {
+    expect(bodyVoteAmounts({ ...a, drepYesPower: 0, drepNoPower: null, drepAbstainPower: null }, 'DRep')).toEqual({
+      yes: '0 ₳', no: '0 ₳', abstain: '0 ₳',
+    });
   });
 });
 

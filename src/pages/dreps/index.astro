@@ -7,8 +7,11 @@ import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import DrepConcentration from '@/components/DrepConcentration.tsx';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
+import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import { listDreps, listDrepsForConcentration } from '@/lib/db/dreps.js';
+import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
+import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { influencePct } from '@/lib/drep/profile.js';
 import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/drep/votingPowerTrend.js';
@@ -25,13 +28,14 @@ const activeOnly = Astro.url.searchParams.get('all') !== '1';
 // The directory listing, the concentration aggregate, and the cached protocol
 // params are independent reads; fetch them concurrently so a cold (uncached)
 // render pays one round-trip of latency, not three.
-const [dreps, concentrationRows, params] = db
+const [dreps, concentrationRows, params, powerAggregates] = db
   ? await Promise.all([
       listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) }),
       listDrepsForConcentration(db),
       getProtocolParams(db),
+      getVotingPowerEpochAggregates(db),
     ])
-  : [[], [], null];
+  : [[], [], null, []];
 
 // Voting power concentration: all active, non-special DReps as BigInt powers.
 // Parse lovelace defensively so a single malformed row cannot 500 the page
@@ -50,6 +54,37 @@ const concentration = computeConcentration(
 // The same total the donut uses (active, non-special), so a row's table share and
 // the concentration view agree. Number is exact enough for the percent display.
 const totalActivePower = Number(concentration.totalPower);
+
+// Header stat cards. The current figures come from the live concentration (the
+// authoritative active set); the "this epoch" deltas come from the per-epoch
+// history aggregates (newest first). Deltas stay hidden until two epochs exist.
+const statTrends = computeDrepStatTrends(powerAggregates[0], powerAggregates[1]);
+// Average voting power per active DRep. BigInt division avoids the Number range
+// (total lovelace exceeds it), then formatted compact like the row values.
+const avgPowerLabel =
+  concentration.drepCount > 0
+    ? formatAdaCompact((BigInt(concentration.totalPower) / BigInt(concentration.drepCount)).toString())
+    : formatAdaCompact('0');
+// Concentration headline: the share of active voting power held by the ten largest
+// DReps (topK carries more than ten, so slicing is safe).
+const top10Pct = concentration.topK.slice(0, 10).reduce((acc, t) => acc + t.pct, 0);
+
+// The four header cards, in mockup order. `trend` renders the "this epoch" chip;
+// `sub` is a static caption for the card that has no epoch delta. The icon tint
+// alternates (accent, positive) to match the directory's palette.
+const statCards: {
+  label: string;
+  value: string;
+  icon: 'people' | 'power' | 'gauge' | 'share';
+  alt: boolean;
+  trend?: (typeof statTrends)['activeDreps'];
+  sub?: string;
+}[] = [
+  { label: 'Active DReps', value: concentration.drepCount.toLocaleString('en-US'), icon: 'people', alt: false, trend: statTrends.activeDreps },
+  { label: 'Total voting power', value: formatAdaCompact(concentration.totalPower), icon: 'power', alt: true, trend: statTrends.totalPower },
+  { label: 'Avg. voting power', value: avgPowerLabel, icon: 'gauge', alt: false, trend: statTrends.avgPower },
+  { label: 'Top 10 control', value: `${top10Pct.toFixed(1)}%`, icon: 'share', alt: true, sub: 'held by the 10 largest' },
+];
 
 // Donut slider markers: each DRep voting threshold (dvt_* fraction) paired with
 // the governance action it gates, grouped by rounded percent (several actions
@@ -167,14 +202,25 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
 
   {concentration.drepCount > 0 && (
     <div class="drep-stats">
-      <div class="drep-stat">
-        <span class="drep-stat__label">Active DReps</span>
-        <span class="drep-stat__value">{concentration.drepCount.toLocaleString('en-US')}</span>
-      </div>
-      <div class="drep-stat">
-        <span class="drep-stat__label">Active voting power</span>
-        <span class="drep-stat__value">{concentration.totalLabel}</span>
-      </div>
+      {statCards.map((card) => (
+        <div class={`drep-stat${card.alt ? ' drep-stat--alt' : ''}`}>
+          <span class="drep-stat__icon"><DrepStatIcon name={card.icon} /></span>
+          <span class="drep-stat__body">
+            <span class="drep-stat__label">{card.label}</span>
+            <span class="drep-stat__value">{card.value}</span>
+            {card.trend ? (
+              <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
+                {card.trend.direction !== 'flat' && (
+                  <span class="drep-stat__arrow" aria-hidden="true">{card.trend.direction === 'up' ? '↑' : '↓'}</span>
+                )}
+                {card.trend.label} this epoch
+              </span>
+            ) : card.sub ? (
+              <span class="drep-stat__sub">{card.sub}</span>
+            ) : null}
+          </span>
+        </div>
+      ))}
     </div>
   )}
 

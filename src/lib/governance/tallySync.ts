@@ -19,6 +19,7 @@ import {
   getActionsNeedingVotedPower,
   updateVotedPower,
   getActionsNeedingVoteBackfill,
+  getActionsNeedingMetaHashBackfill,
   markVotesSynced,
   getGovStatusEventsForTimeFix,
   updateActivityCreatedAt,
@@ -173,6 +174,21 @@ function powerNum(v: string | null | undefined): number | null {
   return v == null ? null : Number(v);
 }
 
+/** Per-option vote power (lovelace) for the sidebar breakdown. DRep buckets are
+    the clean active yes/no/abstain. For SPO, yes/no are the active buckets and
+    abstain is the always-abstain delegated stake (Koios has no separate active
+    abstain pool bucket). Null-tolerant for older Koios without power fields. */
+function votePowers(s: VotingSummary | null) {
+  return {
+    drepYesPower: powerNum(s?.drep_active_yes_vote_power),
+    drepNoPower: powerNum(s?.drep_active_no_vote_power),
+    drepAbstainPower: powerNum(s?.drep_active_abstain_vote_power),
+    spoYesPower: powerNum(s?.pool_active_yes_vote_power),
+    spoNoPower: powerNum(s?.pool_no_vote_power),
+    spoAbstainPower: powerNum(s?.pool_passive_always_abstain_vote_power),
+  };
+}
+
 /**
  * SPO yes/no percentages for the tally. Koios' pool_yes_pct / pool_no_pct are
  * correct for every action type EXCEPT HardForkInitiation. The Conway ledger does
@@ -218,6 +234,7 @@ function tallyFields(s: VotingSummary | null): GovernanceTally {
     ccYes: s?.committee_yes_votes_cast ?? null,
     ccNo: s?.committee_no_votes_cast ?? null,
     ccAbstain: s?.committee_abstain_votes_cast ?? null,
+    ...votePowers(s),
     drepYesPct: s?.drep_yes_pct ?? null,
     drepNoPct: s?.drep_no_pct ?? null,
     spoYesPct: spo?.yesPct ?? null,
@@ -411,9 +428,12 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
     if (!ga.proposalId) continue;
     try {
       const summary = await koios.proposalVotingSummary(ga.proposalId);
+      if (!summary) continue;
       const vp = votedPower(summary);
-      if (vp != null) {
-        await updateVotedPower(db, ga.id, vp);
+      const powers = votePowers(summary);
+      const hasData = vp != null || Object.values(powers).some((v) => v != null);
+      if (hasData) {
+        await updateVotedPower(db, ga.id, { votedPower: vp, ...powers });
         updated++;
       }
     } catch (err) {
@@ -501,6 +521,37 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     } catch (err) {
       failed++;
       console.warn(`[gov-votes-backfill] action ${ga.id} failed:`, err);
+    }
+  }
+  return { actions, votes, failed };
+}
+
+/**
+ * One-time historical backfill: fills meta_hash on votes for finalized actions
+ * synced before meta_hash capture existed, so the rationale queue can pick them
+ * up. Re-fetches each candidate's votes (Koios returns the hash) and re-upserts.
+ * Does NOT call markVotesSynced: these actions are already vote-synced, and the
+ * candidate query self-drains once their anchored votes all carry a hash.
+ */
+export async function backfillVoteMetaHashes(deps: VoteSyncDeps): Promise<VoteBackfillResult> {
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES } = deps;
+  const candidates = await getActionsNeedingMetaHashBackfill(db, limit);
+  let votes = 0;
+  let failed = 0;
+  let actions = 0;
+  for (const [i, ga] of candidates.entries()) {
+    if (!ga.proposalId) continue;
+    if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
+    actions++;
+    try {
+      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
+      votes += await upsertVotes(db, ga.id, collected, now);
+      if (capped) {
+        console.warn(`[gov-rationale-hash-backfill] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; refreshed a capped prefix`);
+      }
+    } catch (err) {
+      failed++;
+      console.warn(`[gov-rationale-hash-backfill] action ${ga.id} failed:`, err);
     }
   }
   return { actions, votes, failed };

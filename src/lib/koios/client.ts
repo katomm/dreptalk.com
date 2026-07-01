@@ -219,6 +219,33 @@ const proposalVoteRowSchema = z
 
 export type ProposalVoteRow = z.infer<typeof proposalVoteRowSchema>;
 
+// One row of /pool_info. meta_json is the validated base off-chain metadata
+// (ticker/name/homepage/description); Koios omits the CIP-6 `extended` field, so
+// the logo URL is resolved separately from the raw meta_url document.
+const poolInfoRowSchema = z
+  .object({
+    pool_id_bech32: z.string(),
+    pool_id_hex: z.string().nullable().optional(),
+    meta_url: z.string().nullable().optional(),
+    meta_hash: z.string().nullable().optional(),
+    meta_json: z
+      .object({
+        ticker: z.string().nullable().optional(),
+        name: z.string().nullable().optional(),
+        homepage: z.string().nullable().optional(),
+        description: z.string().nullable().optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
+
+export type PoolInfoRow = z.infer<typeof poolInfoRowSchema>;
+
+// Koios /pool_info POST body cap; pool_info rows are large, keep the sub-batch modest.
+const POOL_INFO_MAX = 50;
+
 // One row of /drep_updates: a DRep registration/deregistration/update event.
 // action is 'registered' | 'updated' | 'deregistered'; block_time is unix seconds.
 // Without a _drep_id filter the endpoint returns every DRep's updates, newest first.
@@ -432,6 +459,27 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     }
   }
 
+  // Fetches /pool_info for a sub-batch, halving and retrying on a 413 (Koios
+  // body cap) down to a single id, matching the drepInfoChunk pattern.
+  async function poolInfoChunk(poolIds: string[]): Promise<PoolInfoRow[]> {
+    try {
+      const data = await request('/pool_info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _pool_bech32_ids: poolIds }),
+      });
+      return z.array(poolInfoRowSchema).parse(data);
+    } catch (err) {
+      if (poolIds.length > 1 && err instanceof KoiosHttpError && err.status === 413) {
+        const mid = Math.ceil(poolIds.length / 2);
+        const head = await poolInfoChunk(poolIds.slice(0, mid));
+        const tail = await poolInfoChunk(poolIds.slice(mid));
+        return [...head, ...tail];
+      }
+      throw err;
+    }
+  }
+
   return {
     async tip(): Promise<Tip> {
       const data = await request('/tip', { method: 'GET' });
@@ -457,6 +505,18 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const out: DrepInfoRow[] = [];
       for (let i = 0; i < drepIds.length; i += DREP_INFO_MAX) {
         out.push(...(await drepInfoChunk(drepIds.slice(i, i + DREP_INFO_MAX))));
+      }
+      return out;
+    },
+
+    // Batch lookup for pool metadata: ticker, name, homepage, meta_url/hash.
+    // Sub-batched by POOL_INFO_MAX with 413-halving fallback. Empty input
+    // short-circuits the round-trip.
+    async poolInfoBatch(poolIds: string[]): Promise<PoolInfoRow[]> {
+      if (poolIds.length === 0) return [];
+      const out: PoolInfoRow[] = [];
+      for (let i = 0; i < poolIds.length; i += POOL_INFO_MAX) {
+        out.push(...(await poolInfoChunk(poolIds.slice(i, i + POOL_INFO_MAX))));
       }
       return out;
     },

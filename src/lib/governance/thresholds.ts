@@ -6,6 +6,16 @@ import type { ProtocolParams } from '../db/protocolParams.js';
 
 export type Body = 'DRep' | 'SPO' | 'CC';
 
+// The four DRep parameter groups a ParameterChange can touch (CIP-1694). Defined
+// here, not in onchain.ts, so the threshold evaluation has no import cycle; the
+// payload-to-scope decoder in onchain.ts imports these types from here.
+export type ParamGroup = 'network' | 'economic' | 'technical' | 'governance';
+
+export interface ParamChangeScope {
+  groups: ParamGroup[];     // DRep groups the change touches
+  touchesSecurity: boolean; // any changed parameter is security-relevant (adds the SPO vote)
+}
+
 export interface BodyResult {
   body: Body;
   thresholdPct: number | null; // 0..100, null when params not synced
@@ -19,12 +29,39 @@ export interface ThresholdInput {
   spoYesPct: number | null;
   ccYesPct: number | null;
   ccSize: number; // current committee size (members count)
+  // For ParameterChange only: which groups the change touches and whether SPOs
+  // vote. Null/absent when the on-chain payload is unavailable.
+  paramScope?: ParamChangeScope | null;
 }
 
-// Per type: DRep threshold fraction, SPO threshold fraction (or null = no SPO),
+// The strictest (highest) of a set of group threshold fractions, null if none.
+function strictest(vals: (number | null)[]): number | null {
+  return Math.max(0, ...vals.map((v) => v ?? 0)) || null;
+}
+
+// ParameterChange voting: DReps vote at the strictest threshold of the groups the
+// change actually touches; SPOs vote only when a security-relevant parameter
+// changes (constitution PARAM-03a). When the payload is unavailable (scope null)
+// we cannot prove either, so DReps fall back to the strictest of all four groups
+// and the SPO vote is omitted rather than invented. CC always votes.
+function planParameterChange(scope: ParamChangeScope | null | undefined, p: ProtocolParams) {
+  const groupThr: Record<ParamGroup, number | null> = {
+    network: p.dvtPpNetwork,
+    economic: p.dvtPpEconomic,
+    technical: p.dvtPpTechnical,
+    governance: p.dvtPpGov,
+  };
+  const drep =
+    scope?.groups.length
+      ? strictest(scope.groups.map((g) => groupThr[g]))
+      : strictest([p.dvtPpNetwork, p.dvtPpEconomic, p.dvtPpTechnical, p.dvtPpGov]);
+  return { drep, spo: scope?.touchesSecurity ? p.pvtSecurityGroup : null, cc: true };
+}
+
+// Per action: DRep threshold fraction, SPO threshold fraction (or null = no SPO),
 // and whether the CC votes. Returns null for types with no on-chain threshold.
-function plan(type: string, p: ProtocolParams): { drep: number | null; spo: number | null; cc: boolean } | null {
-  switch (type) {
+function plan(input: ThresholdInput, p: ProtocolParams): { drep: number | null; spo: number | null; cc: boolean } | null {
+  switch (input.type) {
     case 'InfoAction':
       return null;
     case 'NoConfidence':
@@ -38,13 +75,7 @@ function plan(type: string, p: ProtocolParams): { drep: number | null; spo: numb
     case 'TreasuryWithdrawals':
       return { drep: p.dvtTreasuryWithdrawal, spo: null, cc: true };
     case 'ParameterChange':
-      // v1: strictest DRep pp-group threshold; SPO only via the security group.
-      // (Refinement: pick the exact group(s) from the action's param_proposal.)
-      return {
-        drep: Math.max(p.dvtPpNetwork ?? 0, p.dvtPpEconomic ?? 0, p.dvtPpTechnical ?? 0, p.dvtPpGov ?? 0) || null,
-        spo: p.pvtSecurityGroup,
-        cc: true,
-      };
+      return planParameterChange(input.paramScope, p);
     default:
       return null;
   }
@@ -55,7 +86,7 @@ const meets = (yes: number | null, thrPct: number | null): boolean =>
   yes != null && thrPct != null && yes >= thrPct;
 
 export function evaluateThresholds(input: ThresholdInput, p: ProtocolParams): BodyResult[] {
-  const pl = plan(input.type, p);
+  const pl = plan(input, p);
   if (!pl) return [];
   const out: BodyResult[] = [];
   if (pl.drep != null) {

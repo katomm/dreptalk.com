@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed } from './drepVotes.js';
+import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters } from './drepVotes.js';
 
 async function seedAction(id: string, title: string, decidedEpoch: number) {
   await env.DB.prepare(
@@ -50,6 +50,18 @@ describe('getDrepVotingHistory + countDrepVotes', () => {
       .bind('m1', 'drepM').first<{ meta_url: string | null }>();
     expect(row?.meta_url).toBe('ipfs://rationale');
   });
+});
+
+it('lists only SPO voters for an action, newest first', async () => {
+  await env.DB.prepare(
+    `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at, local_status)
+     VALUES ('gaX','SPO','pool1old','h1','Yes',100,1,'onchain'),
+            ('gaX','SPO','pool1new','h2','No',200,1,'onchain'),
+            ('gaX','DRep','drep1','h3','Yes',150,1,'onchain')`,
+  ).run();
+  const voters = await getActionSpoVoters(env.DB, 'gaX');
+  expect(voters.map((v) => v.voter_id)).toEqual(['pool1new', 'pool1old']);
+  expect(await countActionSpoVoters(env.DB, 'gaX')).toBe(2);
 });
 
 describe('local vote record + reconcile', () => {

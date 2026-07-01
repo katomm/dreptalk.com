@@ -145,4 +145,97 @@ describe('fetchAnchorMetadata', () => {
     expect(res.metadata?.abstract).toContain('\n');
     expect(res.metadata?.abstract).toBe('First paragraph.\n\nSecond paragraph.');
   });
+
+  it('merges motivation and rationale so neither field is dropped', async () => {
+    // Proposers routinely split one document across both fields (motivation =
+    // intro/early sections, rationale = later sections). Both must survive; the
+    // old `rationale || motivation` silently dropped the motivation.
+    const splitDoc = {
+      '@context': {},
+      hashAlgorithm: 'blake2b-256',
+      body: {
+        title: 'Split Proposal',
+        abstract: 'Summary.',
+        motivation: '### 1. Introduction\n\nThe problem statement.',
+        rationale: '### 2. Solution\n\nThe proposed solution.',
+      },
+    };
+    const json = jsonOf(splitDoc);
+    const res = await fetchAnchorMetadata('https://example.com/s.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.status).toBe('ok');
+    const html = res.metadata?.rationaleHtml ?? '';
+    expect(html).toContain('1. Introduction');
+    expect(html).toContain('The problem statement.');
+    expect(html).toContain('2. Solution');
+    // Order: motivation first, then rationale.
+    expect(html.indexOf('Introduction')).toBeLessThan(html.indexOf('Solution'));
+  });
+
+  it('falls back to motivation alone when rationale is absent', async () => {
+    const motOnly = {
+      '@context': {},
+      hashAlgorithm: 'blake2b-256',
+      body: { title: 'T', abstract: 'A', motivation: 'Only the **motivation** exists.' },
+    };
+    const json = jsonOf(motOnly);
+    const res = await fetchAnchorMetadata('https://example.com/m.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.status).toBe('ok');
+    expect(res.metadata?.rationaleHtml).toContain('<strong>motivation</strong>');
+  });
+
+  it('does not duplicate text when motivation and rationale are identical', async () => {
+    const dup = {
+      '@context': {},
+      hashAlgorithm: 'blake2b-256',
+      body: { title: 'T', abstract: 'A', motivation: 'Same body here.', rationale: 'Same body here.' },
+    };
+    const json = jsonOf(dup);
+    const res = await fetchAnchorMetadata('https://example.com/d.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.status).toBe('ok');
+    const html = res.metadata?.rationaleHtml ?? '';
+    expect(html.match(/Same body here\./g)?.length).toBe(1);
+  });
+
+  it('keeps a long rationale that would have been cut at the old 20k cap', async () => {
+    // The old MAX_RATIONALE_LEN of 20k truncated real proposals (e.g. IO: Hydra,
+    // ~32k rationale). The raised cap keeps the tail.
+    const tail = 'END_MARKER_TEXT';
+    const longDoc = {
+      '@context': {},
+      hashAlgorithm: 'blake2b-256',
+      body: { title: 'T', abstract: 'A', rationale: `${'word '.repeat(6_000)}\n\n${tail}` },
+    };
+    const json = jsonOf(longDoc);
+    expect(longDoc.body.rationale.length).toBeGreaterThan(20_000);
+    const res = await fetchAnchorMetadata('https://example.com/l.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.status).toBe('ok');
+    expect(res.metadata?.rationaleHtml).toContain(tail);
+  });
+
+  it('appends a truncation notice with anchor link when the body exceeds the cap', async () => {
+    // A pathological outlier (>100k chars) is capped, but the reader is told and
+    // pointed at the on-chain anchor for the full document.
+    const hugeDoc = {
+      '@context': {},
+      hashAlgorithm: 'blake2b-256',
+      body: { title: 'T', abstract: 'A', rationale: 'z'.repeat(150_000) },
+    };
+    const json = jsonOf(hugeDoc);
+    const res = await fetchAnchorMetadata('ipfs://QmHugeCid/meta.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.status).toBe('ok');
+    const html = res.metadata?.rationaleHtml ?? '';
+    expect(html.toLowerCase()).toContain('truncated');
+    // Links to the resolved gateway URL of the anchor.
+    expect(html).toContain('https://ipfs.io/ipfs/QmHugeCid/meta.json');
+  });
 });

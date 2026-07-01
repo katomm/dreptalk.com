@@ -29,7 +29,7 @@ import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
 import {
-  cacheControlForSynced, formatAda, formatAdaCompact, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN,
+  cacheControlForSynced, formatAda, formatAdaCompact, formatRelativeTime, truncateId, truncateIdMiddle, excerptFromHtml, SITE_ORIGIN,
 } from '@/lib/forum/view.js';
 
 const { drepId } = Astro.params;
@@ -173,7 +173,7 @@ const profileSummary = drep
       <div class="drep-hd__main">
         <span class="drep-hd__kind">DRep</span>
         <h1 class="drep-hd__name">{displayName}</h1>
-        <div class="drep-hd__id"><span>{drep.drepId}</span><CopyButton value={drep.drepId} label="Copy DRep id" /></div>
+        <div class="drep-hd__id"><span title={drep.drepId}>{truncateIdMiddle(drep.drepId)}</span><CopyButton value={drep.drepId} label="Copy DRep id" /></div>
         <div class="drep-hd__stats">
           <span class={`drep-hd__status drep-hd__status--${drep.active ? 'active' : isRetired ? 'retired' : 'other'}`}>
             <span class="drep-hd__dot" aria-hidden="true"></span>
@@ -264,7 +264,7 @@ const profileSummary = drep
     )}
     {drep.paymentAddress && (
       <p style="font-size:0.8125rem;color:var(--muted);margin-top:0.5rem;">
-        Payment address: <span style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;word-break:break-all;">{drep.paymentAddress}</span><CopyButton value={drep.paymentAddress} label="Copy payment address" />
+        Payment address: <span style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;" title={drep.paymentAddress}>{truncateIdMiddle(drep.paymentAddress)}</span><CopyButton value={drep.paymentAddress} label="Copy payment address" />
       </p>
     )}
 
@@ -360,7 +360,7 @@ const profileSummary = drep
     background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .drep-hd__name { margin: 0 0 0.2rem; font-size: 2rem; line-height: 1.1; overflow-wrap: anywhere; }
-  .drep-hd__id { font-size: 0.8125rem; color: var(--muted); word-break: break-all; margin-bottom: 0.9rem; }
+  .drep-hd__id { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.9rem; }
   .drep-hd__stats { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
 
   .drep-hd__status {

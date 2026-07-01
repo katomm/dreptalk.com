@@ -366,3 +366,16 @@ describe('ingestDataUriAvatar', () => {
     expect(hash).toBeNull();
   });
 });
+
+it('gc keeps objects referenced via extraReferenced', async () => {
+  const b = bucket();
+  await b.put(`${AVATAR_KEY_PREFIX}poolhash1`, new Uint8Array([1]).buffer);
+  // No dreps row references it; without extraReferenced it would be deleted after grace.
+  const farFuture = Date.now() + 1000 * 60 * 60 * 24 * 365;
+  const res = await gcDrepAvatars({
+    db: env.DB, bucket: b, nowMs: farFuture, extraReferenced: new Set(['poolhash1']),
+  });
+  expect(res.deleted).toBe(0);
+  const obj = await b.get(`${AVATAR_KEY_PREFIX}poolhash1`);
+  expect(obj).not.toBeNull();
+});
