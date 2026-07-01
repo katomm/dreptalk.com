@@ -81,6 +81,16 @@ function plan(input: ThresholdInput, p: ProtocolParams): { drep: number | null; 
   }
 }
 
+/**
+ * Whether an action type carries an on-chain ratification threshold. Only
+ * InfoAction is advisory and has none; every other governance action type carries
+ * one. Kept next to plan() (which returns null for the same advisory case) so the
+ * two never drift, and so the "no threshold" knowledge lives in one place.
+ */
+export function hasOnchainThreshold(type: string): boolean {
+  return type !== 'InfoAction';
+}
+
 const pctOf = (frac: number | null): number | null => (frac == null ? null : frac * 100);
 const meets = (yes: number | null, thrPct: number | null): boolean =>
   yes != null && thrPct != null && yes >= thrPct;
