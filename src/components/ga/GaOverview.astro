@@ -1,20 +1,15 @@
 ---
-// Overview tab: stat cards + rationale block.
-// The tally staleness note is kept here so the overview self-describes its data.
-import GaStatCards from './GaStatCards.astro';
+// Overview tab: on-chain changes summary, abstract and motivation/rationale, then
+// the join-discussion CTA. Vote tallies (stake participation, sentiment) live in
+// the sidebar's Voting Information card, so the overview no longer repeats them.
 import GaOnchainChanges from './GaOnchainChanges.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
-import type { StakeParticipation, OverviewTally } from '@/lib/governance/view.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
-import { formatRelativeTime } from '@/lib/forum/view.js';
 import { ensureLinkTarget, renderMarkdown } from '@/lib/markdown.js';
 
 interface Props {
   action: GovernanceAction;
-  stake: StakeParticipation | null;
-  tally: OverviewTally | null;
   onchain: OnchainChanges | null;
-  now: number;
   /** Thread slug, comment count and viewer state drive the join-discussion CTA. */
   slug: string;
   commentCount: number;
@@ -22,8 +17,7 @@ interface Props {
   locked: boolean;
 }
 
-const { action, stake, tally, onchain, now, slug, commentCount, loggedIn, locked } = Astro.props;
-const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
+const { action, onchain, slug, commentCount, loggedIn, locked } = Astro.props;
 
 // The discussion lives behind its own tab; the overview only links into it. The
 // composer sits at the bottom of that tab under the #reply anchor.
@@ -47,11 +41,6 @@ const isLongRationale = rationaleText.length > 5000;
 
 <section class="ga-overview">
   <GaOnchainChanges changes={onchain} />
-  <GaStatCards stake={stake} tally={tally} />
-
-  {asOf && (
-    <p class="ga-overview__asof">Tallies as of {asOf}. Cached, not live.</p>
-  )}
 
   {abstractHtml && (
     <div class="ga-abstract">
@@ -112,11 +101,6 @@ const isLongRationale = rationaleText.length > 5000;
 </section>
 
 <style>
-  .ga-overview__asof {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin: 0 0 1rem;
-  }
   .ga-overview__empty {
     color: var(--muted);
     font-style: italic;

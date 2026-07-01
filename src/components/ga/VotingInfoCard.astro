@@ -1,12 +1,21 @@
 ---
-// Sidebar card: voting window, on-chain thresholds, and per-body results, each
-// with a threshold gauge (yes/no/abstain bar + threshold marker) and amounts.
+// Sidebar card: on-chain thresholds with per-body results, each with a threshold
+// gauge (yes/no/abstain bar + threshold marker) and amounts. InfoActions carry no
+// threshold, so they show the plain vote sentiment instead. The voting window
+// (start/end epochs) is not repeated here; the Status card above already has it.
+import TallyBar from '@/components/TallyBar.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import { evaluateThresholds } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope } from '@/lib/governance/onchain.js';
-import { fmtPct, formatEpochDate, bodyVoteAmounts, type StakeParticipation } from '@/lib/governance/view.js';
-import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
+import {
+  fmtPct,
+  bodyVoteAmounts,
+  overviewTally,
+  sentimentSubline,
+  type StakeParticipation,
+} from '@/lib/governance/view.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
 
 interface Props {
   action: GovernanceAction;
@@ -15,29 +24,29 @@ interface Props {
   // DRep turnout (voted vs total DRep stake); null for SPO-led types or before a
   // tally syncs. Only the DRep row shows it; we have no equivalent total for SPO/CC.
   stake: StakeParticipation | null;
-  network: CardanoNetwork;
+  // Render instant, for the tally-freshness note ("Tallies as of ...").
+  now: number;
 }
 
-const { action, params, ccSize, stake, network } = Astro.props;
-const netCfg = resolveNetwork(network);
+const { action, params, ccSize, stake, now } = Astro.props;
 
 // Clamp the threshold marker to the bar so a stray >100 value cannot escape it.
 const markerLeft = (pct: number): number => Math.min(100, Math.max(0, pct));
-
-const submittedDate = action.submittedEpoch != null
-  ? formatEpochDate(epochStartUnix(action.submittedEpoch, netCfg))
-  : null;
-const expiryDate = action.expiryEpoch != null
-  ? formatEpochDate(epochStartUnix(action.expiryEpoch, netCfg))
-  : null;
 
 // ParameterChange voting bodies depend on which parameters change: SPOs vote only
 // on security-relevant ones. Derive that from the payload; null for other types.
 const paramScope =
   action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload) : null;
 
-// Threshold evaluation: empty array = InfoAction (no on-chain threshold).
-const results = params
+// InfoActions have no on-chain threshold, so instead of a threshold gauge they show
+// the plain vote sentiment (leading role's yes/no/abstain bar). This runs off the
+// action tally, not the protocol params, so it shows even before params sync.
+const isInfoAction = action.type === 'InfoAction';
+const infoTally = isInfoAction ? overviewTally(action) : null;
+const infoAmounts = infoTally ? bodyVoteAmounts(action, infoTally.role) : null;
+
+// Threshold evaluation for all other types (null when params have not synced yet).
+const results = !isInfoAction && params
   ? evaluateThresholds(
       {
         type: action.type,
@@ -51,32 +60,34 @@ const results = params
     )
   : null;
 
-// True when the type has no on-chain threshold (InfoAction).
-const noThreshold = results !== null && results.length === 0;
+// Freshness of the vote numbers shown here (per-body amounts / sentiment bar).
+const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
 ---
 
 <div class="sidebar-card">
   <p class="sidebar-card__title">Voting Information</p>
 
-  <!-- Voting window -->
-  <dl class="info-dl">
-    {action.submittedEpoch != null && (
-      <>
-        <dt>Start</dt>
-        <dd>Epoch {action.submittedEpoch}{submittedDate && <> ({submittedDate})</>}</dd>
-      </>
-    )}
-    {action.expiryEpoch != null && (
-      <>
-        <dt>End</dt>
-        <dd>Epoch {action.expiryEpoch}{expiryDate && <> ({expiryDate})</>}</dd>
-      </>
-    )}
-  </dl>
-
-  <!-- Threshold section -->
-  {noThreshold ? (
-    <p class="info-note">No on-chain threshold for this action type.</p>
+  {/* InfoActions have no threshold: show the plain vote sentiment (leading role). */}
+  {isInfoAction ? (
+    infoTally ? (
+      <div class="sentiment">
+        <span class="sentiment__pct">
+          {fmtPct(infoTally.bar.yes)} <span class="sentiment__word">{infoTally.role} support</span>
+        </span>
+        <span class="sentiment__sub">{sentimentSubline(infoTally)}</span>
+        <TallyBar bar={infoTally.bar} height={7} pendingNo={infoTally.noIsPending} />
+        {infoAmounts && (
+          <div class="vote-amounts">
+            <span><b>{infoAmounts.yes}</b> yes</span>
+            <span>{infoAmounts.no} no</span>
+            <span>{infoAmounts.abstain} abstain</span>
+          </div>
+        )}
+        <p class="info-note">No on-chain threshold for this action type; this is advisory sentiment.</p>
+      </div>
+    ) : (
+      <p class="info-note">No on-chain threshold for this action type.</p>
+    )
   ) : results === null ? (
     <p class="info-note">Thresholds not yet available.</p>
   ) : (
@@ -148,6 +159,8 @@ const noThreshold = results !== null && results.length === 0;
       )}
     </div>
   )}
+
+  {asOf && <p class="info-footnote">Tallies as of {asOf}. Cached, not live.</p>}
 </div>
 
 <style>
@@ -166,21 +179,25 @@ const noThreshold = results !== null && results.length === 0;
     margin: 0 0 0.625rem;
   }
 
-  .info-dl {
-    margin: 0 0 0.875rem;
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.25rem 0.75rem;
-    font-size: 0.8125rem;
+  /* InfoAction sentiment block: mirrors the row / stat-card metric styling. */
+  .sentiment {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
   }
-  .info-dl dt {
-    color: var(--muted);
+  .sentiment__pct {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--c-pos);
+  }
+  .sentiment__word {
     font-weight: 600;
-    white-space: nowrap;
+    font-size: 0.75rem;
+    color: var(--muted);
   }
-  .info-dl dd {
-    margin: 0;
-    color: var(--fg);
+  .sentiment__sub {
+    color: var(--muted);
+    font-size: 0.75rem;
   }
 
   .info-note {
