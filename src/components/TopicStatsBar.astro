@@ -1,7 +1,7 @@
 ---
-// Compact stat strip above a thread: participants, comments, the opening
-// post's supporting/opposing reactions, and last activity. All values come
-// from data the page already has plus one cheap aggregate query.
+// Compact stat strip above a thread: participation (participants + comments),
+// the opening post's supporting/opposing reactions, and last activity. All
+// values come from data the page already has plus one cheap aggregate query.
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import { TONE_COLORS } from '@/lib/governance/view.js';
 import type { TopicStats } from '@/lib/db/forum.js';
@@ -12,11 +12,9 @@ interface Props {
   comments: number;
   lastPostAt: number;
   now: number;
-  /** Label the opening post's thumbs as Supporting/Opposing (governance threads). */
-  stanceLabels?: boolean;
 }
 
-const { stats, comments, lastPostAt, now, stanceLabels = false } = Astro.props;
+const { stats, comments, lastPostAt, now } = Astro.props;
 
 // Inline outline icons (Lucide geometry) so the strip needs no icon library.
 const ICONS: Record<string, string> = {
@@ -29,33 +27,53 @@ const ICONS: Record<string, string> = {
   clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
 };
 
-const items = [
-  { icon: 'participants', label: 'Participants', value: String(stats.participants), tone: 'var(--accent)' },
-  { icon: 'comments', label: 'Comments', value: String(comments), tone: 'var(--accent)' },
-  { icon: 'up', label: stanceLabels ? 'Supporting' : 'Thumbs up', value: String(stats.supporting), tone: TONE_COLORS.positive },
-  { icon: 'down', label: stanceLabels ? 'Opposing' : 'Thumbs down', value: String(stats.opposing), tone: TONE_COLORS.negative },
-  { icon: 'clock', label: 'Last activity', value: formatRelativeTime(lastPostAt, now), tone: 'var(--accent)' },
+// Each cell groups related metrics under one label; every metric carries an
+// inline icon next to its number. Three cells keep the strip on an even keel:
+// it never wraps a lone metric onto a second row the way five cells did.
+const cells = [
+  {
+    label: 'Participation',
+    metrics: [
+      { icon: 'participants', value: String(stats.participants), tone: 'var(--accent)' },
+      { icon: 'comments', value: String(comments), tone: 'var(--accent)' },
+    ],
+  },
+  {
+    label: 'Reactions',
+    metrics: [
+      { icon: 'up', value: String(stats.supporting), tone: TONE_COLORS.positive },
+      { icon: 'down', value: String(stats.opposing), tone: TONE_COLORS.negative },
+    ],
+  },
+  {
+    label: 'Last activity',
+    metrics: [{ icon: 'clock', value: formatRelativeTime(lastPostAt, now), tone: 'var(--accent)' }],
+  },
 ];
 ---
 
 <div class="topic-stats">
-  {items.map((item) => (
+  {cells.map((cell) => (
     <div class="topic-stats__item">
-      <svg
-        class="topic-stats__icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.75"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-        style={`color:${item.tone}`}
-        set:html={ICONS[item.icon]}
-      />
-      <span class="topic-stats__text">
-        <span class="topic-stats__label">{item.label}</span>
-        <span class="topic-stats__value">{item.value}</span>
+      <span class="topic-stats__label">{cell.label}</span>
+      <span class="topic-stats__metrics">
+        {cell.metrics.map((metric) => (
+          <span class="topic-stats__metric">
+            <svg
+              class="topic-stats__icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              style={`color:${metric.tone}`}
+              set:html={ICONS[metric.icon]}
+            />
+            {metric.value}
+          </span>
+        ))}
       </span>
     </div>
   ))}
@@ -73,35 +91,50 @@ const items = [
   }
   .topic-stats__item {
     display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    flex: 1 1 8.5rem;
+    flex-direction: column;
+    gap: 0.3125rem;
+    flex: 1 1 9rem;
     min-width: 0;
     padding: 0 1.125rem;
   }
   .topic-stats__item + .topic-stats__item {
     border-left: 1px solid var(--border);
   }
-  .topic-stats__icon {
-    width: 1.375rem;
-    height: 1.375rem;
-    flex-shrink: 0;
-  }
-  .topic-stats__text {
-    display: flex;
-    flex-direction: column;
-    gap: 0.0625rem;
-    min-width: 0;
-  }
   .topic-stats__label {
     font-size: 0.75rem;
     font-weight: 500;
     color: var(--muted);
   }
-  .topic-stats__value {
+  .topic-stats__metrics {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+  }
+  .topic-stats__metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
     font-size: 1rem;
     font-weight: 700;
     color: var(--fg);
     white-space: nowrap;
+  }
+  .topic-stats__icon {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex-shrink: 0;
+  }
+  /* Narrow screens: stack the three cells full-width with top dividers so
+     none of them is squeezed, and the divider reads top-to-bottom. */
+  @media (max-width: 32rem) {
+    .topic-stats__item {
+      flex-basis: 100%;
+    }
+    .topic-stats__item + .topic-stats__item {
+      border-left: none;
+      border-top: 1px solid var(--border);
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+    }
   }
 </style>
