@@ -8,7 +8,7 @@ export const GOV_ACTION_TYPES: readonly { value: string; label: string }[] = [
   { value: 'ParameterChange', label: 'Parameter Change' },
   { value: 'HardForkInitiation', label: 'Hard Fork' },
   { value: 'NewConstitution', label: 'New Constitution' },
-  { value: 'UpdateCommittee', label: 'Update Committee' },
+  { value: 'NewCommittee', label: 'New Committee' },
   { value: 'NoConfidence', label: 'No Confidence' },
 ];
 

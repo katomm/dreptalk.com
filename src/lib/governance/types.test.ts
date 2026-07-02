@@ -9,7 +9,7 @@ describe('GOV_ACTION_TYPES', () => {
       'ParameterChange',
       'HardForkInitiation',
       'NewConstitution',
-      'UpdateCommittee',
+      'NewCommittee',
       'NoConfidence',
     ]);
   });
