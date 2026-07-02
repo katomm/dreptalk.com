@@ -402,3 +402,46 @@ export function bodyVoteAmounts(a: BodyVoteInput, body: Body): VoteAmounts | nul
       return countAmounts(a.ccYes, a.ccNo, a.ccAbstain);
   }
 }
+
+// The per-body pct + amount fields the advisory (InfoAction) breakdown reads. A
+// subset of GovernanceAction, so the full action is assignable without a cast.
+export interface AdvisoryTallyInput extends BodyVoteInput {
+  drepYesPct: number | null; drepNoPct: number | null;
+  spoYesPct: number | null; spoNoPct: number | null;
+  ccYesPct: number | null; ccNoPct: number | null;
+}
+
+export interface AdvisoryBodyTally {
+  body: Body;               // 'DRep' | 'SPO' | 'CC'
+  label: string;            // human label for the row header
+  bar: TallyBar | null;     // null when this body has no synced tally yet
+  amounts: VoteAmounts | null;
+}
+
+// Fixed body order and labels for the advisory breakdown. DRep first (the richest
+// signal), then SPO, then CC.
+const ADVISORY_BODIES: readonly { body: Body; label: string }[] = [
+  { body: 'DRep', label: 'DReps' },
+  { body: 'SPO', label: 'SPOs' },
+  { body: 'CC', label: 'Constitutional Committee' },
+];
+
+/**
+ * Per-body yes/no/abstain tallies for an advisory action (InfoAction), one entry for
+ * each of DRep, SPO, CC in fixed order. Unlike overviewTally (which picks a single
+ * leading role) this always returns all three bodies so a reader can see how each one
+ * voted, including a body addressed by the action text that has not voted yet. Each
+ * body's bar comes from its own yes/no percentages (abstain is the remainder) and its
+ * amounts from bodyVoteAmounts; both are null when that body has no synced tally.
+ */
+export function advisoryBodyTallies(a: AdvisoryTallyInput): AdvisoryBodyTally[] {
+  return ADVISORY_BODIES.map(({ body, label }) => {
+    const bar =
+      body === 'DRep'
+        ? tallyBar(a.drepYesPct, a.drepNoPct)
+        : body === 'SPO'
+          ? tallyBar(a.spoYesPct, a.spoNoPct)
+          : tallyBar(a.ccYesPct, a.ccNoPct);
+    return { body, label, bar, amounts: bodyVoteAmounts(a, body) };
+  });
+}

@@ -19,6 +19,7 @@ import {
   overviewTally,
   sentimentSubline,
   bodyVoteAmounts,
+  advisoryBodyTallies,
   TERMINAL_STATUSES,
   type RoleTallyInput,
   type BodyVoteInput,
@@ -341,5 +342,54 @@ describe('govStatusVerb', () => {
     // 'active' is intentionally not a feed verb: pending -> active is suppressed,
     // so only terminal outcomes ever reach govStatusVerb.
     expect(govStatusVerb('active')).toBe('is now active');
+  });
+});
+
+describe('advisoryBodyTallies', () => {
+  // Minimal input: all per-body pct + power/count fields. Values chosen so each body
+  // has a distinct, checkable bar and amounts.
+  const base = {
+    drepYesPct: 60, drepNoPct: 10,
+    spoYesPct: 40, spoNoPct: 40,
+    ccYesPct: 100, ccNoPct: 0,
+    drepYesPower: 6_000_000_000, drepNoPower: 1_000_000_000, drepAbstainPower: 3_000_000_000,
+    spoYesPower: 4_000_000_000, spoNoPower: 4_000_000_000, spoAbstainPower: 2_000_000_000,
+    ccYes: 5, ccNo: 0, ccAbstain: 1,
+  };
+
+  it('returns exactly DRep, SPO, CC in that fixed order', () => {
+    expect(advisoryBodyTallies(base).map((r) => r.body)).toEqual(['DRep', 'SPO', 'CC']);
+  });
+
+  it('gives each body a human label', () => {
+    const byBody = Object.fromEntries(advisoryBodyTallies(base).map((r) => [r.body, r.label]));
+    expect(byBody.DRep).toBe('DReps');
+    expect(byBody.SPO).toBe('SPOs');
+    expect(byBody.CC).toBe('Constitutional Committee');
+  });
+
+  it('builds each body bar from its own yes/no percentages, abstain as remainder', () => {
+    const rows = advisoryBodyTallies(base);
+    expect(rows[0].bar).toEqual({ yes: 60, no: 10, abstain: 30 });
+    expect(rows[1].bar).toEqual({ yes: 40, no: 40, abstain: 20 });
+    expect(rows[2].bar).toEqual({ yes: 100, no: 0, abstain: 0 });
+  });
+
+  it('carries per-body amounts (ADA for DRep/SPO, counts for CC)', () => {
+    const rows = advisoryBodyTallies(base);
+    expect(rows[2].amounts).toEqual({ yes: '5', no: '0', abstain: '1' });
+    // DRep amounts are compact ADA strings, not raw lovelace.
+    expect(rows[0].amounts?.yes).not.toBe('6000000000');
+  });
+
+  it('still returns all three bodies when a body has no synced tally', () => {
+    const rows = advisoryBodyTallies({
+      ...base,
+      spoYesPct: null, spoNoPct: null,
+      spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
+    });
+    expect(rows.map((r) => r.body)).toEqual(['DRep', 'SPO', 'CC']);
+    expect(rows[1].bar).toBeNull();
+    expect(rows[1].amounts).toBeNull();
   });
 });
