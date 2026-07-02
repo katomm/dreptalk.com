@@ -387,8 +387,8 @@ const breadcrumbLd = {
 )}
 
 <style>
-  /* Governance overview controls: sort tabs on the left, metric toggle on the
-     right. Wrap onto stacked rows on narrow screens. */
+  /* Governance overview controls: sort tabs on the left, type filter and metric
+     toggle on the right. Wrap onto stacked rows on narrow screens. */
   .ga-controls {
     display: flex;
     flex-wrap: wrap;
@@ -540,10 +540,11 @@ const breadcrumbLd = {
   .ga-list__caret {
     font-size: 0.9em;
   }
-  /* Wide screens show both metric columns, so the toggle (which only chooses one)
-     is redundant; the rows show both regardless. It returns below the breakpoint. */
+  /* Wide screens show both metric columns, so the metric toggle (which only chooses
+     one) is redundant; the rows show both regardless. It returns below the breakpoint.
+     The type filter stays visible at every width, so only the toggle is hidden here. */
   @media (min-width: 1001px) {
-    .ga-controls__right {
+    .ga-toggle {
       display: none;
     }
   }
