@@ -182,27 +182,6 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     margin: 0 0 0.625rem;
   }
 
-  /* InfoAction sentiment block: mirrors the row / stat-card metric styling. */
-  .sentiment {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-  }
-  .sentiment__pct {
-    font-weight: 700;
-    font-size: 1rem;
-    color: var(--c-pos);
-  }
-  .sentiment__word {
-    font-weight: 600;
-    font-size: 0.75rem;
-    color: var(--muted);
-  }
-  .sentiment__sub {
-    color: var(--muted);
-    font-size: 0.75rem;
-  }
-
   /* InfoAction advisory breakdown: one row per body (DRep, SPO, CC), reusing the
      threshold-row card look and vote-amounts line. */
   .advisory-list {
