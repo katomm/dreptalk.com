@@ -219,11 +219,6 @@ const onchainChanges = govAction
   ? decodeOnchainChanges(govAction.onchainPayload ?? null, params?.rawJson ?? null, network)
   : null;
 
-// Number of CC members who voted (honest quorum proxy).
-const ccSize = govAction
-  ? (govAction.ccYes ?? 0) + (govAction.ccNo ?? 0) + (govAction.ccAbstain ?? 0)
-  : 0;
-
 const prevPage = page > 1 ? page - 1 : null;
 // Pagination counts top-level posts; replies render with their parent.
 const nextPage = thread.topLevel.length === PAGE_SIZE ? page + 1 : null;
@@ -405,7 +400,6 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
             <GaSidebar
               action={govAction}
               params={params}
-              ccSize={ccSize}
               stake={stake}
               network={network}
               topVoters={topVoters}

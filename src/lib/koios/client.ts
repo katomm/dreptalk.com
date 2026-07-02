@@ -480,6 +480,13 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     }
   }
 
+  // One fetch+parse for /committee_info, shared by the member and summary views
+  // below so the two cannot drift on schema or error handling.
+  async function committeeRow() {
+    const data = await request('/committee_info', { method: 'GET' });
+    return z.array(committeeInfoRowSchema).parse(data)[0];
+  }
+
   return {
     async tip(): Promise<Tip> {
       const data = await request('/tip', { method: 'GET' });
@@ -599,18 +606,20 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     // committee members with their cold/hot credentials. Empty array when there
     // is no committee row.
     async committeeInfo(): Promise<CommitteeMember[]> {
-      const data = await request('/committee_info', { method: 'GET' });
-      const row = z.array(committeeInfoRowSchema).parse(data)[0];
-      return row?.members ?? [];
+      return (await committeeRow())?.members ?? [];
     },
 
-    // The committee's quorum threshold as a fraction (numerator/denominator),
-    // or null when there is no committee or the fields are absent.
-    async committeeQuorum(): Promise<number | null> {
-      const data = await request('/committee_info', { method: 'GET' });
-      const row = z.array(committeeInfoRowSchema).parse(data)[0];
-      if (!row?.quorum_numerator || !row?.quorum_denominator) return null;
-      return row.quorum_numerator / row.quorum_denominator;
+    // Quorum threshold (numerator/denominator as a fraction) plus the member
+    // list, from one /committee_info call. Members is null (not []) when there
+    // is no committee row, so callers can tell "no data" from "empty committee".
+    async committeeSummary(): Promise<{ quorum: number | null; members: CommitteeMember[] | null }> {
+      const row = await committeeRow();
+      if (!row) return { quorum: null, members: null };
+      const quorum =
+        row.quorum_numerator && row.quorum_denominator
+          ? row.quorum_numerator / row.quorum_denominator
+          : null;
+      return { quorum, members: row.members };
     },
 
     // Latest epoch's protocol params; carries the CIP-1694 voting thresholds

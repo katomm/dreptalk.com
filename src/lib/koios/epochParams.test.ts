@@ -54,42 +54,58 @@ describe('createKoiosClient.epochParams', () => {
   });
 });
 
-// --- committeeQuorum ---
+// --- committeeSummary ---
 
-describe('createKoiosClient.committeeQuorum', () => {
-  it('returns numerator/denominator as a fraction', async () => {
-    const fixture = [{ members: [], quorum_numerator: 2, quorum_denominator: 3 }];
+const MEMBER = {
+  status: 'authorized',
+  cc_hot_id: null,
+  cc_cold_id: null,
+  cc_hot_hex: null,
+  cc_cold_hex: null,
+  expiration_epoch: 700,
+  cc_hot_has_script: false,
+  cc_cold_has_script: false,
+};
+
+describe('createKoiosClient.committeeSummary', () => {
+  it('returns the quorum fraction and the member list from one call', async () => {
+    const fixture = [{ members: [MEMBER], quorum_numerator: 2, quorum_denominator: 3 }];
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(fixture));
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
-    const result = await client.committeeQuorum();
+    const result = await client.committeeSummary();
 
-    expect(result).toBeCloseTo(2 / 3);
+    expect(result.quorum).toBeCloseTo(2 / 3);
+    expect(result.members).toHaveLength(1);
+    expect(result.members![0].status).toBe('authorized');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledWith(
       'https://api.koios.rest/api/v1/committee_info',
       expect.objectContaining({ method: 'GET' }),
     );
   });
 
-  it('returns null when quorum fields are absent', async () => {
-    const fixture = [{ members: [] }];
+  it('returns null quorum when quorum fields are absent (members still present)', async () => {
+    const fixture = [{ members: [MEMBER] }];
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(fixture));
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
-    expect(await client.committeeQuorum()).toBeNull();
+    const result = await client.committeeSummary();
+    expect(result.quorum).toBeNull();
+    expect(result.members).toHaveLength(1);
   });
 
-  it('returns null when there is no committee row', async () => {
+  it('returns null members and quorum when there is no committee row', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
-    expect(await client.committeeQuorum()).toBeNull();
+    expect(await client.committeeSummary()).toEqual({ quorum: null, members: null });
   });
 
   it('throws on non-200 response', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
-    await expect(client.committeeQuorum()).rejects.toThrow(/koios request failed: 500/i);
+    await expect(client.committeeSummary()).rejects.toThrow(/koios request failed: 500/i);
   });
 });
