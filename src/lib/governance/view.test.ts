@@ -8,6 +8,7 @@ import {
   epochCountdown,
   epochDaysLeft,
   tallyBar,
+  castVoteBar,
   voteTone,
   fmtPct,
   stakeParticipation,
@@ -126,6 +127,27 @@ describe('tallyBar', () => {
   });
   it('returns null when no tally exists', () => {
     expect(tallyBar(null, null)).toBeNull();
+  });
+});
+
+describe('castVoteBar', () => {
+  it('normalizes cast yes/no/abstain to percentages among voters', () => {
+    // 45.09M yes vs 0.35M no (the Net Change Limit shape): ~99% yes, not "99% against".
+    const bar = castVoteBar(45_090_000, 348_700, 0);
+    expect(bar).not.toBeNull();
+    expect(Math.round(bar!.yes)).toBe(99);
+    expect(Math.round(bar!.no)).toBe(1);
+    expect(bar!.abstain).toBe(0);
+  });
+
+  it('includes real abstain as its own segment', () => {
+    const bar = castVoteBar(50, 30, 20);
+    expect(bar).toEqual({ yes: 50, no: 30, abstain: 20 });
+  });
+
+  it('returns null when nothing was cast (never a red bar for non-voters)', () => {
+    expect(castVoteBar(0, 0, 0)).toBeNull();
+    expect(castVoteBar(null, null, null)).toBeNull();
   });
 });
 
@@ -346,14 +368,12 @@ describe('govStatusVerb', () => {
 });
 
 describe('advisoryBodyTallies', () => {
-  // Minimal input: all per-body pct + power/count fields. Values chosen so each body
-  // has a distinct, checkable bar and amounts.
+  // Minimal input: cast vote power/count fields. Values chosen so each body has a
+  // distinct, checkable bar and amounts.
   const base = {
-    drepYesPct: 60, drepNoPct: 10,
-    spoYesPct: 40, spoNoPct: 40,
-    ccYesPct: 100, ccNoPct: 0,
-    drepYesPower: 6_000_000_000, drepNoPower: 1_000_000_000, drepAbstainPower: 3_000_000_000,
-    spoYesPower: 4_000_000_000, spoNoPower: 4_000_000_000, spoAbstainPower: 2_000_000_000,
+    // cast vote power (lovelace) for DRep/SPO, member counts for CC
+    drepYesPower: 99, drepNoPower: 1, drepAbstainPower: 0,
+    spoYesPower: 40, spoNoPower: 40, spoAbstainPower: 20,
     ccYes: 5, ccNo: 0, ccAbstain: 1,
   };
 
@@ -368,28 +388,30 @@ describe('advisoryBodyTallies', () => {
     expect(byBody.CC).toBe('Constitutional Committee');
   });
 
-  it('builds each body bar from its own yes/no percentages, abstain as remainder', () => {
+  it('builds each body bar from its own cast vote proportions', () => {
     const rows = advisoryBodyTallies(base);
-    expect(rows[0].bar).toEqual({ yes: 60, no: 10, abstain: 30 });
+    expect(rows[0].bar).toEqual({ yes: 99, no: 1, abstain: 0 });
     expect(rows[1].bar).toEqual({ yes: 40, no: 40, abstain: 20 });
-    expect(rows[2].bar).toEqual({ yes: 100, no: 0, abstain: 0 });
+    const ccBar = rows[2].bar;
+    expect(ccBar).not.toBeNull();
+    expect(ccBar!.yes).toBeCloseTo(83.333, 2);
+    expect(ccBar!.no).toBe(0);
+    expect(ccBar!.abstain).toBeCloseTo(16.667, 2);
   });
 
   it('carries per-body amounts (ADA for DRep/SPO, counts for CC)', () => {
     const rows = advisoryBodyTallies(base);
     expect(rows[2].amounts).toEqual({ yes: '5', no: '0', abstain: '1' });
     // DRep amounts are compact ADA strings, not raw lovelace.
-    expect(rows[0].amounts?.yes).not.toBe('6000000000');
+    expect(rows[0].amounts?.yes).not.toBe('99');
   });
 
-  it('still returns all three bodies when a body has no synced tally', () => {
+  it('still returns all three bodies when a body has no cast votes', () => {
     const rows = advisoryBodyTallies({
       ...base,
-      spoYesPct: null, spoNoPct: null,
-      spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
+      spoYesPower: 0, spoNoPower: 0, spoAbstainPower: 0,
     });
     expect(rows.map((r) => r.body)).toEqual(['DRep', 'SPO', 'CC']);
     expect(rows[1].bar).toBeNull();
-    expect(rows[1].amounts).toBeNull();
   });
 });

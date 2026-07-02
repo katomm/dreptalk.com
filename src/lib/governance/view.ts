@@ -152,6 +152,26 @@ function clampPct(n: number): number {
   return Math.min(100, Math.max(0, n));
 }
 
+/**
+ * A yes/no/abstain bar from the votes actually CAST: the three inputs are the cast
+ * yes/no/abstain quantities (vote power in lovelace for DRep/SPO, member counts for CC).
+ * Segments are their shares of the cast total, so non-voting stake is never counted as No.
+ * Returns null when nothing was cast (render "no votes", not a bar). Contrast tallyBar,
+ * which works off total-stake percentages and folds non-voters into the No side.
+ */
+export function castVoteBar(
+  yes: number | null,
+  no: number | null,
+  abstain: number | null,
+): TallyBar | null {
+  const y = yes ?? 0;
+  const n = no ?? 0;
+  const a = abstain ?? 0;
+  const total = y + n + a;
+  if (!(total > 0)) return null;
+  return { yes: (y / total) * 100, no: (n / total) * 100, abstain: (a / total) * 100 };
+}
+
 /** Color tone for a vote badge. */
 export function voteTone(vote: string): StatusTone {
   const v = vote.toLowerCase();
@@ -403,13 +423,9 @@ export function bodyVoteAmounts(a: BodyVoteInput, body: Body): VoteAmounts | nul
   }
 }
 
-// The per-body pct + amount fields the advisory (InfoAction) breakdown reads. A
-// subset of GovernanceAction, so the full action is assignable without a cast.
-export interface AdvisoryTallyInput extends BodyVoteInput {
-  drepYesPct: number | null; drepNoPct: number | null;
-  spoYesPct: number | null; spoNoPct: number | null;
-  ccYesPct: number | null; ccNoPct: number | null;
-}
+// The cast-vote + amount fields the advisory (InfoAction) breakdown reads. A subset of
+// GovernanceAction, so the full action is assignable without a cast.
+export type AdvisoryTallyInput = BodyVoteInput;
 
 export interface AdvisoryBodyTally {
   body: Body;               // 'DRep' | 'SPO' | 'CC'
@@ -431,17 +447,19 @@ const ADVISORY_BODIES: readonly { body: Body; label: string }[] = [
  * each of DRep, SPO, CC in fixed order. Unlike overviewTally (which picks a single
  * leading role) this always returns all three bodies so a reader can see how each one
  * voted, including a body addressed by the action text that has not voted yet. Each
- * body's bar comes from its own yes/no percentages (abstain is the remainder) and its
- * amounts from bodyVoteAmounts; both are null when that body has no synced tally.
+ * body's bar comes from the votes actually cast (via castVoteBar), not total-stake
+ * percentages, so low-participation actions never render as a false "against" majority.
+ * The bar is null when nothing was cast; amounts come from bodyVoteAmounts and are null
+ * only when that body's fields were never synced at all.
  */
 export function advisoryBodyTallies(a: AdvisoryTallyInput): AdvisoryBodyTally[] {
   return ADVISORY_BODIES.map(({ body, label }) => {
     const bar =
       body === 'DRep'
-        ? tallyBar(a.drepYesPct, a.drepNoPct)
+        ? castVoteBar(a.drepYesPower, a.drepNoPower, a.drepAbstainPower)
         : body === 'SPO'
-          ? tallyBar(a.spoYesPct, a.spoNoPct)
-          : tallyBar(a.ccYesPct, a.ccNoPct);
+          ? castVoteBar(a.spoYesPower, a.spoNoPower, a.spoAbstainPower)
+          : castVoteBar(a.ccYes, a.ccNo, a.ccAbstain);
     return { body, label, bar, amounts: bodyVoteAmounts(a, body) };
   });
 }
