@@ -138,6 +138,9 @@ export interface GovernanceAction {
   spoYesPower: number | null;
   spoNoPower: number | null;
   spoAbstainPower: number | null;
+  /** Eligible SPO voting stake (lovelace): the denominator for SPO turnout.
+      Numerator is spoYesPower + spoNoPower + spoAbstainPower. */
+  spoEligiblePower: number | null;
   drepYesPct: number | null;
   drepNoPct: number | null;
   spoYesPct: number | null;
@@ -189,6 +192,7 @@ interface GovernanceActionRow {
   spo_yes_power: number | null;
   spo_no_power: number | null;
   spo_abstain_power: number | null;
+  spo_eligible_power: number | null;
   drep_yes_pct: number | null;
   drep_no_pct: number | null;
   spo_yes_pct: number | null;
@@ -239,6 +243,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     spoYesPower: r.spo_yes_power,
     spoNoPower: r.spo_no_power,
     spoAbstainPower: r.spo_abstain_power,
+    spoEligiblePower: r.spo_eligible_power,
     drepYesPct: r.drep_yes_pct,
     drepNoPct: r.drep_no_pct,
     spoYesPct: r.spo_yes_pct,
@@ -615,6 +620,7 @@ export interface VotePowerFields {
   spoYesPower?: number | null;
   spoNoPower?: number | null;
   spoAbstainPower?: number | null;
+  spoEligiblePower?: number | null;
 }
 
 /** Surgically sets the power columns for one action (leaves status/tally/pct untouched). */
@@ -624,7 +630,7 @@ export async function updateVotedPower(db: D1Database, id: string, p: VotePowerF
       `UPDATE governance_actions
          SET drep_voted_power = ?,
              drep_yes_power = ?, drep_no_power = ?, drep_abstain_power = ?,
-             spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?
+             spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?, spo_eligible_power = ?
        WHERE id = ?`,
     )
     .bind(
@@ -635,6 +641,7 @@ export async function updateVotedPower(db: D1Database, id: string, p: VotePowerF
       p.spoYesPower ?? null,
       p.spoNoPower ?? null,
       p.spoAbstainPower ?? null,
+      p.spoEligiblePower ?? null,
       id,
     )
     .run();
@@ -866,7 +873,8 @@ export type GovernanceTally = Pick<
   Partial<
     Pick<
       GovernanceAction,
-      'drepYesPower' | 'drepNoPower' | 'drepAbstainPower' | 'spoYesPower' | 'spoNoPower' | 'spoAbstainPower'
+      | 'drepYesPower' | 'drepNoPower' | 'drepAbstainPower'
+      | 'spoYesPower' | 'spoNoPower' | 'spoAbstainPower' | 'spoEligiblePower'
     >
   >;
 
@@ -917,7 +925,7 @@ export async function updateGovernanceTallyAndStatus(
              spo_yes = ?, spo_no = ?, spo_abstain = ?,
              cc_yes = ?, cc_no = ?, cc_abstain = ?,
              drep_yes_power = ?, drep_no_power = ?, drep_abstain_power = ?,
-             spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?,
+             spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?, spo_eligible_power = ?,
              drep_yes_pct = ?, drep_no_pct = ?, spo_yes_pct = ?, spo_no_pct = ?,
              cc_yes_pct = ?, cc_no_pct = ?,
              drep_voted_power = ?,
@@ -942,6 +950,7 @@ export async function updateGovernanceTallyAndStatus(
       u.spoYesPower ?? null,
       u.spoNoPower ?? null,
       u.spoAbstainPower ?? null,
+      u.spoEligiblePower ?? null,
       u.drepYesPct,
       u.drepNoPct,
       u.spoYesPct,

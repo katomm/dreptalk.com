@@ -189,6 +189,23 @@ export function votePowers(s: VotingSummary | null) {
   };
 }
 
+/** Eligible SPO voting stake (lovelace): the denominator for SPO turnout. Sums the
+    active yes/abstain, both passive default buckets, and pool_no_vote_power (which
+    already folds in active no plus non-voting-default no). Absent summands count as 0;
+    null only when every pool power field is absent (older Koios without power data). */
+export function spoEligiblePower(s: VotingSummary | null): number | null {
+  if (!s) return null;
+  const parts = [
+    s.pool_active_yes_vote_power,
+    s.pool_active_abstain_vote_power,
+    s.pool_passive_always_abstain_vote_power,
+    s.pool_passive_always_no_confidence_vote_power,
+    s.pool_no_vote_power,
+  ];
+  if (parts.every((v) => v == null)) return null;
+  return parts.reduce((sum, v) => sum + (v == null ? 0 : Number(v)), 0);
+}
+
 /**
  * SPO yes/no percentages for the tally. Koios' pool_yes_pct / pool_no_pct are
  * correct for every action type EXCEPT HardForkInitiation. The Conway ledger does
@@ -235,6 +252,7 @@ function tallyFields(s: VotingSummary | null): GovernanceTally {
     ccNo: s?.committee_no_votes_cast ?? null,
     ccAbstain: s?.committee_abstain_votes_cast ?? null,
     ...votePowers(s),
+    spoEligiblePower: spoEligiblePower(s),
     drepYesPct: s?.drep_yes_pct ?? null,
     drepNoPct: s?.drep_no_pct ?? null,
     spoYesPct: spo?.yesPct ?? null,
@@ -431,9 +449,10 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
       if (!summary) continue;
       const vp = votedPower(summary);
       const powers = votePowers(summary);
-      const hasData = vp != null || Object.values(powers).some((v) => v != null);
+      const eligible = spoEligiblePower(summary);
+      const hasData = vp != null || eligible != null || Object.values(powers).some((v) => v != null);
       if (hasData) {
-        await updateVotedPower(db, ga.id, { votedPower: vp, ...powers });
+        await updateVotedPower(db, ga.id, { votedPower: vp, ...powers, spoEligiblePower: eligible });
         updated++;
       }
     } catch (err) {
