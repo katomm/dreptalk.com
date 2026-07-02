@@ -29,7 +29,6 @@ cfg.d1_databases = [
 ];
 cfg.kv_namespaces = [
   { binding: 'SESSIONS', id: 'be3d778c8ee3431dadb0aecb8275ed61' },
-  { binding: 'NONCES', id: '00f38138e4dd4325b7afb2b74dacf355' },
 ];
 cfg.r2_buckets = [{ binding: 'AVATARS', bucket_name: 'dreptalk-avatars-preprod' }];
 

@@ -25,7 +25,7 @@ export default defineConfig(async () => {
           compatibilityDate: '2025-09-01',
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],
-          kvNamespaces: ['SESSIONS', 'NONCES'],
+          kvNamespaces: ['SESSIONS'],
           r2Buckets: ['AVATARS'],
           durableObjects: { RATE_LIMITER: 'RateLimiter' },
           bindings: {

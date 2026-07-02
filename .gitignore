@@ -13,6 +13,9 @@ dist/
 CLAUDE.md
 .claude/
 
+# Local cleanup backups, never part of the project
+.cleanup-backup/
+
 # Local design mockups, not part of the project
 src/assets/images/artwork/
 

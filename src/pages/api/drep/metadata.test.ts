@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // file by vitest), so these refs are safe to use inside the factory.
 // ---------------------------------------------------------------------------
 
-const { fakeDb, fakeKV, fakeRateLimiter } = vi.hoisted(() => {
+const { fakeDb, fakeRateLimiter } = vi.hoisted(() => {
   // Fake D1: records the last .bind() arguments so tests can inspect what
   // was persisted without a real database.
   interface FakeD1 {
@@ -25,17 +25,6 @@ const { fakeDb, fakeKV, fakeRateLimiter } = vi.hoisted(() => {
         return { run: async () => ({ success: true }) };
       },
     }),
-  };
-
-  // Fake KV: backed by a plain map.
-  const store = new Map<string, string>();
-  const kv = {
-    async get(key: string): Promise<string | null> {
-      return store.get(key) ?? null;
-    },
-    async put(key: string, value: string, _opts?: { expirationTtl?: number }): Promise<void> {
-      store.set(key, value);
-    },
   };
 
   // Fake RATE_LIMITER Durable Object namespace: a Map-backed fixed-window counter
@@ -57,14 +46,13 @@ const { fakeDb, fakeKV, fakeRateLimiter } = vi.hoisted(() => {
     }),
   };
 
-  return { fakeDb: db, fakeKV: kv, fakeRateLimiter: rateLimiter };
+  return { fakeDb: db, fakeRateLimiter: rateLimiter };
 });
 
 // Mock cloudflare:workers so the module resolves in the Node test environment.
 vi.mock('cloudflare:workers', () => ({
   env: {
     DB: fakeDb,
-    NONCES: fakeKV,
     RATE_LIMITER: fakeRateLimiter,
   },
 }));

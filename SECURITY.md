@@ -2,6 +2,13 @@
 
 DRepTalk is a wallet-authenticated forum for Cardano governance. Reading is public; writing is gated to on-chain roles proven by a wallet signature, and the app never takes custody of keys. We take security reports seriously and appreciate responsible disclosure.
 
+## Security model
+
+A couple of assumptions underpin everything below. They are deliberate design decisions, not oversights.
+
+- **Non-custodial, with no server-side submission.** The app never receives, stores, or derives a private key. Every transaction is signed and submitted by the user's own wallet, which shows it first; the server only assembles unsigned transactions and verifies witnesses against the script's authorized signers. There is no server-side path that can move or drain funds, and transaction submission is never proxied through the app.
+- **Script (multisig) DReps share one forum identity.** A member authenticates by proving control of a key that is an authorized signer of the DRep's native script, and then acts in the forum as that DRep. Any single authorized member can post, edit the DRep profile, and record votes on the collective's behalf. On-chain governance is unaffected: casting an actual vote still requires the script's full signing threshold, collected through the multisig flow. So treat a compromised member key as able to speak for the DRep in the forum, but not to pass a governance action on its own.
+
 ## Supported versions
 
 DRepTalk is a continuously deployed web application; there are no released versions to track. The live site at [dreptalk.com](https://dreptalk.com) always runs the latest code from `main`. Please report issues against the current `main` branch and the live site.

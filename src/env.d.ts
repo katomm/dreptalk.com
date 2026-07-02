@@ -15,7 +15,6 @@ declare namespace Cloudflare {
   interface Env {
     DB?: D1Database;
     SESSIONS?: KVNamespace;
-    NONCES?: KVNamespace;
     RATE_LIMITER?: DurableObjectNamespace<import('./lib/rateLimiterDO.js').RateLimiter>;
     AVATARS?: R2Bucket;
     IMAGES?: import('./lib/dreps/avatarStore.js').ImagesLike;

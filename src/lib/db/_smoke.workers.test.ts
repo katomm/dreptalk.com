@@ -44,10 +44,4 @@ describe('KV binding smoke test', () => {
     const val = await env.SESSIONS.get('smoke-session-key');
     expect(val).toBe('smoke-session-value');
   });
-
-  it('puts and gets a key in NONCES', async () => {
-    await env.NONCES.put('smoke-nonce-key', 'smoke-nonce-value');
-    const val = await env.NONCES.get('smoke-nonce-key');
-    expect(val).toBe('smoke-nonce-value');
-  });
 });
