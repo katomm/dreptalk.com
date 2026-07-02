@@ -174,18 +174,18 @@ function powerNum(v: string | null | undefined): number | null {
   return v == null ? null : Number(v);
 }
 
-/** Per-option vote power (lovelace) for the sidebar breakdown. DRep buckets are
-    the clean active yes/no/abstain. For SPO, yes/no are the active buckets and
-    abstain is the always-abstain delegated stake (Koios has no separate active
-    abstain pool bucket). Null-tolerant for older Koios without power fields. */
-function votePowers(s: VotingSummary | null) {
+/** Per-option vote power (lovelace) for the sidebar breakdown. All buckets are the
+    clean active yes/no/abstain that were actually cast; non-voting default stake is
+    excluded (that lives in the pool_no_vote_power / pool_passive_* fields, used only by
+    the HardForkInitiation pct recompute). Null-tolerant for older Koios without power fields. */
+export function votePowers(s: VotingSummary | null) {
   return {
     drepYesPower: powerNum(s?.drep_active_yes_vote_power),
     drepNoPower: powerNum(s?.drep_active_no_vote_power),
     drepAbstainPower: powerNum(s?.drep_active_abstain_vote_power),
     spoYesPower: powerNum(s?.pool_active_yes_vote_power),
-    spoNoPower: powerNum(s?.pool_no_vote_power),
-    spoAbstainPower: powerNum(s?.pool_passive_always_abstain_vote_power),
+    spoNoPower: powerNum(s?.pool_active_no_vote_power),
+    spoAbstainPower: powerNum(s?.pool_active_abstain_vote_power),
   };
 }
 
