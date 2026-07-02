@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { discussionCardModel, drepCardModel, type GovCardInput, govCardModel } from './model.js';
+import { discussionCardModel, drepCardModel, type GovCardInput, govCardModel, helpCardModel } from './model.js';
 import { accentForType, BRAND_ACCENT } from './theme.js';
 
 const baseAction: GovCardInput = {
@@ -140,5 +140,39 @@ describe('discussionCardModel', () => {
   it('shows zero replies for a topic with only the opening post', () => {
     const m = discussionCardModel({ ...topic, postCount: 1 }, { authorName: null, avatarDataUrl: null });
     expect(m.meta).toBe('0 replies');
+  });
+});
+
+describe('helpCardModel', () => {
+  const guide = {
+    title: 'How to vote on a governance action as a DRep',
+    description: 'How a registered DRep casts a Yes, No, or Abstain vote on an open governance action.',
+    category: 'For DReps',
+    updated: new Date('2026-06-23'),
+  };
+
+  it('uses the hub category as the pill and the description as the subtitle', () => {
+    const m = helpCardModel(guide);
+    expect(m.accent).toBe(BRAND_ACCENT);
+    expect(m.category).toBe('For DReps');
+    expect(m.title).toBe(guide.title);
+    expect(m.subtitle).toBe(guide.description);
+    expect(m.authorName).toBeNull();
+    expect(m.avatarDataUrl).toBeNull();
+    expect(m.meta).toBe('Help guide · Updated 2026-06-23');
+  });
+
+  it('omits the updated date from the meta line when absent', () => {
+    const m = helpCardModel({ ...guide, updated: undefined });
+    expect(m.meta).toBe('Help guide');
+  });
+
+  it('clamps an overlong title and truncates the description on a word boundary', () => {
+    const long = 'lorem ipsum dolor sit amet '.repeat(12).trim();
+    const m = helpCardModel({ ...guide, title: 'x'.repeat(200), description: long });
+    expect(m.title.length).toBeLessThanOrEqual(96);
+    expect(m.title.endsWith('…')).toBe(true);
+    expect(m.subtitle).toMatch(/\S\.\.\.$/);
+    expect((m.subtitle as string).length).toBeLessThan(150);
   });
 });

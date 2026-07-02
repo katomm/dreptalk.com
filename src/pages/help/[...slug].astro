@@ -6,6 +6,7 @@ import { getEntry, render } from 'astro:content';
 import HelpLayout from '@/layouts/HelpLayout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import { buildBreadcrumbLd, buildArticleLd, buildFaqLd } from '@/lib/help/jsonld.js';
+import { isoDate } from '@/lib/format/date.js';
 
 const { slug } = Astro.params;
 const entry = slug ? await getEntry('guides', slug) : undefined;
@@ -23,13 +24,13 @@ const faqLd = buildFaqLd(d.faqs);
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 
-<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel} heading={d.title}>
+<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel} heading={d.title} ogImage={`/og/help/${entry.id}.png`}>
   <JsonLd data={breadcrumbLd} />
   <JsonLd data={articleLd} />
   {faqLd && <JsonLd data={faqLd} />}
 
   {d.updated && (
-    <p class="guide-updated">Last updated {d.updated.toISOString().slice(0, 10)}</p>
+    <p class="guide-updated">Last updated {isoDate(d.updated)}</p>
   )}
 
   <article class="prose">

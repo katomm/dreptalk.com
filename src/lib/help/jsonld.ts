@@ -1,14 +1,11 @@
 // Pure JSON-LD builders for help guides. Kept free of Astro APIs so they are
 // unit-testable and reused by the guide route.
 
+import { isoDate } from '../format/date.js';
+
 export interface Faq {
   q: string;
   a: string;
-}
-
-// ISO date without the time part, e.g. "2026-06-23".
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 export function buildBreadcrumbLd(origin: string, slug: string, cardLabel: string): Record<string, unknown> {
