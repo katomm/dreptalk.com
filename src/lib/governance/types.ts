@@ -3,7 +3,7 @@
 // short forms shown in the overview type filter. This list is the single source of
 // truth for both the dropdown and ?type= validation.
 export const GOV_ACTION_TYPES: readonly { value: string; label: string }[] = [
-  { value: 'InfoAction', label: 'Info' },
+  { value: 'InfoAction', label: 'Info Action' },
   { value: 'TreasuryWithdrawals', label: 'Treasury Withdrawal' },
   { value: 'ParameterChange', label: 'Parameter Change' },
   { value: 'HardForkInitiation', label: 'Hard Fork' },
