@@ -43,13 +43,16 @@ The document does not live on the chain. What your vote records on-chain is a li
 
 [`dreptalk.com/vote-rationale/30e507c6…eec6eb61.json`](https://dreptalk.com/vote-rationale/30e507c64f300ad90187044b9b27dfa7244de3a42b15159e506eb5cfeec6eb61.json)
 
-The long file name is the document's blake2b-256 hash, the same value recorded with the vote on the chain. Because the address is derived from the contents, the document cannot be quietly changed: any edit would be a different document at a different address, and it would no longer match the fingerprint on-chain. Your rationale is fixed the moment you vote.
+The long file name is the document's blake2b-256 hash, the same value recorded with the vote on the chain. Two things follow from addressing a document by its own fingerprint:
+
+- **It cannot be quietly changed.** Any edit would be a different document at a different address, and it would no longer match the fingerprint on-chain. Your rationale is fixed the moment you vote.
+- **Its availability depends on the host.** DRepTalk serves the document today. If this site ever went away, that web address would stop resolving, though the fingerprint on the chain stays valid forever, so anyone who kept a copy can verify the exact document and re-host it.
 
 ## What about IPFS?
 
 Many DReps publish rationales on IPFS, so you might expect DRepTalk to do the same. We deliberately host the document ourselves instead: publishing stays one step at vote time, with no pinning service or personal server to run. The guarantee people look to IPFS for, that content cannot change behind an address, comes from the fingerprint either way; an IPFS address and a DRepTalk address are both just places the bytes live, and the chain holds the hash that proves them.
 
-The honest tradeoff is availability. If this site ever went away, the web address above would stop resolving. The fingerprint on the chain stays valid forever, so anyone who kept a copy can verify the exact document and re-host it, on IPFS or anywhere else, but DRepTalk is the primary host today.
+IPFS is not automatically permanent, either: a file there lives only as long as some node keeps pinning it, so it faces the same availability question as any host, just spread across whoever chooses to pin. Whichever host serves it, the chain guarantees what you committed to, not where it is stored.
 
 You do not need to understand CIP-100 to write a good rationale. What matters is the content you put in it.
 
