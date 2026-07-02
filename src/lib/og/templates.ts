@@ -161,6 +161,8 @@ export function drepCardHtml(m: DrepCardModel): string {
   return cardShell(m.accent, 'DRep', body);
 }
 
+// Also renders help-guide cards: helpCardModel returns the same shape with no
+// author row, so a footer/layout change here restyles /og/help/* too.
 export function discussionCardHtml(m: DiscussionCardModel): string {
   const footer = m.authorName
     ? `<div style="display:flex;align-items:center;">

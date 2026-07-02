@@ -8,15 +8,17 @@ interface Props {
   crumb: string;
   // h1 text; defaults to the breadcrumb label when the two are the same.
   heading?: string;
+  // Per-page OG card; Layout falls back to the site default when absent.
+  ogImage?: string;
 }
 
-const { title, description, crumb, heading = crumb } = Astro.props;
+const { title, description, crumb, heading = crumb, ogImage } = Astro.props;
 
 // Public help pages: cache at the edge but keep them reasonably fresh.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 
-<Layout title={title} description={description}>
+<Layout title={title} description={description} ogImage={ogImage}>
   <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
     <a href="/">DRepTalk</a>
     <span style="margin:0 0.375rem;">/</span>

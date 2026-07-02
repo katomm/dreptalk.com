@@ -4,7 +4,7 @@ description: "How a DRep writes a clear, useful rationale for a governance vote,
 cardLabel: "Writing a vote rationale"
 category: "For DReps"
 order: 2
-updated: 2026-06-24
+updated: 2026-07-02
 ---
 
 A vote rationale is a short written explanation of why you voted the way you did on a governance action. It is attached to your vote as metadata so your delegators and the broader community can see your reasoning. Writing one is not mandatory, but it is good practice: delegators choose you because they trust your judgment, and a rationale shows that judgment transparently.
@@ -39,10 +39,17 @@ That is enough. Most published rationales are a paragraph or two. Longer is not 
 
 When you vote with a rationale on DRepTalk, you write it in the editor and your wallet submits it together with the vote. The rationale is a small document in the community metadata standard **CIP-100**; in practice most rationales use a single comment field, and the editor formats it for you.
 
-The document does not live on the chain. What your vote records on-chain is a link to the document and a fingerprint (a hash) of its exact contents. DRepTalk hosts the document and serves it at a web address that is itself that fingerprint. Two things follow:
+The document does not live on the chain. What your vote records on-chain is a link to the document and a fingerprint (a hash) of its exact contents. DRepTalk hosts the document and serves it at a web address that is itself that fingerprint. Here is a real one, published through DRepTalk:
 
-- **It cannot be quietly changed.** The address is derived from the contents, so any edit would be a different document at a different address and would no longer match the fingerprint on the chain. Your rationale is fixed the moment you vote.
-- **Its availability depends on the host.** We host it for you, so publishing a rationale is one step, no IPFS or personal server to run. The tradeoff is that the document lives on DRepTalk: if this site ever went away, its web address would stop resolving, though the fingerprint on the chain stays valid forever, so the exact document can be verified and re-hosted by anyone who kept a copy. Some DReps prefer to self-host on IPFS for that reason; we host it for you to keep voting simple. Either way, the chain guarantees what you committed to, not where it is stored.
+[`dreptalk.com/vote-rationale/30e507c6…eec6eb61.json`](https://dreptalk.com/vote-rationale/30e507c64f300ad90187044b9b27dfa7244de3a42b15159e506eb5cfeec6eb61.json)
+
+The long file name is the document's blake2b-256 hash, the same value recorded with the vote on the chain. Because the address is derived from the contents, the document cannot be quietly changed: any edit would be a different document at a different address, and it would no longer match the fingerprint on-chain. Your rationale is fixed the moment you vote.
+
+## What about IPFS?
+
+Many DReps publish rationales on IPFS, so you might expect DRepTalk to do the same. We deliberately host the document ourselves instead: publishing stays one step at vote time, with no pinning service or personal server to run. The guarantee people look to IPFS for, that content cannot change behind an address, comes from the fingerprint either way; an IPFS address and a DRepTalk address are both just places the bytes live, and the chain holds the hash that proves them.
+
+The honest tradeoff is availability. If this site ever went away, the web address above would stop resolving. The fingerprint on the chain stays valid forever, so anyone who kept a copy can verify the exact document and re-host it, on IPFS or anywhere else, but DRepTalk is the primary host today.
 
 You do not need to understand CIP-100 to write a good rationale. What matters is the content you put in it.
 

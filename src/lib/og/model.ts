@@ -7,6 +7,7 @@ import { epochCountdown, overviewTally, readableType, statusBadge } from '../gov
 import type { RoleTallyInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
 import { formatAdaCompact } from '../format/ada.js';
+import { isoDate } from '../format/date.js';
 import { getCategory } from '../../../config/categories.js';
 import { accentForType, BRAND_ACCENT, statusColor, tint } from './theme.js';
 
@@ -157,5 +158,27 @@ export function discussionCardModel(
     authorName: opts.authorName,
     avatarDataUrl: opts.avatarDataUrl,
     meta: `${replies} ${replies === 1 ? 'reply' : 'replies'}`,
+  };
+}
+
+export interface HelpCardInput {
+  title: string;
+  description: string;
+  category: string;
+  updated?: Date;
+}
+
+// A help guide renders on the discussion card layout: the hub category as the
+// pill, the frontmatter description as the subtitle, no author row, and the
+// last-updated date (when the guide has one) in the meta line.
+export function helpCardModel(g: HelpCardInput): DiscussionCardModel {
+  return {
+    accent: BRAND_ACCENT,
+    category: g.category,
+    title: clamp(g.title, 96),
+    subtitle: excerptFromHtml(g.description, 140),
+    authorName: null,
+    avatarDataUrl: null,
+    meta: g.updated ? `Help guide · Updated ${isoDate(g.updated)}` : 'Help guide',
   };
 }
