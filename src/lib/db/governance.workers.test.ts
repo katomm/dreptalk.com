@@ -41,6 +41,7 @@ async function seedGovRow(o: {
   postCount?: number;
   lastPostAt?: number;
   status?: string;
+  type?: string;
   submittedEpoch?: number | null;
   submittedAt?: number | null;
   expiryEpoch?: number | null;
@@ -65,10 +66,11 @@ async function seedGovRow(o: {
       .prepare(
         `INSERT INTO governance_actions
            (id, type, anchor_status, status, title, submitted_epoch, submitted_at, expiry_epoch, decided_epoch, drep_yes, trending_score, topic_id, created_at, last_synced_at)
-         VALUES (?, 'InfoAction', 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         o.actionId,
+        o.type ?? 'InfoAction',
         o.status ?? 'active',
         o.title ?? null,
         o.submittedEpoch ?? null,
@@ -707,6 +709,46 @@ describe('getGovernanceActionTopicIdsPage', () => {
     const { topicIds } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'trending', limit: 100, offset: 0 });
 
     expect(topicIds).toEqual(expected);
+  });
+
+  it('type filter: restricts the page and the count to the given type', async () => {
+    await seedGovRow({ topicId: 't-info1', actionId: 'i1', type: 'InfoAction', trendingScore: 30 });
+    await seedGovRow({ topicId: 't-info2', actionId: 'i2', type: 'InfoAction', trendingScore: 20 });
+    await seedGovRow({ topicId: 't-tw', actionId: 'w1', type: 'TreasuryWithdrawals', trendingScore: 99 });
+
+    const filtered = await getGovernanceActionTopicIdsPage(db(), {
+      categorySlug: GOV,
+      sort: 'trending',
+      limit: 100,
+      offset: 0,
+      type: 'InfoAction',
+    });
+    expect(filtered.topicIds).toEqual(['t-info1', 't-info2']);
+    expect(filtered.total).toBe(2);
+
+    const all = await getGovernanceActionTopicIdsPage(db(), {
+      categorySlug: GOV,
+      sort: 'trending',
+      limit: 100,
+      offset: 0,
+    });
+    expect(all.total).toBe(3);
+  });
+
+  it('type filter: composes with the closing sort (terminal still excluded)', async () => {
+    await seedGovRow({ topicId: 't-open', actionId: 'o1', type: 'InfoAction', status: 'active', expiryEpoch: 360 });
+    await seedGovRow({ topicId: 't-done', actionId: 'd1', type: 'InfoAction', status: 'enacted', expiryEpoch: 350 });
+    await seedGovRow({ topicId: 't-tw', actionId: 'w1', type: 'TreasuryWithdrawals', status: 'active', expiryEpoch: 300 });
+
+    const { topicIds, total } = await getGovernanceActionTopicIdsPage(db(), {
+      categorySlug: GOV,
+      sort: 'closing',
+      limit: 100,
+      offset: 0,
+      type: 'InfoAction',
+    });
+    expect(topicIds).toEqual(['t-open']);
+    expect(total).toBe(1);
   });
 });
 

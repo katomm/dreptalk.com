@@ -476,7 +476,7 @@ function govPageOrderBy(sort: GovSort): string {
  */
 export async function getGovernanceActionTopicIdsPage(
   db: D1Database,
-  opts: { categorySlug: string; sort: GovSort; limit: number; offset: number },
+  opts: { categorySlug: string; sort: GovSort; limit: number; offset: number; type?: string | null },
 ): Promise<{ topicIds: string[]; total: number }> {
   const limit = Math.min(Math.max(opts.limit, 1), 100);
   const offset = Math.max(opts.offset, 0);
@@ -487,18 +487,22 @@ export async function getGovernanceActionTopicIdsPage(
   const terminalBinds = opts.sort === 'closing' ? [...TERMINAL_STATUSES] : [];
   const terminalFilter =
     opts.sort === 'closing' ? ` AND ga.status NOT IN (${sqlPlaceholders(terminalBinds)})` : '';
+  // Optional single-type filter. The value is a bound parameter (never interpolated),
+  // so it stays injection-safe; an absent/null type leaves the query unchanged.
+  const typeBinds = opts.type ? [opts.type] : [];
+  const typeFilter = opts.type ? ' AND ga.type = ?' : '';
   const base =
     'FROM governance_actions ga JOIN topics t ON t.id = ga.topic_id ' +
-    `WHERE t.category_slug = ? AND t.deleted = 0${terminalFilter}`;
+    `WHERE t.category_slug = ? AND t.deleted = 0${terminalFilter}${typeFilter}`;
 
   const [idResult, countRow] = await Promise.all([
     db
       .prepare(`SELECT ga.topic_id AS topic_id ${base} ORDER BY ${govPageOrderBy(opts.sort)} LIMIT ? OFFSET ?`)
-      .bind(opts.categorySlug, ...terminalBinds, limit, offset)
+      .bind(opts.categorySlug, ...terminalBinds, ...typeBinds, limit, offset)
       .all<{ topic_id: string }>(),
     db
       .prepare(`SELECT COUNT(*) AS n ${base}`)
-      .bind(opts.categorySlug, ...terminalBinds)
+      .bind(opts.categorySlug, ...terminalBinds, ...typeBinds)
       .first<{ n: number }>(),
   ]);
 

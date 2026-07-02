@@ -17,6 +17,7 @@ import {
   type GovActionTopic,
   type GovSort,
 } from '@/lib/governance/sort.js';
+import { GOV_ACTION_TYPES, parseGovType } from '@/lib/governance/types.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { stakeParticipation, overviewTally, type StakeParticipation } from '@/lib/governance/view.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
@@ -67,6 +68,9 @@ const sort = parseGovSort(Astro.url.searchParams.get('sort'));
 // Which metric column to show (sentiment by default).
 const metric: 'stake' | 'sentiment' =
   Astro.url.searchParams.get('metric') === 'stake' ? 'stake' : 'sentiment';
+// Optional action-type filter (?type=). Unknown/absent -> null (all types). Unlike
+// sort/metric this is a transient filter, so it is deliberately not persisted.
+const typeFilter = parseGovType(Astro.url.searchParams.get('type'));
 
 let topics: Topic[] = [];
 let govTotal = 0;
@@ -91,6 +95,7 @@ if (category && db) {
       sort,
       limit: PAGE_SIZE,
       offset,
+      type: typeFilter,
     });
     const [topicById, actionByTopic, protoParams] = await Promise.all([
       getTopicsByIds(db, topicIds),
@@ -155,17 +160,25 @@ const nextPage = isGovernanceCategory
   ? (offset + PAGE_SIZE < govTotal ? page + 1 : null)
   : (topics.length === PAGE_SIZE ? page + 1 : null);
 
-// Page links preserve the active sort and metric for the governance category so
-// paging stays within the selected view.
+// Shared query tail for governance links: keeps sort + metric, and the type filter
+// when one is active (omitted for "all types" so the default URL stays clean).
+const govQuery = (o: { sort?: GovSort; metric?: 'stake' | 'sentiment'; type?: string | null }) => {
+  const t = o.type === undefined ? typeFilter : o.type;
+  const typeParam = t ? `&type=${encodeURIComponent(t)}` : '';
+  return `sort=${o.sort ?? sort}&metric=${o.metric ?? metric}${typeParam}`;
+};
+
+// Page links preserve the active sort, metric, and type for the governance category
+// so paging stays within the selected view.
 const pageHref = (p: number) =>
   isGovernanceCategory
-    ? `/c/${category!.slug}?sort=${sort}&metric=${metric}&page=${p}`
+    ? `/c/${category!.slug}?${govQuery({})}&page=${p}`
     : `/c/${category!.slug}?page=${p}`;
 
-// Governance control links (sort tabs, metric toggle) share the same query string
-// and only vary one param; this keeps them in sync and resets to page 1.
-const ctrlHref = (o: { sort?: GovSort; metric?: 'stake' | 'sentiment' }) =>
-  `/c/${category!.slug}?sort=${o.sort ?? sort}&metric=${o.metric ?? metric}`;
+// Governance control links (sort tabs, metric toggle, type filter) share the same
+// query string and only vary one param; this keeps them in sync and resets to page 1.
+const ctrlHref = (o: { sort?: GovSort; metric?: 'stake' | 'sentiment'; type?: string | null }) =>
+  `/c/${category!.slug}?${govQuery(o)}`;
 
 const breadcrumbLd = {
   '@context': 'https://schema.org',
@@ -228,6 +241,33 @@ const breadcrumbLd = {
           ))}
         </nav>
         <div class="ga-controls__right">
+          <details class="ga-typefilter">
+            <summary class="ga-typefilter__summary">
+              <span class="ga-typefilter__label">Type</span>
+              <span class="ga-typefilter__value">
+                {typeFilter ? GOV_ACTION_TYPES.find((t) => t.value === typeFilter)?.label : 'All types'}
+              </span>
+              <span class="ga-typefilter__caret" aria-hidden="true">▾</span>
+            </summary>
+            <div class="ga-typefilter__menu" role="menu">
+              <a
+                class="ga-typefilter__opt"
+                aria-current={typeFilter === null ? 'true' : undefined}
+                href={ctrlHref({ type: null })}
+              >
+                All types
+              </a>
+              {GOV_ACTION_TYPES.map((t) => (
+                <a
+                  class="ga-typefilter__opt"
+                  aria-current={typeFilter === t.value ? 'true' : undefined}
+                  href={ctrlHref({ type: t.value })}
+                >
+                  {t.label}
+                </a>
+              ))}
+            </div>
+          </details>
           <div class="ga-toggle" role="group" aria-label="Metric">
             <a
               class={`ga-toggle__opt ${metric === 'stake' ? 'on' : ''}`}
@@ -250,7 +290,14 @@ const breadcrumbLd = {
 
     {isGovernanceCategory ? (
       pageRows.length === 0 ? (
-        <p style="color:var(--muted);">No governance actions in this view.</p>
+        typeFilter ? (
+          <p style="color:var(--muted);">
+            No {GOV_ACTION_TYPES.find((t) => t.value === typeFilter)?.label} actions.{' '}
+            <a href={ctrlHref({ type: null })}>Clear filter</a>
+          </p>
+        ) : (
+          <p style="color:var(--muted);">No governance actions in this view.</p>
+        )
       ) : (
         <>
         {/* data-metric drives which single metric shows below the wide breakpoint
@@ -340,8 +387,8 @@ const breadcrumbLd = {
 )}
 
 <style>
-  /* Governance overview controls: sort tabs on the left, metric toggle on the
-     right. Wrap onto stacked rows on narrow screens. */
+  /* Governance overview controls: sort tabs on the left, type filter and metric
+     toggle on the right. Wrap onto stacked rows on narrow screens. */
   .ga-controls {
     display: flex;
     flex-wrap: wrap;
@@ -356,6 +403,50 @@ const breadcrumbLd = {
     align-items: center;
     gap: 0.5rem 1rem;
   }
+
+  /* Type filter: a details/summary disclosure styled to match the other pill
+     controls, with an absolutely positioned menu of plain links (no client JS). */
+  .ga-typefilter { position: relative; }
+  .ga-typefilter__summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.8125rem;
+    color: var(--fg);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .ga-typefilter__summary::-webkit-details-marker { display: none; }
+  .ga-typefilter__label { color: var(--muted); }
+  .ga-typefilter__value { font-weight: 600; }
+  .ga-typefilter[open] .ga-typefilter__caret { transform: rotate(180deg); }
+  .ga-typefilter__menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.35rem);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 0.25rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+  .ga-typefilter__opt {
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .ga-typefilter__opt:hover { background: var(--surface-2); }
+  .ga-typefilter__opt[aria-current='true'] { color: var(--accent); font-weight: 600; }
 
   /* Sort tabs as calm pills; the active one is emphasized. */
   .ga-tabs {
@@ -449,10 +540,11 @@ const breadcrumbLd = {
   .ga-list__caret {
     font-size: 0.9em;
   }
-  /* Wide screens show both metric columns, so the toggle (which only chooses one)
-     is redundant; the rows show both regardless. It returns below the breakpoint. */
+  /* Wide screens show both metric columns, so the metric toggle (which only chooses
+     one) is redundant; the rows show both regardless. It returns below the breakpoint.
+     The type filter stays visible at every width, so only the toggle is hidden here. */
   @media (min-width: 1001px) {
-    .ga-controls__right {
+    .ga-toggle {
       display: none;
     }
   }
