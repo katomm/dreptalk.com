@@ -1,8 +1,9 @@
 ---
 // Sidebar card: on-chain thresholds with per-body results, each with a threshold
 // gauge (yes/no/abstain bar + threshold marker) and amounts. InfoActions carry no
-// threshold, so they show the plain vote sentiment instead. The voting window
-// (start/end epochs) is not repeated here; the Status card above already has it.
+// threshold, so they show a per-body (DRep, SPO, CC) sentiment breakdown instead.
+// The voting window (start/end epochs) is not repeated here; the Status card above
+// already has it.
 import TallyBar from '@/components/TallyBar.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
@@ -11,8 +12,7 @@ import { parameterChangeScope } from '@/lib/governance/onchain.js';
 import {
   fmtPct,
   bodyVoteAmounts,
-  overviewTally,
-  sentimentSubline,
+  advisoryBodyTallies,
   type StakeParticipation,
 } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
@@ -37,12 +37,12 @@ const markerLeft = (pct: number): number => Math.min(100, Math.max(0, pct));
 const paramScope =
   action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload) : null;
 
-// Advisory types (InfoAction) have no on-chain threshold, so instead of a gauge
-// they show the plain vote sentiment (leading role's yes/no/abstain bar). This runs
-// off the action tally, not the protocol params, so it shows even before params sync.
+// Advisory types (InfoAction) have no on-chain threshold, so instead of a gauge they
+// show how each body voted: one sentiment bar + amounts per DRep, SPO, CC. All three
+// always render (even a body with no votes) so a reader can see that a body the action
+// addresses has, or has not, weighed in.
 const noThreshold = !hasOnchainThreshold(action.type);
-const sentimentTally = noThreshold ? overviewTally(action) : null;
-const sentimentAmounts = sentimentTally ? bodyVoteAmounts(action, sentimentTally.role) : null;
+const advisoryBodies = noThreshold ? advisoryBodyTallies(action) : null;
 
 // Threshold evaluation for all other types (null when params have not synced yet).
 const results = !noThreshold && params
@@ -65,22 +65,27 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
 <div class="sidebar-card">
   <p class="sidebar-card__title">Voting Information</p>
 
-  {/* No on-chain threshold (advisory): show the plain vote sentiment, not a gauge. */}
+  {/* No on-chain threshold (advisory): show how each body voted, not a gauge. */}
   {noThreshold ? (
-    sentimentTally ? (
-      <div class="sentiment">
-        <span class="sentiment__pct">
-          {fmtPct(sentimentTally.bar.yes)} <span class="sentiment__word">{sentimentTally.role} support</span>
-        </span>
-        <span class="sentiment__sub">{sentimentSubline(sentimentTally)}</span>
-        <TallyBar bar={sentimentTally.bar} height={7} pendingNo={sentimentTally.noIsPending} />
-        {sentimentAmounts && (
-          <div class="vote-amounts">
-            <span><b>{sentimentAmounts.yes}</b> yes</span>
-            <span>{sentimentAmounts.no} no</span>
-            <span>{sentimentAmounts.abstain} abstain</span>
+    advisoryBodies ? (
+      <div class="advisory-list">
+        {advisoryBodies.map((b) => (
+          <div class="advisory-row">
+            <span class="advisory-row__body">{b.label}</span>
+            {b.bar ? (
+              <TallyBar bar={b.bar} height={7} />
+            ) : (
+              <p class="advisory-row__none">No votes recorded.</p>
+            )}
+            {b.amounts && (
+              <div class="vote-amounts">
+                <span><b>{b.amounts.yes}</b> yes</span>
+                <span>{b.amounts.no} no</span>
+                <span>{b.amounts.abstain} abstain</span>
+              </div>
+            )}
           </div>
-        )}
+        ))}
         <p class="info-note">No on-chain threshold for this action type; this is advisory sentiment.</p>
       </div>
     ) : (
@@ -196,6 +201,34 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
   .sentiment__sub {
     color: var(--muted);
     font-size: 0.75rem;
+  }
+
+  /* InfoAction advisory breakdown: one row per body (DRep, SPO, CC), reusing the
+     threshold-row card look and vote-amounts line. */
+  .advisory-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+  .advisory-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3125rem;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+  }
+  .advisory-row__body {
+    font-weight: 700;
+    font-size: 0.8125rem;
+    color: var(--fg);
+  }
+  .advisory-row__none {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-style: italic;
   }
 
   .info-note {
