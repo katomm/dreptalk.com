@@ -8,7 +8,7 @@ const PARAMS = {
   dvtHardFork: 0.6, dvtPpNetwork: 0.67, dvtPpEconomic: 0.67, dvtPpTechnical: 0.67, dvtPpGov: 0.75,
   pvtMotionNoConfidence: 0.51, pvtCommitteeNormal: 0.51, pvtCommitteeNoConfidence: 0.51,
   pvtHardFork: 0.51, pvtSecurityGroup: 0.51,
-  ccThreshold: 0.67, committeeMinSize: 7, syncedAt: 1717000000000, rawJson: null,
+  ccThreshold: 0.67, committeeMinSize: 7, committeeSize: 8, syncedAt: 1717000000000, rawJson: null,
 };
 
 describe('protocol_params', () => {
@@ -18,6 +18,12 @@ describe('protocol_params', () => {
     expect(p!.dvtTreasuryWithdrawal).toBe(0.67);
     expect(p!.ccThreshold).toBe(0.67);
     expect(p!.committeeMinSize).toBe(7);
+    expect(p!.committeeSize).toBe(8);
+  });
+  it('round-trips a null committee size', async () => {
+    await upsertProtocolParams(env.DB, { ...PARAMS, committeeSize: null });
+    const p = await getProtocolParams(env.DB);
+    expect(p!.committeeSize).toBeNull();
   });
   it('upsert overwrites the single row (id=1)', async () => {
     await upsertProtocolParams(env.DB, { ...PARAMS, epoch: 541, dvtTreasuryWithdrawal: 0.6 });

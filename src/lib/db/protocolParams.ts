@@ -21,6 +21,8 @@ export interface ProtocolParams {
   pvtSecurityGroup: number | null;
   ccThreshold: number | null;
   committeeMinSize: number | null;
+  /** Active committee members (authorized, non-expired). Null until first synced. */
+  committeeSize: number | null;
   syncedAt: number;
   /** Full epoch_params response JSON, for parameter old to new lookups. Null until first synced. */
   rawJson: string | null;
@@ -34,7 +36,8 @@ interface Row {
   dvt_pp_technical: number | null; dvt_pp_gov: number | null; dvt_treasury_withdrawal: number | null;
   pvt_motion_no_confidence: number | null; pvt_committee_normal: number | null;
   pvt_committee_no_confidence: number | null; pvt_hard_fork: number | null; pvt_security_group: number | null;
-  cc_threshold: number | null; committee_min_size: number | null; synced_at: number;
+  cc_threshold: number | null; committee_min_size: number | null; committee_size: number | null;
+  synced_at: number;
   raw_json: string | null;
 }
 
@@ -50,7 +53,8 @@ export async function getProtocolParams(db: D1Database): Promise<ProtocolParams 
     pvtMotionNoConfidence: r.pvt_motion_no_confidence, pvtCommitteeNormal: r.pvt_committee_normal,
     pvtCommitteeNoConfidence: r.pvt_committee_no_confidence, pvtHardFork: r.pvt_hard_fork,
     pvtSecurityGroup: r.pvt_security_group, ccThreshold: r.cc_threshold,
-    committeeMinSize: r.committee_min_size, syncedAt: r.synced_at,
+    committeeMinSize: r.committee_min_size, committeeSize: r.committee_size ?? null,
+    syncedAt: r.synced_at,
     rawJson: r.raw_json,
   };
 }
@@ -62,13 +66,13 @@ export async function upsertProtocolParams(db: D1Database, p: ProtocolParams): P
         dvt_update_constitution, dvt_hard_fork, dvt_pp_network, dvt_pp_economic, dvt_pp_technical,
         dvt_pp_gov, dvt_treasury_withdrawal, pvt_motion_no_confidence, pvt_committee_normal,
         pvt_committee_no_confidence, pvt_hard_fork, pvt_security_group, cc_threshold,
-        committee_min_size, synced_at, raw_json)
-     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        committee_min_size, committee_size, synced_at, raw_json)
+     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     p.epoch, p.dvtMotionNoConfidence, p.dvtCommitteeNormal, p.dvtCommitteeNoConfidence,
     p.dvtUpdateConstitution, p.dvtHardFork, p.dvtPpNetwork, p.dvtPpEconomic, p.dvtPpTechnical,
     p.dvtPpGov, p.dvtTreasuryWithdrawal, p.pvtMotionNoConfidence, p.pvtCommitteeNormal,
     p.pvtCommitteeNoConfidence, p.pvtHardFork, p.pvtSecurityGroup, p.ccThreshold,
-    p.committeeMinSize, p.syncedAt, p.rawJson,
+    p.committeeMinSize, p.committeeSize, p.syncedAt, p.rawJson,
   ).run();
 }

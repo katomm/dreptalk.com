@@ -28,7 +28,6 @@ export interface ThresholdInput {
   drepYesPct: number | null;
   spoYesPct: number | null;
   ccYesPct: number | null;
-  ccSize: number; // current committee size (members count)
   // For ParameterChange only: which groups the change touches and whether SPOs
   // vote. Null/absent when the on-chain payload is unavailable.
   paramScope?: ParamChangeScope | null;
@@ -109,8 +108,14 @@ export function evaluateThresholds(input: ThresholdInput, p: ProtocolParams): Bo
   }
   if (pl.cc) {
     const thr = pctOf(p.ccThreshold);
-    const quorum = p.committeeMinSize != null && input.ccSize >= p.committeeMinSize;
-    out.push({ body: 'CC', thresholdPct: thr, yesPct: input.ccYesPct, met: quorum && meets(input.ccYesPct, thr) });
+    // CIP-1694 min-size rule: the committee cannot ratify while its active
+    // membership is below committee_min_size. Only gate when both figures are
+    // known; missing data must not flip the row to "Not met". Note this is the
+    // committee's size, not the number of votes cast: members who skip a vote
+    // already count against the yes-percentage, they do not shrink the committee.
+    const belowMinSize =
+      p.committeeMinSize != null && p.committeeSize != null && p.committeeSize < p.committeeMinSize;
+    out.push({ body: 'CC', thresholdPct: thr, yesPct: input.ccYesPct, met: !belowMinSize && meets(input.ccYesPct, thr) });
   }
   return out;
 }

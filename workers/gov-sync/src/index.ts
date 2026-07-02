@@ -42,9 +42,13 @@
 //   2026-07-01: pick up META_EXTRACT_VERSION 3 so the metadata backfill re-extracts
 //               action bodies with motivation + rationale merged (was dropping the
 //               motivation section, cutting the body off at the start).
+//   2026-07-02: params phase also syncs the active committee size, so the CC
+//               quorum check runs on real membership instead of votes cast
+//               (fixes false "Not met" on the detail page).
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
+import { activeCommitteeSize } from '../../../src/lib/koios/committee.js';
 import { bytesToHex } from '../../../src/lib/crypto/hex.js';
 import { CRON_VOTE_SYNC, CRON_DREP_SYNC } from '../../../src/lib/freshness.js';
 import {
@@ -199,7 +203,7 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
   // GA detail Voting Information card). Changes only via governance, so this is a
   // cheap once-per-run call with an only-changed write.
   await phase('params', async () => {
-    const [ep, ccq] = await Promise.all([koios.epochParams(), koios.committeeQuorum()]);
+    const [ep, cc] = await Promise.all([koios.epochParams(), koios.committeeSummary()]);
     if (!ep) return { items: 0 };
     const next = {
       epoch: ep.epoch_no ?? null,
@@ -218,8 +222,12 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
       pvtCommitteeNoConfidence: ep.pvt_committee_no_confidence ?? null,
       pvtHardFork: ep.pvt_hard_fork_initiation ?? null,
       pvtSecurityGroup: ep.pvtpp_security_group ?? null,
-      ccThreshold: ccq,
+      ccThreshold: cc.quorum,
       committeeMinSize: ep.committee_min_size ?? null,
+      // Real committee size for the CIP-1694 min-size rule (null when Koios has
+      // no committee row), from the same /committee_info call as the quorum.
+      committeeSize:
+        cc.members == null ? null : activeCommitteeSize(cc.members, ep.epoch_no ?? null),
       syncedAt: now,
       // Full epoch_params blob: the Overview's parameter old to new lookup reads
       // it (no extra Koios call). Stored verbatim so future keys need no schema change.
@@ -232,12 +240,15 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
       cur.epoch !== next.epoch ||
       cur.dvtTreasuryWithdrawal !== next.dvtTreasuryWithdrawal ||
       cur.ccThreshold !== next.ccThreshold ||
+      // Committee size comes from committee_info, not the epoch_params blob, so
+      // rawJson comparison alone would miss membership changes (resignations).
+      cur.committeeSize !== next.committeeSize ||
       cur.rawJson !== next.rawJson
     ) {
       await upsertProtocolParams(env.DB, next);
       written = 1;
     }
-    console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold}`);
+    console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold} ccSize=${next.committeeSize}`);
     return { items: written };
   });
 }
