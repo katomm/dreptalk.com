@@ -31,6 +31,10 @@
   /* Text on a solid --accent fill (segmented controls, etc). White on the
      dark-purple light accent is ~6.8:1, well past WCAG AA. */
   --on-accent: #ffffff;
+  /* Text on solid tone fills (status pills, outcome badges). Tracks --on-accent
+     in both themes: the tone backgrounds are saturated darks in light mode and
+     lifted pastels in dark mode, so the same flip keeps AA contrast on all. */
+  --on-badge: #ffffff;
   --accent-hover: #5b21b6;
   /* Destructive actions (Log out, flag, delete). */
   --danger: #dc2626;
@@ -86,6 +90,9 @@ html[data-theme='dark'] {
   /* Deep violet-black on the light-lavender dark accent is ~6.9:1; white here
      would be only ~2:1 and fail AA. */
   --on-accent: #14101c;
+  /* See the light-theme note: white on the pastel dark tones would fall to
+     ~2:1, the deep violet-black stays past AA on every tone fill. */
+  --on-badge: #14101c;
   --accent-hover: #b9a3fb;
   /* Lifted danger red for legibility on the dark bg. */
   --danger: #f87171;
@@ -526,10 +533,9 @@ main.container {
 .drep-table__power { text-align: left; }
 .drep-table__trend { text-align: left; }
 .drep-table__actions { text-align: right; }
-/* The fixed-width DRep cell bounds the inline identity; making it a flex with
-   min-width:0 lets the name ellipsize rather than overflow. */
-.drep-table .author-identity { display: flex; min-width: 0; }
-.drep-table .author-identity__name { overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Name truncation inside the fixed-width DRep cell is handled by the
+   AuthorIdentity `truncate` prop; global overrides here would tie with the
+   component's scoped styles (attribute scoping) and lose by source order. */
 
 /* Stacked power cell: the ada figure on top, the influence percent and its bar on
    the line below (matches the directory mockup). Left-aligned under the header. */
@@ -685,6 +691,9 @@ main.container {
 .vhist__more-hide { display: none; }
 .vhist__more[open] > .vhist__more-toggle .vhist__more-show { display: none; }
 .vhist__more[open] > .vhist__more-toggle .vhist__more-hide { display: inline; }
+/* Shown only when the history was cut at the query ceiling, so the count in the
+   heading and the rendered rows never silently disagree. */
+.vhist__truncated { color: var(--muted); font-size: 0.8125rem; text-align: center; margin: 0.6rem 0 0; }
 
 @media (max-width: 640px) {
   .vhist-section { padding: 1.1rem; }

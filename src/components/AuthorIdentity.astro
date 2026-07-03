@@ -17,9 +17,15 @@ interface Props {
   author: AuthorDescriptor;
   /** Avatar edge length in px. Default 28. */
   size?: number;
+  /**
+   * Keep the name on one line and ellipsize it, filling the parent's width.
+   * For fixed-width row layouts (tables, sidebars) where the default
+   * mid-word wrap would collide with a neighboring value column.
+   */
+  truncate?: boolean;
 }
 
-const { author, size = 28 } = Astro.props;
+const { author, size = 28, truncate = false } = Astro.props;
 const { displayName, imageHash, badges = [], isSystem = false } = author;
 
 // Same seed everywhere for a given author (DRep hex when known, else the id).
@@ -27,7 +33,7 @@ const seed = author.identiconSeed ?? author.authorId;
 const profileHref = authorProfileHref(author);
 ---
 
-<span class="author-identity" style={`--avatar-size:${size}px;`}>
+<span class:list={['author-identity', { 'author-identity--truncate': truncate }]} style={`--avatar-size:${size}px;`}>
   {isSystem ? (
     <span class="author-identity__avatar" aria-hidden="true">
       <LogoMark style={`width:${Math.round(size * 0.6)}px;height:${Math.round(size * 0.6)}px;color:var(--muted);`} />
@@ -92,4 +98,17 @@ const profileHref = authorProfileHref(author);
 
   .author-identity__name--link { text-decoration: none; }
   .author-identity__name--link:hover { text-decoration: underline; }
+
+  /* Truncate mode: the identity becomes block-level so it is bounded by its
+     cell (an inline-flex would size to its content and overflow a fixed-width
+     table column), and the name ellipsizes on one line instead of breaking
+     mid-word. Badges keep their width; only the name yields. */
+  .author-identity--truncate { display: flex; }
+  .author-identity--truncate .author-identity__name {
+    overflow-wrap: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .author-identity--truncate .author-identity__badge { flex-shrink: 0; }
 </style>

@@ -248,7 +248,7 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
           const cred = credentialHexFor(d);
           return (
             <tr>
-              <td><AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} /></td>
+              <td><AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate /></td>
               <td class="drep-table__power">
                 <div class="drep-power">
                   <span class="drep-power__ada">

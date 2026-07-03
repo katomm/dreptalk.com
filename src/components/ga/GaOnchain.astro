@@ -5,6 +5,7 @@ import type { GovernanceAction } from '@/lib/db/governance.js';
 import { readableType, formatAda } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, governanceActionUrl, type CardanoNetwork } from '@/lib/config/network.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
+import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import CopyButton from '@/components/CopyButton.astro';
 
 interface Props {
@@ -30,6 +31,11 @@ const expiryDate = action.expiryEpoch != null
 const decidedDate = action.decidedEpoch != null
   ? formatEpochDate(epochStartUnix(action.decidedEpoch, netCfg))
   : null;
+
+// A browser can open http(s) directly; ipfs:// goes through the public gateway.
+// The raw on-chain URI stays visible (and copyable) either way; when nothing
+// resolvable exists the anchor renders as plain text instead of a dead link.
+const anchorHref = action.anchorUrl != null ? resolveAnchorUrl(action.anchorUrl) : null;
 ---
 
 <div class="onchain-card">
@@ -99,7 +105,10 @@ const decidedDate = action.decidedEpoch != null
       <>
         <dt>Metadata anchor</dt>
         <dd>
-          <a href={action.anchorUrl} target="_blank" rel="noopener noreferrer" class="wrap">{action.anchorUrl}</a>
+          {anchorHref
+            ? <a href={anchorHref} target="_blank" rel="noopener noreferrer" class="wrap">{action.anchorUrl}</a>
+            : <span class="mono wrap">{action.anchorUrl}</span>}
+          <CopyButton value={action.anchorUrl} label="Copy metadata anchor URL" />
         </dd>
       </>
     )}

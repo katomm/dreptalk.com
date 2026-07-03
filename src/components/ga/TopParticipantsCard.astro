@@ -31,7 +31,7 @@ const { voters, dreps, slug, total, rationaleCount = 0 } = Astro.props;
         return (
           <li class="top-participants__row">
             <div class="top-participants__identity">
-              <AuthorIdentity author={descriptor} size={AVATAR_SIZE.compact} />
+              <AuthorIdentity author={descriptor} size={AVATAR_SIZE.compact} truncate />
             </div>
             <VoteBadge vote={v.vote} compact />
             <span class="top-participants__power">{ada ?? ''}</span>

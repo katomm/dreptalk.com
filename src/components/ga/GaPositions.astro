@@ -111,7 +111,7 @@ const spoHref = `/t/${slug}?tab=positions&role=spo`;
         const lead = (
           <>
             <div class="ga-positions__identity">
-              <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} />
+              <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate />
               {late && (
                 <span class="ga-positions__late" title="Cast after ratification; not counted in the tally">Not counted</span>
               )}
@@ -349,12 +349,12 @@ const spoHref = `/t/${slug}?tab=positions&role=spo`;
 
   .ga-positions__seg--active {
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .ga-positions__seg--active:hover {
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
   }
 
   .ga-positions__seg-count {

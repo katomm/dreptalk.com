@@ -225,11 +225,13 @@ export function voteTone(vote: string): StatusTone {
 }
 
 // CSS color per tone, owned here next to the tone vocabulary so badges across
-// the header, list rows, and vote pills never drift.
+// the header, list rows, and vote pills never drift. All four are theme
+// variables: the dark theme lifts --c-pos / --c-neg to pastels, so tone text
+// stays legible there instead of keeping the light theme's deep hues.
 export const TONE_COLORS: Record<StatusTone, string> = {
   active: 'var(--accent)',
-  positive: '#1a7f37',
-  negative: '#c0392b',
+  positive: 'var(--c-pos)',
+  negative: 'var(--c-neg)',
   neutral: 'var(--muted)',
 };
 
