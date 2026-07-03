@@ -59,6 +59,9 @@ export interface DrepVoteHistoryRow {
   meta_url: string | null;
   /** Unix seconds of the vote tx, for the "voted N ago" stamp; null when unknown. */
   block_time: number | null;
+  /** Rendered rationale HTML for this vote (from action_rationale), or null when
+   *  the DRep attached none or it has not been fetched/rendered yet. */
+  rationale_html: string | null;
 }
 
 /**
@@ -80,10 +83,11 @@ export async function getDrepVotingHistory(
       .prepare(
         `SELECT v.ga_id AS ga_id, v.vote AS vote, g.title AS title, g.type AS type,
                 g.status AS status, g.decided_epoch AS decided_epoch, t.slug AS topic_slug,
-                v.meta_url AS meta_url, v.block_time AS block_time
+                v.meta_url AS meta_url, v.block_time AS block_time, r.body_html AS rationale_html
          FROM drep_votes v
          JOIN governance_actions g ON g.id = v.ga_id
          LEFT JOIN topics t ON t.id = g.topic_id
+         LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
          WHERE v.voter_id = ? AND v.voter_role = 'DRep'
          ORDER BY g.decided_epoch DESC, g.id DESC
          LIMIT ? OFFSET ?`,

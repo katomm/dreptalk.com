@@ -1,0 +1,22 @@
+---
+// One row of a DRep's forum activity: the topic title (linked to the post), how
+// long ago it was posted, and a short excerpt. Styles live in global.css
+// (.factivity__*) so the head rows and the collapsed tail share one definition,
+// and so the card chrome matches the voting-history card next to it.
+import type { AuthorPost } from '@/lib/db/forum.js';
+import { formatRelativeTime, excerptFromHtml } from '@/lib/forum/view.js';
+
+interface Props {
+  post: AuthorPost;
+  now: number;
+}
+const { post, now } = Astro.props;
+---
+
+<div class="factivity__row">
+  <div class="factivity__head">
+    <a class="factivity__title" href={`/t/${post.topic_slug}#post-${post.id}`}>{post.topic_title}</a>
+    <span class="factivity__when">{formatRelativeTime(post.created_at, now)}</span>
+  </div>
+  <p class="factivity__excerpt">{excerptFromHtml(post.body_html, 160)}</p>
+</div>

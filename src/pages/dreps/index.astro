@@ -25,13 +25,16 @@ const db = env.DB as D1Database | undefined;
 const PAGE_SIZE = 50;
 const page = parsePage(Astro.url.searchParams.get('page'));
 const activeOnly = Astro.url.searchParams.get('all') !== '1';
+// Offset into the power-sorted listing; also the base for each row's rank number
+// (rank = offset + row index + 1), so ranks stay continuous across pages.
+const listOffset = pageToOffset(page, PAGE_SIZE);
 
 // The directory listing, the concentration aggregate, and the cached protocol
 // params are independent reads; fetch them concurrently so a cold (uncached)
 // render pays one round-trip of latency, not three.
 const [dreps, concentrationRows, params, powerAggregates] = db
   ? await Promise.all([
-      listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) }),
+      listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: listOffset }),
       listDrepsForConcentration(db),
       getProtocolParams(db),
       getVotingPowerEpochAggregates(db),
@@ -235,6 +238,7 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
     <table class="drep-table">
       <thead>
         <tr>
+          <th scope="col" class="drep-table__rank-h"><span class="sr-only">Rank</span></th>
           <th scope="col">DRep</th>
           <th scope="col" class="drep-table__power-h">Voting power</th>
           <th scope="col" class="drep-table__trend-h">Trend <span class="drep-table__trend-sub">(vs last epoch)</span></th>
@@ -242,13 +246,15 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
         </tr>
       </thead>
       <tbody>
-        {dreps.map((d) => {
+        {dreps.map((d, i) => {
           const descriptor = descriptorFor(d);
           const pct = influencePct(d.votingPower, totalActivePower);
           const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
           const cred = credentialHexFor(d);
+          const rank = listOffset + i + 1;
           return (
             <tr>
+              <td class="drep-table__rank">#{rank}</td>
               <td><AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate /></td>
               <td class="drep-table__power">
                 <div class="drep-power">
