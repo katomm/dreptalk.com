@@ -532,17 +532,20 @@ export async function batchUpdateTrendingScores(
 }
 
 /**
- * Terminal actions still missing power data: either the turnout sum
- * (drep_voted_power) or the per-option power buckets (drep_yes_power). Active/
- * pending actions get both from the normal tally, so they are excluded here.
- * Bounded by `limit` so a cron tick stays within Koios/subrequest budgets.
+ * Terminal actions still missing power data: the turnout sum (drep_voted_power),
+ * the per-option power buckets (drep_yes_power), or the eligible SPO stake
+ * (spo_eligible_power). Active/pending actions get these from the normal tally, so
+ * they are excluded here. Re-fetching the summary also corrects any older SPO power
+ * that predates the active/passive split. Bounded by `limit` so a cron tick stays
+ * within Koios/subrequest budgets.
  */
 export async function getActionsNeedingVotedPower(db: D1Database, limit: number): Promise<GovernanceAction[]> {
   const rows = (
     await db
       .prepare(
         `SELECT * FROM governance_actions
-         WHERE proposal_id IS NOT NULL AND (drep_voted_power IS NULL OR drep_yes_power IS NULL)
+         WHERE proposal_id IS NOT NULL
+           AND (drep_voted_power IS NULL OR drep_yes_power IS NULL OR spo_eligible_power IS NULL)
            AND status NOT IN ('active', 'pending')
          LIMIT ?`,
       )

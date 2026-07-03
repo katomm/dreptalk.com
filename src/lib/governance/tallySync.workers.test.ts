@@ -55,6 +55,11 @@ const summary: VotingSummary = {
   pool_yes_votes_cast: 0,
   pool_no_votes_cast: 0,
   pool_abstain_votes_cast: 0,
+  // Pool power buckets present (0, as Koios returns for a treasury action where SPOs
+  // do not vote), so spoEligiblePower resolves to 0 rather than null and the backfill
+  // counts the row as filled on the second pass.
+  pool_active_yes_vote_power: '0',
+  pool_no_vote_power: '0',
   committee_yes_votes_cast: 0,
   committee_no_votes_cast: 0,
   committee_abstain_votes_cast: 0,
