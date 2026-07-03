@@ -11,6 +11,7 @@
     "preview": "astro build && wrangler dev",
     "db:migrate:local": "wrangler d1 migrations apply DB --local --persist-to .wrangler/state",
     "db:seed:local": "wrangler d1 execute DB --local --persist-to .wrangler/state --file scripts/seed-dev.sql",
+    "db:seed:from-main": "bash scripts/seed-local-d1.sh",
     "typecheck": "astro check",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
