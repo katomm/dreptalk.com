@@ -1,6 +1,7 @@
 ---
 import { proposerView } from '@/lib/identity/proposer.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
+import { truncateId } from '@/lib/forum/view.js';
 import CopyButton from '@/components/CopyButton.astro';
 
 interface Props {
@@ -20,13 +21,23 @@ const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, si
 ---
 
 {v.kind === 'known' && (
-  <span class="proposer" style={`--s:${size}px`}>
-    {v.icon
-      ? <img class="proposer__logo" src={v.icon} alt="" width={size} height={size} loading="lazy" />
-      : <span class="proposer__icon" set:html={iconSvg} />}
-    {v.website
-      ? <a class="proposer__name" href={v.website} rel="noopener nofollow" target="_blank">{v.name}</a>
-      : <span class="proposer__name">{v.name}</span>}
+  <span class="proposer proposer--stacked" style={`--s:${size}px`}>
+    <span class="proposer__idrow">
+      {v.icon
+        ? <img class="proposer__logo" src={v.icon} alt="" width={size} height={size} loading="lazy" />
+        : <span class="proposer__icon" set:html={iconSvg} />}
+      {v.website
+        ? <a class="proposer__name" href={v.website} rel="noopener nofollow" target="_blank">{v.name}</a>
+        : <span class="proposer__name">{v.name}</span>}
+    </span>
+    {/* The reward (stake) address stays visible and copyable even for a known
+        proposer, so the on-chain identity behind the name is always verifiable. */}
+    {returnAddress && (
+      <span class="proposer__addrrow">
+        <code class="proposer__addr" title={returnAddress}>{truncateId(returnAddress, 18)}</code>
+        <CopyButton value={returnAddress} label="Copy proposer address" />
+      </span>
+    )}
   </span>
 )}
 
@@ -40,6 +51,10 @@ const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, si
 
 <style>
   .proposer { display: inline-flex; align-items: center; gap: 0.4rem; }
+  /* Known proposer: name row on top, the copyable stake address below it. */
+  .proposer--stacked { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; }
+  .proposer__idrow { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .proposer__addrrow { display: inline-flex; align-items: center; gap: 0.3rem; }
   .proposer__logo,
   .proposer__icon {
     width: var(--s);
