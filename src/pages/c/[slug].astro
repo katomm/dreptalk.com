@@ -19,13 +19,12 @@ import {
 } from '@/lib/governance/sort.js';
 import { GOV_ACTION_TYPES, parseGovType } from '@/lib/governance/types.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
-import { stakeParticipation, overviewTally, type StakeParticipation } from '@/lib/governance/view.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { proposerView } from '@/lib/identity/proposer.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
 // Raw inline script (pinned in the CSP by its hash in astro.config.mjs) that
-// persists/restores the reader's sort + metric choice in localStorage.
+// persists/restores the reader's sort choice in localStorage.
 import govPrefsRestoreJs from '@/scripts/gov-prefs-restore.js?raw';
 import { env } from 'cloudflare:workers';
 
@@ -65,23 +64,24 @@ const metaDescription = isGovernanceCategory
 // Governance actions get their own sort modes (a DRep wants trending / closing
 // soon, not the newest submission); discussion categories stay activity-ordered.
 const sort = parseGovSort(Astro.url.searchParams.get('sort'));
-// Which metric column to show (sentiment by default).
-const metric: 'stake' | 'sentiment' =
-  Astro.url.searchParams.get('metric') === 'stake' ? 'stake' : 'sentiment';
 // Optional action-type filter (?type=). Unknown/absent -> null (all types). Unlike
-// sort/metric this is a transient filter, so it is deliberately not persisted.
+// sort this is a transient filter, so it is deliberately not persisted.
 const typeFilter = parseGovType(Astro.url.searchParams.get('type'));
 
 let topics: Topic[] = [];
 let govTotal = 0;
-// Governance overview state: the joined+sorted+paged rows plus the per-page
-// stake-participation map. Empty for non-governance categories.
+// Governance overview state: the joined+sorted+paged rows. Empty for
+// non-governance categories.
 let pageRows: GovActionTopic[] = [];
-let stakeByTopic = new Map<string, StakeParticipation | null>();
-// Current protocol params, so a ParameterChange row can show its old→new pair.
+// Current protocol params, so a ParameterChange row can show its old→new pair,
+// and each row's CC participation can divide by the current committee size.
 let govParamsRawJson: string | null = null;
+let committeeSize: number | null = null;
+// Total active DRep voting power, the denominator for each row's DRep
+// participation bar. Null when the sync has not populated it yet.
+let drepStakeTotal: number | null = null;
 // Freshness of the cached on-chain numbers shown on this page (ms; null when
-// nothing to disclose). Stake from the dreps sync, sentiment from per-action tallies.
+// nothing to disclose). Stake from the dreps sync, tallies from per-action sync.
 let stakeAsOf: number | null = null;
 let tallyAsOf: number | null = null;
 
@@ -97,12 +97,16 @@ if (category && db) {
       offset,
       type: typeFilter,
     });
-    const [topicById, actionByTopic, protoParams] = await Promise.all([
+    const [topicById, actionByTopic, protoParams, stake] = await Promise.all([
       getTopicsByIds(db, topicIds),
       getGovernanceActionsByTopicIds(db, topicIds),
       getProtocolParams(db),
+      getActiveDrepStake(db),
     ]);
     govParamsRawJson = protoParams?.rawJson ?? null;
+    committeeSize = protoParams?.committeeSize ?? null;
+    drepStakeTotal = stake.total > 0 ? stake.total : null;
+    stakeAsOf = stake.asOf;
     // Preserve the database order; drop any id whose topic or action is missing
     // (a soft-delete racing the page read), mirroring the old inner-join filter.
     pageRows = topicIds
@@ -114,26 +118,7 @@ if (category && db) {
       .filter((r): r is GovActionTopic => r !== null);
     govTotal = total;
     topics = pageRows.map((r) => r.topic);
-    // Stake participation is DRep turnout (voted DRep power / total DRep power);
-    // we have no SPO turnout, so only DRep-led rows get a value. SPO-led rows
-    // (hard fork, no-confidence, committee) leave the cell as a dash rather than
-    // showing a DRep turnout that does not match their SPO sentiment bar.
-    const stakeRows = pageRows.filter((r) => overviewTally(r.action)?.role !== 'SPO');
-    // Voted power is the stored per-action field (populated by tally sync and
-    // backfill). Only query total power when at least one shown row has it;
-    // otherwise every cell is a dash and the query plus "as of" label are wasted.
-    if (stakeRows.some((r) => r.action.drepVotedPower != null)) {
-      const stake = await getActiveDrepStake(db);
-      stakeAsOf = stake.asOf;
-      stakeByTopic = new Map(
-        stakeRows.map((r) => [
-          r.topic.id,
-          // No tally yet (drep_voted_power null) -> dash; a stored value (even 0) is real turnout.
-          r.action.drepVotedPower == null ? null : stakeParticipation(r.action.drepVotedPower, stake.total),
-        ]),
-      );
-    }
-    // Sentiment staleness comes from the per-action tally sync time (in memory, no query).
+    // Tally staleness comes from the per-action tally sync time (in memory, no query).
     tallyAsOf = pageRows.reduce<number | null>(
       (mx, r) => (r.action.tallySyncedAt != null && (mx == null || r.action.tallySyncedAt > mx) ? r.action.tallySyncedAt : mx),
       null,
@@ -160,24 +145,24 @@ const nextPage = isGovernanceCategory
   ? (offset + PAGE_SIZE < govTotal ? page + 1 : null)
   : (topics.length === PAGE_SIZE ? page + 1 : null);
 
-// Shared query tail for governance links: keeps sort + metric, and the type filter
-// when one is active (omitted for "all types" so the default URL stays clean).
-const govQuery = (o: { sort?: GovSort; metric?: 'stake' | 'sentiment'; type?: string | null }) => {
+// Shared query tail for governance links: keeps sort, and the type filter when
+// one is active (omitted for "all types" so the default URL stays clean).
+const govQuery = (o: { sort?: GovSort; type?: string | null }) => {
   const t = o.type === undefined ? typeFilter : o.type;
   const typeParam = t ? `&type=${encodeURIComponent(t)}` : '';
-  return `sort=${o.sort ?? sort}&metric=${o.metric ?? metric}${typeParam}`;
+  return `sort=${o.sort ?? sort}${typeParam}`;
 };
 
-// Page links preserve the active sort, metric, and type for the governance category
-// so paging stays within the selected view.
+// Page links preserve the active sort and type for the governance category so
+// paging stays within the selected view.
 const pageHref = (p: number) =>
   isGovernanceCategory
     ? `/c/${category!.slug}?${govQuery({})}&page=${p}`
     : `/c/${category!.slug}?page=${p}`;
 
-// Governance control links (sort tabs, metric toggle, type filter) share the same
-// query string and only vary one param; this keeps them in sync and resets to page 1.
-const ctrlHref = (o: { sort?: GovSort; metric?: 'stake' | 'sentiment'; type?: string | null }) =>
+// Governance control links (sort tabs, type filter) share the same query string
+// and only vary one param; this keeps them in sync and resets to page 1.
+const ctrlHref = (o: { sort?: GovSort; type?: string | null }) =>
   `/c/${category!.slug}?${govQuery(o)}`;
 
 const breadcrumbLd = {
@@ -268,22 +253,6 @@ const breadcrumbLd = {
               ))}
             </div>
           </details>
-          <div class="ga-toggle" role="group" aria-label="Metric">
-            <a
-              class={`ga-toggle__opt ${metric === 'stake' ? 'on' : ''}`}
-              aria-current={metric === 'stake' ? 'true' : undefined}
-              href={ctrlHref({ metric: 'stake' })}
-            >
-              Participation
-            </a>
-            <a
-              class={`ga-toggle__opt ${metric === 'sentiment' ? 'on' : ''}`}
-              aria-current={metric === 'sentiment' ? 'true' : undefined}
-              href={ctrlHref({ metric: 'sentiment' })}
-            >
-              Sentiment
-            </a>
-          </div>
         </div>
       </div>
     )}
@@ -300,14 +269,12 @@ const breadcrumbLd = {
         )
       ) : (
         <>
-        {/* data-metric drives which single metric shows below the wide breakpoint
-           (for both the rows and the staleness notes); it is inert when wide. */}
-        <div class="ga-wrap" data-metric={metric}>
+        <div class="ga-wrap">
         <div class="ga-list">
           <div class="ga-list__head">
             <span>Governance Action</span>
-            <span class="ga-head__metric ga-head__metric--stake">Participation</span>
-            <span class="ga-head__metric ga-head__metric--sentiment">Sentiment</span>
+            <span>Participation</span>
+            <span>Current vote</span>
             <span>Activity</span>
             {/* The Time Left header doubles as a sort shortcut for Closing Soon
                (soonest expiry first); it mirrors the Closing Soon tab's state. */}
@@ -330,7 +297,8 @@ const breadcrumbLd = {
                 action={r.action}
                 proposer={proposer}
                 proposerIcon={proposerIcon}
-                stake={stakeByTopic.get(r.topic.id) ?? null}
+                drepStakeTotal={drepStakeTotal}
+                committeeSize={committeeSize}
                 network={network}
                 now={now}
                 href={`/t/${r.topic.slug}`}
@@ -339,14 +307,14 @@ const breadcrumbLd = {
             );
           })}
         </div>
-        {/* Disclose how stale the cached on-chain numbers are. Both notes render
-           when wide (both metrics visible); narrow screens hide the inactive one
-           via data-metric. Same formatter/phrasing as the GA thread header. */}
+        {/* Disclose how stale the cached on-chain numbers are: DRep stake from the
+           dreps sync, tallies from per-action sync. Same formatter/phrasing as the
+           GA thread header. */}
         {stakeAsOf != null && (
-          <p class="ga-asof ga-asof--stake">Stake data as of {formatRelativeTime(stakeAsOf, now)}. Cached, not live.</p>
+          <p class="ga-asof">Stake data as of {formatRelativeTime(stakeAsOf, now)}. Cached, not live.</p>
         )}
         {tallyAsOf != null && (
-          <p class="ga-asof ga-asof--sentiment">Tallies as of {formatRelativeTime(tallyAsOf, now)}. Cached, not live.</p>
+          <p class="ga-asof">Tallies as of {formatRelativeTime(tallyAsOf, now)}. Cached, not live.</p>
         )}
         </div>
         </>
@@ -387,8 +355,8 @@ const breadcrumbLd = {
 )}
 
 <style>
-  /* Governance overview controls: sort tabs on the left, type filter and metric
-     toggle on the right. Wrap onto stacked rows on narrow screens. */
+  /* Governance overview controls: sort tabs on the left, type filter on the
+     right. Wrap onto stacked rows on narrow screens. */
   .ga-controls {
     display: flex;
     flex-wrap: wrap;
@@ -476,32 +444,6 @@ const breadcrumbLd = {
     font-weight: 600;
   }
 
-  /* Metric toggle as a segmented control; the active option uses --accent. */
-  .ga-toggle {
-    display: inline-flex;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    overflow: hidden;
-  }
-  .ga-toggle__opt {
-    padding: 0.375rem 0.75rem;
-    font-size: 0.8rem;
-    text-decoration: none;
-    color: var(--muted);
-    background: var(--surface);
-    transition: color 0.12s, background 0.12s;
-  }
-  .ga-toggle__opt + .ga-toggle__opt {
-    border-left: 1px solid var(--border);
-  }
-  .ga-toggle__opt:hover {
-    color: var(--fg);
-  }
-  .ga-toggle__opt.on {
-    color: var(--on-accent);
-    background: var(--accent);
-  }
-
   /* The list and its header row. The header grid MUST match GovActionRow's
      row grid (columns, gap, horizontal padding) so the labels align. */
   .ga-list {
@@ -540,34 +482,12 @@ const breadcrumbLd = {
   .ga-list__caret {
     font-size: 0.9em;
   }
-  /* Wide screens show both metric columns, so the metric toggle (which only chooses
-     one) is redundant; the rows show both regardless. It returns below the breakpoint.
-     The type filter stays visible at every width, so only the toggle is hidden here. */
-  @media (min-width: 1001px) {
-    .ga-toggle {
-      display: none;
-    }
-  }
 
-  /* Below the wide breakpoint the header drops to four columns and shows only the
-     metric the toggle selects, mirroring the rows (data-metric on .ga-wrap). */
+  /* Below the wide breakpoint Participation and Current vote both drop to one
+     shared column (mirroring GovActionRow's grid at the same breakpoint). */
   @media (max-width: 1000px) {
     .ga-list__head {
-      grid-template-columns: 2.6fr 1.6fr 1.1fr 1.3fr;
-    }
-    /* Header label and staleness note share the toggle: stake shows by default,
-       sentiment swaps in. Grouped so the two targets never drift apart. */
-    .ga-head__metric--sentiment,
-    .ga-asof--sentiment {
-      display: none;
-    }
-    [data-metric='sentiment'] .ga-head__metric--stake,
-    [data-metric='sentiment'] .ga-asof--stake {
-      display: none;
-    }
-    [data-metric='sentiment'] .ga-head__metric--sentiment,
-    [data-metric='sentiment'] .ga-asof--sentiment {
-      display: block;
+      grid-template-columns: 2.6fr 1.6fr 1.3fr;
     }
   }
 
