@@ -50,7 +50,7 @@ const now = Date.now();
         <article style="border:1px solid var(--border);border-radius:0.5rem;padding:1rem 1.25rem;">
           <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.5rem;align-items:center;">
             {v.current && (
-              <span style="background:var(--accent);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">current</span>
+              <span style="background:var(--accent);color:var(--on-accent);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">current</span>
             )}
             <span title={new Date(v.at).toISOString()}>{formatRelativeTime(v.at, now)}</span>
           </div>

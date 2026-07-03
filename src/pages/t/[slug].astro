@@ -320,8 +320,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
         <span>{formatRelativeTime(topic.created_at, now)}</span>
         <span>{topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}</span>
         {topic.title_edited_at && <span>(title edited)</span>}
-        {topic.pinned && <span style="background:var(--accent);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">pinned</span>}
-        {topic.locked && <span style="background:var(--muted);color:#fff;border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">locked</span>}
+        {topic.pinned && <span style="background:var(--accent);color:var(--on-accent);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">pinned</span>}
+        {topic.locked && <span style="background:var(--muted);color:var(--on-badge);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">locked</span>}
       </div>
     </div>
 

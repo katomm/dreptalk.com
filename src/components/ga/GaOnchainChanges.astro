@@ -3,12 +3,20 @@
 // Renders nothing when there is no decodable payload.
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
 import { truncateIdMiddle } from '@/lib/forum/view.js';
+import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import CopyButton from '@/components/CopyButton.astro';
 
 interface Props {
   changes: OnchainChanges | null;
 }
 const { changes } = Astro.props;
+
+// The new-constitution document is an on-chain URI (often ipfs://); map it to a
+// browser-openable URL so the link is not dead, keeping the raw URI as the text.
+const constitutionHref =
+  changes?.kind === 'constitution' && changes.anchorUrl
+    ? resolveAnchorUrl(changes.anchorUrl)
+    : null;
 
 // Render only when there is something to show. Types with a variable-length body
 // (params/treasury/committee) are hidden when that body is empty; the rest always
@@ -106,7 +114,11 @@ const show =
         {changes.anchorUrl && (
           <li class="ocx__row">
             <span class="ocx__name">New constitution</span>
-            <span class="ocx__val"><a href={changes.anchorUrl} target="_blank" rel="noopener noreferrer">{changes.anchorUrl}</a></span>
+            <span class="ocx__val">
+              {constitutionHref
+                ? <a href={constitutionHref} target="_blank" rel="noopener noreferrer">{changes.anchorUrl}</a>
+                : <span class="mono">{changes.anchorUrl}</span>}
+            </span>
           </li>
         )}
         {changes.scriptHash && (
