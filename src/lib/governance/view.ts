@@ -553,6 +553,23 @@ function eligibleBodies(a: RowVotingInput, paramTouchesSecurity: boolean): Body[
   return BODY_ORDER.filter((body) => statically.has(body));
 }
 
+/**
+ * A short note naming the bodies that cannot vote on this action type, e.g. "SPOs do
+ * not vote on treasury withdrawals". Null when every body can vote (info actions) or,
+ * for a security-relevant ParameterChange, when SPOs are eligible. Shown on the detail
+ * page's Voting Information card, not on the overview row (where the missing body row
+ * already implies it and the note would be repetitive).
+ */
+export function absentBodyNote(
+  a: RowVotingInput,
+  opts?: { paramTouchesSecurity?: boolean },
+): string | null {
+  const eligible = new Set(eligibleBodies(a, opts?.paramTouchesSecurity ?? false));
+  const absent = BODY_ORDER.filter((body) => !eligible.has(body));
+  if (absent.length === 0) return null;
+  return `${absent.map((body) => BODY_LABEL[body]).join(' and ')} do not vote on ${readableType(a.type).toLowerCase()}`;
+}
+
 // Ratification yes-pct per body: the stored, already-recomputed percentage
 // (spoYesPct already reflects the spoTallyPct hard-fork fix from sync time; see
 // tallyFields in tallySync.ts). Null when that body's tally has not synced yet.

@@ -13,6 +13,7 @@ import {
   fmtPct,
   bodyVoteAmounts,
   advisoryBodyTallies,
+  absentBodyNote,
   type StakeParticipation,
 } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
@@ -57,6 +58,13 @@ const results = !noThreshold && params
       params,
     )
   : null;
+
+// Names the bodies that cannot vote on this action type ("SPOs do not vote on
+// treasury withdrawals"). Shown here in the detail rather than repeated on every
+// overview row. Null when every body can vote (info actions).
+const absentNote = absentBodyNote(action, {
+  paramTouchesSecurity: paramScope?.touchesSecurity ?? false,
+});
 
 // Freshness of the vote numbers shown here (per-body amounts / sentiment bar).
 const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now) : null;
@@ -163,6 +171,8 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     </div>
   )}
 
+  {absentNote && <p class="info-note info-note--absent">{absentNote}</p>}
+
   {asOf && <p class="info-footnote">Tallies as of {asOf}. Cached, not live.</p>}
 </div>
 
@@ -215,6 +225,10 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     font-size: 0.8125rem;
     color: var(--muted);
     font-style: italic;
+  }
+  /* Absent-body note sits below the threshold/advisory list, set off from it. */
+  .info-note--absent {
+    margin-top: 0.625rem;
   }
 
   .threshold-list {

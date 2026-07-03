@@ -22,6 +22,7 @@ import {
   bodyVoteAmounts,
   advisoryBodyTallies,
   overviewRowVoting,
+  absentBodyNote,
   spoTallyPct,
   TERMINAL_STATUSES,
   type RoleTallyInput,
@@ -577,5 +578,26 @@ describe('headlineVote', () => {
 
   it('returns null when no body has a vote', () => {
     expect(headlineVote({ type: 'InfoAction' } as any)).toBeNull();
+  });
+});
+
+describe('absentBodyNote', () => {
+  it('names the body that cannot vote on a treasury withdrawal', () => {
+    expect(absentBodyNote({ type: 'TreasuryWithdrawals' } as any)).toBe(
+      'SPOs do not vote on treasury withdrawals',
+    );
+  });
+
+  it('is null for info actions (every body can vote)', () => {
+    expect(absentBodyNote({ type: 'InfoAction' } as any)).toBeNull();
+  });
+
+  it('drops the SPO note for a security-relevant parameter change', () => {
+    expect(absentBodyNote({ type: 'ParameterChange' } as any)).toBe(
+      'SPOs do not vote on parameter change',
+    );
+    expect(
+      absentBodyNote({ type: 'ParameterChange' } as any, { paramTouchesSecurity: true }),
+    ).toBeNull();
   });
 });
