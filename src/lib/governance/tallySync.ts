@@ -28,8 +28,14 @@ import {
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, type VoteInput } from '../db/drepVotes.js';
 import { activityInsert } from '../db/activity.js';
-import { isTerminalStatus } from './view.js';
+import { isTerminalStatus, spoTallyPct } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
+
+// Re-exported for existing callers/tests: the implementation lives in view.js
+// (see the comment on spoTallyPct there) since view.ts is also the per-body
+// overview row's consumer and tallySync.ts already imports isTerminalStatus
+// from view.js, so keeping the pure pct math there avoids a circular import.
+export { spoTallyPct };
 
 // Max actions a single tally/vote run processes when the caller does not specify
 // one. Koios is latency-limited under a large burst (proposal_voting_summary and
@@ -174,51 +180,36 @@ function powerNum(v: string | null | undefined): number | null {
   return v == null ? null : Number(v);
 }
 
-/** Per-option vote power (lovelace) for the sidebar breakdown. DRep buckets are
-    the clean active yes/no/abstain. For SPO, yes/no are the active buckets and
-    abstain is the always-abstain delegated stake (Koios has no separate active
-    abstain pool bucket). Null-tolerant for older Koios without power fields. */
-function votePowers(s: VotingSummary | null) {
+/** Per-option vote power (lovelace) for the sidebar breakdown. All buckets are the
+    clean active yes/no/abstain that were actually cast; non-voting default stake is
+    excluded (that lives in the pool_no_vote_power / pool_passive_* fields, used only by
+    the HardForkInitiation pct recompute). Null-tolerant for older Koios without power fields. */
+export function votePowers(s: VotingSummary | null) {
   return {
     drepYesPower: powerNum(s?.drep_active_yes_vote_power),
     drepNoPower: powerNum(s?.drep_active_no_vote_power),
     drepAbstainPower: powerNum(s?.drep_active_abstain_vote_power),
     spoYesPower: powerNum(s?.pool_active_yes_vote_power),
-    spoNoPower: powerNum(s?.pool_no_vote_power),
-    spoAbstainPower: powerNum(s?.pool_passive_always_abstain_vote_power),
+    spoNoPower: powerNum(s?.pool_active_no_vote_power),
+    spoAbstainPower: powerNum(s?.pool_active_abstain_vote_power),
   };
 }
 
-/**
- * SPO yes/no percentages for the tally. Koios' pool_yes_pct / pool_no_pct are
- * correct for every action type EXCEPT HardForkInitiation. The Conway ledger does
- * NOT honour the always-abstain reward-account default for hard forks: a pool that
- * did not vote (including one whose reward account delegates to AlwaysAbstain or
- * AlwaysNoConfidence) counts as No and stays in the denominator; only an explicit
- * Abstain vote leaves it. (cardano-ledger Conway Ratify.hs, spoAcceptedRatio:
- * "For HardForkInitiation ... if an SPO didn't vote, their vote will always count
- * as No.") Koios instead drops the always-abstain stake from the denominator for
- * hard forks too, which inflates yes%. For that one type we recompute from the raw
- * power buckets, folding the always-abstain / always-no-confidence stake back into
- * the No side:
- *   yesPct = yes / (yes + no + always_abstain + always_no_confidence)
- * Falls back to Koios' percentages for every other type, and for hard forks when
- * the power fields are absent (older Koios) or the denominator is zero.
- */
-export function spoTallyPct(s: VotingSummary): { yesPct: number | null; noPct: number | null } {
-  const fallback = { yesPct: s.pool_yes_pct ?? null, noPct: s.pool_no_pct ?? null };
-  if (s.proposal_type !== 'HardForkInitiation') return fallback;
-  const yes = powerNum(s.pool_active_yes_vote_power);
-  const no = powerNum(s.pool_no_vote_power);
-  if (yes == null || no == null) return fallback;
-  const noSide =
-    no +
-    (powerNum(s.pool_passive_always_abstain_vote_power) ?? 0) +
-    (powerNum(s.pool_passive_always_no_confidence_vote_power) ?? 0);
-  const denom = yes + noSide;
-  if (denom <= 0) return fallback;
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  return { yesPct: round2((yes / denom) * 100), noPct: round2((noSide / denom) * 100) };
+/** Eligible SPO voting stake (lovelace): the denominator for SPO turnout. Sums the
+    active yes/abstain, both passive default buckets, and pool_no_vote_power (which
+    already folds in active no plus non-voting-default no). Absent summands count as 0;
+    null only when every pool power field is absent (older Koios without power data). */
+export function spoEligiblePower(s: VotingSummary | null): number | null {
+  if (!s) return null;
+  const parts = [
+    s.pool_active_yes_vote_power,
+    s.pool_active_abstain_vote_power,
+    s.pool_passive_always_abstain_vote_power,
+    s.pool_passive_always_no_confidence_vote_power,
+    s.pool_no_vote_power,
+  ];
+  if (parts.every((v) => v == null)) return null;
+  return parts.reduce((sum, v) => sum + (v == null ? 0 : Number(v)), 0);
 }
 
 /** Maps a Koios voting summary onto the tally-update fields (null-tolerant). */
@@ -235,6 +226,7 @@ function tallyFields(s: VotingSummary | null): GovernanceTally {
     ccNo: s?.committee_no_votes_cast ?? null,
     ccAbstain: s?.committee_abstain_votes_cast ?? null,
     ...votePowers(s),
+    spoEligiblePower: spoEligiblePower(s),
     drepYesPct: s?.drep_yes_pct ?? null,
     drepNoPct: s?.drep_no_pct ?? null,
     spoYesPct: spo?.yesPct ?? null,
@@ -431,9 +423,10 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
       if (!summary) continue;
       const vp = votedPower(summary);
       const powers = votePowers(summary);
-      const hasData = vp != null || Object.values(powers).some((v) => v != null);
+      const eligible = spoEligiblePower(summary);
+      const hasData = vp != null || eligible != null || Object.values(powers).some((v) => v != null);
       if (hasData) {
-        await updateVotedPower(db, ga.id, { votedPower: vp, ...powers });
+        await updateVotedPower(db, ga.id, { votedPower: vp, ...powers, spoEligiblePower: eligible });
         updated++;
       }
     } catch (err) {

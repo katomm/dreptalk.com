@@ -10,14 +10,27 @@ const baseAction: GovCardInput = {
   expiryEpoch: 294,
   drepYesPct: 62,
   drepNoPct: 9,
+  spoYesPct: null,
+  spoNoPct: null,
+  ccYesPct: null,
+  ccNoPct: null,
   drepYes: 40,
   drepNo: 6,
   drepAbstain: 20,
-  spoYesPct: null,
-  spoNoPct: null,
   spoYes: null,
   spoNo: null,
   spoAbstain: null,
+  ccYes: null,
+  ccNo: null,
+  ccAbstain: null,
+  drepYesPower: null,
+  drepNoPower: null,
+  drepAbstainPower: null,
+  spoYesPower: null,
+  spoNoPower: null,
+  spoAbstainPower: null,
+  drepVotedPower: null,
+  spoEligiblePower: null,
 };
 
 describe('govCardModel', () => {
@@ -26,7 +39,9 @@ describe('govCardModel', () => {
     expect(m.accent).toBe(accentForType('TreasuryWithdrawals'));
     expect(m.typeLabel).toBe('Treasury Withdrawals');
     expect(m.status.label).toBe('Active');
-    expect(m.tally).toEqual({ yes: 62, no: 9, abstain: 29, role: 'DRep' });
+    // Ratification bar (yes / 100-yes), not the old total-stake bar: drepYesPct 62 ->
+    // yes 62, no 38, abstain 0 (see headlineVote).
+    expect(m.tally).toEqual({ yes: 62, no: 38, abstain: 0, role: 'DRep' });
   });
 
   it('shows the proposer in the meta line only when supplied', () => {

@@ -190,6 +190,8 @@ const votingSummarySchema = z
     // percentage for HardForkInitiation, where Koios' pool_*_pct does not match
     // the ledger (see spoTallyPct in governance/tallySync.ts).
     pool_active_yes_vote_power: z.string().nullable().optional(),
+    pool_active_no_vote_power: z.string().nullable().optional(),
+    pool_active_abstain_vote_power: z.string().nullable().optional(),
     pool_no_vote_power: z.string().nullable().optional(),
     pool_passive_always_abstain_vote_power: z.string().nullable().optional(),
     pool_passive_always_no_confidence_vote_power: z.string().nullable().optional(),
