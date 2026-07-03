@@ -17,14 +17,24 @@ async function seedTopic(o: { id: string; title: string; slug: string; source?: 
     .run();
 }
 
-async function seedGa(o: { id: string; proposalId: string; title: string; topicId: string }) {
+async function seedGa(o: { id: string; proposalId: string; title: string; topicId: string; abstract?: string | null }) {
   await seedTopic({ id: o.topicId, title: o.title, slug: `s-${o.topicId}`, source: 'governance' });
   await db()
     .prepare(
       `INSERT INTO governance_actions (id, proposal_id, type, title, abstract, status, topic_id, created_at, last_synced_at)
-       VALUES (?, ?, 'InfoAction', ?, NULL, 'active', ?, ?, ?)`,
+       VALUES (?, ?, 'InfoAction', ?, ?, 'active', ?, ?, ?)`,
     )
-    .bind(o.id, o.proposalId, o.title, o.topicId, NOW, NOW)
+    .bind(o.id, o.proposalId, o.title, o.abstract ?? null, o.topicId, NOW, NOW)
+    .run();
+}
+
+async function seedPost(o: { id: string; topicId: string; body: string }) {
+  await db()
+    .prepare(
+      `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, deleted, hidden, created_at)
+       VALUES (?, ?, 'system', ?, ?, 0, 0, ?)`,
+    )
+    .bind(o.id, o.topicId, o.body, `<p>${o.body}</p>`, NOW)
     .run();
 }
 
@@ -56,6 +66,17 @@ describe('handleSearch scoped', () => {
     expect(body.counts).not.toBeNull();
     expect(body.counts?.forum).toBe(1);
     expect(body.total).toBeNull();
+  });
+
+  it('all page mode keeps groups consistent with facet counts (no discussion inflation)', async () => {
+    // A governance action whose own text does NOT match, but a post in its
+    // discussion does. The palette folds that into the governance group; the
+    // page must not, so the "All" governance group matches counts.governance.
+    await seedGa({ id: `${'c'.repeat(64)}#0`, proposalId: 'gov_action1theta', title: 'unrelated title', abstract: null, topicId: 'gttheta' });
+    await seedPost({ id: 'ptheta', topicId: 'gttheta', body: 'this post mentions theta clearly' });
+    const body = await handleSearch(db(), 'theta', { scope: 'all', counts: true });
+    expect(body.counts?.governance).toBe(0);
+    expect(body.governanceActions).toHaveLength(0);
   });
 
   it('all scope keeps grouped results and no counts by default', async () => {

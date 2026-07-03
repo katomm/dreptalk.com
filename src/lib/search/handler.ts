@@ -62,29 +62,54 @@ export async function handleSearch(db: D1Database, rawQuery: string | null, opts
   try {
     const match = buildMatch(query);
     if (!match) return empty(query, scope, page, scopedTotal);
-    const counts = opts.counts ? await countScopes(db, match) : null;
 
+    // Scoped modes: one entity, paginated. Facet counts (when requested) come
+    // from countScopes, whose per-scope totals equal each scoped query's total,
+    // so the facet numbers always match the scoped result lists.
     if (scope === 'governance') {
+      const counts = opts.counts ? await countScopes(db, match) : null;
       const { hits, total } = await searchGovernancePage(db, match, page);
       return { ...empty(query, scope, page, total), governanceActions: hits, counts };
     }
     if (scope === 'dreps') {
+      const counts = opts.counts ? await countScopes(db, match) : null;
       const { hits, total } = await searchDrepsPage(db, match, page);
       return { ...empty(query, scope, page, total), dreps: hits, counts };
     }
     if (scope === 'forum') {
+      const counts = opts.counts ? await countScopes(db, match) : null;
       const { hits, total } = await searchForumPage(db, match, page);
       return { ...empty(query, scope, page, total), discussions: hits, counts };
     }
 
-    // scope === 'all': exact fast path plus the grouped typeahead results.
+    // scope === 'all'. The exact fast path (pasted governance-action id / DRep
+    // id) runs in both modes.
     const ident = detectIdentifier(query);
-    if (ident) {
-      const exact = await resolveIdentifier(db, ident);
-      if (exact) return { ...empty(query, scope, page, null), exact, counts };
+    const exact = ident ? await resolveIdentifier(db, ident) : null;
+
+    if (opts.counts) {
+      // Page mode (/search): build every group from the same scoped queries
+      // that back the facets, so the "All" preview and the facet counts agree.
+      const [gov, forum, dreps] = await Promise.all([
+        searchGovernancePage(db, match, 1),
+        searchForumPage(db, match, 1),
+        searchDrepsPage(db, match, 1),
+      ]);
+      return {
+        ...empty(query, scope, page, null),
+        exact,
+        governanceActions: gov.hits,
+        discussions: forum.hits,
+        dreps: dreps.hits,
+        counts: { forum: forum.total, governance: gov.total, dreps: dreps.total },
+      };
     }
+
+    // Palette mode: the merged typeahead groups (discussion hits fold into the
+    // governance group). No facet counts.
+    if (exact) return { ...empty(query, scope, page, null), exact, counts: null };
     const groups = await searchAll(db, match);
-    return { ...empty(query, scope, page, null), ...groups, counts };
+    return { ...empty(query, scope, page, null), ...groups, counts: null };
   } catch {
     return empty(query, scope, page, scopedTotal);
   }
