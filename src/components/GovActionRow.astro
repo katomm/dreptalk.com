@@ -157,6 +157,14 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
        and its current-vote bar side by side, replacing the two separate desktop
        cells above (hidden below the 720px breakpoint via .garow__desktoponly). -->
   <div class="garow__bodyrows garow__mobileonly">
+    <!-- Caption row: on mobile the desktop column headers (Participation /
+         Current vote) are gone, so without these the two percentages per body
+         would be unlabeled. -->
+    <div class="bodyrow bodyrow--head">
+      <span class="bodyrow__label"></span>
+      <span class="bodyrow__half bodyrow__caption">Participation</span>
+      <span class="bodyrow__half bodyrow__caption">Current vote</span>
+    </div>
     {voting.bodies.map((b) => (
       <div class="bodyrow">
         <span class="bodyrow__label">{b.label}</span>
@@ -286,6 +294,9 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .bodyrow__label { flex:0 0 auto; width:3.4em; color:var(--muted); font-size:0.72rem;
     font-weight:600; white-space:nowrap; }
   .bodyrow__half { flex:1 1 0; min-width:0; display:flex; align-items:center; gap:6px; }
+  .bodyrow--head { margin-bottom:-2px; }
+  .bodyrow__caption { color:var(--muted); font-size:0.6rem; font-weight:600;
+    text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
 
   .garow__activity { display:flex; flex-direction:column; gap:3px; }
   .garow__stat { display:flex; flex-direction:column; gap:3px; min-width:0; }

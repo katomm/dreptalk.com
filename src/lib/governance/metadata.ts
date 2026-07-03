@@ -79,9 +79,11 @@ export type AnchorResult =
 /**
  * Resolves an on-chain URL (anchor document or profile image) to a fetchable
  * URL: http(s) passes through, ipfs://<cid>/<path> maps to the public gateway,
- * anything else is unsupported (null).
+ * anything else is unsupported (null). Exported so display surfaces can link
+ * the anchor somewhere a browser can actually open (no ipfs: handler exists
+ * for most users).
  */
-function resolveAnchorUrl(raw: string): string | null {
+export function resolveAnchorUrl(raw: string): string | null {
   let url: URL;
   try {
     url = new URL(raw);

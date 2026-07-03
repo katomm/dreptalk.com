@@ -64,14 +64,16 @@ export interface DrepVoteHistoryRow {
 /**
  * A DRep's on-chain votes (role 'DRep'), joined to the action and (when present)
  * its forum topic for linking, ordered by the action's decided epoch then id.
- * Uses idx_drep_votes_voter. Default limit 20, capped 50.
+ * Uses idx_drep_votes_voter. Default limit 20, capped 500.
  */
 export async function getDrepVotingHistory(
   db: D1Database,
   voterId: string,
   opts?: { limit?: number; offset?: number },
 ): Promise<DrepVoteHistoryRow[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
+  // The ceiling is a runaway guard, sized so a profile can render a DRep's
+  // complete history (a vote per action; mainnet has ~150 actions so far).
+  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 500);
   const offset = Math.max(opts?.offset ?? 0, 0);
   const rows = (
     await db
