@@ -5,6 +5,7 @@
 import type { ActivityEvent } from '@/lib/forum/activityFeed.js';
 import { ACTIVITY_TABS, type ActivityFilter } from '@/lib/forum/activityFeed.js';
 import ActivityRow from '@/components/ActivityRow.astro';
+import Pager from '@/components/Pager.astro';
 
 interface Props {
   events: ActivityEvent[];
@@ -13,7 +14,7 @@ interface Props {
   subtitle: string;
   viewAllHref?: string;
   tabs?: { active: ActivityFilter; hrefFor: (f: ActivityFilter) => string };
-  pagination?: { prevHref: string | null; nextHref: string | null };
+  pagination?: { prevHref: string | null; nextHref: string | null; page: number; totalPages?: number | null };
   footer?: boolean;
 }
 
@@ -52,11 +53,14 @@ const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer } = 
     </div>
   )}
 
-  {pagination && (pagination.prevHref || pagination.nextHref) && (
-    <nav class="af-pager" aria-label="Pagination">
-      {pagination.prevHref ? <a href={pagination.prevHref}>Previous</a> : <span></span>}
-      {pagination.nextHref ? <a href={pagination.nextHref}>Next</a> : <span></span>}
-    </nav>
+  {pagination && (
+    <Pager
+      prevHref={pagination.prevHref}
+      nextHref={pagination.nextHref}
+      page={pagination.page}
+      totalPages={pagination.totalPages ?? null}
+      label="Activity pagination"
+    />
   )}
 
   {footer && (
@@ -81,7 +85,5 @@ const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer } = 
   .af-tab[aria-current='true'] { color: var(--fg); background: var(--surface-2); border-color: var(--fg); font-weight: 600; }
 
   .af-empty { color: var(--muted); }
-  .af-pager { display: flex; justify-content: space-between; margin-top: 1.25rem; font-size: 0.875rem; }
-  .af-pager a { color: var(--accent); text-decoration: none; }
   .af-footer { display: flex; align-items: center; justify-content: center; gap: 0.4rem; margin: 1.25rem 0 0; font-size: 0.8125rem; color: var(--muted); }
 </style>

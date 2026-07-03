@@ -8,6 +8,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import DrepConcentration from '@/components/DrepConcentration.tsx';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
 import DrepStatIcon from '@/components/DrepStatIcon.astro';
+import Pager from '@/components/Pager.astro';
 import { listDreps, listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
@@ -327,12 +328,12 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
     </table>
   )}
 
-  {(prevPage || nextPage) && (
-    <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
-      {prevPage && <a href={qs(prevPage)}>Previous</a>}
-      {nextPage && <a href={qs(nextPage)}>Next</a>}
-    </nav>
-  )}
+  <Pager
+    prevHref={prevPage ? qs(prevPage) : null}
+    nextHref={nextPage ? qs(nextPage) : null}
+    page={page}
+    label="DReps pagination"
+  />
 
   {concentration.drepCount > 0 && (
     <DrepConcentration

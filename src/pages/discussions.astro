@@ -32,6 +32,7 @@ const [stats, feed] = db
 const tabHref = (f: ActivityFilter) => `/discussions?filter=${f}`;
 const prevHref = page > 1 ? `/discussions?filter=${filter}&page=${page - 1}` : null;
 const nextHref = offset + PAGE_SIZE < feed.total ? `/discussions?filter=${filter}&page=${page + 1}` : null;
+const totalPages = Math.max(1, Math.ceil(feed.total / PAGE_SIZE));
 
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 
@@ -80,7 +81,7 @@ const breadcrumbLd = {
       title="Latest activity"
       subtitle="A summary of what's happening in governance."
       tabs={{ active: filter, hrefFor: tabHref }}
-      pagination={{ prevHref, nextHref }}
+      pagination={{ prevHref, nextHref, page, totalPages }}
       footer={true}
     />
   </div>

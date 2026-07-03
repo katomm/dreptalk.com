@@ -161,16 +161,21 @@ export default function DrepConcentration(props: Props) {
           {thresholdsAsOf && <p className="drep-conc__asof">Thresholds as of {thresholdsAsOf}.</p>}
         </div>
 
-        {/* Right column: the top DReps by share. Hidden on narrow screens. */}
-        <ol className="drep-conc__legend">
-          {topK.map((t, i) => (
-            <li key={t.drepId} className="drep-conc__legend-item">
-              <span className="drep-conc__swatch" style={{ background: topTone(i) }} aria-hidden="true" />
-              <a href={drepPath(t)} className="drep-conc__legend-name">{t.name ?? truncateId(t.drepId)}</a>
-              <span className="drep-conc__legend-pct">{t.pct.toFixed(1)}%</span>
-            </li>
-          ))}
-        </ol>
+        {/* Right column: the top DReps by share. Hidden on narrow screens. The
+            caption makes clear this is a fixed top-N list, not the coalition
+            count shown in the donut center (which grows with the threshold). */}
+        <div className="drep-conc__legend-col">
+          <p className="drep-conc__legend-caption">Top {topK.length} by share</p>
+          <ol className="drep-conc__legend">
+            {topK.map((t, i) => (
+              <li key={t.drepId} className="drep-conc__legend-item">
+                <span className="drep-conc__swatch" style={{ background: topTone(i) }} aria-hidden="true" />
+                <a href={drepPath(t)} className="drep-conc__legend-name">{t.name ?? truncateId(t.drepId)}</a>
+                <span className="drep-conc__legend-pct">{t.pct.toFixed(1)}%</span>
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
     </section>
   );

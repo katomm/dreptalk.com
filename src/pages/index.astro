@@ -202,8 +202,8 @@ const heroFeatures = [
         <HeroCardTag
           class="gov-card"
           href={heroCard.href}
-          aria-label={heroCard.href ? `Latest governance action: ${heroCard.title}, ${heroCard.badge}` : undefined}
         >
+          {heroCard.href && <span class="sr-only">Latest governance action: </span>}
           <span class="gov-card__icon" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M9 21v-6h6v6" /><path d="M3 10h18" /></svg>
           </span>
@@ -218,7 +218,7 @@ const heroFeatures = [
               class:list={['pill', 'pill--vote', `pill--${i + 1}`]}
               href={authorProfileHref(p.descriptor)}
               title={`${p.descriptor.displayName} voted ${p.vote}`}
-              aria-label={`${p.descriptor.displayName} voted ${p.vote}, view profile`}
+              aria-label={`${p.descriptor.displayName} ${p.vote}, view profile`}
             >
               <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={24} />
               <span class="pill__name">{p.descriptor.displayName}</span>

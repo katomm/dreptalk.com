@@ -13,20 +13,24 @@ import { getCategory } from '../../../config/categories.js';
 
 export type ActivityFilter = 'all' | 'governance' | 'comments';
 
-// Tab order + labels for the /discussions feed; the single source of both.
+// Tab order + labels for the /discussions feed; the single source of both. The
+// 'comments' filter covers all human forum activity (new topics and replies),
+// so its tab reads "Discussion", not "Comments" (which would undersell the
+// topic-starts it also includes).
 export const ACTIVITY_TABS: readonly { filter: ActivityFilter; label: string }[] = [
   { filter: 'all', label: 'All' },
   { filter: 'governance', label: 'Governance actions' },
-  { filter: 'comments', label: 'Comments' },
+  { filter: 'comments', label: 'Discussion' },
 ];
 
 const VALID_FILTERS = new Set<string>(ACTIVITY_TABS.map((t) => t.filter));
 
-// Default tab/feed: forum comments, the human-written activity, over the
-// auto-imported on-chain governance events.
+// Default tab/feed: human forum activity (topics + replies), so the feed is not
+// flooded by the many auto-imported on-chain governance events (which the "All"
+// and "Governance actions" tabs still surface).
 export const DEFAULT_ACTIVITY_FILTER: ActivityFilter = 'comments';
 
-/** Parses the ?filter= param; defaults to comments for anything unrecognized. */
+/** Parses the ?filter= param; defaults to the discussion feed for anything unrecognized. */
 export function parseActivityFilter(value: string | null): ActivityFilter {
   return value && VALID_FILTERS.has(value) ? (value as ActivityFilter) : DEFAULT_ACTIVITY_FILTER;
 }
