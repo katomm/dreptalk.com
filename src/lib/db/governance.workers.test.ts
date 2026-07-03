@@ -304,7 +304,8 @@ describe('getActionsNeedingVotedPower', () => {
     // Active action: excluded (active/pending are handled by normal tally).
     const active = await insertAction();
 
-    // Terminal but already filled (both turnout and per-option power): excluded.
+    // Terminal but already filled (turnout, per-option power AND eligible SPO stake):
+    // excluded.
     const filled = await insertAction();
     await updateGovernanceTallyAndStatus(db(), {
       id: filled.id,
@@ -316,12 +317,31 @@ describe('getActionsNeedingVotedPower', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: 999_000_000,
       drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
+      spoEligiblePower: 5_000_000_000,
+      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+    });
+
+    // Terminal with turnout+power but null eligible SPO stake (older row from before
+    // the column existed): now returned so the backfill fills it and corrects SPO power.
+    const needsEligible = await insertAction();
+    await updateGovernanceTallyAndStatus(db(), {
+      id: needsEligible.id,
+      status: 'enacted',
+      drepYes: 2, drepNo: 0, drepAbstain: 0,
+      spoYes: null, spoNo: null, spoAbstain: null,
+      ccYes: null, ccNo: null, ccAbstain: null,
+      drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
+      ccYesPct: null, ccNoPct: null,
+      drepVotedPower: 999_000_000,
+      drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
+      spoEligiblePower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
     });
 
     const candidates = await getActionsNeedingVotedPower(db(), 10);
     const ids = candidates.map((c) => c.id);
     expect(ids).toContain(terminal.id);
+    expect(ids).toContain(needsEligible.id);
     expect(ids).not.toContain(active.id);
     expect(ids).not.toContain(filled.id);
   });
