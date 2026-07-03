@@ -8,6 +8,7 @@ import NotFound from '@/components/NotFound.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVoteRow from '@/components/DrepVoteRow.astro';
+import DrepForumRow from '@/components/DrepForumRow.astro';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory.js';
 import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
@@ -70,6 +71,12 @@ const showcase = pickShowcase(earnedBadges, holderCounts, 3);
 const HISTORY_HEAD = 5;
 const historyHead = votingHistory.slice(0, HISTORY_HEAD);
 const historyTail = votingHistory.slice(HISTORY_HEAD);
+
+// Forum activity uses the same head/tail collapse as the voting history, so both
+// cards read alike and a prolific poster's list stays short until expanded.
+const FORUM_HEAD = 5;
+const postsHead = posts.slice(0, FORUM_HEAD);
+const postsTail = posts.slice(FORUM_HEAD);
 
 const hasMetadata = !!(drep?.name || drep?.bio);
 const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length, votesCast });
@@ -286,20 +293,23 @@ const profileSummary = drep
       </div>
     )}
 
-    <section style="margin-top:2rem;">
-      <h2 style="font-size:1.125rem;">Forum activity</h2>
+    <section id="forum-activity" class="vhist-section">
+      <h2 class="vhist-section__title">Forum activity <span class="vhist-section__count">({posts.length})</span></h2>
       {posts.length === 0 ? (
-        <p style="color:var(--muted);">No forum posts yet.</p>
+        <p class="vhist__empty">No forum posts yet.</p>
       ) : (
-        <ul style="list-style:none;padding:0;display:flex;flex-direction:column;gap:0.75rem;">
-          {posts.map((p) => (
-            <li style="border-top:1px solid var(--border);padding-top:0.75rem;">
-              <a href={`/t/${p.topic_slug}#post-${p.id}`} style="font-weight:600;">{p.topic_title}</a>
-              <span style="color:var(--muted);font-size:0.8125rem;margin-left:0.5rem;">{formatRelativeTime(p.created_at, now)}</span>
-              <p style="margin:0.25rem 0 0;color:var(--muted);font-size:0.9375rem;">{excerptFromHtml(p.body_html, 160)}</p>
-            </li>
-          ))}
-        </ul>
+        <div class="factivity">
+          {postsHead.map((p) => <DrepForumRow post={p} now={now} />)}
+          {postsTail.length > 0 && (
+            <details class="vhist__more">
+              <summary class="vhist__more-toggle">
+                <span class="vhist__more-show">Show {postsTail.length} more</span>
+                <span class="vhist__more-hide">Show less</span>
+              </summary>
+              {postsTail.map((p) => <DrepForumRow post={p} now={now} />)}
+            </details>
+          )}
+        </div>
       )}
     </section>
 
