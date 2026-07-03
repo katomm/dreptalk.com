@@ -21,10 +21,14 @@ import {
   sentimentSubline,
   bodyVoteAmounts,
   advisoryBodyTallies,
+  overviewRowVoting,
+  spoTallyPct,
   TERMINAL_STATUSES,
   type RoleTallyInput,
   type BodyVoteInput,
+  type RowVotingInput,
 } from './view.js';
+import type { VotingSummary } from '../koios/client.js';
 
 describe('readableType / formatAda', () => {
   it('spaces camelCase types', () => {
@@ -413,5 +417,124 @@ describe('advisoryBodyTallies', () => {
     });
     expect(rows.map((r) => r.body)).toEqual(['DRep', 'SPO', 'CC']);
     expect(rows[1].bar).toBeNull();
+  });
+});
+
+describe('overviewRowVoting', () => {
+  // Minimal RowVotingInput builder: every field defaults to null/0 and is
+  // overridable per test. Mirrors the `make` helper above for RoleTallyInput.
+  const makeRow = (over: Partial<RowVotingInput>): RowVotingInput => ({
+    type: 'InfoAction',
+    drepYesPct: null, drepNoPct: null,
+    spoYesPct: null, spoNoPct: null,
+    ccYesPct: null, ccNoPct: null,
+    drepYes: null, drepNo: null, drepAbstain: null,
+    spoYes: null, spoNo: null, spoAbstain: null,
+    ccYes: null, ccNo: null, ccAbstain: null,
+    drepYesPower: null, drepNoPower: null, drepAbstainPower: null,
+    spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
+    drepVotedPower: null,
+    spoEligiblePower: null,
+    ...over,
+  });
+
+  it('treasury withdrawals: DRep + CC only (no SPO), ratification bars, participation from stake totals', () => {
+    const a = makeRow({
+      type: 'TreasuryWithdrawals',
+      drepYesPct: 79, drepNoPct: 21,
+      ccYesPct: 83, ccNoPct: 17,
+      drepVotedPower: 250_000_000,
+      ccYes: 4, ccNo: 1, ccAbstain: 0,
+    });
+    const result = overviewRowVoting(a, { drepStakeTotal: 1_000_000_000, committeeSize: 5 });
+
+    expect(result.bodies.map((b) => b.body)).toEqual(['DRep', 'CC']);
+    expect(result.absentBodies).toEqual(['SPO']);
+
+    const drep = result.bodies[0];
+    expect(drep.voteKind).toBe('ratification');
+    expect(drep.vote).toEqual({ yes: 79, no: 21, abstain: 0 });
+    expect(drep.participation).toBe(25); // 250M / 1B * 100
+
+    const cc = result.bodies[1];
+    expect(cc.voteKind).toBe('ratification');
+    expect(cc.vote).toEqual({ yes: 83, no: 17, abstain: 0 });
+    expect(cc.participation).toBe(100); // (4+1+0) / 5 * 100
+  });
+
+  it('info action: all three bodies, advisory bars from cast power, null vote when nothing cast', () => {
+    const a = makeRow({
+      type: 'InfoAction',
+      drepYesPower: 99, drepNoPower: 1, drepAbstainPower: 0,
+      spoYesPower: 0, spoNoPower: 0, spoAbstainPower: 0,
+      ccYes: 3, ccNo: 1, ccAbstain: 0,
+      drepVotedPower: 100,
+    });
+    const result = overviewRowVoting(a, { drepStakeTotal: 1000, committeeSize: 7 });
+
+    expect(result.bodies.map((b) => b.body)).toEqual(['DRep', 'SPO', 'CC']);
+    expect(result.absentBodies).toEqual([]);
+
+    const drep = result.bodies[0];
+    expect(drep.voteKind).toBe('advisory');
+    expect(drep.vote).not.toBeNull();
+    expect(Math.round(drep.vote!.yes)).toBe(99);
+
+    const spo = result.bodies[1];
+    expect(spo.voteKind).toBe('advisory');
+    expect(spo.vote).toBeNull(); // nothing cast
+
+    const cc = result.bodies[2];
+    expect(cc.voteKind).toBe('advisory');
+    expect(cc.vote).not.toBeNull();
+  });
+
+  it('hard fork initiation: SPO ratification bar uses the spoTallyPct recompute, DRep with 0 cast still listed with null vote', () => {
+    // Koios' raw pool_yes_pct (buggy for hard forks) would read 95, but the
+    // recompute folding always-abstain/always-no-confidence back into No gives 60.
+    const summary = {
+      proposal_type: 'HardForkInitiation',
+      pool_yes_pct: 95,
+      pool_no_pct: 5,
+      pool_active_yes_vote_power: '600',
+      pool_no_vote_power: '100',
+      pool_passive_always_abstain_vote_power: '300',
+      pool_passive_always_no_confidence_vote_power: '0',
+    } as unknown as VotingSummary;
+    const recomputed = spoTallyPct(summary);
+    expect(recomputed.yesPct).not.toBe(95); // sanity: Koios pct != recompute
+
+    const a = makeRow({
+      type: 'HardForkInitiation',
+      drepYesPct: null, drepNoPct: null, // bootstrap: no DRep cast yet
+      spoYesPct: recomputed.yesPct, spoNoPct: recomputed.noPct,
+      ccYesPct: 100, ccNoPct: 0,
+      spoYes: 6, spoNo: 4, spoAbstain: 0,
+      ccYes: 5, ccNo: 0, ccAbstain: 0,
+      spoEligiblePower: 1000,
+    });
+    const result = overviewRowVoting(a, { drepStakeTotal: 1_000_000, committeeSize: 5 });
+
+    expect(result.bodies.map((b) => b.body)).toEqual(['DRep', 'SPO', 'CC']);
+    expect(result.absentBodies).toEqual([]);
+
+    const spo = result.bodies[1];
+    expect(spo.voteKind).toBe('ratification');
+    expect(spo.vote!.yes).toBe(recomputed.yesPct);
+
+    const drep = result.bodies[0];
+    expect(drep.voteKind).toBe('ratification');
+    expect(drep.vote).toBeNull();
+  });
+
+  it('SPO participation is null when spoEligiblePower is null', () => {
+    const a = makeRow({
+      type: 'InfoAction',
+      spoYesPower: 10, spoNoPower: 5, spoAbstainPower: 0,
+      spoEligiblePower: null,
+    });
+    const result = overviewRowVoting(a, { drepStakeTotal: 1000, committeeSize: 5 });
+    const spo = result.bodies.find((b) => b.body === 'SPO')!;
+    expect(spo.participation).toBeNull();
   });
 });
