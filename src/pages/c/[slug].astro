@@ -7,6 +7,7 @@ import Composer from '@/components/Composer.tsx';
 import NotFound from '@/components/NotFound.astro';
 import TopicRow from '@/components/TopicRow.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
+import Pager from '@/components/Pager.astro';
 import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory, getTopicsByIds, type Topic } from '@/lib/db/forum.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
@@ -144,6 +145,10 @@ const prevPage = page > 1 ? page - 1 : null;
 const nextPage = isGovernanceCategory
   ? (offset + PAGE_SIZE < govTotal ? page + 1 : null)
   : (topics.length === PAGE_SIZE ? page + 1 : null);
+// A total page count is only known for the governance category (it has a real
+// row count); non-governance categories page by the "full page ⇒ maybe more"
+// heuristic, so the pager shows just the current page there.
+const totalPages = isGovernanceCategory ? Math.max(1, Math.ceil(govTotal / PAGE_SIZE)) : null;
 
 // Shared query tail for governance links: keeps sort, and the type filter when
 // one is active (omitted for "all types" so the default URL stays clean).
@@ -334,16 +339,13 @@ const breadcrumbLd = {
       </div>
     )}
 
-    {(prevPage || nextPage) && (
-      <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
-        {prevPage && (
-          <a href={pageHref(prevPage)}>Previous page</a>
-        )}
-        {nextPage && (
-          <a href={pageHref(nextPage)}>Next page</a>
-        )}
-      </nav>
-    )}
+    <Pager
+      prevHref={prevPage ? pageHref(prevPage) : null}
+      nextHref={nextPage ? pageHref(nextPage) : null}
+      page={page}
+      totalPages={totalPages}
+      label="Topic list pagination"
+    />
 
     {showComposer && (
       <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">

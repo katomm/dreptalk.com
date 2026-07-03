@@ -23,6 +23,7 @@ const { action, onchain, slug, commentCount, loggedIn, locked } = Astro.props;
 // composer sits at the bottom of that tab under the #reply anchor.
 const discussionHref = `/t/${slug}?tab=discussion`;
 const commentLabel = commentCount === 1 ? '1 comment' : `${commentCount} comments`;
+const hasComments = commentCount > 0;
 
 // Every CIP-108 action carries an abstract (a short summary). It is the always-
 // visible lede and the natural fold line: the reader gets the summary, and the
@@ -89,11 +90,13 @@ const isLongRationale = rationaleText.length > 5000;
       {locked ? (
         <a class="btn btn-secondary" href={discussionHref}>Read the discussion</a>
       ) : loggedIn ? (
-        <a class="btn btn-primary" href={`${discussionHref}#reply`}>Add your comment</a>
+        <a class="btn btn-primary" href={`${discussionHref}#reply`}>{hasComments ? 'Add your comment' : 'Start the discussion'}</a>
       ) : (
         <>
           <a class="btn btn-primary" href="/login">Sign in to post</a>
-          <a class="ga-join__link" href={discussionHref}>Read the discussion</a>
+          {/* Nothing to read yet when there are no comments, so the secondary
+              "Read the discussion" link only appears once the thread has some. */}
+          {hasComments && <a class="ga-join__link" href={discussionHref}>Read the discussion</a>}
         </>
       )}
     </div>

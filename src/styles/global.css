@@ -451,8 +451,11 @@ main.container {
 .drep-conc__marker { font-size: 0.8rem; padding: 0.2rem 0.6rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); cursor: pointer; }
 .drep-conc__marker[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .drep-conc__asof { text-align: center; color: var(--muted); font-size: 0.75rem; margin: 0.5rem 0 0; }
-.drep-conc__legend { list-style: none; padding: 0; margin: 0; flex: 1 1 260px; min-width: 230px; max-width: 380px; display: flex; flex-direction: column; gap: 0.3rem; }
-@media (max-width: 640px) { .drep-conc__legend { display: none; } }
+/* The legend column carries the flex sizing; the caption sits above the list. */
+.drep-conc__legend-col { flex: 1 1 260px; min-width: 230px; max-width: 380px; }
+@media (max-width: 640px) { .drep-conc__legend-col { display: none; } }
+.drep-conc__legend-caption { margin: 0 0 0.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.drep-conc__legend { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 .drep-conc__legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
 .drep-conc__swatch { width: 0.8rem; height: 0.8rem; border-radius: 3px; flex-shrink: 0; }
 .drep-conc__legend-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; color: var(--fg); }
@@ -566,7 +569,9 @@ main.container {
 .drep-trend__main { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; }
 .drep-trend__arrow { font-size: 0.7em; }
 .drep-trend__pct { font-size: 0.9375rem; }
-.drep-trend__ada { opacity: 0.8; font-size: 0.8125rem; }
+/* No opacity here: fading the green/red delta toward the white page dropped it
+   below AA contrast. The smaller size already sets it below the percent. */
+.drep-trend__ada { font-size: 0.8125rem; }
 .drep-trend__flat { display: inline-block; width: 0.7rem; height: 0.14rem; border-radius: 999px; background: currentColor; opacity: 0.6; }
 /* Rounded-square outlined button with accent dots, matching the mockup (and the
    header icon buttons), not a borderless grey circle. */

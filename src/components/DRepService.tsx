@@ -326,9 +326,14 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
       </p>
 
       {wallets.length === 0 ? (
-        <p style={{ color: 'var(--muted)' }}>
-          No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
-        </p>
+        <div className="callout callout--info" role="status" style={{ maxWidth: '32rem' }}>
+          <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          <div className="callout__body">
+            No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
+          </div>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
           {/* Wallet picker. Shown until the form is reached; on a connect-step

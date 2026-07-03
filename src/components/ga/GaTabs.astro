@@ -51,6 +51,15 @@ function tabLabel(id: GaTabId, label: string): string {
   .ga-tabbar::-webkit-scrollbar {
     display: none;
   }
+  /* On phones the last tabs (On-chain Data, History) sit off-screen with no
+     scrollbar, so fade the right edge as a hint that the bar scrolls. Desktop
+     fits all tabs, so no fade there. */
+  @media (max-width: 640px) {
+    .ga-tabbar {
+      -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent);
+      mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent);
+    }
+  }
   .ga-tabbar__tab {
     display: inline-flex;
     align-items: center;

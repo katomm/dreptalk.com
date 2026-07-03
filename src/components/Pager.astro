@@ -1,0 +1,44 @@
+---
+// Shared Prev / position / Next pager for paged lists (DReps, category topics).
+// Prev and Next sit at opposite edges with the current position centered, so a
+// lone Next (page 1) still reads as pagination rather than a stray link. Renders
+// nothing when there is neither a previous nor a next page.
+interface Props {
+  prevHref: string | null;
+  nextHref: string | null;
+  page: number;
+  /** Total page count for a "Page X of Y" label; omitted shows just "Page X". */
+  totalPages?: number | null;
+  /** Accessible name for the nav landmark. */
+  label?: string;
+}
+
+const { prevHref, nextHref, page, totalPages = null, label = 'Pagination' } = Astro.props;
+---
+
+{(prevHref || nextHref) && (
+  <nav class="pager" aria-label={label}>
+    {prevHref
+      ? <a class="pager__link" href={prevHref} rel="prev">Previous</a>
+      : <span class="pager__link pager__link--disabled" aria-hidden="true">Previous</span>}
+    <span class="pager__pos">Page {page}{totalPages ? ` of ${totalPages}` : ''}</span>
+    {nextHref
+      ? <a class="pager__link" href={nextHref} rel="next">Next</a>
+      : <span class="pager__link pager__link--disabled" aria-hidden="true">Next</span>}
+  </nav>
+)}
+
+<style>
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    font-size: 0.875rem;
+  }
+  .pager__link { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .pager__link:hover { text-decoration: underline; }
+  .pager__link--disabled { color: var(--muted); opacity: 0.5; }
+  .pager__pos { color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
