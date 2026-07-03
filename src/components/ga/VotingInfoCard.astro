@@ -79,7 +79,14 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
       <div class="advisory-list">
         {advisoryBodies.map((b) => (
           <div class="advisory-row">
-            <span class="advisory-row__body">{b.label}</span>
+            <div class="advisory-row__head">
+              <span class="advisory-row__body">{b.label}</span>
+              {b.bar && (
+                <span class="advisory-row__pct">
+                  <b>{fmtPct(b.bar.yes)}</b> yes · <b>{fmtPct(b.bar.no)}</b> no
+                </span>
+              )}
+            </div>
             {b.bar ? (
               <TallyBar bar={b.bar} height={7} />
             ) : (
@@ -208,10 +215,31 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     border-radius: 0.375rem;
     background: color-mix(in srgb, var(--surface-2) 50%, transparent);
   }
+  /* Body label on the left, the cast-vote yes/no share on the right. Wraps to a
+     second line on narrow sidebars (e.g. the long "Constitutional Committee"
+     label) rather than colliding with the percentages. */
+  .advisory-row__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    flex-wrap: wrap;
+  }
   .advisory-row__body {
     font-weight: 700;
     font-size: 0.8125rem;
     color: var(--fg);
+  }
+  /* Cast-vote sentiment: percentages of the votes actually cast (matches the
+     bar segments), not of total stake. Numbers emphasized, words muted. */
+  .advisory-row__pct {
+    font-size: 0.75rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .advisory-row__pct b {
+    color: var(--fg);
+    font-weight: 600;
   }
   .advisory-row__none {
     margin: 0;
