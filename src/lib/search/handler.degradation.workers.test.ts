@@ -13,6 +13,16 @@ describe('handleSearch without FTS tables', () => {
       await env.DB.prepare(`DROP TABLE ${t}`).run();
     }
     const r = await handleSearch(env.DB, 'treasury');
-    expect(r).toEqual({ query: 'treasury', exact: null, governanceActions: [], discussions: [], dreps: [] });
+    expect(r).toEqual({
+      query: 'treasury',
+      scope: 'all',
+      page: 1,
+      exact: null,
+      governanceActions: [],
+      discussions: [],
+      dreps: [],
+      total: null,
+      counts: null,
+    });
   });
 });
