@@ -298,7 +298,7 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
   // the votes phase to avoid hammering anchor hosts. Not the primary phase.
   await phase('rationales', async () => {
     const r = await syncVoteRationales({ db: env.DB, now: Date.now(), paceMs: VOTE_PACE_MS });
-    console.log(`[vote-rationales] fetched=${r.fetched} ok=${r.ok} failed=${r.failed}`);
+    console.log(`[vote-rationales] fetched=${r.fetched} ok=${r.ok} empty=${r.empty} failed=${r.failed}`);
     return { items: r.ok, failed: r.failed };
   });
 

@@ -18,7 +18,7 @@ export async function upsertActionRationale(
     bodyHtml: string | null;
     source: 'onchain' | 'dreptalk';
     anchorUrl: string | null;
-    status: 'ok' | 'failed';
+    status: 'ok' | 'empty' | 'failed';
     createdAt: number;
     now: number;
   },

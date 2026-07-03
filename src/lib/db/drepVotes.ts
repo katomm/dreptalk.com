@@ -109,6 +109,8 @@ export interface ActionVoterRow {
   hex: string | null;
   voter_hex: string | null;
   image_url: string | null;
+  /** Unix seconds of the vote tx; used to tell whether it predates ratification. */
+  block_time: number | null;
 }
 
 /**
@@ -127,7 +129,8 @@ export async function getActionVoters(
     await db
       .prepare(
         `SELECT v.voter_id AS voter_id, v.vote AS vote,
-                d.voting_power AS voting_power, d.hex AS hex, v.voter_hex AS voter_hex, d.image_url AS image_url
+                d.voting_power AS voting_power, d.hex AS hex, v.voter_hex AS voter_hex, d.image_url AS image_url,
+                v.block_time AS block_time
          FROM drep_votes v
          LEFT JOIN dreps d ON d.drep_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'DRep'
@@ -168,7 +171,7 @@ export async function getActionSpoVoters(
       .prepare(
         `SELECT v.voter_id AS voter_id, v.vote AS vote,
                 NULL AS voting_power, p.pool_hash AS hex, v.voter_hex AS voter_hex,
-                p.image_stored_url AS image_url
+                p.image_stored_url AS image_url, v.block_time AS block_time
          FROM drep_votes v
          LEFT JOIN pools p ON p.pool_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'SPO'

@@ -15,7 +15,7 @@ CREATE TABLE action_rationale (
   body_html  TEXT,                     -- sanitized rendered rationale, or NULL
   source     TEXT NOT NULL,            -- 'onchain' | 'dreptalk'
   anchor_url TEXT,                     -- the meta_url fetched (immutable per vote), or NULL for self-cast
-  status     TEXT NOT NULL,            -- 'ok' | 'failed'
+  status     TEXT NOT NULL,            -- 'ok' | 'empty' | 'failed'
   attempts   INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,         -- vote block time, milliseconds (display date)
   fetched_at INTEGER NOT NULL,         -- last fetch/upsert attempt, milliseconds

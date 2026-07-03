@@ -37,6 +37,16 @@ rationale that is not shown here yet is in no way diminished: it stays permanent
 recorded on-chain, fully valid, and you can open it directly from the vote's
 on-chain link.
 
+Rationales come in two on-chain shapes: a single free-text comment, and a
+structured form that splits the reasoning into a summary, a full statement, and a
+conclusion. We render both, so an institutional DRep who files the structured form
+reads the same as anyone else.
+
+A vote can also be cast after an action has already passed its threshold and gone
+to ratification. It is still a valid on-chain vote, and we show it with its
+rationale, but its weight was not part of the frozen tally, so on the Positions tab
+we mark it "not counted" and strike its weight through.
+
 ## Related
 
 - [Governance action statuses](/help/governance-statuses)
