@@ -6,6 +6,10 @@ export type ApiScope = 'all' | 'forum' | 'governance' | 'dreps';
 
 export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'help'];
 
+// Page size for the /search results page. Lives here (client-safe) so the
+// browser island can import it without pulling in the D1 query module.
+export const PAGE_SIZE = 20;
+
 export const SCOPE_LABELS: Record<Scope, string> = {
   all: 'All',
   forum: 'Forum',

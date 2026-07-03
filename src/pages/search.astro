@@ -1,0 +1,252 @@
+---
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import SearchResults from '@/components/search/SearchResults';
+import { handleSearch, normalizeQuery } from '@/lib/search/handler';
+import { parseApiScope, isScope, SCOPES, SCOPE_LABELS, type Scope } from '@/lib/search/scopes';
+import { env } from 'cloudflare:workers';
+
+const db = env.DB as D1Database | undefined;
+
+const url = Astro.url;
+const rawQuery = url.searchParams.get('q');
+const query = normalizeQuery(rawQuery);
+const scopeParam = url.searchParams.get('scope');
+const scope: Scope = isScope(scopeParam) ? scopeParam : 'all';
+const page = Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+
+// Server-render the initial D1 results so the page is useful on first paint and
+// without JavaScript. Help results are client-only (build-time index), so they
+// join once the island hydrates.
+const initialData = db
+  ? await handleSearch(db, query, { scope: parseApiScope(scope), page, counts: true })
+  : { query, scope: parseApiScope(scope), page, exact: null, governanceActions: [], discussions: [], dreps: [], total: null, counts: null };
+
+// Search pages are public; cache briefly at the edge like the API.
+Astro.response.headers.set('Cache-Control', 'public, max-age=30, s-maxage=60');
+
+const title = query ? `Search: ${query} - DRepTalk` : 'Search - DRepTalk';
+---
+
+<Layout title={title} description="Search governance actions, forum discussions, DReps, and help on DRepTalk.">
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Search</span>
+  </nav>
+
+  <h1 style="margin:0 0 1rem;">Search</h1>
+
+  <noscript>
+    <form method="get" action="/search" style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+      <input
+        type="search"
+        name="q"
+        value={query}
+        placeholder="Search governance actions, discussions, DReps, help..."
+        style="flex:1;padding:0.6rem 0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:inherit;font:inherit;"
+      />
+      <button type="submit" style="padding:0.6rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:inherit;cursor:pointer;">Search</button>
+    </form>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+      {SCOPES.map((s) => (
+        <a
+          href={`/search?q=${encodeURIComponent(query)}${s === 'all' ? '' : `&scope=${s}`}`}
+          style={`padding:0.2rem 0.6rem;font-size:0.75rem;border:1px solid ${s === scope ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius-sm);color:${s === scope ? 'var(--accent)' : 'var(--muted)'};text-decoration:none;`}
+        >
+          {SCOPE_LABELS[s]}
+        </a>
+      ))}
+    </div>
+  </noscript>
+
+  <SearchResults
+    client:load
+    initialQuery={query}
+    initialScope={scope}
+    initialPage={page}
+    initialData={initialData}
+  />
+</Layout>
+
+<style is:global>
+  .search-layout {
+    display: block;
+  }
+  .search-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    outline: none;
+    box-sizing: border-box;
+    margin-bottom: 1.25rem;
+  }
+  .search-input:focus {
+    border-color: var(--accent);
+  }
+  .search-body {
+    display: flex;
+    gap: 1.5rem;
+    align-items: flex-start;
+  }
+  .search-facets {
+    flex: 0 0 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    position: sticky;
+    top: 1rem;
+  }
+  .search-facet {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .search-facet:hover {
+    background: var(--surface);
+  }
+  .search-facet[data-active] {
+    background: var(--surface);
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .search-facet__count {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .search-hits {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .search-group {
+    margin-bottom: 1.5rem;
+  }
+  .search-group__title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin: 0 0 0.4rem;
+  }
+  .search-group__count {
+    font-weight: 400;
+  }
+  .search-hit {
+    display: block;
+    padding: 0.55rem 0.75rem;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    color: inherit;
+  }
+  .search-hit:hover {
+    background: var(--surface);
+  }
+  .search-hit__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .search-hit__title {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .search-hit__badge {
+    flex-shrink: 0;
+    font-size: 0.6875rem;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0 0.3rem;
+  }
+  .search-hit__status {
+    flex-shrink: 0;
+    font-size: 0.6875rem;
+    color: var(--muted);
+  }
+  .search-hit__detail {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .search-more {
+    display: inline-block;
+    margin: 0.3rem 0 0 0.75rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .search-note {
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+  .search-pagination {
+    display: flex;
+    gap: 0.3rem;
+    align-items: center;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+  .search-page {
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .search-page:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .search-page[data-active] {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .search-page-gap {
+    color: var(--muted);
+    padding: 0 0.2rem;
+  }
+  @media (max-width: 640px) {
+    .search-body {
+      flex-direction: column;
+    }
+    .search-facets {
+      flex-direction: row;
+      flex-wrap: wrap;
+      position: static;
+      width: 100%;
+    }
+  }
+</style>

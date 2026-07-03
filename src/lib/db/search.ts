@@ -5,6 +5,7 @@
 import { decodeBech32 } from '../crypto/bech32.js';
 import { drepPath } from '../drep/profile.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
+import { PAGE_SIZE } from '../search/scopes.js';
 
 export interface ExactHit {
   kind: 'governance-action' | 'drep';
@@ -309,7 +310,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
 // Scoped, paginated reads for the dedicated /search page. Unlike searchAll
 // (small per-group typeahead limits for the palette), these return one entity
 // type at a time with a total count so the page can render facets and pages.
-export const PAGE_SIZE = 20;
+export { PAGE_SIZE };
 
 export interface ScopeCounts {
   forum: number;
