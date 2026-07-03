@@ -3,8 +3,8 @@
 // render. No I/O and no network config (the caller passes expiry-in-ms and the
 // avatar data URL), so this is unit-testable in isolation.
 
-import { epochCountdown, overviewTally, readableType, statusBadge } from '../governance/view.js';
-import type { RoleTallyInput } from '../governance/view.js';
+import { epochCountdown, headlineVote, readableType, statusBadge } from '../governance/view.js';
+import type { RowVotingInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
 import { formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
@@ -17,7 +17,8 @@ function clamp(text: string, max: number): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
-export interface GovCardInput extends RoleTallyInput {
+export interface GovCardInput extends RowVotingInput {
+  status: string;
   title: string | null;
   abstract: string | null;
   expiryEpoch: number | null;
@@ -43,7 +44,7 @@ export function govCardModel(
   const meta = [countdown, opts.proposerName ? `by ${opts.proposerName}` : null]
     .filter(Boolean)
     .join(', ');
-  const t = overviewTally(a);
+  const t = headlineVote(a);
 
   return {
     accent: accentForType(a.type),

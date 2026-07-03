@@ -18,6 +18,7 @@ import {
   threadOgImage,
   isSpoLedType,
   overviewTally,
+  headlineVote,
   sentimentSubline,
   bodyVoteAmounts,
   advisoryBodyTallies,
@@ -536,5 +537,30 @@ describe('overviewRowVoting', () => {
     const result = overviewRowVoting(a, { drepStakeTotal: 1000, committeeSize: 5 });
     const spo = result.bodies.find((b) => b.body === 'SPO')!;
     expect(spo.participation).toBeNull();
+  });
+});
+
+describe('headlineVote', () => {
+  it('threshold type: leading body ratification bar (yes/100-yes)', () => {
+    // TreasuryWithdrawals is DRep-led; drepYesPct 74.53 -> yes 74.53 no 25.47.
+    const h = headlineVote({ type: 'TreasuryWithdrawals', drepYesPct: 74.53, drepNoPct: 25.47 } as any);
+    expect(h?.role).toBe('DRep');
+    expect(Math.round(h!.bar.yes)).toBe(75);
+    expect(h!.bar.abstain).toBe(0);
+  });
+
+  it('hard fork is SPO-led: picks the SPO ratification bar', () => {
+    const h = headlineVote({ type: 'HardForkInitiation', spoYesPct: 65, spoNoPct: 35, drepYesPct: null, drepNoPct: null } as any);
+    expect(h?.role).toBe('SPO');
+  });
+
+  it('info action: leading body among-cast bar', () => {
+    const h = headlineVote({ type: 'InfoAction', drepYesPower: 99, drepNoPower: 1, drepAbstainPower: 0 } as any);
+    expect(h?.role).toBe('DRep');
+    expect(Math.round(h!.bar.yes)).toBe(99);
+  });
+
+  it('returns null when no body has a vote', () => {
+    expect(headlineVote({ type: 'InfoAction' } as any)).toBeNull();
   });
 });

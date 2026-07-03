@@ -667,6 +667,25 @@ export interface OverviewRowVoting {
 }
 
 /**
+ * The single leading body's honest current-vote bar for the compact surfaces (OG card).
+ * SPO-led types (see isSpoLedType) lead with SPO, all others with DRep; falls back to
+ * the next body with a vote, then to any body with a vote. Type-dependent (ratification
+ * vs among-cast) exactly as overviewRowVoting, so the share image matches the site.
+ * Participation is not needed here (only the per-body vote bar), so the opts are passed
+ * as null. Returns null when no eligible body has cast a vote yet.
+ */
+export function headlineVote(a: RowVotingInput): { bar: TallyBar; role: VoterRole } | null {
+  const { bodies } = overviewRowVoting(a, { drepStakeTotal: null, committeeSize: null });
+  const order: VoterRole[] = isSpoLedType(a.type) ? ['SPO', 'DRep'] : ['DRep', 'SPO'];
+  for (const role of order) {
+    const b = bodies.find((x) => x.body === role && x.vote != null);
+    if (b?.vote) return { bar: b.vote, role };
+  }
+  const any = bodies.find((x) => x.vote != null && (x.body === 'DRep' || x.body === 'SPO'));
+  return any?.vote ? { bar: any.vote, role: any.body as VoterRole } : null;
+}
+
+/**
  * Per-body voting model for the redesigned overview row: one entry per eligible
  * body (DRep/SPO/CC), each with a participation (turnout) percentage and a
  * current-vote bar. The vote bar is type-dependent: action types that carry an
