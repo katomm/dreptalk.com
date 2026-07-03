@@ -348,7 +348,7 @@ export interface OverviewTally {
   voted: number;     // voters of that role who cast yes/no/abstain
   // True when the bar's "no" share is purely non-voting stake counted as No by the
   // ledger default (open hard fork, SPO-led, zero pools actually voted No), so it
-  // should read as "not yet voted" rather than hostile opposition. See sentimentSubline.
+  // should read as "not yet voted" rather than hostile opposition.
   noIsPending: boolean;
 }
 
@@ -382,20 +382,6 @@ export function overviewTally(a: RoleTallyInput): OverviewTally | null {
     return { role, bar, voted, noIsPending };
   }
   return null;
-}
-
-/**
- * The sub-line under the sentiment headline. Normally "21% against · 6% abstain";
- * when the No share is only non-voting stake on an open hard fork (see
- * OverviewTally.noIsPending) it reads "84% not yet voted" so the bar does not
- * overstate opposition while voting is still open.
- */
-export function sentimentSubline(t: OverviewTally): string {
-  const noShare = `${fmtPct(t.bar.no)} ${t.noIsPending ? 'not yet voted' : 'against'}`;
-  // A pending bar drops a 0% abstain for a clean "not yet voted"; the normal bar
-  // always carries its abstain share, as it did before this relabeling existed.
-  if (t.noIsPending && t.bar.abstain === 0) return noShare;
-  return `${noShare} · ${fmtPct(t.bar.abstain)} abstain`;
 }
 
 export interface StakeParticipation {
@@ -510,10 +496,10 @@ export function advisoryBodyTallies(a: AdvisoryTallyInput): AdvisoryBodyTally[] 
 
 // Which of DRep/SPO/CC vote per CIP-1694 for each action type. Mirrors the
 // threshold plan() in thresholds.ts, minus the ParameterChange payload nuance
-// (touchesSecurity/groups): we do not have the decoded paramScope here, so
-// ParameterChange defaults to its always-present bodies (DRep, CC) and the SPO
-// seat is picked up dynamically by eligibleBodies() below whenever the action
-// actually carries SPO votes (a security-relevant param change was submitted).
+// (touchesSecurity/groups): ParameterChange defaults to its always-present
+// bodies (DRep, CC) here, and eligibleBodies() below adds the SPO seat when
+// the caller passes paramTouchesSecurity, or dynamically whenever the action
+// actually carries cast SPO votes (belt and suspenders if that flag is absent).
 const ELIGIBLE_BY_TYPE: Record<string, Body[]> = {
   InfoAction: ['DRep', 'SPO', 'CC'],
   NoConfidence: ['DRep', 'SPO'],
@@ -549,13 +535,18 @@ function bodyHasCastVotes(a: RowVotingInput, body: Body): boolean {
 }
 
 /**
- * The bodies that vote on this action type (CIP-1694), unioned with any body
- * that actually cast votes (covers the ParameterChange SPO seat, which we
- * cannot statically resolve here without the decoded payload; see
- * ELIGIBLE_BY_TYPE). Returned in fixed DRep, SPO, CC order.
+ * The bodies that vote on this action type (CIP-1694), unioned with:
+ * - any body that actually cast votes (covers a ParameterChange SPO seat we
+ *   cannot statically resolve from ELIGIBLE_BY_TYPE alone), and
+ * - the SPO seat when the caller tells us this ParameterChange touches a
+ *   security-relevant parameter (constitution PARAM-03a; see
+ *   parameterChangeScope in onchain.ts), so SPOs show as an eligible body
+ *   from the start of voting, before any pool has cast a vote.
+ * Returned in fixed DRep, SPO, CC order.
  */
-function eligibleBodies(a: RowVotingInput): Body[] {
+function eligibleBodies(a: RowVotingInput, paramTouchesSecurity: boolean): Body[] {
   const statically = new Set(ELIGIBLE_BY_TYPE[a.type] ?? DEFAULT_ELIGIBLE);
+  if (a.type === 'ParameterChange' && paramTouchesSecurity) statically.add('SPO');
   for (const body of BODY_ORDER) {
     if (bodyHasCastVotes(a, body)) statically.add(body);
   }
@@ -576,7 +567,19 @@ function ratificationYesPct(a: RowVotingInput, body: Body): number | null {
   }
 }
 
-/** Turnout (0..100) for one body; null when its denominator is unknown or zero. */
+/**
+ * Turnout (0..100) for one body; null when its denominator is unknown or zero.
+ *
+ * Note the DRep and SPO denominators are not strictly like-for-like: DRep turnout
+ * divides by opts.drepStakeTotal, which comes from getActiveDrepStake and sums
+ * only rows with active = 1, excluding the predefined always-abstain and
+ * always-no-confidence stake. SPO turnout divides by a.spoEligiblePower (see
+ * spoEligiblePower in tallySync.ts), which does include the two passive
+ * always-abstain/always-no-confidence buckets alongside the active pools. So a
+ * higher SPO participation percentage is not automatically "more engaged" than
+ * the same DRep percentage; part of the SPO denominator is stake that can never
+ * cast an explicit vote.
+ */
 function participationFor(
   a: RowVotingInput,
   body: Body,
@@ -695,12 +698,20 @@ export function headlineVote(a: RowVotingInput): { bar: TallyBar; role: VoterRol
  * castVoteBar), since there is no ratification percentage to show. absentBodies
  * lists the CIP-1694-expected bodies this type does not use (e.g. SPO for a
  * treasury withdrawal), for the row's "does not vote here" note.
+ *
+ * paramScope.paramTouchesSecurity marks a ParameterChange whose decoded payload
+ * touches a security-relevant parameter (constitution PARAM-03a): SPOs are
+ * eligible on such a change from the start of voting, not only once a pool has
+ * actually cast a vote (see eligibleBodies). It defaults to false, so callers
+ * that do not pass it (e.g. headlineVote) keep the prior DRep+CC-only behavior
+ * for ParameterChange until a body casts a vote.
  */
 export function overviewRowVoting(
   a: RowVotingInput,
   opts: { drepStakeTotal: number | null; committeeSize: number | null },
+  paramScope: { paramTouchesSecurity: boolean } = { paramTouchesSecurity: false },
 ): OverviewRowVoting {
-  const eligible = eligibleBodies(a);
+  const eligible = eligibleBodies(a, paramScope.paramTouchesSecurity);
   const kind: BodyVoteKind = hasOnchainThreshold(a.type) ? 'ratification' : 'advisory';
   const bodies: RowBodyVoting[] = eligible.map((body) => ({
     body,

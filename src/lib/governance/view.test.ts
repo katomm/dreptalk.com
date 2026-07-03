@@ -19,7 +19,6 @@ import {
   isSpoLedType,
   overviewTally,
   headlineVote,
-  sentimentSubline,
   bodyVoteAmounts,
   advisoryBodyTallies,
   overviewRowVoting,
@@ -234,7 +233,7 @@ describe('stakeParticipation', () => {
 });
 
 // Minimal RoleTallyInput builder: empty tallies, overridable per role. Shared by
-// the overviewTally and sentimentSubline suites below.
+// the overviewTally suite below.
 const make = (over: Partial<RoleTallyInput>): RoleTallyInput => ({
   type: 'TreasuryWithdrawals',
   status: 'active',
@@ -311,21 +310,6 @@ describe('isSpoLedType / overviewTally', () => {
     const t = overviewTally(make({ type: 'TreasuryWithdrawals', status: 'active', drepYesPct: 20, drepNoPct: 80, drepYes: 10, drepNo: 0, drepAbstain: 0 }))!;
     expect(t.role).toBe('DRep');
     expect(t.noIsPending).toBe(false);
-  });
-});
-
-describe('sentimentSubline', () => {
-  it('reads the no-share as "not yet voted" when it is only non-voting stake', () => {
-    const t = overviewTally(make({ type: 'HardForkInitiation', status: 'active', spoYesPct: 16, spoNoPct: 84, spoYes: 68, spoNo: 0, spoAbstain: 0 }))!;
-    expect(sentimentSubline(t)).toBe('84% not yet voted');
-  });
-  it('keeps an abstain share alongside "not yet voted"', () => {
-    const t = overviewTally(make({ type: 'HardForkInitiation', status: 'active', spoYesPct: 16, spoNoPct: 74, spoYes: 68, spoNo: 0, spoAbstain: 1 }))!;
-    expect(sentimentSubline(t)).toBe('74% not yet voted · 10% abstain');
-  });
-  it('reads as "against" for a normal tally', () => {
-    const t = overviewTally(make({ type: 'TreasuryWithdrawals', status: 'active', drepYesPct: 79, drepNoPct: 21, drepYes: 200, drepNo: 70, drepAbstain: 6 }))!;
-    expect(sentimentSubline(t)).toBe('21% against · 0% abstain');
   });
 });
 
@@ -537,6 +521,37 @@ describe('overviewRowVoting', () => {
     const result = overviewRowVoting(a, { drepStakeTotal: 1000, committeeSize: 5 });
     const spo = result.bodies.find((b) => b.body === 'SPO')!;
     expect(spo.participation).toBeNull();
+  });
+
+  it('security-relevant parameter change: SPO is eligible even with zero cast votes', () => {
+    const a = makeRow({
+      type: 'ParameterChange',
+      drepYesPct: 40, drepNoPct: 10,
+      ccYesPct: 100, ccNoPct: 0,
+      spoYesPower: 0, spoNoPower: 0, spoAbstainPower: 0,
+      spoEligiblePower: 1000,
+    });
+    const result = overviewRowVoting(a, { drepStakeTotal: 1_000_000, committeeSize: 5 }, { paramTouchesSecurity: true });
+
+    expect(result.bodies.map((b) => b.body)).toEqual(['DRep', 'SPO', 'CC']);
+    expect(result.absentBodies).toEqual([]);
+    const spo = result.bodies.find((b) => b.body === 'SPO')!;
+    expect(spo.vote).toBeNull(); // no vote cast yet, but still an eligible body
+    expect(spo.participation).toBe(0);
+  });
+
+  it('non-security parameter change: SPO stays absent with zero cast votes', () => {
+    const a = makeRow({
+      type: 'ParameterChange',
+      drepYesPct: 40, drepNoPct: 10,
+      ccYesPct: 100, ccNoPct: 0,
+      spoYesPower: 0, spoNoPower: 0, spoAbstainPower: 0,
+      spoEligiblePower: 1000,
+    });
+    const result = overviewRowVoting(a, { drepStakeTotal: 1_000_000, committeeSize: 5 }, { paramTouchesSecurity: false });
+
+    expect(result.bodies.map((b) => b.body)).toEqual(['DRep', 'CC']);
+    expect(result.absentBodies).toEqual(['SPO']);
   });
 });
 

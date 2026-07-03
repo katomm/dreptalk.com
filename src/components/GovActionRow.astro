@@ -11,7 +11,7 @@ import {
   TONE_BAR_COLORS,
 } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
-import { decodeOnchainChanges, summarizeOnchain } from '@/lib/governance/onchain.js';
+import { decodeOnchainChanges, summarizeOnchain, parameterChangeScope } from '@/lib/governance/onchain.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { Topic } from '@/lib/db/forum.js';
@@ -61,8 +61,15 @@ const tally = overviewTally(action);
 const votedLabel = tally?.role === 'SPO' ? 'SPOs' : 'DReps';
 const votedCount = tally?.voted ?? 0;
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
+// For a ParameterChange, whether the decoded payload touches a security-relevant
+// parameter (constitution PARAM-03a): SPOs are eligible to vote on such a change
+// from the start of voting, not only once a pool has actually cast one (see
+// overviewRowVoting's paramScope param). null/other types decode to null and the
+// flag stays false, matching their static DRep+CC eligibility.
+const paramTouchesSecurity =
+  parameterChangeScope(action.onchainPayload ?? null)?.touchesSecurity ?? false;
 // Per-body participation and current vote, the two columns this row renders.
-const voting = overviewRowVoting(action, { drepStakeTotal, committeeSize });
+const voting = overviewRowVoting(action, { drepStakeTotal, committeeSize }, { paramTouchesSecurity });
 const leadBody = voting.bodies[0] ?? null;
 const voteHeadNote = leadBody?.voteKind === 'advisory' ? 'advisory, no threshold' : 'ratification';
 // "SPOs do not vote on treasury withdrawals": join the absent bodies' labels with
