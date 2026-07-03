@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
+# NOTE: this worker bundles shared code from ../../../src (via src/index.ts). Its
+# Cloudflare Workers Build has a "Build watch paths" of workers/gov-sync/*, so a
+# change ONLY under src/ does NOT trigger a gov-sync rebuild and the deployed worker
+# keeps running the old shared code. When a src/ change must reach this worker (a
+# sync/tally/backfill fix), broaden the watch path to include src/ or touch a file
+# under workers/gov-sync/ so the build fires. Track: broaden the watch path so this
+# stops needing a manual nudge.
+
 # Shares the Pages/Workers app's D1 database. database_id must match the app's
 # binding so local state and the remote database are the same one.
 [[d1_databases]]
