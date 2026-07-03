@@ -127,6 +127,21 @@ html[data-theme='dark'] {
   box-sizing: border-box;
 }
 
+/* Visually hidden but exposed to assistive tech: adds context to the accessible
+   name (e.g. a "Latest governance action" preamble) without showing on screen or
+   counting as visible text, so it never trips the label-in-name check. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   /* Always reserve the scrollbar gutter so the centered layout keeps the same
