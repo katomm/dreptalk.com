@@ -70,15 +70,6 @@ const paramTouchesSecurity =
   parameterChangeScope(action.onchainPayload ?? null)?.touchesSecurity ?? false;
 // Per-body participation and current vote, the two columns this row renders.
 const voting = overviewRowVoting(action, { drepStakeTotal, committeeSize }, { paramTouchesSecurity });
-const leadBody = voting.bodies[0] ?? null;
-const voteHeadNote = leadBody?.voteKind === 'advisory' ? 'advisory, no threshold' : 'ratification';
-// "SPOs do not vote on treasury withdrawals": join the absent bodies' labels with
-// the readable type name, lowercased so it reads as a clause, not a new sentence.
-const absentBodyLabels: Record<string, string> = { DRep: 'DReps', SPO: 'SPOs', CC: 'CC' };
-const absentNote =
-  voting.absentBodies.length > 0
-    ? `${voting.absentBodies.map((b) => absentBodyLabels[b]).join(' and ')} do not vote on ${readableType(action.type).toLowerCase()}`
-    : null;
 // Calendar boundary of the expiry epoch (when voting closes). Both the countdown
 // and the "Voting ends" date derive from this same instant, so they stay in step.
 const expiryUnix =
@@ -136,13 +127,11 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
           <span class="vrow__dash">no data</span>
         )}
       </div>
-    ))}
-    {absentNote && <p class="garow__absentnote">{absentNote}</p>}
-  </div>
+    ))}  </div>
 
   <!-- Current vote: one row per eligible body, green (yes) / red (no) / neutral
-       (abstain), matching TallyBar's tone palette. A context line under the
-       leading body's bar carries its raw amounts and the vote kind.
+       (abstain), matching TallyBar's tone palette. The raw amounts and the
+       ratification/advisory context live on the detail's Voting Information card.
        Desktop/tablet only; mobile shows the merged .garow__bodyrows list instead. -->
   <div class="garow__vote garow__voterows garow__desktoponly">
     {voting.bodies.map((b) => (
@@ -162,12 +151,6 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
         )}
       </div>
     ))}
-    {leadBody?.amounts && (
-      <p class="garow__votenote">
-        {leadBody.amounts.yes} yes &middot; {leadBody.amounts.no} no &middot; {leadBody.amounts.abstain} abstain
-        <span class="garow__votekind"> ({voteHeadNote})</span>
-      </p>
-    )}
   </div>
 
   <!-- Mobile-only merged list: one row per body with BOTH its participation bar
@@ -202,9 +185,7 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
           )}
         </span>
       </div>
-    ))}
-    {absentNote && <p class="garow__absentnote">{absentNote}</p>}
-  </div>
+    ))}  </div>
 
   <!-- Two activity stats. They stack on the desktop grid; on mobile they sit side
        by side as the footer's left/right halves (the time block takes its own row). -->
@@ -297,11 +278,6 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .vrow__fill--neutral { background:var(--muted); }
   .vrow__pct { flex:0 0 auto; width:3em; text-align:right; font-weight:600; font-size:0.78rem; }
   .vrow__dash { color:var(--muted); font-size:0.75rem; }
-  /* Absent-body note under Participation, and the amounts/kind note under
-     Current vote: both small, muted, and set off from the row list above. */
-  .garow__absentnote, .garow__votenote { color:var(--muted); font-size:0.7rem; font-style:italic;
-    margin:2px 0 0; }
-  .garow__votekind { font-style:normal; }
 
   /* The merged mobile body-rows list is hidden on wide screens; the two separate
      desktop cells are hidden below the mobile breakpoint (see @media below). */
