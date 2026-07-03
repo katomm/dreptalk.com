@@ -24,9 +24,11 @@ interface Props {
   pageSize: number;
   slug: string;
   rationales: Map<string, { bodyHtml: string | null; source: string }>;
+  /** Voter ids whose vote was cast after ratification and did not count in the tally. */
+  notCounted: Set<string>;
 }
 
-const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted } = Astro.props;
 
 // Determine active role from the query string; default to DReps.
 const role = (Astro.url.searchParams.get('role') === 'spo' ? 'spo' : 'drep') as 'drep' | 'spo';
@@ -34,6 +36,9 @@ const activeVoters = role === 'spo' ? spoVoters : voters;
 
 // Action-wide rationale count (the map covers the whole action, not just this page).
 const withRationale = rationales.size;
+
+// Late votes among the rows shown on this page (cast after ratification).
+const lateOnPage = activeVoters.filter((v) => notCounted.has(v.voter_id)).length;
 
 const prevPage = page > 1 ? page - 1 : null;
 // For the active list, use the appropriate length to determine whether a next page exists.
@@ -88,22 +93,31 @@ const spoHref = `/t/${slug}?tab=positions&role=spo`;
     <p class="ga-positions__hint">Open a row to read the rationale.</p>
   )}
 
+  {lateOnPage > 0 && (
+    <p class="ga-positions__hint">Struck-through weight was cast after ratification and did not count in the tally.</p>
+  )}
+
   {activeVoters.length > 0 && (
     <ul class="ga-positions__list">
       {activeVoters.map((v) => {
         const descriptor = role === 'spo' ? voterDescriptor(v, dreps, pools) : voterDescriptor(v, dreps);
         const ada = formatAdaCompact(v.voting_power);
         const bodyHtml = rationales.get(descriptor.authorId)?.bodyHtml ?? null;
+        const late = notCounted.has(v.voter_id);
         // Identity, vote, and power render identically whether or not the row
         // expands; the power slot is always present (empty when unknown) so the
-        // amount column lines up across every row.
+        // amount column lines up across every row. A late vote (cast after
+        // ratification) is tagged and its weight struck through.
         const lead = (
           <>
             <div class="ga-positions__identity">
               <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} />
+              {late && (
+                <span class="ga-positions__late" title="Cast after ratification; not counted in the tally">Not counted</span>
+              )}
             </div>
             <VoteBadge vote={v.vote} compact />
-            <span class="ga-positions__power">{ada ?? ''}</span>
+            <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
           </>
         );
         return (
@@ -211,6 +225,27 @@ const spoHref = `/t/${slug}?tab=positions&role=spo`;
     font-size: 0.875rem;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
+  }
+
+  .ga-positions__power--struck {
+    text-decoration: line-through;
+    opacity: 0.55;
+  }
+
+  /* Tag on a vote cast after ratification: valid on-chain, but not in the tally. */
+  .ga-positions__late {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    color: var(--muted);
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+    white-space: nowrap;
   }
 
   /* Expand affordance column. Mobile: just the chevron (compact). Desktop: a

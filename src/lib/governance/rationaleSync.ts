@@ -5,13 +5,17 @@
 import { getRationaleFetchQueue, upsertActionRationale } from '../db/actionRationale.js';
 import { fetchVoteRationale } from './voteRationaleAnchor.js';
 
-// Start near 1,000,000 ADA. Calibrate against live data so it covers the bulk of
-// cast voting power (DRep power is highly concentrated). Lovelace = ADA * 1e6.
-export const VOTE_RATIONALE_MIN_POWER_LOVELACE = 1_000_000_000_000;
+// Fetch rationales for DReps with at least 100,000 ADA of voting power. Set low
+// enough to cover small-but-active DReps who write thoughtful rationales, while
+// still skipping dust-weight voters. Lovelace = ADA * 1e6.
+export const VOTE_RATIONALE_MIN_POWER_LOVELACE = 100_000_000_000;
 
-const DEFAULT_LIMIT = 40;
+// Fetch up to this many rationales per run. Sized to drain the backlog opened by
+// the lower power threshold within a day or so, while staying gentle on anchor
+// hosts (each fetch is paced) and inside the cron's time budget.
+const DEFAULT_LIMIT = 80;
 
-export interface RationaleSyncResult { fetched: number; ok: number; failed: number; }
+export interface RationaleSyncResult { fetched: number; ok: number; empty: number; failed: number; }
 
 export async function syncVoteRationales(deps: {
   db: D1Database; now: number; fetchImpl?: typeof fetch;
@@ -23,6 +27,7 @@ export async function syncVoteRationales(deps: {
 
   const jobs = await getRationaleFetchQueue(db, { minPower, limit, now });
   let ok = 0;
+  let empty = 0;
   let failed = 0;
   for (const [i, job] of jobs.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((r) => setTimeout(r, paceMs));
@@ -34,7 +39,9 @@ export async function syncVoteRationales(deps: {
       source: 'onchain', anchorUrl: job.anchorUrl,
       status: res.status, createdAt, now,
     });
-    if (res.status === 'ok') ok++; else failed++;
+    if (res.status === 'ok') ok++;
+    else if (res.status === 'empty') empty++;
+    else failed++;
   }
-  return { fetched: jobs.length, ok, failed };
+  return { fetched: jobs.length, ok, empty, failed };
 }

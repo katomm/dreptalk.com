@@ -19,6 +19,7 @@ import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { stakeParticipation, isSpoLedType } from '@/lib/governance/view.js';
+import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getActionRationales, countActionRationales } from '@/lib/db/actionRationale.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
@@ -195,6 +196,12 @@ const rationales = tab === 'positions' && db && govAction
   ? await getActionRationales(db, govAction.id)
   : new Map<string, { bodyHtml: string | null; source: string }>();
 
+// Votes cast too late to count in the frozen tally (on/after the ratification
+// epoch). Shown distinctly on the Positions tab so they don't read as counted.
+const notCountedVoters = govAction
+  ? lateVoterIds([...positionVoters, ...spoVoters], govAction, network)
+  : new Set<string>();
+
 // Action-wide rationale count (cheap): drives the sidebar "See all" link on every tab.
 const rationaleCount = db && govAction ? await countActionRationales(db, govAction.id) : 0;
 
@@ -356,6 +363,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
                 pageSize={PAGE_SIZE}
                 slug={topic.slug}
                 rationales={rationales}
+                notCounted={notCountedVoters}
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />

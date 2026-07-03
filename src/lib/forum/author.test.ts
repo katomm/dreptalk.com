@@ -72,7 +72,7 @@ describe('voterDescriptor SPO resolution', () => {
       poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool',
       homepage: null, description: null, imageContentHash: 'imghash', imageStoredUrl: '/api/avatar/imghash',
     }]]);
-    const v = { voter_id: 'pool1a', vote: 'Yes', voting_power: null, hex: 'aa', voter_hex: 'aa', image_url: null };
+    const v = { voter_id: 'pool1a', vote: 'Yes', voting_power: null, hex: 'aa', voter_hex: 'aa', image_url: null, block_time: null };
     const d = voterDescriptor(v, new Map(), pools);
     expect(d.displayName).toBe('Hephaestus Stake Pool');
     expect(d.imageHash).toBe('imghash');
@@ -80,7 +80,7 @@ describe('voterDescriptor SPO resolution', () => {
   });
 
   it('still resolves a DRep voter when no pool matches', () => {
-    const v = { voter_id: 'drep1', vote: 'Yes', voting_power: null, hex: 'h', voter_hex: 'h', image_url: null };
+    const v = { voter_id: 'drep1', vote: 'Yes', voting_power: null, hex: 'h', voter_hex: 'h', image_url: null, block_time: null };
     const d = voterDescriptor(v, new Map(), new Map());
     expect(d.drepId).toBe('drep1');
   });
