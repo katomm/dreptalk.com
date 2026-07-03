@@ -3,6 +3,7 @@ import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { handleSearch, normalizeQuery } from '@/lib/search/handler';
 import { parseApiScope } from '@/lib/search/scopes';
+import { parsePage } from '@/lib/forum/view';
 
 export const prerender = false;
 
@@ -33,7 +34,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const url = new URL(request.url);
   const q = normalizeQuery(url.searchParams.get('q')).toLowerCase();
   const scope = parseApiScope(url.searchParams.get('scope'));
-  const page = Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+  const page = parsePage(url.searchParams.get('page'));
   const counts = url.searchParams.get('counts') === '1';
 
   const cache = (caches as CacheStorage & { default: Cache }).default;

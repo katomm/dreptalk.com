@@ -301,34 +301,24 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
             </>
           )}
 
-          {hasQuery && !error && scope === 'governance' && (
-            <ScopeList empty={data.governanceActions.length === 0} q={trimmed}>
-              {data.governanceActions.map((ga) => (
-                <GaRow key={ga.href} ga={ga} />
-              ))}
-            </ScopeList>
-          )}
-          {hasQuery && !error && scope === 'forum' && (
-            <ScopeList empty={data.discussions.length === 0} q={trimmed}>
-              {data.discussions.map((t) => (
-                <TopicRow key={t.href} t={t} />
-              ))}
-            </ScopeList>
-          )}
-          {hasQuery && !error && scope === 'dreps' && (
-            <ScopeList empty={data.dreps.length === 0} q={trimmed}>
-              {data.dreps.map((d) => (
-                <DrepRow key={d.drepId} d={d} />
-              ))}
-            </ScopeList>
-          )}
-          {hasQuery && !error && scope === 'help' && (
-            <ScopeList empty={helpHits.length === 0} q={trimmed}>
-              {helpPageSlice.map((h) => (
-                <HelpRow key={h.href} h={h} />
-              ))}
-            </ScopeList>
-          )}
+          {hasQuery &&
+            !error &&
+            scope !== 'all' &&
+            (() => {
+              // One data-driven scoped list. Each scope maps to its result rows.
+              const rows: Record<Exclude<Scope, 'all'>, ReactNode[]> = {
+                governance: data.governanceActions.map((ga) => <GaRow key={ga.href} ga={ga} />),
+                forum: data.discussions.map((t) => <TopicRow key={t.href} t={t} />),
+                dreps: data.dreps.map((d) => <DrepRow key={d.drepId} d={d} />),
+                help: helpPageSlice.map((h) => <HelpRow key={h.href} h={h} />),
+              };
+              const list = rows[scope];
+              return (
+                <ScopeList empty={list.length === 0} q={trimmed}>
+                  {list}
+                </ScopeList>
+              );
+            })()}
 
           {hasQuery && !error && scope !== 'all' && <Pagination page={page} totalPages={totalPages} onPage={setPage} />}
         </div>

@@ -29,7 +29,9 @@ export function parseApiScope(raw: string | null): ApiScope {
   return raw != null && (API_SCOPES as readonly string[]).includes(raw) ? (raw as ApiScope) : 'all';
 }
 
-/** Maps a palette result group to the scope its rows belong to. */
+/** Maps a palette result group to the scope its rows belong to. The group
+ *  strings must match the group labels used in SearchPalette's buildRows; if a
+ *  group's display text changes there, update this switch too. */
 export function groupToScope(group: string): Scope {
   switch (group) {
     case 'Governance Actions':

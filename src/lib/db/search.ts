@@ -6,6 +6,7 @@ import { decodeBech32 } from '../crypto/bech32.js';
 import { drepPath } from '../drep/profile.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
 import { PAGE_SIZE } from '../search/scopes.js';
+import { pageToOffset } from '../forum/view.js';
 
 export interface ExactHit {
   kind: 'governance-action' | 'drep';
@@ -329,7 +330,7 @@ function countOf(res: D1Result): number {
 
 /** One page of governance-action hits plus the total match count. */
 export async function searchGovernancePage(db: D1Database, match: string, page: number): Promise<ScopedResult<GaHit>> {
-  const offset = (Math.max(1, page) - 1) * PAGE_SIZE;
+  const offset = pageToOffset(Math.max(1, page), PAGE_SIZE);
   const [rowsRes, countRes] = await db.batch([
     db
       .prepare(
@@ -361,7 +362,7 @@ export async function searchGovernancePage(db: D1Database, match: string, page: 
 
 /** One page of DRep hits plus the total match count. */
 export async function searchDrepsPage(db: D1Database, match: string, page: number): Promise<ScopedResult<DrepHit>> {
-  const offset = (Math.max(1, page) - 1) * PAGE_SIZE;
+  const offset = pageToOffset(Math.max(1, page), PAGE_SIZE);
   const [rowsRes, countRes] = await db.batch([
     db
       .prepare(
@@ -416,7 +417,7 @@ interface ForumRow {
 
 /** One page of distinct forum topics (title + post matches merged) plus total. */
 export async function searchForumPage(db: D1Database, match: string, page: number): Promise<ScopedResult<TopicHit>> {
-  const offset = (Math.max(1, page) - 1) * PAGE_SIZE;
+  const offset = pageToOffset(Math.max(1, page), PAGE_SIZE);
   const [rowsRes, countRes] = await db.batch([
     db
       .prepare(

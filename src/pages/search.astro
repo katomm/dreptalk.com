@@ -5,6 +5,7 @@ import Layout from '@/layouts/Layout.astro';
 import SearchResults from '@/components/search/SearchResults';
 import { handleSearch, normalizeQuery } from '@/lib/search/handler';
 import { parseApiScope, isScope, SCOPES, SCOPE_LABELS, type Scope } from '@/lib/search/scopes';
+import { parsePage } from '@/lib/forum/view';
 import { env } from 'cloudflare:workers';
 
 const db = env.DB as D1Database | undefined;
@@ -14,7 +15,7 @@ const rawQuery = url.searchParams.get('q');
 const query = normalizeQuery(rawQuery);
 const scopeParam = url.searchParams.get('scope');
 const scope: Scope = isScope(scopeParam) ? scopeParam : 'all';
-const page = Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+const page = parsePage(url.searchParams.get('page'));
 
 // Server-render the initial D1 results so the page is useful on first paint and
 // without JavaScript. Help results are client-only (build-time index), so they

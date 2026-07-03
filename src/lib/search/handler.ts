@@ -63,23 +63,27 @@ export async function handleSearch(db: D1Database, rawQuery: string | null, opts
     const match = buildMatch(query);
     if (!match) return empty(query, scope, page, scopedTotal);
 
-    // Scoped modes: one entity, paginated. Facet counts (when requested) come
-    // from countScopes, whose per-scope totals equal each scoped query's total,
-    // so the facet numbers always match the scoped result lists.
+    // opts.counts has a dual role. Its primary job is to return facet counts
+    // for the /search page. It also selects "page mode" vs the palette's
+    // "typeahead mode" for scope === 'all' below: the page builds each group
+    // from the scoped queries so its counts and results agree, while the
+    // palette keeps the merged typeahead groups. The scoped modes are identical
+    // in both, so they only vary the counts.
+    const scopedCounts = opts.counts && scope !== 'all' ? await countScopes(db, match) : null;
+
+    // Scoped modes: one entity, paginated. countScopes' per-scope totals equal
+    // each scoped query's total, so the facet numbers match the result lists.
     if (scope === 'governance') {
-      const counts = opts.counts ? await countScopes(db, match) : null;
       const { hits, total } = await searchGovernancePage(db, match, page);
-      return { ...empty(query, scope, page, total), governanceActions: hits, counts };
+      return { ...empty(query, scope, page, total), governanceActions: hits, counts: scopedCounts };
     }
     if (scope === 'dreps') {
-      const counts = opts.counts ? await countScopes(db, match) : null;
       const { hits, total } = await searchDrepsPage(db, match, page);
-      return { ...empty(query, scope, page, total), dreps: hits, counts };
+      return { ...empty(query, scope, page, total), dreps: hits, counts: scopedCounts };
     }
     if (scope === 'forum') {
-      const counts = opts.counts ? await countScopes(db, match) : null;
       const { hits, total } = await searchForumPage(db, match, page);
-      return { ...empty(query, scope, page, total), discussions: hits, counts };
+      return { ...empty(query, scope, page, total), discussions: hits, counts: scopedCounts };
     }
 
     // scope === 'all'. The exact fast path (pasted governance-action id / DRep
