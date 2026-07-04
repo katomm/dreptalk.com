@@ -81,6 +81,18 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
       ...(d.imageHash ? { avatar: `/api/avatar/${d.imageHash}` } : {}),
     });
   }
+  for (const r of data?.rationales ?? []) {
+    rows.push({
+      key: `rat-${r.href}`,
+      href: r.href,
+      group: 'Rationales',
+      label: r.drepName ?? truncateId(r.drepId),
+      badge: r.vote,
+      detail: r.actionTitle,
+      snippet: r.snippet,
+      ...(r.imageHash ? { avatar: `/api/avatar/${r.imageHash}` } : {}),
+    });
+  }
   for (const e of matchStaticEntries(q)) {
     rows.push({ key: `static-${e.href}`, href: e.href, group: e.group, label: e.label });
   }
