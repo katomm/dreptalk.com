@@ -5,6 +5,8 @@
 import { decodeBech32 } from '../crypto/bech32.js';
 import { drepPath } from '../drep/profile.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
+import { PAGE_SIZE } from '../search/scopes.js';
+import { pageToOffset } from '../forum/view.js';
 
 export interface ExactHit {
   kind: 'governance-action' | 'drep';
@@ -304,4 +306,162 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
     discussions,
     dreps,
   };
+}
+
+// Scoped, paginated reads for the dedicated /search page. Unlike searchAll
+// (small per-group typeahead limits for the palette), these return one entity
+// type at a time with a total count so the page can render facets and pages.
+export { PAGE_SIZE };
+
+export interface ScopeCounts {
+  forum: number;
+  governance: number;
+  dreps: number;
+}
+
+export interface ScopedResult<T> {
+  hits: T[];
+  total: number;
+}
+
+function countOf(res: D1Result): number {
+  return (res.results?.[0] as { n: number } | undefined)?.n ?? 0;
+}
+
+/** One page of governance-action hits plus the total match count. */
+export async function searchGovernancePage(db: D1Database, match: string, page: number): Promise<ScopedResult<GaHit>> {
+  const offset = pageToOffset(Math.max(1, page), PAGE_SIZE);
+  const [rowsRes, countRes] = await db.batch([
+    db
+      .prepare(
+        `SELECT ga.id AS ga_id, ga.title, ga.type, ga.status, t.slug,
+                snippet(governance_actions_fts, 1, char(1), char(2), '…', 12) AS snip
+         FROM governance_actions_fts
+         JOIN governance_actions ga ON ga.rowid = governance_actions_fts.rowid
+         LEFT JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
+         WHERE governance_actions_fts MATCH ?1
+         ORDER BY bm25(governance_actions_fts, 5.0, 1.0)
+         LIMIT ${PAGE_SIZE} OFFSET ?2`,
+      )
+      .bind(match, offset),
+    db.prepare('SELECT COUNT(*) AS n FROM governance_actions_fts WHERE governance_actions_fts MATCH ?1').bind(match),
+  ]);
+  const rows = (rowsRes.results ?? []) as unknown as GaRow[];
+  const hits: GaHit[] = rows
+    .filter((r) => r.slug)
+    .map((r) => ({
+      href: `/t/${r.slug}`,
+      title: r.title ?? r.ga_id,
+      type: r.type,
+      status: r.status,
+      snippet: r.snip,
+      discussionMatches: 0,
+    }));
+  return { hits, total: countOf(countRes) };
+}
+
+/** One page of DRep hits plus the total match count. */
+export async function searchDrepsPage(db: D1Database, match: string, page: number): Promise<ScopedResult<DrepHit>> {
+  const offset = pageToOffset(Math.max(1, page), PAGE_SIZE);
+  const [rowsRes, countRes] = await db.batch([
+    db
+      .prepare(
+        `SELECT d.drep_id, d.name, d.slug, d.status, d.voting_power, d.image_content_hash,
+                snippet(dreps_fts, 1, char(1), char(2), '…', 12) AS snip
+         FROM dreps_fts
+         JOIN dreps d ON d.rowid = dreps_fts.rowid
+         WHERE dreps_fts MATCH ?1
+         ORDER BY bm25(dreps_fts, 5.0, 1.0)
+         LIMIT ${PAGE_SIZE} OFFSET ?2`,
+      )
+      .bind(match, offset),
+    db.prepare('SELECT COUNT(*) AS n FROM dreps_fts WHERE dreps_fts MATCH ?1').bind(match),
+  ]);
+  const rows = (rowsRes.results ?? []) as unknown as DrepRow[];
+  const hits: DrepHit[] = rows.map((d) => ({
+    href: drepPath({ drepId: d.drep_id, slug: d.slug }),
+    drepId: d.drep_id,
+    name: d.name,
+    status: d.status,
+    votingPower: d.voting_power,
+    snippet: d.snip,
+    imageHash: d.image_content_hash,
+  }));
+  return { hits, total: countOf(countRes) };
+}
+
+// Forum = user topics matched by title OR by a visible post, ranked by best
+// bm25 across both. Governance-synced topics (source = 'governance') belong to
+// the Governance scope, so they are excluded here, mirroring how searchAll
+// routes GA-linked threads to the GA group. bm25() is evaluated inside each
+// UNION branch, where its FTS table is in scope; the outer query aggregates per
+// topic. UNION ALL is fine here because we GROUP BY topic_id afterwards.
+const FORUM_MATCHED_ROWS = `
+  SELECT t.id AS topic_id, bm25(topics_fts) AS rank, NULL AS snip
+  FROM topics_fts JOIN topics t ON t.rowid = topics_fts.rowid
+  WHERE topics_fts MATCH ?1 AND t.deleted = 0 AND t.source = 'user'
+  UNION ALL
+  SELECT p.topic_id AS topic_id, bm25(posts_fts) AS rank,
+         snippet(posts_fts, 0, char(1), char(2), '…', 12) AS snip
+  FROM posts_fts JOIN posts p ON p.rowid = posts_fts.rowid
+  JOIN topics t ON t.id = p.topic_id
+  WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0 AND t.source = 'user'`;
+
+interface ForumRow {
+  slug: string;
+  title: string;
+  category_slug: string;
+  post_count: number;
+  snip: string | null;
+}
+
+/** One page of distinct forum topics (title + post matches merged) plus total. */
+export async function searchForumPage(db: D1Database, match: string, page: number): Promise<ScopedResult<TopicHit>> {
+  const offset = pageToOffset(Math.max(1, page), PAGE_SIZE);
+  const [rowsRes, countRes] = await db.batch([
+    db
+      .prepare(
+        `WITH m AS (${FORUM_MATCHED_ROWS})
+         SELECT t.slug, t.title, t.category_slug, t.post_count,
+                MIN(m.rank) AS best_rank, MAX(m.snip) AS snip
+         FROM m JOIN topics t ON t.id = m.topic_id
+         GROUP BY m.topic_id
+         ORDER BY best_rank
+         LIMIT ${PAGE_SIZE} OFFSET ?2`,
+      )
+      .bind(match, offset),
+    db
+      .prepare(
+        `WITH m AS (${FORUM_MATCHED_ROWS})
+         SELECT COUNT(*) AS n FROM (SELECT m.topic_id FROM m GROUP BY m.topic_id)`,
+      )
+      .bind(match),
+  ]);
+  const rows = (rowsRes.results ?? []) as unknown as ForumRow[];
+  const hits: TopicHit[] = rows.map((r) => ({
+    href: `/t/${r.slug}`,
+    title: r.title,
+    categorySlug: r.category_slug,
+    postCount: r.post_count,
+    snippet: r.snip,
+  }));
+  return { hits, total: countOf(countRes) };
+}
+
+/** Match counts per D1 scope for the facet column. A topic matched by both its
+ *  title and a post counts once (UNION, not UNION ALL). */
+export async function countScopes(db: D1Database, match: string): Promise<ScopeCounts> {
+  const forumMatched = `
+    SELECT t.id AS topic_id FROM topics_fts JOIN topics t ON t.rowid = topics_fts.rowid
+    WHERE topics_fts MATCH ?1 AND t.deleted = 0 AND t.source = 'user'
+    UNION
+    SELECT p.topic_id FROM posts_fts JOIN posts p ON p.rowid = posts_fts.rowid
+    JOIN topics t ON t.id = p.topic_id
+    WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0 AND t.source = 'user'`;
+  const [forumRes, govRes, drepRes] = await db.batch([
+    db.prepare(`SELECT COUNT(*) AS n FROM (${forumMatched})`).bind(match),
+    db.prepare('SELECT COUNT(*) AS n FROM governance_actions_fts WHERE governance_actions_fts MATCH ?1').bind(match),
+    db.prepare('SELECT COUNT(*) AS n FROM dreps_fts WHERE dreps_fts MATCH ?1').bind(match),
+  ]);
+  return { forum: countOf(forumRes), governance: countOf(govRes), dreps: countOf(drepRes) };
 }

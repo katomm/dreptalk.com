@@ -3,10 +3,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type React from 'react';
 import { matchStaticEntries, matchEntries, type HelpEntry } from '@/lib/search/staticEntries.js';
-import { parseSnippet, cleanMarkdownSnippet } from '@/lib/search/snippet.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
+import { SCOPES, SCOPE_LABELS, type Scope } from '@/lib/search/scopes.js';
+import { filterRowsByScope } from '@/lib/search/paletteFilter.js';
+import { SnippetText } from './SnippetText.js';
 
 interface PaletteProps {
   open: boolean;
@@ -25,6 +27,7 @@ interface Row {
   statusColor?: string;
   detail?: string;
   snippet?: string | null;
+  description?: string;
   avatar?: string;
 }
 
@@ -82,35 +85,9 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
     rows.push({ key: `static-${e.href}`, href: e.href, group: e.group, label: e.label });
   }
   for (const e of matchEntries(helpEntries, q)) {
-    rows.push({ key: `help-${e.href}`, href: e.href, group: 'Help', label: e.label });
+    rows.push({ key: `help-${e.href}`, href: e.href, group: 'Help', label: e.label, description: e.description });
   }
   return rows;
-}
-
-function Snippet({ raw }: { raw: string }) {
-  const segments = parseSnippet(cleanMarkdownSnippet(raw));
-  if (!segments.some((s) => s.match)) return null;
-  // Keys derive from each segment's character offset in the snippet:
-  // content-stable and unique, unlike the array index.
-  let offset = 0;
-  const keyed = segments.map((s) => {
-    const key = offset;
-    offset += s.text.length;
-    return { ...s, key };
-  });
-  return (
-    <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-      {keyed.map((s) =>
-        s.match ? (
-          <mark key={s.key} style={{ background: 'transparent', color: 'var(--accent)', fontWeight: 600 }}>
-            {s.text}
-          </mark>
-        ) : (
-          <span key={s.key}>{s.text}</span>
-        ),
-      )}
-    </span>
-  );
 }
 
 export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries }: PaletteProps) {
@@ -118,17 +95,26 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
   const [active, setActive] = useState(0);
+  const [scope, setScope] = useState<Scope>('all');
   const inputRef = useRef<HTMLInputElement>(null);
   const prevOpenRef = useRef(false);
 
-  // Derive rows and clamped index early so effects below can reference them.
-  const rows = useMemo(() => buildRows(q, q.trim().length >= MIN_QUERY ? data : null, helpEntries), [q, data, helpEntries]);
+  const trimmed = q.trim();
+  const hasQuery = trimmed.length >= MIN_QUERY;
+
+  // Build all rows, then narrow to the active scope pill (pure client filter).
+  const allRows = useMemo(() => buildRows(q, hasQuery ? data : null, helpEntries), [q, hasQuery, data, helpEntries]);
+  const rows = useMemo(() => filterRowsByScope(allRows, scope), [allRows, scope]);
   const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 
-  // Focus + scroll lock while open.
+  // The dedicated results page carries the active query and scope.
+  const seeAllHref = `/search?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}`;
+
+  // Focus + scroll lock while open; reset the scope pill each time it opens.
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
+    setScope('all');
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
@@ -153,7 +139,6 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
   // Debounced fetch.
   useEffect(() => {
     if (!open) return;
-    const trimmed = q.trim();
     if (trimmed.length < MIN_QUERY) {
       setData(null);
       setError(false);
@@ -184,7 +169,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [q, open]);
+  }, [trimmed, open]);
 
   if (!open) return null;
 
@@ -209,7 +194,9 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const row = rows[clampedActive];
+      // With a query but no active row, Enter jumps to the full results page.
       if (row) window.location.assign(row.href);
+      else if (hasQuery) window.location.assign(seeAllHref);
     } else if (e.key === 'Tab') {
       // Single-field dialog: keep focus on the input; options move by arrows.
       e.preventDefault();
@@ -235,8 +222,8 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
         onKeyDown={onKeyDown}
         onMouseDown={(e) => {
           // Keep focus on the input when clicking palette chrome (headers, padding, empty state).
-          // Allow default for link clicks and the input itself so they work normally.
-          if (!(e.target as HTMLElement).closest('a, input')) e.preventDefault();
+          // Allow default for link clicks, buttons (scope pills), and the input itself so they work normally.
+          if (!(e.target as HTMLElement).closest('a, input, button')) e.preventDefault();
         }}
         style={{ maxWidth: '40rem', margin: '0 auto', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}
       >
@@ -256,14 +243,47 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
           placeholder="Search governance actions, discussions, DReps..."
           style={{ width: '100%', padding: '0.9rem 1rem', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', color: 'inherit', font: 'inherit', outline: 'none', boxSizing: 'border-box' }}
         />
+        <div
+          role="toolbar"
+          aria-label="Filter by type"
+          style={{ display: 'flex', gap: '0.3rem', padding: '0.5rem 1rem', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}
+        >
+          {SCOPES.map((s) => {
+            const activeScope = s === scope;
+            return (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={activeScope}
+                onClick={() => {
+                  setScope(s);
+                  setActive(0);
+                }}
+                style={{
+                  padding: '0.2rem 0.6rem',
+                  fontWeight: activeScope ? 600 : 400,
+                  color: activeScope ? 'var(--accent)' : 'var(--muted)',
+                  background: activeScope ? 'var(--surface)' : 'transparent',
+                  border: `1px solid ${activeScope ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  font: 'inherit',
+                  fontSize: '0.75rem',
+                }}
+              >
+                {SCOPE_LABELS[s]}
+              </button>
+            );
+          })}
+        </div>
         {error && (
           <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
             Search is unavailable right now.
           </p>
         )}
-        {!error && rows.length === 0 && q.trim().length >= MIN_QUERY && (
+        {!error && rows.length === 0 && hasQuery && (
           <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-            No results for "{q.trim()}".
+            No results for "{trimmed}".
           </p>
         )}
         <div id="search-palette-listbox" role="listbox" aria-label="Search results" style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0.25rem 0' }}>
@@ -301,12 +321,34 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
                     {row.status && <span style={{ flexShrink: 0, fontSize: '0.6875rem', color: row.statusColor ?? 'var(--muted)' }}>{row.status}</span>}
                     {row.detail && <span style={{ flexShrink: 0, marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--muted)' }}>{row.detail}</span>}
                   </span>
-                  {row.snippet && <Snippet raw={row.snippet} />}
+                  {row.snippet && <SnippetText raw={row.snippet} />}
+                  {!row.snippet && row.description && (
+                    <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {row.description}
+                    </span>
+                  )}
                 </a>
               </div>
             );
           })}
         </div>
+        {hasQuery && (
+          <a
+            href={seeAllHref}
+            onClick={onClose}
+            style={{
+              display: 'block',
+              padding: '0.6rem 1rem',
+              borderTop: '1px solid var(--border)',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              color: 'var(--accent)',
+              textDecoration: 'none',
+            }}
+          >
+            See all results for "{trimmed}" →
+          </a>
+        )}
       </div>
     </div>,
     document.body,

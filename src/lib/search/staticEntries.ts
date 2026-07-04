@@ -13,6 +13,8 @@ export interface HelpEntry {
   label: string;
   href: string;
   keywords: string;
+  // Short guide description, shown as a secondary line under the help title.
+  description: string;
 }
 
 const PAGE_KEYWORDS: Record<string, string> = {

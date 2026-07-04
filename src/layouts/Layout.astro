@@ -61,7 +61,7 @@ const isActive = (href: string) =>
 const helpEntries: HelpEntry[] = (await getCollection('guides'))
   // Keywords haystack is the page title plus the description, so a guide is
   // findable by terms in either (the short cardLabel is matched separately).
-  .map((g) => ({ label: g.data.cardLabel, href: `/help/${g.id}`, keywords: `${g.data.title} ${g.data.description}` }))
+  .map((g) => ({ label: g.data.cardLabel, href: `/help/${g.id}`, keywords: `${g.data.title} ${g.data.description}`, description: g.data.description }))
   .sort((a, b) => a.label.localeCompare(b.label));
 ---
 <!doctype html>
