@@ -286,7 +286,9 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
                   border: `1px solid ${activeScope ? 'var(--accent)' : 'var(--border)'}`,
                   borderRadius: 'var(--radius-sm)',
                   cursor: 'pointer',
-                  font: 'inherit',
+                  // fontFamily (not the `font` shorthand) so toggling fontWeight on
+                  // active change doesn't trip React's shorthand-conflict warning.
+                  fontFamily: 'inherit',
                   fontSize: '0.75rem',
                 }}
               >
