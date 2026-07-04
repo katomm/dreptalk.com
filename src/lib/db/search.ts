@@ -45,6 +45,7 @@ export interface SearchGroups {
   governanceActions: GaHit[];
   discussions: TopicHit[];
   dreps: DrepHit[];
+  rationales: RationaleHit[];
 }
 
 const GROUP_LIMIT = 5;
@@ -177,7 +178,7 @@ interface DrepRow {
  * Discussions. Soft-deleted rows are filtered here, at query time.
  */
 export async function searchAll(db: D1Database, match: string): Promise<SearchGroups> {
-  const [gaRes, topicRes, postRes, drepRes] = await db.batch([
+  const [gaRes, topicRes, postRes, drepRes, ratRes] = await db.batch([
     db
       .prepare(
         `SELECT ga.id AS ga_id, ga.title, ga.type, ga.status, t.slug,
@@ -228,12 +229,14 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
          LIMIT ${GROUP_LIMIT}`,
       )
       .bind(match),
+    db.prepare(`${RATIONALE_SELECT} LIMIT ${GROUP_LIMIT}`).bind(match),
   ]);
 
   const gaRows = (gaRes.results ?? []) as unknown as GaRow[];
   const topicRows = (topicRes.results ?? []) as unknown as TopicRow[];
   const postRows = (postRes.results ?? []) as unknown as TopicRow[];
   const drepRows = (drepRes.results ?? []) as unknown as DrepRow[];
+  const ratRows = (ratRes.results ?? []) as unknown as RationaleRow[];
 
   // Merge topic-title hits and post hits per topic; post hits contribute the
   // snippet (best-ranked first) and the discussion-match count.
@@ -305,6 +308,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
     governanceActions: governanceActions.slice(0, GROUP_LIMIT),
     discussions,
     dreps,
+    rationales: ratRows.map(toRationaleHit),
   };
 }
 

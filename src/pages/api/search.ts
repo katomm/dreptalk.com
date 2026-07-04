@@ -20,6 +20,7 @@ const EMPTY_503 = {
   governanceActions: [],
   discussions: [],
   dreps: [],
+  rationales: [],
   total: null,
   counts: null,
 };

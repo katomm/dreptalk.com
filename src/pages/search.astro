@@ -22,7 +22,7 @@ const page = parsePage(url.searchParams.get('page'));
 // join once the island hydrates.
 const initialData = db
   ? await handleSearch(db, query, { scope: parseApiScope(scope), page, counts: true })
-  : { query, scope: parseApiScope(scope), page, exact: null, governanceActions: [], discussions: [], dreps: [], total: null, counts: null };
+  : { query, scope: parseApiScope(scope), page, exact: null, governanceActions: [], discussions: [], dreps: [], rationales: [], total: null, counts: null };
 
 // Search pages are public; cache briefly at the edge like the API.
 Astro.response.headers.set('Cache-Control', 'public, max-age=30, s-maxage=60');
