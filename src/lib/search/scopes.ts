@@ -10,9 +10,11 @@ export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 
 // browser island can import it without pulling in the D1 query module.
 export const PAGE_SIZE = 20;
 
+// Display labels. The forum scope is shown as "Discussions" to match the site's
+// nav and the palette's group header; the scope key stays `forum`.
 export const SCOPE_LABELS: Record<Scope, string> = {
   all: 'All',
-  forum: 'Forum',
+  forum: 'Discussions',
   governance: 'Governance',
   dreps: 'DReps',
   help: 'Help',

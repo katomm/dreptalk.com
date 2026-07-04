@@ -27,6 +27,7 @@ interface Row {
   statusColor?: string;
   detail?: string;
   snippet?: string | null;
+  description?: string;
   avatar?: string;
 }
 
@@ -84,7 +85,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
     rows.push({ key: `static-${e.href}`, href: e.href, group: e.group, label: e.label });
   }
   for (const e of matchEntries(helpEntries, q)) {
-    rows.push({ key: `help-${e.href}`, href: e.href, group: 'Help', label: e.label });
+    rows.push({ key: `help-${e.href}`, href: e.href, group: 'Help', label: e.label, description: e.description });
   }
   return rows;
 }
@@ -321,6 +322,11 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
                     {row.detail && <span style={{ flexShrink: 0, marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--muted)' }}>{row.detail}</span>}
                   </span>
                   {row.snippet && <SnippetText raw={row.snippet} />}
+                  {!row.snippet && row.description && (
+                    <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {row.description}
+                    </span>
+                  )}
                 </a>
               </div>
             );

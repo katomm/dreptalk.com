@@ -273,7 +273,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
                 </Group>
               )}
               {data.discussions.length > 0 && (
-                <Group title="Forum" count={facetCount('forum')} onMore={() => changeScope('forum')}>
+                <Group title="Discussions" count={facetCount('forum')} onMore={() => changeScope('forum')}>
                   {data.discussions.slice(0, ALL_PREVIEW).map((t) => (
                     <TopicRow key={t.href} t={t} />
                   ))}
