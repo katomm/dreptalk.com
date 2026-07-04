@@ -6,9 +6,10 @@
 import { epochCountdown, headlineVote, readableType, statusBadge } from '../governance/view.js';
 import type { RowVotingInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
-import { formatAdaCompact } from '../format/ada.js';
+import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
 import { getCategory } from '../../../config/categories.js';
+import type { NclStatus } from '../governance/ncl.js';
 import { accentForType, BRAND_ACCENT, statusColor, tint } from './theme.js';
 
 /** Hard character caps so a long title/name can never overflow the fixed canvas. */
@@ -181,5 +182,37 @@ export function helpCardModel(g: HelpCardInput): DiscussionCardModel {
     authorName: null,
     avatarDataUrl: null,
     meta: g.updated ? `Help guide · Updated ${isoDate(g.updated)}` : 'Help guide',
+  };
+}
+
+export interface TreasuryCardModel {
+  accent: string;
+  label: string;
+  epochRange: string;
+  pct: number;
+  gaugeColor: string;
+  headline: string;
+  amounts: string;
+}
+
+// Gauge fill clamps at 100% (an over-budget period cannot push the bar past
+// its track) and shifts color the same way the in-app NclPanel gauge does:
+// calm green, amber past 66%, danger red past 90%.
+export function treasuryCardModel(status: NclStatus): TreasuryCardModel {
+  const { period } = status;
+  const pct = Math.min(100, status.consumedPct);
+  const gaugeColor = status.consumedPct >= 90 ? '#dc2626' : status.consumedPct >= 66 ? '#b45309' : '#16a34a';
+  const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
+  const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
+  const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
+
+  return {
+    accent: accentForType('TreasuryWithdrawals'),
+    label: period.label,
+    epochRange: `Epochs ${period.startEpoch} to ${period.endEpoch}`,
+    pct,
+    gaugeColor,
+    headline: `${status.consumedPct}% consumed`,
+    amounts: `${consumed} of ${ceiling}, ${remaining} remaining`,
   };
 }
