@@ -38,6 +38,15 @@ export default function SearchTrigger({ helpEntries }: TriggerProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Pre-mount the lazy palette (hidden; it renders null while closed) once this
+  // island has hydrated. That resolves the chunk during idle, so the first open
+  // mounts synchronously inside the tap gesture and the input's autoFocus can
+  // raise the mobile keyboard. Without this, the first open waits on the async
+  // import and the focus lands outside the gesture window.
+  useEffect(() => {
+    setLoaded(true);
+  }, []);
+
   return (
     <>
       <button

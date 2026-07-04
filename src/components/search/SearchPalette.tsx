@@ -229,6 +229,13 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
       >
         <input
           ref={inputRef}
+          // Focus during the commit, within the tap's user-gesture window, so
+          // mobile browsers raise the software keyboard. A focus() in an effect
+          // runs after paint, outside the gesture, and iOS then suppresses the
+          // keyboard non-deterministically. The effect focus below stays as a
+          // desktop fallback (a no-op when autoFocus already focused).
+          // biome-ignore lint/a11y/noAutofocus: the user explicitly opened the search dialog; focusing its single input is expected
+          autoFocus
           role="combobox"
           aria-expanded={rows.length > 0}
           aria-controls="search-palette-listbox"
