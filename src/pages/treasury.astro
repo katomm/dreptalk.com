@@ -1,0 +1,65 @@
+---
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import NclPanel from '@/components/ncl/NclPanel.astro';
+import { NCL_PERIODS } from '../../config/ncl-periods.js';
+import { nclStatusFor } from '@/lib/governance/ncl.js';
+import { getEnactedTreasuryWithdrawals, getNclActionLinks } from '@/lib/db/treasury.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
+
+// Public, low-churn: withdrawals change at most a few times per epoch.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+
+const db = env.DB as D1Database | undefined;
+
+const withdrawals = db ? await getEnactedTreasuryWithdrawals(db) : [];
+const allIds = NCL_PERIODS.flatMap((p) => [...p.definingActionIds, ...p.relatedActionIds]);
+const links = db ? await getNclActionLinks(db, allIds) : new Map();
+const params = db ? await getProtocolParams(db) : null;
+const currentEpoch = params?.epoch ?? null;
+
+const linkList = (ids: string[]) => ids.map((id) => links.get(id)).filter((l): l is NonNullable<typeof l> => !!l);
+
+// Newest period first.
+const periods = [...NCL_PERIODS].sort((a, b) => b.startEpoch - a.startEpoch);
+const cards = periods.map((p) => ({
+  status: nclStatusFor(p, withdrawals),
+  windowWithdrawals: withdrawals
+    .filter((w) => w.enactedEpoch >= p.startEpoch && w.enactedEpoch <= p.endEpoch)
+    .sort((a, b) => b.enactedEpoch - a.enactedEpoch),
+  definingLinks: linkList(p.definingActionIds),
+  relatedLinks: linkList(p.relatedActionIds),
+}));
+
+const currentId = periods.find((p) => currentEpoch != null && currentEpoch >= p.startEpoch && currentEpoch <= p.endEpoch)?.id ?? periods[0]?.id;
+---
+
+<Layout
+  title="Treasury and Net Change Limit - DRepTalk"
+  description="How much of the Cardano treasury Net Change Limit has been consumed by enacted treasury withdrawals, and which governance actions set the limit."
+  ogImage={currentId ? `/og/treasury/${currentId}.png` : '/og.jpg'}
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Treasury</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.5rem;">Treasury and Net Change Limit</h1>
+  <p style="color:var(--muted);max-width:65ch;line-height:1.6;">
+    The Net Change Limit caps how much ada may be withdrawn from the Cardano treasury in a period. It is set by
+    an Info governance action, so it is a community agreement rather than an automatic on-chain rule. The figures
+    below sum enacted treasury withdrawals against the limit each period.
+  </p>
+
+  {cards.map((c) => (
+    <NclPanel
+      status={c.status}
+      windowWithdrawals={c.windowWithdrawals}
+      definingLinks={c.definingLinks}
+      relatedLinks={c.relatedLinks}
+    />
+  ))}
+</Layout>
