@@ -121,7 +121,7 @@ const spoHref = `/t/${slug}?tab=positions&role=spo`;
           </>
         );
         return (
-          <li class="ga-positions__row">
+          <li class="ga-positions__row" id={`voter-${v.voter_id}`} style="scroll-margin-top:5rem">
             {bodyHtml ? (
               <details class="ga-positions__details">
                 <summary class="ga-positions__summary">
