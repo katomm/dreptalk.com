@@ -60,6 +60,7 @@ import {
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
+import { backfillRationaleText } from '../../../src/lib/db/rationaleTextBackfill.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
@@ -317,6 +318,15 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
     const bf = await backfillVoteMetaHashes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
     console.log(`[gov-rationale-hash-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
     return { items: bf.votes, failed: bf.failed };
+  });
+
+  // One-time historical fill: rationales ingested before the FTS migration have
+  // an empty body_text. Strip their stored body_html into body_text so they enter
+  // the rationale search index. Self-draining, becomes a no-op once all are filled.
+  await phase('rationale-text-backfill', async () => {
+    const bf = await backfillRationaleText(env.DB, 200);
+    console.log(`[rationale-text-backfill] filled=${bf.filled}`);
+    return { items: bf.filled, failed: 0 };
   });
 
   // Flag optimistic votes that never appeared on chain. Runs after the
