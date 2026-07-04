@@ -41,7 +41,11 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const keyUrl = `${url.origin}/api/search?q=${encodeURIComponent(q)}&scope=${scope}&page=${page}&counts=${counts ? 1 : 0}`;
   const cacheKey = new Request(keyUrl, { method: 'GET' });
   const cached = await cache.match(cacheKey);
-  if (cached) return cached;
+  // A Response from the Cache API carries immutable headers. The security
+  // middleware sets headers on every response, so returning the cached Response
+  // directly throws "Can't modify immutable headers" and the client sees the
+  // search fail. Return a fresh, mutable copy so the middleware can decorate it.
+  if (cached) return new Response(cached.body, cached);
 
   const body = await handleSearch(db, q, { scope, page, counts });
   const response = jsonResponse(body, 200, {
