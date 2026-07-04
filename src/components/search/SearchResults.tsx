@@ -6,7 +6,7 @@ import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governa
 import { truncateId } from '@/lib/forum/view.js';
 import { SnippetText } from './SnippetText.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
-import type { GaHit, TopicHit, DrepHit } from '@/lib/db/search.js';
+import type { GaHit, TopicHit, DrepHit, RationaleHit } from '@/lib/db/search.js';
 
 interface Props {
   initialQuery: string;
@@ -76,6 +76,21 @@ function HelpRow({ h }: { h: HelpHit }) {
         <span className="search-hit__badge">Help</span>
       </span>
       {h.snippet && <SnippetText raw={h.snippet} />}
+    </a>
+  );
+}
+
+function RationaleRow({ r }: { r: RationaleHit }) {
+  const kind = r.vote === 'Yes' ? 'yes' : r.vote === 'No' ? 'no' : 'abstain';
+  return (
+    <a className="search-hit" href={r.href}>
+      <span className="search-hit__head">
+        {r.imageHash && <img src={`/api/avatar/${r.imageHash}`} alt="" width="20" height="20" loading="lazy" style={{ borderRadius: '50%', flexShrink: 0 }} />}
+        <span className="search-hit__title">{r.drepName ?? truncateId(r.drepId)}</span>
+        <span className={`search-hit__vote search-hit__vote--${kind}`}>{r.vote}</span>
+        <span className="search-hit__detail">{r.actionTitle}</span>
+      </span>
+      {r.snippet && <SnippetText raw={r.snippet} />}
     </a>
   );
 }
@@ -198,8 +213,9 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
     if (s === 'forum') return counts.forum;
     if (s === 'governance') return counts.governance;
     if (s === 'dreps') return counts.dreps;
+    if (s === 'rationales') return counts.rationales;
     // all
-    return counts.forum + counts.governance + counts.dreps + (helpDocs ? helpHits.length : 0);
+    return counts.forum + counts.governance + counts.dreps + counts.rationales + (helpDocs ? helpHits.length : 0);
   };
 
   const changeScope = (s: Scope) => {
@@ -286,6 +302,13 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
                   ))}
                 </Group>
               )}
+              {data.rationales.length > 0 && (
+                <Group title="Rationales" count={facetCount('rationales')} onMore={() => changeScope('rationales')}>
+                  {data.rationales.slice(0, ALL_PREVIEW).map((r) => (
+                    <RationaleRow key={r.href} r={r} />
+                  ))}
+                </Group>
+              )}
               {helpHits.length > 0 && (
                 <Group title="Help" count={facetCount('help')} onMore={() => changeScope('help')}>
                   {helpHits.slice(0, ALL_PREVIEW).map((h) => (
@@ -297,6 +320,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
                 data.governanceActions.length === 0 &&
                 data.discussions.length === 0 &&
                 data.dreps.length === 0 &&
+                data.rationales.length === 0 &&
                 helpHits.length === 0 && <p className="search-note">No results for "{trimmed}".</p>}
             </>
           )}
@@ -310,6 +334,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
                 governance: data.governanceActions.map((ga) => <GaRow key={ga.href} ga={ga} />),
                 forum: data.discussions.map((t) => <TopicRow key={t.href} t={t} />),
                 dreps: data.dreps.map((d) => <DrepRow key={d.drepId} d={d} />),
+                rationales: data.rationales.map((r) => <RationaleRow key={r.href} r={r} />),
                 help: helpPageSlice.map((h) => <HelpRow key={h.href} h={h} />),
               };
               const list = rows[scope];
