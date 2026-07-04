@@ -38,6 +38,10 @@ import { parseGaTab } from '@/lib/governance/tab.js';
 import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
+import NclPanel from '@/components/ncl/NclPanel.astro';
+import { NCL_PERIODS } from '../../../config/ncl-periods.js';
+import { nclStatusFor } from '@/lib/governance/ncl.js';
+import { getEnactedTreasuryWithdrawals, getNclActionLinks, type NclActionLink } from '@/lib/db/treasury.js';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
@@ -130,6 +134,28 @@ const [govAction, viewerPostState] = await Promise.all([
     : Promise.resolve(emptyViewerPostState()),
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
+
+// If this action defines or challenges an NCL period, show its live tracker.
+const nclPeriod = govAction
+  ? NCL_PERIODS.find(
+      (p) => p.definingActionIds.includes(govAction.id) || p.relatedActionIds.includes(govAction.id),
+    )
+  : undefined;
+let nclProps: {
+  status: ReturnType<typeof nclStatusFor>;
+  definingLinks: NclActionLink[];
+  relatedLinks: NclActionLink[];
+} | null = null;
+if (nclPeriod && db) {
+  const withdrawals = await getEnactedTreasuryWithdrawals(db);
+  const links = await getNclActionLinks(db, [...nclPeriod.definingActionIds, ...nclPeriod.relatedActionIds]);
+  const pick = (ids: string[]) => ids.map((id) => links.get(id)).filter((l): l is NclActionLink => !!l);
+  nclProps = {
+    status: nclStatusFor(nclPeriod, withdrawals),
+    definingLinks: pick(nclPeriod.definingActionIds),
+    relatedLinks: pick(nclPeriod.relatedActionIds),
+  };
+}
 
 // Other actions from the same proposer, for the sidebar (needs the action's
 // id to exclude itself and its return_address to match the proposer).
@@ -370,14 +396,25 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
             ) : tab === 'history' ? (
               <GaHistory action={govAction} network={network} />
             ) : (
-              <GaOverview
-                action={govAction}
-                onchain={onchainChanges}
-                slug={topic.slug}
-                commentCount={Math.max(0, topic.post_count - 1)}
-                loggedIn={!!user}
-                locked={!!topic.locked}
-              />
+              <>
+                <GaOverview
+                  action={govAction}
+                  onchain={onchainChanges}
+                  slug={topic.slug}
+                  commentCount={Math.max(0, topic.post_count - 1)}
+                  loggedIn={!!user}
+                  locked={!!topic.locked}
+                />
+                {nclProps && (
+                  <NclPanel
+                    status={nclProps.status}
+                    windowWithdrawals={[]}
+                    definingLinks={nclProps.definingLinks}
+                    relatedLinks={nclProps.relatedLinks}
+                    compact={true}
+                  />
+                )}
+              </>
             )}
           </div>
           <div class="ga-detail-layout__sidebar">
