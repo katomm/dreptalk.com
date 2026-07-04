@@ -91,14 +91,23 @@ function decodeEntities(s: string): string {
 }
 
 /**
+ * Strips HTML tags, decodes entities to plain text, and collapses whitespace.
+ * Full text, no truncation. The plain-text form of sanitized HTML, used for the
+ * rationale full-text index and (via excerptFromHtml) for meta descriptions.
+ */
+export function htmlToText(html: string): string {
+  return decodeEntities(html.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Strips HTML tags, decodes entities to plain text, collapses whitespace, and
  * truncates to `maxLen` characters (appending "..." when truncated). For
  * plain-text meta descriptions and JSON-LD text derived from sanitized post HTML.
  */
 export function excerptFromHtml(html: string, maxLen = 155): string {
-  const text = decodeEntities(html.replace(/<[^>]+>/g, ' '))
-    .replace(/\s+/g, ' ')
-    .trim();
+  const text = htmlToText(html);
   if (text.length <= maxLen) return text;
   // Cut on a word boundary so the excerpt never ends mid-word (the ellipsis
   // takes one of the maxLen characters). Back off to the last space within

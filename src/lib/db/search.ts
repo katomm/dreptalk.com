@@ -45,6 +45,7 @@ export interface SearchGroups {
   governanceActions: GaHit[];
   discussions: TopicHit[];
   dreps: DrepHit[];
+  rationales: RationaleHit[];
 }
 
 const GROUP_LIMIT = 5;
@@ -177,7 +178,7 @@ interface DrepRow {
  * Discussions. Soft-deleted rows are filtered here, at query time.
  */
 export async function searchAll(db: D1Database, match: string): Promise<SearchGroups> {
-  const [gaRes, topicRes, postRes, drepRes] = await db.batch([
+  const [gaRes, topicRes, postRes, drepRes, ratRes] = await db.batch([
     db
       .prepare(
         `SELECT ga.id AS ga_id, ga.title, ga.type, ga.status, t.slug,
@@ -228,12 +229,14 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
          LIMIT ${GROUP_LIMIT}`,
       )
       .bind(match),
+    db.prepare(`${RATIONALE_SELECT} LIMIT ${GROUP_LIMIT}`).bind(match),
   ]);
 
   const gaRows = (gaRes.results ?? []) as unknown as GaRow[];
   const topicRows = (topicRes.results ?? []) as unknown as TopicRow[];
   const postRows = (postRes.results ?? []) as unknown as TopicRow[];
   const drepRows = (drepRes.results ?? []) as unknown as DrepRow[];
+  const ratRows = (ratRes.results ?? []) as unknown as RationaleRow[];
 
   // Merge topic-title hits and post hits per topic; post hits contribute the
   // snippet (best-ranked first) and the discussion-match count.
@@ -305,6 +308,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
     governanceActions: governanceActions.slice(0, GROUP_LIMIT),
     discussions,
     dreps,
+    rationales: ratRows.map(toRationaleHit),
   };
 }
 
@@ -317,6 +321,7 @@ export interface ScopeCounts {
   forum: number;
   governance: number;
   dreps: number;
+  rationales: number;
 }
 
 export interface ScopedResult<T> {
@@ -324,8 +329,60 @@ export interface ScopedResult<T> {
   total: number;
 }
 
+/** A DRep vote-rationale hit: who said it, how they voted, on which action.
+ *  The href deep-links to the voter's row on page 1 of the Positions tab. A voter
+ *  on a later page opens the tab at page 1 without scrolling (the anchor is not
+ *  rendered yet); precise deep-paging is deferred (would need the voter's rank). */
+export interface RationaleHit {
+  href: string; // /t/<slug>?tab=positions#voter-<voterId>
+  drepId: string;
+  drepName: string | null;
+  imageHash: string | null;
+  vote: string; // 'Yes' | 'No' | 'Abstain'
+  actionTitle: string;
+  snippet: string | null;
+}
+
 function countOf(res: D1Result): number {
   return (res.results?.[0] as { n: number } | undefined)?.n ?? 0;
+}
+
+// Rationale FTS row shape and the shared join used by both the page query and
+// the palette typeahead. INNER JOIN topics so a slug-less (unlinkable) rationale
+// is excluded from both hits and count, keeping the facet number honest.
+interface RationaleRow {
+  voter_id: string;
+  vote: string;
+  drep_name: string | null;
+  image_content_hash: string | null;
+  action_title: string | null;
+  topic_slug: string;
+  snip: string | null;
+}
+
+const RATIONALE_SELECT = `
+  SELECT r.voter_id, v.vote, d.name AS drep_name, d.image_content_hash,
+         ga.title AS action_title, t.slug AS topic_slug,
+         snippet(action_rationale_fts, 0, char(1), char(2), '…', 12) AS snip
+  FROM action_rationale_fts
+  JOIN action_rationale r ON r.rowid = action_rationale_fts.rowid
+  JOIN drep_votes v ON v.ga_id = r.ga_id AND v.voter_id = r.voter_id
+  JOIN governance_actions ga ON ga.id = r.ga_id
+  JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
+  LEFT JOIN dreps d ON d.drep_id = r.voter_id
+  WHERE action_rationale_fts MATCH ?1 AND r.status = 'ok'
+  ORDER BY bm25(action_rationale_fts)`;
+
+function toRationaleHit(r: RationaleRow): RationaleHit {
+  return {
+    href: `/t/${r.topic_slug}?tab=positions#voter-${r.voter_id}`,
+    drepId: r.voter_id,
+    drepName: r.drep_name,
+    imageHash: r.image_content_hash,
+    vote: r.vote,
+    actionTitle: r.action_title ?? r.topic_slug,
+    snippet: r.snip,
+  };
 }
 
 /** One page of governance-action hits plus the total match count. */
@@ -448,6 +505,28 @@ export async function searchForumPage(db: D1Database, match: string, page: numbe
   return { hits, total: countOf(countRes) };
 }
 
+// Count over the same row set as RATIONALE_SELECT (INNER topics + status ok), so
+// the facet number equals the result list. drep_votes/dreps joins do not change
+// the count (drep_votes PK is one row per (ga_id, voter_id); dreps is LEFT).
+const RATIONALE_COUNT = `
+  SELECT COUNT(*) AS n
+  FROM action_rationale_fts
+  JOIN action_rationale r ON r.rowid = action_rationale_fts.rowid
+  JOIN governance_actions ga ON ga.id = r.ga_id
+  JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
+  WHERE action_rationale_fts MATCH ?1 AND r.status = 'ok'`;
+
+/** One page of rationale hits (DRep, vote, action, snippet) plus the total. */
+export async function searchRationalesPage(db: D1Database, match: string, page: number): Promise<ScopedResult<RationaleHit>> {
+  const offset = pageToOffset(Math.max(1, page), PAGE_SIZE);
+  const [rowsRes, countRes] = await db.batch([
+    db.prepare(`${RATIONALE_SELECT} LIMIT ${PAGE_SIZE} OFFSET ?2`).bind(match, offset),
+    db.prepare(RATIONALE_COUNT).bind(match),
+  ]);
+  const rows = (rowsRes.results ?? []) as unknown as RationaleRow[];
+  return { hits: rows.map(toRationaleHit), total: countOf(countRes) };
+}
+
 /** Match counts per D1 scope for the facet column. A topic matched by both its
  *  title and a post counts once (UNION, not UNION ALL). */
 export async function countScopes(db: D1Database, match: string): Promise<ScopeCounts> {
@@ -458,10 +537,11 @@ export async function countScopes(db: D1Database, match: string): Promise<ScopeC
     SELECT p.topic_id FROM posts_fts JOIN posts p ON p.rowid = posts_fts.rowid
     JOIN topics t ON t.id = p.topic_id
     WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0 AND t.source = 'user'`;
-  const [forumRes, govRes, drepRes] = await db.batch([
+  const [forumRes, govRes, drepRes, ratRes] = await db.batch([
     db.prepare(`SELECT COUNT(*) AS n FROM (${forumMatched})`).bind(match),
     db.prepare('SELECT COUNT(*) AS n FROM governance_actions_fts WHERE governance_actions_fts MATCH ?1').bind(match),
     db.prepare('SELECT COUNT(*) AS n FROM dreps_fts WHERE dreps_fts MATCH ?1').bind(match),
+    db.prepare(RATIONALE_COUNT).bind(match),
   ]);
-  return { forum: countOf(forumRes), governance: countOf(govRes), dreps: countOf(drepRes) };
+  return { forum: countOf(forumRes), governance: countOf(govRes), dreps: countOf(drepRes), rationales: countOf(ratRes) };
 }

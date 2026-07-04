@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 // Render store for per-voter vote rationales on an action. One row per
 // (ga_id, voter_id), written by the vote sync (on-chain) and the self-cast path.
+import { htmlToText } from '../forum/view.js';
 
 export interface RationaleJob {
   gaId: string;
@@ -23,12 +24,17 @@ export async function upsertActionRationale(
     now: number;
   },
 ): Promise<void> {
+  // Plain-text form for the FTS index. NOT NULL column, so never null: no html
+  // yields '', html that strips to nothing yields a single space so the row
+  // leaves the backfill's `body_text = ''` candidate set.
+  const bodyText = rec.bodyHtml ? htmlToText(rec.bodyHtml) || ' ' : '';
   await db
     .prepare(
-      `INSERT INTO action_rationale (ga_id, voter_id, body_html, source, anchor_url, status, attempts, created_at, fetched_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+      `INSERT INTO action_rationale (ga_id, voter_id, body_html, body_text, source, anchor_url, status, attempts, created_at, fetched_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
        ON CONFLICT (ga_id, voter_id) DO UPDATE SET
          body_html = excluded.body_html,
+         body_text = excluded.body_text,
          source = excluded.source,
          anchor_url = excluded.anchor_url,
          status = excluded.status,
@@ -36,7 +42,7 @@ export async function upsertActionRationale(
          created_at = excluded.created_at,
          fetched_at = excluded.fetched_at`,
     )
-    .bind(rec.gaId, rec.voterId, rec.bodyHtml, rec.source, rec.anchorUrl, rec.status, rec.createdAt, rec.now)
+    .bind(rec.gaId, rec.voterId, rec.bodyHtml, bodyText, rec.source, rec.anchorUrl, rec.status, rec.createdAt, rec.now)
     .run();
 }
 

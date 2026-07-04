@@ -81,6 +81,18 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
       ...(d.imageHash ? { avatar: `/api/avatar/${d.imageHash}` } : {}),
     });
   }
+  for (const r of data?.rationales ?? []) {
+    rows.push({
+      key: `rat-${r.href}`,
+      href: r.href,
+      group: 'Rationales',
+      label: r.drepName ?? truncateId(r.drepId),
+      badge: r.vote,
+      detail: r.actionTitle,
+      snippet: r.snippet,
+      ...(r.imageHash ? { avatar: `/api/avatar/${r.imageHash}` } : {}),
+    });
+  }
   for (const e of matchStaticEntries(q)) {
     rows.push({ key: `static-${e.href}`, href: e.href, group: e.group, label: e.label });
   }
@@ -274,7 +286,9 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
                   border: `1px solid ${activeScope ? 'var(--accent)' : 'var(--border)'}`,
                   borderRadius: 'var(--radius-sm)',
                   cursor: 'pointer',
-                  font: 'inherit',
+                  // fontFamily (not the `font` shorthand) so toggling fontWeight on
+                  // active change doesn't trip React's shorthand-conflict warning.
+                  fontFamily: 'inherit',
                   fontSize: '0.75rem',
                 }}
               >

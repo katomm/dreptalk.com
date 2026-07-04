@@ -13,10 +13,12 @@ import {
   searchForumPage,
   searchGovernancePage,
   searchDrepsPage,
+  searchRationalesPage,
   type ExactHit,
   type GaHit,
   type TopicHit,
   type DrepHit,
+  type RationaleHit,
   type ScopeCounts,
 } from '../db/search.js';
 import type { ApiScope } from './scopes.js';
@@ -29,6 +31,7 @@ export interface SearchResponseBody {
   governanceActions: GaHit[];
   discussions: TopicHit[];
   dreps: DrepHit[];
+  rationales: RationaleHit[];
   total: number | null;
   counts: ScopeCounts | null;
 }
@@ -43,7 +46,7 @@ const MAX_QUERY_LENGTH = 120;
 const MIN_QUERY_LENGTH = 2;
 
 function empty(query: string, scope: ApiScope, page: number, total: number | null): SearchResponseBody {
-  return { query, scope, page, exact: null, governanceActions: [], discussions: [], dreps: [], total, counts: null };
+  return { query, scope, page, exact: null, governanceActions: [], discussions: [], dreps: [], rationales: [], total, counts: null };
 }
 
 /** Normalizes the raw q param: trim, collapse whitespace, cap length. */
@@ -85,6 +88,10 @@ export async function handleSearch(db: D1Database, rawQuery: string | null, opts
       const { hits, total } = await searchForumPage(db, match, page);
       return { ...empty(query, scope, page, total), discussions: hits, counts: scopedCounts };
     }
+    if (scope === 'rationales') {
+      const { hits, total } = await searchRationalesPage(db, match, page);
+      return { ...empty(query, scope, page, total), rationales: hits, counts: scopedCounts };
+    }
 
     // scope === 'all'. The exact fast path (pasted governance-action id / DRep
     // id) runs in both modes.
@@ -94,10 +101,11 @@ export async function handleSearch(db: D1Database, rawQuery: string | null, opts
     if (opts.counts) {
       // Page mode (/search): build every group from the same scoped queries
       // that back the facets, so the "All" preview and the facet counts agree.
-      const [gov, forum, dreps] = await Promise.all([
+      const [gov, forum, dreps, rationales] = await Promise.all([
         searchGovernancePage(db, match, 1),
         searchForumPage(db, match, 1),
         searchDrepsPage(db, match, 1),
+        searchRationalesPage(db, match, 1),
       ]);
       return {
         ...empty(query, scope, page, null),
@@ -105,7 +113,8 @@ export async function handleSearch(db: D1Database, rawQuery: string | null, opts
         governanceActions: gov.hits,
         discussions: forum.hits,
         dreps: dreps.hits,
-        counts: { forum: forum.total, governance: gov.total, dreps: dreps.total },
+        rationales: rationales.hits,
+        counts: { forum: forum.total, governance: gov.total, dreps: dreps.total, rationales: rationales.total },
       };
     }
 

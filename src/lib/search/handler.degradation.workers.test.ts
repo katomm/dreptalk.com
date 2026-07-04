@@ -21,6 +21,7 @@ describe('handleSearch without FTS tables', () => {
       governanceActions: [],
       discussions: [],
       dreps: [],
+      rationales: [],
       total: null,
       counts: null,
     });

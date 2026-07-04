@@ -22,7 +22,7 @@ const page = parsePage(url.searchParams.get('page'));
 // join once the island hydrates.
 const initialData = db
   ? await handleSearch(db, query, { scope: parseApiScope(scope), page, counts: true })
-  : { query, scope: parseApiScope(scope), page, exact: null, governanceActions: [], discussions: [], dreps: [], total: null, counts: null };
+  : { query, scope: parseApiScope(scope), page, exact: null, governanceActions: [], discussions: [], dreps: [], rationales: [], total: null, counts: null };
 
 // Search pages are public; cache briefly at the edge like the API.
 Astro.response.headers.set('Cache-Control', 'public, max-age=30, s-maxage=60');
@@ -174,6 +174,16 @@ const title = query ? `Search: ${query} - DRepTalk` : 'Search - DRepTalk';
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .search-hit__vote {
+    flex-shrink: 0;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .search-hit__vote--yes { color: var(--c-pos); }
+  .search-hit__vote--no { color: var(--c-neg); }
+  .search-hit__vote--abstain { color: var(--muted); }
   .search-hit__badge {
     flex-shrink: 0;
     font-size: 0.6875rem;

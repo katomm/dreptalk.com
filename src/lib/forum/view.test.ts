@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, truncateIdMiddle, excerptFromHtml, formatAda, cacheControlForSynced } from './view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, truncateIdMiddle, excerptFromHtml, htmlToText, formatAda, cacheControlForSynced } from './view.js';
 
 // ---------------------------------------------------------------------------
 // serializeJsonLd
@@ -251,6 +251,17 @@ describe('formatRelativeTime', () => {
 // ---------------------------------------------------------------------------
 // excerptFromHtml
 // ---------------------------------------------------------------------------
+
+describe('htmlToText', () => {
+  it('strips tags, decodes entities, collapses whitespace, no truncation', () => {
+    expect(htmlToText('<p>Hello <strong>world</strong> &amp; more</p>')).toBe('Hello world & more');
+    expect(htmlToText(`<p>${'x '.repeat(200)}</p>`).length).toBeGreaterThan(155);
+  });
+  it('returns empty for tag-only or empty input', () => {
+    expect(htmlToText('<p></p>')).toBe('');
+    expect(htmlToText('')).toBe('');
+  });
+});
 
 describe('excerptFromHtml', () => {
   it('strips tags and collapses whitespace', () => {
