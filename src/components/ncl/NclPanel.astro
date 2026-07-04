@@ -1,0 +1,198 @@
+---
+// One NCL (Net Change Limit) period: a consumption gauge (consumed vs
+// ceiling), remaining budget, the action(s) that set this period's ceiling,
+// curated related/challenger actions with their live status, and (unless
+// compact) a table of the enacted withdrawals counted in the window. Used on
+// both the treasury overview page and embedded (compact) on action pages.
+import { formatAda } from '@/lib/format/ada.js';
+import type { NclStatus } from '@/lib/governance/ncl.js';
+import type { EnactedWithdrawal, NclActionLink } from '@/lib/db/treasury.js';
+
+interface Props {
+  status: NclStatus;
+  windowWithdrawals: EnactedWithdrawal[];
+  definingLinks: NclActionLink[];
+  relatedLinks: NclActionLink[];
+  compact?: boolean;
+}
+
+const { status, windowWithdrawals, definingLinks, relatedLinks, compact = false } = Astro.props;
+const { period } = status;
+
+// Clamp the gauge fill so an over-budget period (consumedPct > 100) cannot
+// push the bar past its track.
+const pct = Math.min(100, status.consumedPct);
+const gaugeClass =
+  status.consumedPct >= 90 ? 'gauge__fill--danger' : status.consumedPct >= 66 ? 'gauge__fill--warn' : '';
+
+const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
+const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
+const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
+
+const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
+---
+
+<section class="ncl-panel">
+  <div class="ncl-panel__head">
+    <h2 class="ncl-panel__title">{period.label}</h2>
+    <span class="ncl-panel__epochs">Epochs {period.startEpoch} to {period.endEpoch}</span>
+  </div>
+
+  <div class="gauge">
+    <div class="gauge__track">
+      <div class={`gauge__fill ${gaugeClass}`} style={`width:${pct}%`}></div>
+    </div>
+  </div>
+  <div class="ncl-panel__amounts">
+    <span><strong>{consumed}</strong> of {ceiling} consumed ({status.consumedPct}%)</span>
+    <span class="ncl-panel__remaining">{remaining} remaining</span>
+  </div>
+  {status.overBudget && (
+    <p class="ncl-panel__over-budget">
+      Enacted withdrawals exceed the recorded ceiling for this period.
+    </p>
+  )}
+
+  <div class="ncl-panel__links">
+    <div>
+      Set by: {definingLinks.map((l, i) => (
+        <>
+          <a href={l.href}>{l.title}</a>
+          {i < definingLinks.length - 1 ? ', ' : ''}
+        </>
+      ))}
+    </div>
+    {relatedLinks.length > 0 && (
+      <div class="ncl-panel__related">
+        Related actions: {relatedLinks.map((l, i) => (
+          <>
+            <a href={l.href}>{l.title}</a> <span>({statusLabel(l.status)})</span>
+            {i < relatedLinks.length - 1 ? ', ' : ''}
+          </>
+        ))}
+      </div>
+    )}
+  </div>
+
+  {!compact && windowWithdrawals.length > 0 && (
+    <table class="ncl-panel__table">
+      <thead>
+        <tr>
+          <th>Epoch</th>
+          <th>Withdrawal</th>
+          <th class="ncl-panel__table-amount">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {windowWithdrawals.map((w) => (
+          <tr>
+            <td>{w.enactedEpoch}</td>
+            <td>{w.title}</td>
+            <td class="ncl-panel__table-amount">{formatAda(String(w.lovelace))}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</section>
+
+<style>
+  .ncl-panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    margin: 1rem 0;
+    background: var(--surface);
+  }
+
+  .ncl-panel__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .ncl-panel__title {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--fg);
+  }
+  .ncl-panel__epochs {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  /* Consumption gauge: a single fill against a neutral track, colored by how
+     close consumption is to the ceiling (calm green, amber, then danger red). */
+  .gauge {
+    margin: 0.75rem 0 0.5rem;
+  }
+  .gauge__track {
+    height: 14px;
+    border-radius: 7px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+  .gauge__fill {
+    height: 100%;
+    background: var(--c-pos);
+    border-radius: 7px;
+  }
+  .gauge__fill--warn {
+    background: var(--gov-hardfork, #b45309);
+  }
+  .gauge__fill--danger {
+    background: var(--danger);
+  }
+
+  .ncl-panel__amounts {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.9rem;
+    color: var(--fg);
+  }
+  .ncl-panel__remaining {
+    color: var(--muted);
+  }
+
+  .ncl-panel__over-budget {
+    color: var(--danger);
+    font-size: 0.85rem;
+    margin: 0.5rem 0 0;
+  }
+
+  .ncl-panel__links {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .ncl-panel__links a {
+    color: var(--accent);
+  }
+  .ncl-panel__related {
+    margin-top: 0.25rem;
+  }
+
+  .ncl-panel__table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.875rem;
+  }
+  .ncl-panel__table thead tr {
+    text-align: left;
+    color: var(--muted);
+  }
+  .ncl-panel__table th,
+  .ncl-panel__table td {
+    padding: 0.35rem 0.5rem;
+  }
+  .ncl-panel__table tbody tr {
+    border-top: 1px solid var(--border);
+  }
+  .ncl-panel__table-amount {
+    text-align: right;
+  }
+</style>
