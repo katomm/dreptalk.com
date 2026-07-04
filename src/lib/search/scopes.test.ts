@@ -6,6 +6,7 @@ describe('parseApiScope', () => {
     expect(parseApiScope('forum')).toBe('forum');
     expect(parseApiScope('governance')).toBe('governance');
     expect(parseApiScope('dreps')).toBe('dreps');
+    expect(parseApiScope('rationales')).toBe('rationales');
     expect(parseApiScope('all')).toBe('all');
   });
   it('maps help and junk to all', () => {
@@ -28,6 +29,7 @@ describe('groupToScope', () => {
     expect(groupToScope('Governance Actions')).toBe('governance');
     expect(groupToScope('Discussions')).toBe('forum');
     expect(groupToScope('DReps')).toBe('dreps');
+    expect(groupToScope('Rationales')).toBe('rationales');
     expect(groupToScope('Help')).toBe('help');
     expect(groupToScope('Pages')).toBe('all');
     expect(groupToScope('Exact match')).toBe('all');

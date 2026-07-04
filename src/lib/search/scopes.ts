@@ -1,10 +1,10 @@
 // Scope vocabulary shared by the palette, the /search page, and the API.
 // Help is not an API scope: help content lives in a build-time static index
 // and is searched entirely on the client.
-export type Scope = 'all' | 'forum' | 'governance' | 'dreps' | 'help';
-export type ApiScope = 'all' | 'forum' | 'governance' | 'dreps';
+export type Scope = 'all' | 'forum' | 'governance' | 'dreps' | 'rationales' | 'help';
+export type ApiScope = 'all' | 'forum' | 'governance' | 'dreps' | 'rationales';
 
-export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'help'];
+export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'rationales', 'help'];
 
 // Page size for the /search results page. Lives here (client-safe) so the
 // browser island can import it without pulling in the D1 query module.
@@ -17,10 +17,11 @@ export const SCOPE_LABELS: Record<Scope, string> = {
   forum: 'Discussions',
   governance: 'Governance',
   dreps: 'DReps',
+  rationales: 'Rationales',
   help: 'Help',
 };
 
-const API_SCOPES: readonly ApiScope[] = ['all', 'forum', 'governance', 'dreps'];
+const API_SCOPES: readonly ApiScope[] = ['all', 'forum', 'governance', 'dreps', 'rationales'];
 
 export function isScope(raw: string | null): raw is Scope {
   return raw != null && (SCOPES as readonly string[]).includes(raw);
@@ -42,6 +43,8 @@ export function groupToScope(group: string): Scope {
       return 'forum';
     case 'DReps':
       return 'dreps';
+    case 'Rationales':
+      return 'rationales';
     case 'Help':
       return 'help';
     default:
