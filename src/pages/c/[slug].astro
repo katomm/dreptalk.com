@@ -8,7 +8,7 @@ import NotFound from '@/components/NotFound.astro';
 import TopicRow from '@/components/TopicRow.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
 import Pager from '@/components/Pager.astro';
-import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
+import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory, getTopicsByIds, type Topic } from '@/lib/db/forum.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
@@ -50,15 +50,12 @@ const offset = pageToOffset(page, PAGE_SIZE);
 const now = Date.now();
 
 const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
-const isBudgetCategory = category?.slug === 'budget';
+const isBudgetCategory = category?.slug === BUDGET_CATEGORY_SLUG;
 // OG card per category kind: the governance-actions overview gets its own card,
-// the budget category shows the current treasury card (it embeds the treasury
-// overview below), other discussion categories share the generic discussion card.
-const categoryOgImage = isGovernanceCategory
-  ? '/og-governance-actions.jpg'
-  : isBudgetCategory
-    ? '/og/treasury/2026-27.png'
-    : '/og/discussion.png';
+// other discussion categories share the generic discussion card. The budget
+// category is finalized to the current treasury card after the overview loads,
+// deriving the period id (never a hardcoded period that silently rots).
+let categoryOgImage = isGovernanceCategory ? '/og-governance-actions.jpg' : '/og/discussion.png';
 // Governance actions are the flagship, most-shared category, so give them a
 // fuller SEO title and meta description. The meta description is deliberately
 // separate from the on-page category.description below (which stays a short
@@ -100,6 +97,8 @@ let treasuryOverview: TreasuryOverviewData | null = null;
 if (category && db) {
   if (isBudgetCategory) {
     treasuryOverview = await loadTreasuryOverview(db);
+    const periodId = treasuryOverview?.currentStatus?.period.id;
+    if (periodId) categoryOgImage = `/og/treasury/${periodId}.png`;
   }
   if (isGovernanceCategory) {
     // Order and page in the database (O(page size), not O(all actions)). Trending reads

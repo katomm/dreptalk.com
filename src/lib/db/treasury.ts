@@ -5,6 +5,10 @@
 import { sqlPlaceholders } from './sql.js';
 import { treasuryTotalLovelace } from '../governance/onchain.js';
 
+// A pasted bech32 proposal_id resolves to its canonical topic via /t/[slug]'s
+// redirect, so actions link by proposal_id without a topic join.
+const toTopicHref = (proposalId: string) => `/t/${proposalId}`;
+
 export interface EnactedWithdrawal {
   id: string;
   title: string;
@@ -43,7 +47,7 @@ export async function getEnactedTreasuryWithdrawals(db: D1Database): Promise<Ena
       title: r.title,
       enactedEpoch: r.enactedEpoch,
       lovelace: treasuryTotalLovelace(payload),
-      href: r.proposalId ? `/t/${r.proposalId}` : null,
+      href: r.proposalId ? toTopicHref(r.proposalId) : null,
     });
   }
   return out;
@@ -71,7 +75,7 @@ export async function getNclActionLinks(db: D1Database, ids: string[]): Promise<
     .bind(...ids)
     .all<{ id: string; title: string; status: string; proposalId: string }>();
   for (const r of results) {
-    out.set(r.id, { id: r.id, title: r.title, status: r.status, href: `/t/${r.proposalId}` });
+    out.set(r.id, { id: r.id, title: r.title, status: r.status, href: toTopicHref(r.proposalId) });
   }
   return out;
 }

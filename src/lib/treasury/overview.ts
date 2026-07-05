@@ -2,7 +2,7 @@
 // fetch + compose used by the (now-redirected) /treasury page and the budget
 // discussion category, which embeds this overview above its thread list.
 import { NCL_PERIODS, type NclPeriod } from '../../../config/ncl-periods.js';
-import { nclStatusFor, type NclStatus } from '@/lib/governance/ncl.js';
+import { nclStatusFor, currentNclPeriod, type NclStatus } from '@/lib/governance/ncl.js';
 import { getEnactedTreasuryWithdrawals, getNclActionLinks, type EnactedWithdrawal, type NclActionLink } from '@/lib/db/treasury.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 
@@ -31,10 +31,13 @@ export interface TreasuryOverviewData {
 export async function loadTreasuryOverview(db: D1Database): Promise<TreasuryOverviewData | null> {
   if (!db) return null;
 
-  const withdrawals = await getEnactedTreasuryWithdrawals(db);
   const allIds = NCL_PERIODS.flatMap((p) => [...p.definingActionIds, ...p.relatedActionIds]);
-  const links = await getNclActionLinks(db, allIds);
-  const params = await getProtocolParams(db);
+  // These three reads are independent; run them concurrently.
+  const [withdrawals, links, params] = await Promise.all([
+    getEnactedTreasuryWithdrawals(db),
+    getNclActionLinks(db, allIds),
+    getProtocolParams(db),
+  ]);
   const currentEpoch = params?.epoch ?? null;
   const treasuryLovelace = params?.treasuryLovelace ? BigInt(params.treasuryLovelace) : null;
   const treasuryEpoch = params?.treasuryEpoch ?? null;
@@ -54,8 +57,12 @@ export async function loadTreasuryOverview(db: D1Database): Promise<TreasuryOver
       relatedLinks: linkList(p.relatedActionIds),
     }));
 
-  const currentPeriod = periods.find((p) => currentEpoch != null && currentEpoch >= p.period.startEpoch && currentEpoch <= p.period.endEpoch) ?? periods[0];
-  const currentStatus = currentPeriod ? nclStatusFor(currentPeriod.period, withdrawals) : null;
+  // Identify the current period via the shared window check and reuse the
+  // per-period status already computed above (no recompute); fall back to the
+  // newest period.
+  const current = currentEpoch != null ? currentNclPeriod(NCL_PERIODS, currentEpoch) : undefined;
+  const currentPeriod = periods.find((c) => c.period.id === current?.id) ?? periods[0];
+  const currentStatus = currentPeriod?.status ?? null;
 
   return {
     treasuryLovelace,

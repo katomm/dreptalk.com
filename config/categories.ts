@@ -16,6 +16,7 @@ export const CATEGORIES: Category[] = [
 ];
 
 export const GOVERNANCE_CATEGORY_SLUG = 'governance-actions';
+export const BUDGET_CATEGORY_SLUG = 'budget';
 
 // Pre-sorted once at module load; avoids repeated sort on every getCategories() call.
 const SORTED_CATEGORIES: readonly Category[] = [...CATEGORIES].sort((a, b) => a.position - b.position);
