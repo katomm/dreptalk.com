@@ -345,6 +345,14 @@ const epochParamsRowSchema = z.object({
 
 export type EpochParamsRow = z.infer<typeof epochParamsRowSchema>;
 
+// /totals row: per-epoch treasury and reserves balances (lovelace, as strings
+// since they exceed safe integer range).
+const totalsRowSchema = z.object({
+  epoch_no: z.number(),
+  treasury: z.string(),
+  reserves: z.string(),
+}).passthrough();
+
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
@@ -629,6 +637,15 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     async epochParams(): Promise<EpochParamsRow | null> {
       const data = await request('/epoch_params?limit=1', { method: 'GET' });
       return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
+    },
+
+    // Latest epoch's treasury and reserves balances (lovelace). One row
+    // (newest epoch first, limit 1).
+    async totals(): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string } | null> {
+      const data = await request('/totals?order=epoch_no.desc&limit=1', { method: 'GET' });
+      const row = z.array(totalsRowSchema).parse(data)[0] ?? null;
+      if (!row) return null;
+      return { epochNo: row.epoch_no, treasuryLovelace: row.treasury, reservesLovelace: row.reserves };
     },
   };
 }

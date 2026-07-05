@@ -9,4 +9,5 @@ export const NAV_LINKS: readonly NavLink[] = [
   { label: 'Governance Actions', href: '/c/governance-actions' },
   { label: 'Discussions', href: '/discussions' },
   { label: 'DReps', href: '/dreps' },
+  { label: 'Treasury', href: '/c/budget' },
 ];

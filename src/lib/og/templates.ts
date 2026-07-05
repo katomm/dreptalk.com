@@ -7,7 +7,7 @@
 
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
-import type { DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel } from './model.js';
+import type { DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, TreasuryCardModel } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
 // escaping &, " or ' would show the entity literally. We only neutralize the one
@@ -162,6 +162,27 @@ export function drepCardHtml(m: DrepCardModel): string {
     </div>
     <div style="display:flex;">${m.stats.map((s) => statBlock(s, m.accent)).join('')}</div>`;
   return cardShell(m.accent, 'DRep', body);
+}
+
+// Consumption gauge for the treasury Net Change Limit card: a rounded track
+// with a single fill, the brand accent color, matching the in-app NclPanel gauge.
+function gauge(pct: number, color: string): string {
+  return `<div style="display:flex;width:1010px;height:32px;border-radius:16px;background:${TRACK};overflow:hidden;">
+    <div style="display:flex;width:${pct}%;height:100%;background:${color};"></div>
+  </div>`;
+}
+
+export function treasuryCardHtml(m: TreasuryCardModel): string {
+  const body = `<div style="display:flex;flex-direction:column;">
+      ${title(m.label)}
+      <div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:8px;">${esc(m.epochRange)}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      ${gauge(m.pct, m.gaugeColor)}
+      <div style="display:flex;font-size:56px;font-weight:800;margin-top:24px;letter-spacing:-1px;">${esc(m.headline)}</div>
+      <div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:8px;">${esc(m.amounts)}</div>
+    </div>`;
+  return cardShell(m.accent, 'Treasury', body);
 }
 
 // Also renders help-guide cards: helpCardModel returns the same shape with no

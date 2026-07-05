@@ -54,6 +54,8 @@ export interface NewGovernanceAction {
   /** Exact on-chain submission time (unix ms, from Koios block_time), or null/absent. */
   submittedAt?: number | null;
   expiryEpoch: number | null;
+  /** Enactment epoch from Koios /proposal_list; null until the action enacts. */
+  enactedEpoch: number | null;
   /** Raw Koios proposal_description JSON, or null/absent when not available. */
   onchainPayload?: string | null;
   /** Metadata-extraction version used when writing title/abstract/rationale_html. */
@@ -74,8 +76,8 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       // freshly discovered action as 'active' before we have checked would mislead.
       `INSERT OR IGNORE INTO governance_actions
          (id, proposal_id, type, title, abstract, rationale_html, anchor_url, anchor_hash, anchor_status,
-          return_address, deposit, submitted_epoch, submitted_at, expiry_epoch, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+          return_address, deposit, submitted_epoch, submitted_at, expiry_epoch, enacted_epoch, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       a.id,
@@ -92,6 +94,7 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       a.submittedEpoch,
       a.submittedAt ?? null,
       a.expiryEpoch,
+      a.enactedEpoch ?? null,
       a.onchainPayload ?? null,
       a.metaVersion,
       a.topicId,
@@ -118,6 +121,8 @@ export interface GovernanceAction {
   submittedEpoch: number | null;
   submittedAt: number | null;
   expiryEpoch: number | null;
+  /** Epoch the action was enacted on-chain; null until Koios reports it. */
+  enactedEpoch: number | null;
   status: string;
   onchainPayload: string | null;
   // Per-option vote COUNTS (number of DReps / pools / CC members voting each way).
@@ -175,6 +180,7 @@ interface GovernanceActionRow {
   submitted_epoch: number | null;
   submitted_at: number | null;
   expiry_epoch: number | null;
+  enacted_epoch: number | null;
   status: string;
   onchain_payload: string | null;
   drep_yes: number | null;
@@ -226,6 +232,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     submittedEpoch: r.submitted_epoch,
     submittedAt: r.submitted_at,
     expiryEpoch: r.expiry_epoch,
+    enactedEpoch: r.enacted_epoch,
     status: r.status,
     onchainPayload: r.onchain_payload,
     drepYes: r.drep_yes,

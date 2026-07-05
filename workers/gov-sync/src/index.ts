@@ -206,6 +206,16 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
   await phase('params', async () => {
     const [ep, cc] = await Promise.all([koios.epochParams(), koios.committeeSummary()]);
     if (!ep) return { items: 0 };
+    const cur = await getProtocolParams(env.DB);
+    // Treasury/reserves balances from a separate Koios endpoint. On a transient
+    // failure, carry forward the currently-stored values instead of nulling them
+    // out, since this upsert is a full-row replace.
+    let totals: { epochNo: number; treasuryLovelace: string; reservesLovelace: string } | null = null;
+    try {
+      totals = await koios.totals();
+    } catch (err) {
+      console.error('[gov-params] totals fetch failed, keeping stored treasury values', err);
+    }
     const next = {
       epoch: ep.epoch_no ?? null,
       dvtMotionNoConfidence: ep.dvt_motion_no_confidence ?? null,
@@ -233,8 +243,12 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
       // Full epoch_params blob: the Overview's parameter old to new lookup reads
       // it (no extra Koios call). Stored verbatim so future keys need no schema change.
       rawJson: JSON.stringify(ep),
+      // Fall back to the currently-stored balances when totals() came back null
+      // or failed, so a transient Koios error never wipes them via this full-row upsert.
+      treasuryLovelace: totals?.treasuryLovelace ?? cur?.treasuryLovelace ?? null,
+      reservesLovelace: totals?.reservesLovelace ?? cur?.reservesLovelace ?? null,
+      treasuryEpoch: totals?.epochNo ?? cur?.treasuryEpoch ?? null,
     };
-    const cur = await getProtocolParams(env.DB);
     let written = 0;
     if (
       !cur ||
@@ -244,12 +258,15 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
       // Committee size comes from committee_info, not the epoch_params blob, so
       // rawJson comparison alone would miss membership changes (resignations).
       cur.committeeSize !== next.committeeSize ||
-      cur.rawJson !== next.rawJson
+      cur.rawJson !== next.rawJson ||
+      cur.treasuryLovelace !== next.treasuryLovelace ||
+      cur.reservesLovelace !== next.reservesLovelace ||
+      cur.treasuryEpoch !== next.treasuryEpoch
     ) {
       await upsertProtocolParams(env.DB, next);
       written = 1;
     }
-    console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold} ccSize=${next.committeeSize}`);
+    console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold} ccSize=${next.committeeSize} treasuryLovelace=${next.treasuryLovelace}`);
     return { items: written };
   });
 }

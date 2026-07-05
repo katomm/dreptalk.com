@@ -6,9 +6,10 @@
 import { epochCountdown, headlineComposition, readableType, statusBadge } from '../governance/view.js';
 import type { RowVotingInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
-import { formatAdaCompact } from '../format/ada.js';
+import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
 import { getCategory } from '../../../config/categories.js';
+import type { NclStatus } from '../governance/ncl.js';
 import { accentForType, BRAND_ACCENT, statusColor, tint } from './theme.js';
 
 /** Hard character caps so a long title/name can never overflow the fixed canvas. */
@@ -183,5 +184,39 @@ export function helpCardModel(g: HelpCardInput): DiscussionCardModel {
     authorName: null,
     avatarDataUrl: null,
     meta: g.updated ? `Help guide · Updated ${isoDate(g.updated)}` : 'Help guide',
+  };
+}
+
+export interface TreasuryCardModel {
+  accent: string;
+  label: string;
+  epochRange: string;
+  pct: number;
+  gaugeColor: string;
+  headline: string;
+  amounts: string;
+}
+
+// Brand purple used for the gauge fill (the light-mode value of --accent;
+// satori cannot read CSS custom properties, so the hex is duplicated here).
+const GAUGE_COLOR = '#6d28d9';
+
+// Gauge fill clamps at 100% (an over-budget period cannot push the bar past
+// its track). Always the brand accent color, matching the in-app NclPanel gauge.
+export function treasuryCardModel(status: NclStatus): TreasuryCardModel {
+  const { period } = status;
+  const pct = Math.min(100, status.consumedPct);
+  const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
+  const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
+  const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
+
+  return {
+    accent: accentForType('TreasuryWithdrawals'),
+    label: period.label,
+    epochRange: `Epochs ${period.startEpoch} to ${period.endEpoch}`,
+    pct,
+    gaugeColor: GAUGE_COLOR,
+    headline: `${status.consumedPct}% consumed`,
+    amounts: `${consumed} of ${ceiling}, ${remaining} remaining`,
   };
 }

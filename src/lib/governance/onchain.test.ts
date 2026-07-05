@@ -7,6 +7,7 @@ import {
   decodeOnchainChanges,
   summarizeOnchain,
   parameterChangeScope,
+  treasuryTotalLovelace,
 } from './onchain.js';
 
 describe('formatValue', () => {
@@ -239,5 +240,27 @@ describe('parameterChangeScope', () => {
     expect(parameterChangeScope(null)).toBeNull();
     expect(parameterChangeScope('{bad')).toBeNull();
     expect(parameterChangeScope(JSON.stringify({ tag: 'HardForkInitiation', contents: [] }))).toBeNull();
+  });
+});
+
+const treasuryPayload = {
+  tag: 'TreasuryWithdrawals',
+  contents: [
+    [
+      [{ credential: { keyHash: 'a'.repeat(56) } }, 50_000_000_000_000],
+      [{ credential: { keyHash: 'b'.repeat(56) } }, '25000000000000'],
+    ],
+  ],
+};
+
+describe('treasuryTotalLovelace', () => {
+  it('sums number and string lovelace amounts', () => {
+    expect(treasuryTotalLovelace(treasuryPayload)).toBe(75_000_000_000_000n);
+  });
+
+  it('returns 0n for a non-treasury payload', () => {
+    expect(treasuryTotalLovelace({ tag: 'InfoAction', contents: [] })).toBe(0n);
+    expect(treasuryTotalLovelace(null)).toBe(0n);
+    expect(treasuryTotalLovelace({})).toBe(0n);
   });
 });

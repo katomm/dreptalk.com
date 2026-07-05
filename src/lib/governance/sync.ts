@@ -96,9 +96,20 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
   let skipped = 0;
   let failed = 0;
 
+  // Backfill enacted_epoch on actions we already have once it appears on-chain.
+  // Guarded (WHERE enacted_epoch IS NULL) so it is a no-op after the first fill.
+  const enactedBackfill: D1PreparedStatement[] = [];
+
   for (const p of proposals) {
     const id = `${p.proposal_tx_hash}#${p.proposal_index}`;
     if (known.has(id)) {
+      if (p.enacted_epoch != null) {
+        enactedBackfill.push(
+          db
+            .prepare(`UPDATE governance_actions SET enacted_epoch = ? WHERE id = ? AND enacted_epoch IS NULL`)
+            .bind(p.enacted_epoch, id),
+        );
+      }
       skipped++;
       continue;
     }
@@ -163,6 +174,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
             submittedEpoch: p.proposed_epoch ?? null,
             submittedAt: p.block_time != null ? p.block_time * 1000 : null,
             expiryEpoch: p.expiration ?? null,
+            enactedEpoch: p.enacted_epoch ?? null,
             onchainPayload: p.proposal_description != null ? JSON.stringify(p.proposal_description) : null,
             // Only claim the current extractor version when the anchor actually
             // extracted ok (or there is no anchor to read). A failed fetch leaves
@@ -189,6 +201,8 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
       failed++;
     }
   }
+
+  if (enactedBackfill.length > 0) await db.batch(enactedBackfill);
 
   // Backfill payloads for already-known rows discovered before this column existed.
   // Bounded per run; `proposals` is already in memory, so this adds no Koios call.

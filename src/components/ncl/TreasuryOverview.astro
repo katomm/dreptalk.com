@@ -1,0 +1,163 @@
+---
+// Compact Treasury and Net Change Limit teaser for the budget category page:
+// a single slim card with the current period's consumption bar, the key
+// figures, the treasury balance, and a link to the full /treasury detail page.
+// Deliberately minimal so the forum thread list, not the dashboard, dominates
+// the category page; the donut, per-period breakdown and explanation live on
+// the detail page.
+import type { TreasuryOverviewData } from '@/lib/treasury/overview.js';
+import { formatAdaCompact } from '@/lib/format/ada.js';
+
+interface Props {
+  data: TreasuryOverviewData;
+  /** Link to the full treasury detail page. */
+  detailHref: string;
+}
+
+const { data, detailHref } = Astro.props;
+const { treasuryLovelace, treasuryEpoch, currentStatus } = data;
+
+const period = currentStatus?.period ?? null;
+// Clamp the bar to the track even when a period runs over budget; the exact
+// percentage (which can exceed 100) is still shown as text next to it.
+const fillPct = currentStatus ? Math.min(100, Math.max(0, currentStatus.consumedPct)) : 0;
+const used = currentStatus ? formatAdaCompact(String(currentStatus.consumedLovelace)) : null;
+const ceiling = currentStatus ? formatAdaCompact(String(currentStatus.period.ceilingLovelace)) : null;
+const remaining = currentStatus ? formatAdaCompact(String(currentStatus.remainingLovelace)) : null;
+const treasury = treasuryLovelace !== null ? formatAdaCompact(String(treasuryLovelace), 2) : null;
+---
+
+{currentStatus && period ? (
+  <div class="ncl-teaser">
+    <div class="ncl-teaser__head">
+      <div class="ncl-teaser__titles">
+        <span class="ncl-teaser__title">{period.label}</span>
+        <span class="ncl-teaser__epochs">Epochs {period.startEpoch} to {period.endEpoch}</span>
+      </div>
+      <a class="ncl-teaser__cta" href={detailHref}>View details &gt;</a>
+    </div>
+
+    <div class="ncl-teaser__barrow">
+      <span class="ncl-teaser__bar" role="img" aria-label={`${currentStatus.consumedPct}% of the limit consumed`}>
+        <span class="ncl-teaser__fill" style={`width:${fillPct}%;`}></span>
+      </span>
+      <span class="ncl-teaser__pct">{currentStatus.consumedPct}%</span>
+    </div>
+
+    <div class="ncl-teaser__figures">
+      <strong>{used} / {ceiling}</strong> used
+      <span class="ncl-teaser__sep" aria-hidden="true">·</span>
+      {remaining} left
+    </div>
+
+    {treasury && (
+      <div class="ncl-teaser__treasury">
+        Cardano treasury <strong>{treasury}</strong>
+        {treasuryEpoch != null && <span> · epoch {treasuryEpoch}</span>}
+      </div>
+    )}
+  </div>
+) : (
+  <p class="ncl-teaser__fallback">
+    <a href={detailHref}>View treasury and Net Change Limit &gt;</a>
+  </p>
+)}
+
+<style>
+  .ncl-teaser {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    padding: 1rem 1.15rem;
+    margin: 0 0 1.5rem;
+  }
+  .ncl-teaser__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem 1rem;
+    flex-wrap: wrap;
+  }
+  .ncl-teaser__titles {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .ncl-teaser__title {
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .ncl-teaser__epochs {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .ncl-teaser__cta {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ncl-teaser__cta:hover {
+    text-decoration: underline;
+  }
+
+  .ncl-teaser__barrow {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0.7rem 0 0.5rem;
+  }
+  .ncl-teaser__bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    overflow: hidden;
+  }
+  .ncl-teaser__fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 999px;
+  }
+  .ncl-teaser__pct {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+  }
+
+  .ncl-teaser__figures {
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .ncl-teaser__figures strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .ncl-teaser__sep {
+    margin: 0 0.2rem;
+  }
+
+  .ncl-teaser__treasury {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+  }
+  .ncl-teaser__treasury strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .ncl-teaser__fallback {
+    margin: 0 0 1.5rem;
+    font-size: 0.875rem;
+  }
+  .ncl-teaser__fallback a {
+    color: var(--accent);
+  }
+</style>

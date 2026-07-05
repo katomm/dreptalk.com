@@ -1,0 +1,122 @@
+---
+// Sidebar card for a TreasuryWithdrawals action page: a small reminder that
+// this withdrawal counts toward its Net Change Limit period, with a mini
+// consumption donut and a link to the full treasury overview. Pure CSS
+// (conic-gradient), no JavaScript, matching the sidebar card look of
+// ActionStatusCard / VotingInfoCard and the ring pattern from TreasuryDonut.
+import { formatAda } from '@/lib/format/ada.js';
+
+interface Props {
+  periodLabel: string;
+  consumedPct: number;
+  remainingLovelace: bigint;
+  ceilingLovelace: bigint;
+  overviewHref: string;
+}
+
+const { periodLabel, consumedPct, remainingLovelace, ceilingLovelace, overviewHref } = Astro.props;
+
+const displayPct = Math.round(consumedPct);
+const fillPct = Math.min(100, consumedPct);
+const ring = `conic-gradient(var(--accent) 0 ${fillPct}%, color-mix(in srgb, var(--accent) 34%, var(--surface-2)) ${fillPct}% 100%)`;
+
+const remainingAmount = formatAda(String(remainingLovelace)) ?? '0 ₳';
+const ceilingAmount = formatAda(String(ceilingLovelace)) ?? '';
+
+// Avoid repeating "Net Change Limit" when the period label already spells it out.
+const countsTowardLabel = periodLabel.toLowerCase().includes('net change limit')
+  ? `Counts toward the ${periodLabel}`
+  : `Counts toward the ${periodLabel} Net Change Limit`;
+
+const summary = `This withdrawal counts toward the ${periodLabel}. The period has consumed ${displayPct}% of its cap, with ${remainingAmount} of headroom left of ${ceilingAmount}.`;
+---
+
+<div class="sidebar-card">
+  <p class="sidebar-card__title">Net Change Limit</p>
+  <p class="sr-only">{summary}</p>
+  <div class="ncl-mini" aria-hidden="true">
+    <div class="ncl-mini__ring" style={`background:${ring}`}>
+      <div class="ncl-mini__hole">
+        <span class="ncl-mini__pct">{displayPct}%</span>
+      </div>
+    </div>
+    <div class="ncl-mini__text">
+      <p class="ncl-mini__label">{countsTowardLabel}</p>
+      <p class="ncl-mini__headroom">{remainingAmount} headroom left of {ceilingAmount}</p>
+    </div>
+  </div>
+  <a href={overviewHref} class="ncl-mini__link">Treasury overview &gt;</a>
+</div>
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+
+  .ncl-mini {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .ncl-mini__ring {
+    flex: none;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ncl-mini__hole {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ncl-mini__pct {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--fg);
+  }
+
+  .ncl-mini__text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ncl-mini__label {
+    margin: 0 0 0.25rem;
+    font-size: 0.8125rem;
+    color: var(--fg);
+  }
+
+  .ncl-mini__headroom {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .ncl-mini__link {
+    display: inline-block;
+    margin-top: 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--accent);
+  }
+</style>

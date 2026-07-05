@@ -268,6 +268,29 @@ function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainCh
   return { kind: 'treasury', rows, totalAda: formatAda(String(total)) ?? `${total}` };
 }
 
+/**
+ * Sum of lovelace in a TreasuryWithdrawals on-chain payload, as raw bigint.
+ * Mirrors decodeTreasury's amount parsing but keeps the exact lovelace total
+ * (decodeTreasury only exposes a formatted ADA string). Returns 0n for any
+ * non-treasury or malformed payload.
+ */
+export function treasuryTotalLovelace(payload: unknown): bigint {
+  if (!payload || typeof payload !== 'object') return 0n;
+  if ((payload as { tag?: unknown }).tag !== 'TreasuryWithdrawals') return 0n;
+  const contents = (payload as { contents?: unknown }).contents;
+  if (!Array.isArray(contents)) return 0n;
+  const list = contents[0];
+  let total = 0n;
+  if (Array.isArray(list)) {
+    for (const entry of list) {
+      if (!Array.isArray(entry)) continue;
+      const lovelace = entry[1] as number | string;
+      total += typeof lovelace === 'number' ? BigInt(Math.trunc(lovelace)) : BigInt(Number(lovelace) || 0);
+    }
+  }
+  return total;
+}
+
 function decodeCommittee(contents: unknown[]): OnchainChanges {
   const removedRaw = Array.isArray(contents[1]) ? (contents[1] as unknown[]) : [];
   const addedRaw = contents[2] && typeof contents[2] === 'object' ? (contents[2] as Record<string, unknown>) : {};
