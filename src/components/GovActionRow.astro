@@ -12,8 +12,10 @@ import {
 import CompositionBar from '@/components/ga/CompositionBar.astro';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 import { decodeOnchainChanges, summarizeOnchain, parameterChangeScope } from '@/lib/governance/onchain.js';
+import { evaluateThresholds, hasOnchainThreshold, type Body } from '@/lib/governance/thresholds.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { Topic } from '@/lib/db/forum.js';
 
 interface Props {
@@ -23,6 +25,7 @@ interface Props {
   proposerIcon?: string;   // bundled logo path for a known proposer
   drepStakeTotal: number | null;  // total active DRep voting power, for DRep turnout
   committeeSize: number | null;   // current CC seat count, for CC turnout
+  params: ProtocolParams | null;  // protocol params, for each row's threshold marker
   network: CardanoNetwork;
   now: number;             // render instant, for the wall-clock voting countdown
   href: string;
@@ -35,6 +38,7 @@ const {
   proposerIcon,
   drepStakeTotal,
   committeeSize,
+  params,
   network,
   now,
   href,
@@ -68,8 +72,28 @@ const comments = Math.max(0, topic.post_count - 1); // exclude the system first 
 // flag stays false, matching their static DRep+CC eligibility.
 const paramTouchesSecurity =
   parameterChangeScope(action.onchainPayload ?? null)?.touchesSecurity ?? false;
-// Per-body participation and current vote, the two columns this row renders.
+// Per-body honest composition, the single voting column this row renders.
 const voting = overviewRowVoting(action, { drepStakeTotal, committeeSize }, { paramTouchesSecurity });
+// Ratification threshold per body, so each threshold-type row can place the same
+// marker the detail card shows. Null map for Info actions (no threshold) or before
+// params sync; looked up per body when drawing the bar.
+const paramScope =
+  action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload ?? null) : null;
+const thresholds =
+  hasOnchainThreshold(action.type) && params
+    ? evaluateThresholds(
+        {
+          type: action.type,
+          drepYesPct: action.drepYesPct,
+          spoYesPct: action.spoYesPct,
+          ccYesPct: action.ccYesPct,
+          paramScope,
+        },
+        params,
+      )
+    : null;
+const thresholdFor = (body: Body): number | null =>
+  thresholds?.find((t) => t.body === body)?.thresholdPct ?? null;
 // Calendar boundary of the expiry epoch (when voting closes). Both the countdown
 // and the "Voting ends" date derive from this same instant, so they stay in step.
 const expiryUnix =
@@ -123,7 +147,7 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
         <span class="vrow__label">{b.label}</span>
         {b.composition ? (
           <>
-            <div class="vrow__bar"><CompositionBar bar={b.composition} height={7} /></div>
+            <div class="vrow__bar"><CompositionBar bar={b.composition} height={8} thresholdPct={thresholdFor(b.body)} compactMarker /></div>
             <span class="vrow__pct">{fmtPctFine(b.composition.yes)}</span>
           </>
         ) : (

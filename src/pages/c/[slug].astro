@@ -11,7 +11,7 @@ import Pager from '@/components/Pager.astro';
 import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory, getTopicsByIds, type Topic } from '@/lib/db/forum.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
-import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams.js';
 import {
   parseGovSort,
   GOV_SORTS,
@@ -78,6 +78,9 @@ let pageRows: GovActionTopic[] = [];
 // and each row's CC participation can divide by the current committee size.
 let govParamsRawJson: string | null = null;
 let committeeSize: number | null = null;
+// Full protocol params, so each threshold-type row can place its ratification
+// threshold marker (the same marker the detail card shows).
+let overviewParams: ProtocolParams | null = null;
 // Total active DRep voting power, the denominator for each row's DRep
 // participation bar. Null when the sync has not populated it yet.
 let drepStakeTotal: number | null = null;
@@ -106,6 +109,7 @@ if (category && db) {
     ]);
     govParamsRawJson = protoParams?.rawJson ?? null;
     committeeSize = protoParams?.committeeSize ?? null;
+    overviewParams = protoParams ?? null;
     drepStakeTotal = stake.total > 0 ? stake.total : null;
     stakeAsOf = stake.asOf;
     // Preserve the database order; drop any id whose topic or action is missing
@@ -303,6 +307,7 @@ const breadcrumbLd = {
                 proposerIcon={proposerIcon}
                 drepStakeTotal={drepStakeTotal}
                 committeeSize={committeeSize}
+                params={overviewParams}
                 network={network}
                 now={now}
                 href={`/t/${r.topic.slug}`}

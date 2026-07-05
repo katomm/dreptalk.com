@@ -12,9 +12,12 @@ interface Props {
   bar: CompositionBar;
   height?: number;
   thresholdPct?: number | null;
+  // Dense lists (the overview) get a bare threshold line without the triangle cap,
+  // which reads as noise at small bar heights.
+  compactMarker?: boolean;
 }
 
-const { bar, height = 10, thresholdPct = null } = Astro.props;
+const { bar, height = 10, thresholdPct = null, compactMarker = false } = Astro.props;
 const clamp = (n: number): number => Math.min(100, Math.max(0, n));
 ---
 
@@ -25,7 +28,11 @@ const clamp = (n: number): number => Math.min(100, Math.max(0, n));
     <span class="cbar__seg cbar__seg--nv" style={`width:${bar.notVoted}%`}></span>
   </div>
   {thresholdPct != null && (
-    <span class="cbar__marker" style={`left:${clamp(thresholdPct)}%`} aria-hidden="true"></span>
+    <span
+      class:list={['cbar__marker', compactMarker && 'cbar__marker--bare']}
+      style={`left:${clamp(thresholdPct)}%`}
+      aria-hidden="true"
+    ></span>
   )}
 </div>
 
@@ -61,4 +68,6 @@ const clamp = (n: number): number => Math.min(100, Math.max(0, n));
     border-right: 3px solid transparent;
     border-top: 4px solid var(--fg);
   }
+  /* Bare line for dense lists: drop the triangle cap. */
+  .cbar__marker--bare::before { display: none; }
 </style>
