@@ -231,7 +231,9 @@ const breadcrumbLd = {
       </div>
     </div>
 
-    {treasuryOverview && <TreasuryOverview data={treasuryOverview} />}
+    {treasuryOverview && (
+      <TreasuryOverview data={treasuryOverview} compact={true} currentOnly={true} detailHref="/treasury" />
+    )}
 
     {isGovernanceCategory && (
       <div class="ga-controls">

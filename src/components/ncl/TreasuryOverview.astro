@@ -1,19 +1,29 @@
 ---
 // Renders the Treasury and Net Change Limit overview: an intro caption, the
-// treasury donut for the current period, and a compact NclPanel per period
-// (newest first, gauge and links but no per-withdrawal table). Shared by the
-// /treasury redirect target (the budget discussion category) so the
-// composition lives in one place.
+// treasury donut for the current period, and one NclPanel per period (newest
+// first). Flexible so it can render the full detail page (all periods, with
+// per-withdrawal tables) or a compact summary embedded elsewhere (current
+// period only, no tables, with a link to the full detail page).
 import NclPanel from '@/components/ncl/NclPanel.astro';
 import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
 import type { TreasuryOverviewData } from '@/lib/treasury/overview.js';
 
 interface Props {
   data: TreasuryOverviewData;
+  /** When true, hide the per-withdrawal table on each period's panel. Default false. */
+  compact?: boolean;
+  /** When true, render only the current period's card, dropping past periods. Default false. */
+  currentOnly?: boolean;
+  /** When set, render a link to the full detail page after the period cards. */
+  detailHref?: string;
 }
 
-const { data } = Astro.props;
+const { data, compact = false, currentOnly = false, detailHref } = Astro.props;
 const { treasuryLovelace, treasuryEpoch, currentStatus, periods } = data;
+
+const visiblePeriods = currentOnly
+  ? periods.filter((c) => c.period.id === (currentStatus?.period.id ?? periods[0]?.period.id))
+  : periods;
 ---
 
 <p style="color:var(--muted);max-width:65ch;line-height:1.6;">
@@ -35,15 +45,21 @@ const { treasuryLovelace, treasuryEpoch, currentStatus, periods } = data;
   </div>
 )}
 
-{periods.map((c) => (
+{visiblePeriods.map((c) => (
   <NclPanel
     status={c.status}
     windowWithdrawals={c.windowWithdrawals}
     definingLinks={c.definingLinks}
     relatedLinks={c.relatedLinks}
-    compact={true}
+    compact={compact}
   />
 ))}
+
+{detailHref && (
+  <p class="treasury-detail-link">
+    <a href={detailHref}>View all treasury withdrawals &gt;</a>
+  </p>
+)}
 
 <style>
   .treasury-summary {
@@ -57,5 +73,12 @@ const { treasuryLovelace, treasuryEpoch, currentStatus, periods } = data;
     margin: 0.5rem 0 0;
     font-size: 0.85rem;
     color: var(--muted);
+  }
+  .treasury-detail-link {
+    margin: 1rem 0 0;
+    font-size: 0.875rem;
+  }
+  .treasury-detail-link a {
+    color: var(--accent);
   }
 </style>

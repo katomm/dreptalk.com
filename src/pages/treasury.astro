@@ -1,8 +1,32 @@
 ---
 export const prerender = false;
 
-// The standalone treasury overview moved into the Budget and Treasury
-// discussion category, so this URL just redirects there. Kept as a route
-// (rather than deleted) because the mini card and other links still point here.
-return Astro.redirect('/c/budget', 301);
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import TreasuryOverview from '@/components/ncl/TreasuryOverview.astro';
+import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
+
+// Public, low-churn: withdrawals change at most a few times per epoch.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+
+const db = env.DB as D1Database | undefined;
+const data = db ? await loadTreasuryOverview(db) : null;
+
+const ogImage = data?.currentStatus ? `/og/treasury/${data.currentStatus.period.id}.png` : '/og.jpg';
 ---
+
+<Layout
+  title="Treasury and Net Change Limit - DRepTalk"
+  description="How much of the Cardano treasury Net Change Limit has been consumed by enacted treasury withdrawals, and which governance actions set the limit."
+  ogImage={ogImage}
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Treasury</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.5rem;">Treasury and Net Change Limit</h1>
+
+  {data && <TreasuryOverview data={data} />}
+</Layout>
