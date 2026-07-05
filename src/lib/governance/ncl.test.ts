@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nclStatusFor, currentNclPeriod, type Withdrawal } from './ncl.js';
+import { nclStatusFor, currentNclPeriod, nclLifecycle, type Withdrawal } from './ncl.js';
 import type { NclPeriod } from '../../../config/ncl-periods.js';
 
 const period: NclPeriod = {
@@ -8,6 +8,16 @@ const period: NclPeriod = {
 };
 
 const wd = (enactedEpoch: number, lovelace: bigint): Withdrawal => ({ enactedEpoch, lovelace });
+
+describe('nclLifecycle', () => {
+  it('classifies by current epoch with inclusive bounds', () => {
+    expect(nclLifecycle(period, 5)).toBe('upcoming');
+    expect(nclLifecycle(period, 10)).toBe('active');
+    expect(nclLifecycle(period, 20)).toBe('active');
+    expect(nclLifecycle(period, 21)).toBe('completed');
+    expect(nclLifecycle(period, null)).toBe('active');
+  });
+});
 
 describe('nclStatusFor', () => {
   it('sums only withdrawals inside the window', () => {

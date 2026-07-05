@@ -29,7 +29,7 @@ if (notFound) {
 ) : (
   (() => {
     const { period, status } = card;
-    const currentEpoch = data?.treasuryEpoch ?? null;
+    const currentEpoch = data?.currentEpoch ?? null;
     const lifecycle = nclLifecycle(period, currentEpoch);
 
     const cfg = currentNetwork();
