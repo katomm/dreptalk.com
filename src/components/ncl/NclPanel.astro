@@ -87,7 +87,7 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
         {windowWithdrawals.map((w) => (
           <tr>
             <td>{w.enactedEpoch}</td>
-            <td>{w.title}</td>
+            <td>{w.href ? <a href={w.href}>{w.title}</a> : w.title}</td>
             <td class="ncl-panel__table-amount">{formatAda(String(w.lovelace))}</td>
           </tr>
         ))}
@@ -191,6 +191,9 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
   }
   .ncl-panel__table tbody tr {
     border-top: 1px solid var(--border);
+  }
+  .ncl-panel__table a {
+    color: var(--accent);
   }
   .ncl-panel__table-amount {
     text-align: right;

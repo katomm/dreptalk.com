@@ -10,6 +10,7 @@ export interface EnactedWithdrawal {
   title: string;
   enactedEpoch: number;
   lovelace: bigint;
+  href: string | null;
 }
 
 /**
@@ -21,12 +22,12 @@ export interface EnactedWithdrawal {
 export async function getEnactedTreasuryWithdrawals(db: D1Database): Promise<EnactedWithdrawal[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, title, enacted_epoch AS enactedEpoch, onchain_payload AS payload
+      `SELECT id, title, enacted_epoch AS enactedEpoch, onchain_payload AS payload, proposal_id AS proposalId
          FROM governance_actions
         WHERE type = 'TreasuryWithdrawals' AND enacted_epoch IS NOT NULL
         ORDER BY enacted_epoch`,
     )
-    .all<{ id: string; title: string; enactedEpoch: number; payload: string | null }>();
+    .all<{ id: string; title: string; enactedEpoch: number; payload: string | null; proposalId: string | null }>();
   const out: EnactedWithdrawal[] = [];
   for (const r of results) {
     let payload: unknown = null;
@@ -37,7 +38,13 @@ export async function getEnactedTreasuryWithdrawals(db: D1Database): Promise<Ena
         payload = null;
       }
     }
-    out.push({ id: r.id, title: r.title, enactedEpoch: r.enactedEpoch, lovelace: treasuryTotalLovelace(payload) });
+    out.push({
+      id: r.id,
+      title: r.title,
+      enactedEpoch: r.enactedEpoch,
+      lovelace: treasuryTotalLovelace(payload),
+      href: r.proposalId ? `/t/${r.proposalId}` : null,
+    });
   }
   return out;
 }
