@@ -20,9 +20,9 @@ const t = treasuryLovelace;
 const consumedPct = Number((consumedLovelace * 10000n) / t) / 100;
 const headroomPct = Number((remainingLovelace * 10000n) / t) / 100;
 const s2 = consumedPct + headroomPct;
-const capPct = Math.round(Number((ceilingLovelace * 100n) / t));
+const capPct = Math.round(Number((ceilingLovelace * 10000n) / t) / 100);
 const restLovelace = t - ceilingLovelace;
-const restPct = Math.round((100 - capPct) * 10) / 10;
+const restPct = Math.round((100 - s2) * 10) / 10;
 
 const treasuryTotal = formatAda(String(treasuryLovelace)) ?? '0 ₳';
 const consumedAmount = formatAda(String(consumedLovelace)) ?? '0 ₳';
