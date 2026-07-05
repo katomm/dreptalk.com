@@ -82,25 +82,33 @@ if (notFound) {
         </div>
 
         <div class="period-meta">
-          <p class="period-meta__line">
-            Epochs {period.startEpoch} to {period.endEpoch}
-            <span class="period-meta__sep">•</span>
-            Set by: {card.definingLinks.map((l, i) => (
-              <>
-                <a href={l.href}>{l.title}</a>
-                {i < card.definingLinks.length - 1 ? ', ' : ''}
-              </>
-            ))}
-          </p>
-          {card.relatedLinks.length > 0 && (
-            <p class="period-meta__challenged">
-              Challenged by: {card.relatedLinks.map((l, i) => (
+          <div class="period-meta__row">
+            <span class="period-meta__key">Epochs</span>
+            <span class="period-meta__val">{period.startEpoch} to {period.endEpoch}</span>
+          </div>
+          <div class="period-meta__row">
+            <span class="period-meta__key">Set by</span>
+            <span class="period-meta__val">
+              {card.definingLinks.map((l, i) => (
                 <>
-                  <a href={l.href}>{l.title}</a>{' '}<span class="period-meta__status">({statusLabel(l.status)})</span>
-                  {i < card.relatedLinks.length - 1 ? ', ' : ''}
+                  <a href={l.href}>{l.title}</a>
+                  {i < card.definingLinks.length - 1 ? ', ' : ''}
                 </>
               ))}
-            </p>
+            </span>
+          </div>
+          {card.relatedLinks.length > 0 && (
+            <div class="period-meta__row">
+              <span class="period-meta__key">Challenged by</span>
+              <span class="period-meta__val">
+                {card.relatedLinks.map((l) => (
+                  <span class="period-meta__challenger">
+                    <a href={l.href}>{l.title}</a>{' '}
+                    <span class="period-meta__status">({statusLabel(l.status)})</span>
+                  </span>
+                ))}
+              </span>
+            </div>
           )}
         </div>
 
@@ -205,29 +213,50 @@ if (notFound) {
 <style>
   .period-meta {
     margin-bottom: 1.5rem;
-  }
-  .period-meta__line {
-    margin: 0;
-    color: var(--muted);
     font-size: 0.9375rem;
-    line-height: 1.6;
   }
-  .period-meta__sep {
-    margin: 0 0.5rem;
-    opacity: 0.6;
+  .period-meta__row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+    align-items: baseline;
   }
-  .period-meta__challenged {
-    margin: 0.4rem 0 0;
+  .period-meta__row:first-child {
+    margin-top: 0;
+  }
+  .period-meta__key {
+    flex: 0 0 auto;
+    width: 7rem;
     color: var(--muted);
-    font-size: 0.875rem;
-    line-height: 1.7;
+    font-size: 0.8125rem;
+  }
+  .period-meta__val {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--fg);
+    line-height: 1.5;
   }
   .period-meta a {
     color: var(--accent);
   }
+  .period-meta__challenger {
+    display: block;
+  }
+  .period-meta__challenger:not(:last-child) {
+    margin-bottom: 0.2rem;
+  }
   .period-meta__status {
     color: var(--muted);
     white-space: nowrap;
+  }
+  @media (max-width: 480px) {
+    .period-meta__row {
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+    .period-meta__key {
+      width: auto;
+    }
   }
 
   .stat-grid {
