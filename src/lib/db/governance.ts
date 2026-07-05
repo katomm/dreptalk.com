@@ -121,6 +121,8 @@ export interface GovernanceAction {
   submittedEpoch: number | null;
   submittedAt: number | null;
   expiryEpoch: number | null;
+  /** Epoch the action was enacted on-chain; null until Koios reports it. */
+  enactedEpoch: number | null;
   status: string;
   onchainPayload: string | null;
   // Per-option vote COUNTS (number of DReps / pools / CC members voting each way).
@@ -178,6 +180,7 @@ interface GovernanceActionRow {
   submitted_epoch: number | null;
   submitted_at: number | null;
   expiry_epoch: number | null;
+  enacted_epoch: number | null;
   status: string;
   onchain_payload: string | null;
   drep_yes: number | null;
@@ -229,6 +232,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     submittedEpoch: r.submitted_epoch,
     submittedAt: r.submitted_at,
     expiryEpoch: r.expiry_epoch,
+    enactedEpoch: r.enacted_epoch,
     status: r.status,
     onchainPayload: r.onchain_payload,
     drepYes: r.drep_yes,

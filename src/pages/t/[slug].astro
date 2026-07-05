@@ -39,8 +39,9 @@ import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import NclPanel from '@/components/ncl/NclPanel.astro';
+import NclMiniCard from '@/components/ncl/NclMiniCard.astro';
 import { NCL_PERIODS } from '../../../config/ncl-periods.js';
-import { nclStatusFor } from '@/lib/governance/ncl.js';
+import { nclStatusFor, currentNclPeriod } from '@/lib/governance/ncl.js';
 import { getEnactedTreasuryWithdrawals, getNclActionLinks, type NclActionLink } from '@/lib/db/treasury.js';
 import { env } from 'cloudflare:workers';
 
@@ -155,6 +156,34 @@ if (nclPeriod && db) {
     definingLinks: pick(nclPeriod.definingActionIds),
     relatedLinks: pick(nclPeriod.relatedActionIds),
   };
+}
+
+// TreasuryWithdrawals sidebar card: tells the reader this withdrawal counts
+// toward its NCL period and how full that cap already is. Separate from
+// nclProps above (which only applies to the InfoActions that define/challenge
+// a period). Guarded to TreasuryWithdrawals so no extra fetch happens on any
+// other action type.
+let nclMiniCardProps: {
+  periodLabel: string;
+  consumedPct: number;
+  remainingLovelace: bigint;
+  ceilingLovelace: bigint;
+  overviewHref: string;
+} | null = null;
+if (govAction?.type === 'TreasuryWithdrawals' && db) {
+  const currentEpoch = (await getProtocolParams(db))?.epoch ?? null;
+  const anchorEpoch = govAction.enactedEpoch ?? currentEpoch;
+  const period = anchorEpoch != null ? currentNclPeriod(NCL_PERIODS, anchorEpoch) : undefined;
+  if (period) {
+    const s = nclStatusFor(period, await getEnactedTreasuryWithdrawals(db));
+    nclMiniCardProps = {
+      periodLabel: period.label,
+      consumedPct: s.consumedPct,
+      remainingLovelace: s.remainingLovelace,
+      ceilingLovelace: period.ceilingLovelace,
+      overviewHref: '/treasury',
+    };
+  }
 }
 
 // Other actions from the same proposer, for the sidebar (needs the action's
@@ -454,7 +483,11 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
               positionsTotal={positionsTotal}
               rationaleCount={rationaleCount}
               now={now}
-            />
+            >
+              {nclMiniCardProps && (
+                <NclMiniCard slot="after-status" {...nclMiniCardProps} />
+              )}
+            </GaSidebar>
           </div>
         </div>
       </>
