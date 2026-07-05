@@ -5,7 +5,7 @@
 // compact) a table of the enacted withdrawals counted in the window. Used on
 // both the treasury overview page and embedded (compact) on action pages.
 import { formatAda } from '@/lib/format/ada.js';
-import type { NclStatus } from '@/lib/governance/ncl.js';
+import { nclActionStatusLabel, type NclStatus } from '@/lib/governance/ncl.js';
 import type { EnactedWithdrawal, NclActionLink } from '@/lib/db/treasury.js';
 
 interface Props {
@@ -14,23 +14,9 @@ interface Props {
   definingLinks: NclActionLink[];
   relatedLinks: NclActionLink[];
   compact?: boolean;
-  /** When false, hide the "Related actions" list even if present. Default true. */
-  showRelated?: boolean;
-  /** When true, the card fills 100% of its parent's height and pins any
-   * footer slot content to the bottom. Used to match a sibling column's
-   * height in flex layouts. Default false (no layout change). */
-  stretch?: boolean;
 }
 
-const {
-  status,
-  windowWithdrawals,
-  definingLinks,
-  relatedLinks,
-  compact = false,
-  showRelated = true,
-  stretch = false,
-} = Astro.props;
+const { status, windowWithdrawals, definingLinks, relatedLinks, compact = false } = Astro.props;
 const { period } = status;
 
 // Clamp the gauge fill so an over-budget period (consumedPct > 100) cannot
@@ -40,11 +26,9 @@ const pct = Math.min(100, status.consumedPct);
 const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
 const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
 const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
-
-const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
 ---
 
-<section class:list={['ncl-panel', { 'ncl-panel--stretch': stretch }]}>
+<section class="ncl-panel">
   <div class="ncl-panel__head">
     <h2 class="ncl-panel__title">{period.label}</h2>
     <span class="ncl-panel__epochs">Epochs {period.startEpoch} to {period.endEpoch}</span>
@@ -74,11 +58,11 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
         </>
       ))}
     </div>
-    {showRelated && relatedLinks.length > 0 && (
+    {relatedLinks.length > 0 && (
       <div class="ncl-panel__related">
         Related actions: {relatedLinks.map((l, i) => (
           <>
-            <a href={l.href}>{l.title}</a> <span>({statusLabel(l.status)})</span>
+            <a href={l.href}>{l.title}</a> <span>({nclActionStatusLabel(l.status)})</span>
             {i < relatedLinks.length - 1 ? ', ' : ''}
           </>
         ))}
@@ -106,10 +90,6 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
       </tbody>
     </table>
   )}
-
-  <div class="ncl-panel__footer">
-    <slot name="footer" />
-  </div>
 </section>
 
 <style>
@@ -119,19 +99,6 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
     padding: 1.25rem;
     margin: 1rem 0;
     background: var(--surface);
-  }
-
-  /* Stretch mode: fill the parent's height (e.g. to match a sibling flex
-     column) and pin the footer slot to the bottom. No effect on layout
-     when not set, and the footer div itself has no default box model
-     styling so it stays invisible when its slot is empty. */
-  .ncl-panel--stretch {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
-  .ncl-panel--stretch .ncl-panel__footer {
-    margin-top: auto;
   }
 
   .ncl-panel__head {

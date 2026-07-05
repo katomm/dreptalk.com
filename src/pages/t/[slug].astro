@@ -148,8 +148,11 @@ let nclProps: {
   relatedLinks: NclActionLink[];
 } | null = null;
 if (nclPeriod && db) {
-  const withdrawals = await getEnactedTreasuryWithdrawals(db);
-  const links = await getNclActionLinks(db, [...nclPeriod.definingActionIds, ...nclPeriod.relatedActionIds]);
+  // Independent reads; run them concurrently.
+  const [withdrawals, links] = await Promise.all([
+    getEnactedTreasuryWithdrawals(db),
+    getNclActionLinks(db, [...nclPeriod.definingActionIds, ...nclPeriod.relatedActionIds]),
+  ]);
   const pick = (ids: string[]) => ids.map((id) => links.get(id)).filter((l): l is NclActionLink => !!l);
   nclProps = {
     status: nclStatusFor(nclPeriod, withdrawals),
@@ -171,8 +174,10 @@ let nclMiniCardProps: {
   overviewHref: string;
 } | null = null;
 if (govAction?.type === 'TreasuryWithdrawals' && db) {
-  const currentEpoch = (await getProtocolParams(db))?.epoch ?? null;
-  const anchorEpoch = govAction.enactedEpoch ?? currentEpoch;
+  // Prefer the action's own enacted epoch; only fall back to the synced
+  // protocol-params epoch when it has none, so an already-enacted withdrawal
+  // (the common case) does not re-fetch params that are loaded again below.
+  const anchorEpoch = govAction.enactedEpoch ?? (await getProtocolParams(db))?.epoch ?? null;
   const period = anchorEpoch != null ? currentNclPeriod(NCL_PERIODS, anchorEpoch) : undefined;
   if (period) {
     const s = nclStatusFor(period, await getEnactedTreasuryWithdrawals(db));

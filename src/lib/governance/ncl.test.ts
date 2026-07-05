@@ -26,6 +26,7 @@ describe('nclStatusFor', () => {
     expect(s.withdrawalCount).toBe(2);
     expect(s.remainingLovelace).toBe(60n);
     expect(s.consumedPct).toBe(40);
+    expect(s.remainingPct).toBe(60);
     expect(s.overBudget).toBe(false);
   });
 
@@ -34,6 +35,7 @@ describe('nclStatusFor', () => {
     expect(s.remainingLovelace).toBe(0n);
     expect(s.overBudget).toBe(true);
     expect(s.consumedPct).toBe(120);
+    expect(s.remainingPct).toBe(0);
   });
 });
 

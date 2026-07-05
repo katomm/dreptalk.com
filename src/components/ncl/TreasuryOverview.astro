@@ -1,177 +1,163 @@
 ---
-// Renders the Treasury and Net Change Limit overview: an intro caption, the
-// treasury donut for the current period, and one NclPanel per period (newest
-// first). Flexible so it can render the full detail page (all periods, with
-// per-withdrawal tables) or a compact summary embedded elsewhere (current
-// period only, no tables, with a link to the full detail page).
-import NclPanel from '@/components/ncl/NclPanel.astro';
-import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
+// Compact Treasury and Net Change Limit teaser for the budget category page:
+// a single slim card with the current period's consumption bar, the key
+// figures, the treasury balance, and a link to the full /treasury detail page.
+// Deliberately minimal so the forum thread list, not the dashboard, dominates
+// the category page; the donut, per-period breakdown and explanation live on
+// the detail page.
 import type { TreasuryOverviewData } from '@/lib/treasury/overview.js';
+import { formatAdaCompact } from '@/lib/format/ada.js';
 
 interface Props {
   data: TreasuryOverviewData;
-  /** When true, hide the per-withdrawal table on each period's panel. Default false. */
-  compact?: boolean;
-  /** When true, render only the current period's card, dropping past periods. Default false. */
-  currentOnly?: boolean;
-  /** When set, render a link to the full detail page after the period cards. */
-  detailHref?: string;
+  /** Link to the full treasury detail page. */
+  detailHref: string;
 }
 
-const { data, compact = false, currentOnly = false, detailHref } = Astro.props;
-const { treasuryLovelace, treasuryEpoch, currentStatus, periods } = data;
+const { data, detailHref } = Astro.props;
+const { treasuryLovelace, treasuryEpoch, currentStatus } = data;
 
-const visiblePeriods = currentOnly
-  ? periods.filter((c) => c.period.id === (currentStatus?.period.id ?? periods[0]?.period.id))
-  : periods;
-
-const showDonut = treasuryLovelace !== null && currentStatus !== null;
+const period = currentStatus?.period ?? null;
+// Clamp the bar to the track even when a period runs over budget; the exact
+// percentage (which can exceed 100) is still shown as text next to it.
+const fillPct = currentStatus ? Math.min(100, Math.max(0, currentStatus.consumedPct)) : 0;
+const used = currentStatus ? formatAdaCompact(String(currentStatus.consumedLovelace)) : null;
+const ceiling = currentStatus ? formatAdaCompact(String(currentStatus.period.ceilingLovelace)) : null;
+const remaining = currentStatus ? formatAdaCompact(String(currentStatus.remainingLovelace)) : null;
+const treasury = treasuryLovelace !== null ? formatAdaCompact(String(treasuryLovelace), 2) : null;
 ---
 
-<p style="color:var(--muted);max-width:65ch;line-height:1.6;">
-  The Net Change Limit caps how much ada may be withdrawn from the Cardano treasury in a period. It is set by
-  an Info governance action, so it is a community agreement rather than an automatic on-chain rule. The figures
-  below sum enacted treasury withdrawals against the limit each period.
-</p>
+{currentStatus && period ? (
+  <div class="ncl-teaser">
+    <div class="ncl-teaser__head">
+      <div class="ncl-teaser__titles">
+        <span class="ncl-teaser__title">{period.label}</span>
+        <span class="ncl-teaser__epochs">Epochs {period.startEpoch} to {period.endEpoch}</span>
+      </div>
+      <a class="ncl-teaser__cta" href={detailHref}>View details &gt;</a>
+    </div>
 
-<div class:list={['treasury-row', { 'treasury-row--stacked': !compact }]}>
-  <div class="treasury-row__col">
-    {showDonut && currentStatus !== null && (
-      <div class="treasury-summary">
-        <TreasuryDonut
-          treasuryLovelace={treasuryLovelace}
-          consumedLovelace={currentStatus.consumedLovelace}
-          remainingLovelace={currentStatus.remainingLovelace}
-          ceilingLovelace={currentStatus.period.ceilingLovelace}
-          epoch={treasuryEpoch}
-        />
-        <p class="treasury-summary__caption">The Net Change Limit caps the outflows, not the total balance.</p>
+    <div class="ncl-teaser__barrow">
+      <span class="ncl-teaser__bar" role="img" aria-label={`${currentStatus.consumedPct}% of the limit consumed`}>
+        <span class="ncl-teaser__fill" style={`width:${fillPct}%;`}></span>
+      </span>
+      <span class="ncl-teaser__pct">{currentStatus.consumedPct}%</span>
+    </div>
+
+    <div class="ncl-teaser__figures">
+      <strong>{used} / {ceiling}</strong> used
+      <span class="ncl-teaser__sep" aria-hidden="true">·</span>
+      {remaining} left
+    </div>
+
+    {treasury && (
+      <div class="ncl-teaser__treasury">
+        Cardano treasury <strong>{treasury}</strong>
+        {treasuryEpoch != null && <span> · epoch {treasuryEpoch}</span>}
       </div>
     )}
   </div>
-  <div class="treasury-row__col treasury-row__col--ncl">
-    {visiblePeriods.map((c) => (
-      <NclPanel
-        status={c.status}
-        windowWithdrawals={c.windowWithdrawals}
-        definingLinks={c.definingLinks}
-        relatedLinks={c.relatedLinks}
-        compact={compact}
-        showRelated={!compact}
-        stretch={compact}
-      >
-        {compact && detailHref && (
-          <a slot="footer" class="treasury-detail-cta" href={detailHref}>View all treasury withdrawals &gt;</a>
-        )}
-      </NclPanel>
-    ))}
-  </div>
-</div>
-
-{!compact && detailHref && (
-  <p class="treasury-detail-link">
-    <a href={detailHref}>View all treasury withdrawals &gt;</a>
+) : (
+  <p class="ncl-teaser__fallback">
+    <a href={detailHref}>View treasury and Net Change Limit &gt;</a>
   </p>
 )}
 
 <style>
-  .treasury-summary {
+  .ncl-teaser {
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 1.25rem;
-    margin: 1.5rem 0 1rem;
     background: var(--surface-2);
+    padding: 1rem 1.15rem;
+    margin: 0 0 1.5rem;
   }
-  .treasury-summary__caption {
-    margin: 0.5rem 0 0;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  /* Compact mode (e.g. /c/budget): donut and the single period card sit
-     side by side on desktop, each taking about half the width and matching
-     the height of the taller column, and wrap to a stacked layout (donut
-     on top) on narrow viewports. */
-  .treasury-row {
+  .ncl-teaser__head {
     display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem 1rem;
     flex-wrap: wrap;
-    align-items: stretch;
-    gap: 1rem;
   }
-  .treasury-row__col {
-    flex: 1 1 320px;
+  .ncl-teaser__titles {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
     min-width: 0;
   }
-  /* The right column holds a single stretched NclPanel card (with the
-     detail CTA pinned inside its footer), so it just needs to stretch
-     to the row's full height; the panel itself fills the column. */
-  .treasury-row__col--ncl {
-    display: flex;
-    flex-direction: column;
+  .ncl-teaser__title {
+    font-weight: 600;
+    color: var(--fg);
   }
-  /* Grow the panel to fill the stretched column so it matches the donut
-     box height. A stretched flex item does not give percentage heights a
-     definite base, so grow the panel instead of relying on height 100%. */
-  .treasury-row__col--ncl :global(.ncl-panel) {
-    flex: 1;
+  .ncl-teaser__epochs {
+    font-size: 0.8125rem;
+    color: var(--muted);
   }
-  /* Reset the top margins inside the row so the donut column aligns
-     flush with the top of the NclPanel column (NclPanel's own margin
-     is scoped to its component, so override it globally here). */
-  .treasury-row .treasury-summary {
-    margin-top: 0;
-  }
-  .treasury-row__col :global(.ncl-panel) {
-    margin-top: 0;
-  }
-
-  /* Non-compact detail page (/treasury): keep the original stacked
-     layout unchanged, donut block on top, then each period card full
-     width below it. */
-  .treasury-row--stacked {
-    display: block;
-  }
-  .treasury-row--stacked .treasury-row__col {
-    display: block;
-  }
-  .treasury-row--stacked .treasury-summary {
-    margin: 1.5rem 0 1rem;
-  }
-  .treasury-row--stacked :global(.ncl-panel) {
-    margin: 1rem 0;
-  }
-
-  .treasury-detail-link {
-    margin: 1rem 0 0;
+  .ncl-teaser__cta {
     font-size: 0.875rem;
-  }
-  .treasury-detail-link a {
+    font-weight: 600;
     color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .ncl-teaser__cta:hover {
+    text-decoration: underline;
   }
 
-  /* Compact mode CTA: rendered inside the NclPanel's footer slot, which
-     pins it to the bottom of the (stretched) card so it both reads as a
-     clear call to action and helps the two columns reach equal height.
-     Styled like the site's secondary button. */
-  .treasury-detail-cta {
+  .ncl-teaser__barrow {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    margin-top: 1rem;
-    padding: 0.7rem 1.15rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    color: var(--fg);
-    font-size: 0.9375rem;
-    font-weight: 600;
-    text-decoration: none;
-    text-align: center;
-    transition: border-color 0.15s ease, color 0.15s ease;
+    gap: 0.6rem;
+    margin: 0.7rem 0 0.5rem;
   }
-  .treasury-detail-cta:hover {
-    border-color: var(--accent);
+  .ncl-teaser__bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    overflow: hidden;
+  }
+  .ncl-teaser__fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 999px;
+  }
+  .ncl-teaser__pct {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+  }
+
+  .ncl-teaser__figures {
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .ncl-teaser__figures strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .ncl-teaser__sep {
+    margin: 0 0.2rem;
+  }
+
+  .ncl-teaser__treasury {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+  }
+  .ncl-teaser__treasury strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .ncl-teaser__fallback {
+    margin: 0 0 1.5rem;
+    font-size: 0.875rem;
+  }
+  .ncl-teaser__fallback a {
     color: var(--accent);
   }
 </style>

@@ -5,7 +5,7 @@ import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
 import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
-import { nclLifecycle } from '@/lib/governance/ncl.js';
+import { nclLifecycle, nclBadgeStyle, nclActionStatusLabel } from '@/lib/governance/ncl.js';
 import { formatAda } from '@/lib/format/ada.js';
 import { epochStartMs } from '@/lib/config/network.js';
 import { currentNetwork } from '@/lib/api/response.js';
@@ -39,24 +39,14 @@ if (notFound) {
         ? null
         : Math.max(0, Math.round((epochStartMs(period.endEpoch + 1, cfg) - Date.now()) / 86400000));
 
-    const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
-
     const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
     const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
     const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
     const pct = Math.min(100, status.consumedPct);
-    const remainingPct = period.ceilingLovelace > 0n
-      ? Number((status.remainingLovelace * 1000n) / period.ceilingLovelace) / 10
-      : 0;
     const epochSpan = period.endEpoch - period.startEpoch + 1;
 
     const badgeLabel = lifecycle.toUpperCase();
-    const badgeStyle =
-      lifecycle === 'active'
-        ? 'background:var(--accent);color:var(--accent-fg);'
-        : lifecycle === 'completed'
-          ? 'background:color-mix(in srgb, var(--c-pos) 18%, transparent);color:var(--c-pos);'
-          : 'background:var(--surface-2);color:var(--muted);';
+    const badgeStyle = nclBadgeStyle(lifecycle);
 
     return (
       <Layout
@@ -104,7 +94,7 @@ if (notFound) {
                 {card.relatedLinks.map((l) => (
                   <span class="period-meta__challenger">
                     <a href={l.href}>{l.title}</a>{' '}
-                    <span class="period-meta__status">({statusLabel(l.status)})</span>
+                    <span class="period-meta__status">({nclActionStatusLabel(l.status)})</span>
                   </span>
                 ))}
               </span>
@@ -143,7 +133,7 @@ if (notFound) {
               Remaining
             </div>
             <div class="stat-card__value">{remaining}</div>
-            <div class="stat-card__sub">{remainingPct}%</div>
+            <div class="stat-card__sub">{status.remainingPct}%</div>
           </div>
           <div class="stat-card">
             <div class="stat-card__label">

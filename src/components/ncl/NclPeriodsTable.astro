@@ -3,7 +3,7 @@
 // through to its detail page (/treasury/<id>) where the withdrawal table and
 // full breakdown live. Newest-first order is preserved from the caller.
 import { formatAda } from '@/lib/format/ada.js';
-import { nclLifecycle, type NclLifecycle } from '@/lib/governance/ncl.js';
+import { nclLifecycle, nclBadgeStyle } from '@/lib/governance/ncl.js';
 import type { NclPeriodCard } from '@/lib/treasury/overview.js';
 
 interface Props {
@@ -12,13 +12,6 @@ interface Props {
 }
 
 const { periods, currentEpoch } = Astro.props;
-
-const badgeStyle = (lifecycle: NclLifecycle) =>
-  lifecycle === 'active'
-    ? 'background:var(--accent);color:var(--accent-fg);'
-    : lifecycle === 'completed'
-      ? 'background:color-mix(in srgb, var(--c-pos) 18%, transparent);color:var(--c-pos);'
-      : 'background:var(--surface-2);color:var(--muted);';
 ---
 
 <div class="ncl-periods">
@@ -28,8 +21,6 @@ const badgeStyle = (lifecycle: NclLifecycle) =>
     const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
     const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
     const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
-    const remainingPct =
-      period.ceilingLovelace > 0n ? Number((status.remainingLovelace * 1000n) / period.ceilingLovelace) / 10 : 0;
 
     return (
       <a class="ncl-periods__row" href={`/treasury/${period.id}`}>
@@ -37,22 +28,22 @@ const badgeStyle = (lifecycle: NclLifecycle) =>
           <div class="ncl-periods__label">{period.label}</div>
           <div class="ncl-periods__sub">Epochs {period.startEpoch} to {period.endEpoch}</div>
         </div>
-        <div class="ncl-periods__cell ncl-periods__cell--num">
+        <div class="ncl-periods__cell ncl-periods__cell--num ncl-periods__cell--limit">
           <div class="ncl-periods__heading">Limit</div>
           <div class="ncl-periods__value">{ceiling}</div>
         </div>
-        <div class="ncl-periods__cell ncl-periods__cell--num">
+        <div class="ncl-periods__cell ncl-periods__cell--num ncl-periods__cell--used">
           <div class="ncl-periods__heading">Used</div>
           <div class="ncl-periods__value">{consumed}</div>
           <div class="ncl-periods__sub">{status.consumedPct}%</div>
         </div>
-        <div class="ncl-periods__cell ncl-periods__cell--num">
+        <div class="ncl-periods__cell ncl-periods__cell--num ncl-periods__cell--remaining">
           <div class="ncl-periods__heading">Remaining</div>
           <div class="ncl-periods__value">{remaining}</div>
-          <div class="ncl-periods__sub">{remainingPct}%</div>
+          <div class="ncl-periods__sub">{status.remainingPct}%</div>
         </div>
         <div class="ncl-periods__cell ncl-periods__cell--status">
-          <span class="ncl-periods__badge" style={badgeStyle(lifecycle)}>{lifecycle.toUpperCase()}</span>
+          <span class="ncl-periods__badge" style={nclBadgeStyle(lifecycle)}>{lifecycle.toUpperCase()}</span>
         </div>
         <div class="ncl-periods__cell ncl-periods__cell--chevron" aria-hidden="true">&gt;</div>
       </a>
@@ -126,11 +117,59 @@ const badgeStyle = (lifecycle: NclLifecycle) =>
     font-weight: 700;
   }
 
-  /* Below the row's min-width the wrapper scrolls horizontally rather than
-     letting the grid squeeze columns unreadably. */
+  /* On narrow screens the row folds into a card: period + status on top,
+     then each figure as a full-width label/value line. No horizontal scroll,
+     and full-form ada amounts never overflow because each gets its own row. */
   @media (max-width: 640px) {
+    .ncl-periods {
+      overflow-x: visible;
+    }
     .ncl-periods__row {
-      grid-template-columns: 1.6fr 1fr 1fr 1fr auto auto;
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        'period status'
+        'limit limit'
+        'used used'
+        'remaining remaining';
+      column-gap: 1rem;
+      row-gap: 0.55rem;
+      min-width: 0;
+      padding: 1rem 1.1rem;
+    }
+    .ncl-periods__cell--period {
+      grid-area: period;
+    }
+    .ncl-periods__cell--status {
+      grid-area: status;
+      justify-self: end;
+    }
+    .ncl-periods__cell--limit {
+      grid-area: limit;
+    }
+    .ncl-periods__cell--used {
+      grid-area: used;
+    }
+    .ncl-periods__cell--remaining {
+      grid-area: remaining;
+    }
+    .ncl-periods__cell--chevron {
+      display: none;
+    }
+
+    /* Figure rows: heading pinned left, value (and percent) grouped right. */
+    .ncl-periods__cell--num {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      text-align: left;
+      border-top: 1px solid var(--border);
+      padding-top: 0.55rem;
+    }
+    .ncl-periods__cell--num .ncl-periods__heading {
+      margin: 0 auto 0 0;
+    }
+    .ncl-periods__cell--num .ncl-periods__sub {
+      margin: 0;
     }
   }
 </style>

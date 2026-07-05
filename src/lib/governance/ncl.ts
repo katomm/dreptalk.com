@@ -11,8 +11,15 @@ export interface NclStatus {
   remainingLovelace: bigint;
   /** Consumed as a percentage of the ceiling, one decimal place (can exceed 100). */
   consumedPct: number;
+  /** Remaining as a percentage of the ceiling, one decimal place (0 when over budget). */
+  remainingPct: number;
   withdrawalCount: number;
   overBudget: boolean;
+}
+
+/** ceiling>0 ? part/ceiling as a percentage rounded to one decimal, else 0. */
+function pctOfCeiling(part: bigint, ceiling: bigint): number {
+  return ceiling > 0n ? Number((part * 1000n) / ceiling) / 10 : 0;
 }
 
 export function nclStatusFor(period: NclPeriod, withdrawals: Withdrawal[]): NclStatus {
@@ -26,12 +33,12 @@ export function nclStatusFor(period: NclPeriod, withdrawals: Withdrawal[]): NclS
   }
   const ceiling = period.ceilingLovelace;
   const remaining = consumed >= ceiling ? 0n : ceiling - consumed;
-  const consumedPct = ceiling > 0n ? Number((consumed * 1000n) / ceiling) / 10 : 0;
   return {
     period,
     consumedLovelace: consumed,
     remainingLovelace: remaining,
-    consumedPct,
+    consumedPct: pctOfCeiling(consumed, ceiling),
+    remainingPct: pctOfCeiling(remaining, ceiling),
     withdrawalCount: count,
     overBudget: consumed > ceiling,
   };
@@ -53,4 +60,18 @@ export function nclLifecycle(period: NclPeriod, currentEpoch: number | null): Nc
   if (currentEpoch < period.startEpoch) return 'upcoming';
   if (currentEpoch > period.endEpoch) return 'completed';
   return 'active';
+}
+
+/** Inline CSS for a lifecycle status badge (accent for active, positive for completed, muted otherwise). */
+export function nclBadgeStyle(lifecycle: NclLifecycle): string {
+  if (lifecycle === 'active') return 'background:var(--accent);color:var(--accent-fg);';
+  if (lifecycle === 'completed') {
+    return 'background:color-mix(in srgb, var(--c-pos) 18%, transparent);color:var(--c-pos);';
+  }
+  return 'background:var(--surface-2);color:var(--muted);';
+}
+
+/** Human label for a challenger/related action's on-chain status ('active' reads as 'currently voting'). */
+export function nclActionStatusLabel(status: string): string {
+  return status === 'active' ? 'currently voting' : status;
 }
