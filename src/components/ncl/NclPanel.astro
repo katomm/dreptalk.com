@@ -14,9 +14,11 @@ interface Props {
   definingLinks: NclActionLink[];
   relatedLinks: NclActionLink[];
   compact?: boolean;
+  /** Current treasury balance, for showing the ceiling's share of it. Omit (or null) to hide that line, e.g. in the action-page embed. */
+  treasuryLovelace?: bigint | null;
 }
 
-const { status, windowWithdrawals, definingLinks, relatedLinks, compact = false } = Astro.props;
+const { status, windowWithdrawals, definingLinks, relatedLinks, compact = false, treasuryLovelace = null } = Astro.props;
 const { period } = status;
 
 // Clamp the gauge fill so an over-budget period (consumedPct > 100) cannot
@@ -28,6 +30,13 @@ const gaugeClass =
 const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
 const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
 const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
+
+// Share of the current treasury this period's ceiling represents, rounded to
+// one decimal place. Only computed when a treasury balance was supplied.
+const treasurySharePct =
+  treasuryLovelace != null && treasuryLovelace > 0n
+    ? Number((period.ceilingLovelace * 1000n) / treasuryLovelace) / 10
+    : null;
 
 const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
 ---
@@ -50,6 +59,11 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
   {status.overBudget && (
     <p class="ncl-panel__over-budget">
       Enacted withdrawals exceed the recorded ceiling for this period.
+    </p>
+  )}
+  {treasurySharePct !== null && (
+    <p class="ncl-panel__treasury-share">
+      The {ceiling} limit is about {treasurySharePct}% of the current treasury.
     </p>
   )}
 
@@ -159,6 +173,12 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
 
   .ncl-panel__over-budget {
     color: var(--danger);
+    font-size: 0.85rem;
+    margin: 0.5rem 0 0;
+  }
+
+  .ncl-panel__treasury-share {
+    color: var(--muted);
     font-size: 0.85rem;
     margin: 0.5rem 0 0;
   }
