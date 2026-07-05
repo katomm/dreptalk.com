@@ -73,7 +73,11 @@ export function txExplorerUrl(network: CardanoNetwork, txHash: string): string {
 
 /** Neutral explorer-landing URL for a governance action (bech32 gov_action id). */
 export function governanceActionUrl(network: CardanoNetwork, proposalId: string): string {
-  return `${EXPLORER_BASE}/governance-action?id=${encodeURIComponent(proposalId)}${explorerNetworkSuffix(network)}`;
+  // Path form, not the ?id= query form. The explorer.cardano.org switcher crashes on
+  // the query form for governance actions: it reads a `governance-action` query key,
+  // not `id`, then calls startsWith on the resulting null. The path form resolves fine.
+  const net = network === 'mainnet' ? '' : `?network=${network}`;
+  return `${EXPLORER_BASE}/governance-action/${encodeURIComponent(proposalId)}${net}`;
 }
 
 // Defaults to mainnet when unset so production needs no variable.
