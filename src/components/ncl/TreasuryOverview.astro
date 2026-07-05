@@ -1,8 +1,9 @@
 ---
 // Renders the Treasury and Net Change Limit overview: an intro caption, the
-// treasury donut for the current period, and a full NclPanel per period
-// (newest first). Shared by the /treasury redirect target (the budget
-// discussion category) so the composition lives in one place.
+// treasury donut for the current period, and a compact NclPanel per period
+// (newest first, gauge and links but no per-withdrawal table). Shared by the
+// /treasury redirect target (the budget discussion category) so the
+// composition lives in one place.
 import NclPanel from '@/components/ncl/NclPanel.astro';
 import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
 import type { TreasuryOverviewData } from '@/lib/treasury/overview.js';
@@ -40,6 +41,7 @@ const { treasuryLovelace, treasuryEpoch, currentStatus, periods } = data;
     windowWithdrawals={c.windowWithdrawals}
     definingLinks={c.definingLinks}
     relatedLinks={c.relatedLinks}
+    compact={true}
   />
 ))}
 
