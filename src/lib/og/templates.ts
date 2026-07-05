@@ -6,6 +6,7 @@
 // justify-content (it pushed the header logo off the left edge).
 
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
+import { fmtPctFine } from '../governance/view.js';
 import type { DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
@@ -67,20 +68,22 @@ function title(text: string): string {
   return `<div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:1010px;">${esc(text)}</div>`;
 }
 
-function tallyBlock(t: { yes: number; no: number; abstain: number }): string {
-  const seg = (w: number, c: string) => `<div style="display:flex;width:${w}%;height:20px;background:${c};"></div>`;
-  // A filled dot in the segment colour leads each label, matching the mockup.
-  const label = (n: number, name: string, color: string) =>
-    `<div style="display:flex;align-items:center;margin-right:34px;">
-      <div style="display:flex;width:16px;height:16px;border-radius:8px;background:${color};margin-right:10px;"></div>
-      <span style="font-size:40px;font-weight:800;color:${INK};">${Math.round(n)}%</span>
-      <span style="font-size:32px;font-weight:500;color:${MUTED};margin-left:8px;">${name}</span>
-    </div>`;
+// Number-led: the leading body's Yes-of-eligible share as a big figure, over a thin
+// bar whose green fill is that share and whose neutral remainder is everything else
+// (no, abstain and, dominant on low turnout, not-voted). The remainder is deliberately
+// left unlabeled here since the card has no room to split it honestly; the detail page
+// carries the full Yes / No / Not-voted breakdown.
+function tallyBlock(t: { yesPct: number; role: string }): string {
+  const yes = Math.min(100, Math.max(0, t.yesPct));
+  const bodyLabel = t.role === 'SPO' ? 'SPOs' : t.role === 'CC' ? 'the committee' : 'DReps';
   return `<div style="display:flex;flex-direction:column;">
-    <div style="display:flex;width:1010px;height:20px;border-radius:10px;overflow:hidden;background:${TRACK};">
-      ${seg(t.yes, TALLY.yes)}${seg(t.no, TALLY.no)}${seg(t.abstain, TALLY.abstain)}
+    <div style="display:flex;align-items:baseline;margin-bottom:14px;">
+      <span style="display:flex;font-size:64px;font-weight:800;color:${INK};">${fmtPctFine(yes)}</span>
+      <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:14px;">${bodyLabel} yes of eligible</span>
     </div>
-    <div style="display:flex;margin-top:12px;">${label(t.yes, 'Yes', TALLY.yes)}${label(t.no, 'No', TALLY.no)}${label(t.abstain, 'Abstain', TALLY.abstain)}</div>
+    <div style="display:flex;width:1010px;height:20px;border-radius:10px;overflow:hidden;background:${TRACK};">
+      <div style="display:flex;width:${yes}%;height:20px;background:${TALLY.yes};"></div>
+    </div>
   </div>`;
 }
 

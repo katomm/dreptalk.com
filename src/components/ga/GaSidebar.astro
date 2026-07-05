@@ -11,12 +11,12 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
-import type { StakeParticipation } from '@/lib/governance/view.js';
 
 interface Props {
   action: GovernanceAction;
   params: ProtocolParams | null;
-  stake: StakeParticipation | null;
+  // Total active DRep voting power, for the Voting Information card's DRep denominator.
+  drepStakeTotal: number | null;
   network: CardanoNetwork;
   topVoters: ActionVoterRow[];
   dreps: Map<string, Drep>;
@@ -28,7 +28,7 @@ interface Props {
   now: number;
 }
 
-const { action, params, stake, network, topVoters, dreps, related, slug, positionsTotal, rationaleCount, now } =
+const { action, params, drepStakeTotal, network, topVoters, dreps, related, slug, positionsTotal, rationaleCount, now } =
   Astro.props;
 ---
 
@@ -37,7 +37,7 @@ const { action, params, stake, network, topVoters, dreps, related, slug, positio
       promotes this sidebar's first child above the main column (the
       display:contents + order rules in pages/t/[slug].astro). */}
   <ActionStatusCard action={action} network={network} />
-  <VotingInfoCard action={action} params={params} stake={stake} now={now} />
+  <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} />
   <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} rationaleCount={rationaleCount} />
   <ProposerCard returnAddress={action.returnAddress} />
   <RelatedActionsCard actions={related} />

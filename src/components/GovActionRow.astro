@@ -2,18 +2,20 @@
 import {
   statusBadge,
   epochDaysLeft,
-  fmtPct,
+  fmtPctFine,
   overviewTally,
   overviewRowVoting,
   readableType,
   formatEpochDate,
   govTypeTone,
-  TONE_BAR_COLORS,
 } from '@/lib/governance/view.js';
+import CompositionBar from '@/components/ga/CompositionBar.astro';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 import { decodeOnchainChanges, summarizeOnchain, parameterChangeScope } from '@/lib/governance/onchain.js';
+import { evaluateThresholds, hasOnchainThreshold, type Body } from '@/lib/governance/thresholds.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { Topic } from '@/lib/db/forum.js';
 
 interface Props {
@@ -23,6 +25,7 @@ interface Props {
   proposerIcon?: string;   // bundled logo path for a known proposer
   drepStakeTotal: number | null;  // total active DRep voting power, for DRep turnout
   committeeSize: number | null;   // current CC seat count, for CC turnout
+  params: ProtocolParams | null;  // protocol params, for each row's threshold marker
   network: CardanoNetwork;
   now: number;             // render instant, for the wall-clock voting countdown
   href: string;
@@ -35,6 +38,7 @@ const {
   proposerIcon,
   drepStakeTotal,
   committeeSize,
+  params,
   network,
   now,
   href,
@@ -61,15 +65,32 @@ const tally = overviewTally(action);
 const votedLabel = tally?.role === 'SPO' ? 'SPOs' : 'DReps';
 const votedCount = tally?.voted ?? 0;
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
-// For a ParameterChange, whether the decoded payload touches a security-relevant
-// parameter (constitution PARAM-03a): SPOs are eligible to vote on such a change
-// from the start of voting, not only once a pool has actually cast one (see
-// overviewRowVoting's paramScope param). null/other types decode to null and the
-// flag stays false, matching their static DRep+CC eligibility.
-const paramTouchesSecurity =
-  parameterChangeScope(action.onchainPayload ?? null)?.touchesSecurity ?? false;
-// Per-body participation and current vote, the two columns this row renders.
+// Decoded once: for a ParameterChange, whether the payload touches a security-relevant
+// parameter (constitution PARAM-03a), which makes SPOs eligible from the start of
+// voting (see overviewRowVoting's paramScope param). parameterChangeScope returns null
+// for any non-ParameterChange payload, so the flag stays false for other types.
+const paramScope = parameterChangeScope(action.onchainPayload ?? null);
+const paramTouchesSecurity = paramScope?.touchesSecurity ?? false;
+// Per-body honest composition, the single voting column this row renders.
 const voting = overviewRowVoting(action, { drepStakeTotal, committeeSize }, { paramTouchesSecurity });
+// Ratification threshold per body, so each threshold-type row can place the same
+// marker the detail card shows. Null map for Info actions (no threshold) or before
+// params sync; looked up per body when drawing the bar.
+const thresholds =
+  hasOnchainThreshold(action.type) && params
+    ? evaluateThresholds(
+        {
+          type: action.type,
+          drepYesPct: action.drepYesPct,
+          spoYesPct: action.spoYesPct,
+          ccYesPct: action.ccYesPct,
+          paramScope,
+        },
+        params,
+      )
+    : null;
+const thresholdFor = (body: Body): number | null =>
+  thresholds?.find((t) => t.body === body)?.thresholdPct ?? null;
 // Calendar boundary of the expiry epoch (when voting closes). Both the countdown
 // and the "Voting ends" date derive from this same instant, so they stay in step.
 const expiryUnix =
@@ -111,89 +132,27 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
     </p>
   </div>
 
-  <!-- Participation: one row per eligible body, every bar the same neutral tone
-       (never green/red, never per-body colors; only Current vote is colored).
-       Desktop/tablet only; mobile shows the merged .garow__bodyrows list instead. -->
-  <div class="garow__participation garow__voterows garow__desktoponly">
+  <!-- Voting: one merged row per eligible body. The composition bar carries BOTH
+       facts at once, how full it is = turnout (Yes + No), the empty remainder = not
+       voted, and the green/red split within = sentiment. The percentage is the Yes
+       share of eligible power (ratification), so a low-turnout action reads honestly
+       (a near-empty bar), never as a false "100% yes". Raw amounts and threshold
+       context live on the detail page's Voting Information card. -->
+  <div class="garow__voting">
     {voting.bodies.map((b) => (
       <div class="vrow">
         <span class="vrow__label">{b.label}</span>
-        {b.participation != null ? (
+        {b.composition ? (
           <>
-            <div class="vrow__track" aria-hidden="true"><span class="vrow__fill vrow__fill--neutral" style={`width:${b.participation}%`}></span></div>
-            <span class="vrow__pct">{fmtPct(b.participation)}</span>
+            <div class="vrow__bar"><CompositionBar bar={b.composition} height={8} thresholdPct={thresholdFor(b.body)} compactMarker /></div>
+            <span class="vrow__pct">{fmtPctFine(b.composition.yes)}</span>
           </>
         ) : (
-          <span class="vrow__dash">no data</span>
-        )}
-      </div>
-    ))}  </div>
-
-  <!-- Current vote: one row per eligible body, green (yes) / red (no) / neutral
-       (abstain), matching TallyBar's tone palette. The raw amounts and the
-       ratification/advisory context live on the detail's Voting Information card.
-       Desktop/tablet only; mobile shows the merged .garow__bodyrows list instead. -->
-  <div class="garow__vote garow__voterows garow__desktoponly">
-    {voting.bodies.map((b) => (
-      <div class="vrow">
-        <span class="vrow__label">{b.label}</span>
-        {b.vote ? (
-          <>
-            <div class="vrow__track" aria-hidden="true">
-              <span class="vrow__fill" style={`width:${b.vote.yes}%;background:${TONE_BAR_COLORS.positive}`}></span>
-              <span class="vrow__fill" style={`width:${b.vote.no}%;background:${TONE_BAR_COLORS.negative}`}></span>
-              <span class="vrow__fill" style={`width:${b.vote.abstain}%;background:${TONE_BAR_COLORS.neutral}`}></span>
-            </div>
-            <span class="vrow__pct">{fmtPct(b.vote.yes)}</span>
-          </>
-        ) : (
-          <span class="vrow__dash">no vote</span>
+          <span class="vrow__dash">no votes</span>
         )}
       </div>
     ))}
   </div>
-
-  <!-- Mobile-only merged list: one row per body with BOTH its participation bar
-       and its current-vote bar side by side, replacing the two separate desktop
-       cells above (hidden below the 720px breakpoint via .garow__desktoponly). -->
-  <div class="garow__bodyrows garow__mobileonly">
-    <!-- Caption row: on mobile the desktop column headers (Participation /
-         Current vote) are gone, so without these the two percentages per body
-         would be unlabeled. -->
-    <div class="bodyrow bodyrow--head">
-      <span class="bodyrow__label"></span>
-      <span class="bodyrow__half bodyrow__caption">Participation</span>
-      <span class="bodyrow__half bodyrow__caption">Current vote</span>
-    </div>
-    {voting.bodies.map((b) => (
-      <div class="bodyrow">
-        <span class="bodyrow__label">{b.label}</span>
-        <span class="bodyrow__half">
-          {b.participation != null ? (
-            <>
-              <div class="vrow__track" aria-hidden="true"><span class="vrow__fill vrow__fill--neutral" style={`width:${b.participation}%`}></span></div>
-              <span class="vrow__pct">{fmtPct(b.participation)}</span>
-            </>
-          ) : (
-            <span class="vrow__dash">no data</span>
-          )}
-        </span>
-        <span class="bodyrow__half">
-          {b.vote ? (
-            <>
-              <div class="vrow__track" aria-hidden="true">
-                <span class="vrow__fill" style={`width:${b.vote.yes}%;background:${TONE_BAR_COLORS.positive}`}></span>
-                <span class="vrow__fill" style={`width:${b.vote.no}%;background:${TONE_BAR_COLORS.negative}`}></span>
-                <span class="vrow__fill" style={`width:${b.vote.abstain}%;background:${TONE_BAR_COLORS.neutral}`}></span>
-              </div>
-              <span class="vrow__pct">{fmtPct(b.vote.yes)}</span>
-            </>
-          ) : (
-            <span class="vrow__dash">no vote</span>
-          )}
-        </span>
-      </div>
-    ))}  </div>
 
   <!-- Two activity stats. They stack on the desktop grid; on mobile they sit side
        by side as the footer's left/right halves (the time block takes its own row). -->
@@ -231,9 +190,9 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
 </a>
 
 <style>
-  /* Five columns on wide screens: action, participation, current vote, activity,
-     time. The header grid in c/[slug].astro mirrors this at every breakpoint. */
-  .garow { display:grid; grid-template-columns:2.2fr 1.2fr 1.3fr 0.95fr 1.35fr; gap:18px; align-items:start;
+  /* Four columns on wide screens: action, voting, activity, time. The header grid in
+     c/[slug].astro mirrors this at every breakpoint. */
+  .garow { display:grid; grid-template-columns:2.2fr 1.7fr 0.9fr 1.3fr; gap:18px; align-items:start;
     padding:16px 18px; border-bottom:1px solid var(--border); text-decoration:none; color:var(--fg); }
   .garow:hover { background:var(--surface); }
   /* Let the cell shrink below its content width so the abstract truncates with an
@@ -272,31 +231,16 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .garow__pico--ident { display:inline-block; width:14px; height:14px; overflow:hidden; }
   .garow__pico--ident :global(svg) { width:100%; height:100%; display:block; }
 
-  /* Per-body rows shared by Participation and Current vote: a compact label +
-     bar + percentage per eligible body (DRep/SPO/CC), stacked vertically. */
-  .garow__voterows { min-width:0; display:flex; flex-direction:column; gap:7px; }
+  /* Voting cell: a compact label + composition bar + Yes-of-eligible percentage per
+     eligible body (DRep/SPO/CC), stacked vertically. The single bar shows turnout
+     (how full) and sentiment (green/red split) at once. */
+  .garow__voting { min-width:0; display:flex; flex-direction:column; gap:7px; }
   .vrow { display:flex; align-items:center; gap:7px; min-width:0; }
   .vrow__label { flex:0 0 auto; width:3.4em; color:var(--muted); font-size:0.72rem;
     font-weight:600; white-space:nowrap; }
-  .vrow__track { flex:1 1 auto; min-width:0; display:flex; height:7px; border-radius:999px;
-    overflow:hidden; background:var(--surface-2); border:1px solid var(--border); }
-  .vrow__fill { height:100%; }
-  /* Participation is always this one neutral tone, never a body-specific or
-     sentiment color: it measures turnout, not opinion. */
-  .vrow__fill--neutral { background:var(--muted); }
-  .vrow__pct { flex:0 0 auto; width:3em; text-align:right; font-weight:600; font-size:0.78rem; }
-  .vrow__dash { color:var(--muted); font-size:0.75rem; }
-
-  /* The merged mobile body-rows list is hidden on wide screens; the two separate
-     desktop cells are hidden below the mobile breakpoint (see @media below). */
-  .garow__mobileonly { display:none; flex-direction:column; gap:7px; }
-  .bodyrow { display:flex; align-items:center; gap:8px; min-width:0; }
-  .bodyrow__label { flex:0 0 auto; width:3.4em; color:var(--muted); font-size:0.72rem;
-    font-weight:600; white-space:nowrap; }
-  .bodyrow__half { flex:1 1 0; min-width:0; display:flex; align-items:center; gap:6px; }
-  .bodyrow--head { margin-bottom:-2px; }
-  .bodyrow__caption { color:var(--muted); font-size:0.6rem; font-weight:600;
-    text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
+  .vrow__bar { flex:1 1 auto; min-width:0; }
+  .vrow__pct { flex:0 0 auto; width:3.4em; text-align:right; font-weight:600; font-size:0.78rem; }
+  .vrow__dash { flex:1 1 auto; color:var(--muted); font-size:0.75rem; }
 
   .garow__activity { display:flex; flex-direction:column; gap:3px; }
   .garow__stat { display:flex; flex-direction:column; gap:3px; min-width:0; }
@@ -319,15 +263,14 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .badge--neutral { background:var(--surface-2); color:var(--muted); }
   .badge--negative { background:color-mix(in srgb, var(--c-neg) 14%, transparent); color:var(--c-neg); }
 
-  /* Below the wide breakpoint there is no room for two side-by-side columns of
-     per-body bars, so both cells drop to full width and stack. */
+  /* Below the wide breakpoint the four columns tighten but stay a table row (the
+     merge to one voting column already freed the width the old 5-column layout
+     needed to reflow here). Header grid in c/[slug].astro mirrors these widths. */
   @media (max-width:1000px) {
-    .garow { grid-template-columns:2.6fr 1.6fr 1.3fr; }
-    .garow__participation, .garow__vote { grid-column:2 / 3; }
+    .garow { grid-template-columns:2fr 1.7fr 0.8fr 1.1fr; }
   }
-  /* Mobile: each row becomes a self-contained rounded card. Participation and
-     Current vote merge into one per-body list (each body shows both its
-     participation bar and its vote bar on one line) above a two-column footer
+  /* Mobile: each row becomes a self-contained rounded card. The voting cell keeps
+     its per-body composition list full width, above a two-column footer
      (comments | time). The list drops its table separators (in c/[slug].astro). */
   @media (max-width:720px) {
     .garow {
@@ -340,9 +283,7 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
       padding:14px 22px 14px 14px; /* right gutter holds the chevron */
     }
     .garow__main { grid-column:1 / -1; min-width:0; }
-    /* Swap the two separate desktop cells for the merged per-body list. */
-    .garow__desktoponly { display:none; }
-    .garow__mobileonly { display:flex; grid-column:1 / -1; min-width:0; }
+    .garow__voting { grid-column:1 / -1; min-width:0; }
     /* Drop the proposer/epoch line on mobile: mostly a truncated stake address
        on a small screen; the proposer stays on the detail page. */
     .garow__meta { display:none; }
