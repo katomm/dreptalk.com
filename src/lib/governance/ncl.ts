@@ -40,3 +40,17 @@ export function nclStatusFor(period: NclPeriod, withdrawals: Withdrawal[]): NclS
 export function currentNclPeriod(periods: NclPeriod[], epoch: number): NclPeriod | undefined {
   return periods.find((p) => epoch >= p.startEpoch && epoch <= p.endEpoch);
 }
+
+export type NclLifecycle = 'upcoming' | 'active' | 'completed';
+
+/**
+ * Where a period sits relative to the current epoch: not yet started, inside
+ * its window, or over. Unknown current epoch (e.g. protocol params not synced
+ * yet) defaults to 'active' so the UI doesn't guess a wrong lifecycle badge.
+ */
+export function nclLifecycle(period: NclPeriod, currentEpoch: number | null): NclLifecycle {
+  if (currentEpoch == null) return 'active';
+  if (currentEpoch < period.startEpoch) return 'upcoming';
+  if (currentEpoch > period.endEpoch) return 'completed';
+  return 'active';
+}

@@ -1,0 +1,264 @@
+---
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
+import { nclLifecycle } from '@/lib/governance/ncl.js';
+import { formatAda } from '@/lib/format/ada.js';
+import { epochStartMs } from '@/lib/config/network.js';
+import { currentNetwork } from '@/lib/api/response.js';
+
+// Public, low-churn: withdrawals change at most a few times per epoch.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+
+const db = env.DB as D1Database | undefined;
+const data = db ? await loadTreasuryOverview(db) : null;
+const card = data?.periods.find((c) => c.period.id === Astro.params.periodId);
+
+const notFound = !card;
+if (notFound) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+---
+
+{notFound || !card ? (
+  <NotFound noun="Period" />
+) : (
+  (() => {
+    const { period, status } = card;
+    const currentEpoch = data?.treasuryEpoch ?? null;
+    const lifecycle = nclLifecycle(period, currentEpoch);
+
+    const cfg = currentNetwork();
+    const daysLeft =
+      lifecycle === 'completed'
+        ? null
+        : Math.max(0, Math.round((epochStartMs(period.endEpoch + 1, cfg) - Date.now()) / 86400000));
+
+    const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
+
+    const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
+    const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
+    const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
+    const pct = Math.min(100, status.consumedPct);
+    const remainingPct = period.ceilingLovelace > 0n
+      ? Number((status.remainingLovelace * 1000n) / period.ceilingLovelace) / 10
+      : 0;
+    const epochSpan = period.endEpoch - period.startEpoch + 1;
+
+    const badgeLabel = lifecycle.toUpperCase();
+    const badgeStyle =
+      lifecycle === 'active'
+        ? 'background:var(--accent);color:var(--accent-fg);'
+        : lifecycle === 'completed'
+          ? 'background:color-mix(in srgb, var(--c-pos) 18%, transparent);color:var(--c-pos);'
+          : 'background:var(--surface-2);color:var(--muted);';
+
+    return (
+      <Layout
+        title={`${period.label} - Treasury - DRepTalk`}
+        description={`Net Change Limit status for ${period.label}: consumed, remaining, and enacted treasury withdrawals.`}
+        ogImage={`/og/treasury/${period.id}.png`}
+      >
+        <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+          <a href="/">DRepTalk</a>
+          <span style="margin:0 0.375rem;">/</span>
+          <a href="/treasury">Treasury</a>
+          <span style="margin:0 0.375rem;">/</span>
+          <span>{period.label}</span>
+        </nav>
+
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+          <h1 style="margin:0;">{period.label}</h1>
+          <span
+            style={`font-size:0.7rem;font-weight:700;letter-spacing:0.04em;padding:0.2rem 0.55rem;border-radius:999px;${badgeStyle}`}
+          >
+            {badgeLabel}
+          </span>
+        </div>
+
+        <div style="color:var(--muted);font-size:0.9375rem;line-height:1.7;margin-bottom:1.5rem;">
+          <div>Epochs {period.startEpoch} to {period.endEpoch}</div>
+          <div>
+            Set by: {card.definingLinks.map((l, i) => (
+              <>
+                <a href={l.href}>{l.title}</a>
+                {i < card.definingLinks.length - 1 ? ', ' : ''}
+              </>
+            ))}
+          </div>
+          {card.relatedLinks.length > 0 && (
+            <div>
+              Challenged by: {card.relatedLinks.map((l, i) => (
+                <>
+                  <a href={l.href}>{l.title}</a> <span>({statusLabel(l.status)})</span>
+                  {i < card.relatedLinks.length - 1 ? ', ' : ''}
+                </>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-card__label">Limit</div>
+            <div class="stat-card__value">{ceiling}</div>
+            <div class="stat-card__sub">for {epochSpan} epochs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__label">Consumed</div>
+            <div class="stat-card__value">{consumed}</div>
+            <div class="stat-card__sub" style="color:var(--accent);">{status.consumedPct}%</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__label">Remaining</div>
+            <div class="stat-card__value">{remaining}</div>
+            <div class="stat-card__sub">{remainingPct}%</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__label">End epoch</div>
+            <div class="stat-card__value">{period.endEpoch}</div>
+            <div class="stat-card__sub">
+              {lifecycle === 'completed' ? 'ended' : `~${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`}
+            </div>
+          </div>
+        </div>
+
+        <div class="usage">
+          <div class="usage__track">
+            <div class="usage__fill" style={`width:${pct}%`}></div>
+          </div>
+          <div class="usage__label">{status.consumedPct}% used</div>
+          <div class="usage__legend">
+            <span>Consumed <strong>{consumed}</strong></span>
+            <span>Remaining <strong>{remaining}</strong></span>
+            <span>Total limit <strong>{ceiling}</strong></span>
+          </div>
+        </div>
+
+        <h2 style="font-size:1.125rem;margin:2rem 0 0.75rem;">Withdrawals in this period</h2>
+        {card.windowWithdrawals.length === 0 ? (
+          <p style="color:var(--muted);font-style:italic;">No withdrawals enacted in this period yet.</p>
+        ) : (
+          <table class="withdrawals-table">
+            <thead>
+              <tr>
+                <th>Epoch</th>
+                <th>Withdrawal</th>
+                <th class="withdrawals-table__amount">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {card.windowWithdrawals.map((w) => (
+                <tr>
+                  <td>{w.enactedEpoch}</td>
+                  <td>{w.href ? <a href={w.href}>{w.title}</a> : w.title}</td>
+                  <td class="withdrawals-table__amount">{formatAda(String(w.lovelace))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <p style="color:var(--muted);font-size:0.8125rem;margin-top:1.5rem;">
+          The Net Change Limit caps the outflows, not the total balance.
+        </p>
+      </Layout>
+    );
+  })()
+)}
+
+<style>
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .stat-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    background: var(--surface);
+  }
+  .stat-card__label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin-bottom: 0.375rem;
+  }
+  .stat-card__value {
+    font-size: 1.375rem;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .stat-card__sub {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin-top: 0.25rem;
+  }
+
+  .usage {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    background: var(--surface);
+    margin-bottom: 1rem;
+  }
+  .usage__track {
+    height: 14px;
+    border-radius: 7px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+  .usage__fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 7px;
+  }
+  .usage__label {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
+  }
+  .usage__legend {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-top: 0.75rem;
+  }
+  .usage__legend strong {
+    color: var(--fg);
+  }
+
+  .withdrawals-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+  }
+  .withdrawals-table thead tr {
+    text-align: left;
+    color: var(--muted);
+  }
+  .withdrawals-table th,
+  .withdrawals-table td {
+    padding: 0.5rem 0.625rem;
+  }
+  .withdrawals-table tbody tr {
+    border-top: 1px solid var(--border);
+  }
+  .withdrawals-table a {
+    color: var(--accent);
+  }
+  .withdrawals-table__amount {
+    text-align: right;
+  }
+</style>
