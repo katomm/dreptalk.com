@@ -58,11 +58,13 @@ const showDonut = treasuryLovelace !== null && currentStatus !== null;
         relatedLinks={c.relatedLinks}
         compact={compact}
         showRelated={!compact}
-      />
+        stretch={compact}
+      >
+        {compact && detailHref && (
+          <a slot="footer" class="treasury-detail-cta" href={detailHref}>View all treasury withdrawals &gt;</a>
+        )}
+      </NclPanel>
     ))}
-    {compact && detailHref && (
-      <a class="treasury-detail-cta" href={detailHref}>View all treasury withdrawals &gt;</a>
-    )}
   </div>
 </div>
 
@@ -100,13 +102,18 @@ const showDonut = treasuryLovelace !== null && currentStatus !== null;
     flex: 1 1 320px;
     min-width: 0;
   }
-  /* The right column stacks the NclPanel card and the detail CTA in a
-     flex column so the CTA can be pinned to the bottom, filling any
-     leftover height so the two columns line up evenly. */
+  /* The right column holds a single stretched NclPanel card (with the
+     detail CTA pinned inside its footer), so it just needs to stretch
+     to the row's full height; the panel itself fills the column. */
   .treasury-row__col--ncl {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+  }
+  /* Grow the panel to fill the stretched column so it matches the donut
+     box height. A stretched flex item does not give percentage heights a
+     definite base, so grow the panel instead of relying on height 100%. */
+  .treasury-row__col--ncl :global(.ncl-panel) {
+    flex: 1;
   }
   /* Reset the top margins inside the row so the donut column aligns
      flush with the top of the NclPanel column (NclPanel's own margin
@@ -142,15 +149,16 @@ const showDonut = treasuryLovelace !== null && currentStatus !== null;
     color: var(--accent);
   }
 
-  /* Compact mode CTA: pinned to the bottom of the right column so it
-     both reads as a clear call to action and helps the two columns
-     reach equal height. Styled like the site's secondary button. */
+  /* Compact mode CTA: rendered inside the NclPanel's footer slot, which
+     pins it to the bottom of the (stretched) card so it both reads as a
+     clear call to action and helps the two columns reach equal height.
+     Styled like the site's secondary button. */
   .treasury-detail-cta {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
-    margin-top: auto;
+    margin-top: 1rem;
     padding: 0.7rem 1.15rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);

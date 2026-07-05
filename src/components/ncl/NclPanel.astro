@@ -16,6 +16,10 @@ interface Props {
   compact?: boolean;
   /** When false, hide the "Related actions" list even if present. Default true. */
   showRelated?: boolean;
+  /** When true, the card fills 100% of its parent's height and pins any
+   * footer slot content to the bottom. Used to match a sibling column's
+   * height in flex layouts. Default false (no layout change). */
+  stretch?: boolean;
 }
 
 const {
@@ -25,6 +29,7 @@ const {
   relatedLinks,
   compact = false,
   showRelated = true,
+  stretch = false,
 } = Astro.props;
 const { period } = status;
 
@@ -39,7 +44,7 @@ const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
 const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
 ---
 
-<section class="ncl-panel">
+<section class:list={['ncl-panel', { 'ncl-panel--stretch': stretch }]}>
   <div class="ncl-panel__head">
     <h2 class="ncl-panel__title">{period.label}</h2>
     <span class="ncl-panel__epochs">Epochs {period.startEpoch} to {period.endEpoch}</span>
@@ -101,6 +106,10 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
       </tbody>
     </table>
   )}
+
+  <div class="ncl-panel__footer">
+    <slot name="footer" />
+  </div>
 </section>
 
 <style>
@@ -110,6 +119,19 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
     padding: 1.25rem;
     margin: 1rem 0;
     background: var(--surface);
+  }
+
+  /* Stretch mode: fill the parent's height (e.g. to match a sibling flex
+     column) and pin the footer slot to the bottom. No effect on layout
+     when not set, and the footer div itself has no default box model
+     styling so it stays invisible when its slot is empty. */
+  .ncl-panel--stretch {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .ncl-panel--stretch .ncl-panel__footer {
+    margin-top: auto;
   }
 
   .ncl-panel__head {
