@@ -1,0 +1,183 @@
+---
+// Server-rendered donut showing the current Net Change Limit period as a
+// slice of the whole treasury. Pure CSS (conic-gradient), no JavaScript and no
+// chart library, so it stays CSP-safe and lean. The ring has three segments:
+// withdrawn this period, headroom left under the cap, and the rest of the
+// treasury outside this period's limit.
+import { formatAda } from '@/lib/format/ada.js';
+
+interface Props {
+  treasuryLovelace: bigint;
+  consumedLovelace: bigint;
+  remainingLovelace: bigint;
+  ceilingLovelace: bigint;
+  epoch: number | null;
+}
+
+const { treasuryLovelace, consumedLovelace, remainingLovelace, ceilingLovelace, epoch } = Astro.props;
+
+const t = treasuryLovelace;
+const consumedPct = Number((consumedLovelace * 10000n) / t) / 100;
+const headroomPct = Number((remainingLovelace * 10000n) / t) / 100;
+const s2 = consumedPct + headroomPct;
+const capPct = Math.round(Number((ceilingLovelace * 100n) / t));
+const restLovelace = t - ceilingLovelace;
+const restPct = Math.round((100 - capPct) * 10) / 10;
+
+const treasuryTotal = formatAda(String(treasuryLovelace)) ?? '0 ₳';
+const consumedAmount = formatAda(String(consumedLovelace)) ?? '0 ₳';
+const remainingAmount = formatAda(String(remainingLovelace)) ?? '0 ₳';
+const restAmount = formatAda(String(restLovelace)) ?? '0 ₳';
+
+const ring = `conic-gradient(var(--gov-hardfork, #b45309) 0 ${consumedPct}%, var(--c-pos) ${consumedPct}% ${s2}%, color-mix(in srgb, var(--muted) 30%, var(--surface)) ${s2}% 100%)`;
+
+const summary = `${capPct}% of the treasury is under the current Net Change Limit cap: ${consumedAmount} withdrawn this period, ${remainingAmount} of headroom left, and ${restAmount} outside the cap, out of a treasury total of ${treasuryTotal}${epoch !== null ? ` as of epoch ${epoch}` : ''}.`;
+---
+
+<div class="treasury-donut">
+  <p class="sr-only">{summary}</p>
+  <div class="treasury-donut__ring" style={`background:${ring}`} aria-hidden="true">
+    <div class="treasury-donut__hole">
+      <span class="treasury-donut__pct">{capPct}%</span>
+      <span class="treasury-donut__caption">of treasury under the NCL cap</span>
+    </div>
+  </div>
+  <div class="treasury-donut__side" aria-hidden="true">
+    <div class="treasury-donut__total">
+      <span class="treasury-donut__total-value">{treasuryTotal}</span>
+      {epoch !== null && <span class="treasury-donut__total-epoch">epoch {epoch}</span>}
+    </div>
+    <ul class="treasury-donut__legend">
+      <li>
+        <span class="treasury-donut__swatch treasury-donut__swatch--consumed"></span>
+        <span class="treasury-donut__legend-label">Withdrawn this period</span>
+        <span class="treasury-donut__legend-value">{consumedAmount} &middot; {consumedPct.toFixed(1)}% of treasury</span>
+      </li>
+      <li>
+        <span class="treasury-donut__swatch treasury-donut__swatch--headroom"></span>
+        <span class="treasury-donut__legend-label">NCL headroom left</span>
+        <span class="treasury-donut__legend-value">{remainingAmount} &middot; {headroomPct.toFixed(1)}% of treasury</span>
+      </li>
+      <li>
+        <span class="treasury-donut__swatch treasury-donut__swatch--rest"></span>
+        <span class="treasury-donut__legend-label">Outside this period's limit</span>
+        <span class="treasury-donut__legend-value">{restAmount} &middot; {restPct.toFixed(1)}% of treasury</span>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<style>
+  .treasury-donut {
+    display: flex;
+    align-items: center;
+    gap: 1.75rem;
+    flex-wrap: wrap;
+  }
+
+  .treasury-donut__ring {
+    flex: none;
+    width: 148px;
+    height: 148px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .treasury-donut__hole {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0.5rem;
+  }
+
+  .treasury-donut__pct {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--fg);
+    line-height: 1.1;
+  }
+
+  .treasury-donut__caption {
+    font-size: 0.7rem;
+    color: var(--muted);
+    line-height: 1.2;
+    margin-top: 0.15rem;
+  }
+
+  .treasury-donut__side {
+    flex: 1 1 260px;
+    min-width: 220px;
+  }
+
+  .treasury-donut__total {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+
+  .treasury-donut__total-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .treasury-donut__total-epoch {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .treasury-donut__legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .treasury-donut__legend li {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+  }
+
+  .treasury-donut__swatch {
+    flex: none;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 2px;
+    align-self: center;
+  }
+
+  .treasury-donut__swatch--consumed {
+    background: var(--gov-hardfork, #b45309);
+  }
+
+  .treasury-donut__swatch--headroom {
+    background: var(--c-pos);
+  }
+
+  .treasury-donut__swatch--rest {
+    background: color-mix(in srgb, var(--muted) 30%, var(--surface));
+  }
+
+  .treasury-donut__legend-label {
+    color: var(--fg);
+  }
+
+  .treasury-donut__legend-value {
+    color: var(--muted);
+  }
+</style>

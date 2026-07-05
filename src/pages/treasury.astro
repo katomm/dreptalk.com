@@ -4,11 +4,11 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import NclPanel from '@/components/ncl/NclPanel.astro';
+import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
 import { NCL_PERIODS } from '../../config/ncl-periods.js';
 import { nclStatusFor } from '@/lib/governance/ncl.js';
 import { getEnactedTreasuryWithdrawals, getNclActionLinks } from '@/lib/db/treasury.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
-import { formatAda } from '@/lib/format/ada.js';
 
 // Public, low-churn: withdrawals change at most a few times per epoch.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
@@ -21,7 +21,6 @@ const links = db ? await getNclActionLinks(db, allIds) : new Map();
 const params = db ? await getProtocolParams(db) : null;
 const currentEpoch = params?.epoch ?? null;
 const treasuryLovelace = params?.treasuryLovelace ? BigInt(params.treasuryLovelace) : null;
-const reservesLovelace = params?.reservesLovelace ? BigInt(params.reservesLovelace) : null;
 const treasuryEpoch = params?.treasuryEpoch ?? null;
 
 const linkList = (ids: string[]) => ids.map((id) => links.get(id)).filter((l): l is NonNullable<typeof l> => !!l);
@@ -37,7 +36,9 @@ const cards = periods.map((p) => ({
   relatedLinks: linkList(p.relatedActionIds),
 }));
 
-const currentId = periods.find((p) => currentEpoch != null && currentEpoch >= p.startEpoch && currentEpoch <= p.endEpoch)?.id ?? periods[0]?.id;
+const currentPeriod = periods.find((p) => currentEpoch != null && currentEpoch >= p.startEpoch && currentEpoch <= p.endEpoch) ?? periods[0];
+const currentId = currentPeriod?.id;
+const currentStatus = currentPeriod ? nclStatusFor(currentPeriod, withdrawals) : null;
 ---
 
 <Layout
@@ -58,21 +59,15 @@ const currentId = periods.find((p) => currentEpoch != null && currentEpoch >= p.
     below sum enacted treasury withdrawals against the limit each period.
   </p>
 
-  {treasuryLovelace !== null && (
+  {treasuryLovelace !== null && currentStatus !== null && (
     <div class="treasury-summary">
-      <div class="treasury-summary__figures">
-        <div class="treasury-summary__figure">
-          <span class="treasury-summary__label">Cardano Treasury</span>
-          <span class="treasury-summary__value">{formatAda(String(treasuryLovelace))}</span>
-        </div>
-        {reservesLovelace !== null && (
-          <div class="treasury-summary__figure">
-            <span class="treasury-summary__label">Reserves</span>
-            <span class="treasury-summary__value">{formatAda(String(reservesLovelace))}</span>
-          </div>
-        )}
-      </div>
-      {treasuryEpoch !== null && <p class="treasury-summary__epoch">as of Epoch {treasuryEpoch}</p>}
+      <TreasuryDonut
+        treasuryLovelace={treasuryLovelace}
+        consumedLovelace={currentStatus.consumedLovelace}
+        remainingLovelace={currentStatus.remainingLovelace}
+        ceilingLovelace={currentStatus.period.ceilingLovelace}
+        epoch={treasuryEpoch}
+      />
       <p class="treasury-summary__caption">The Net Change Limit caps the outflows, not the total balance.</p>
     </div>
   )}
@@ -83,7 +78,6 @@ const currentId = periods.find((p) => currentEpoch != null && currentEpoch >= p.
       windowWithdrawals={c.windowWithdrawals}
       definingLinks={c.definingLinks}
       relatedLinks={c.relatedLinks}
-      treasuryLovelace={treasuryLovelace}
     />
   ))}
 </Layout>
@@ -95,32 +89,6 @@ const currentId = periods.find((p) => currentEpoch != null && currentEpoch >= p.
     padding: 1.25rem;
     margin: 1.5rem 0 1rem;
     background: var(--surface-2);
-  }
-  .treasury-summary__figures {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2rem;
-  }
-  .treasury-summary__figure {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-  }
-  .treasury-summary__label {
-    font-size: 0.8rem;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .treasury-summary__value {
-    font-size: 1.75rem;
-    font-weight: 600;
-    color: var(--fg);
-  }
-  .treasury-summary__epoch {
-    margin: 0.5rem 0 0;
-    font-size: 0.8rem;
-    color: var(--muted);
   }
   .treasury-summary__caption {
     margin: 0.5rem 0 0;
