@@ -690,7 +690,10 @@ export interface RowBodyVoting {
   body: Body;                   // 'DRep' | 'SPO' | 'CC'
   label: string;                // 'DReps' | 'SPOs' | 'CC'
   participation: number | null; // 0..100 turnout, null when unavailable
-  vote: TallyBar | null;        // yes/no(/abstain) bar; null when this body cast nothing
+  // Honest Yes/No/Not-voted composition over eligible power (the overview's single
+  // merged bar). Null when this body has no synced tally yet.
+  composition: CompositionBar | null;
+  vote: TallyBar | null;        // legacy yes/no(/abstain) bar; still read by headlineVote
   voteKind: BodyVoteKind;
   amounts: VoteAmounts | null;
 }
@@ -717,6 +720,22 @@ export function headlineVote(a: RowVotingInput): { bar: TallyBar; role: VoterRol
   }
   const any = bodies.find((x) => x.vote != null && (x.body === 'DRep' || x.body === 'SPO'));
   return any?.vote ? { bar: any.vote, role: any.body as VoterRole } : null;
+}
+
+/**
+ * The single leading body's honest Yes-of-eligible share for the compact OG card. Same
+ * leading-body pick as headlineVote (SPO-led types lead with SPO, else DRep), but returns
+ * the ratification composition (whose .yes is the stored yesPct, denominator-independent)
+ * so the share image leads with the same honest number the detail page shows. Returns null
+ * when no eligible body has a synced tally yet.
+ */
+export function headlineComposition(a: RowVotingInput): { yesPct: number; role: VoterRole } | null {
+  const { bodies } = overviewRowVoting(a, { drepStakeTotal: null, committeeSize: null });
+  const order: VoterRole[] = isSpoLedType(a.type) ? ['SPO', 'DRep'] : ['DRep', 'SPO'];
+  const pick =
+    order.map((role) => bodies.find((x) => x.body === role && x.composition != null)).find(Boolean) ??
+    bodies.find((x) => x.composition != null && (x.body === 'DRep' || x.body === 'SPO'));
+  return pick?.composition ? { yesPct: pick.composition.yes, role: pick.body as VoterRole } : null;
 }
 
 /**
@@ -748,6 +767,7 @@ export function overviewRowVoting(
     body,
     label: BODY_LABEL[body],
     participation: participationFor(a, body, opts),
+    composition: bodyComposition(a, body, opts),
     vote: voteFor(a, body, kind),
     voteKind: kind,
     amounts: bodyVoteAmounts(a, body),

@@ -3,7 +3,7 @@
 // render. No I/O and no network config (the caller passes expiry-in-ms and the
 // avatar data URL), so this is unit-testable in isolation.
 
-import { epochCountdown, headlineVote, readableType, statusBadge } from '../governance/view.js';
+import { epochCountdown, headlineComposition, readableType, statusBadge } from '../governance/view.js';
 import type { RowVotingInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
 import { formatAdaCompact } from '../format/ada.js';
@@ -31,7 +31,9 @@ export interface GovCardModel {
   subtitle: string | null;
   status: { label: string; color: string; tint: string };
   meta: string;
-  tally: { yes: number; no: number; abstain: number; role: string } | null;
+  // Number-led headline: the leading body's Yes-of-eligible share. Denominator-independent
+  // (the stored ratification pct), so no non-voting stake is ever mislabeled as No.
+  tally: { yesPct: number; role: string } | null;
 }
 
 export function govCardModel(
@@ -44,7 +46,7 @@ export function govCardModel(
   const meta = [countdown, opts.proposerName ? `by ${opts.proposerName}` : null]
     .filter(Boolean)
     .join(', ');
-  const t = headlineVote(a);
+  const t = headlineComposition(a);
 
   return {
     accent: accentForType(a.type),
@@ -54,7 +56,7 @@ export function govCardModel(
     subtitle: a.abstract ? excerptFromHtml(a.abstract, 140) : null,
     status: { label: badge.label, color: tone, tint: tint(tone) },
     meta,
-    tally: t ? { yes: t.bar.yes, no: t.bar.no, abstain: t.bar.abstain, role: t.role } : null,
+    tally: t ? { yesPct: t.yesPct, role: t.role } : null,
   };
 }
 
