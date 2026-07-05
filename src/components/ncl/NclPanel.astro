@@ -14,9 +14,18 @@ interface Props {
   definingLinks: NclActionLink[];
   relatedLinks: NclActionLink[];
   compact?: boolean;
+  /** When false, hide the "Related actions" list even if present. Default true. */
+  showRelated?: boolean;
 }
 
-const { status, windowWithdrawals, definingLinks, relatedLinks, compact = false } = Astro.props;
+const {
+  status,
+  windowWithdrawals,
+  definingLinks,
+  relatedLinks,
+  compact = false,
+  showRelated = true,
+} = Astro.props;
 const { period } = status;
 
 // Clamp the gauge fill so an over-budget period (consumedPct > 100) cannot
@@ -60,7 +69,7 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
         </>
       ))}
     </div>
-    {relatedLinks.length > 0 && (
+    {showRelated && relatedLinks.length > 0 && (
       <div class="ncl-panel__related">
         Related actions: {relatedLinks.map((l, i) => (
           <>

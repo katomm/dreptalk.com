@@ -24,6 +24,8 @@ const { treasuryLovelace, treasuryEpoch, currentStatus, periods } = data;
 const visiblePeriods = currentOnly
   ? periods.filter((c) => c.period.id === (currentStatus?.period.id ?? periods[0]?.period.id))
   : periods;
+
+const showDonut = treasuryLovelace !== null && currentStatus !== null;
 ---
 
 <p style="color:var(--muted);max-width:65ch;line-height:1.6;">
@@ -32,28 +34,34 @@ const visiblePeriods = currentOnly
   below sum enacted treasury withdrawals against the limit each period.
 </p>
 
-{treasuryLovelace !== null && currentStatus !== null && (
-  <div class="treasury-summary">
-    <TreasuryDonut
-      treasuryLovelace={treasuryLovelace}
-      consumedLovelace={currentStatus.consumedLovelace}
-      remainingLovelace={currentStatus.remainingLovelace}
-      ceilingLovelace={currentStatus.period.ceilingLovelace}
-      epoch={treasuryEpoch}
-    />
-    <p class="treasury-summary__caption">The Net Change Limit caps the outflows, not the total balance.</p>
+<div class:list={['treasury-row', { 'treasury-row--stacked': !compact }]}>
+  <div class="treasury-row__col">
+    {showDonut && currentStatus !== null && (
+      <div class="treasury-summary">
+        <TreasuryDonut
+          treasuryLovelace={treasuryLovelace}
+          consumedLovelace={currentStatus.consumedLovelace}
+          remainingLovelace={currentStatus.remainingLovelace}
+          ceilingLovelace={currentStatus.period.ceilingLovelace}
+          epoch={treasuryEpoch}
+        />
+        <p class="treasury-summary__caption">The Net Change Limit caps the outflows, not the total balance.</p>
+      </div>
+    )}
   </div>
-)}
-
-{visiblePeriods.map((c) => (
-  <NclPanel
-    status={c.status}
-    windowWithdrawals={c.windowWithdrawals}
-    definingLinks={c.definingLinks}
-    relatedLinks={c.relatedLinks}
-    compact={compact}
-  />
-))}
+  <div class="treasury-row__col">
+    {visiblePeriods.map((c) => (
+      <NclPanel
+        status={c.status}
+        windowWithdrawals={c.windowWithdrawals}
+        definingLinks={c.definingLinks}
+        relatedLinks={c.relatedLinks}
+        compact={compact}
+        showRelated={!compact}
+      />
+    ))}
+  </div>
+</div>
 
 {detailHref && (
   <p class="treasury-detail-link">
@@ -74,6 +82,46 @@ const visiblePeriods = currentOnly
     font-size: 0.85rem;
     color: var(--muted);
   }
+
+  /* Compact mode (e.g. /c/budget): donut and the single period card sit
+     side by side on desktop, each taking about half the width, and wrap
+     to a stacked layout (donut on top) on narrow viewports. */
+  .treasury-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  .treasury-row__col {
+    flex: 1 1 320px;
+    min-width: 0;
+  }
+  /* Reset the top margins inside the row so the donut column aligns
+     flush with the top of the NclPanel column (NclPanel's own margin
+     is scoped to its component, so override it globally here). */
+  .treasury-row .treasury-summary {
+    margin-top: 0;
+  }
+  .treasury-row__col :global(.ncl-panel) {
+    margin-top: 0;
+  }
+
+  /* Non-compact detail page (/treasury): keep the original stacked
+     layout unchanged, donut block on top, then each period card full
+     width below it. */
+  .treasury-row--stacked {
+    display: block;
+  }
+  .treasury-row--stacked .treasury-row__col {
+    display: block;
+  }
+  .treasury-row--stacked .treasury-summary {
+    margin: 1.5rem 0 1rem;
+  }
+  .treasury-row--stacked :global(.ncl-panel) {
+    margin: 1rem 0;
+  }
+
   .treasury-detail-link {
     margin: 1rem 0 0;
     font-size: 0.875rem;
