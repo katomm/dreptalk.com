@@ -80,25 +80,26 @@ if (notFound) {
           </span>
         </div>
 
-        <div style="color:var(--muted);font-size:0.9375rem;line-height:1.7;margin-bottom:1.5rem;">
-          <div>Epochs {period.startEpoch} to {period.endEpoch}</div>
-          <div>
+        <div class="period-meta">
+          <p class="period-meta__line">
+            Epochs {period.startEpoch} to {period.endEpoch}
+            <span class="period-meta__sep">•</span>
             Set by: {card.definingLinks.map((l, i) => (
               <>
                 <a href={l.href}>{l.title}</a>
                 {i < card.definingLinks.length - 1 ? ', ' : ''}
               </>
             ))}
-          </div>
+          </p>
           {card.relatedLinks.length > 0 && (
-            <div>
+            <p class="period-meta__challenged">
               Challenged by: {card.relatedLinks.map((l, i) => (
                 <>
-                  <a href={l.href}>{l.title}</a> <span>({statusLabel(l.status)})</span>
+                  <a href={l.href}>{l.title}</a>{' '}<span class="period-meta__status">({statusLabel(l.status)})</span>
                   {i < card.relatedLinks.length - 1 ? ', ' : ''}
                 </>
               ))}
-            </div>
+            </p>
           )}
         </div>
 
@@ -172,6 +173,33 @@ if (notFound) {
 )}
 
 <style>
+  .period-meta {
+    margin-bottom: 1.5rem;
+  }
+  .period-meta__line {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+  }
+  .period-meta__sep {
+    margin: 0 0.5rem;
+    opacity: 0.6;
+  }
+  .period-meta__challenged {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.7;
+  }
+  .period-meta a {
+    color: var(--accent);
+  }
+  .period-meta__status {
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
