@@ -9,6 +9,7 @@ import { nclLifecycle } from '@/lib/governance/ncl.js';
 import { formatAda } from '@/lib/format/ada.js';
 import { epochStartMs } from '@/lib/config/network.js';
 import { currentNetwork } from '@/lib/api/response.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
 
 // Public, low-churn: withdrawals change at most a few times per epoch.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
@@ -105,22 +106,45 @@ if (notFound) {
 
         <div class="stat-grid">
           <div class="stat-card">
-            <div class="stat-card__label">Limit</div>
+            <div class="stat-card__label">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l7 3v5c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6z" />
+              </svg>
+              Limit
+            </div>
             <div class="stat-card__value">{ceiling}</div>
             <div class="stat-card__sub">for {epochSpan} epochs</div>
           </div>
           <div class="stat-card">
-            <div class="stat-card__label">Consumed</div>
+            <div class="stat-card__label">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3a9 9 0 1 0 9 9h-9z" />
+                <path d="M12 3a9 9 0 0 1 9 9" />
+              </svg>
+              Consumed
+            </div>
             <div class="stat-card__value">{consumed}</div>
             <div class="stat-card__sub" style="color:var(--accent);">{status.consumedPct}%</div>
           </div>
           <div class="stat-card">
-            <div class="stat-card__label">Remaining</div>
+            <div class="stat-card__label">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 12l4-2" />
+              </svg>
+              Remaining
+            </div>
             <div class="stat-card__value">{remaining}</div>
             <div class="stat-card__sub">{remainingPct}%</div>
           </div>
           <div class="stat-card">
-            <div class="stat-card__label">End epoch</div>
+            <div class="stat-card__label">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="16" rx="2" />
+                <path d="M3 10h18M8 3v4M16 3v4" />
+              </svg>
+              End epoch
+            </div>
             <div class="stat-card__value">{period.endEpoch}</div>
             <div class="stat-card__sub">
               {lifecycle === 'completed' ? 'ended' : `~${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`}
@@ -140,7 +164,12 @@ if (notFound) {
           </div>
         </div>
 
-        <h2 style="font-size:1.125rem;margin:2rem 0 0.75rem;">Withdrawals in this period</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin:2rem 0 0.75rem;">
+          <h2 style="font-size:1.125rem;margin:0;">Withdrawals in this period</h2>
+          {card.windowWithdrawals.length > 0 && (
+            <a class="csv-btn" href={`/treasury/${period.id}.csv`} download>Download CSV</a>
+          )}
+        </div>
         {card.windowWithdrawals.length === 0 ? (
           <p style="color:var(--muted);font-style:italic;">No withdrawals enacted in this period yet.</p>
         ) : (
@@ -164,9 +193,10 @@ if (notFound) {
           </table>
         )}
 
-        <p style="color:var(--muted);font-size:0.8125rem;margin-top:1.5rem;">
-          The Net Change Limit caps the outflows, not the total balance.
-        </p>
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;color:var(--muted);font-size:0.8125rem;margin-top:1.5rem;">
+          <span>The Net Change Limit caps the outflows, not the total balance.</span>
+          {data?.syncedAt != null && <span>Data as of {formatRelativeTime(data.syncedAt, Date.now())}</span>}
+        </div>
       </Layout>
     );
   })()
@@ -213,12 +243,19 @@ if (notFound) {
     background: var(--surface);
   }
   .stat-card__label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 0.68rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--muted);
     margin-bottom: 0.375rem;
+  }
+  .stat-card__label svg {
+    flex-shrink: 0;
+    color: var(--muted);
   }
   .stat-card__value {
     font-size: 1.375rem;
@@ -288,5 +325,19 @@ if (notFound) {
   }
   .withdrawals-table__amount {
     text-align: right;
+  }
+
+  .csv-btn {
+    display: inline-block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .csv-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 </style>

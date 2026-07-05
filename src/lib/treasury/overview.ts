@@ -21,6 +21,8 @@ export interface TreasuryOverviewData {
   currentStatus: NclStatus | null;
   /** Newest period first. */
   periods: NclPeriodCard[];
+  /** Unix ms timestamp of the last protocol params sync, for a freshness note. */
+  syncedAt: number | null;
 }
 
 /**
@@ -71,5 +73,6 @@ export async function loadTreasuryOverview(db: D1Database): Promise<TreasuryOver
     currentEpoch,
     currentStatus,
     periods,
+    syncedAt: params?.syncedAt ?? null,
   };
 }
