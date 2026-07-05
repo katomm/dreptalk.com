@@ -16,7 +16,6 @@ import {
   fmtPct,
   fmtPctFine,
   overviewRowVoting,
-  bodyComposition,
   compositionAmounts,
   absentBodyNote,
 } from '@/lib/governance/view.js';
@@ -67,7 +66,7 @@ const rows = bodies.map((b) => {
   return {
     body: b.body,
     label: b.label,
-    composition: bodyComposition(action, b.body, opts),
+    composition: b.composition,
     amounts: compositionAmounts(action, b.body, opts),
     participation: b.participation,
     thresholdPct: t?.thresholdPct ?? null,

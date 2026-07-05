@@ -65,20 +65,17 @@ const tally = overviewTally(action);
 const votedLabel = tally?.role === 'SPO' ? 'SPOs' : 'DReps';
 const votedCount = tally?.voted ?? 0;
 const comments = Math.max(0, topic.post_count - 1); // exclude the system first post
-// For a ParameterChange, whether the decoded payload touches a security-relevant
-// parameter (constitution PARAM-03a): SPOs are eligible to vote on such a change
-// from the start of voting, not only once a pool has actually cast one (see
-// overviewRowVoting's paramScope param). null/other types decode to null and the
-// flag stays false, matching their static DRep+CC eligibility.
-const paramTouchesSecurity =
-  parameterChangeScope(action.onchainPayload ?? null)?.touchesSecurity ?? false;
+// Decoded once: for a ParameterChange, whether the payload touches a security-relevant
+// parameter (constitution PARAM-03a), which makes SPOs eligible from the start of
+// voting (see overviewRowVoting's paramScope param). parameterChangeScope returns null
+// for any non-ParameterChange payload, so the flag stays false for other types.
+const paramScope = parameterChangeScope(action.onchainPayload ?? null);
+const paramTouchesSecurity = paramScope?.touchesSecurity ?? false;
 // Per-body honest composition, the single voting column this row renders.
 const voting = overviewRowVoting(action, { drepStakeTotal, committeeSize }, { paramTouchesSecurity });
 // Ratification threshold per body, so each threshold-type row can place the same
 // marker the detail card shows. Null map for Info actions (no threshold) or before
 // params sync; looked up per body when drawing the bar.
-const paramScope =
-  action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload ?? null) : null;
 const thresholds =
   hasOnchainThreshold(action.type) && params
     ? evaluateThresholds(

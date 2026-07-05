@@ -6,7 +6,6 @@
 
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import type { Body } from './thresholds.js';
-import { hasOnchainThreshold } from './thresholds.js';
 import type { VotingSummary } from '../koios/client.js';
 
 // Re-exported so governance components keep importing the ADA formatters from
@@ -152,26 +151,6 @@ export function tallyBar(yesPct: number | null, noPct: number | null): TallyBar 
 function clampPct(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.min(100, Math.max(0, n));
-}
-
-/**
- * A yes/no/abstain bar from the votes actually CAST: the three inputs are the cast
- * yes/no/abstain quantities (vote power in lovelace for DRep/SPO, member counts for CC).
- * Segments are their shares of the cast total, so non-voting stake is never counted as No.
- * Returns null when nothing was cast (render "no votes", not a bar). Contrast tallyBar,
- * which works off total-stake percentages and folds non-voters into the No side.
- */
-export function castVoteBar(
-  yes: number | null,
-  no: number | null,
-  abstain: number | null,
-): TallyBar | null {
-  const y = yes ?? 0;
-  const n = no ?? 0;
-  const a = abstain ?? 0;
-  const total = y + n + a;
-  if (!(total > 0)) return null;
-  return { yes: (y / total) * 100, no: (n / total) * 100, abstain: (a / total) * 100 };
 }
 
 /** Parses a Koios lovelace power string to a number; null when absent. */
@@ -398,116 +377,6 @@ export function overviewTally(a: RoleTallyInput): OverviewTally | null {
   return null;
 }
 
-export interface StakeParticipation {
-  pct: number;          // 0..100
-  votedLabel: string;   // "3.21B ₳"
-  totalLabel: string;   // "6.66B ₳"
-}
-
-/** Turnout from voted vs total DRep voting power (lovelace). Null if no total. */
-export function stakeParticipation(votedLovelace: number, totalLovelace: number): StakeParticipation | null {
-  if (!Number.isFinite(totalLovelace) || totalLovelace <= 0) return null;
-  if (!Number.isFinite(votedLovelace)) return null;
-  const pct = Math.min(100, Math.max(0, (votedLovelace / totalLovelace) * 100));
-  // Two fraction digits so billions-scale totals stay distinguishable (3.21B vs 3.2B).
-  const voted = formatAdaCompact(votedLovelace, 2) ?? '0 ₳';
-  const total = formatAdaCompact(totalLovelace, 2) ?? '0 ₳';
-  return { pct, votedLabel: voted, totalLabel: total };
-}
-
-// The per-body amount fields the gauge breakdown reads. A subset of
-// GovernanceAction, so the full action is assignable without a cast. DRep/SPO use
-// per-option vote power (lovelace); CC uses member counts (it has no stake).
-export interface BodyVoteInput {
-  drepYesPower: number | null; drepNoPower: number | null; drepAbstainPower: number | null;
-  spoYesPower: number | null; spoNoPower: number | null; spoAbstainPower: number | null;
-  ccYes: number | null; ccNo: number | null; ccAbstain: number | null;
-}
-
-// Pre-formatted yes/no/abstain amounts for a body: compact ADA for DRep/SPO,
-// plain member counts for CC.
-export interface VoteAmounts {
-  yes: string;
-  no: string;
-  abstain: string;
-}
-
-// Compact ADA amounts (DRep/SPO power, lovelace). A present-but-zero option still
-// renders "0 ₳"; only an all-absent body yields null (no tally to show).
-function adaAmounts(yes: number | null, no: number | null, abstain: number | null): VoteAmounts | null {
-  if (yes == null && no == null && abstain == null) return null;
-  return {
-    yes: formatAdaCompact(yes ?? 0) ?? '0 ₳',
-    no: formatAdaCompact(no ?? 0) ?? '0 ₳',
-    abstain: formatAdaCompact(abstain ?? 0) ?? '0 ₳',
-  };
-}
-
-// CC amounts are member counts, not stake.
-function countAmounts(yes: number | null, no: number | null, abstain: number | null): VoteAmounts | null {
-  if (yes == null && no == null && abstain == null) return null;
-  return { yes: String(yes ?? 0), no: String(no ?? 0), abstain: String(abstain ?? 0) };
-}
-
-/**
- * The yes/no/abstain breakdown for one voting body, for the sidebar gauge. DRep
- * and SPO show per-option vote power as compact ADA; CC shows member counts (it
- * has no stake). The gauge fill itself is yesPct (ratification scale, so the
- * threshold marker lines up); these amounts give the stake/seats behind each
- * option. Returns null when the body has no data (e.g. power not yet backfilled).
- */
-export function bodyVoteAmounts(a: BodyVoteInput, body: Body): VoteAmounts | null {
-  switch (body) {
-    case 'DRep':
-      return adaAmounts(a.drepYesPower, a.drepNoPower, a.drepAbstainPower);
-    case 'SPO':
-      return adaAmounts(a.spoYesPower, a.spoNoPower, a.spoAbstainPower);
-    case 'CC':
-      return countAmounts(a.ccYes, a.ccNo, a.ccAbstain);
-  }
-}
-
-// The cast-vote + amount fields the advisory (InfoAction) breakdown reads. A subset of
-// GovernanceAction, so the full action is assignable without a cast.
-export type AdvisoryTallyInput = BodyVoteInput;
-
-export interface AdvisoryBodyTally {
-  body: Body;               // 'DRep' | 'SPO' | 'CC'
-  label: string;            // human label for the row header
-  bar: TallyBar | null;     // null when this body has no synced tally yet
-  amounts: VoteAmounts | null;
-}
-
-// Fixed body order and labels for the advisory breakdown. DRep first (the richest
-// signal), then SPO, then CC.
-const ADVISORY_BODIES: readonly { body: Body; label: string }[] = [
-  { body: 'DRep', label: 'DReps' },
-  { body: 'SPO', label: 'SPOs' },
-  { body: 'CC', label: 'Constitutional Committee' },
-];
-
-/**
- * Per-body yes/no/abstain tallies for an advisory action (InfoAction), one entry for
- * each of DRep, SPO, CC in fixed order. Unlike overviewTally (which picks a single
- * leading role) this always returns all three bodies so a reader can see how each one
- * voted, including a body addressed by the action text that has not voted yet. Each
- * body's bar comes from the votes actually cast (via castVoteBar), not total-stake
- * percentages, so low-participation actions never render as a false "against" majority.
- * The bar is null when nothing was cast; amounts come from bodyVoteAmounts and are null
- * only when that body's fields were never synced at all.
- */
-export function advisoryBodyTallies(a: AdvisoryTallyInput): AdvisoryBodyTally[] {
-  return ADVISORY_BODIES.map(({ body, label }) => {
-    const bar =
-      body === 'DRep'
-        ? castVoteBar(a.drepYesPower, a.drepNoPower, a.drepAbstainPower)
-        : body === 'SPO'
-          ? castVoteBar(a.spoYesPower, a.spoNoPower, a.spoAbstainPower)
-          : castVoteBar(a.ccYes, a.ccNo, a.ccAbstain);
-    return { body, label, bar, amounts: bodyVoteAmounts(a, body) };
-  });
-}
-
 // Which of DRep/SPO/CC vote per CIP-1694 for each action type. Mirrors the
 // threshold plan() in thresholds.ts, minus the ParameterChange payload nuance
 // (touchesSecurity/groups): ParameterChange defaults to its always-present
@@ -584,19 +453,6 @@ export function absentBodyNote(
   return `${absent.map((body) => BODY_LABEL[body]).join(' and ')} do not vote on ${readableType(a.type).toLowerCase()}`;
 }
 
-// Ratification yes-pct per body: the stored, already-recomputed percentage
-// (spoYesPct already reflects the spoTallyPct hard-fork fix from sync time; see
-// tallyFields in tallySync.ts). Null when that body's tally has not synced yet.
-function ratificationYesPct(a: RowVotingInput, body: Body): number | null {
-  switch (body) {
-    case 'DRep':
-      return a.drepYesPct;
-    case 'SPO':
-      return a.spoYesPct;
-    case 'CC':
-      return a.ccYesPct;
-  }
-}
 
 /**
  * Turnout (0..100) for one body; null when its denominator is unknown or zero.
@@ -634,25 +490,6 @@ function participationFor(
   }
 }
 
-/** Current-vote bar for one body: ratification pct for threshold types, cast-vote
-    shares (advisory) for InfoAction. Null when the underlying data is absent. */
-function voteFor(a: RowVotingInput, body: Body, kind: BodyVoteKind): TallyBar | null {
-  if (kind === 'ratification') {
-    const p = ratificationYesPct(a, body);
-    if (p == null) return null;
-    const yes = clampPct(p);
-    return { yes, no: clampPct(100 - yes), abstain: 0 };
-  }
-  switch (body) {
-    case 'DRep':
-      return castVoteBar(a.drepYesPower, a.drepNoPower, a.drepAbstainPower);
-    case 'SPO':
-      return castVoteBar(a.spoYesPower, a.spoNoPower, a.spoAbstainPower);
-    case 'CC':
-      return castVoteBar(a.ccYes, a.ccNo, a.ccAbstain);
-  }
-}
-
 // The fields overviewRowVoting reads off a governance action: type (for
 // eligibility + ratification-vs-advisory), the per-body tallies, cast vote
 // power/counts, and the participation numerators. A subset of GovernanceAction,
@@ -684,8 +521,6 @@ export interface RowVotingInput {
   spoEligiblePower: number | null;
 }
 
-export type BodyVoteKind = 'ratification' | 'advisory';
-
 export interface RowBodyVoting {
   body: Body;                   // 'DRep' | 'SPO' | 'CC'
   label: string;                // 'DReps' | 'SPOs' | 'CC'
@@ -693,9 +528,6 @@ export interface RowBodyVoting {
   // Honest Yes/No/Not-voted composition over eligible power (the overview's single
   // merged bar). Null when this body has no synced tally yet.
   composition: CompositionBar | null;
-  vote: TallyBar | null;        // legacy yes/no(/abstain) bar; still read by headlineVote
-  voteKind: BodyVoteKind;
-  amounts: VoteAmounts | null;
 }
 
 export interface OverviewRowVoting {
@@ -704,57 +536,32 @@ export interface OverviewRowVoting {
 }
 
 /**
- * The single leading body's honest current-vote bar for the compact surfaces (OG card).
- * SPO-led types (see isSpoLedType) lead with SPO, all others with DRep; falls back to
- * the next body with a vote, then to any body with a vote. Type-dependent (ratification
- * vs among-cast) exactly as overviewRowVoting, so the share image matches the site.
- * Participation is not needed here (only the per-body vote bar), so the opts are passed
- * as null. Returns null when no eligible body has cast a vote yet.
- */
-export function headlineVote(a: RowVotingInput): { bar: TallyBar; role: VoterRole } | null {
-  const { bodies } = overviewRowVoting(a, { drepStakeTotal: null, committeeSize: null });
-  const order: VoterRole[] = isSpoLedType(a.type) ? ['SPO', 'DRep'] : ['DRep', 'SPO'];
-  for (const role of order) {
-    const b = bodies.find((x) => x.body === role && x.vote != null);
-    if (b?.vote) return { bar: b.vote, role };
-  }
-  const any = bodies.find((x) => x.vote != null && (x.body === 'DRep' || x.body === 'SPO'));
-  return any?.vote ? { bar: any.vote, role: any.body as VoterRole } : null;
-}
-
-/**
- * The single leading body's honest Yes-of-eligible share for the compact OG card. Same
- * leading-body pick as headlineVote (SPO-led types lead with SPO, else DRep), but returns
- * the ratification composition (whose .yes is the stored yesPct, denominator-independent)
- * so the share image leads with the same honest number the detail page shows. Returns null
- * when no eligible body has a synced tally yet.
+ * The single leading body's honest Yes-of-eligible share for the compact OG card. SPO-led
+ * types (see isSpoLedType) lead with SPO, all others with DRep; `order` covers both, so the
+ * first with a synced composition wins. Its .yes is the stored ratification pct (denominator
+ * independent), so the share image leads with the same honest number the detail page shows.
+ * Returns null when no eligible body has a synced tally yet.
  */
 export function headlineComposition(a: RowVotingInput): { yesPct: number; role: VoterRole } | null {
   const { bodies } = overviewRowVoting(a, { drepStakeTotal: null, committeeSize: null });
   const order: VoterRole[] = isSpoLedType(a.type) ? ['SPO', 'DRep'] : ['DRep', 'SPO'];
-  const pick =
-    order.map((role) => bodies.find((x) => x.body === role && x.composition != null)).find(Boolean) ??
-    bodies.find((x) => x.composition != null && (x.body === 'DRep' || x.body === 'SPO'));
+  const pick = order.map((role) => bodies.find((x) => x.body === role && x.composition != null)).find(Boolean);
   return pick?.composition ? { yesPct: pick.composition.yes, role: pick.body as VoterRole } : null;
 }
 
 /**
- * Per-body voting model for the redesigned overview row: one entry per eligible
- * body (DRep/SPO/CC), each with a participation (turnout) percentage and a
- * current-vote bar. The vote bar is type-dependent: action types that carry an
- * on-chain ratification threshold (hasOnchainThreshold) show the ratification
- * percentage split (yes / 100-yes, no abstain segment, matching gov.tools);
- * InfoAction (no threshold) shows the among-cast advisory split instead (via
- * castVoteBar), since there is no ratification percentage to show. absentBodies
- * lists the CIP-1694-expected bodies this type does not use (e.g. SPO for a
- * treasury withdrawal), for the row's "does not vote here" note.
+ * Per-body voting model for the overview row: one entry per eligible body
+ * (DRep/SPO/CC), each with a participation (turnout) percentage and the honest
+ * Yes/No/Not-voted composition over eligible power. absentBodies lists the
+ * CIP-1694-expected bodies this type does not use (e.g. SPO for a treasury
+ * withdrawal), for the row's "does not vote here" note.
  *
  * paramScope.paramTouchesSecurity marks a ParameterChange whose decoded payload
  * touches a security-relevant parameter (constitution PARAM-03a): SPOs are
  * eligible on such a change from the start of voting, not only once a pool has
  * actually cast a vote (see eligibleBodies). It defaults to false, so callers
- * that do not pass it (e.g. headlineVote) keep the prior DRep+CC-only behavior
- * for ParameterChange until a body casts a vote.
+ * that do not pass it keep the prior DRep+CC-only behavior for ParameterChange
+ * until a body casts a vote.
  */
 export function overviewRowVoting(
   a: RowVotingInput,
@@ -762,15 +569,11 @@ export function overviewRowVoting(
   paramScope: { paramTouchesSecurity: boolean } = { paramTouchesSecurity: false },
 ): OverviewRowVoting {
   const eligible = eligibleBodies(a, paramScope.paramTouchesSecurity);
-  const kind: BodyVoteKind = hasOnchainThreshold(a.type) ? 'ratification' : 'advisory';
   const bodies: RowBodyVoting[] = eligible.map((body) => ({
     body,
     label: BODY_LABEL[body],
     participation: participationFor(a, body, opts),
     composition: bodyComposition(a, body, opts),
-    vote: voteFor(a, body, kind),
-    voteKind: kind,
-    amounts: bodyVoteAmounts(a, body),
   }));
   // absentBodies are the normally-expected CIP-1694 bodies (the full DRep/SPO/CC
   // set) that are not eligible here, e.g. SPO for a treasury withdrawal. Compared
@@ -785,9 +588,9 @@ export function overviewRowVoting(
  * A composition bar over one body's whole eligible voting power: Yes / No / Not
  * voted, summing to 100. Abstain is excluded from the denominator (the ledger
  * ratification rule), so it is not a segment; the abstained stake is surfaced
- * separately as a footnote. Unlike castVoteBar (share of votes actually cast, which
- * can read "100% yes" off a single voter) this never hides the silent majority: a
- * body where almost no stake voted renders a near-empty bar dominated by Not voted.
+ * separately as a footnote. Unlike a share of only the votes actually cast (which can
+ * read "100% yes" off a single voter) this never hides the silent majority: a body
+ * where almost no stake voted renders a near-empty bar dominated by Not voted.
  */
 export interface CompositionBar {
   yes: number;      // 0..100, equals the stored ratification pct (matches gov.tools)

@@ -6,6 +6,7 @@
 // justify-content (it pushed the header logo off the left edge).
 
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
+import { fmtPctFine } from '../governance/view.js';
 import type { DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
@@ -75,10 +76,9 @@ function title(text: string): string {
 function tallyBlock(t: { yesPct: number; role: string }): string {
   const yes = Math.min(100, Math.max(0, t.yesPct));
   const bodyLabel = t.role === 'SPO' ? 'SPOs' : t.role === 'CC' ? 'the committee' : 'DReps';
-  const pctText = yes > 0 && yes < 1 ? yes.toFixed(2) : yes < 100 ? yes.toFixed(1) : '100';
   return `<div style="display:flex;flex-direction:column;">
     <div style="display:flex;align-items:baseline;margin-bottom:14px;">
-      <span style="display:flex;font-size:64px;font-weight:800;color:${INK};">${pctText}%</span>
+      <span style="display:flex;font-size:64px;font-weight:800;color:${INK};">${fmtPctFine(yes)}</span>
       <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:14px;">${bodyLabel} yes of eligible</span>
     </div>
     <div style="display:flex;width:1010px;height:20px;border-radius:10px;overflow:hidden;background:${TRACK};">
