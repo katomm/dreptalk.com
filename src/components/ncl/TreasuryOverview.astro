@@ -1,0 +1,59 @@
+---
+// Renders the Treasury and Net Change Limit overview: an intro caption, the
+// treasury donut for the current period, and a full NclPanel per period
+// (newest first). Shared by the /treasury redirect target (the budget
+// discussion category) so the composition lives in one place.
+import NclPanel from '@/components/ncl/NclPanel.astro';
+import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
+import type { TreasuryOverviewData } from '@/lib/treasury/overview.js';
+
+interface Props {
+  data: TreasuryOverviewData;
+}
+
+const { data } = Astro.props;
+const { treasuryLovelace, treasuryEpoch, currentStatus, periods } = data;
+---
+
+<p style="color:var(--muted);max-width:65ch;line-height:1.6;">
+  The Net Change Limit caps how much ada may be withdrawn from the Cardano treasury in a period. It is set by
+  an Info governance action, so it is a community agreement rather than an automatic on-chain rule. The figures
+  below sum enacted treasury withdrawals against the limit each period.
+</p>
+
+{treasuryLovelace !== null && currentStatus !== null && (
+  <div class="treasury-summary">
+    <TreasuryDonut
+      treasuryLovelace={treasuryLovelace}
+      consumedLovelace={currentStatus.consumedLovelace}
+      remainingLovelace={currentStatus.remainingLovelace}
+      ceilingLovelace={currentStatus.period.ceilingLovelace}
+      epoch={treasuryEpoch}
+    />
+    <p class="treasury-summary__caption">The Net Change Limit caps the outflows, not the total balance.</p>
+  </div>
+)}
+
+{periods.map((c) => (
+  <NclPanel
+    status={c.status}
+    windowWithdrawals={c.windowWithdrawals}
+    definingLinks={c.definingLinks}
+    relatedLinks={c.relatedLinks}
+  />
+))}
+
+<style>
+  .treasury-summary {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    margin: 1.5rem 0 1rem;
+    background: var(--surface-2);
+  }
+  .treasury-summary__caption {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+</style>

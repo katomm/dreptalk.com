@@ -12,6 +12,8 @@ import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG } from '../../../co
 import { getTopicsByCategory, getTopicsByIds, type Topic } from '@/lib/db/forum.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { loadTreasuryOverview, type TreasuryOverviewData } from '@/lib/treasury/overview.js';
+import TreasuryOverview from '@/components/ncl/TreasuryOverview.astro';
 import {
   parseGovSort,
   GOV_SORTS,
@@ -48,9 +50,15 @@ const offset = pageToOffset(page, PAGE_SIZE);
 const now = Date.now();
 
 const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
+const isBudgetCategory = category?.slug === 'budget';
 // OG card per category kind: the governance-actions overview gets its own card,
-// discussion categories share the generic discussion card.
-const categoryOgImage = isGovernanceCategory ? '/og-governance-actions.jpg' : '/og/discussion.png';
+// the budget category shows the current treasury card (it embeds the treasury
+// overview below), other discussion categories share the generic discussion card.
+const categoryOgImage = isGovernanceCategory
+  ? '/og-governance-actions.jpg'
+  : isBudgetCategory
+    ? '/og/treasury/2026-27.png'
+    : '/og/discussion.png';
 // Governance actions are the flagship, most-shared category, so give them a
 // fuller SEO title and meta description. The meta description is deliberately
 // separate from the on-page category.description below (which stays a short
@@ -85,8 +93,14 @@ let drepStakeTotal: number | null = null;
 // nothing to disclose). Stake from the dreps sync, tallies from per-action sync.
 let stakeAsOf: number | null = null;
 let tallyAsOf: number | null = null;
+// Treasury overview embedded above the thread list, budget category only, so
+// no other category pays for this extra query.
+let treasuryOverview: TreasuryOverviewData | null = null;
 
 if (category && db) {
+  if (isBudgetCategory) {
+    treasuryOverview = await loadTreasuryOverview(db);
+  }
   if (isGovernanceCategory) {
     // Order and page in the database (O(page size), not O(all actions)). Trending reads
     // the gov-sync-materialized trending_score; the other modes order by raw lifecycle
@@ -216,6 +230,8 @@ const breadcrumbLd = {
         </p>
       </div>
     </div>
+
+    {treasuryOverview && <TreasuryOverview data={treasuryOverview} />}
 
     {isGovernanceCategory && (
       <div class="ga-controls">
