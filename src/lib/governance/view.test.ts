@@ -11,6 +11,7 @@ import {
   castVoteBar,
   voteTone,
   fmtPct,
+  fmtPctFine,
   stakeParticipation,
   formatEpochDate,
   govTypeTone,
@@ -22,6 +23,9 @@ import {
   bodyVoteAmounts,
   advisoryBodyTallies,
   overviewRowVoting,
+  compositionBar,
+  bodyComposition,
+  compositionAmounts,
   absentBodyNote,
   spoTallyPct,
   TERMINAL_STATUSES,
@@ -578,6 +582,130 @@ describe('headlineVote', () => {
 
   it('returns null when no body has a vote', () => {
     expect(headlineVote({ type: 'InfoAction' } as any)).toBeNull();
+  });
+});
+
+describe('fmtPctFine', () => {
+  it('keeps one decimal so a small ratification share is not rounded up (6.84 -> 6.8%, not 7%)', () => {
+    expect(fmtPctFine(6.84)).toBe('6.8%');
+    expect(fmtPctFine(0.4)).toBe('0.40%');
+    expect(fmtPctFine(66.666)).toBe('66.7%');
+    expect(fmtPctFine(100)).toBe('100%');
+    expect(fmtPctFine(0)).toBe('0%');
+  });
+});
+
+describe('compositionBar', () => {
+  it('returns null before any tally has synced (yesPct null)', () => {
+    expect(
+      compositionBar({ yesPct: null, yesStake: null, noStake: null, abstainStake: null, eligible: null }),
+    ).toBeNull();
+  });
+
+  it('pins Yes to the stored pct and splits the rest into No / Not voted by stake', () => {
+    // 5.33B eligible, 364.6M yes (6.84%), 479.6M no; the huge remainder never voted.
+    const bar = compositionBar({
+      yesPct: 6.84,
+      yesStake: 364_600_000,
+      noStake: 479_600_000,
+      abstainStake: 0,
+      eligible: 5_330_000_000,
+    })!;
+    expect(bar.yes).toBeCloseTo(6.84, 5);
+    expect(bar.splitKnown).toBe(true);
+    // Segments sum to 100, and Not voted dominates (the silent majority).
+    expect(bar.yes + bar.no + bar.notVoted).toBeCloseTo(100, 5);
+    expect(bar.notVoted).toBeGreaterThan(80);
+    // No is far smaller than Not voted, so the bar never reads as an opposition wall.
+    expect(bar.no).toBeLessThan(bar.notVoted);
+  });
+
+  it('never renders the SPO 100%-yes illusion: one yes voter is a sliver, not a full bar', () => {
+    const bar = compositionBar({
+      yesPct: 0.4,
+      yesStake: 44_000_000,
+      noStake: 0,
+      abstainStake: 0,
+      eligible: 11_020_000_000,
+    })!;
+    expect(bar.yes).toBeCloseTo(0.4, 5);
+    expect(bar.no).toBe(0);
+    expect(bar.notVoted).toBeCloseTo(99.6, 5);
+  });
+
+  it('excludes abstain from the denominator', () => {
+    // Everyone eligible either voted yes or abstained; with abstain removed, yes fills
+    // the whole (non-abstain) denominator, so nothing is left for No / Not voted.
+    const bar = compositionBar({
+      yesPct: 100,
+      yesStake: 500,
+      noStake: 0,
+      abstainStake: 500,
+      eligible: 1000,
+    })!;
+    expect(bar.yes).toBe(100);
+    expect(bar.no).toBe(0);
+    expect(bar.notVoted).toBe(0);
+  });
+
+  it('cannot split without an eligible denominator: remainder is Not voted, never No', () => {
+    const bar = compositionBar({
+      yesPct: 30,
+      yesStake: 300,
+      noStake: 200,
+      abstainStake: 0,
+      eligible: null,
+    })!;
+    expect(bar.splitKnown).toBe(false);
+    expect(bar.no).toBe(0);
+    expect(bar.notVoted).toBe(70);
+  });
+});
+
+describe('bodyComposition / compositionAmounts', () => {
+  const makeRow = (over: Partial<RowVotingInput>): RowVotingInput => ({
+    type: 'InfoAction',
+    drepYesPct: null, drepNoPct: null,
+    spoYesPct: null, spoNoPct: null,
+    ccYesPct: null, ccNoPct: null,
+    drepYes: null, drepNo: null, drepAbstain: null,
+    spoYes: null, spoNo: null, spoAbstain: null,
+    ccYes: null, ccNo: null, ccAbstain: null,
+    drepYesPower: null, drepNoPower: null, drepAbstainPower: null,
+    spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
+    drepVotedPower: null,
+    spoEligiblePower: null,
+    ...over,
+  });
+
+  it('DRep composition uses the total active DRep stake as the denominator', () => {
+    const a = makeRow({
+      drepYesPct: 6.84,
+      drepYesPower: 364_600_000, drepNoPower: 479_600_000, drepAbstainPower: 0,
+      drepVotedPower: 844_200_000,
+    });
+    const bar = bodyComposition(a, 'DRep', { drepStakeTotal: 5_330_000_000, committeeSize: null })!;
+    expect(bar.yes).toBeCloseTo(6.84, 5);
+    expect(bar.notVoted).toBeGreaterThan(80);
+  });
+
+  it('CC composition uses the committee seat count as the denominator', () => {
+    const a = makeRow({ ccYesPct: 80, ccYes: 4, ccNo: 1, ccAbstain: 0 });
+    const bar = bodyComposition(a, 'CC', { drepStakeTotal: null, committeeSize: 7 })!;
+    expect(bar.yes).toBe(80);
+    // 2 of 7 seats silent -> Not voted present, No the smaller slice.
+    expect(bar.notVoted).toBeGreaterThan(0);
+    expect(bar.no).toBeGreaterThan(0);
+  });
+
+  it('formats Not voted from the un-voted eligible stake and flags abstain', () => {
+    const a = makeRow({
+      drepYesPower: 364_600_000_000_000, drepNoPower: 479_600_000_000_000, drepAbstainPower: 31_500_000_000_000,
+      drepVotedPower: 875_700_000_000_000,
+    });
+    const amounts = compositionAmounts(a, 'DRep', { drepStakeTotal: 5_330_000_000_000_000, committeeSize: null })!;
+    expect(amounts.notVoted).not.toBe('—');
+    expect(amounts.hasAbstain).toBe(true);
   });
 });
 

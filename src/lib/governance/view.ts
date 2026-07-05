@@ -308,6 +308,18 @@ export function fmtPct(n: number): string {
   return `${n.toFixed(n > 0 && n < 1 ? 2 : 0)}%`;
 }
 
+/**
+ * Percentage with one decimal (two below 1%), for headline ratification shares where
+ * the plain integer rounding of fmtPct (6.84 -> "7%") would hide how small the real
+ * support is. Whole 100 stays "100%".
+ */
+export function fmtPctFine(n: number): string {
+  if (n <= 0) return '0%';
+  if (n < 1) return `${n.toFixed(2)}%`;
+  if (n < 100) return `${n.toFixed(1)}%`;
+  return `${n.toFixed(0)}%`;
+}
+
 // Which voter role leads a governance-action overview row. The detail header
 // always shows DRep + SPO + CC side by side; the compact row has space for one
 // tally, so we pick the role that actually decides the action.
@@ -747,4 +759,147 @@ export function overviewRowVoting(
   const eligibleSet = new Set(eligible);
   const absentBodies = BODY_ORDER.filter((body) => !eligibleSet.has(body));
   return { bodies, absentBodies };
+}
+
+/**
+ * A composition bar over one body's whole eligible voting power: Yes / No / Not
+ * voted, summing to 100. Abstain is excluded from the denominator (the ledger
+ * ratification rule), so it is not a segment; the abstained stake is surfaced
+ * separately as a footnote. Unlike castVoteBar (share of votes actually cast, which
+ * can read "100% yes" off a single voter) this never hides the silent majority: a
+ * body where almost no stake voted renders a near-empty bar dominated by Not voted.
+ */
+export interface CompositionBar {
+  yes: number;      // 0..100, equals the stored ratification pct (matches gov.tools)
+  no: number;       // 0..100
+  notVoted: number; // 0..100; yes + no + notVoted === 100 when the split is known
+  // False when the eligible denominator is unknown, so No and Not voted could not be
+  // split: the whole non-yes remainder is shown as a single neutral (Not voted) block
+  // rather than being guessed as opposition.
+  splitKnown: boolean;
+}
+
+/**
+ * Builds a Yes/No/Not-voted composition from the stored ratification percentage plus
+ * the raw stakes. The Yes segment is pinned to yesPct (the Koios ratification pct we
+ * already validate against gov.tools), so the headline number and the green segment
+ * always agree. The remaining 100 - yes is split into No and Not voted by the true
+ * ratio of their stakes; when the eligible denominator is missing we cannot split and
+ * show the remainder as Not voted (never as a false "No"). Returns null when no tally
+ * has synced yet (yesPct null), so callers render "no votes" instead of an empty bar.
+ */
+export function compositionBar(input: {
+  yesPct: number | null;
+  yesStake: number | null;
+  noStake: number | null;
+  abstainStake: number | null;
+  eligible: number | null;
+}): CompositionBar | null {
+  if (input.yesPct == null) return null;
+  const yes = clampPct(input.yesPct);
+  const remaining = Math.max(0, 100 - yes);
+  const yesStake = input.yesStake ?? 0;
+  const noStake = input.noStake ?? 0;
+  const abstainStake = input.abstainStake ?? 0;
+  const eligible = input.eligible;
+  if (eligible == null || !(eligible > 0)) {
+    return { yes, no: 0, notVoted: remaining, splitKnown: false };
+  }
+  // Denominator excludes abstain (ratification rule); Not voted is whatever eligible
+  // stake is left once Yes, No and Abstain are removed.
+  const denom = Math.max(0, eligible - abstainStake);
+  const notVotedStake = Math.max(0, denom - yesStake - noStake);
+  const rest = noStake + notVotedStake;
+  if (!(rest > 0)) return { yes, no: 0, notVoted: remaining, splitKnown: true };
+  return {
+    yes,
+    no: remaining * (noStake / rest),
+    notVoted: remaining * (notVotedStake / rest),
+    splitKnown: true,
+  };
+}
+
+/** compositionBar for one body, pulling the right stored pct, stakes and eligible
+    denominator (DRep total active stake / SPO eligible power / CC seat count). */
+export function bodyComposition(
+  a: RowVotingInput,
+  body: Body,
+  opts: { drepStakeTotal: number | null; committeeSize: number | null },
+): CompositionBar | null {
+  switch (body) {
+    case 'DRep':
+      return compositionBar({
+        yesPct: a.drepYesPct,
+        yesStake: a.drepYesPower,
+        noStake: a.drepNoPower,
+        abstainStake: a.drepAbstainPower,
+        eligible: opts.drepStakeTotal,
+      });
+    case 'SPO':
+      return compositionBar({
+        yesPct: a.spoYesPct,
+        yesStake: a.spoYesPower,
+        noStake: a.spoNoPower,
+        abstainStake: a.spoAbstainPower,
+        eligible: a.spoEligiblePower,
+      });
+    case 'CC':
+      return compositionBar({
+        yesPct: a.ccYesPct,
+        yesStake: a.ccYes,
+        noStake: a.ccNo,
+        abstainStake: a.ccAbstain,
+        eligible: opts.committeeSize,
+      });
+  }
+}
+
+// Pre-formatted amounts behind a composition bar: Yes / No / Not voted, plus the
+// abstained stake shown as an excluded footnote. ADA (compact) for DRep/SPO, member
+// counts for CC. notVoted/abstainExcluded are "—" when their denominator is unknown.
+export interface CompositionAmounts {
+  yes: string;
+  no: string;
+  notVoted: string;
+  abstainExcluded: string;
+  hasAbstain: boolean; // whether to render the abstain-excluded footnote at all
+}
+
+export function compositionAmounts(
+  a: RowVotingInput,
+  body: Body,
+  opts: { drepStakeTotal: number | null; committeeSize: number | null },
+): CompositionAmounts | null {
+  if (body === 'CC') {
+    const yes = a.ccYes ?? 0;
+    const no = a.ccNo ?? 0;
+    const abstain = a.ccAbstain ?? 0;
+    if (a.ccYes == null && a.ccNo == null && a.ccAbstain == null) return null;
+    const size = opts.committeeSize;
+    const notVoted = size != null ? Math.max(0, size - yes - no - abstain) : null;
+    return {
+      yes: String(yes),
+      no: String(no),
+      notVoted: notVoted != null ? String(notVoted) : '—',
+      abstainExcluded: String(abstain),
+      hasAbstain: abstain > 0,
+    };
+  }
+  const yesP = body === 'DRep' ? a.drepYesPower : a.spoYesPower;
+  const noP = body === 'DRep' ? a.drepNoPower : a.spoNoPower;
+  const abP = body === 'DRep' ? a.drepAbstainPower : a.spoAbstainPower;
+  if (yesP == null && noP == null && abP == null) return null;
+  const eligible = body === 'DRep' ? opts.drepStakeTotal : a.spoEligiblePower;
+  // Voted = yes + no + abstain; Not voted is the rest of the eligible power. For DRep
+  // we have the stored drepVotedPower; for SPO sum the cast options.
+  const voted =
+    body === 'DRep' ? a.drepVotedPower : (a.spoYesPower ?? 0) + (a.spoNoPower ?? 0) + (a.spoAbstainPower ?? 0);
+  const notVoted = eligible != null && voted != null ? Math.max(0, eligible - voted) : null;
+  return {
+    yes: formatAdaCompact(yesP ?? 0) ?? '0 ₳',
+    no: formatAdaCompact(noP ?? 0) ?? '0 ₳',
+    notVoted: notVoted != null ? (formatAdaCompact(notVoted) ?? '0 ₳') : '—',
+    abstainExcluded: formatAdaCompact(abP ?? 0) ?? '0 ₳',
+    hasAbstain: (abP ?? 0) > 0,
+  };
 }
