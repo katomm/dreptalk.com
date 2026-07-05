@@ -11,7 +11,7 @@ import Pager from '@/components/Pager.astro';
 import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByCategory, getTopicsByIds, type Topic } from '@/lib/db/forum.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
-import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams.js';
 import { loadTreasuryOverview, type TreasuryOverviewData } from '@/lib/treasury/overview.js';
 import TreasuryOverview from '@/components/ncl/TreasuryOverview.astro';
 import {
@@ -83,6 +83,9 @@ let pageRows: GovActionTopic[] = [];
 // and each row's CC participation can divide by the current committee size.
 let govParamsRawJson: string | null = null;
 let committeeSize: number | null = null;
+// Full protocol params, so each threshold-type row can place its ratification
+// threshold marker (the same marker the detail card shows).
+let overviewParams: ProtocolParams | null = null;
 // Total active DRep voting power, the denominator for each row's DRep
 // participation bar. Null when the sync has not populated it yet.
 let drepStakeTotal: number | null = null;
@@ -119,6 +122,7 @@ if (category && db) {
     ]);
     govParamsRawJson = protoParams?.rawJson ?? null;
     committeeSize = protoParams?.committeeSize ?? null;
+    overviewParams = protoParams ?? null;
     drepStakeTotal = stake.total > 0 ? stake.total : null;
     stakeAsOf = stake.asOf;
     // Preserve the database order; drop any id whose topic or action is missing
@@ -295,8 +299,7 @@ const breadcrumbLd = {
         <div class="ga-list">
           <div class="ga-list__head">
             <span>Governance Action</span>
-            <span>Participation</span>
-            <span>Current vote</span>
+            <span>Voting</span>
             <span>Activity</span>
             {/* The Time Left header doubles as a sort shortcut for Closing Soon
                (soonest expiry first); it mirrors the Closing Soon tab's state. */}
@@ -321,6 +324,7 @@ const breadcrumbLd = {
                 proposerIcon={proposerIcon}
                 drepStakeTotal={drepStakeTotal}
                 committeeSize={committeeSize}
+                params={overviewParams}
                 network={network}
                 now={now}
                 href={`/t/${r.topic.slug}`}
@@ -472,7 +476,7 @@ const breadcrumbLd = {
   }
   .ga-list__head {
     display: grid;
-    grid-template-columns: 2.2fr 1.2fr 1.3fr 0.95fr 1.35fr;
+    grid-template-columns: 2.2fr 1.7fr 0.9fr 1.3fr;
     gap: 18px;
     padding: 10px 18px;
     border-bottom: 1px solid var(--border);
@@ -502,11 +506,10 @@ const breadcrumbLd = {
     font-size: 0.9em;
   }
 
-  /* Below the wide breakpoint Participation and Current vote both drop to one
-     shared column (mirroring GovActionRow's grid at the same breakpoint). */
+  /* Mirror GovActionRow's tightened four-column grid at the same breakpoint. */
   @media (max-width: 1000px) {
     .ga-list__head {
-      grid-template-columns: 2.6fr 1.6fr 1.3fr;
+      grid-template-columns: 2fr 1.7fr 0.8fr 1.1fr;
     }
   }
 

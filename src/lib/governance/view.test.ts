@@ -8,25 +8,24 @@ import {
   epochCountdown,
   epochDaysLeft,
   tallyBar,
-  castVoteBar,
   voteTone,
   fmtPct,
-  stakeParticipation,
+  fmtPctFine,
   formatEpochDate,
   govTypeTone,
   govActionOgImage,
   threadOgImage,
   isSpoLedType,
   overviewTally,
-  headlineVote,
-  bodyVoteAmounts,
-  advisoryBodyTallies,
+  headlineComposition,
   overviewRowVoting,
+  compositionBar,
+  bodyComposition,
+  compositionAmounts,
   absentBodyNote,
   spoTallyPct,
   TERMINAL_STATUSES,
   type RoleTallyInput,
-  type BodyVoteInput,
   type RowVotingInput,
 } from './view.js';
 import type { VotingSummary } from '../koios/client.js';
@@ -135,27 +134,6 @@ describe('tallyBar', () => {
   });
 });
 
-describe('castVoteBar', () => {
-  it('normalizes cast yes/no/abstain to percentages among voters', () => {
-    // 45.09M yes vs 0.35M no (the Net Change Limit shape): ~99% yes, not "99% against".
-    const bar = castVoteBar(45_090_000, 348_700, 0);
-    expect(bar).not.toBeNull();
-    expect(Math.round(bar!.yes)).toBe(99);
-    expect(Math.round(bar!.no)).toBe(1);
-    expect(bar!.abstain).toBe(0);
-  });
-
-  it('includes real abstain as its own segment', () => {
-    const bar = castVoteBar(50, 30, 20);
-    expect(bar).toEqual({ yes: 50, no: 30, abstain: 20 });
-  });
-
-  it('returns null when nothing was cast (never a red bar for non-voters)', () => {
-    expect(castVoteBar(0, 0, 0)).toBeNull();
-    expect(castVoteBar(null, null, null)).toBeNull();
-  });
-});
-
 describe('fmtPct', () => {
   it('uses two decimals for tiny non-zero values and whole numbers otherwise', () => {
     expect(fmtPct(0.01)).toBe('0.01%');
@@ -220,16 +198,6 @@ describe('voteTone', () => {
     expect(voteTone('Yes')).toBe('positive');
     expect(voteTone('no')).toBe('negative');
     expect(voteTone('Abstain')).toBe('neutral');
-  });
-});
-
-describe('stakeParticipation', () => {
-  it('stakeParticipation returns pct + parts, null when total is 0', () => {
-    expect(stakeParticipation(0, 0)).toBeNull();
-    const s = stakeParticipation(3_210_000_000_000_000, 6_660_000_000_000_000)!;
-    expect(s.pct).toBeCloseTo(48.2, 1);
-    expect(s.votedLabel).toBe('3.21B ₳');
-    expect(s.totalLabel).toBe('6.66B ₳');
   });
 });
 
@@ -314,32 +282,6 @@ describe('isSpoLedType / overviewTally', () => {
   });
 });
 
-describe('bodyVoteAmounts', () => {
-  const a: BodyVoteInput = {
-    drepYesPower: 104_420_000_000_000, drepNoPower: 565_310_000_000_000, drepAbstainPower: 175_830_000_000_000,
-    spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
-    ccYes: 4, ccNo: 0, ccAbstain: 1,
-  };
-
-  it('formats DRep amounts as compact ADA from the per-option power', () => {
-    expect(bodyVoteAmounts(a, 'DRep')).toEqual({ yes: '104.4M ₳', no: '565.3M ₳', abstain: '175.8M ₳' });
-  });
-
-  it('renders CC amounts as plain member counts, not ADA', () => {
-    expect(bodyVoteAmounts(a, 'CC')).toEqual({ yes: '4', no: '0', abstain: '1' });
-  });
-
-  it('returns null for a body with no power data', () => {
-    expect(bodyVoteAmounts(a, 'SPO')).toBeNull();
-  });
-
-  it('treats a present-but-zero option as 0, not absent', () => {
-    expect(bodyVoteAmounts({ ...a, drepYesPower: 0, drepNoPower: null, drepAbstainPower: null }, 'DRep')).toEqual({
-      yes: '0 ₳', no: '0 ₳', abstain: '0 ₳',
-    });
-  });
-});
-
 describe('govStatusVerb', () => {
   it('maps statuses to past-tense feed verbs', () => {
     expect(govStatusVerb('enacted')).toBe('was enacted');
@@ -354,55 +296,6 @@ describe('govStatusVerb', () => {
     // 'active' is intentionally not a feed verb: pending -> active is suppressed,
     // so only terminal outcomes ever reach govStatusVerb.
     expect(govStatusVerb('active')).toBe('is now active');
-  });
-});
-
-describe('advisoryBodyTallies', () => {
-  // Minimal input: cast vote power/count fields. Values chosen so each body has a
-  // distinct, checkable bar and amounts.
-  const base = {
-    // cast vote power (lovelace) for DRep/SPO, member counts for CC
-    drepYesPower: 99, drepNoPower: 1, drepAbstainPower: 0,
-    spoYesPower: 40, spoNoPower: 40, spoAbstainPower: 20,
-    ccYes: 5, ccNo: 0, ccAbstain: 1,
-  };
-
-  it('returns exactly DRep, SPO, CC in that fixed order', () => {
-    expect(advisoryBodyTallies(base).map((r) => r.body)).toEqual(['DRep', 'SPO', 'CC']);
-  });
-
-  it('gives each body a human label', () => {
-    const byBody = Object.fromEntries(advisoryBodyTallies(base).map((r) => [r.body, r.label]));
-    expect(byBody.DRep).toBe('DReps');
-    expect(byBody.SPO).toBe('SPOs');
-    expect(byBody.CC).toBe('Constitutional Committee');
-  });
-
-  it('builds each body bar from its own cast vote proportions', () => {
-    const rows = advisoryBodyTallies(base);
-    expect(rows[0].bar).toEqual({ yes: 99, no: 1, abstain: 0 });
-    expect(rows[1].bar).toEqual({ yes: 40, no: 40, abstain: 20 });
-    const ccBar = rows[2].bar;
-    expect(ccBar).not.toBeNull();
-    expect(ccBar!.yes).toBeCloseTo(83.333, 2);
-    expect(ccBar!.no).toBe(0);
-    expect(ccBar!.abstain).toBeCloseTo(16.667, 2);
-  });
-
-  it('carries per-body amounts (ADA for DRep/SPO, counts for CC)', () => {
-    const rows = advisoryBodyTallies(base);
-    expect(rows[2].amounts).toEqual({ yes: '5', no: '0', abstain: '1' });
-    // DRep amounts are compact ADA strings, not raw lovelace.
-    expect(rows[0].amounts?.yes).not.toBe('99');
-  });
-
-  it('still returns all three bodies when a body has no cast votes', () => {
-    const rows = advisoryBodyTallies({
-      ...base,
-      spoYesPower: 0, spoNoPower: 0, spoAbstainPower: 0,
-    });
-    expect(rows.map((r) => r.body)).toEqual(['DRep', 'SPO', 'CC']);
-    expect(rows[1].bar).toBeNull();
   });
 });
 
@@ -424,7 +317,7 @@ describe('overviewRowVoting', () => {
     ...over,
   });
 
-  it('treasury withdrawals: DRep + CC only (no SPO), ratification bars, participation from stake totals', () => {
+  it('treasury withdrawals: DRep + CC only (no SPO), composition leads with the stored yes pct, participation from stake totals', () => {
     const a = makeRow({
       type: 'TreasuryWithdrawals',
       drepYesPct: 79, drepNoPct: 21,
@@ -438,22 +331,20 @@ describe('overviewRowVoting', () => {
     expect(result.absentBodies).toEqual(['SPO']);
 
     const drep = result.bodies[0];
-    expect(drep.voteKind).toBe('ratification');
-    expect(drep.vote).toEqual({ yes: 79, no: 21, abstain: 0 });
+    expect(drep.composition?.yes).toBe(79); // pinned to the stored ratification pct
     expect(drep.participation).toBe(25); // 250M / 1B * 100
 
     const cc = result.bodies[1];
-    expect(cc.voteKind).toBe('ratification');
-    expect(cc.vote).toEqual({ yes: 83, no: 17, abstain: 0 });
+    expect(cc.composition?.yes).toBe(83);
     expect(cc.participation).toBe(100); // (4+1+0) / 5 * 100
   });
 
-  it('info action: all three bodies, advisory bars from cast power, null vote when nothing cast', () => {
+  it('info action: all three bodies, composition leads with yes-of-eligible, null when a body has no synced pct', () => {
     const a = makeRow({
       type: 'InfoAction',
+      drepYesPct: 6.84,
       drepYesPower: 99, drepNoPower: 1, drepAbstainPower: 0,
-      spoYesPower: 0, spoNoPower: 0, spoAbstainPower: 0,
-      ccYes: 3, ccNo: 1, ccAbstain: 0,
+      ccYesPct: 75, ccYes: 3, ccNo: 1, ccAbstain: 0,
       drepVotedPower: 100,
     });
     const result = overviewRowVoting(a, { drepStakeTotal: 1000, committeeSize: 7 });
@@ -462,17 +353,13 @@ describe('overviewRowVoting', () => {
     expect(result.absentBodies).toEqual([]);
 
     const drep = result.bodies[0];
-    expect(drep.voteKind).toBe('advisory');
-    expect(drep.vote).not.toBeNull();
-    expect(Math.round(drep.vote!.yes)).toBe(99);
+    expect(drep.composition?.yes).toBeCloseTo(6.84, 5);
 
     const spo = result.bodies[1];
-    expect(spo.voteKind).toBe('advisory');
-    expect(spo.vote).toBeNull(); // nothing cast
+    expect(spo.composition).toBeNull(); // no spoYesPct synced
 
     const cc = result.bodies[2];
-    expect(cc.voteKind).toBe('advisory');
-    expect(cc.vote).not.toBeNull();
+    expect(cc.composition?.yes).toBe(75);
   });
 
   it('hard fork initiation: SPO ratification bar uses the spoTallyPct recompute, DRep with 0 cast still listed with null vote', () => {
@@ -505,12 +392,10 @@ describe('overviewRowVoting', () => {
     expect(result.absentBodies).toEqual([]);
 
     const spo = result.bodies[1];
-    expect(spo.voteKind).toBe('ratification');
-    expect(spo.vote!.yes).toBe(recomputed.yesPct);
+    expect(spo.composition?.yes).toBe(recomputed.yesPct);
 
     const drep = result.bodies[0];
-    expect(drep.voteKind).toBe('ratification');
-    expect(drep.vote).toBeNull();
+    expect(drep.composition).toBeNull(); // bootstrap: no DRep pct synced
   });
 
   it('SPO participation is null when spoEligiblePower is null', () => {
@@ -537,7 +422,7 @@ describe('overviewRowVoting', () => {
     expect(result.bodies.map((b) => b.body)).toEqual(['DRep', 'SPO', 'CC']);
     expect(result.absentBodies).toEqual([]);
     const spo = result.bodies.find((b) => b.body === 'SPO')!;
-    expect(spo.vote).toBeNull(); // no vote cast yet, but still an eligible body
+    expect(spo.composition).toBeNull(); // no spoYesPct yet, but still an eligible body
     expect(spo.participation).toBe(0);
   });
 
@@ -556,28 +441,145 @@ describe('overviewRowVoting', () => {
   });
 });
 
-describe('headlineVote', () => {
-  it('threshold type: leading body ratification bar (yes/100-yes)', () => {
-    // TreasuryWithdrawals is DRep-led; drepYesPct 74.53 -> yes 74.53 no 25.47.
-    const h = headlineVote({ type: 'TreasuryWithdrawals', drepYesPct: 74.53, drepNoPct: 25.47 } as any);
+describe('headlineComposition', () => {
+  it('threshold type: leads with the DRep yes-of-eligible share', () => {
+    const h = headlineComposition({ type: 'TreasuryWithdrawals', drepYesPct: 74.53, drepNoPct: 25.47 } as any);
     expect(h?.role).toBe('DRep');
-    expect(Math.round(h!.bar.yes)).toBe(75);
-    expect(h!.bar.abstain).toBe(0);
+    expect(h!.yesPct).toBeCloseTo(74.53, 5);
   });
 
-  it('hard fork is SPO-led: picks the SPO ratification bar', () => {
-    const h = headlineVote({ type: 'HardForkInitiation', spoYesPct: 65, spoNoPct: 35, drepYesPct: null, drepNoPct: null } as any);
+  it('hard fork is SPO-led: picks the SPO share', () => {
+    const h = headlineComposition({ type: 'HardForkInitiation', spoYesPct: 65, spoNoPct: 35, drepYesPct: null, drepNoPct: null } as any);
     expect(h?.role).toBe('SPO');
+    expect(h!.yesPct).toBe(65);
   });
 
-  it('info action: leading body among-cast bar', () => {
-    const h = headlineVote({ type: 'InfoAction', drepYesPower: 99, drepNoPower: 1, drepAbstainPower: 0 } as any);
-    expect(h?.role).toBe('DRep');
-    expect(Math.round(h!.bar.yes)).toBe(99);
+  it('returns null when no body has a synced tally', () => {
+    expect(headlineComposition({ type: 'InfoAction' } as any)).toBeNull();
+  });
+});
+
+describe('fmtPctFine', () => {
+  it('keeps one decimal so a small ratification share is not rounded up (6.84 -> 6.8%, not 7%)', () => {
+    expect(fmtPctFine(6.84)).toBe('6.8%');
+    expect(fmtPctFine(0.4)).toBe('0.40%');
+    expect(fmtPctFine(66.666)).toBe('66.7%');
+    expect(fmtPctFine(100)).toBe('100%');
+    expect(fmtPctFine(0)).toBe('0%');
+  });
+});
+
+describe('compositionBar', () => {
+  it('returns null before any tally has synced (yesPct null)', () => {
+    expect(
+      compositionBar({ yesPct: null, yesStake: null, noStake: null, abstainStake: null, eligible: null }),
+    ).toBeNull();
   });
 
-  it('returns null when no body has a vote', () => {
-    expect(headlineVote({ type: 'InfoAction' } as any)).toBeNull();
+  it('pins Yes to the stored pct and splits the rest into No / Not voted by stake', () => {
+    // 5.33B eligible, 364.6M yes (6.84%), 479.6M no; the huge remainder never voted.
+    const bar = compositionBar({
+      yesPct: 6.84,
+      yesStake: 364_600_000,
+      noStake: 479_600_000,
+      abstainStake: 0,
+      eligible: 5_330_000_000,
+    })!;
+    expect(bar.yes).toBeCloseTo(6.84, 5);
+    expect(bar.splitKnown).toBe(true);
+    // Segments sum to 100, and Not voted dominates (the silent majority).
+    expect(bar.yes + bar.no + bar.notVoted).toBeCloseTo(100, 5);
+    expect(bar.notVoted).toBeGreaterThan(80);
+    // No is far smaller than Not voted, so the bar never reads as an opposition wall.
+    expect(bar.no).toBeLessThan(bar.notVoted);
+  });
+
+  it('never renders the SPO 100%-yes illusion: one yes voter is a sliver, not a full bar', () => {
+    const bar = compositionBar({
+      yesPct: 0.4,
+      yesStake: 44_000_000,
+      noStake: 0,
+      abstainStake: 0,
+      eligible: 11_020_000_000,
+    })!;
+    expect(bar.yes).toBeCloseTo(0.4, 5);
+    expect(bar.no).toBe(0);
+    expect(bar.notVoted).toBeCloseTo(99.6, 5);
+  });
+
+  it('excludes abstain from the denominator', () => {
+    // Everyone eligible either voted yes or abstained; with abstain removed, yes fills
+    // the whole (non-abstain) denominator, so nothing is left for No / Not voted.
+    const bar = compositionBar({
+      yesPct: 100,
+      yesStake: 500,
+      noStake: 0,
+      abstainStake: 500,
+      eligible: 1000,
+    })!;
+    expect(bar.yes).toBe(100);
+    expect(bar.no).toBe(0);
+    expect(bar.notVoted).toBe(0);
+  });
+
+  it('cannot split without an eligible denominator: remainder is Not voted, never No', () => {
+    const bar = compositionBar({
+      yesPct: 30,
+      yesStake: 300,
+      noStake: 200,
+      abstainStake: 0,
+      eligible: null,
+    })!;
+    expect(bar.splitKnown).toBe(false);
+    expect(bar.no).toBe(0);
+    expect(bar.notVoted).toBe(70);
+  });
+});
+
+describe('bodyComposition / compositionAmounts', () => {
+  const makeRow = (over: Partial<RowVotingInput>): RowVotingInput => ({
+    type: 'InfoAction',
+    drepYesPct: null, drepNoPct: null,
+    spoYesPct: null, spoNoPct: null,
+    ccYesPct: null, ccNoPct: null,
+    drepYes: null, drepNo: null, drepAbstain: null,
+    spoYes: null, spoNo: null, spoAbstain: null,
+    ccYes: null, ccNo: null, ccAbstain: null,
+    drepYesPower: null, drepNoPower: null, drepAbstainPower: null,
+    spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
+    drepVotedPower: null,
+    spoEligiblePower: null,
+    ...over,
+  });
+
+  it('DRep composition uses the total active DRep stake as the denominator', () => {
+    const a = makeRow({
+      drepYesPct: 6.84,
+      drepYesPower: 364_600_000, drepNoPower: 479_600_000, drepAbstainPower: 0,
+      drepVotedPower: 844_200_000,
+    });
+    const bar = bodyComposition(a, 'DRep', { drepStakeTotal: 5_330_000_000, committeeSize: null })!;
+    expect(bar.yes).toBeCloseTo(6.84, 5);
+    expect(bar.notVoted).toBeGreaterThan(80);
+  });
+
+  it('CC composition uses the committee seat count as the denominator', () => {
+    const a = makeRow({ ccYesPct: 80, ccYes: 4, ccNo: 1, ccAbstain: 0 });
+    const bar = bodyComposition(a, 'CC', { drepStakeTotal: null, committeeSize: 7 })!;
+    expect(bar.yes).toBe(80);
+    // 2 of 7 seats silent -> Not voted present, No the smaller slice.
+    expect(bar.notVoted).toBeGreaterThan(0);
+    expect(bar.no).toBeGreaterThan(0);
+  });
+
+  it('formats Not voted from the un-voted eligible stake and flags abstain', () => {
+    const a = makeRow({
+      drepYesPower: 364_600_000_000_000, drepNoPower: 479_600_000_000_000, drepAbstainPower: 31_500_000_000_000,
+      drepVotedPower: 875_700_000_000_000,
+    });
+    const amounts = compositionAmounts(a, 'DRep', { drepStakeTotal: 5_330_000_000_000_000, committeeSize: null })!;
+    expect(amounts.notVoted).not.toBe('—');
+    expect(amounts.hasAbstain).toBe(true);
   });
 });
 

@@ -39,9 +39,10 @@ describe('govCardModel', () => {
     expect(m.accent).toBe(accentForType('TreasuryWithdrawals'));
     expect(m.typeLabel).toBe('Treasury Withdrawals');
     expect(m.status.label).toBe('Active');
-    // Ratification bar (yes / 100-yes), not the old total-stake bar: drepYesPct 62 ->
-    // yes 62, no 38, abstain 0 (see headlineVote).
-    expect(m.tally).toEqual({ yes: 62, no: 38, abstain: 0, role: 'DRep' });
+    // Number-led headline: the leading body's Yes-of-eligible share (drepYesPct 62),
+    // denominator-independent, so non-voting stake is never shown as No (see
+    // headlineComposition).
+    expect(m.tally).toEqual({ yesPct: 62, role: 'DRep' });
   });
 
   it('shows the proposer in the meta line only when supplied', () => {

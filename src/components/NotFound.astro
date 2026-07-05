@@ -1,15 +1,71 @@
 ---
+import Layout from '@/layouts/Layout.astro';
+
 interface Props {
   noun: string;
 }
 const { noun } = Astro.props;
 ---
-<html lang="en">
-  <head><title>{noun} not found - DRepTalk</title></head>
-  <body>
-    <main style="max-width:56rem;margin:0 auto;padding:1.5rem;">
-      <h1>{noun} not found</h1>
-      <p><a href="/">Back to home</a></p>
-    </main>
-  </body>
-</html>
+<Layout title={`${noun} not found - DRepTalk`} description={`The ${noun.toLowerCase()} you were looking for could not be found.`} noindex={true}>
+  <section class="notfound">
+    <p class="notfound__code grad-text reveal" style="--reveal-delay:0ms" aria-hidden="true">404</p>
+    <h1 class="notfound__title reveal" style="--reveal-delay:60ms">{noun} not found</h1>
+    <p class="notfound__lead reveal" style="--reveal-delay:120ms">
+      We couldn't find that {noun.toLowerCase()}. The link may have expired, or the address is off by a character.
+    </p>
+    <div class="notfound__actions reveal" style="--reveal-delay:180ms">
+      <a class="btn btn-primary" href="/">Back to home</a>
+      <a class="btn btn-secondary" href="/c/governance-actions">Governance actions</a>
+    </div>
+  </section>
+
+  <style>
+    .notfound {
+      position: relative;
+      max-width: 40rem;
+      margin: 0 auto;
+      padding: 4rem 0 6rem;
+      text-align: center;
+    }
+    /* Soft brand-gradient glow behind the code, echoing the home hero. */
+    .notfound::before {
+      content: '';
+      position: absolute;
+      top: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(26rem, 80%);
+      height: 14rem;
+      background: var(--grad);
+      filter: blur(80px);
+      opacity: 0.16;
+      z-index: -1;
+      pointer-events: none;
+    }
+    .notfound__code {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: clamp(5rem, 18vw, 9rem);
+      line-height: 1;
+      letter-spacing: -0.02em;
+      margin: 0;
+    }
+    .notfound__title {
+      font-size: clamp(1.5rem, 4vw, 2.25rem);
+      margin: 0.25rem 0 0;
+    }
+    .notfound__lead {
+      color: var(--muted);
+      font-size: 1.0625rem;
+      line-height: 1.6;
+      margin: 1rem auto 2rem;
+      max-width: 32rem;
+    }
+    .notfound__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+  </style>
+</Layout>
