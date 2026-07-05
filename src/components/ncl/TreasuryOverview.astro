@@ -49,7 +49,7 @@ const showDonut = treasuryLovelace !== null && currentStatus !== null;
       </div>
     )}
   </div>
-  <div class="treasury-row__col">
+  <div class="treasury-row__col treasury-row__col--ncl">
     {visiblePeriods.map((c) => (
       <NclPanel
         status={c.status}
@@ -60,10 +60,13 @@ const showDonut = treasuryLovelace !== null && currentStatus !== null;
         showRelated={!compact}
       />
     ))}
+    {compact && detailHref && (
+      <a class="treasury-detail-cta" href={detailHref}>View all treasury withdrawals &gt;</a>
+    )}
   </div>
 </div>
 
-{detailHref && (
+{!compact && detailHref && (
   <p class="treasury-detail-link">
     <a href={detailHref}>View all treasury withdrawals &gt;</a>
   </p>
@@ -84,17 +87,26 @@ const showDonut = treasuryLovelace !== null && currentStatus !== null;
   }
 
   /* Compact mode (e.g. /c/budget): donut and the single period card sit
-     side by side on desktop, each taking about half the width, and wrap
-     to a stacked layout (donut on top) on narrow viewports. */
+     side by side on desktop, each taking about half the width and matching
+     the height of the taller column, and wrap to a stacked layout (donut
+     on top) on narrow viewports. */
   .treasury-row {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-start;
+    align-items: stretch;
     gap: 1rem;
   }
   .treasury-row__col {
     flex: 1 1 320px;
     min-width: 0;
+  }
+  /* The right column stacks the NclPanel card and the detail CTA in a
+     flex column so the CTA can be pinned to the bottom, filling any
+     leftover height so the two columns line up evenly. */
+  .treasury-row__col--ncl {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
   /* Reset the top margins inside the row so the donut column aligns
      flush with the top of the NclPanel column (NclPanel's own margin
@@ -127,6 +139,31 @@ const showDonut = treasuryLovelace !== null && currentStatus !== null;
     font-size: 0.875rem;
   }
   .treasury-detail-link a {
+    color: var(--accent);
+  }
+
+  /* Compact mode CTA: pinned to the bottom of the right column so it
+     both reads as a clear call to action and helps the two columns
+     reach equal height. Styled like the site's secondary button. */
+  .treasury-detail-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    margin-top: auto;
+    padding: 0.7rem 1.15rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--fg);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    text-decoration: none;
+    text-align: center;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .treasury-detail-cta:hover {
+    border-color: var(--accent);
     color: var(--accent);
   }
 </style>
