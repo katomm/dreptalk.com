@@ -3,7 +3,8 @@ export const prerender = false;
 
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
-import TreasuryOverview from '@/components/ncl/TreasuryOverview.astro';
+import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
+import NclPeriodsTable from '@/components/ncl/NclPeriodsTable.astro';
 import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
 
 // Public, low-churn: withdrawals change at most a few times per epoch.
@@ -28,5 +29,48 @@ const ogImage = data?.currentStatus ? `/og/treasury/${data.currentStatus.period.
 
   <h1 style="margin:0 0 0.5rem;">Treasury and Net Change Limit</h1>
 
-  {data && <TreasuryOverview data={data} />}
+  <p style="color:var(--muted);max-width:65ch;line-height:1.6;">
+    The Net Change Limit caps how much ada may be withdrawn from the Cardano treasury in a period. It is set by
+    an Info governance action, so it is a community agreement rather than an automatic on-chain rule. The figures
+    below sum enacted treasury withdrawals against the limit each period.
+  </p>
+
+  {data?.treasuryLovelace != null && data?.currentStatus != null && (
+    <div class="treasury-summary">
+      <TreasuryDonut
+        treasuryLovelace={data.treasuryLovelace}
+        consumedLovelace={data.currentStatus.consumedLovelace}
+        remainingLovelace={data.currentStatus.remainingLovelace}
+        ceilingLovelace={data.currentStatus.period.ceilingLovelace}
+        epoch={data.treasuryEpoch}
+      />
+      <p class="treasury-summary__caption">The Net Change Limit caps the outflows, not the total balance.</p>
+    </div>
+  )}
+
+  {data && (
+    <>
+      <h2 style="font-size:1.125rem;margin:2rem 0 0.75rem;">Net Change Limit periods</h2>
+      <NclPeriodsTable periods={data.periods} currentEpoch={data.currentEpoch} />
+    </>
+  )}
+
+  <p style="color:var(--muted);font-size:0.8125rem;margin-top:1.5rem;">
+    Limits are defined by Info governance actions and apply per epoch period.
+  </p>
 </Layout>
+
+<style>
+  .treasury-summary {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    margin: 1.5rem 0 1rem;
+    background: var(--surface-2);
+  }
+  .treasury-summary__caption {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+</style>

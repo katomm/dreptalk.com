@@ -17,6 +17,7 @@ export interface NclPeriodCard {
 export interface TreasuryOverviewData {
   treasuryLovelace: bigint | null;
   treasuryEpoch: number | null;
+  currentEpoch: number | null;
   currentStatus: NclStatus | null;
   /** Newest period first. */
   periods: NclPeriodCard[];
@@ -67,6 +68,7 @@ export async function loadTreasuryOverview(db: D1Database): Promise<TreasuryOver
   return {
     treasuryLovelace,
     treasuryEpoch,
+    currentEpoch,
     currentStatus,
     periods,
   };
