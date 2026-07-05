@@ -3,14 +3,15 @@ import { resolveNetwork, txExplorerUrl, governanceActionUrl, epochStartUnix, epo
 
 describe('explorer links (neutral cardano-foundation landing)', () => {
   it('links a governance action with no network param on mainnet', () => {
+    // Path form: the switcher crashes on the ?id= query form for governance actions.
     expect(governanceActionUrl('mainnet', 'gov_action1abc')).toBe(
-      'https://explorer.cardano.org/governance-action?id=gov_action1abc',
+      'https://explorer.cardano.org/governance-action/gov_action1abc',
     );
   });
 
   it('adds the network param for preprod', () => {
     expect(governanceActionUrl('preprod', 'gov_action1abc')).toBe(
-      'https://explorer.cardano.org/governance-action?id=gov_action1abc&network=preprod',
+      'https://explorer.cardano.org/governance-action/gov_action1abc?network=preprod',
     );
   });
 
