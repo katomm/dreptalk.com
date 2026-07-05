@@ -22,8 +22,6 @@ const { period } = status;
 // Clamp the gauge fill so an over-budget period (consumedPct > 100) cannot
 // push the bar past its track.
 const pct = Math.min(100, status.consumedPct);
-const gaugeClass =
-  status.consumedPct >= 90 ? 'gauge__fill--danger' : status.consumedPct >= 66 ? 'gauge__fill--warn' : '';
 
 const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
 const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
@@ -40,7 +38,7 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
 
   <div class="gauge">
     <div class="gauge__track">
-      <div class={`gauge__fill ${gaugeClass}`} style={`width:${pct}%`}></div>
+      <div class="gauge__fill" style={`width:${pct}%`}></div>
     </div>
   </div>
   <div class="ncl-panel__amounts">
@@ -122,8 +120,9 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
     font-size: 0.875rem;
   }
 
-  /* Consumption gauge: a single fill against a neutral track, colored by how
-     close consumption is to the ceiling (calm green, amber, then danger red). */
+  /* Consumption gauge: a single fill against a neutral track, always the
+     brand accent color. An over-budget period is called out in the text
+     note below, not by recoloring the gauge. */
   .gauge {
     margin: 0.75rem 0 0.5rem;
   }
@@ -135,14 +134,8 @@ const statusLabel = (s: string) => (s === 'active' ? 'currently voting' : s);
   }
   .gauge__fill {
     height: 100%;
-    background: var(--c-pos);
+    background: var(--accent);
     border-radius: 7px;
-  }
-  .gauge__fill--warn {
-    background: var(--gov-hardfork, #b45309);
-  }
-  .gauge__fill--danger {
-    background: var(--danger);
   }
 
   .ncl-panel__amounts {

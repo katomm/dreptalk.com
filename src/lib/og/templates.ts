@@ -162,7 +162,7 @@ export function drepCardHtml(m: DrepCardModel): string {
 }
 
 // Consumption gauge for the treasury Net Change Limit card: a rounded track
-// with a single fill, colour-coded the same way as the in-app NclPanel gauge.
+// with a single fill, the brand accent color, matching the in-app NclPanel gauge.
 function gauge(pct: number, color: string): string {
   return `<div style="display:flex;width:1010px;height:32px;border-radius:16px;background:${TRACK};overflow:hidden;">
     <div style="display:flex;width:${pct}%;height:100%;background:${color};"></div>

@@ -195,13 +195,15 @@ export interface TreasuryCardModel {
   amounts: string;
 }
 
+// Brand purple used for the gauge fill (the light-mode value of --accent;
+// satori cannot read CSS custom properties, so the hex is duplicated here).
+const GAUGE_COLOR = '#6d28d9';
+
 // Gauge fill clamps at 100% (an over-budget period cannot push the bar past
-// its track) and shifts color the same way the in-app NclPanel gauge does:
-// calm green, amber past 66%, danger red past 90%.
+// its track). Always the brand accent color, matching the in-app NclPanel gauge.
 export function treasuryCardModel(status: NclStatus): TreasuryCardModel {
   const { period } = status;
   const pct = Math.min(100, status.consumedPct);
-  const gaugeColor = status.consumedPct >= 90 ? '#dc2626' : status.consumedPct >= 66 ? '#b45309' : '#16a34a';
   const consumed = formatAda(String(status.consumedLovelace)) ?? '0 ₳';
   const ceiling = formatAda(String(period.ceilingLovelace)) ?? '';
   const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
@@ -211,7 +213,7 @@ export function treasuryCardModel(status: NclStatus): TreasuryCardModel {
     label: period.label,
     epochRange: `Epochs ${period.startEpoch} to ${period.endEpoch}`,
     pct,
-    gaugeColor,
+    gaugeColor: GAUGE_COLOR,
     headline: `${status.consumedPct}% consumed`,
     amounts: `${consumed} of ${ceiling}, ${remaining} remaining`,
   };
