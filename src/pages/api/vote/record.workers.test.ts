@@ -305,4 +305,24 @@ describe('POST /api/vote/record', () => {
     ).bind(topicId).first<{ post_count: number }>();
     expect(topic?.post_count).toBe(0);
   });
+
+  it('re-counts a revived cross-post so it is not shown-but-uncounted', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+    // Opt in, then opt out: post removed, count back to 0.
+    await POST(makeCtx({ user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'On.', crossPost: true } }));
+    await POST(makeCtx({ user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'no', txHash: TX_HASH, rationaleText: 'Off.', crossPost: false } }));
+    // Opt in again: the dead row is revived AND re-counted.
+    await POST(makeCtx({ user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'On again.', crossPost: true } }));
+    const live = (await env.DB.prepare(
+      `SELECT * FROM posts WHERE source = 'vote_rationale' AND author_id = ? AND deleted = 0`,
+    ).bind(USER_ID).all()).results;
+    expect(live).toHaveLength(1);
+    const topic = await env.DB.prepare(`SELECT post_count FROM topics WHERE id = ?`).bind(topicId).first<{ post_count: number }>();
+    expect(topic?.post_count).toBe(1);
+  });
 });
