@@ -5,6 +5,7 @@
 // koios/committee.ts, which is pure math on a single live committee_info snapshot.
 import type { CommitteeMember } from '../koios/client.js';
 import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { ccTallyPct, type CcVote } from '../koios/corrections.js';
 
 interface MemberRow {
   cold_key_hex: string;
@@ -115,4 +116,89 @@ export async function syncCurrentCommitteeMembership(
     else unknown++;
   }
   return { hotKeys: hotPairs.length, updated, unknown };
+}
+
+/** The committee votes on one action, keyed by hot key, for the recompute. */
+export async function getCommitteeVotes(db: D1Database, gaId: string): Promise<CcVote[]> {
+  const res = await db
+    .prepare(`SELECT voter_hex, vote, block_time FROM drep_votes WHERE ga_id = ? AND voter_role = 'ConstitutionalCommittee'`)
+    .bind(gaId)
+    .all<{ voter_hex: string | null; vote: string; block_time: number | null }>();
+  const out: CcVote[] = [];
+  for (const r of res.results ?? []) {
+    if (!r.voter_hex) continue;
+    if (r.vote !== 'Yes' && r.vote !== 'No' && r.vote !== 'Abstain') continue;
+    out.push({ hotKeyHex: r.voter_hex, vote: r.vote, blockTime: r.block_time });
+  }
+  return out;
+}
+
+interface RecomputeRow {
+  id: string;
+  decidedEpoch: number | null;
+  ccYesPct: number | null;
+  ccNoPct: number | null;
+}
+
+/** Actions that carry committee votes, with their stored pct and decided epoch. */
+async function getActionsForCommitteeRecompute(db: D1Database, limit: number): Promise<RecomputeRow[]> {
+  const res = await db
+    .prepare(
+      `SELECT ga.id, ga.decided_epoch, ga.cc_yes_pct, ga.cc_no_pct
+         FROM governance_actions ga
+        WHERE EXISTS (SELECT 1 FROM drep_votes v WHERE v.ga_id = ga.id AND v.voter_role = 'ConstitutionalCommittee')
+        LIMIT ?`,
+    )
+    .bind(limit)
+    .all<{ id: string; decided_epoch: number | null; cc_yes_pct: number | null; cc_no_pct: number | null }>();
+  return (res.results ?? []).map((r) => ({
+    id: r.id,
+    decidedEpoch: r.decided_epoch,
+    ccYesPct: r.cc_yes_pct,
+    ccNoPct: r.cc_no_pct,
+  }));
+}
+
+export interface CommitteePctRecomputeResult {
+  scanned: number;
+  updated: number;
+  skipped: number;
+}
+
+/**
+ * Replaces the stored Koios committee_yes_pct with the ledger-exact recompute for
+ * every action that has committee votes. Uses the action's decided epoch (or the
+ * current epoch while still open) to resolve the committee size, and the per-voter
+ * votes deduped per member. Only-changed: writes only when the pct actually moves,
+ * so a settled action converges after one pass. Skips (keeps the Koios value) when
+ * the committee at that epoch is unknown (data older than the seed).
+ */
+export async function recomputeCommitteePct(
+  db: D1Database,
+  currentEpoch: number | null,
+  limit: number,
+): Promise<CommitteePctRecomputeResult> {
+  const { members, hotToCold } = await getCommitteeTimeline(db);
+  if (members.length === 0) return { scanned: 0, updated: 0, skipped: 0 };
+  const actions = await getActionsForCommitteeRecompute(db, limit);
+  let updated = 0;
+  let skipped = 0;
+  for (const a of actions) {
+    const epoch = a.decidedEpoch ?? currentEpoch;
+    if (epoch == null) {
+      skipped++;
+      continue;
+    }
+    const votes = await getCommitteeVotes(db, a.id);
+    const { yesPct, noPct } = ccTallyPct(votes, members, hotToCold, epoch);
+    if (yesPct == null || noPct == null) {
+      skipped++;
+      continue;
+    }
+    if (yesPct !== a.ccYesPct || noPct !== a.ccNoPct) {
+      await db.prepare('UPDATE governance_actions SET cc_yes_pct = ?, cc_no_pct = ? WHERE id = ?').bind(yesPct, noPct, a.id).run();
+      updated++;
+    }
+  }
+  return { scanned: actions.length, updated, skipped };
 }

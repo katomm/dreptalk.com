@@ -7,6 +7,7 @@ import {
   upsertCommitteeMembers,
   upsertCommitteeHotKeys,
   syncCurrentCommitteeMembership,
+  recomputeCommitteePct,
 } from './committee.js';
 import { activeCommitteeSizeAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import type { CommitteeMember } from '../koios/client.js';
@@ -89,5 +90,51 @@ describe('seeded committee history', () => {
     expect(m13?.termExpiration).toBe(800); // term extended by the live sync
     const resigner = members.find((m) => m.coldKeyHex.startsWith('349e55f8') && m.versionFrom === 602);
     expect(resigner?.resignedAt).toBe(597); // seed protected, not overwritten with 641
+  });
+});
+
+describe('recomputeCommitteePct', () => {
+  it('replaces the stored Koios pct with the ledger-exact value from seeded membership', async () => {
+    // Action ratified in epoch 633 (committee v3, active size 7 after the resignation).
+    // Koios stored an inflated 87.5; the 7 active members all voted Yes -> 100 %.
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, decided_epoch, cc_yes_pct, cc_no_pct, created_at, last_synced_at)
+         VALUES ('ccAction', 'TreasuryWithdrawals', 'CC test', 'enacted', 633, 87.5, 12.5, 0, 0)`,
+      )
+      .run();
+
+    const hotKeys = [
+      '68bb0b4276021f82364056aa9f4d38ba5ac59b26c166cbeaa9408746',
+      '84feba943c574d25984175cf8257959e6b3a1c64143d85e64fef6bd5',
+      '646d1b3ac94568a422b687db6c47acdf849f1674982ae4f9a494be43',
+      '4a8227024748d7ff9d52cb0ed38b715b8c41833ddfd13c0ddca93d76',
+      '71aa5b3a9240a02a89c4e2839579ec5eb60c410af0a5bb483e1b8f04',
+      '725d4d44499865071536d54674b080322bd366be15338db221807b31',
+      '64f97568e72ff7e0035b4bae7bb080a10ec6fae5c0f381ed40053a49',
+    ];
+    for (const hk of hotKeys) {
+      await db()
+        .prepare(
+          `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at)
+           VALUES ('ccAction', 'ConstitutionalCommittee', ?, ?, 'Yes', 1, 0)`,
+        )
+        .bind(hk, hk)
+        .run();
+    }
+
+    const res = await recomputeCommitteePct(db(), 641, 100);
+    expect(res.updated).toBe(1);
+
+    const row = await db()
+      .prepare('SELECT cc_yes_pct, cc_no_pct FROM governance_actions WHERE id = ?')
+      .bind('ccAction')
+      .first<{ cc_yes_pct: number; cc_no_pct: number }>();
+    expect(row?.cc_yes_pct).toBe(100); // 7 yes / 7 active, not Koios' 87.5
+    expect(row?.cc_no_pct).toBe(0);
+
+    // Second pass is a no-op (only-changed).
+    const again = await recomputeCommitteePct(db(), 641, 100);
+    expect(again.updated).toBe(0);
   });
 });

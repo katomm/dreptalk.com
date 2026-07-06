@@ -69,7 +69,7 @@ import { syncPools } from '../../../src/lib/pools/sync.js';
 import { storePoolAvatars } from '../../../src/lib/pools/avatarStore.js';
 import { listReferencedPoolImageHashes } from '../../../src/lib/db/pools.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
-import { syncCurrentCommitteeMembership } from '../../../src/lib/db/committee.js';
+import { syncCurrentCommitteeMembership, recomputeCommitteePct } from '../../../src/lib/db/committee.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
 
@@ -336,6 +336,17 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
     const bf = await backfillFinalizedVotes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
     console.log(`[gov-votes-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
     return { items: bf.votes, failed: bf.failed };
+  });
+
+  // Recompute the committee yes-percentage to the ledger-exact value once an
+  // action's votes are synced, replacing Koios' committee_yes_pct (which miscounts
+  // rotated hot keys and resigned members). Only-changed and idempotent, so it
+  // converges as the finalized-vote backfill drains.
+  await phase('committee-pct', async () => {
+    const tip = await koios.tip();
+    const r = await recomputeCommitteePct(env.DB, tip.epoch_no, 100);
+    if (r.updated > 0 || r.skipped > 0) console.log(`[committee-pct] scanned=${r.scanned} updated=${r.updated} skipped=${r.skipped}`);
+    return { items: r.updated };
   });
 
   // One-time historical fill: votes synced before meta_hash capture have no hash,
