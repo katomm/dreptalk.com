@@ -4,7 +4,7 @@ description: "How a DRep writes a clear, useful rationale for a governance vote,
 cardLabel: "Writing a vote rationale"
 category: "For DReps"
 order: 2
-updated: 2026-07-02
+updated: 2026-07-06
 ---
 
 A vote rationale is a short written explanation of why you voted the way you did on a governance action. It is attached to your vote as metadata so your delegators and the broader community can see your reasoning. Writing one is not mandatory, but it is good practice: delegators choose you because they trust your judgment, and a rationale shows that judgment transparently.
@@ -55,6 +55,12 @@ Many DReps publish rationales on IPFS, so you might expect DRepTalk to do the sa
 IPFS is not automatically permanent, either: a file there lives only as long as some node keeps pinning it, so it faces the same availability question as any host, just spread across whoever chooses to pin. Whichever host serves it, the chain guarantees what you committed to, not where it is stored.
 
 You do not need to understand CIP-100 to write a good rationale. What matters is the content you put in it.
+
+## Sharing your rationale in the discussion
+
+Your rationale is always recorded on-chain with your vote and shown on the action's Positions tab, whichever way you vote. Separately, when you submit a vote with a rationale, a checkbox lets you also post a copy of it into the action's discussion thread, so other DReps and delegators can respond to it there.
+
+That cross-post is optional and off by default. Leave the box unchecked and your rationale stays on the Positions tab only; check it and a frozen copy also appears in the discussion. The discussion copy is tied to your on-chain vote and cannot be edited. If you later re-vote with the box unchecked, the discussion copy is removed again.
 
 ## Related
 
