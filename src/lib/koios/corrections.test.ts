@@ -101,7 +101,7 @@ describe('ccTallyPct', () => {
       { hotKeyHex: 'h6', vote: 'Yes', blockTime: 1 },
     ];
     // 11 raw Yes rows -> 7 distinct members Yes; size 8, no abstain -> 7/8 = 87.5.
-    expect(ccTallyPct(votes, v3, hotToCold, 634)).toEqual({ yesPct: 87.5, noPct: 12.5 });
+    expect(ccTallyPct(votes, v3, hotToCold, 634)).toEqual({ yesPct: 87.5, noPct: 12.5, yes: 7, no: 0, abstain: 0 });
   });
 
   it('excludes abstaining members from the denominator', () => {
@@ -113,7 +113,7 @@ describe('ccTallyPct', () => {
       // cold7 does not vote
     ];
     // 5 yes, 2 abstain, 8 active -> denom 6 -> 5/6 = 83.33.
-    expect(ccTallyPct(votes, v3, hotToCold, 634)).toEqual({ yesPct: 83.33, noPct: 16.67 });
+    expect(ccTallyPct(votes, v3, hotToCold, 634)).toEqual({ yesPct: 83.33, noPct: 16.67, yes: 5, no: 0, abstain: 2 });
   });
 
   it('drops a resigned member from numerator and denominator (epoch-597 boundary)', () => {
@@ -138,10 +138,10 @@ describe('ccTallyPct', () => {
       ...Array.from({ length: 6 }, (_, i) => ({ hotKeyHex: `h${i}`, vote: 'Yes' as const, blockTime: 1 })),
     ];
     // Without the active-member filter this reads 7/6 > 100 %. Correct: 6 yes / 6 active = 100 %.
-    expect(ccTallyPct(votes, v2, hotToCold, 597)).toEqual({ yesPct: 100, noPct: 0 });
+    expect(ccTallyPct(votes, v2, hotToCold, 597)).toEqual({ yesPct: 100, noPct: 0, yes: 6, no: 0, abstain: 0 });
   });
 
   it('is null when no committee is active at the epoch', () => {
-    expect(ccTallyPct([], v3, new Map(), 700)).toEqual({ yesPct: null, noPct: null });
+    expect(ccTallyPct([], v3, new Map(), 700)).toEqual({ yesPct: null, noPct: null, yes: 0, no: 0, abstain: 0 });
   });
 });

@@ -138,24 +138,38 @@ interface RecomputeRow {
   decidedEpoch: number | null;
   ccYesPct: number | null;
   ccNoPct: number | null;
+  ccYes: number | null;
+  ccNo: number | null;
+  ccAbstain: number | null;
 }
 
-/** Actions that carry committee votes, with their stored pct and decided epoch. */
+/** Actions that carry committee votes, with their stored pct/counts and decided epoch. */
 async function getActionsForCommitteeRecompute(db: D1Database, limit: number): Promise<RecomputeRow[]> {
   const res = await db
     .prepare(
-      `SELECT ga.id, ga.decided_epoch, ga.cc_yes_pct, ga.cc_no_pct
+      `SELECT ga.id, ga.decided_epoch, ga.cc_yes_pct, ga.cc_no_pct, ga.cc_yes, ga.cc_no, ga.cc_abstain
          FROM governance_actions ga
         WHERE EXISTS (SELECT 1 FROM drep_votes v WHERE v.ga_id = ga.id AND v.voter_role = 'ConstitutionalCommittee')
         LIMIT ?`,
     )
     .bind(limit)
-    .all<{ id: string; decided_epoch: number | null; cc_yes_pct: number | null; cc_no_pct: number | null }>();
+    .all<{
+      id: string;
+      decided_epoch: number | null;
+      cc_yes_pct: number | null;
+      cc_no_pct: number | null;
+      cc_yes: number | null;
+      cc_no: number | null;
+      cc_abstain: number | null;
+    }>();
   return (res.results ?? []).map((r) => ({
     id: r.id,
     decidedEpoch: r.decided_epoch,
     ccYesPct: r.cc_yes_pct,
     ccNoPct: r.cc_no_pct,
+    ccYes: r.cc_yes,
+    ccNo: r.cc_no,
+    ccAbstain: r.cc_abstain,
   }));
 }
 
@@ -190,13 +204,22 @@ export async function recomputeCommitteePct(
       continue;
     }
     const votes = await getCommitteeVotes(db, a.id);
-    const { yesPct, noPct } = ccTallyPct(votes, members, hotToCold, epoch);
+    const { yesPct, noPct, yes, no, abstain } = ccTallyPct(votes, members, hotToCold, epoch);
     if (yesPct == null || noPct == null) {
       skipped++;
       continue;
     }
-    if (yesPct !== a.ccYesPct || noPct !== a.ccNoPct) {
-      await db.prepare('UPDATE governance_actions SET cc_yes_pct = ?, cc_no_pct = ? WHERE id = ?').bind(yesPct, noPct, a.id).run();
+    if (
+      yesPct !== a.ccYesPct ||
+      noPct !== a.ccNoPct ||
+      yes !== a.ccYes ||
+      no !== a.ccNo ||
+      abstain !== a.ccAbstain
+    ) {
+      await db
+        .prepare('UPDATE governance_actions SET cc_yes_pct = ?, cc_no_pct = ?, cc_yes = ?, cc_no = ?, cc_abstain = ? WHERE id = ?')
+        .bind(yesPct, noPct, yes, no, abstain, a.id)
+        .run();
       updated++;
     }
   }

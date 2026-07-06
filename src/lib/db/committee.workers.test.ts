@@ -99,8 +99,8 @@ describe('recomputeCommitteePct', () => {
     // Koios stored an inflated 87.5; the 7 active members all voted Yes -> 100 %.
     await db()
       .prepare(
-        `INSERT INTO governance_actions (id, type, title, status, decided_epoch, cc_yes_pct, cc_no_pct, created_at, last_synced_at)
-         VALUES ('ccAction', 'TreasuryWithdrawals', 'CC test', 'enacted', 633, 87.5, 12.5, 0, 0)`,
+        `INSERT INTO governance_actions (id, type, title, status, decided_epoch, cc_yes_pct, cc_no_pct, cc_yes, cc_no, cc_abstain, created_at, last_synced_at)
+         VALUES ('ccAction', 'TreasuryWithdrawals', 'CC test', 'enacted', 633, 87.5, 12.5, 8, 0, 0, 0, 0)`,
       )
       .run();
 
@@ -127,11 +127,13 @@ describe('recomputeCommitteePct', () => {
     expect(res.updated).toBe(1);
 
     const row = await db()
-      .prepare('SELECT cc_yes_pct, cc_no_pct FROM governance_actions WHERE id = ?')
+      .prepare('SELECT cc_yes_pct, cc_no_pct, cc_yes, cc_no, cc_abstain FROM governance_actions WHERE id = ?')
       .bind('ccAction')
-      .first<{ cc_yes_pct: number; cc_no_pct: number }>();
+      .first<{ cc_yes_pct: number; cc_no_pct: number; cc_yes: number; cc_no: number; cc_abstain: number }>();
     expect(row?.cc_yes_pct).toBe(100); // 7 yes / 7 active, not Koios' 87.5
     expect(row?.cc_no_pct).toBe(0);
+    expect(row?.cc_yes).toBe(7); // deduped member count, not Koios' inflated 8
+    expect(row?.cc_abstain).toBe(0);
 
     // Second pass is a no-op (only-changed).
     const again = await recomputeCommitteePct(db(), 641, 100);

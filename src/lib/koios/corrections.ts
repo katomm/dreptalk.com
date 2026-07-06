@@ -84,17 +84,20 @@ export interface CcVote {
  * 3. Conway rule: abstaining members leave the denominator, everyone else active
  *    (No, or did not vote) stays in it. yesPct = yes / (active - abstain).
  *
- * Null when no committee is active at the epoch (membership unknown), so the caller
- * can fall back to Koios rather than show a wrong figure.
+ * Also returns the deduped per-member vote counts (yes/no/abstain), so the stored
+ * counts stay consistent with the percentage (Koios' raw counts double-count a
+ * rotated/duplicate hot key). yesPct/noPct are null when no committee is active at
+ * the epoch (membership unknown), so the caller can fall back to Koios; the counts
+ * are still returned.
  */
 export function ccTallyPct(
   votes: CcVote[],
   members: CommitteeMemberTerm[],
   hotToCold: Map<string, string>,
   ratifiedEpoch: number,
-): { yesPct: number | null; noPct: number | null } {
+): { yesPct: number | null; noPct: number | null; yes: number; no: number; abstain: number } {
   const active = activeCommitteeMembersAt(members, ratifiedEpoch);
-  if (active.size === 0) return { yesPct: null, noPct: null };
+  if (active.size === 0) return { yesPct: null, noPct: null, yes: 0, no: 0, abstain: 0 };
 
   const finalByMember = new Map<string, { vote: CcVote['vote']; blockTime: number }>();
   for (const v of votes) {
@@ -106,14 +109,17 @@ export function ccTallyPct(
   }
 
   let yes = 0;
+  let no = 0;
   let abstain = 0;
   for (const { vote } of finalByMember.values()) {
     if (vote === 'Yes') yes++;
-    else if (vote === 'Abstain') abstain++;
+    else if (vote === 'No') no++;
+    else abstain++;
   }
 
   const denom = active.size - abstain;
-  if (denom <= 0) return { yesPct: null, noPct: null };
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  return { yesPct: round2((yes / denom) * 100), noPct: round2(((denom - yes) / denom) * 100) };
+  const yesPct = denom <= 0 ? null : round2((yes / denom) * 100);
+  const noPct = denom <= 0 ? null : round2(((denom - yes) / denom) * 100);
+  return { yesPct, noPct, yes, no, abstain };
 }
