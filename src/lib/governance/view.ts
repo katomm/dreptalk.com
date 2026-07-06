@@ -6,7 +6,6 @@
 
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import type { Body } from './thresholds.js';
-import type { VotingSummary } from '../koios/client.js';
 
 // Re-exported so governance components keep importing the ADA formatters from
 // this view module; the implementations live in lib/format/ada.ts.
@@ -151,48 +150,6 @@ export function tallyBar(yesPct: number | null, noPct: number | null): TallyBar 
 function clampPct(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.min(100, Math.max(0, n));
-}
-
-/** Parses a Koios lovelace power string to a number; null when absent. */
-function powerNum(v: string | null | undefined): number | null {
-  return v == null ? null : Number(v);
-}
-
-/**
- * SPO yes/no percentages for the tally. Koios' pool_yes_pct / pool_no_pct are
- * correct for every action type EXCEPT HardForkInitiation. The Conway ledger does
- * NOT honour the always-abstain reward-account default for hard forks: a pool that
- * did not vote (including one whose reward account delegates to AlwaysAbstain or
- * AlwaysNoConfidence) counts as No and stays in the denominator; only an explicit
- * Abstain vote leaves it. (cardano-ledger Conway Ratify.hs, spoAcceptedRatio:
- * "For HardForkInitiation ... if an SPO didn't vote, their vote will always count
- * as No.") Koios instead drops the always-abstain stake from the denominator for
- * hard forks too, which inflates yes%. For that one type we recompute from the raw
- * power buckets, folding the always-abstain / always-no-confidence stake back into
- * the No side:
- *   yesPct = yes / (yes + no + always_abstain + always_no_confidence)
- * Falls back to Koios' percentages for every other type, and for hard forks when
- * the power fields are absent (older Koios) or the denominator is zero.
- *
- * Lives here (not in tallySync.ts, its only current caller) because the upcoming
- * per-body overview row also needs it and tallySync.ts imports isTerminalStatus
- * from this module; keeping the pure pct math here avoids a circular import
- * between the two.
- */
-export function spoTallyPct(s: VotingSummary): { yesPct: number | null; noPct: number | null } {
-  const fallback = { yesPct: s.pool_yes_pct ?? null, noPct: s.pool_no_pct ?? null };
-  if (s.proposal_type !== 'HardForkInitiation') return fallback;
-  const yes = powerNum(s.pool_active_yes_vote_power);
-  const no = powerNum(s.pool_no_vote_power);
-  if (yes == null || no == null) return fallback;
-  const noSide =
-    no +
-    (powerNum(s.pool_passive_always_abstain_vote_power) ?? 0) +
-    (powerNum(s.pool_passive_always_no_confidence_vote_power) ?? 0);
-  const denom = yes + noSide;
-  if (denom <= 0) return fallback;
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  return { yesPct: round2((yes / denom) * 100), noPct: round2((noSide / denom) * 100) };
 }
 
 /** Color tone for a vote badge. */
@@ -461,7 +418,7 @@ export function absentBodyNote(
  * divides by opts.drepStakeTotal, which comes from getActiveDrepStake and sums
  * only rows with active = 1, excluding the predefined always-abstain and
  * always-no-confidence stake. SPO turnout divides by a.spoEligiblePower (see
- * spoEligiblePower in tallySync.ts), which does include the two passive
+ * spoEligiblePower in koios/corrections.ts), which does include the two passive
  * always-abstain/always-no-confidence buckets alongside the active pools. So a
  * higher SPO participation percentage is not automatically "more engaged" than
  * the same DRep percentage; part of the SPO denominator is stake that can never

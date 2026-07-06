@@ -10,6 +10,7 @@
 // to enacted. Per-action failures are isolated.
 
 import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
+import { spoTallyPct, spoEligiblePower } from '../koios/corrections.js';
 import {
   getStaleSyncableActions,
   getVoteStaleSyncableActions,
@@ -28,14 +29,8 @@ import {
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, type VoteInput } from '../db/drepVotes.js';
 import { activityInsert } from '../db/activity.js';
-import { isTerminalStatus, spoTallyPct } from './view.js';
+import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
-
-// Re-exported for existing callers/tests: the implementation lives in view.js
-// (see the comment on spoTallyPct there) since view.ts is also the per-body
-// overview row's consumer and tallySync.ts already imports isTerminalStatus
-// from view.js, so keeping the pure pct math there avoids a circular import.
-export { spoTallyPct };
 
 // Max actions a single tally/vote run processes when the caller does not specify
 // one. Koios is latency-limited under a large burst (proposal_voting_summary and
@@ -193,23 +188,6 @@ export function votePowers(s: VotingSummary | null) {
     spoNoPower: powerNum(s?.pool_active_no_vote_power),
     spoAbstainPower: powerNum(s?.pool_active_abstain_vote_power),
   };
-}
-
-/** Eligible SPO voting stake (lovelace): the denominator for SPO turnout. Sums the
-    active yes/abstain, both passive default buckets, and pool_no_vote_power (which
-    already folds in active no plus non-voting-default no). Absent summands count as 0;
-    null only when every pool power field is absent (older Koios without power data). */
-export function spoEligiblePower(s: VotingSummary | null): number | null {
-  if (!s) return null;
-  const parts = [
-    s.pool_active_yes_vote_power,
-    s.pool_active_abstain_vote_power,
-    s.pool_passive_always_abstain_vote_power,
-    s.pool_passive_always_no_confidence_vote_power,
-    s.pool_no_vote_power,
-  ];
-  if (parts.every((v) => v == null)) return null;
-  return parts.reduce((sum, v) => sum + (v == null ? 0 : Number(v)), 0);
 }
 
 /** Maps a Koios voting summary onto the tally-update fields (null-tolerant). */

@@ -23,11 +23,11 @@ import {
   bodyComposition,
   compositionAmounts,
   absentBodyNote,
-  spoTallyPct,
   TERMINAL_STATUSES,
   type RoleTallyInput,
   type RowVotingInput,
 } from './view.js';
+import { spoTallyPct } from '../koios/corrections.js';
 import type { VotingSummary } from '../koios/client.js';
 
 describe('readableType / formatAda', () => {
