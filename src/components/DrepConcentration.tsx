@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Concentration } from '@/lib/dreps/concentration.js';
 import { coalitionAt, snapThreshold, buildSegments, summarySentence, type DonutSegment } from '@/lib/dreps/concentrationView.js';
 import { truncateId } from '@/lib/forum/view.js';
-import { drepPath } from '@/lib/drep/profile.js';
+import { drepPath } from '@/lib/dreps/profile.js';
 
 // A DRep voting threshold and the governance actions it gates. Several actions
 // can share one threshold percent (they are grouped server-side).

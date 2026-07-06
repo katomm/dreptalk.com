@@ -14,8 +14,8 @@ import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.j
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
-import { influencePct } from '@/lib/drep/profile.js';
-import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/drep/votingPowerTrend.js';
+import { influencePct } from '@/lib/dreps/profile.js';
+import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
 import { parsePage, pageToOffset, cacheControlForSynced, formatAda, formatAdaCompact, truncateId } from '@/lib/forum/view.js';

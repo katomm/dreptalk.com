@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import DelegateDialog, { type Target } from '@/components/DelegateDialog.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
-import { drepPath } from '@/lib/drep/profile.js';
+import { drepPath } from '@/lib/dreps/profile.js';
 
 interface Props {
   // Resolved at build/SSR time from the deployment's network; defaults to preprod.

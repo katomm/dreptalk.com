@@ -3,7 +3,7 @@
 // All queries are parameterized; the MATCH string itself is built by
 // lib/search/match.ts (never raw user input) and bound as a parameter.
 import { decodeBech32 } from '../crypto/bech32.js';
-import { drepPath } from '../drep/profile.js';
+import { drepPath } from '../dreps/profile.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
 import { PAGE_SIZE } from '../search/scopes.js';
 import { pageToOffset } from '../forum/view.js';
