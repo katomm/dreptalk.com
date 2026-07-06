@@ -28,6 +28,10 @@ const HERO_MIN_ACTIVE = 8; // fewest active voters that still reads as a full ri
 const HERO_MAX_ACTIVE = 10; // most active pills on the inner ring
 const HERO_MAX_GHOSTS = 8; // most ghost avatars on the outer ring
 const HERO_FETCH = HERO_MAX_ACTIVE + HERO_MAX_GHOSTS; // voters pulled in one query
+const HERO_PLACEHOLDER_COUNT = 6; // decorative ring size when no voted action exists yet
+
+// One resolved voter: identicon/avatar plus the vote, for both active and ghost rows.
+type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: string };
 
 // Category stats, the activity feed, and the voted-hero candidate are
 // independent; load them together. votedHero is the newest action that already
@@ -56,15 +60,17 @@ const hero =
         const rows = voters.map((v) => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote }));
         return { active: rows.slice(0, HERO_MAX_ACTIVE), ghosts: rows.slice(HERO_MAX_ACTIVE, HERO_FETCH) };
       })()
-    : { active: [] as { descriptor: ReturnType<typeof voterDescriptor>; vote: string }[], ghosts: [] as { descriptor: ReturnType<typeof voterDescriptor>; vote: string }[] };
+    : { active: [] as HeroVoteRow[], ghosts: [] as HeroVoteRow[] };
 
 // Only light the real scene when the inner ring is full enough; a sparse ring
 // would read as broken, so otherwise we keep the decorative placeholder ring.
 const showScene = hero.active.length >= HERO_MIN_ACTIVE;
 
 // Ring positions: for the real scene, exactly as many slots as we have voters;
-// otherwise a small decorative ring of six placeholders.
-const ringSlots = showScene ? heroRingSlots(hero.active.length, hero.ghosts.length) : heroRingSlots(6, 0);
+// otherwise a small decorative placeholder ring.
+const ringSlots = showScene
+  ? heroRingSlots(hero.active.length, hero.ghosts.length)
+  : heroRingSlots(HERO_PLACEHOLDER_COUNT, 0);
 const activeSlots = ringSlots.filter((s) => s.kind === 'active');
 const ghostSlots = ringSlots.filter((s) => s.kind === 'ghost');
 
@@ -78,12 +84,11 @@ const REVEAL_STEP_MS = 220;
 // hand, so it looks like independent DReps casting votes. A fixed permutation
 // keeps it deterministic (no Math.random, so no layout shift across renders).
 const REVEAL_SCATTER = [0, 5, 2, 8, 4, 9, 1, 6, 3, 7];
-function revealRank(slotIndex: number, count: number): number {
-  // Position of this slot within the scattered order, restricted to the actual
-  // active count so 8 or 9 voters still scatter cleanly.
-  return Math.max(REVEAL_SCATTER.filter((n) => n < count).indexOf(slotIndex), 0);
-}
 const activeCount = activeSlots.length;
+// The scattered order restricted to the actual active count (8, 9, or 10 voters
+// still scatter cleanly), computed once and shared by the line and pill passes.
+const revealOrder = REVEAL_SCATTER.filter((n) => n < activeCount);
+const revealRank = (slotIndex: number) => Math.max(revealOrder.indexOf(slotIndex), 0);
 
 // SVG guide-ring radii in the 0..320 viewBox, derived from the shared fractions
 // so the dashed ellipses line up with the pill positions.
@@ -93,14 +98,6 @@ const ringActive = { rx: HERO_RING_RADII.active.rx * VIEWBOX, ry: HERO_RING_RADI
 // viewBox (the ghosts sit much further out, in the space around the scene, so they
 // have no guide ring behind them).
 const ringOuter = { rx: HERO_RING_RADII.active.rx * 1.1 * VIEWBOX, ry: HERO_RING_RADII.active.ry * 1.13 * VIEWBOX };
-
-// Maps a vote to the badge glyph kind + label shown on an active pill.
-function voteBadgeKind(vote: string): 'yes' | 'no' | 'abstain' {
-  const v = vote.toLowerCase();
-  if (v === 'yes') return 'yes';
-  if (v === 'no') return 'no';
-  return 'abstain';
-}
 
 const categories = getCategories();
 
@@ -238,7 +235,7 @@ const heroFeatures = [
                   y1="160"
                   x2={s.x * 320}
                   y2={s.y * 320}
-                  style={`--enter-delay:${REVEAL_BASE_MS + revealRank(i, activeCount) * REVEAL_STEP_MS}ms`}
+                  style={`--enter-delay:${REVEAL_BASE_MS + revealRank(i) * REVEAL_STEP_MS}ms`}
                 />
               ))}
             </g>
@@ -275,13 +272,16 @@ const heroFeatures = [
           {showScene
             ? activeSlots.map((s, i) => {
                 const p = hero.active[i];
-                const kind = voteBadgeKind(p.vote);
+                // Classify the vote once; badge glyph/label derive from the tone so
+                // yes/no/abstain stays single-sourced in voteTone.
+                const tone = voteTone(p.vote);
+                const kind = tone === 'positive' ? 'yes' : tone === 'negative' ? 'no' : 'abstain';
                 const label = kind === 'yes' ? 'Yes' : kind === 'no' ? 'No' : 'Abstain';
                 return (
                   <a
                     class:list={['pill', 'pill--vote', `vote-${kind}`]}
                     href={authorProfileHref(p.descriptor)}
-                    style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + revealRank(i, activeCount) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[voteTone(p.vote)]}`}
+                    style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + revealRank(i) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[tone]}`}
                     title={`${p.descriptor.displayName} voted ${label}`}
                     aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
                   >
@@ -577,10 +577,8 @@ const heroFeatures = [
     white-space: nowrap;
   }
 
-  /* The stage holds the card and the voter pills. On desktop it is an overlay
-     that fills the scene so the pills position on the ring around the centered
-     card; in the narrow layout it becomes a flex column (see the responsive block)
-     that stacks a few pills above the card and a few below. */
+  /* The stage holds the card and the voter pills as an overlay that fills the
+     scene, so the pills position on the ring around the centered card. */
   .hero-stage {
     position: absolute;
     inset: 0;
@@ -671,7 +669,6 @@ const heroFeatures = [
 
   /* Decorative placeholder pills for the fresh-deploy / local-dev fallback. */
   .pill--placeholder {
-    flex-direction: row;
     gap: 0.3rem;
     padding: 0.3rem 0.4rem;
     background: var(--surface-2);

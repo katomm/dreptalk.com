@@ -31,7 +31,8 @@ export const HERO_RING_RADII = {
 };
 
 // Deterministic per-slot angular jitter (radians) so the ring looks organic
-// rather than mechanically even. Small, hand-picked values, the index wraps.
+// rather than mechanically even. Small, hand-picked values, the index wraps. The
+// length is arbitrary (just enough variety); it is not tied to any slot count.
 const JITTER = [0.0, 0.12, -0.1, 0.08, -0.14, 0.06, -0.08, 0.1, -0.05, 0.13, -0.11, 0.07];
 
 function place(count: number, rx: number, ry: number, angleOffset: number, kind: HeroSlotKind): HeroSlot[] {
