@@ -1,6 +1,6 @@
 // Committee membership accessors, run in workerd against the real miniflare D1
 // with migrations applied.
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { getCommitteeTimeline, upsertCommitteeMembers, upsertCommitteeHotKeys } from './committee.js';
 import { activeCommitteeSizeAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
@@ -8,6 +8,13 @@ import { activeCommitteeSizeAt, type CommitteeMemberTerm } from '../koios/commit
 const db = () => env.DB;
 
 describe('committee membership accessors', () => {
+  // Start from an empty timeline so these accessor tests are independent of the
+  // historical seed migration (which populates the tables in every workers DB).
+  beforeEach(async () => {
+    await db().prepare('DELETE FROM committee_member').run();
+    await db().prepare('DELETE FROM committee_hot_key').run();
+  });
+
   it('round-trips members and hot keys and resolves active size across the resignation boundary', async () => {
     const members: CommitteeMemberTerm[] = [
       { coldKeyHex: 'aa', versionFrom: 581, versionTo: 601, termExpiration: 653, authorizedFrom: 507, resignedAt: 597 },
@@ -41,5 +48,18 @@ describe('committee membership accessors', () => {
     const cc = members.filter((m) => m.coldKeyHex === 'cc');
     expect(cc).toHaveLength(1);
     expect(cc[0].termExpiration).toBe(726);
+  });
+});
+
+describe('seeded committee history', () => {
+  it('resolves the ledger-active size across versions and the epoch-597 resignation', async () => {
+    // Reads the historical seed migration directly (no cleanup).
+    const { members, hotToCold } = await getCommitteeTimeline(db());
+    expect(members).toHaveLength(22);
+    expect(hotToCold.size).toBe(14);
+    expect(activeCommitteeSizeAt(members, 550)).toBe(7); // bootstrap
+    expect(activeCommitteeSizeAt(members, 596)).toBe(7); // v2, before the resignation
+    expect(activeCommitteeSizeAt(members, 597)).toBe(6); // v2, resignation takes effect
+    expect(activeCommitteeSizeAt(members, 633)).toBe(7); // v3 (8 listed, resigner not authorized)
   });
 });
