@@ -25,6 +25,15 @@ const govPrefsSource = readFileSync(
 );
 const govPrefsHash = `sha256-${createHash('sha256').update(govPrefsSource).digest('base64')}`;
 
+// Same approach for the vote dashboard's filter/sort script, inlined via set:html
+// on /vote. Derived from the same file that is inlined so editing it cannot desync
+// the CSP hash.
+const voteFiltersSource = readFileSync(
+  fileURLToPath(new URL('./src/scripts/vote-filters.js', import.meta.url)),
+  'utf8',
+);
+const voteFiltersHash = `sha256-${createHash('sha256').update(voteFiltersSource).digest('base64')}`;
+
 export default defineConfig({
   site: 'https://dreptalk.com',
   output: 'server',
@@ -91,7 +100,7 @@ export default defineConfig({
         resources: ["'self'", 'https://static.cloudflareinsights.com'],
         // Astro hashes its own bundled/inline scripts but not author is:inline
         // ones, so add the inlined script hashes explicitly.
-        hashes: [themeInitHash, govPrefsHash],
+        hashes: [themeInitHash, govPrefsHash, voteFiltersHash],
       },
     },
   },
