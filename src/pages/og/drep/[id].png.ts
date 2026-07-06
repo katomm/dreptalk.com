@@ -8,7 +8,7 @@ import { runtimeEnv } from '@/lib/api/response';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { countDrepVotes, getDrepParticipation } from '@/lib/db/drepVotes.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
-import { influencePct } from '@/lib/drep/profile.js';
+import { influencePct } from '@/lib/dreps/profile.js';
 import { loadAvatar } from '@/lib/og/assets.js';
 import { drepCardModel } from '@/lib/og/model.js';
 import { renderOgCard } from '@/lib/og/render.js';

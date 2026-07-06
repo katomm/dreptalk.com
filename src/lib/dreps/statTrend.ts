@@ -2,7 +2,7 @@
 // most recent epoch aggregates (newest first), it yields display-ready deltas for
 // the active-DRep count, total voting power, and average voting power. No I/O, so
 // it is unit-tested in the node pool; the .astro page only renders the result.
-import { formatTrendPct } from '../drep/votingPowerTrend.js';
+import { formatTrendPct } from './votingPowerTrend.js';
 
 export interface StatEpochAggregate {
   epoch: number;

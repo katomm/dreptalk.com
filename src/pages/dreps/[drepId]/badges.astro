@@ -6,7 +6,7 @@ import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
 import BadgeTile from '@/components/BadgeTile.astro';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
-import { drepPath, isCanonicalDrepParam } from '@/lib/drep/profile.js';
+import { drepPath, isCanonicalDrepParam } from '@/lib/dreps/profile.js';
 import { getUserByDrepId } from '@/lib/db/users.js';
 import { MYSTERY_BADGE_IMAGE } from '../../../../config/badges.js';
 import { buildDrepBadgeGallery } from '@/lib/badges/gallery.js';

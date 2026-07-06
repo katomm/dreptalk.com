@@ -8,7 +8,7 @@ import { getUsersByIds, type User } from '../db/users.js';
 import { getDrepsByIds, type Drep } from '../db/dreps.js';
 import { getPoolsByIds, type Pool } from '../db/pools.js';
 import type { ActionVoterRow } from '../db/drepVotes.js';
-import { drepPath } from '../drep/profile.js';
+import { drepPath } from '../dreps/profile.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { truncateId } from './view.js';
 

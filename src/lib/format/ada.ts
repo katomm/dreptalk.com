@@ -39,3 +39,22 @@ export function formatAdaCompact(
   }).format(ada);
   return `${short} ${SYMBOL}`;
 }
+
+/**
+ * Exact ADA from lovelace as a plain decimal string, no symbol and no rounding:
+ * "39558963", "1.234567", "1.2", "0". For data exports (CSV) where every digit
+ * must be exact. Treasury sums run past Number's safe-integer range, so the
+ * `Number(lovelace) / 1e6` shortcut silently drops precision on large amounts;
+ * this stays in BigInt. Trailing fraction zeros are trimmed and a whole amount
+ * carries no decimal point, matching the shortcut's output on values that fit.
+ */
+export function lovelaceToAdaDecimal(lovelace: bigint): string {
+  const negative = lovelace < 0n;
+  const abs = negative ? -lovelace : lovelace;
+  const whole = abs / 1_000_000n;
+  const frac = abs % 1_000_000n;
+  const sign = negative ? '-' : '';
+  if (frac === 0n) return `${sign}${whole}`;
+  const fracStr = frac.toString().padStart(6, '0').replace(/0+$/, '');
+  return `${sign}${whole}.${fracStr}`;
+}

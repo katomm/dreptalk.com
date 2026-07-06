@@ -4,7 +4,7 @@ description: "How a registered DRep casts a Yes, No, or Abstain vote on an open 
 cardLabel: "How to vote"
 category: "For DReps"
 order: 3
-updated: 2026-06-23
+updated: 2026-07-06
 ---
 
 As a registered DRep you can vote on open governance actions directly on DRepTalk and sign the vote in your own wallet. Voting is the core of the role: it is how you turn the voting power delegated to you into a decision on each action. This guide covers who can vote, how the flow works, and what happens to your vote and rationale.
@@ -27,11 +27,11 @@ The vote is built for you, but your wallet signs and submits it. Your private ke
 
 ## Adding a rationale
 
-A rationale is optional but encouraged. When you include one, it is recorded with your vote on-chain and shown as a post on the action's discussion, and you can see the link to the on-chain record before you sign. That post is permanent and cannot be edited, since it reflects what was committed on-chain. For what makes a good rationale and how to structure it, see [Writing a vote rationale](/help/writing-a-vote-rationale).
+A rationale is optional but encouraged. When you include one, it is recorded with your vote on-chain and shown on the action's Positions tab, and you can see the link to the on-chain record before you sign. A checkbox lets you also post a copy into the action's discussion thread so others can respond; that cross-post is off by default. The on-chain rationale is permanent and cannot be edited, since it reflects what was committed on-chain. For what makes a good rationale and how to structure it, see [Writing a vote rationale](/help/writing-a-vote-rationale).
 
 ## Changing your vote
 
-While an action is still open you can change your vote. Cast again with the new choice and the later vote replaces the earlier one on-chain; if you included a rationale, the rationale post updates to match. Once the action closes, votes are final.
+While an action is still open you can change your vote. Cast again with the new choice and the later vote replaces the earlier one on-chain; if you included a rationale, it is replaced along with the vote. Once the action closes, votes are final.
 
 ## Related
 
