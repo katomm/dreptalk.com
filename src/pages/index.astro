@@ -11,6 +11,7 @@ import { getLatestGovernanceAction, getLatestActionWithVotes } from '@/lib/db/go
 import { getActionVoters } from '@/lib/db/drepVotes.js';
 import { getDrepsByIds } from '@/lib/db/dreps.js';
 import { voterDescriptor, authorProfileHref } from '@/lib/forum/author.js';
+import { heroRingSlots, HERO_RING_RADII } from '@/lib/hero/ring.js';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { readableType, statusBadge, voteTone, TONE_COLORS } from '@/lib/governance/view.js';
 import { cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
@@ -20,43 +21,72 @@ const db = env.DB as D1Database | undefined;
 const now = Date.now();
 const user = Astro.locals.user;
 
-// How many real voter pills the hero ring shows; the action must have at least
-// this many DRep votes to drive the live hero, else we fall back to the plain
-// newest action with the six decorative pills.
-const HERO_VOTERS = 6;
+// The hero "live voting" scene shows the strongest DRep voters actively (avatar
+// plus a vote badge) ringed by fainter "ghost" voters, so it reads as a vote in
+// progress. We pull a few more than we show to fill both rings from one query.
+const HERO_MIN_ACTIVE = 8; // fewest active voters that still reads as a full ring
+const HERO_MAX_ACTIVE = 10; // most active pills on the inner ring
+const HERO_MAX_GHOSTS = 8; // most ghost avatars on the outer ring
+const HERO_FETCH = HERO_MAX_ACTIVE + HERO_MAX_GHOSTS; // voters pulled in one query
 
 // Category stats, the activity feed, and the voted-hero candidate are
 // independent; load them together. votedHero is the newest action that already
-// has a full ring of DRep voters.
+// has enough DRep voters to drive the live ring.
 const [stats, feed, votedHero] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 8 }).then((r) => r.events),
-      getLatestActionWithVotes(db, { minVoters: HERO_VOTERS }),
+      getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null];
 
-// Fall back to the plain newest action only when none has a full voter ring yet,
-// so the common path (a voted action exists) skips this query entirely.
+// Fall back to the plain newest action only when none has enough voters yet, so
+// the common path (a voted action exists) skips this query entirely.
 const latestHero = !votedHero && db ? await getLatestGovernanceAction(db) : null;
 const heroAction = votedHero ?? latestHero;
 
-// When a voted action drives the hero, resolve its top-6 voters into pill data
-// (identicon seed + stored-avatar hash + the vote). dreps are batched in one
-// follow-up query, mirroring the thread page's voter list.
-const heroVoters =
+// Resolve the voted action's top voters into pill data (identicon seed + stored
+// avatar hash + the vote), then split into the strongest as "active" and the
+// remainder as "ghosts". dreps are batched in one follow-up query.
+const hero =
   db && votedHero
     ? await (async () => {
-        const voters = await getActionVoters(db, votedHero.action.id, { limit: HERO_VOTERS });
+        const voters = await getActionVoters(db, votedHero.action.id, { limit: HERO_FETCH });
         const dreps = await getDrepsByIds(db, voters.map((v) => v.voter_id));
-        return voters.map((v) => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote }));
+        const rows = voters.map((v) => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote }));
+        return { active: rows.slice(0, HERO_MAX_ACTIVE), ghosts: rows.slice(HERO_MAX_ACTIVE, HERO_FETCH) };
       })()
-    : [];
+    : { active: [] as { descriptor: ReturnType<typeof voterDescriptor>; vote: string }[], ghosts: [] as { descriptor: ReturnType<typeof voterDescriptor>; vote: string }[] };
 
-// Only light up the real ring when all six slots are filled; a partial ring in
-// the symmetric six-pill layout would read as broken, so otherwise we keep the
-// decorative pills.
-const showVoterPills = heroVoters.length === HERO_VOTERS;
+// Only light the real scene when the inner ring is full enough; a sparse ring
+// would read as broken, so otherwise we keep the decorative placeholder ring.
+const showScene = hero.active.length >= HERO_MIN_ACTIVE;
+
+// Ring positions: for the real scene, exactly as many slots as we have voters;
+// otherwise a small decorative ring of six placeholders.
+const ringSlots = showScene ? heroRingSlots(hero.active.length, hero.ghosts.length) : heroRingSlots(6, 0);
+const activeSlots = ringSlots.filter((s) => s.kind === 'active');
+const ghostSlots = ringSlots.filter((s) => s.kind === 'ghost');
+
+// Reveal timing (pure CSS): the card is already in; votes then pop over ~1.1s.
+// The base offset lets the card settle; the per-index step spreads pops into
+// roughly three waves, which the status dots track.
+const REVEAL_BASE_MS = 520;
+const REVEAL_STEP_MS = 110;
+
+// SVG guide-ring radii in the 0..320 viewBox, derived from the shared fractions
+// so the dashed ellipses line up with the pill positions.
+const VIEWBOX = 320;
+const ringActive = { rx: HERO_RING_RADII.active.rx * VIEWBOX, ry: HERO_RING_RADII.active.ry * VIEWBOX };
+const ringGhost = { rx: HERO_RING_RADII.ghost.rx * VIEWBOX, ry: HERO_RING_RADII.ghost.ry * VIEWBOX };
+
+// Maps a vote to the badge glyph kind + label shown on an active pill.
+function voteBadgeKind(vote: string): 'yes' | 'no' | 'abstain' {
+  const v = vote.toLowerCase();
+  if (v === 'yes') return 'yes';
+  if (v === 'no') return 'no';
+  return 'abstain';
+}
 
 const categories = getCategories();
 
@@ -181,29 +211,44 @@ const heroFeatures = [
       <div class="hero-scene">
         <div class="hero-scene__glow" aria-hidden="true"></div>
 
-        <svg class="hero-scene__links" aria-hidden="true" viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
-          <defs>
-            <linearGradient id="link-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#8b5cf6" stop-opacity="0.5" />
-              <stop offset="0.5" stop-color="#3b82f6" stop-opacity="0.45" />
-              <stop offset="1" stop-color="#2dd4bf" stop-opacity="0.4" />
-            </linearGradient>
-          </defs>
-          <g stroke="url(#link-grad)" stroke-width="1.5" fill="none">
-            <line x1="160" y1="160" x2="58" y2="62" />
-            <line x1="160" y1="160" x2="270" y2="78" />
-            <line x1="160" y1="160" x2="40" y2="210" />
-            <line x1="160" y1="160" x2="284" y2="222" />
-            <line x1="160" y1="160" x2="120" y2="292" />
-            <line x1="160" y1="160" x2="232" y2="288" />
+        <svg class="hero-scene__rings" aria-hidden="true" viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
+          <g class="ring-guides">
+            <ellipse cx="160" cy="160" rx={ringActive.rx} ry={ringActive.ry} />
+            <ellipse cx="160" cy="160" rx={ringGhost.rx} ry={ringGhost.ry} />
           </g>
+          {showScene && (
+            <g class="ring-links">
+              {activeSlots.map((s, i) => (
+                <line
+                  x1="160"
+                  y1="160"
+                  x2={s.x * 320}
+                  y2={s.y * 320}
+                  style={`--enter-delay:${REVEAL_BASE_MS + i * REVEAL_STEP_MS}ms`}
+                />
+              ))}
+            </g>
+          )}
         </svg>
+
+        {showScene && (
+          <div class="hero-ghosts" aria-hidden="true">
+            {ghostSlots.map((s, i) => {
+              const g = hero.ghosts[i];
+              return (
+                <span class="ghost" style={`left:${s.x * 100}%; top:${s.y * 100}%; --enter-delay:${300 + i * 60}ms`}>
+                  <Avatar seed={g.descriptor.identiconSeed ?? g.descriptor.authorId} imageHash={g.descriptor.imageHash} size={22} />
+                </span>
+              );
+            })}
+          </div>
+        )}
 
         <HeroCardTag
           class="gov-card"
           href={heroCard.href}
+          aria-label={heroCard.href ? `Latest governance action: ${heroCard.title}, ${heroCard.badge}` : undefined}
         >
-          {heroCard.href && <span class="sr-only">Latest governance action: </span>}
           <span class="gov-card__icon" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M9 21v-6h6v6" /><path d="M3 10h18" /></svg>
           </span>
@@ -212,30 +257,58 @@ const heroFeatures = [
           <span class="gov-card__badge" style={`--tone:${heroCard.tone}`}>{heroCard.badge}</span>
         </HeroCardTag>
 
-        {showVoterPills ? (
-          heroVoters.map((p, i) => (
-            <a
-              class:list={['pill', 'pill--vote', `pill--${i + 1}`]}
-              href={authorProfileHref(p.descriptor)}
-              title={`${p.descriptor.displayName} voted ${p.vote}`}
-              aria-label={`${p.descriptor.displayName} ${p.vote}, view profile`}
-            >
-              <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={24} />
-              <span class="pill__name">{p.descriptor.displayName}</span>
-              <span class="pill__vote" style={`--tone:${TONE_COLORS[voteTone(p.vote)]}`}>{p.vote}</span>
-            </a>
-          ))
+        {showScene ? (
+          <div class="hero-voters">
+            {activeSlots.map((s, i) => {
+              const p = hero.active[i];
+              const kind = voteBadgeKind(p.vote);
+              const label = kind === 'yes' ? 'Yes' : kind === 'no' ? 'No' : 'Abstain';
+              return (
+                <a
+                  class:list={['pill', 'pill--vote', `vote-${kind}`]}
+                  href={authorProfileHref(p.descriptor)}
+                  style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + i * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[voteTone(p.vote)]}`}
+                  title={`${p.descriptor.displayName} voted ${label}`}
+                  aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
+                >
+                  <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={28} />
+                  <span class="pill__badge">
+                    <span class="pill__badge-icon" aria-hidden="true">
+                      {kind === 'yes' && (
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                      )}
+                      {kind === 'no' && (
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                      )}
+                      {kind === 'abstain' && (
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /></svg>
+                      )}
+                    </span>
+                    <span class="pill__badge-label">{label}</span>
+                  </span>
+                  <span class="pill__name">{p.descriptor.displayName}</span>
+                </a>
+              );
+            })}
+          </div>
         ) : (
-          <>
-            <span class="pill pill--1" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-            <span class="pill pill--2" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-            <span class="pill pill--3" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-            <span class="pill pill--4" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-            <span class="pill pill--5" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-            <span class="pill pill--6" aria-hidden="true"><span class="pill__avatar"></span><span class="pill__bubble"></span></span>
-          </>
+          activeSlots.map((s) => (
+            <span class="pill pill--placeholder" aria-hidden="true" style={`left:${s.x * 100}%; top:${s.y * 100}%`}>
+              <span class="pill__avatar"></span>
+              <span class="pill__bubble"></span>
+            </span>
+          ))
         )}
       </div>
+
+      {showScene && (
+        <div class="hero-status" aria-hidden="true">
+          <span class="hero-status__text">DReps are casting their votes...</span>
+          <span class="hero-status__dots">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </span>
+        </div>
+      )}
     </div>
   </section>
 
@@ -375,7 +448,9 @@ const heroFeatures = [
   /* ---- Hero visual (network of participants around a governance action) -- */
   .hero__visual {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
   }
   .hero-scene {
     position: relative;
@@ -393,11 +468,28 @@ const heroFeatures = [
       radial-gradient(45% 50% at 55% 72%, rgba(45, 212, 191, 0.22), transparent 70%);
     filter: blur(6px);
   }
-  .hero-scene__links {
+  .hero-scene__rings {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
+    pointer-events: none;
+  }
+  /* Subtle dashed guide ellipses that give the ring structure without the old
+     heavy gradient lines. */
+  .ring-guides ellipse {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 1;
+    stroke-dasharray: 2 5;
+    opacity: 0.7;
+  }
+  /* One faint dashed spoke per active voter, from the card to the voter. */
+  .ring-links line {
+    stroke: var(--accent);
+    stroke-width: 1;
+    stroke-dasharray: 2 4;
+    opacity: 0.28;
   }
 
   .gov-card {
@@ -481,20 +573,119 @@ const heroFeatures = [
     white-space: nowrap;
   }
 
+  /* The active voters live in an overlay layer that fills the scene; on desktop
+     each pill is absolutely positioned on the ring from its --px/--py fractions.
+     The layer itself ignores pointer events so only the pills are interactive. */
+  .hero-voters {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .hero-voters .pill {
+    pointer-events: auto;
+  }
+
+  /* Active voter: a centered avatar with a vote-badge chip tucked under it; the
+     DRep name reveals on hover. Positioned on the ring via --px/--py (percent). */
   .pill {
     position: absolute;
+    left: calc(var(--px, 50) * 1%);
+    top: calc(var(--py, 50) * 1%);
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  a.pill {
+    color: inherit;
+    text-decoration: none;
+  }
+  .pill__badge {
     display: inline-flex;
     align-items: center;
+    gap: 0.15rem;
+    margin-top: -0.5rem;
+    padding: 0.1rem 0.4rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.3;
+    /* --tone is set inline from voteTone: green (Yes), red (No), muted (Abstain). */
+    color: var(--tone, var(--accent));
+    white-space: nowrap;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+  .pill__badge-icon {
+    display: inline-flex;
+    color: var(--tone, var(--accent));
+  }
+  /* The DRep name is hidden at rest and fades in below the badge on hover/focus,
+     so the resting scene stays uncluttered. */
+  .pill__name {
+    position: absolute;
+    top: calc(100% + 0.2rem);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.05rem 0.4rem;
+    max-width: 16ch;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: var(--shadow);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  .pill:hover,
+  .pill:focus-visible {
+    z-index: 3;
+    outline: none;
+  }
+  .pill:hover .pill__badge,
+  .pill:focus-visible .pill__badge {
+    border-color: var(--tone, var(--accent));
+    box-shadow: var(--shadow), 0 0 0 1px var(--tone, var(--accent));
+  }
+  .pill:hover .pill__name,
+  .pill:focus-visible .pill__name {
+    opacity: 1;
+  }
+
+  /* Ghost voters: real avatars of the next-strongest voters, dimmed and small,
+     no label. The layer is edge-faded so nothing collides with the copy column. */
+  .hero-ghosts {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    -webkit-mask-image: radial-gradient(closest-side, #000 62%, transparent 92%);
+    mask-image: radial-gradient(closest-side, #000 62%, transparent 92%);
+  }
+  .ghost {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    opacity: 0.4;
+    filter: grayscale(0.4);
+  }
+
+  /* Decorative placeholder pills for the fresh-deploy / local-dev fallback. */
+  .pill--placeholder {
+    flex-direction: row;
     gap: 0.3rem;
     padding: 0.3rem 0.4rem;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 999px;
     box-shadow: var(--shadow);
-    /* Real pills are profile links; keep the inherited text color and no underline. */
-    color: inherit;
-    text-decoration: none;
-    transition: border-color 0.18s ease, box-shadow 0.18s ease;
   }
   .pill__avatar {
     width: 16px;
@@ -509,55 +700,66 @@ const heroFeatures = [
     border-radius: 999px;
     background: color-mix(in srgb, var(--accent) 30%, var(--border));
   }
-  /* Real voter pills carry the DRep's vote as a word in its tone color, so they
-     need a touch more right padding than the decorative bubble variant. */
-  .pill--vote {
-    padding-right: 0.55rem;
+
+  /* Status line under the scene, with dots that track the reveal waves. */
+  .hero-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 500;
   }
-  .pill__vote {
-    font-size: 0.7rem;
-    font-weight: 600;
-    line-height: 1.4;
-    /* --tone is set inline from voteTone: green (Yes), red (No), muted (Abstain). */
-    color: var(--tone, var(--accent));
-    white-space: nowrap;
+  .hero-status__dots {
+    display: inline-flex;
+    gap: 0.25rem;
   }
-  /* The DRep name is collapsed to zero width and only unfolds on hover/focus, so
-     the resting pill stays compact. The negative margin absorbs the flex gap
-     while collapsed so the avatar and vote sit at their normal spacing. */
-  .pill__name {
-    max-width: 0;
-    margin-left: -0.3rem;
-    opacity: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-size: 0.7rem;
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--fg);
-    transition: max-width 0.2s ease, margin-left 0.2s ease, opacity 0.2s ease;
+  .hero-status .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent);
+    opacity: 0.25;
   }
-  .pill--vote:hover,
-  .pill--vote:focus-visible {
-    border-color: var(--accent);
-    box-shadow: var(--shadow), 0 0 0 1px var(--accent);
-    /* Lift the expanding pill above its neighbours and the card edge. */
-    z-index: 3;
-    outline: none;
+
+  /* Entry animations: pure CSS, only when motion is allowed. Resting state above
+     is fully visible, so reduced-motion users see the finished scene at once. */
+  @media (prefers-reduced-motion: no-preference) {
+    .pill--vote {
+      animation: hero-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-delay: var(--enter-delay, 0ms);
+    }
+    .ghost {
+      animation: hero-fade 0.6s ease both;
+      animation-delay: var(--enter-delay, 0ms);
+    }
+    .ring-links line {
+      animation: hero-fade 0.5s ease both;
+      animation-delay: var(--enter-delay, 0ms);
+    }
+    .ring-guides {
+      animation: hero-fade 0.6s ease both;
+      animation-delay: 200ms;
+    }
+    .hero-status .dot {
+      animation: hero-dot 1.6s ease forwards;
+    }
+    .hero-status .dot:nth-child(1) { animation-delay: 520ms; }
+    .hero-status .dot:nth-child(2) { animation-delay: 900ms; }
+    .hero-status .dot:nth-child(3) { animation-delay: 1280ms; }
   }
-  .pill--vote:hover .pill__name,
-  .pill--vote:focus-visible .pill__name {
-    max-width: 18ch;
-    margin-left: 0;
-    opacity: 1;
+  @keyframes hero-pop {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
-  .pill--1 { top: 12%; left: 6%; }
-  .pill--2 { top: 16%; right: 4%; }
-  .pill--3 { top: 60%; left: 0%; }
-  .pill--4 { top: 64%; right: 2%; }
-  .pill--5 { bottom: 6%; left: 28%; }
-  .pill--6 { bottom: 8%; right: 24%; }
+  @keyframes hero-fade {
+    from { opacity: 0; }
+  }
+  @keyframes hero-dot {
+    0% { opacity: 0.25; transform: scale(1); }
+    30% { opacity: 1; transform: scale(1.4); }
+    100% { opacity: 0.45; transform: scale(1); }
+  }
 
   /* ---- Announcement banner ------------------------------------------- */
   .announce {
@@ -672,9 +874,47 @@ const heroFeatures = [
       aspect-ratio: auto;
     }
     .hero-scene__glow,
-    .hero-scene__links,
-    .pill {
+    .hero-scene__rings,
+    .hero-ghosts,
+    .hero-status,
+    .pill--placeholder {
       display: none;
+    }
+    /* Voters as a centered, wrapping strip of compact chips under the card. */
+    .hero-voters {
+      position: static;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.5rem 0.6rem;
+      margin-top: 1rem;
+    }
+    .hero-voters .pill {
+      position: relative;
+      left: auto;
+      top: auto;
+      transform: none;
+      flex-direction: row;
+      gap: 0.35rem;
+      padding: 0.25rem 0.55rem 0.25rem 0.3rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+    }
+    /* In the strip the pill itself is the chip, so the badge drops its own
+       chrome and sits inline next to the avatar. */
+    .hero-voters .pill__badge {
+      margin-top: 0;
+      padding: 0;
+      background: none;
+      border: none;
+      box-shadow: none;
+    }
+    /* No wave pop in the static strip: the keyframe's translate would shift the
+       now-static chip off its spot. */
+    .hero-voters .pill--vote {
+      animation: none;
     }
     .gov-card {
       position: static;
