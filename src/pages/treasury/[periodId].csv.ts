@@ -4,6 +4,7 @@
 // offline analysis. `periodId` is the curated NclPeriod slug (config/ncl-periods).
 import type { APIRoute } from 'astro';
 import { runtimeEnv } from '@/lib/api/response';
+import { lovelaceToAdaDecimal } from '@/lib/format/ada.js';
 import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
 
 export const prerender = false;
@@ -29,7 +30,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
       String(w.enactedEpoch),
       csvField(w.title),
       w.lovelace.toString(),
-      (Number(w.lovelace) / 1e6).toString(),
+      lovelaceToAdaDecimal(w.lovelace),
     ].join(','),
   );
   const csv = [header, ...rows].join('\r\n');

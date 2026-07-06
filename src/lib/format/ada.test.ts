@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAda, formatAdaCompact } from './ada.js';
+import { formatAda, formatAdaCompact, lovelaceToAdaDecimal } from './ada.js';
 
 describe('formatAda', () => {
   it('formats lovelace as whole ADA with the ₳ symbol and thousands separators', () => {
@@ -36,5 +36,27 @@ describe('formatAdaCompact', () => {
   it('returns null for absent or non-numeric input', () => {
     expect(formatAdaCompact(null)).toBeNull();
     expect(formatAdaCompact('abc')).toBeNull();
+  });
+});
+
+describe('lovelaceToAdaDecimal', () => {
+  it('formats lovelace as an exact ADA decimal string, trailing zeros trimmed', () => {
+    expect(lovelaceToAdaDecimal(39558963000000n)).toBe('39558963');
+    expect(lovelaceToAdaDecimal(1234567n)).toBe('1.234567');
+    expect(lovelaceToAdaDecimal(1200000n)).toBe('1.2');
+    expect(lovelaceToAdaDecimal(1n)).toBe('0.000001');
+    expect(lovelaceToAdaDecimal(0n)).toBe('0');
+  });
+
+  it('keeps full precision past Number.MAX_SAFE_INTEGER, unlike the Number/1e6 shortcut', () => {
+    // 2^53 + 1 lovelace: the last digit is unrepresentable as a JS double.
+    const lovelace = 9_007_199_254_740_993n;
+    expect(lovelaceToAdaDecimal(lovelace)).toBe('9007199254.740993');
+    // The exact bug this replaces: the float path rounds the final lovelace away.
+    expect((Number(lovelace) / 1e6).toString()).not.toBe('9007199254.740993');
+  });
+
+  it('handles negative amounts', () => {
+    expect(lovelaceToAdaDecimal(-1234567n)).toBe('-1.234567');
   });
 });
