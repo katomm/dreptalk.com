@@ -6,6 +6,7 @@
 // of ledger rules; tallySync.ts imports these when mapping a summary to the stored
 // tally). Pure functions, no I/O.
 import type { VotingSummary } from './client.js';
+import { activeCommitteeMembersAt, type CommitteeMemberTerm } from './committeeTimeline.js';
 
 /** Parses a Koios lovelace power string to a number; null when absent. The
     magnitudes (up to ~2.1e16) exceed Number.MAX_SAFE_INTEGER, but the lost
@@ -63,9 +64,56 @@ export function spoEligiblePower(s: VotingSummary | null): number | null {
   return parts.reduce((sum, v) => sum + (v == null ? 0 : Number(v)), 0);
 }
 
-// NOTE: committee_yes_pct / committee_no_pct are also known to be wrong for a set
-// of actions (Koios' summary double-counts a duplicate committee hot-key
-// registration and keeps a resigned member in the denominator; /proposal_votes is
-// ledger-exact). That correction is NOT yet implemented: ccYesPct in tallySync.ts
-// is still taken straight from Koios. When it lands, it belongs here alongside the
-// SPO recompute, so every Koios tally correction stays in one place.
+/** A single on-chain committee vote, keyed by the voter's hot-key hash. */
+export interface CcVote {
+  hotKeyHex: string;
+  vote: 'Yes' | 'No' | 'Abstain';
+  /** On-chain block time; when a member re-voted or rotated hot keys, the latest wins. */
+  blockTime: number | null;
+}
+
+/**
+ * Ledger-exact committee yes/no percentages, replacing Koios' committee_yes_pct.
+ * Koios' summary is wrong for several actions: it double-counts a duplicate hot-key
+ * registration and keeps a resigned member in the denominator. We recompute from the
+ * per-voter votes and the committee's composition at the action's decided epoch:
+ *
+ * 1. Map each vote's hot key to its cold-key member; ignore votes from members not
+ *    active at that epoch (resigned or term-expired), so a stale vote never counts.
+ * 2. Keep one final vote per member (latest block time), collapsing rotations/re-votes.
+ * 3. Conway rule: abstaining members leave the denominator, everyone else active
+ *    (No, or did not vote) stays in it. yesPct = yes / (active - abstain).
+ *
+ * Null when no committee is active at the epoch (membership unknown), so the caller
+ * can fall back to Koios rather than show a wrong figure.
+ */
+export function ccTallyPct(
+  votes: CcVote[],
+  members: CommitteeMemberTerm[],
+  hotToCold: Map<string, string>,
+  ratifiedEpoch: number,
+): { yesPct: number | null; noPct: number | null } {
+  const active = activeCommitteeMembersAt(members, ratifiedEpoch);
+  if (active.size === 0) return { yesPct: null, noPct: null };
+
+  const finalByMember = new Map<string, { vote: CcVote['vote']; blockTime: number }>();
+  for (const v of votes) {
+    const cold = hotToCold.get(v.hotKeyHex);
+    if (cold == null || !active.has(cold)) continue;
+    const bt = v.blockTime ?? 0;
+    const prev = finalByMember.get(cold);
+    if (prev == null || bt >= prev.blockTime) finalByMember.set(cold, { vote: v.vote, blockTime: bt });
+  }
+
+  let yes = 0;
+  let abstain = 0;
+  for (const { vote } of finalByMember.values()) {
+    if (vote === 'Yes') yes++;
+    else if (vote === 'Abstain') abstain++;
+  }
+
+  const denom = active.size - abstain;
+  if (denom <= 0) return { yesPct: null, noPct: null };
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return { yesPct: round2((yes / denom) * 100), noPct: round2(((denom - yes) / denom) * 100) };
+}
