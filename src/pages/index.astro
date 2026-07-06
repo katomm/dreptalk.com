@@ -84,6 +84,9 @@ function revealRank(slotIndex: number, count: number): number {
   return Math.max(REVEAL_SCATTER.filter((n) => n < count).indexOf(slotIndex), 0);
 }
 const activeCount = activeSlots.length;
+// In the stacked (narrow) layout the ring collapses to a few chips above the card
+// and a few below it; the first half go above, the rest below.
+const heroSplit = Math.ceil(activeCount / 2);
 
 // SVG guide-ring radii in the 0..320 viewBox, derived from the shared fractions
 // so the dashed ellipses line up with the pill positions.
@@ -255,71 +258,60 @@ const heroFeatures = [
           </div>
         )}
 
-        <HeroCardTag
-          class="gov-card"
-          href={heroCard.href}
-          aria-label={heroCard.href ? `Latest governance action: ${heroCard.title}, ${heroCard.badge}` : undefined}
-        >
-          <span class="gov-card__icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M9 21v-6h6v6" /><path d="M3 10h18" /></svg>
-          </span>
-          <span class="gov-card__label">{heroCard.label}</span>
-          <span class="gov-card__title">{heroCard.title}</span>
-          <span class="gov-card__badge" style={`--tone:${heroCard.tone}`}>{heroCard.badge}</span>
-        </HeroCardTag>
-
-        {showScene ? (
-          <div class="hero-voters">
-            {activeSlots.map((s, i) => {
-              const p = hero.active[i];
-              const kind = voteBadgeKind(p.vote);
-              const label = kind === 'yes' ? 'Yes' : kind === 'no' ? 'No' : 'Abstain';
-              return (
-                <a
-                  class:list={['pill', 'pill--vote', `vote-${kind}`]}
-                  href={authorProfileHref(p.descriptor)}
-                  style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + revealRank(i, activeCount) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[voteTone(p.vote)]}`}
-                  title={`${p.descriptor.displayName} voted ${label}`}
-                  aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
-                >
-                  <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={22} />
-                  <span class="pill__name">{p.descriptor.displayName}</span>
-                  <span class="pill__vote">
-                    <span class="pill__vote-icon" aria-hidden="true">
-                      {kind === 'yes' && (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-                      )}
-                      {kind === 'no' && (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
-                      )}
-                      {kind === 'abstain' && (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /></svg>
-                      )}
-                    </span>
-                    <span class="pill__vote-label">{label}</span>
-                  </span>
-                </a>
-              );
-            })}
-          </div>
-        ) : (
-          activeSlots.map((s) => (
-            <span class="pill pill--placeholder" aria-hidden="true" style={`left:${s.x * 100}%; top:${s.y * 100}%`}>
-              <span class="pill__avatar"></span>
-              <span class="pill__bubble"></span>
+        <div class="hero-stage">
+          <HeroCardTag
+            class="gov-card"
+            href={heroCard.href}
+            aria-label={heroCard.href ? `Latest governance action: ${heroCard.title}, ${heroCard.badge}` : undefined}
+          >
+            <span class="gov-card__icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M9 21v-6h6v6" /><path d="M3 10h18" /></svg>
             </span>
-          ))
-        )}
-      </div>
+            <span class="gov-card__label">{heroCard.label}</span>
+            <span class="gov-card__title">{heroCard.title}</span>
+            <span class="gov-card__badge" style={`--tone:${heroCard.tone}`}>{heroCard.badge}</span>
+          </HeroCardTag>
 
-      {showScene && (
-        <div class="hero-status" aria-hidden="true">
-          <span class="hero-status__text">DReps are casting their votes...</span>
-          <span class="hero-status__dots">
-            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-          </span>
+          {showScene
+            ? activeSlots.map((s, i) => {
+                const p = hero.active[i];
+                const kind = voteBadgeKind(p.vote);
+                const label = kind === 'yes' ? 'Yes' : kind === 'no' ? 'No' : 'Abstain';
+                return (
+                  <a
+                    class:list={['pill', 'pill--vote', `vote-${kind}`, i < heroSplit ? 'pill--above' : 'pill--below']}
+                    href={authorProfileHref(p.descriptor)}
+                    style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + revealRank(i, activeCount) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[voteTone(p.vote)]}`}
+                    title={`${p.descriptor.displayName} voted ${label}`}
+                    aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
+                  >
+                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={22} />
+                    <span class="pill__name">{p.descriptor.displayName}</span>
+                    <span class="pill__vote">
+                      <span class="pill__vote-icon" aria-hidden="true">
+                        {kind === 'yes' && (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                        )}
+                        {kind === 'no' && (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                        )}
+                        {kind === 'abstain' && (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /></svg>
+                        )}
+                      </span>
+                      <span class="pill__vote-label">{label}</span>
+                    </span>
+                  </a>
+                );
+              })
+            : activeSlots.map((s) => (
+                <span class="pill pill--placeholder" aria-hidden="true" style={`left:${s.x * 100}%; top:${s.y * 100}%`}>
+                  <span class="pill__avatar"></span>
+                  <span class="pill__bubble"></span>
+                </span>
+              ))}
         </div>
-      )}
+      </div>
     </div>
   </section>
 
@@ -508,6 +500,7 @@ const heroFeatures = [
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
+    z-index: 1;
     width: 64%;
     min-width: 210px;
     display: grid;
@@ -584,25 +577,23 @@ const heroFeatures = [
     white-space: nowrap;
   }
 
-  /* The active voters live in an overlay layer that fills the scene; on desktop
-     each pill is absolutely positioned on the ring from its --px/--py fractions.
-     The layer itself ignores pointer events so only the pills are interactive. */
-  .hero-voters {
+  /* The stage holds the card and the voter pills. On desktop it is an overlay
+     that fills the scene so the pills position on the ring around the centered
+     card; in the narrow layout it becomes a flex column (see the responsive block)
+     that stacks a few pills above the card and a few below. */
+  .hero-stage {
     position: absolute;
     inset: 0;
-    pointer-events: none;
-  }
-  .hero-voters .pill {
-    pointer-events: auto;
   }
 
-  /* Active voter: a centered avatar with a vote-badge chip tucked under it; the
-     DRep name reveals on hover. Positioned on the ring via --px/--py (percent). */
+  /* Active voter: a horizontal capsule (avatar, name, vote) placed on the ring via
+     --px/--py; the DRep name slides open on hover. */
   .pill {
     position: absolute;
     left: calc(var(--px, 50) * 1%);
     top: calc(var(--py, 50) * 1%);
     transform: translate(-50%, -50%);
+    z-index: 2;
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
@@ -703,30 +694,6 @@ const heroFeatures = [
     background: color-mix(in srgb, var(--accent) 30%, var(--border));
   }
 
-  /* Status line under the scene. Hidden at rest; it fades in while the votes are
-     coming in and fades out once the last one has landed (see the motion block).
-     For reduced motion it stays hidden, since the scene is shown already complete. */
-  .hero-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--muted);
-    font-size: 0.85rem;
-    font-weight: 500;
-    opacity: 0;
-  }
-  .hero-status__dots {
-    display: inline-flex;
-    gap: 0.25rem;
-  }
-  .hero-status .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--accent);
-    opacity: 0.25;
-  }
-
   /* Entry animations: pure CSS, only when motion is allowed. Resting state above
      is fully visible, so reduced-motion users see the finished scene at once. */
   @media (prefers-reduced-motion: no-preference) {
@@ -746,16 +713,6 @@ const heroFeatures = [
       animation: hero-fade 0.6s ease both;
       animation-delay: 200ms;
     }
-    /* Fade the caption in as voting starts, then out once the last vote lands. */
-    .hero-status {
-      animation: hero-status-cycle 3.6s ease forwards;
-    }
-    .hero-status .dot {
-      animation: hero-dot 1.7s ease infinite;
-    }
-    .hero-status .dot:nth-child(1) { animation-delay: 700ms; }
-    .hero-status .dot:nth-child(2) { animation-delay: 1300ms; }
-    .hero-status .dot:nth-child(3) { animation-delay: 1900ms; }
   }
   @keyframes hero-pop {
     from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
@@ -764,17 +721,10 @@ const heroFeatures = [
   @keyframes hero-fade {
     from { opacity: 0; }
   }
-  /* Caption appears while votes come in, then fades out once they have all landed. */
-  @keyframes hero-status-cycle {
-    0% { opacity: 0; }
-    10% { opacity: 1; }
-    82% { opacity: 1; }
-    100% { opacity: 0; }
-  }
-  @keyframes hero-dot {
-    0% { opacity: 0.25; transform: scale(1); }
-    30% { opacity: 1; transform: scale(1.4); }
-    100% { opacity: 0.45; transform: scale(1); }
+  /* Stacked (narrow) chips are statically placed, so they rise in without the
+     ring pill's centering transform. */
+  @keyframes hero-rise {
+    from { opacity: 0; transform: translateY(8px); }
   }
 
   /* ---- Announcement banner ------------------------------------------- */
@@ -878,57 +828,59 @@ const heroFeatures = [
       gap: 2.25rem;
       padding-top: 2rem;
     }
+    /* The visual now sits below the copy (under the CTA buttons), not above it. */
     .hero__visual {
-      order: -1;
-      max-width: 360px;
+      max-width: 30rem;
       margin: 0 auto;
     }
-    /* Stacked above the copy, the circular ring does not fit a single column, so
-       drop the ring structure (glow, dashed guides, ghosts, status) and show the
-       card full width with the voters reflowed into a wrapping chip strip below. */
+    /* The circular ring does not fit a single column: drop the ring structure and
+       stack a few voter chips above the full-width card and a few below it. */
     .hero-scene {
       aspect-ratio: auto;
     }
     .hero-scene__glow,
     .hero-scene__rings,
     .hero-ghosts,
-    .hero-status,
     .pill--placeholder {
       display: none;
     }
-    /* Voters as a centered, wrapping strip of compact chips under the card. */
-    .hero-voters {
+    .hero-stage {
       position: static;
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
-      gap: 0.5rem 0.6rem;
-      margin-top: 1rem;
+      align-items: center;
+      gap: 0.4rem 0.5rem;
     }
-    /* The pill is already a horizontal capsule; in the strip it just flows
-       normally instead of being absolutely placed on the ring. */
-    .hero-voters .pill {
+    /* Chips flow normally instead of being placed on the ring; half sit above the
+       card (order -1) and half below it (order 1), the card being a full-width row. */
+    .hero-stage .pill {
       position: relative;
       left: auto;
       top: auto;
       transform: none;
     }
-    /* No wave pop in the static strip: the keyframe's translate would shift the
-       chip off its spot. */
-    .hero-voters .pill--vote {
-      animation: none;
-    }
+    .pill--above { order: -1; }
+    .pill--below { order: 1; }
     .gov-card {
       position: static;
       transform: none;
+      flex: 0 0 100%;
       width: 100%;
       min-width: 0;
-      /* Title shared its row with the status badge, so on the narrower card the
-         title column collapsed and wrapped one word per line ("Fund" / "Core").
-         Give the title the full width and lift the badge up beside the label. */
+      margin: 0.2rem 0;
+      /* Give the title the full width and lift the badge up beside the label. */
       grid-template-areas:
         'icon label badge'
         'icon title title';
+    }
+  }
+  /* Stacked chips rise in when motion is allowed; the ring pop keyframe would
+     displace a statically placed chip, so swap it here. */
+  @media (max-width: 900px) and (prefers-reduced-motion: no-preference) {
+    .hero-stage .pill--vote {
+      animation: hero-rise 0.45s ease both;
+      animation-delay: var(--enter-delay, 0ms);
     }
   }
   @media (max-width: 560px) {
