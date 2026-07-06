@@ -58,7 +58,7 @@ export interface VotePanelProps {
 export interface SubmitVoteDeps {
   hostRationale: (args: { gaId: string; drepId: string; rationale: string; origin: string }) => Promise<{ url: string; hash: string }>;
   castVote: (opts: CastDRepVoteOpts) => Promise<{ txHash: string }>;
-  recordVote: (args: { gaId: string; vote: VoteChoice; txHash: string; rationaleUrl?: string; rationaleText?: string }) => Promise<void>;
+  recordVote: (args: { gaId: string; vote: VoteChoice; txHash: string; rationaleUrl?: string; rationaleText?: string; crossPost?: boolean }) => Promise<void>;
   /** Called immediately after rationale is hosted, before the wallet sign prompt. */
   onRationaleHosted?: (anchor: { url: string; hash: string }) => void;
 }
@@ -73,6 +73,7 @@ export async function submitVote(
     gaId: string;
     vote: VoteChoice;
     rationaleText: string;
+    crossPost?: boolean;
     drepId?: string;
     drepKeyHash: Uint8Array;
     network: CardanoNetwork;
@@ -107,6 +108,7 @@ export async function submitVote(
     txHash,
     rationaleUrl: anchor?.url,
     rationaleText: hasRationale ? args.rationaleText : undefined,
+    crossPost: hasRationale ? args.crossPost : undefined,
   });
   return { txHash };
 }
@@ -191,6 +193,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   const [vote, setVote] = useState<VoteChoice>('yes');
   const [rationaleText, setRationaleText] = useState('');
   const [rationaleModalOpen, setRationaleModalOpen] = useState(false);
+  const [crossPost, setCrossPost] = useState(false);
 
   // Rationale anchor: set after hosting succeeds, shown during submit + success.
   const [rationaleAnchor, setRationaleAnchor] = useState<{ url: string; hash: string } | null>(null);
@@ -360,6 +363,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
         gaId,
         vote,
         rationaleText,
+        crossPost,
         drepId: identity.drepId,
         drepKeyHash: identity.drepKeyHash,
         network,
@@ -662,6 +666,24 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                       Adding a rationale helps delegators understand your reasoning and builds trust.
                     </p>
                   </div>
+
+                  {rationaleText.trim() && (
+                    <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={crossPost}
+                        onChange={(e) => setCrossPost(e.target.checked)}
+                        disabled={busy}
+                        style={{ marginTop: '0.15rem' }}
+                      />
+                      <span>
+                        Also post this rationale under Discussion.
+                        <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.8125rem', marginTop: '0.15rem' }}>
+                          Your rationale is always recorded on-chain and shown under Positions. This only adds a copy to the discussion thread.
+                        </span>
+                      </span>
+                    </label>
+                  )}
 
                   {/* Submit-time error: keep the form so the user can retry. */}
                   {phase.status === 'error' && phase.identity && (
