@@ -69,6 +69,7 @@ import { syncPools } from '../../../src/lib/pools/sync.js';
 import { storePoolAvatars } from '../../../src/lib/pools/avatarStore.js';
 import { listReferencedPoolImageHashes } from '../../../src/lib/db/pools.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
+import { syncCurrentCommitteeMembership } from '../../../src/lib/db/committee.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
 
@@ -265,6 +266,15 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     ) {
       await upsertProtocolParams(env.DB, next);
       written = 1;
+    }
+    // Keep the committee membership timeline current from the same committee_info
+    // snapshot: newly rotated hot keys and term changes feed the CC yes-percentage
+    // recompute. Protected against overwriting the seeded resignation history.
+    if (cc.members) {
+      const cm = await syncCurrentCommitteeMembership(env.DB, cc.members, ep.epoch_no ?? null);
+      if (cm.unknown > 0) {
+        console.warn(`[gov-params] ${cm.unknown} committee member(s) not in the seeded timeline; a committee change may need seeding`);
+      }
     }
     console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold} ccSize=${next.committeeSize} treasuryLovelace=${next.treasuryLovelace}`);
     return { items: written };

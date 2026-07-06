@@ -2,8 +2,14 @@
 // with migrations applied.
 import { beforeEach, describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getCommitteeTimeline, upsertCommitteeMembers, upsertCommitteeHotKeys } from './committee.js';
+import {
+  getCommitteeTimeline,
+  upsertCommitteeMembers,
+  upsertCommitteeHotKeys,
+  syncCurrentCommitteeMembership,
+} from './committee.js';
 import { activeCommitteeSizeAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import type { CommitteeMember } from '../koios/client.js';
 
 const db = () => env.DB;
 
@@ -61,5 +67,27 @@ describe('seeded committee history', () => {
     expect(activeCommitteeSizeAt(members, 596)).toBe(7); // v2, before the resignation
     expect(activeCommitteeSizeAt(members, 597)).toBe(6); // v2, resignation takes effect
     expect(activeCommitteeSizeAt(members, 633)).toBe(7); // v3 (8 listed, resigner not authorized)
+  });
+
+  it('live-syncs the current version: rotates hot keys, extends terms, protects the seed', async () => {
+    const koios = [
+      // existing v3 member with a newly rotated hot key and an extended term
+      { status: 'authorized', cc_cold_hex: '13493790d9b03483a1e1e684ea4faf1ee48a58f402574e7f2246f4d4', cc_hot_hex: 'newhot13', expiration_epoch: 800 },
+      // the seeded resigner, still shown resigned: its epoch-597 resignation must survive
+      { status: 'resigned', cc_cold_hex: '349e55f83e9af24813e6cb368df6a80d38951b2a334dfcdf26815558', cc_hot_hex: null, expiration_epoch: 653 },
+      // a member Koios reports that the seed does not know: signals a committee change
+      { status: 'authorized', cc_cold_hex: 'ffffnew', cc_hot_hex: 'ffffhot', expiration_epoch: 900 },
+    ] as unknown as CommitteeMember[];
+
+    const res = await syncCurrentCommitteeMembership(db(), koios, 641);
+    expect(res.hotKeys).toBe(2); // newhot13 + ffffhot (the resigner has no hot key)
+    expect(res.unknown).toBe(1); // ffffnew is not part of the current version
+
+    const { members, hotToCold } = await getCommitteeTimeline(db());
+    expect(hotToCold.get('newhot13')).toBe('13493790d9b03483a1e1e684ea4faf1ee48a58f402574e7f2246f4d4');
+    const m13 = members.find((m) => m.coldKeyHex.startsWith('13493790') && m.versionFrom === 602);
+    expect(m13?.termExpiration).toBe(800); // term extended by the live sync
+    const resigner = members.find((m) => m.coldKeyHex.startsWith('349e55f8') && m.versionFrom === 602);
+    expect(resigner?.resignedAt).toBe(597); // seed protected, not overwritten with 641
   });
 });

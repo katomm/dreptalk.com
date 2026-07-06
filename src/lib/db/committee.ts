@@ -3,6 +3,7 @@
 // full timeline for the yes-percentage recompute; the upserts are used by the
 // live Koios sync and the one-time historical seed. Distinct from
 // koios/committee.ts, which is pure math on a single live committee_info snapshot.
+import type { CommitteeMember } from '../koios/client.js';
 import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 
 interface MemberRow {
@@ -74,4 +75,44 @@ export async function upsertCommitteeHotKeys(
       );
     if (stmts.length > 0) await db.batch(stmts);
   }
+}
+
+/**
+ * Keeps the current committee version fresh from a live Koios committee_info
+ * snapshot: registers newly rotated hot keys, updates the current members' term
+ * expiration, and records a new resignation (a member no longer 'authorized').
+ * The historical seed is protected: resigned_at is only ever set when still null
+ * (COALESCE), so a past resignation epoch is never overwritten with "now", and
+ * only rows of the current version (version_to IS NULL) are touched. `unknown`
+ * counts Koios members absent from the current version, the signal that a new
+ * committee was enacted and the seed needs extending (mirrors the NCL rot-alarm).
+ */
+export async function syncCurrentCommitteeMembership(
+  db: D1Database,
+  members: CommitteeMember[],
+  currentEpoch: number | null,
+): Promise<{ hotKeys: number; updated: number; unknown: number }> {
+  const hotPairs = members
+    .filter((m): m is CommitteeMember & { cc_hot_hex: string; cc_cold_hex: string } => !!m.cc_hot_hex && !!m.cc_cold_hex)
+    .map((m) => ({ hotKeyHex: m.cc_hot_hex, coldKeyHex: m.cc_cold_hex }));
+  await upsertCommitteeHotKeys(db, hotPairs);
+
+  let updated = 0;
+  let unknown = 0;
+  for (const m of members) {
+    if (!m.cc_cold_hex) continue;
+    const resignedNow = m.status !== 'authorized' && currentEpoch != null ? currentEpoch : null;
+    const res = await db
+      .prepare(
+        `UPDATE committee_member
+           SET term_expiration = COALESCE(?, term_expiration),
+               resigned_at = COALESCE(resigned_at, ?)
+         WHERE cold_key_hex = ? AND version_to IS NULL`,
+      )
+      .bind(m.expiration_epoch, resignedNow, m.cc_cold_hex)
+      .run();
+    if ((res.meta.changes ?? 0) > 0) updated++;
+    else unknown++;
+  }
+  return { hotKeys: hotPairs.length, updated, unknown };
 }
