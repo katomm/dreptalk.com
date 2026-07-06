@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { recordLocalVote } from '@/lib/db/drepVotes';
-import { upsertVoteRationalePost } from '@/lib/db/voteRationalePost';
+import { upsertVoteRationalePost, removeVoteRationalePost } from '@/lib/db/voteRationalePost';
 import { upsertActionRationale } from '@/lib/db/actionRationale';
 import { renderMarkdown } from '@/lib/markdown';
 import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale';
@@ -26,6 +26,11 @@ const schema = z.object({
   // control chars that sanitizeExternalMultiline strips before the hard slice;
   // anything past MAX_VOTE_RATIONALE is sliced off when the post is canonicalized.
   rationaleText: z.string().min(1).max(MAX_VOTE_RATIONALE + 1000).optional(),
+  // When true, also cross-post the rationale as a frozen post in the action's
+  // discussion thread. Omitted/false: the rationale still records on-chain and on
+  // the Positions tab, but no discussion post is created (and any stale one is
+  // removed).
+  crossPost: z.boolean().optional(),
 });
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -47,7 +52,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const parsed = schema.safeParse(raw);
   if (!parsed.success) return jsonResponse({ error: 'invalid input' }, 400);
-  const { gaId, vote, txHash, rationaleUrl, rationaleText } = parsed.data;
+  const { gaId, vote, txHash, rationaleUrl, rationaleText, crossPost } = parsed.data;
 
   // Derive drep_id from the session user: never trust a client-supplied value.
   const dbUser = await getUserById(db, user.id);
@@ -77,14 +82,20 @@ export const POST: APIRoute = async ({ request, locals }) => {
       .first<{ topic_id: string | null }>();
     if (ga?.topic_id) {
       const canonical = buildVoteRationale({ rationale: rationaleText }).rationale;
-      await upsertVoteRationalePost(db, {
-        topicId: ga.topic_id,
-        authorId: user.id,
-        vote,
-        bodyMd: canonical,
-        bodyHtml: renderMarkdown(canonical),
-        now: nowMs,
-      });
+      if (crossPost) {
+        await upsertVoteRationalePost(db, {
+          topicId: ga.topic_id,
+          authorId: user.id,
+          vote,
+          bodyMd: canonical,
+          bodyHtml: renderMarkdown(canonical),
+          now: nowMs,
+        });
+      } else {
+        // Opt-out, or a re-vote with the box unchecked: ensure no stale
+        // cross-post is left standing in the discussion.
+        await removeVoteRationalePost(db, { topicId: ga.topic_id, authorId: user.id });
+      }
       await upsertActionRationale(db, {
         gaId, voterId: drepId, bodyHtml: renderMarkdown(canonical),
         source: 'dreptalk', anchorUrl: rationaleUrl ?? null,

@@ -80,6 +80,25 @@ describe('submitVote orchestration', () => {
     });
     expect(onRationaleHosted).not.toHaveBeenCalled();
   });
+
+  it('passes crossPost through to recordVote', async () => {
+    const recordVote = vi.fn(async () => {});
+    const deps = {
+      hostRationale: vi.fn(async () => ({ url: 'u', hash: 'h' })),
+      castVote: vi.fn(async () => ({ txHash: 'tx' })),
+      recordVote,
+    };
+    await submitVote(deps, {
+      gaId: `${'a'.repeat(64)}#0`,
+      vote: 'yes',
+      rationaleText: 'why',
+      crossPost: true,
+      drepKeyHash: new Uint8Array(28),
+      network: 'preprod',
+      origin: 'https://x',
+    });
+    expect(recordVote).toHaveBeenCalledWith(expect.objectContaining({ crossPost: true }));
+  });
 });
 
 describe('expiredActionMessage', () => {

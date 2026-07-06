@@ -120,6 +120,7 @@ describe('POST /api/vote/record', () => {
         txHash: TX_HASH,
         rationaleUrl: 'https://dreptalk.com/vote-rationale/x.json',
         rationaleText: 'Because this is a bad idea.',
+        crossPost: true,
       },
     }));
     expect(res.status).toBe(200);
@@ -148,7 +149,7 @@ describe('POST /api/vote/record', () => {
     const before = Date.now();
     const res = await POST(makeCtx({
       user: { id: USER_ID, roles: ['drep'] },
-      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'Timestamped rationale.' },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'Timestamped rationale.', crossPost: true },
     }));
     expect(res.status).toBe(200);
 
@@ -185,7 +186,7 @@ describe('POST /api/vote/record', () => {
 
     const res = await POST(makeCtx({
       user: { id: USER_ID, roles: ['drep'] },
-      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: dirty },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: dirty, crossPost: true },
     }));
     expect(res.status).toBe(200);
 
@@ -245,5 +246,83 @@ describe('POST /api/vote/record', () => {
         .all()
     ).results;
     expect(rows).toHaveLength(0);
+  });
+
+  it('does not create a discussion post when crossPost is omitted', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'Kept off the forum.' },
+    }));
+    expect(res.status).toBe(200);
+    const posts = (await env.DB.prepare(
+      `SELECT * FROM posts WHERE source = 'vote_rationale' AND author_id = ?`,
+    ).bind(USER_ID).all()).results;
+    expect(posts).toHaveLength(0);
+    // The Positions-tab mirror is still written even without opting in.
+    const ar = await env.DB.prepare(
+      `SELECT body_html FROM action_rationale WHERE ga_id = ? AND voter_id = ?`,
+    ).bind(GA_ID, DREP_ID).first<{ body_html: string }>();
+    expect(ar?.body_html).toContain('Kept off the forum');
+  });
+
+  it('increments topic.post_count when cross-posting', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+    await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'Shared to discussion.', crossPost: true },
+    }));
+    const topic = await env.DB.prepare(
+      `SELECT post_count FROM topics WHERE id = ?`,
+    ).bind(topicId).first<{ post_count: number }>();
+    expect(topic?.post_count).toBe(1);
+  });
+
+  it('re-voting with crossPost off removes the existing cross-post and decrements post_count', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+    // First vote: opted in, creates the cross-post and bumps the counter.
+    await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'First take.', crossPost: true },
+    }));
+    // Re-vote: box unchecked, must remove the cross-post and undo the bump.
+    await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'no', txHash: TX_HASH, rationaleText: 'Changed my mind.', crossPost: false },
+    }));
+    const live = (await env.DB.prepare(
+      `SELECT * FROM posts WHERE source = 'vote_rationale' AND author_id = ? AND deleted = 0`,
+    ).bind(USER_ID).all()).results;
+    expect(live).toHaveLength(0);
+    const topic = await env.DB.prepare(
+      `SELECT post_count FROM topics WHERE id = ?`,
+    ).bind(topicId).first<{ post_count: number }>();
+    expect(topic?.post_count).toBe(0);
+  });
+
+  it('re-counts a revived cross-post so it is not shown-but-uncounted', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+    // Opt in, then opt out: post removed, count back to 0.
+    await POST(makeCtx({ user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'On.', crossPost: true } }));
+    await POST(makeCtx({ user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'no', txHash: TX_HASH, rationaleText: 'Off.', crossPost: false } }));
+    // Opt in again: the dead row is revived AND re-counted.
+    await POST(makeCtx({ user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH, rationaleText: 'On again.', crossPost: true } }));
+    const live = (await env.DB.prepare(
+      `SELECT * FROM posts WHERE source = 'vote_rationale' AND author_id = ? AND deleted = 0`,
+    ).bind(USER_ID).all()).results;
+    expect(live).toHaveLength(1);
+    const topic = await env.DB.prepare(`SELECT post_count FROM topics WHERE id = ?`).bind(topicId).first<{ post_count: number }>();
+    expect(topic?.post_count).toBe(1);
   });
 });
