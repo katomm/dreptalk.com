@@ -87,6 +87,10 @@ const activeCount = activeSlots.length;
 // In the stacked (narrow) layout the ring collapses to a few chips above the card
 // and a few below it; the first half go above, the rest below.
 const heroSplit = Math.ceil(activeCount / 2);
+// Per-chip vertical offset (px) so the stacked chips scatter in height instead of
+// sitting on one flat line. Fixed pattern (no Math.random), applied only in the
+// narrow layout; the transform does not reflow, so it cannot cause a hover loop.
+const HERO_YOFF = [0, 13, -9, 7, -13, 10, -5, 12, -8, 4];
 
 // SVG guide-ring radii in the 0..320 viewBox, derived from the shared fractions
 // so the dashed ellipses line up with the pill positions.
@@ -281,7 +285,7 @@ const heroFeatures = [
                   <a
                     class:list={['pill', 'pill--vote', `vote-${kind}`, i < heroSplit ? 'pill--above' : 'pill--below']}
                     href={authorProfileHref(p.descriptor)}
-                    style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + revealRank(i, activeCount) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[voteTone(p.vote)]}`}
+                    style={`--px:${s.x * 100}; --py:${s.y * 100}; --yoff:${HERO_YOFF[i % HERO_YOFF.length]}px; --enter-delay:${REVEAL_BASE_MS + revealRank(i, activeCount) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[voteTone(p.vote)]}`}
                     title={`${p.descriptor.displayName} voted ${label}`}
                     aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
                   >
@@ -828,9 +832,10 @@ const heroFeatures = [
       gap: 2.25rem;
       padding-top: 2rem;
     }
-    /* The visual now sits below the copy (under the CTA buttons), not above it. */
+    /* The visual now sits below the copy (under the CTA buttons), not above it.
+       Kept fairly narrow so the chips wrap into a few rows rather than one line. */
     .hero__visual {
-      max-width: 30rem;
+      max-width: 22rem;
       margin: 0 auto;
     }
     /* The circular ring does not fit a single column: drop the ring structure and
@@ -850,18 +855,39 @@ const heroFeatures = [
       flex-wrap: wrap;
       justify-content: center;
       align-items: center;
-      gap: 0.4rem 0.5rem;
+      gap: 0.9rem 0.5rem;
     }
-    /* Chips flow normally instead of being placed on the ring; half sit above the
-       card (order -1) and half below it (order 1), the card being a full-width row. */
+    /* Chips wrap into rows: half above the card (order -1), half below (order 1),
+       the card being a full-width row between them. Each chip carries a fixed
+       vertical offset so the rows are not a flat line. The offset is a transform,
+       which does not change layout, so hovering never reflows the row (that reflow
+       was the cause of the hover jitter loop). */
     .hero-stage .pill {
       position: relative;
       left: auto;
       top: auto;
-      transform: none;
+      transform: translateY(var(--yoff, 0px));
     }
     .pill--above { order: -1; }
     .pill--below { order: 1; }
+    /* The name is an absolute overlay below the chip, so revealing it does not
+       widen the chip and reflow the row. */
+    .pill__name {
+      position: absolute;
+      top: calc(100% + 3px);
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: min(72vw, 18ch);
+      margin-left: 0;
+      padding: 0.05rem 0.45rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transition: opacity 0.16s ease;
+      z-index: 4;
+    }
     .gov-card {
       position: static;
       transform: none;
