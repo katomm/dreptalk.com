@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { VotingSummary } from './client.js';
-import { spoEligiblePower, spoTallyPct } from './corrections.js';
+import type { CommitteeMemberTerm } from './committeeTimeline.js';
+import { ccTallyPct, spoEligiblePower, spoTallyPct, type CcVote } from './corrections.js';
 
 describe('spoTallyPct', () => {
   it('passes Koios percentages through unchanged for non-hard-fork actions', () => {
@@ -66,5 +67,81 @@ describe('spoEligiblePower', () => {
   it('is null when the pool power fields are entirely absent (older Koios)', () => {
     expect(spoEligiblePower({} as any)).toBeNull();
     expect(spoEligiblePower(null)).toBeNull();
+  });
+});
+
+describe('ccTallyPct', () => {
+  // Committee v3: 8 members active at epoch 634 (terms valid, none resigned in range).
+  const v3: CommitteeMemberTerm[] = Array.from({ length: 8 }, (_, i) => ({
+    coldKeyHex: `cold${i}`,
+    versionFrom: 602,
+    versionTo: null as number | null,
+    termExpiration: 653,
+    authorizedFrom: 507,
+    resignedAt: null as number | null,
+  }));
+
+  it('collapses rotated and re-voted hot keys to one vote per member (action-97 shape)', () => {
+    // 7 of 8 members vote Yes, cast via 11 hot-key rows: 4 members rotated (2 hot keys each).
+    const hotToCold = new Map<string, string>([
+      ['h0', 'cold0'], ['h0b', 'cold0'],
+      ['h1', 'cold1'], ['h1b', 'cold1'],
+      ['h2', 'cold2'], ['h2b', 'cold2'],
+      ['h3', 'cold3'], ['h3b', 'cold3'],
+      ['h4', 'cold4'], ['h5', 'cold5'], ['h6', 'cold6'],
+      // cold7 does not vote -> counts as No in the denominator
+    ]);
+    const votes: CcVote[] = [
+      { hotKeyHex: 'h0', vote: 'Yes', blockTime: 1 }, { hotKeyHex: 'h0b', vote: 'Yes', blockTime: 2 },
+      { hotKeyHex: 'h1', vote: 'Yes', blockTime: 1 }, { hotKeyHex: 'h1b', vote: 'Yes', blockTime: 2 },
+      { hotKeyHex: 'h2', vote: 'Yes', blockTime: 1 }, { hotKeyHex: 'h2b', vote: 'Yes', blockTime: 2 },
+      { hotKeyHex: 'h3', vote: 'Yes', blockTime: 1 }, { hotKeyHex: 'h3b', vote: 'Yes', blockTime: 2 },
+      { hotKeyHex: 'h4', vote: 'Yes', blockTime: 1 },
+      { hotKeyHex: 'h5', vote: 'Yes', blockTime: 1 },
+      { hotKeyHex: 'h6', vote: 'Yes', blockTime: 1 },
+    ];
+    // 11 raw Yes rows -> 7 distinct members Yes; size 8, no abstain -> 7/8 = 87.5.
+    expect(ccTallyPct(votes, v3, hotToCold, 634)).toEqual({ yesPct: 87.5, noPct: 12.5, yes: 7, no: 0, abstain: 0 });
+  });
+
+  it('excludes abstaining members from the denominator', () => {
+    const hotToCold = new Map(v3.map((m, i) => [`h${i}`, m.coldKeyHex]));
+    const votes: CcVote[] = [
+      ...[0, 1, 2, 3, 4].map((i) => ({ hotKeyHex: `h${i}`, vote: 'Yes' as const, blockTime: 1 })),
+      { hotKeyHex: 'h5', vote: 'Abstain', blockTime: 1 },
+      { hotKeyHex: 'h6', vote: 'Abstain', blockTime: 1 },
+      // cold7 does not vote
+    ];
+    // 5 yes, 2 abstain, 8 active -> denom 6 -> 5/6 = 83.33.
+    expect(ccTallyPct(votes, v3, hotToCold, 634)).toEqual({ yesPct: 83.33, noPct: 16.67, yes: 5, no: 0, abstain: 2 });
+  });
+
+  it('drops a resigned member from numerator and denominator (epoch-597 boundary)', () => {
+    // Committee v2 at epoch 597: the resigner is out, 6 active members remain.
+    const v2: CommitteeMemberTerm[] = [
+      { coldKeyHex: 'resigner', versionFrom: 581, versionTo: 601, termExpiration: 653, authorizedFrom: 507, resignedAt: 597 },
+      ...Array.from({ length: 6 }, (_, i) => ({
+        coldKeyHex: `c${i}`,
+        versionFrom: 581,
+        versionTo: 601 as number | null,
+        termExpiration: 653,
+        authorizedFrom: 507,
+        resignedAt: null as number | null,
+      })),
+    ];
+    const hotToCold = new Map<string, string>([
+      ['hr', 'resigner'],
+      ...Array.from({ length: 6 }, (_, i) => [`h${i}`, `c${i}`] as [string, string]),
+    ]);
+    const votes: CcVote[] = [
+      { hotKeyHex: 'hr', vote: 'Yes', blockTime: 1 }, // resigner voted before resigning; must NOT count
+      ...Array.from({ length: 6 }, (_, i) => ({ hotKeyHex: `h${i}`, vote: 'Yes' as const, blockTime: 1 })),
+    ];
+    // Without the active-member filter this reads 7/6 > 100 %. Correct: 6 yes / 6 active = 100 %.
+    expect(ccTallyPct(votes, v2, hotToCold, 597)).toEqual({ yesPct: 100, noPct: 0, yes: 6, no: 0, abstain: 0 });
+  });
+
+  it('is null when no committee is active at the epoch', () => {
+    expect(ccTallyPct([], v3, new Map(), 700)).toEqual({ yesPct: null, noPct: null, yes: 0, no: 0, abstain: 0 });
   });
 });
