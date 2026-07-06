@@ -18,11 +18,12 @@ export interface HeroSlot {
 
 // Ellipse radii as fractions of the scene half-extent. rx > ry (wider than tall)
 // so the horizontal voters clear the wide card left and right. Ghosts sit further
-// out and are edge-faded by a CSS mask.
+// out, beyond the scene box (which is why the scene lets them overflow), so they
+// read as a distinct outer halo well clear of the active pills.
 const ACTIVE_RX = 0.44;
 const ACTIVE_RY = 0.4;
-const GHOST_RX = 0.49;
-const GHOST_RY = 0.45;
+const GHOST_RX = 0.62;
+const GHOST_RY = 0.58;
 
 export const HERO_RING_RADII = {
   active: { rx: ACTIVE_RX, ry: ACTIVE_RY },

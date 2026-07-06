@@ -84,19 +84,15 @@ function revealRank(slotIndex: number, count: number): number {
   return Math.max(REVEAL_SCATTER.filter((n) => n < count).indexOf(slotIndex), 0);
 }
 const activeCount = activeSlots.length;
-// In the stacked (narrow) layout the ring collapses to a few chips above the card
-// and a few below it; the first half go above, the rest below.
-const heroSplit = Math.ceil(activeCount / 2);
-// Per-chip vertical offset (px) so the stacked chips scatter in height instead of
-// sitting on one flat line. Fixed pattern (no Math.random), applied only in the
-// narrow layout; the transform does not reflow, so it cannot cause a hover loop.
-const HERO_YOFF = [0, 13, -9, 7, -13, 10, -5, 12, -8, 4];
 
 // SVG guide-ring radii in the 0..320 viewBox, derived from the shared fractions
 // so the dashed ellipses line up with the pill positions.
 const VIEWBOX = 320;
 const ringActive = { rx: HERO_RING_RADII.active.rx * VIEWBOX, ry: HERO_RING_RADII.active.ry * VIEWBOX };
-const ringGhost = { rx: HERO_RING_RADII.ghost.rx * VIEWBOX, ry: HERO_RING_RADII.ghost.ry * VIEWBOX };
+// The second guide ellipse is a touch beyond the active ring but kept within the
+// viewBox (the ghosts sit much further out, in the space around the scene, so they
+// have no guide ring behind them).
+const ringOuter = { rx: HERO_RING_RADII.active.rx * 1.1 * VIEWBOX, ry: HERO_RING_RADII.active.ry * 1.13 * VIEWBOX };
 
 // Maps a vote to the badge glyph kind + label shown on an active pill.
 function voteBadgeKind(vote: string): 'yes' | 'no' | 'abstain' {
@@ -232,7 +228,7 @@ const heroFeatures = [
         <svg class="hero-scene__rings" aria-hidden="true" viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
           <g class="ring-guides">
             <ellipse cx="160" cy="160" rx={ringActive.rx} ry={ringActive.ry} />
-            <ellipse cx="160" cy="160" rx={ringGhost.rx} ry={ringGhost.ry} />
+            <ellipse cx="160" cy="160" rx={ringOuter.rx} ry={ringOuter.ry} />
           </g>
           {showScene && (
             <g class="ring-links">
@@ -255,7 +251,7 @@ const heroFeatures = [
               const g = hero.ghosts[i];
               return (
                 <span class="ghost" style={`left:${s.x * 100}%; top:${s.y * 100}%; --enter-delay:${300 + i * 60}ms`}>
-                  <Avatar seed={g.descriptor.identiconSeed ?? g.descriptor.authorId} imageHash={g.descriptor.imageHash} size={22} />
+                  <Avatar seed={g.descriptor.identiconSeed ?? g.descriptor.authorId} imageHash={g.descriptor.imageHash} size={24} />
                 </span>
               );
             })}
@@ -283,13 +279,13 @@ const heroFeatures = [
                 const label = kind === 'yes' ? 'Yes' : kind === 'no' ? 'No' : 'Abstain';
                 return (
                   <a
-                    class:list={['pill', 'pill--vote', `vote-${kind}`, i < heroSplit ? 'pill--above' : 'pill--below']}
+                    class:list={['pill', 'pill--vote', `vote-${kind}`]}
                     href={authorProfileHref(p.descriptor)}
-                    style={`--px:${s.x * 100}; --py:${s.y * 100}; --yoff:${HERO_YOFF[i % HERO_YOFF.length]}px; --enter-delay:${REVEAL_BASE_MS + revealRank(i, activeCount) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[voteTone(p.vote)]}`}
+                    style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + revealRank(i, activeCount) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[voteTone(p.vote)]}`}
                     title={`${p.descriptor.displayName} voted ${label}`}
                     aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
                   >
-                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={22} />
+                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={26} />
                     <span class="pill__name">{p.descriptor.displayName}</span>
                     <span class="pill__vote">
                       <span class="pill__vote-icon" aria-hidden="true">
@@ -659,19 +655,18 @@ const heroFeatures = [
   }
 
   /* Ghost voters: real avatars of the next-strongest voters, dimmed and small,
-     no label. The layer is edge-faded so nothing collides with the copy column. */
+     no label. They sit on a wide ring that overflows the scene box, so this layer
+     must not clip or mask them (no overflow clip, no mask). */
   .hero-ghosts {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    -webkit-mask-image: radial-gradient(closest-side, #000 62%, transparent 92%);
-    mask-image: radial-gradient(closest-side, #000 62%, transparent 92%);
   }
   .ghost {
     position: absolute;
     transform: translate(-50%, -50%);
-    opacity: 0.4;
-    filter: grayscale(0.4);
+    opacity: 0.55;
+    filter: grayscale(0.25);
   }
 
   /* Decorative placeholder pills for the fresh-deploy / local-dev fallback. */
@@ -724,11 +719,6 @@ const heroFeatures = [
   }
   @keyframes hero-fade {
     from { opacity: 0; }
-  }
-  /* Stacked (narrow) chips are statically placed, so they rise in without the
-     ring pill's centering transform. */
-  @keyframes hero-rise {
-    from { opacity: 0; transform: translateY(8px); }
   }
 
   /* ---- Announcement banner ------------------------------------------- */
@@ -832,85 +822,13 @@ const heroFeatures = [
       gap: 2.25rem;
       padding-top: 2rem;
     }
-    /* The visual now sits below the copy (under the CTA buttons), not above it.
-       Kept fairly narrow so the chips wrap into a few rows rather than one line. */
+    /* The ring does not fit a single column, so the decorative visual is desktop
+       only; below this width the copy takes the full width on its own. */
     .hero__visual {
-      max-width: 22rem;
-      margin: 0 auto;
-    }
-    /* The circular ring does not fit a single column: drop the ring structure and
-       stack a few voter chips above the full-width card and a few below it. */
-    .hero-scene {
-      aspect-ratio: auto;
-    }
-    .hero-scene__glow,
-    .hero-scene__rings,
-    .hero-ghosts,
-    .pill--placeholder {
       display: none;
-    }
-    .hero-stage {
-      position: static;
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      align-items: center;
-      gap: 0.9rem 0.5rem;
-    }
-    /* Chips wrap into rows: half above the card (order -1), half below (order 1),
-       the card being a full-width row between them. Each chip carries a fixed
-       vertical offset so the rows are not a flat line. The offset is a transform,
-       which does not change layout, so hovering never reflows the row (that reflow
-       was the cause of the hover jitter loop). */
-    .hero-stage .pill {
-      position: relative;
-      left: auto;
-      top: auto;
-      transform: translateY(var(--yoff, 0px));
-    }
-    .pill--above { order: -1; }
-    .pill--below { order: 1; }
-    /* The name is an absolute overlay below the chip, so revealing it does not
-       widen the chip and reflow the row. */
-    .pill__name {
-      position: absolute;
-      top: calc(100% + 3px);
-      left: 50%;
-      transform: translateX(-50%);
-      max-width: min(72vw, 18ch);
-      margin-left: 0;
-      padding: 0.05rem 0.45rem;
-      background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      box-shadow: var(--shadow);
-      opacity: 0;
-      transition: opacity 0.16s ease;
-      z-index: 4;
-    }
-    .gov-card {
-      position: static;
-      transform: none;
-      flex: 0 0 100%;
-      width: 100%;
-      min-width: 0;
-      margin: 0.2rem 0;
-      /* Give the title the full width and lift the badge up beside the label. */
-      grid-template-areas:
-        'icon label badge'
-        'icon title title';
-    }
-  }
-  /* Stacked chips rise in when motion is allowed; the ring pop keyframe would
-     displace a statically placed chip, so swap it here. */
-  @media (max-width: 900px) and (prefers-reduced-motion: no-preference) {
-    .hero-stage .pill--vote {
-      animation: hero-rise 0.45s ease both;
-      animation-delay: var(--enter-delay, 0ms);
     }
   }
   @media (max-width: 560px) {
-    .hero__visual { display: none; }
     .announce {
       flex-wrap: wrap;
     }

@@ -13,12 +13,24 @@ describe('heroRingSlots', () => {
     expect(slots[10].index).toBe(0);
   });
 
-  it('keeps every coordinate inside the scene box (0..1)', () => {
-    for (const s of heroRingSlots(10, 8)) {
+  it('keeps active slots inside the scene box (0..1)', () => {
+    // Active pills must stay in the box; ghosts intentionally sit beyond it (the
+    // scene lets them overflow) and so are excluded from this bound.
+    for (const s of heroRingSlots(10, 8).filter((s) => s.kind === 'active')) {
       expect(s.x).toBeGreaterThanOrEqual(0);
       expect(s.x).toBeLessThanOrEqual(1);
       expect(s.y).toBeGreaterThanOrEqual(0);
       expect(s.y).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('places ghosts on a wider ring than the active pills', () => {
+    for (const s of heroRingSlots(10, 8).filter((s) => s.kind === 'ghost')) {
+      const d = Math.hypot(s.x - 0.5, s.y - 0.5);
+      // Beyond the active ring's largest radius, so ghosts form a distinct outer
+      // halo; still within a sane bound so they do not fly off the page.
+      expect(d).toBeGreaterThan(HERO_RING_RADII.active.rx);
+      expect(d).toBeLessThan(0.75);
     }
   });
 
@@ -40,9 +52,9 @@ describe('heroRingSlots', () => {
     expect(slots.every((s) => s.kind === 'active')).toBe(true);
   });
 
-  it('exposes ring radii that fit inside the box', () => {
+  it('exposes ring radii with ghosts outside the active ring', () => {
     expect(HERO_RING_RADII.active.rx).toBeGreaterThan(HERO_RING_RADII.active.ry);
-    expect(0.5 + HERO_RING_RADII.ghost.rx).toBeLessThanOrEqual(1);
-    expect(0.5 + HERO_RING_RADII.ghost.ry).toBeLessThanOrEqual(1);
+    expect(HERO_RING_RADII.ghost.rx).toBeGreaterThan(HERO_RING_RADII.active.rx);
+    expect(HERO_RING_RADII.ghost.ry).toBeGreaterThan(HERO_RING_RADII.active.ry);
   });
 });
