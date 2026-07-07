@@ -262,6 +262,10 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     votingPowerSnapshot: existing?.votingPowerSnapshot ?? null,
     votingPowerPrev: existing?.votingPowerPrev ?? null,
     votingPowerSnapshotEpoch: existing?.votingPowerSnapshotEpoch ?? null,
+    // Owned by the delegator-count sync, not the chain sync: carry them over so a
+    // profile upsert never wipes the stored count.
+    delegatorCount: existing?.delegatorCount ?? null,
+    delegatorCountSyncedAt: existing?.delegatorCountSyncedAt ?? null,
     expiresEpochNo: info.expires_epoch_no,
     // Owned by the registration-epoch backfill, not the chain sync: carry it over
     // so a profile upsert never wipes a resolved value.
