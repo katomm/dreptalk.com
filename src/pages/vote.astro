@@ -284,6 +284,12 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     padding: 0.875rem 1rem;
     border-bottom: 1px solid var(--border);
   }
+  /* The client filter toggles the hidden attribute on rows. This author rule
+     for .vote-row sets display:flex, which outranks the UA [hidden] rule, so
+     a hidden row would still show. Re-assert display:none at higher specificity. */
+  .vote-row[hidden] {
+    display: none;
+  }
   .vote-row:last-child,
   .history-row:last-child {
     border-bottom: none;
