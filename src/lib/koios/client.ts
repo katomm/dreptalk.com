@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseContentRangeTotal } from './contentRange.js';
 
 export interface KoiosClientOptions {
   baseUrl: string;
@@ -415,6 +416,21 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     return Math.min(delay, maxRetryDelayMs);
   }
 
+  // Retries a transient failure (5xx/429 or a network error) with exponential
+  // backoff; client errors and the retry ceiling propagate. Shared by every
+  // request transport so the retry policy lives in one place.
+  async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    for (let i = 0; ; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (i >= retries || !isTransient(err)) throw err;
+        const delay = retryDelay(i, err);
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
   // Retries transient failures with exponential backoff. Koios's proposal_voting_summary
   // is a heavy aggregation that returns 504/timeout under a burst of requests, so the
   // gov-sync cron opts into a couple of retries; the interactive auth flow leaves
@@ -423,15 +439,40 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     path: string,
     init: { method: string; headers?: Record<string, string>; body?: string },
   ): Promise<unknown> {
-    for (let i = 0; ; i++) {
-      try {
-        return await attempt(path, init);
-      } catch (err) {
-        if (i >= retries || !isTransient(err)) throw err;
-        const delay = retryDelay(i, err);
-        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    return withRetry(() => attempt(path, init));
+  }
+
+  // Count-only transport: sends `Prefer: count=exact` and returns the total from
+  // the Content-Range header (Koios has no dedicated count endpoint), draining
+  // the 1-row body it does not need. Mirrors attempt()'s abort timeout and bearer
+  // token. Returns null when the header is absent or unparseable, so a missing
+  // count is "unknown", not a crash.
+  async function attemptCount(path: string): Promise<number | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const headers: Record<string, string> = {
+        accept: 'application/json',
+        Prefer: 'count=exact',
+      };
+      if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
+      const res = await fetchImpl(`${opts.baseUrl}${path}`, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new KoiosHttpError(res.status, parseRetryAfter(res.headers.get('retry-after')));
       }
+      await res.text();
+      return parseContentRangeTotal(res.headers.get('content-range'));
+    } finally {
+      clearTimeout(timer);
     }
+  }
+
+  async function requestCount(path: string): Promise<number | null> {
+    return withRetry(() => attemptCount(path));
   }
 
   async function postSingleRow<T>(
@@ -563,6 +604,15 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/drep_list?limit=${limit}&offset=${offset}`;
       const data = await request(path, { method: 'GET' });
       return z.array(drepListRowSchema).parse(data);
+    },
+
+    // Delegator headcount for one DRep. /drep_delegators has no count-only variant
+    // and no bulk (all-DReps) form, so we ask for an exact count and read the total
+    // from the Content-Range header, fetching a single row we discard. Returns null
+    // when the total is unknown; the caller leaves the stored value and retries next
+    // cycle.
+    async drepDelegatorCount(drepId: string): Promise<number | null> {
+      return requestCount(`/drep_delegators?_drep_id=${encodeURIComponent(drepId)}&limit=1`);
     },
 
     // Power-weighted tally summary for one governance action (bech32 proposal id).
