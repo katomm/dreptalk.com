@@ -636,7 +636,7 @@ export function bodyComposition(
 
 // Pre-formatted amounts behind a composition bar: Yes / No / Not voted, plus the
 // abstained stake shown as an excluded footnote. ADA (compact) for DRep/SPO, member
-// counts for CC. notVoted/abstainExcluded are "—" when their denominator is unknown.
+// counts for CC. notVoted/abstainExcluded are "n/a" when their denominator is unknown.
 export interface CompositionAmounts {
   yes: string;
   no: string;
@@ -660,7 +660,7 @@ export function compositionAmounts(
     return {
       yes: String(yes),
       no: String(no),
-      notVoted: notVoted != null ? String(notVoted) : '—',
+      notVoted: notVoted != null ? String(notVoted) : 'n/a',
       abstainExcluded: String(abstain),
       hasAbstain: abstain > 0,
     };
@@ -678,7 +678,7 @@ export function compositionAmounts(
   return {
     yes: formatAdaCompact(yesP ?? 0) ?? '0 ₳',
     no: formatAdaCompact(noP ?? 0) ?? '0 ₳',
-    notVoted: notVoted != null ? (formatAdaCompact(notVoted) ?? '0 ₳') : '—',
+    notVoted: notVoted != null ? (formatAdaCompact(notVoted) ?? '0 ₳') : 'n/a',
     abstainExcluded: formatAdaCompact(abP ?? 0) ?? '0 ₳',
     hasAbstain: (abP ?? 0) > 0,
   };

@@ -578,7 +578,7 @@ describe('bodyComposition / compositionAmounts', () => {
       drepVotedPower: 875_700_000_000_000,
     });
     const amounts = compositionAmounts(a, 'DRep', { drepStakeTotal: 5_330_000_000_000_000, committeeSize: null })!;
-    expect(amounts.notVoted).not.toBe('—');
+    expect(amounts.notVoted).not.toBe('n/a');
     expect(amounts.hasAbstain).toBe(true);
   });
 });
