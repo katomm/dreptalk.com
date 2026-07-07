@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseGovSort,
+  parseGovStatus,
   sortGovActionTopics,
   trendingScore,
   trendingOrderKey,
   GOV_SORTS,
+  GOV_STATUSES,
   type GovActionTopic,
 } from './sort.js';
 
@@ -200,5 +202,28 @@ describe('trendingOrderKey', () => {
     const r1 = row({ id: 'x', status: 'active', votes: 5, postCount: 2, lastPostAt: NOW - 1234 });
     const r2 = row({ id: 'x', status: 'active', votes: 5, postCount: 2, lastPostAt: NOW - 1234 });
     expect(trendingOrderKey(r1)).toBe(trendingOrderKey(r2));
+  });
+});
+
+describe('parseGovStatus', () => {
+  it('passes valid statuses through and defaults everything else to all', () => {
+    expect(parseGovStatus(null)).toBe('all');
+    expect(parseGovStatus('garbage')).toBe('all');
+    expect(parseGovStatus('all')).toBe('all');
+    expect(parseGovStatus('open')).toBe('open');
+    expect(parseGovStatus('decided')).toBe('decided');
+  });
+});
+
+describe('GOV_STATUSES order', () => {
+  it('is All, Open, Decided', () => {
+    expect(GOV_STATUSES.map((s) => s.mode)).toEqual(['all', 'open', 'decided']);
+  });
+});
+
+describe('GOV_SORTS labels', () => {
+  it('keeps the four values and uses the decided-neutral label', () => {
+    expect(GOV_SORTS.map((s) => s.mode)).toEqual(['new', 'trending', 'closing', 'ratified']);
+    expect(GOV_SORTS.find((s) => s.mode === 'ratified')?.label).toBe('Recently decided');
   });
 });

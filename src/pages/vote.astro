@@ -18,6 +18,7 @@ import { resolveNetwork, epochStartUnix } from '@/lib/config/network';
 import { deriveVoteStats, isClosingSoon } from '@/lib/governance/voteDashboard';
 import { GOV_ACTION_TYPES } from '@/lib/governance/types';
 import voteFiltersJs from '@/scripts/vote-filters.js?raw';
+import '@/styles/list-controls.css';
 
 // --- resolve network + session ---
 const user = Astro.locals.user;
@@ -125,15 +126,15 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
         ) : (
           <>
             <div class="vote-controls" data-vote-controls>
-              <div class="vote-seg" role="group" aria-label="Filter by your vote status">
-                <button type="button" class="vote-seg__btn is-active" data-status="all" aria-pressed="true">All</button>
-                <button type="button" class="vote-seg__btn" data-status="notvoted" aria-pressed="false">Not voted</button>
-                <button type="button" class="vote-seg__btn" data-status="voted" aria-pressed="false">Voted</button>
+              <div class="seg" role="group" aria-label="Filter by your vote status">
+                <button type="button" class="seg__btn is-active" data-status="all" aria-pressed="true">All</button>
+                <button type="button" class="seg__btn" data-status="notvoted" aria-pressed="false">Not voted</button>
+                <button type="button" class="seg__btn" data-status="voted" aria-pressed="false">Voted</button>
               </div>
               {presentTypes.length > 1 && (
                 <label class="vote-select">
                   <span class="vote-select__label">Type</span>
-                  <select data-type-filter>
+                  <select data-type-filter class="ctrl-box">
                     <option value="">All types</option>
                     {presentTypes.map((t) => <option value={t.value}>{t.label}</option>)}
                   </select>
@@ -141,7 +142,7 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
               )}
               <label class="vote-select">
                 <span class="vote-select__label">Sort</span>
-                <select data-sort>
+                <select data-sort class="ctrl-box">
                   <option value="closing">Closing soonest</option>
                   <option value="recent">Recently opened</option>
                   <option value="type">By type</option>
@@ -428,39 +429,12 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     flex-wrap: wrap;
     margin: 0 0 1rem;
   }
-  .vote-seg {
-    display: inline-flex;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    overflow: hidden;
-  }
-  .vote-seg__btn {
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.8125rem;
-    font-weight: 600;
-    padding: 0.35rem 0.75rem;
-    cursor: pointer;
-  }
-  .vote-seg__btn.is-active {
-    background: var(--accent);
-    color: #fff;
-  }
   .vote-select {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
     font-size: 0.8125rem;
     color: var(--muted);
-  }
-  .vote-select select {
-    font-size: 0.8125rem;
-    padding: 0.3rem 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    color: inherit;
   }
 
   /* ---- Closing-soon highlight ------------------------------------------- */

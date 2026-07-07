@@ -3,8 +3,8 @@
 // All queries use .prepare().bind(); never string-concatenated SQL.
 
 import { sqlPlaceholders } from './sql.js';
-import { TERMINAL_STATUSES } from '../governance/view.js';
-import type { GovSort } from '../governance/sort.js';
+import { TERMINAL_STATUSES, OPEN_STATUSES } from '../governance/view.js';
+import type { GovSort, GovStatus } from '../governance/sort.js';
 
 /** Returns the set of governance-action ids already stored, for the sync diff. */
 export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
@@ -450,27 +450,33 @@ export async function getGovernanceActionsByTopicIds(
   return map;
 }
 
-// ORDER BY fragment per sort mode. These are constant strings chosen by a fixed switch
-// over the GovSort union (never user input), so interpolating them keeps the query
-// injection-safe while all actual values stay bound parameters. Every mode ends with
-// topic_id so equal-key ties are deterministic.
-function govPageOrderBy(sort: GovSort): string {
+// ORDER BY fragment (plus any bound params it needs) per sort mode. The fragments are
+// constant strings chosen by a fixed switch over the GovSort union (never user input), so
+// interpolating them is injection-safe; all actual values stay bound. Every mode ends with
+// topic_id so equal-key ties are deterministic. Sort never filters now (the status filter
+// does); the closing tiebreak just sinks terminal actions to the bottom.
+function govPageOrderBy(sort: GovSort): { orderBy: string; orderBinds: string[] } {
   switch (sort) {
     case 'new':
-      // Exact on-chain submission time first (newest), so same-epoch actions order
-      // by when they were actually submitted, not by a random topic id. submitted_at
-      // IS NULL puts not-yet-backfilled rows last, where they fall back to epoch order.
-      return 'ga.submitted_at IS NULL, ga.submitted_at DESC, ga.submitted_epoch DESC, ga.topic_id ASC';
+      // Exact on-chain submission time first (newest); submitted_at IS NULL puts
+      // not-yet-backfilled rows last, where they fall back to epoch order.
+      return { orderBy: 'ga.submitted_at IS NULL, ga.submitted_at DESC, ga.submitted_epoch DESC, ga.topic_id ASC', orderBinds: [] };
     case 'closing':
-      // expiry_epoch IS NULL sorts undated-but-open actions last (after the dated ones).
-      return 'ga.expiry_epoch IS NULL, ga.expiry_epoch ASC, ga.topic_id ASC';
+      // Open actions first (terminal ones have no time left), then soonest expiry, nulls
+      // last. The CASE binds the same terminal set used by the status filter, so "terminal"
+      // has one definition across ordering and filtering.
+      return {
+        orderBy: `CASE WHEN ga.status IN (${sqlPlaceholders([...TERMINAL_STATUSES])}) THEN 1 ELSE 0 END, ga.expiry_epoch IS NULL, ga.expiry_epoch ASC, ga.topic_id ASC`,
+        orderBinds: [...TERMINAL_STATUSES],
+      };
     case 'ratified':
-      return 'ga.decided_epoch DESC, ga.topic_id ASC';
+      // Most recently decided first. decided_epoch DESC already sinks NULL (open) rows to
+      // the bottom in SQLite, so open actions land last without an extra clause.
+      return { orderBy: 'ga.decided_epoch DESC, ga.topic_id ASC', orderBinds: [] };
     default:
       // trending (default): the cron-materialized score drives it; submitted_epoch then
-      // topic_id break ties, reproducing the in-memory sortGovActionTopics order exactly.
-      // NULL scores (not yet refreshed) sort last under DESC.
-      return 'ga.trending_score DESC, ga.submitted_epoch DESC, ga.topic_id ASC';
+      // topic_id break ties. NULL scores (not yet refreshed) sort last under DESC.
+      return { orderBy: 'ga.trending_score DESC, ga.submitted_epoch DESC, ga.topic_id ASC', orderBinds: [] };
   }
 }
 
@@ -480,41 +486,48 @@ function govPageOrderBy(sort: GovSort): string {
  * actions (an action with no live, non-deleted topic in this category is never listed,
  * matching the old in-memory filter), orders per the sort mode (trending reads the
  * cron-materialized trending_score; the others read raw lifecycle-epoch columns), and
- * returns the page's topic ids plus the full matching count for pagination. Closing-Soon
- * drops terminal actions from both the page and the count.
+ * returns the page's topic ids plus the full matching count for pagination. The status
+ * filter (open/decided/all) narrows both the page and the count; sort only orders.
  *
  * The caller hydrates the ids with getTopicsByIds + getGovernanceActionsByTopicIds (two
  * batched IN queries, no N+1). limit is clamped to [1,100]; offset to >= 0.
  */
 export async function getGovernanceActionTopicIdsPage(
   db: D1Database,
-  opts: { categorySlug: string; sort: GovSort; limit: number; offset: number; type?: string | null },
+  opts: { categorySlug: string; sort: GovSort; status?: GovStatus; limit: number; offset: number; type?: string | null },
 ): Promise<{ topicIds: string[]; total: number }> {
   const limit = Math.min(Math.max(opts.limit, 1), 100);
   const offset = Math.max(opts.offset, 0);
 
-  // Closing-Soon is the only mode that filters by status. The terminal set is bound
-  // (never interpolated) and shared with isTerminalStatus via TERMINAL_STATUSES, so the
-  // SQL and in-memory definitions of "terminal" cannot drift.
-  const terminalBinds = opts.sort === 'closing' ? [...TERMINAL_STATUSES] : [];
-  const terminalFilter =
-    opts.sort === 'closing' ? ` AND ga.status NOT IN (${sqlPlaceholders(terminalBinds)})` : '';
-  // Optional single-type filter. The value is a bound parameter (never interpolated),
-  // so it stays injection-safe; an absent/null type leaves the query unchanged.
+  // Status filter: 'open' and 'decided' narrow by lifecycle; 'all' (default) leaves the
+  // query unchanged. The status sets are bound (spread from the shared constants), so the
+  // SQL and the badge lifecycle cannot drift. Applied to BOTH the list and count queries.
+  const status = opts.status ?? 'all';
+  const statusBinds =
+    status === 'open' ? [...OPEN_STATUSES] : status === 'decided' ? [...TERMINAL_STATUSES] : [];
+  const statusFilter = statusBinds.length ? ` AND ga.status IN (${sqlPlaceholders(statusBinds)})` : '';
+
+  // Optional single-type filter, bound (never interpolated).
   const typeBinds = opts.type ? [opts.type] : [];
   const typeFilter = opts.type ? ' AND ga.type = ?' : '';
+
   const base =
     'FROM governance_actions ga JOIN topics t ON t.id = ga.topic_id ' +
-    `WHERE t.category_slug = ? AND t.deleted = 0${terminalFilter}${typeFilter}`;
+    `WHERE t.category_slug = ? AND t.deleted = 0${statusFilter}${typeFilter}`;
+
+  // The order fragment may carry its own binds (the closing tiebreak's terminal set); they
+  // sit after the WHERE binds and before limit/offset on the list query only. The count
+  // query has no ORDER BY, so it binds just the WHERE params.
+  const { orderBy, orderBinds } = govPageOrderBy(opts.sort);
 
   const [idResult, countRow] = await Promise.all([
     db
-      .prepare(`SELECT ga.topic_id AS topic_id ${base} ORDER BY ${govPageOrderBy(opts.sort)} LIMIT ? OFFSET ?`)
-      .bind(opts.categorySlug, ...terminalBinds, ...typeBinds, limit, offset)
+      .prepare(`SELECT ga.topic_id AS topic_id ${base} ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
+      .bind(opts.categorySlug, ...statusBinds, ...typeBinds, ...orderBinds, limit, offset)
       .all<{ topic_id: string }>(),
     db
       .prepare(`SELECT COUNT(*) AS n ${base}`)
-      .bind(opts.categorySlug, ...terminalBinds, ...typeBinds)
+      .bind(opts.categorySlug, ...statusBinds, ...typeBinds)
       .first<{ n: number }>(),
   ]);
 

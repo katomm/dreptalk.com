@@ -10,10 +10,10 @@ import { isTerminalStatus } from './view.js';
 export type GovSort = 'trending' | 'new' | 'closing' | 'ratified';
 
 export const GOV_SORTS: readonly { mode: GovSort; label: string }[] = [
-  { mode: 'new', label: 'New' },
+  { mode: 'new', label: 'Newest' },
   { mode: 'trending', label: 'Trending' },
-  { mode: 'closing', label: 'Closing Soon' },
-  { mode: 'ratified', label: 'Recently Ratified' },
+  { mode: 'closing', label: 'Closing soonest' },
+  { mode: 'ratified', label: 'Recently decided' },
 ];
 
 const VALID = new Set<string>(GOV_SORTS.map((s) => s.mode));
@@ -21,6 +21,23 @@ const VALID = new Set<string>(GOV_SORTS.map((s) => s.mode));
 /** Parses the ?sort= param; defaults to 'new' for anything unrecognized. */
 export function parseGovSort(value: string | null): GovSort {
   return value && VALID.has(value) ? (value as GovSort) : 'new';
+}
+
+// Lifecycle status filter for the governance list. Independent of sort: status narrows
+// the set (open vs. decided), sort only orders it. 'all' is the default (no filter).
+export type GovStatus = 'all' | 'open' | 'decided';
+
+export const GOV_STATUSES: readonly { mode: GovStatus; label: string }[] = [
+  { mode: 'all', label: 'All' },
+  { mode: 'open', label: 'Open' },
+  { mode: 'decided', label: 'Decided' },
+];
+
+const VALID_STATUS = new Set<string>(GOV_STATUSES.map((s) => s.mode));
+
+/** Parses the ?status= param; defaults to 'all' for anything unrecognized. */
+export function parseGovStatus(value: string | null): GovStatus {
+  return value && VALID_STATUS.has(value) ? (value as GovStatus) : 'all';
 }
 
 export interface GovActionTopic {

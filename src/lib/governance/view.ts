@@ -80,6 +80,11 @@ export function govStatusVerb(to: string): string {
 // in-memory and SQL definitions of "terminal" can never drift.
 export const TERMINAL_STATUSES = ['ratified', 'enacted', 'dropped', 'expired', 'closed'] as const;
 
+// The open lifecycle statuses: still counting down, no frozen outcome yet. Paired with
+// TERMINAL_STATUSES as the single source of truth for the governance status filter, so
+// the "open" and "decided" SQL sets cannot drift from the badge lifecycle.
+export const OPEN_STATUSES = ['pending', 'active'] as const;
+
 const TERMINAL_STATUS_SET = new Set<string>(TERMINAL_STATUSES);
 
 /** True when the action's voting window has ended (a frozen, terminal outcome). */
