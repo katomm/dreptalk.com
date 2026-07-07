@@ -205,6 +205,30 @@ describe('listDreps', () => {
 
 });
 
+describe('listDreps sort', () => {
+  async function seedFull(drepId: string, power: string, count: number | null): Promise<void> {
+    await env.DB.prepare(
+      `INSERT INTO dreps (drep_id, status, active, voting_power, delegator_count,
+                          last_synced_at, created_at)
+       VALUES (?, 'registered', 1, ?, ?, 0, 0)`,
+    )
+      .bind(drepId, power, count)
+      .run();
+  }
+
+  it('sorts by delegator count desc when sort=delegators', async () => {
+    await seedFull('drep_p_big', '9000', 1);   // most power, fewest delegators
+    await seedFull('drep_p_mid', '5000', 50);
+    await seedFull('drep_p_low', '1000', 200);  // least power, most delegators
+
+    const byPower = (await listDreps(env.DB, { sort: 'power', limit: 10 })).map((d) => d.drepId);
+    expect(byPower.slice(0, 3)).toEqual(['drep_p_big', 'drep_p_mid', 'drep_p_low']);
+
+    const byDelegators = (await listDreps(env.DB, { sort: 'delegators', limit: 10 })).map((d) => d.drepId);
+    expect(byDelegators.slice(0, 3)).toEqual(['drep_p_low', 'drep_p_mid', 'drep_p_big']);
+  });
+});
+
 describe('special DReps', () => {
   it('listDreps excludes the predefined pseudo-DReps', async () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drepreal', name: 'Real', votingPower: '100' });

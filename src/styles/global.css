@@ -542,6 +542,7 @@ main.container {
    column takes the rest. */
 .drep-table thead th.drep-table__rank-h { text-align: right; width: 3.5rem; }
 .drep-table thead th.drep-table__power-h { text-align: left; width: 12rem; }
+.drep-table thead th.drep-table__delegators-h { text-align: right; width: 7rem; }
 .drep-table thead th.drep-table__trend-h { text-align: left; width: 9rem; }
 .drep-table thead th.drep-table__actions-h { text-align: right; width: 8.5rem; white-space: nowrap; }
 /* "TREND" stays in the uppercase header style; the "(vs last epoch)" qualifier is
@@ -555,6 +556,7 @@ main.container {
 .drep-table__power { text-align: left; }
 .drep-table__trend { text-align: left; }
 .drep-table__actions { text-align: right; }
+.drep-table__delegators { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
 /* Name truncation inside the fixed-width DRep cell is handled by the
    AuthorIdentity `truncate` prop; global overrides here would tie with the
    component's scoped styles (attribute scoping) and lose by source order. */
@@ -638,6 +640,10 @@ main.container {
      full trend there. */
   .drep-table thead th.drep-table__trend-h,
   .drep-table__trend { display: none; }
+  /* Delegator count is a desktop-only column; the profile page carries it on
+     mobile. Hidden with the trend column so phones keep the DRep-name width. */
+  .drep-table thead th.drep-table__delegators-h,
+  .drep-table__delegators { display: none; }
   .drep-delegate-btn { display: none; }
   .drep-action-btn { width: 2.75rem; height: 2.75rem; }
   .drep-power { align-items: flex-end; gap: 0.15rem; }

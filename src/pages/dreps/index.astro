@@ -25,6 +25,8 @@ const db = env.DB as D1Database | undefined;
 const PAGE_SIZE = 50;
 const page = parsePage(Astro.url.searchParams.get('page'));
 const activeOnly = Astro.url.searchParams.get('all') !== '1';
+// Sort key from the query string; anything but "delegators" falls back to power.
+const sort = Astro.url.searchParams.get('sort') === 'delegators' ? 'delegators' : 'power';
 // Offset into the power-sorted listing; also the base for each row's rank number
 // (rank = offset + row index + 1), so ranks stay continuous across pages.
 const listOffset = pageToOffset(page, PAGE_SIZE);
@@ -34,7 +36,7 @@ const listOffset = pageToOffset(page, PAGE_SIZE);
 // render pays one round-trip of latency, not three.
 const [dreps, concentrationRows, params, powerAggregates] = db
   ? await Promise.all([
-      listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: listOffset }),
+      listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: listOffset, sort }),
       listDrepsForConcentration(db),
       getProtocolParams(db),
       getVotingPowerEpochAggregates(db),
@@ -153,7 +155,8 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
 
 const nextPage = dreps.length === PAGE_SIZE ? page + 1 : null;
 const prevPage = page > 1 ? page - 1 : null;
-const qs = (p: number) => `?page=${p}${activeOnly ? '' : '&all=1'}`;
+const qs = (p: number) =>
+  `?page=${p}${activeOnly ? '' : '&all=1'}${sort === 'delegators' ? '&sort=delegators' : ''}`;
 
 const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
   authorId: d.drepId,
@@ -241,6 +244,13 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
           <th scope="col" class="drep-table__rank-h"><span class="sr-only">Rank</span></th>
           <th scope="col">DRep</th>
           <th scope="col" class="drep-table__power-h">Voting power</th>
+          <th scope="col" class="drep-table__delegators-h">
+            {sort === 'delegators' ? (
+              <a href={`?${activeOnly ? '' : 'all=1'}`} aria-current="true">Delegators &darr;</a>
+            ) : (
+              <a href={`?sort=delegators${activeOnly ? '' : '&all=1'}`}>Delegators</a>
+            )}
+          </th>
           <th scope="col" class="drep-table__trend-h">Trend <span class="drep-table__trend-sub">(vs last epoch)</span></th>
           <th scope="col" class="drep-table__actions-h">Actions</th>
         </tr>
@@ -271,6 +281,9 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
                     </span>
                   )}
                 </div>
+              </td>
+              <td class="drep-table__delegators">
+                {d.delegatorCount != null ? d.delegatorCount.toLocaleString('en-US') : 'n/a'}
               </td>
               <td class="drep-table__trend">
                 {delta && (

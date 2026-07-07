@@ -213,7 +213,7 @@ export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
  */
 export async function listDreps(
   db: D1Database,
-  opts: { activeOnly?: boolean; limit?: number; offset?: number },
+  opts: { activeOnly?: boolean; limit?: number; offset?: number; sort?: 'power' | 'delegators' },
 ): Promise<Drep[]> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
   const offset = Math.max(opts.offset ?? 0, 0);
@@ -224,11 +224,17 @@ export async function listDreps(
   where.push(`drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`);
   binds.push(...SPECIAL_DREP_IDS);
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  // Whitelisted sort keys only (never interpolate user input). Delegator sort keeps
+  // voting power as the tie-break and pushes never-counted rows (NULL) to the end.
+  const orderSql =
+    opts.sort === 'delegators'
+      ? 'ORDER BY delegator_count DESC NULLS LAST, CAST(voting_power AS INTEGER) DESC'
+      : 'ORDER BY CAST(voting_power AS INTEGER) DESC';
   const rows = (
     await db
       .prepare(
         `SELECT * FROM dreps ${whereSql}
-         ORDER BY CAST(voting_power AS INTEGER) DESC
+         ${orderSql}
          LIMIT ? OFFSET ?`,
       )
       .bind(...binds, limit, offset)
