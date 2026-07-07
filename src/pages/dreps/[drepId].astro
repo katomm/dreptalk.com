@@ -56,6 +56,9 @@ if (!drep) {
 // background so the next visit shows a current number. Fire-and-forget via
 // waitUntil: it never blocks the response, and maybeRefreshDelegatorCount swallows
 // any Koios failure. The Koios Pro key is used when bound, else anonymous.
+// Concurrent views of the same uncounted DRep each trigger their own refresh here
+// (bounded by traffic, not deduped); this is safe because the write is idempotent
+// last-writer-wins and the staleness gate closes the window after the first success.
 if (drep && db) {
   const { koiosBaseUrl } = resolveNetwork((env.CARDANO_NETWORK as string | undefined) ?? null);
   const koios = createKoiosClient({

@@ -227,6 +227,18 @@ describe('listDreps sort', () => {
     const byDelegators = (await listDreps(env.DB, { sort: 'delegators', limit: 10 })).map((d) => d.drepId);
     expect(byDelegators.slice(0, 3)).toEqual(['drep_p_low', 'drep_p_mid', 'drep_p_big']);
   });
+
+  it('sorts a NULL delegator count last under sort=delegators', async () => {
+    await seedFull('drep_null_a', '7000', 30);
+    await seedFull('drep_null_b', '3000', 10);
+    await seedFull('drep_null_c', '1000', null); // never counted -> must sort last
+
+    const byDelegators = (await listDreps(env.DB, { sort: 'delegators', limit: 10 })).map((d) => d.drepId);
+    const filtered = byDelegators.filter((id) =>
+      id === 'drep_null_a' || id === 'drep_null_b' || id === 'drep_null_c',
+    );
+    expect(filtered).toEqual(['drep_null_a', 'drep_null_b', 'drep_null_c']);
+  });
 });
 
 describe('special DReps', () => {

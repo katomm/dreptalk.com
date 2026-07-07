@@ -30,6 +30,16 @@ function fakeKoios(counts: Record<string, number | null>) {
   };
 }
 
+// Fixed-value stub (as opposed to fakeKoios, which throws on a missing key):
+// lets a specific drepId resolve to null, distinct from a thrown fetch error.
+function nullableKoios(counts: Record<string, number | null>) {
+  return {
+    async drepDelegatorCount(drepId: string): Promise<number | null> {
+      return counts[drepId] ?? null;
+    },
+  };
+}
+
 describe('syncDrepDelegatorCounts', () => {
   it('counts the stalest DReps up to the limit and stamps synced_at', async () => {
     await seedDrep('drep_a', null); // never counted -> first
@@ -57,5 +67,18 @@ describe('syncDrepDelegatorCounts', () => {
     expect(res.failed).toBe(1);
     expect((await getDrepById(env.DB, 'drep_ok'))?.delegatorCount).toBe(4);
     expect((await getDrepById(env.DB, 'drep_bad'))?.delegatorCount).toBeNull();
+  });
+
+  it('counts a DRep whose fetch returns null as failed and does not write it', async () => {
+    await seedDrep('drep_null', null);
+    await seedDrep('drep_num', null);
+    const koios = nullableKoios({ drep_num: 6 }); // drep_null resolves to null
+
+    const res = await syncDrepDelegatorCounts({ koios, db: env.DB, now: 42, limit: 10 });
+
+    expect(res.updated).toBe(1);
+    expect(res.failed).toBe(1);
+    expect((await getDrepById(env.DB, 'drep_null'))?.delegatorCount).toBeNull();
+    expect((await getDrepById(env.DB, 'drep_num'))?.delegatorCount).toBe(6);
   });
 });

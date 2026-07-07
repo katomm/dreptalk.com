@@ -542,7 +542,7 @@ main.container {
    column takes the rest. */
 .drep-table thead th.drep-table__rank-h { text-align: right; width: 3.5rem; }
 .drep-table thead th.drep-table__power-h { text-align: left; width: 12rem; }
-.drep-table thead th.drep-table__delegators-h { text-align: right; width: 7rem; }
+.drep-table thead th.drep-table__delegators-h { text-align: right; width: 7rem; padding-right: 0.75rem; }
 .drep-table thead th.drep-table__trend-h { text-align: left; width: 9rem; }
 .drep-table thead th.drep-table__actions-h { text-align: right; width: 8.5rem; white-space: nowrap; }
 /* "TREND" stays in the uppercase header style; the "(vs last epoch)" qualifier is
@@ -556,7 +556,9 @@ main.container {
 .drep-table__power { text-align: left; }
 .drep-table__trend { text-align: left; }
 .drep-table__actions { text-align: right; }
-.drep-table__delegators { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+/* td-qualified so padding-right beats the `.drep-table td { padding: 0.6rem 0 }`
+   shorthand, same as the rank column above: the gutter to the Trend column. */
+.drep-table td.drep-table__delegators { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); padding-right: 0.75rem; }
 /* Name truncation inside the fixed-width DRep cell is handled by the
    AuthorIdentity `truncate` prop; global overrides here would tie with the
    component's scoped styles (attribute scoping) and lose by source order. */
