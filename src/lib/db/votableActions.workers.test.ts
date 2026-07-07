@@ -14,6 +14,8 @@ async function seedAction(o: {
   expiryEpoch?: number | null;
   topicId?: string | null;
   topicSlug?: string | null;
+  submittedEpoch?: number | null;
+  submittedAt?: number | null;
 }): Promise<void> {
   if (o.topicId && o.topicSlug) {
     await env.DB.prepare(
@@ -24,10 +26,18 @@ async function seedAction(o: {
       .run();
   }
   await env.DB.prepare(
-    `INSERT INTO governance_actions (id, type, title, status, expiry_epoch, topic_id, created_at, last_synced_at)
-     VALUES (?, 'InfoAction', 'Test action ' || ?, ?, ?, ?, 0, 0)`,
+    `INSERT INTO governance_actions (id, type, title, status, expiry_epoch, submitted_epoch, submitted_at, topic_id, created_at, last_synced_at)
+     VALUES (?, 'InfoAction', 'Test action ' || ?, ?, ?, ?, ?, ?, 0, 0)`,
   )
-    .bind(o.id, o.id, o.status, o.expiryEpoch ?? null, o.topicId ?? null)
+    .bind(
+      o.id,
+      o.id,
+      o.status,
+      o.expiryEpoch ?? null,
+      o.submittedEpoch ?? null,
+      o.submittedAt ?? null,
+      o.topicId ?? null,
+    )
     .run();
 }
 
@@ -89,5 +99,21 @@ describe('getVotableActionsForViewer', () => {
     const rows = await getVotableActionsForViewer(env.DB, drepId);
     const activeIds = rows.filter((r) => ['ga-far', 'ga-near'].includes(r.id)).map((r) => r.id);
     expect(activeIds.indexOf('ga-near')).toBeLessThan(activeIds.indexOf('ga-far'));
+  });
+
+  it('returns submitted_epoch and submitted_at', async () => {
+    await seedAction({
+      id: 'ga-submitted',
+      status: 'active',
+      expiryEpoch: 900,
+      submittedEpoch: 350,
+      submittedAt: 1720000000,
+    });
+
+    const rows = await getVotableActionsForViewer(env.DB, drepId);
+    const row = rows.find((r) => r.id === 'ga-submitted');
+    expect(row).toBeDefined();
+    expect(row?.submitted_epoch).toBe(350);
+    expect(row?.submitted_at).toBe(1720000000);
   });
 });

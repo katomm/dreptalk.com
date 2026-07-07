@@ -11,9 +11,13 @@ import Layout from '@/layouts/Layout.astro';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
-import { getDrepVotingHistory } from '@/lib/db/drepVotes';
+import { getDrepVotingHistory, getDrepParticipation } from '@/lib/db/drepVotes';
+import { getDrepByIdOrSlug } from '@/lib/db/dreps';
 import { readableType, epochDaysLeft, voteTone, TONE_COLORS, govTypeTone } from '@/lib/governance/view';
 import { resolveNetwork, epochStartUnix } from '@/lib/config/network';
+import { deriveVoteStats, isClosingSoon } from '@/lib/governance/voteDashboard';
+import { GOV_ACTION_TYPES } from '@/lib/governance/types';
+import voteFiltersJs from '@/scripts/vote-filters.js?raw';
 
 // --- resolve network + session ---
 const user = Astro.locals.user;
@@ -37,13 +41,32 @@ const drepId = dbUser?.drep_id ?? null;
 const network = resolveNetwork(currentNetwork().network);
 const now = Date.now();
 
-// Fetch votable actions + voting history in parallel when the db is available.
-const [votableRows, historyRows] = drepId && db
+// Fetch votable actions, voting history and the DRep record in parallel.
+const [votableRows, historyRows, drep] = drepId && db
   ? await Promise.all([
       getVotableActionsForViewer(db, drepId),
       getDrepVotingHistory(db, drepId, { limit: 50 }),
+      getDrepByIdOrSlug(db, drepId),
     ])
-  : [[], []];
+  : [[], [], null];
+
+// Participation depends on the DRep's registration epoch, so it runs after.
+const participation = drep && db ? await getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : null;
+const participationPct =
+  participation && participation.eligible > 0
+    ? Math.round((participation.voted / participation.eligible) * 100)
+    : null;
+
+// Enrich each open action once: type tone + wall-clock days left + closing-soon flag.
+const actions = votableRows.map((row) => {
+  const expiryUnix = row.expiry_epoch != null ? epochStartUnix(row.expiry_epoch, network) : null;
+  const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, row.status, now);
+  return { row, typeTone: govTypeTone(row.type), daysLeft, closingSoon: isClosingSoon(daysLeft) };
+});
+
+const stats = deriveVoteStats(actions.map((a) => ({ voted: !!a.row.viewerVote, daysLeft: a.daysLeft })));
+// Only offer type-filter options for types actually present in the list.
+const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.type === t.value));
 ---
 <Layout
   title="Vote - DRepTalk"
@@ -71,6 +94,27 @@ const [votableRows, historyRows] = drepId && db
 
   {drepId && (
     <>
+      <div class="vote-stats">
+        <div class="vote-stat">
+          <span class="vote-stat__num">{stats.open}</span>
+          <span class="vote-stat__label">Open actions</span>
+        </div>
+        <div class="vote-stat vote-stat--accent">
+          <span class="vote-stat__num">{stats.notVoted}</span>
+          <span class="vote-stat__label">Not voted yet</span>
+        </div>
+        <div class="vote-stat">
+          <span class="vote-stat__num">{stats.closingSoon}</span>
+          <span class="vote-stat__label">Closing soon</span>
+        </div>
+        <div class="vote-stat">
+          <span class="vote-stat__num">{participationPct != null ? `${participationPct}%` : 'n/a'}</span>
+          <span class="vote-stat__label">
+            {participation && participation.eligible > 0 ? `Voted on ${participation.voted} of ${participation.eligible}` : 'Participation'}
+          </span>
+        </div>
+      </div>
+
       <!-- Open actions -->
       <section style="margin-bottom:3rem;">
         <h2 style="margin:0 0 1rem;font-size:1.125rem;">Open actions</h2>
@@ -79,63 +123,88 @@ const [votableRows, historyRows] = drepId && db
             No active governance actions to vote on right now.
           </p>
         ) : (
-          <div class="vote-list">
-            {votableRows.map((row) => {
-              const typeTone = govTypeTone(row.type);
-              const expiryUnix = row.expiry_epoch != null ? epochStartUnix(row.expiry_epoch, network) : null;
-              const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, row.status, now);
-              const voteColor = row.viewerVote ? TONE_COLORS[voteTone(row.viewerVote)] : null;
-              const threadHref = row.slug ? `/t/${row.slug}` : null;
-              return (
-                <div class="vote-row">
-                  <div class="vote-row__main">
-                    <div class="vote-row__tags">
-                      <span class="pill" style={`--ph:var(--gov-${typeTone})`}>
-                        {readableType(row.type)}
-                      </span>
-                      {row.viewerVote ? (
-                        <span
-                          class="vote-badge"
-                          style={`color:${voteColor};border-color:${voteColor}`}
-                        >
-                          {row.viewerStatus === 'pending'
-                            ? `Voted ${row.viewerVote} (pending)`
-                            : row.viewerStatus === 'failed'
-                              ? `Vote failed`
-                              : `Voted ${row.viewerVote}`}
+          <>
+            <div class="vote-controls" data-vote-controls>
+              <div class="vote-seg" role="group" aria-label="Filter by your vote status">
+                <button type="button" class="vote-seg__btn is-active" data-status="all" aria-pressed="true">All</button>
+                <button type="button" class="vote-seg__btn" data-status="notvoted" aria-pressed="false">Not voted</button>
+                <button type="button" class="vote-seg__btn" data-status="voted" aria-pressed="false">Voted</button>
+              </div>
+              {presentTypes.length > 1 && (
+                <label class="vote-select">
+                  <span class="vote-select__label">Type</span>
+                  <select data-type-filter>
+                    <option value="">All types</option>
+                    {presentTypes.map((t) => <option value={t.value}>{t.label}</option>)}
+                  </select>
+                </label>
+              )}
+              <label class="vote-select">
+                <span class="vote-select__label">Sort</span>
+                <select data-sort>
+                  <option value="closing">Closing soonest</option>
+                  <option value="recent">Recently opened</option>
+                  <option value="type">By type</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="vote-list" data-vote-list>
+              {actions.map(({ row, typeTone, daysLeft, closingSoon }) => {
+                const voteColor = row.viewerVote ? TONE_COLORS[voteTone(row.viewerVote)] : null;
+                const threadHref = row.slug ? `/t/${row.slug}` : null;
+                return (
+                  <div
+                    class:list={['vote-row', { 'vote-row--soon': closingSoon }]}
+                    data-vote-row
+                    data-voted={row.viewerVote ? '1' : '0'}
+                    data-type={row.type}
+                    data-expiry={row.expiry_epoch ?? ''}
+                    data-submitted-at={row.submitted_at ?? ''}
+                    data-submitted-epoch={row.submitted_epoch ?? ''}
+                  >
+                    <div class="vote-row__main">
+                      <div class="vote-row__tags">
+                        <span class="pill" style={`--ph:var(--gov-${typeTone})`}>
+                          {readableType(row.type)}
                         </span>
-                      ) : (
-                        <span class="vote-badge vote-badge--none">Not voted</span>
+                        {row.viewerVote ? (
+                          <span class="vote-badge" style={`color:${voteColor};border-color:${voteColor}`}>
+                            {row.viewerStatus === 'pending'
+                              ? `Voted ${row.viewerVote} (pending)`
+                              : row.viewerStatus === 'failed'
+                                ? `Vote failed`
+                                : `Voted ${row.viewerVote}`}
+                          </span>
+                        ) : (
+                          <span class="vote-badge vote-badge--none">Not voted</span>
+                        )}
+                        {closingSoon && <span class="vote-badge vote-badge--soon">Closing soon</span>}
+                      </div>
+                      <p class="vote-row__title">
+                        {threadHref ? <a href={threadHref}>{row.title ?? row.id}</a> : (row.title ?? row.id)}
+                      </p>
+                      {row.expiry_epoch != null && (
+                        <p class="vote-row__meta">
+                          {daysLeft != null
+                            ? `~${daysLeft} days left (epoch ${row.expiry_epoch})`
+                            : `Epoch ${row.expiry_epoch}`}
+                        </p>
                       )}
                     </div>
-                    <p class="vote-row__title">
+                    <div class="vote-row__action">
                       {threadHref ? (
-                        <a href={threadHref}>{row.title ?? row.id}</a>
+                        <a href={threadHref} class="btn btn-primary btn--sm">Vote</a>
                       ) : (
-                        (row.title ?? row.id)
+                        <span style="color:var(--muted);font-size:0.875rem;">No thread yet</span>
                       )}
-                    </p>
-                    {row.expiry_epoch != null && (
-                      <p class="vote-row__meta">
-                        {daysLeft != null
-                          ? `~${daysLeft} days left (epoch ${row.expiry_epoch})`
-                          : `Epoch ${row.expiry_epoch}`}
-                      </p>
-                    )}
+                    </div>
                   </div>
-                  <div class="vote-row__action">
-                    {threadHref ? (
-                      <a href={threadHref} class="btn btn-primary btn--sm">
-                        Vote
-                      </a>
-                    ) : (
-                      <span style="color:var(--muted);font-size:0.875rem;">No thread yet</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            <p class="vote-empty" data-vote-empty hidden></p>
+          </>
         )}
       </section>
 
@@ -192,6 +261,7 @@ const [votableRows, historyRows] = drepId && db
       </section>
     </>
   )}
+  {drepId && votableRows.length > 0 && <script is:inline set:html={voteFiltersJs} />}
 </Layout>
 
 <style>
@@ -213,6 +283,12 @@ const [votableRows, historyRows] = drepId && db
     gap: 1rem;
     padding: 0.875rem 1rem;
     border-bottom: 1px solid var(--border);
+  }
+  /* The client filter toggles the hidden attribute on rows. This author rule
+     for .vote-row sets display:flex, which outranks the UA [hidden] rule, so
+     a hidden row would still show. Re-assert display:none at higher specificity. */
+  .vote-row[hidden] {
+    display: none;
   }
   .vote-row:last-child,
   .history-row:last-child {
@@ -312,6 +388,96 @@ const [votableRows, historyRows] = drepId && db
     text-decoration: underline;
   }
 
+  /* ---- Stats strip ------------------------------------------------------- */
+  .vote-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin: 0 0 2rem;
+  }
+  .vote-stat {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 0.875rem;
+    background: var(--surface);
+  }
+  .vote-stat--accent {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  }
+  .vote-stat__num {
+    display: block;
+    font-size: 1.375rem;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .vote-stat--accent .vote-stat__num {
+    color: var(--accent);
+  }
+  .vote-stat__label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 0.15rem;
+  }
+
+  /* ---- Control bar ------------------------------------------------------- */
+  .vote-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 0 0 1rem;
+  }
+  .vote-seg {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .vote-seg__btn {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+  }
+  .vote-seg__btn.is-active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .vote-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .vote-select select {
+    font-size: 0.8125rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: inherit;
+  }
+
+  /* ---- Closing-soon highlight ------------------------------------------- */
+  .vote-row--soon {
+    border-left: 3px solid var(--accent);
+  }
+  .vote-badge--soon {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .vote-empty {
+    color: var(--muted);
+    font-size: 0.9375rem;
+    margin: 1rem 0 0;
+  }
+
   @media (max-width: 600px) {
     .vote-row {
       flex-direction: column;
@@ -319,6 +485,9 @@ const [votableRows, historyRows] = drepId && db
     }
     .vote-row__action {
       align-self: flex-end;
+    }
+    .vote-stats {
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 </style>
