@@ -651,7 +651,7 @@ describe('getGovernanceActionTopicIdsPage', () => {
     expect(topicIds).toEqual(['t-e501', 't-e500-late', 't-e500-early', 't-e500-nullat']);
   });
 
-  it('closing: open actions only, soonest expiry first, NULL expiry last, terminal excluded', async () => {
+  it('closing: open first (soonest expiry), decided sink to the bottom, not hidden', async () => {
     await seedGovRow({ topicId: 't-far', actionId: 'a1', status: 'active', expiryEpoch: 400 });
     await seedGovRow({ topicId: 't-soon', actionId: 'a2', status: 'active', expiryEpoch: 360 });
     await seedGovRow({ topicId: 't-noexp', actionId: 'a3', status: 'pending', expiryEpoch: null });
@@ -659,9 +659,10 @@ describe('getGovernanceActionTopicIdsPage', () => {
     await seedGovRow({ topicId: 't-expired', actionId: 'a5', status: 'expired', expiryEpoch: 355 });
 
     const { topicIds, total } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'closing', limit: 100, offset: 0 });
-    // Terminal rows are dropped even though their expiry is soonest; the count matches.
-    expect(topicIds).toEqual(['t-soon', 't-far', 't-noexp']);
-    expect(total).toBe(3);
+    // Open (0) before terminal (1); within open, soonest expiry first then null last;
+    // within terminal, expiry asc. Decided are included now, just at the bottom.
+    expect(topicIds).toEqual(['t-soon', 't-far', 't-noexp', 't-enacted', 't-expired']);
+    expect(total).toBe(5);
   });
 
   it('ratified: most recently decided first, NULL decided last', async () => {
@@ -755,20 +756,42 @@ describe('getGovernanceActionTopicIdsPage', () => {
     expect(all.total).toBe(3);
   });
 
-  it('type filter: composes with the closing sort (terminal still excluded)', async () => {
+  it('type filter composes with closing; status=open reproduces the open-only view', async () => {
     await seedGovRow({ topicId: 't-open', actionId: 'o1', type: 'InfoAction', status: 'active', expiryEpoch: 360 });
     await seedGovRow({ topicId: 't-done', actionId: 'd1', type: 'InfoAction', status: 'enacted', expiryEpoch: 350 });
     await seedGovRow({ topicId: 't-tw', actionId: 'w1', type: 'TreasuryWithdrawals', status: 'active', expiryEpoch: 300 });
 
-    const { topicIds, total } = await getGovernanceActionTopicIdsPage(db(), {
-      categorySlug: GOV,
-      sort: 'closing',
-      limit: 100,
-      offset: 0,
-      type: 'InfoAction',
+    // Default status=all: both InfoActions, open first then decided.
+    const all = await getGovernanceActionTopicIdsPage(db(), {
+      categorySlug: GOV, sort: 'closing', limit: 100, offset: 0, type: 'InfoAction',
     });
-    expect(topicIds).toEqual(['t-open']);
-    expect(total).toBe(1);
+    expect(all.topicIds).toEqual(['t-open', 't-done']);
+    expect(all.total).toBe(2);
+
+    // status=open narrows to just the open InfoAction (old Closing-Soon behavior).
+    const open = await getGovernanceActionTopicIdsPage(db(), {
+      categorySlug: GOV, sort: 'closing', status: 'open', limit: 100, offset: 0, type: 'InfoAction',
+    });
+    expect(open.topicIds).toEqual(['t-open']);
+    expect(open.total).toBe(1);
+  });
+
+  it('status=open and status=decided narrow the list and the count on both queries', async () => {
+    await seedGovRow({ topicId: 't-act', actionId: 's1', status: 'active' });
+    await seedGovRow({ topicId: 't-pend', actionId: 's2', status: 'pending' });
+    await seedGovRow({ topicId: 't-en', actionId: 's3', status: 'enacted', decidedEpoch: 500 });
+    await seedGovRow({ topicId: 't-exp', actionId: 's4', status: 'expired', decidedEpoch: 501 });
+
+    const open = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'new', status: 'open', limit: 100, offset: 0 });
+    expect(open.topicIds.slice().sort()).toEqual(['t-act', 't-pend']);
+    expect(open.total).toBe(2);
+
+    const decided = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'new', status: 'decided', limit: 100, offset: 0 });
+    expect(decided.topicIds.slice().sort()).toEqual(['t-en', 't-exp']);
+    expect(decided.total).toBe(2);
+
+    const all = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'new', status: 'all', limit: 100, offset: 0 });
+    expect(all.total).toBe(4);
   });
 });
 
