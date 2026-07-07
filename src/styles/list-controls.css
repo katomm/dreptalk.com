@@ -1,0 +1,38 @@
+/* Shared control styles for the governance-actions list and the /vote dashboard: a
+   segmented pill group and a boxed dropdown trigger. Kept in one file so the two pages
+   cannot drift. The active pill matches both the JS-toggled .is-active (vote) and the
+   server-rendered [aria-current] link (governance). */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.seg__btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1.4;
+}
+.seg__btn.is-active,
+.seg__btn[aria-current='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Boxed dropdown trigger, applied to a native <select> (/vote) and a <summary>
+   (governance). Matches border, radius, padding and font so both read identically. */
+.ctrl-box {
+  font-size: 0.8125rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
