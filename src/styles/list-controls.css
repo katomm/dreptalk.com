@@ -22,7 +22,9 @@
 .seg__btn.is-active,
 .seg__btn[aria-current='true'] {
   background: var(--accent);
-  color: #fff;
+  /* On-accent foreground token: white in light mode, dark in dark mode, so the
+     active pill keeps AA contrast on both themes (a hardcoded white failed it in dark). */
+  color: var(--accent-fg);
 }
 
 /* Boxed dropdown trigger, applied to a native <select> (/vote) and a <summary>

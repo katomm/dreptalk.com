@@ -314,10 +314,10 @@ const breadcrumbLd = {
 
     {isGovernanceCategory ? (
       pageRows.length === 0 ? (
-        typeFilter ? (
+        typeFilter || statusVal !== 'all' ? (
           <p style="color:var(--muted);">
-            No {GOV_ACTION_TYPES.find((t) => t.value === typeFilter)?.label} actions.{' '}
-            <a href={ctrlHref({ type: null })}>Clear filter</a>
+            No governance actions match these filters.{' '}
+            <a href={ctrlHref({ type: null, status: 'all' })}>Clear filters</a>
           </p>
         ) : (
           <p style="color:var(--muted);">No governance actions in this view.</p>
