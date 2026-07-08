@@ -265,7 +265,11 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
           return (
             <tr>
               <td class="drep-table__rank">#{rank}</td>
-              <td><AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate /></td>
+              <td>
+                <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate>
+                  <span slot="sub" class="drep-table__ranksub">#{rank}</span>
+                </AuthorIdentity>
+              </td>
               <td class="drep-table__power">
                 <div class="drep-power">
                   <span class="drep-power__ada">
