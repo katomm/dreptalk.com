@@ -17,8 +17,13 @@ export default function DelegateButton({ target, network = 'preprod' }: Props) {
 
   return (
     <>
-      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-        Delegate voting power to this DRep
+      <button
+        type="button"
+        className="btn btn-primary"
+        aria-label="Delegate voting power to this DRep"
+        onClick={() => setOpen(true)}
+      >
+        Delegate
       </button>
       {open && (
         <DelegateDialog target={target} network={network} onClose={() => setOpen(false)} />
