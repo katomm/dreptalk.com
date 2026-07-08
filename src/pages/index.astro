@@ -8,7 +8,9 @@ import Avatar from '@/components/Avatar.astro';
 import { getCategories } from '../../config/categories.js';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { getLatestGovernanceAction, getLatestActionWithVotes } from '@/lib/db/governance.js';
-import { getActionVoters } from '@/lib/db/drepVotes.js';
+import { getActionVoters, getDrepVotingHistory, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getUserById } from '@/lib/db/users.js';
+import { orderVoteCandidates, buildPersonalizedRing } from '@/lib/hero/personalize.js';
 import { getDrepsByIds } from '@/lib/db/dreps.js';
 import { voterDescriptor, authorProfileHref } from '@/lib/forum/author.js';
 import { heroRingSlots, HERO_RING_RADII } from '@/lib/hero/ring.js';
@@ -44,6 +46,45 @@ const [stats, feed, votedHero] = db
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null];
 
+// Personalized hero for a logged-in DRep: center on an action they voted on and
+// pin their own avatar into the ring. Only DReps reach this, so the extra reads
+// never run for anonymous traffic. Falls through to the default ring below when
+// the viewer is not a DRep, has no votes, or none of their recent votes sits on
+// an action with a full enough ring.
+type PersonalizedHero = {
+  card: { type: string; title: string; status: string; slug: string };
+  active: HeroVoteRow[];
+  ghosts: HeroVoteRow[];
+  selfIndex: number;
+};
+let personalized: PersonalizedHero | null = null;
+if (db && user?.roles.includes('drep')) {
+  const viewerDrepId = (await getUserById(db, user.id))?.drep_id ?? null;
+  if (viewerDrepId) {
+    const history = await getDrepVotingHistory(db, viewerDrepId, { limit: 12 });
+    for (const c of orderVoteCandidates(history).slice(0, 3)) {
+      const voters = await getActionVoters(db, c.ga_id, { limit: HERO_FETCH });
+      if (voters.length < HERO_MIN_ACTIVE) continue;
+      const ring = buildPersonalizedRing({
+        voters,
+        viewerDrepId,
+        viewerVote: c.vote,
+        maxActive: HERO_MAX_ACTIVE,
+        maxGhosts: HERO_MAX_GHOSTS,
+      });
+      const dreps = await getDrepsByIds(db, [...ring.active, ...ring.ghosts].map((v) => v.voter_id));
+      const toRow = (v: ActionVoterRow): HeroVoteRow => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote });
+      personalized = {
+        card: { type: c.type, title: c.title as string, status: c.status, slug: c.topic_slug as string },
+        active: ring.active.map(toRow),
+        ghosts: ring.ghosts.map(toRow),
+        selfIndex: ring.selfIndex,
+      };
+      break;
+    }
+  }
+}
+
 // Fall back to the plain newest action only when none has enough voters yet, so
 // the common path (a voted action exists) skips this query entirely.
 const latestHero = !votedHero && db ? await getLatestGovernanceAction(db) : null;
@@ -52,15 +93,16 @@ const heroAction = votedHero ?? latestHero;
 // Resolve the voted action's top voters into pill data (identicon seed + stored
 // avatar hash + the vote), then split into the strongest as "active" and the
 // remainder as "ghosts". dreps are batched in one follow-up query.
-const hero =
-  db && votedHero
+const hero: { active: HeroVoteRow[]; ghosts: HeroVoteRow[]; selfIndex: number | null } = personalized
+  ? { active: personalized.active, ghosts: personalized.ghosts, selfIndex: personalized.selfIndex }
+  : db && votedHero
     ? await (async () => {
         const voters = await getActionVoters(db, votedHero.action.id, { limit: HERO_FETCH });
         const dreps = await getDrepsByIds(db, voters.map((v) => v.voter_id));
         const rows = voters.map((v) => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote }));
-        return { active: rows.slice(0, HERO_MAX_ACTIVE), ghosts: rows.slice(HERO_MAX_ACTIVE, HERO_FETCH) };
+        return { active: rows.slice(0, HERO_MAX_ACTIVE), ghosts: rows.slice(HERO_MAX_ACTIVE, HERO_FETCH), selfIndex: null };
       })()
-    : { active: [] as HeroVoteRow[], ghosts: [] as HeroVoteRow[] };
+    : { active: [] as HeroVoteRow[], ghosts: [] as HeroVoteRow[], selfIndex: null };
 
 // Only light the real scene when the inner ring is full enough; a sparse ring
 // would read as broken, so otherwise we keep the decorative placeholder ring.
@@ -130,25 +172,36 @@ const breadcrumbLd = {
 // Hero card: a live preview of the newest governance action, falling back to a
 // static placeholder when the DB holds none yet (fresh deploy / local dev). The
 // shape is identical in both branches so the card markup stays single-sourced.
-const heroCard = heroAction
+const heroCard = personalized
   ? (() => {
-      const a = heroAction.action;
-      const badge = statusBadge(a.status);
+      const badge = statusBadge(personalized.card.status);
       return {
-        label: readableType(a.type),
-        title: a.title as string,
+        label: readableType(personalized.card.type),
+        title: personalized.card.title,
         badge: badge.label,
         tone: TONE_COLORS[badge.tone],
-        href: `/t/${heroAction.slug}`,
+        href: `/t/${personalized.card.slug}` as string | null,
       };
     })()
-  : {
-      label: 'Governance Action',
-      title: 'Treasury Withdrawal',
-      badge: 'Active',
-      tone: TONE_COLORS.active,
-      href: null as string | null,
-    };
+  : heroAction
+    ? (() => {
+        const a = heroAction.action;
+        const badge = statusBadge(a.status);
+        return {
+          label: readableType(a.type),
+          title: a.title as string,
+          badge: badge.label,
+          tone: TONE_COLORS[badge.tone],
+          href: `/t/${heroAction.slug}` as string | null,
+        };
+      })()
+    : {
+        label: 'Governance Action',
+        title: 'Treasury Withdrawal',
+        badge: 'Active',
+        tone: TONE_COLORS.active,
+        href: null as string | null,
+      };
 
 // A real action makes the card a link to its thread; the placeholder stays a
 // plain (decorative) div.
@@ -272,6 +325,7 @@ const heroFeatures = [
           {showScene
             ? activeSlots.map((s, i) => {
                 const p = hero.active[i];
+                const isSelf = i === hero.selfIndex;
                 // Classify the vote once; badge glyph/label derive from the tone so
                 // yes/no/abstain stays single-sourced in voteTone.
                 const tone = voteTone(p.vote);
@@ -279,13 +333,13 @@ const heroFeatures = [
                 const label = kind === 'yes' ? 'Yes' : kind === 'no' ? 'No' : 'Abstain';
                 return (
                   <a
-                    class:list={['pill', 'pill--vote', `vote-${kind}`]}
+                    class:list={['pill', 'pill--vote', `vote-${kind}`, isSelf && 'pill--self']}
                     href={authorProfileHref(p.descriptor)}
                     style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + revealRank(i) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[tone]}`}
                     title={`${p.descriptor.displayName} voted ${label}`}
                     aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
                   >
-                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={26} />
+                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={isSelf ? 32 : 26} />
                     <span class="pill__name">{p.descriptor.displayName}</span>
                     <span class="pill__vote">
                       <span class="pill__vote-icon" aria-hidden="true">
@@ -650,6 +704,14 @@ const heroFeatures = [
     max-width: 16ch;
     margin-left: 0;
     opacity: 1;
+  }
+
+  /* The signed-in DRep's own pill: a touch larger (via the avatar size) with a
+     thin brand ring so they spot themselves. No label, same vote badge. */
+  .pill--self {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+    z-index: 3;
   }
 
   /* Ghost voters: real avatars of the next-strongest voters, dimmed and small,
