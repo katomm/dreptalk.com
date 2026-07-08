@@ -325,6 +325,7 @@ const heroFeatures = [
           {showScene
             ? activeSlots.map((s, i) => {
                 const p = hero.active[i];
+                const isSelf = i === hero.selfIndex;
                 // Classify the vote once; badge glyph/label derive from the tone so
                 // yes/no/abstain stays single-sourced in voteTone.
                 const tone = voteTone(p.vote);
@@ -332,13 +333,13 @@ const heroFeatures = [
                 const label = kind === 'yes' ? 'Yes' : kind === 'no' ? 'No' : 'Abstain';
                 return (
                   <a
-                    class:list={['pill', 'pill--vote', `vote-${kind}`]}
+                    class:list={['pill', 'pill--vote', `vote-${kind}`, isSelf && 'pill--self']}
                     href={authorProfileHref(p.descriptor)}
                     style={`--px:${s.x * 100}; --py:${s.y * 100}; --enter-delay:${REVEAL_BASE_MS + revealRank(i) * REVEAL_STEP_MS}ms; --tone:${TONE_COLORS[tone]}`}
                     title={`${p.descriptor.displayName} voted ${label}`}
                     aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
                   >
-                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={26} />
+                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={isSelf ? 32 : 26} />
                     <span class="pill__name">{p.descriptor.displayName}</span>
                     <span class="pill__vote">
                       <span class="pill__vote-icon" aria-hidden="true">
@@ -703,6 +704,14 @@ const heroFeatures = [
     max-width: 16ch;
     margin-left: 0;
     opacity: 1;
+  }
+
+  /* The signed-in DRep's own pill: a touch larger (via the avatar size) with a
+     thin brand ring so they spot themselves. No label, same vote badge. */
+  .pill--self {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+    z-index: 3;
   }
 
   /* Ghost voters: real avatars of the next-strongest voters, dimmed and small,
