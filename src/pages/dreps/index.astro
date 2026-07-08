@@ -202,9 +202,6 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
   <h1>DReps</h1>
   <p class="dreps-intro">
     Decentralized Representatives in Cardano governance, ranked by active voting power.
-    {concentration.drepCount > 0 && (
-      <> <a href="#concentration">See voting power concentration ↓</a></>
-    )}
   </p>
 
   {concentration.drepCount > 0 && (
@@ -243,7 +240,13 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
         <tr>
           <th scope="col" class="drep-table__rank-h"><span class="sr-only">Rank</span></th>
           <th scope="col">DRep</th>
-          <th scope="col" class="drep-table__power-h">Voting power</th>
+          <th scope="col" class="drep-table__power-h">
+            {sort === 'power' ? (
+              <a href={`?${activeOnly ? '' : 'all=1'}`} aria-current="true">Voting power &darr;</a>
+            ) : (
+              <a href={`?${activeOnly ? '' : 'all=1'}`}>Voting power</a>
+            )}
+          </th>
           <th scope="col" class="drep-table__delegators-h">
             {sort === 'delegators' ? (
               <a href={`?${activeOnly ? '' : 'all=1'}`} aria-current="true">Delegators &darr;</a>
