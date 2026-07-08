@@ -31,6 +31,10 @@ const { displayName, imageHash, badges = [], isSystem = false } = author;
 // Same seed everywhere for a given author (DRep hex when known, else the id).
 const seed = author.identiconSeed ?? author.authorId;
 const profileHref = authorProfileHref(author);
+// Optional stacked sub-line under the name (e.g. a mobile rank in the DRep list).
+// Only callers that pass a `sub` slot get the column layout; everyone else keeps
+// the original inline name, so this stays transparent to existing uses.
+const hasSub = Astro.slots.has('sub');
 ---
 
 <span class:list={['author-identity', { 'author-identity--truncate': truncate }]} style={`--avatar-size:${size}px;`}>
@@ -42,9 +46,18 @@ const profileHref = authorProfileHref(author);
     <Avatar seed={seed} imageHash={imageHash} size={size} />
   )}
 
-  {profileHref
-    ? <a class="author-identity__name author-identity__name--link" href={profileHref}>{displayName}</a>
-    : <span class="author-identity__name">{displayName}</span>}
+  {hasSub ? (
+    <span class="author-identity__body">
+      {profileHref
+        ? <a class="author-identity__name author-identity__name--link" href={profileHref}>{displayName}</a>
+        : <span class="author-identity__name">{displayName}</span>}
+      <slot name="sub" />
+    </span>
+  ) : (
+    profileHref
+      ? <a class="author-identity__name author-identity__name--link" href={profileHref}>{displayName}</a>
+      : <span class="author-identity__name">{displayName}</span>
+  )}
 
   {badges.map((badge) => (
     <span class="author-identity__badge">{badge}</span>
@@ -75,6 +88,10 @@ const profileHref = authorProfileHref(author);
     background: var(--surface);
     border: 1px solid var(--border);
   }
+
+  /* Stacked name + sub-line, only rendered when a `sub` slot is passed. Keeps
+     min-width:0 so the name still ellipsizes in truncate mode. */
+  .author-identity__body { display: flex; flex-direction: column; min-width: 0; }
 
   .author-identity__name {
     font-weight: 600;

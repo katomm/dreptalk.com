@@ -542,6 +542,7 @@ main.container {
    column takes the rest. */
 .drep-table thead th.drep-table__rank-h { text-align: right; width: 3.5rem; }
 .drep-table thead th.drep-table__power-h { text-align: left; width: 12rem; }
+.drep-table thead th.drep-table__delegators-h { text-align: right; width: 7rem; padding-right: 0.75rem; }
 .drep-table thead th.drep-table__trend-h { text-align: left; width: 9rem; }
 .drep-table thead th.drep-table__actions-h { text-align: right; width: 8.5rem; white-space: nowrap; }
 /* "TREND" stays in the uppercase header style; the "(vs last epoch)" qualifier is
@@ -555,6 +556,11 @@ main.container {
 .drep-table__power { text-align: left; }
 .drep-table__trend { text-align: left; }
 .drep-table__actions { text-align: right; }
+/* Mobile-only rank sub-line under the DRep name (desktop uses the rank column). */
+.drep-table__ranksub { display: none; }
+/* td-qualified so padding-right beats the `.drep-table td { padding: 0.6rem 0 }`
+   shorthand, same as the rank column above: the gutter to the Trend column. */
+.drep-table td.drep-table__delegators { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); padding-right: 0.75rem; }
 /* Name truncation inside the fixed-width DRep cell is handled by the
    AuthorIdentity `truncate` prop; global overrides here would tie with the
    component's scoped styles (attribute scoping) and lose by source order. */
@@ -621,23 +627,42 @@ main.container {
   border-radius: 999px;
 }
 
+/* Tablet and below: the six-column table gets too tight for the DRep name (the
+   1024px content width leaves it only a sliver once every column is shown). Trend
+   goes first (the profile carries it), and the rank moves to a sub-line under the
+   name, freeing its column and reading better on narrow screens. Delegators stays
+   down to the mobile breakpoint. */
+@media (max-width: 960px) {
+  .drep-table thead th.drep-table__trend-h,
+  .drep-table__trend { display: none; }
+  .drep-table thead th.drep-table__rank-h,
+  .drep-table__rank { display: none; }
+  .drep-table__ranksub {
+    display: block;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+    line-height: 1.15;
+  }
+}
+
 /* Mobile: reclaim width for the DRep name. Slim power column (bar drops out, ADA
    abbreviates, percentage stacks under the amount), the delegate quick-action
    hides, and the kebab grows to a 44px tap target. Placed after the base rules so
    it overrides them. */
 @media (max-width: 640px) {
-  /* No room for the rank column on phones; the list stays power-ordered so the
-     implicit order still reads as a ranking. */
-  .drep-table thead th.drep-table__rank-h,
-  .drep-table__rank { display: none; }
+  /* The rank sub-line and trend hide already apply from 960px down; mobile is
+     always power-ordered (the delegators sort is desktop-only). */
   .drep-table thead th.drep-table__power-h { width: 6.5rem; }
   /* Wider than the 44px button so the right-aligned kebab keeps a gap to the
      voting-power column; the DRep name (which truncates) yields the space. */
   .drep-table thead th.drep-table__actions-h { width: 3.75rem; }
-  /* No room for a dedicated trend column on phones; the profile page carries the
-     full trend there. */
-  .drep-table thead th.drep-table__trend-h,
-  .drep-table__trend { display: none; }
+  /* Trend is already hidden from 960px down (see above). Delegators is a
+     desktop-only column; the profile page carries the count on mobile. */
+  .drep-table thead th.drep-table__delegators-h,
+  .drep-table__delegators { display: none; }
   .drep-delegate-btn { display: none; }
   .drep-action-btn { width: 2.75rem; height: 2.75rem; }
   .drep-power { align-items: flex-end; gap: 0.15rem; }

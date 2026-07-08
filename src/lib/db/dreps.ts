@@ -23,6 +23,13 @@ export interface Drep {
   votingPowerSnapshot: string | null;
   votingPowerPrev: string | null;
   votingPowerSnapshotEpoch: number | null;
+  /**
+   * Number of stake keys currently vote-delegated to this DRep, and the unix-ms
+   * timestamp of the last successful count. Owned by the delegator-count sync
+   * phase, not the profile upsert; null until first counted.
+   */
+  delegatorCount: number | null;
+  delegatorCountSyncedAt: number | null;
   expiresEpochNo: number | null;
   /** Epoch the DRep first registered (from /drep_updates), or null until backfilled. */
   registeredEpoch: number | null;
@@ -65,6 +72,8 @@ interface DrepRow {
   voting_power_snapshot: string | null;
   voting_power_prev: string | null;
   voting_power_snapshot_epoch: number | null;
+  delegator_count: number | null;
+  delegator_count_synced_at: number | null;
   expires_epoch_no: number | null;
   registered_epoch: number | null;
   name: string | null;
@@ -99,6 +108,8 @@ function rowToDrep(row: DrepRow): Drep {
     votingPowerSnapshot: row.voting_power_snapshot,
     votingPowerPrev: row.voting_power_prev,
     votingPowerSnapshotEpoch: row.voting_power_snapshot_epoch,
+    delegatorCount: row.delegator_count,
+    delegatorCountSyncedAt: row.delegator_count_synced_at,
     expiresEpochNo: row.expires_epoch_no,
     registeredEpoch: row.registered_epoch,
     name: row.name,
@@ -202,7 +213,7 @@ export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
  */
 export async function listDreps(
   db: D1Database,
-  opts: { activeOnly?: boolean; limit?: number; offset?: number },
+  opts: { activeOnly?: boolean; limit?: number; offset?: number; sort?: 'power' | 'delegators' },
 ): Promise<Drep[]> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
   const offset = Math.max(opts.offset ?? 0, 0);
@@ -213,11 +224,17 @@ export async function listDreps(
   where.push(`drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`);
   binds.push(...SPECIAL_DREP_IDS);
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  // Whitelisted sort keys only (never interpolate user input). Delegator sort keeps
+  // voting power as the tie-break and pushes never-counted rows (NULL) to the end.
+  const orderSql =
+    opts.sort === 'delegators'
+      ? 'ORDER BY delegator_count DESC NULLS LAST, CAST(voting_power AS INTEGER) DESC'
+      : 'ORDER BY CAST(voting_power AS INTEGER) DESC';
   const rows = (
     await db
       .prepare(
         `SELECT * FROM dreps ${whereSql}
-         ORDER BY CAST(voting_power AS INTEGER) DESC
+         ${orderSql}
          LIMIT ? OFFSET ?`,
       )
       .bind(...binds, limit, offset)
@@ -277,6 +294,52 @@ export async function deactivateDreps(
   );
   await db.batch(stmts);
   return rows.length;
+}
+
+/**
+ * Writes delegator counts for the given DReps in one batch (one single-row
+ * UPDATE per DRep, well under D1's 100-bound-param-per-query limit). Touches only
+ * the two count columns, so the WHEN-guarded FTS triggers never fire. No-op on an
+ * empty list. Returns the number of rows written.
+ */
+export async function updateDrepDelegatorCounts(
+  db: D1Database,
+  rows: { drepId: string; delegatorCount: number; syncedAt: number }[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const stmts = rows.map((r) =>
+    db
+      .prepare(
+        `UPDATE dreps SET delegator_count = ?, delegator_count_synced_at = ?
+         WHERE drep_id = ?`,
+      )
+      .bind(r.delegatorCount, r.syncedAt, r.drepId),
+  );
+  await db.batch(stmts);
+  return rows.length;
+}
+
+/**
+ * The DReps most in need of a delegator-count refresh: never-counted rows first
+ * (NULL synced_at), then oldest count first. Excludes the predefined pseudo-DReps
+ * (always-abstain / always-no-confidence), which have no delegators.
+ */
+export async function listDrepsForDelegatorCountRefresh(
+  db: D1Database,
+  limit: number,
+): Promise<{ drepId: string }[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT drep_id FROM dreps
+         WHERE drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})
+         ORDER BY delegator_count_synced_at ASC NULLS FIRST, drep_id
+         LIMIT ?`,
+      )
+      .bind(...SPECIAL_DREP_IDS, limit)
+      .all<{ drep_id: string }>()
+  ).results ?? [];
+  return rows.map((r) => ({ drepId: r.drep_id }));
 }
 
 /**

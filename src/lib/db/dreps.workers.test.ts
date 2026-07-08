@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes, updateDrepDelegatorCounts, listDrepsForDelegatorCountRefresh } from './dreps.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
 
@@ -205,6 +205,42 @@ describe('listDreps', () => {
 
 });
 
+describe('listDreps sort', () => {
+  async function seedFull(drepId: string, power: string, count: number | null): Promise<void> {
+    await env.DB.prepare(
+      `INSERT INTO dreps (drep_id, status, active, voting_power, delegator_count,
+                          last_synced_at, created_at)
+       VALUES (?, 'registered', 1, ?, ?, 0, 0)`,
+    )
+      .bind(drepId, power, count)
+      .run();
+  }
+
+  it('sorts by delegator count desc when sort=delegators', async () => {
+    await seedFull('drep_p_big', '9000', 1);   // most power, fewest delegators
+    await seedFull('drep_p_mid', '5000', 50);
+    await seedFull('drep_p_low', '1000', 200);  // least power, most delegators
+
+    const byPower = (await listDreps(env.DB, { sort: 'power', limit: 10 })).map((d) => d.drepId);
+    expect(byPower.slice(0, 3)).toEqual(['drep_p_big', 'drep_p_mid', 'drep_p_low']);
+
+    const byDelegators = (await listDreps(env.DB, { sort: 'delegators', limit: 10 })).map((d) => d.drepId);
+    expect(byDelegators.slice(0, 3)).toEqual(['drep_p_low', 'drep_p_mid', 'drep_p_big']);
+  });
+
+  it('sorts a NULL delegator count last under sort=delegators', async () => {
+    await seedFull('drep_null_a', '7000', 30);
+    await seedFull('drep_null_b', '3000', 10);
+    await seedFull('drep_null_c', '1000', null); // never counted -> must sort last
+
+    const byDelegators = (await listDreps(env.DB, { sort: 'delegators', limit: 10 })).map((d) => d.drepId);
+    const filtered = byDelegators.filter((id) =>
+      id === 'drep_null_a' || id === 'drep_null_b' || id === 'drep_null_c',
+    );
+    expect(filtered).toEqual(['drep_null_a', 'drep_null_b', 'drep_null_c']);
+  });
+});
+
 describe('special DReps', () => {
   it('listDreps excludes the predefined pseudo-DReps', async () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drepreal', name: 'Real', votingPower: '100' });
@@ -313,6 +349,50 @@ describe('avatar store queries', () => {
     expect(set.has('2'.repeat(64))).toBe(true);
     // DISTINCT dedupes the shared hash and the null row contributes nothing.
     expect(set.size).toBe(1);
+  });
+});
+
+async function seedDrep(
+  drepId: string,
+  opts: { count?: number | null; syncedAt?: number | null } = {},
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at,
+                        delegator_count, delegator_count_synced_at)
+     VALUES (?, 'registered', 1, 0, 0, ?, ?)`,
+  )
+    .bind(drepId, opts.count ?? null, opts.syncedAt ?? null)
+    .run();
+}
+
+describe('delegator count DB layer', () => {
+  it('round-trips delegator_count via updateDrepDelegatorCounts', async () => {
+    await seedDrep('drep_rt');
+    const before = await getDrepById(env.DB, 'drep_rt');
+    expect(before?.delegatorCount).toBeNull();
+    expect(before?.delegatorCountSyncedAt).toBeNull();
+
+    const written = await updateDrepDelegatorCounts(env.DB, [
+      { drepId: 'drep_rt', delegatorCount: 42, syncedAt: 1000 },
+    ]);
+    expect(written).toBe(1);
+
+    const after = await getDrepById(env.DB, 'drep_rt');
+    expect(after?.delegatorCount).toBe(42);
+    expect(after?.delegatorCountSyncedAt).toBe(1000);
+  });
+
+  it('updateDrepDelegatorCounts is a no-op on an empty list', async () => {
+    expect(await updateDrepDelegatorCounts(env.DB, [])).toBe(0);
+  });
+
+  it('listDrepsForDelegatorCountRefresh returns stalest-first, never-counted first', async () => {
+    await seedDrep('drep_new'); // never counted -> NULL synced_at, highest priority
+    await seedDrep('drep_old', { count: 5, syncedAt: 100 });
+    await seedDrep('drep_fresh', { count: 9, syncedAt: 9000 });
+
+    const ids = (await listDrepsForDelegatorCountRefresh(env.DB, 2)).map((r) => r.drepId);
+    expect(ids).toEqual(['drep_new', 'drep_old']);
   });
 });
 
