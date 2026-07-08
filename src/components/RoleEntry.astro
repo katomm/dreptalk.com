@@ -7,8 +7,10 @@
 // account's avatar, name and role and opens the AccountMenu. Reading the forum
 // is public, this only gates who can post. SPO (Calidus key) and CC-member
 // sign-in use the offline paste flow; DRep and proposer use the wallet flow.
-// Built on a native <details> and a plain <form>, no client JS here (the
-// strict CSP forbids inline scripts; the copy button JS lives in AccountMenu).
+// Built on a native <details> and a plain <form>, no client JS here. The
+// floating dropdown carries data-auto-dismiss, so the shared header script in
+// Layout closes it on an outside click, Escape, or scroll (a native <details>
+// otherwise stays open until its summary is clicked again).
 import { roleLabels } from '@/lib/auth/roles';
 import type { AuthorDescriptor } from '@/lib/forum/author';
 import AccountMenu from '@/components/AccountMenu.astro';
@@ -69,7 +71,7 @@ const display = user && account
 {display ? (
   <div class:list={['role-entry', 'role-entry--signedin', `role-entry--${layout}`]}>
     {layout === 'split' ? (
-      <details class="role-entry__more">
+      <details class="role-entry__more" data-auto-dismiss>
         <summary class="role-entry__pill" aria-label="Account menu" title={`Signed in as ${display.allRoles}`}>
           <span class="role-entry__pill-main">
             <Avatar seed={display.seed} imageHash={display.imageHash} size={26} ring />
@@ -103,7 +105,7 @@ const display = user && account
   </a>
 
   {layout === 'split' ? (
-    <details class="role-entry__more">
+    <details class="role-entry__more" data-auto-dismiss>
       <summary class="role-entry__toggle" aria-label="More ways to sign in">
         <svg class="role-entry__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m6 9 6 6 6-6" />
