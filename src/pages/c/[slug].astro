@@ -263,7 +263,7 @@ const breadcrumbLd = {
           ))}
         </nav>
         <div class="ga-controls__right">
-          <details class="ga-dropdown">
+          <details class="ga-dropdown" data-auto-dismiss>
             <summary class="ctrl-box ga-dropdown__summary">
               <span class="ga-dropdown__label">Sort</span>
               <span class="ga-dropdown__value">{GOV_SORTS.find((s) => s.mode === sort)?.label}</span>
@@ -281,7 +281,7 @@ const breadcrumbLd = {
               ))}
             </div>
           </details>
-          <details class="ga-dropdown">
+          <details class="ga-dropdown" data-auto-dismiss>
             <summary class="ctrl-box ga-dropdown__summary">
               <span class="ga-dropdown__label">Type</span>
               <span class="ga-dropdown__value">

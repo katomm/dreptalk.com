@@ -143,7 +143,7 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
             <RoleEntry account={account} />
           </div>
 
-          <details class="mobile-menu">
+          <details class="mobile-menu" data-auto-dismiss>
             <summary class="mobile-menu__btn" aria-label="Open menu">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <line x1="3" y1="6" x2="21" y2="6" />
@@ -208,6 +208,37 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
         </nav>
       </div>
     </footer>
+
+    <script>
+      // Native <details> only toggles via its own <summary>, so any floating
+      // dropdown built on one (the header account/sign-in pill, the mobile menu,
+      // the governance list's Sort/Type controls) would stay open, overlaying
+      // the page, until reclicked. Dismiss every open [data-auto-dismiss] menu on
+      // an outside click, on Escape, and on scroll (the sticky header keeps an
+      // open panel pinned over the content below). Bundled once; the strict CSP
+      // forbids inline handlers.
+      const OPEN = 'details[data-auto-dismiss][open]';
+
+      function closeMenus(keepFor?: EventTarget | null) {
+        // Keep a menu open only when the interaction happened inside it (e.g. a
+        // scroll within the panel); anything else, including a non-Node target
+        // like window, closes it.
+        for (const details of document.querySelectorAll<HTMLDetailsElement>(OPEN)) {
+          if (keepFor instanceof Node && details.contains(keepFor)) continue;
+          details.open = false;
+        }
+      }
+
+      document.addEventListener('click', (event) => closeMenus(event.target));
+      window.addEventListener('scroll', (event) => closeMenus(event.target), true);
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        const open = document.querySelector<HTMLDetailsElement>(OPEN);
+        if (!open) return;
+        closeMenus();
+        open.querySelector<HTMLElement>('summary')?.focus();
+      });
+    </script>
 
     <style>
       /* Preprod testnet flag: a fixed pill shown only on the preprod deployment
