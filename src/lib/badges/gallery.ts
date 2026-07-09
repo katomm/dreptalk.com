@@ -4,7 +4,7 @@
 // progress counters at render time; the profile showcase loads awards only
 // (awards themselves are written exclusively by the hourly engine).
 
-import { BADGES, type Badge, badgeImagePath, badgeLockedImagePath } from '../../../config/badges.js';
+import { BADGES, CATEGORIES_FOR_ROLE, type Badge, type BadgeCategory, badgeImagePath, badgeLockedImagePath } from '../../../config/badges.js';
 import {
   type BadgeAwardRow,
   type BadgeCounters,
@@ -34,6 +34,20 @@ export interface DrepBadgeGallery {
   inProgress: BadgeTileModel[];
   /** Hidden badges not yet earned; rendered as anonymous mystery cards. */
   hiddenLockedCount: number;
+}
+
+export interface BadgeSubject {
+  /** Profile role; also the awards subject_type ('drep' | 'spo'). */
+  role: 'drep' | 'spo';
+  /** drepId or poolId. */
+  id: string;
+  /** Linked forum account, source of forum/crossover awards. */
+  userId: string | null;
+}
+
+/** Badges this role can earn, as a fast lookup set. */
+function categorySet(role: 'drep' | 'spo'): Set<BadgeCategory> {
+  return new Set(CATEGORIES_FOR_ROLE[role]);
 }
 
 const CURRENT: Record<string, (c: BadgeCounters) => number> = {
@@ -77,30 +91,24 @@ function earnedTile(badge: Badge, award: BadgeAwardRow, progress: BadgeProgress 
   };
 }
 
-async function loadAwardsMap(
-  db: D1Database,
-  drepId: string,
-  userId: string | null,
-): Promise<Map<string, BadgeAwardRow>> {
-  const [drepAwards, userAwards] = await Promise.all([
-    getSubjectAwards(db, 'drep', drepId),
-    userId ? getSubjectAwards(db, 'user', userId) : Promise.resolve([] as BadgeAwardRow[]),
+async function loadAwardsMap(db: D1Database, subject: BadgeSubject): Promise<Map<string, BadgeAwardRow>> {
+  const [subjectAwards, userAwards] = await Promise.all([
+    getSubjectAwards(db, subject.role, subject.id),
+    subject.userId ? getSubjectAwards(db, 'user', subject.userId) : Promise.resolve([] as BadgeAwardRow[]),
   ]);
-  return new Map([...drepAwards, ...userAwards].map((a) => [a.badgeId, a]));
+  return new Map([...subjectAwards, ...userAwards].map((a) => [a.badgeId, a]));
 }
 
 /**
- * Earned badges only, newest first. The cheap path for the profile showcase:
- * no live counters, just the award rows.
+ * Earned badges only, newest first. Filtered to the categories this role can
+ * earn so a profile never shows another role's badges.
  */
-export async function loadEarnedBadges(
-  db: D1Database,
-  drepId: string,
-  userId: string | null,
-): Promise<BadgeTileModel[]> {
-  const awards = await loadAwardsMap(db, drepId, userId);
+export async function loadEarnedBadges(db: D1Database, subject: BadgeSubject): Promise<BadgeTileModel[]> {
+  const awards = await loadAwardsMap(db, subject);
+  const allowed = categorySet(subject.role);
   const earned: BadgeTileModel[] = [];
   for (const badge of BADGES) {
+    if (!allowed.has(badge.category)) continue;
     const award = awards.get(badge.id);
     if (award) earned.push(earnedTile(badge, award, null));
   }
@@ -108,17 +116,15 @@ export async function loadEarnedBadges(
   return earned;
 }
 
-export async function buildDrepBadgeGallery(
-  db: D1Database,
-  drepId: string,
-  userId: string | null,
-): Promise<DrepBadgeGallery> {
-  const [awards, counters] = await Promise.all([loadAwardsMap(db, drepId, userId), loadBadgeCounters(db, drepId, userId)]);
+export async function buildBadgeGallery(db: D1Database, subject: BadgeSubject): Promise<DrepBadgeGallery> {
+  const [awards, counters] = await Promise.all([loadAwardsMap(db, subject), loadBadgeCounters(db, subject.id, subject.userId)]);
+  const allowed = categorySet(subject.role);
 
   const earned: BadgeTileModel[] = [];
   const inProgress: BadgeTileModel[] = [];
   let hiddenLockedCount = 0;
   for (const badge of BADGES) {
+    if (!allowed.has(badge.category)) continue;
     const award = awards.get(badge.id);
     if (award) {
       earned.push(earnedTile(badge, award, progressFor(badge, award.tier, counters)));

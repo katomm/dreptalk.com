@@ -9,7 +9,7 @@ import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { drepPath, isCanonicalDrepParam } from '@/lib/dreps/profile.js';
 import { getUserByDrepId } from '@/lib/db/users.js';
 import { MYSTERY_BADGE_IMAGE } from '../../../../config/badges.js';
-import { buildDrepBadgeGallery } from '@/lib/badges/gallery.js';
+import { buildBadgeGallery } from '@/lib/badges/gallery.js';
 import { cacheControlForSynced, truncateId } from '@/lib/forum/view.js';
 
 const { drepId } = Astro.params;
@@ -28,7 +28,7 @@ if (!drep) {
 }
 
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const gallery = drep && db ? await buildDrepBadgeGallery(db, drep.drepId, drepUser?.id ?? null) : null;
+const gallery = drep && db ? await buildBadgeGallery(db, { role: 'drep', id: drep.drepId, userId: drepUser?.id ?? null }) : null;
 
 if (drep) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));

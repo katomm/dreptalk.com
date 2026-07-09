@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { HIDDEN_BADGES } from '../../../config/badges.js';
 import { resolveNetwork } from '../config/network.js';
 import { awardBadges } from './engine.js';
-import { buildDrepBadgeGallery, pickShowcase, type BadgeTileModel } from './gallery.js';
+import { buildBadgeGallery, pickShowcase, type BadgeTileModel } from './gallery.js';
 
 const cfg = resolveNetwork('mainnet');
 const NOW = Date.now();
@@ -30,7 +30,7 @@ describe('badge gallery', () => {
     }
     await awardBadges({ db: env.DB, cfg, now: NOW });
 
-    const gallery = await buildDrepBadgeGallery(env.DB, 'drep1', null);
+    const gallery = await buildBadgeGallery(env.DB, { role: 'drep', id: 'drep1', userId: null });
     expect(gallery.earned.map((t) => t.badge.id)).toContain('first-vote');
     expect(gallery.hiddenLockedCount).toBe(HIDDEN_BADGES.length);
 
@@ -43,6 +43,31 @@ describe('badge gallery', () => {
     // Closest-to-unlocking sorts first; badges without a counter trail.
     const ratios = gallery.inProgress.map((t) => (t.progress ? t.progress.current / t.progress.goal : -1));
     expect([...ratios].sort((a, b) => b - a)).toEqual(ratios);
+  });
+
+  it('a DRep gallery never lists SPO, CC, or proposer badges', async () => {
+    await env.DB
+      .prepare(
+        `INSERT INTO governance_actions (id, type, anchor_status, status, created_at, last_synced_at)
+         VALUES ('ga-x', 'InfoAction', 'no-anchor', 'active', ?, ?)`,
+      )
+      .bind(NOW, NOW)
+      .run();
+    await env.DB
+      .prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at)
+         VALUES ('ga-x', 'DRep', 'drep1', NULL, 'Yes', NULL, NULL, ?)`,
+      )
+      .bind(NOW)
+      .run();
+    await awardBadges({ db: env.DB, cfg, now: NOW });
+
+    const gallery = await buildBadgeGallery(env.DB, { role: 'drep', id: 'drep1', userId: null });
+    const ids = [...gallery.earned, ...gallery.inProgress].map((t) => t.badge.id);
+    expect(ids).not.toContain('pool-voice');
+    expect(ids).not.toContain('hard-fork-ready');
+    expect(ids).not.toContain('guardian');
+    expect(ids).not.toContain('proposer');
   });
 
   it('ranks the showcase by rarity, then recency', () => {
