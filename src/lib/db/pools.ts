@@ -249,14 +249,20 @@ export async function listAssignedPoolSlugs(db: D1Database): Promise<Set<string>
   return new Set(rows.map((r) => r.slug));
 }
 
-/** Writes assigned slugs; one UPDATE per row (small, bounded batches). */
+/**
+ * Writes assigned slugs in one atomic D1 batch (a single subrequest), filling
+ * only NULL rows so an existing slug is never rewritten. Per-row `.run()` in a
+ * loop would spend one subrequest each and, on a full 500-row backfill inside
+ * the already busy gov-sync run, blow the Worker subrequest limit. Mirrors
+ * setDrepSlugs.
+ */
 export async function setPoolSlugs(db: D1Database, entries: { poolId: string; slug: string }[]): Promise<number> {
-  let assigned = 0;
-  for (const e of entries) {
-    await db.prepare('UPDATE pools SET slug = ? WHERE pool_id = ? AND slug IS NULL').bind(e.slug, e.poolId).run();
-    assigned++;
-  }
-  return assigned;
+  if (entries.length === 0) return 0;
+  const stmts = entries.map((e) =>
+    db.prepare('UPDATE pools SET slug = ? WHERE pool_id = ? AND slug IS NULL').bind(e.slug, e.poolId),
+  );
+  await db.batch(stmts);
+  return entries.length;
 }
 
 /** Assigns slugs to pools that lack one. Mirrors backfillDrepSlugs. */
