@@ -9,7 +9,7 @@ export interface GaTabDef {
 export const GA_TABS: GaTabDef[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'discussion', label: 'Discussion' },
-  { id: 'positions', label: 'DRep Positions' },
+  { id: 'positions', label: 'Votes' },
   { id: 'onchain', label: 'On-chain Data' },
   { id: 'history', label: 'History' },
 ];

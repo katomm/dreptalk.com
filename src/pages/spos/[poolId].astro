@@ -1,0 +1,228 @@
+---
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import Avatar from '@/components/Avatar.astro';
+import CopyButton from '@/components/CopyButton.astro';
+import BadgeTile from '@/components/BadgeTile.astro';
+import DrepVoteRow from '@/components/DrepVoteRow.astro';
+import DrepForumRow from '@/components/DrepForumRow.astro';
+import DrepVotingStats from '@/components/DrepVotingStats.astro';
+import { getPoolByIdOrSlug } from '@/lib/db/pools.js';
+import { getUserByPoolId } from '@/lib/db/users.js';
+import { getPostsByAuthor } from '@/lib/db/forum.js';
+import {
+  getPoolVotingHistory, countPoolVotes,
+  getPoolVoteBreakdown, getPoolRationaleStats, getPoolParticipation,
+} from '@/lib/db/drepVotes.js';
+import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
+import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
+import { poolPath, isCanonicalPoolParam, poolDisplayName } from '@/lib/pools/profile.js';
+import { isIndexableProfile } from '@/lib/dreps/profile.js';
+import { cacheControlForSynced, truncateIdMiddle } from '@/lib/forum/view.js';
+
+const { poolId } = Astro.params;
+const db = env.DB as D1Database | undefined;
+
+const pool = poolId && db ? await getPoolByIdOrSlug(db, poolId) : null;
+
+// One canonical URL: a request for the raw pool id redirects to the slug.
+if (pool && poolId && !isCanonicalPoolParam(pool, poolId)) {
+  return Astro.redirect(poolPath(pool), 301);
+}
+
+if (!pool) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+const poolUser = pool && db ? await getUserByPoolId(db, pool.poolId) : null;
+const [posts, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts] =
+  await Promise.all([
+    poolUser && db ? getPostsByAuthor(db, poolUser.id, { limit: 20 }) : Promise.resolve([]),
+    pool && db ? getPoolVotingHistory(db, pool.poolId, { limit: 500 }) : Promise.resolve([]),
+    pool && db ? countPoolVotes(db, pool.poolId) : Promise.resolve(0),
+    pool && db ? getPoolVoteBreakdown(db, pool.poolId) : Promise.resolve({ yes: 0, no: 0, abstain: 0, total: 0 }),
+    pool && db ? getPoolRationaleStats(db, pool.poolId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
+    pool && db ? getPoolParticipation(db, pool.poolId) : Promise.resolve({ eligible: 0, voted: 0 }),
+    pool && db ? loadEarnedBadges(db, { role: 'spo', id: pool.poolId, userId: poolUser?.id ?? null }) : Promise.resolve([]),
+    pool && db ? getBadgeHolderCounts(db) : Promise.resolve(new Map<string, number>()),
+  ]);
+
+const showcase = pickShowcase(earnedBadges, holderCounts, 3);
+
+// Voting history: show the first few, fold the rest into a pure-HTML "Show more".
+const HISTORY_HEAD = 5;
+const historyHead = votingHistory.slice(0, HISTORY_HEAD);
+const historyTail = votingHistory.slice(HISTORY_HEAD);
+
+// Forum activity uses the same head/tail collapse as the voting history, so both
+// cards read alike and a prolific poster's list stays short until expanded.
+const FORUM_HEAD = 3;
+const postsHead = posts.slice(0, FORUM_HEAD);
+const postsTail = posts.slice(FORUM_HEAD);
+
+const hasMetadata = !!(pool?.name || pool?.ticker || pool?.description);
+const indexable = !!pool && isIndexableProfile({ hasMetadata, postCount: posts.length, votesCast });
+
+if (pool) {
+  Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+}
+
+const now = Date.now();
+const displayName = pool ? poolDisplayName(pool) : '';
+const votesLabel = votesCast === 1 ? 'vote' : 'votes';
+const metaDescription = pool
+  ? `${displayName}: Cardano stake pool operator with ${votesCast} recorded governance ${votesLabel}. See the full voting record and forum activity on DRepTalk.`
+  : '';
+---
+
+{!pool ? (
+  <NotFound noun="stake pool" />
+) : (
+  <Layout title={`${displayName} - SPO on DRepTalk`} description={metaDescription} noindex={!indexable}>
+    <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+      <a href="/">DRepTalk</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <span>{displayName}</span>
+    </nav>
+
+    <header class="drep-hd">
+      <span class="drep-hd__avatar">
+        <Avatar seed={pool.poolHash ?? pool.poolId} imageHash={pool.imageContentHash} size={96} ring />
+      </span>
+      <div class="drep-hd__main">
+        <div class="drep-hd__tags">
+          <span class="drep-hd__kind">SPO</span>
+        </div>
+        <h1 class="drep-hd__name">{displayName}</h1>
+        <div class="drep-hd__id">
+          <span title={pool.poolId}>{truncateIdMiddle(pool.poolId)}</span>
+          <CopyButton value={pool.poolId} label="Copy pool id" />
+        </div>
+        {pool.homepage && (
+          <a class="drep-hd__homepage" href={pool.homepage} rel="noopener nofollow" target="_blank">{pool.homepage}</a>
+        )}
+      </div>
+    </header>
+
+    {pool.description && <p style="color:var(--fg);max-width:65ch;">{pool.description}</p>}
+
+    <section class="drep-summary__badges">
+      <h2 class="drep-summary__h">Badges <span class="drep-summary__count">({earnedBadges.length})</span></h2>
+      {showcase.length === 0 ? (
+        <p class="drep-summary__empty">No badges yet.</p>
+      ) : (
+        <div class="drep-summary__badgegrid">
+          {showcase.map((t) => (
+            <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} tip={t.badge.description} size={72} />
+          ))}
+        </div>
+      )}
+    </section>
+
+    <section id="forum-activity" class="vhist-section">
+      <h2 class="vhist-section__title">Forum activity <span class="vhist-section__count">({posts.length})</span></h2>
+      {posts.length === 0 ? (
+        <p class="vhist__empty">No forum posts yet.</p>
+      ) : (
+        <div class="factivity">
+          {postsHead.map((p) => <DrepForumRow post={p} now={now} />)}
+          {postsTail.length > 0 && (
+            <details class="vhist__more">
+              <summary class="vhist__more-toggle">
+                <span class="vhist__more-show">Show {postsTail.length} more</span>
+                <span class="vhist__more-hide">Show less</span>
+              </summary>
+              {postsTail.map((p) => <DrepForumRow post={p} now={now} />)}
+            </details>
+          )}
+        </div>
+      )}
+    </section>
+
+    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
+
+    <section id="voting-history" class="vhist-section">
+      <h2 class="vhist-section__title">Voting history <span class="vhist-section__count">({votesCast})</span></h2>
+      {votingHistory.length === 0 ? (
+        <p class="vhist__empty">No recorded on-chain votes.</p>
+      ) : (
+        <div class="vhist">
+          <div class="vhist__row vhist__row--head" aria-hidden="true">
+            <span>Vote</span>
+            <span>Action</span>
+            <span>Outcome</span>
+            <span class="vhist__when-h">Voted</span>
+          </div>
+          {historyHead.map((h) => <DrepVoteRow row={h} now={now} />)}
+          {historyTail.length > 0 && (
+            <details class="vhist__more">
+              <summary class="vhist__more-toggle">
+                <span class="vhist__more-show">Show {historyTail.length} more</span>
+                <span class="vhist__more-hide">Show less</span>
+              </summary>
+              {historyTail.map((h) => <DrepVoteRow row={h} now={now} />)}
+              {votesCast > votingHistory.length && (
+                <p class="vhist__truncated">Showing the {votingHistory.length} most recent votes.</p>
+              )}
+            </details>
+          )}
+        </div>
+      )}
+    </section>
+  </Layout>
+)}
+
+<style>
+  .drep-hd {
+    display: flex;
+    gap: 1.25rem;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+  }
+  .drep-hd__avatar {
+    flex: none;
+    line-height: 0;
+    border-radius: 50%;
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .drep-hd__main { min-width: 0; flex: 1; }
+  .drep-hd__tags { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.45rem; }
+  .drep-hd__kind {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .drep-hd__name { margin: 0 0 0.2rem; font-size: 2rem; line-height: 1.1; overflow-wrap: anywhere; }
+  .drep-hd__id { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.4rem; }
+  .drep-hd__homepage { font-size: 0.9375rem; overflow-wrap: anywhere; }
+
+  .drep-summary__badges {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    padding: 1.1rem 1.25rem;
+    margin: 1.5rem 0;
+  }
+  .drep-summary__h { font-size: 1.05rem; margin: 0 0 0.85rem; }
+  .drep-summary__count { color: var(--muted); font-weight: 400; }
+  .drep-summary__empty { color: var(--muted); margin: 0; }
+  .drep-summary__badgegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: 1rem 1.25rem; align-items: start; }
+
+  @media (max-width: 560px) {
+    .drep-hd { gap: 0.85rem; }
+    .drep-hd__name { font-size: 1.5rem; }
+  }
+</style>

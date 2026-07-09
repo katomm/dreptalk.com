@@ -9,6 +9,7 @@ import { getDrepsByIds, type Drep } from '../db/dreps.js';
 import { getPoolsByIds, type Pool } from '../db/pools.js';
 import type { ActionVoterRow } from '../db/drepVotes.js';
 import { drepPath } from '../dreps/profile.js';
+import { poolPath } from '../pools/profile.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { truncateId } from './view.js';
 
@@ -24,6 +25,10 @@ export interface AuthorDescriptor {
   drepId?: string | null;
   /** Assigned profile slug; the profile link prefers it over the raw id. */
   drepSlug?: string | null;
+  /** pool id when this author is a stake pool operator, used for the profile link. */
+  poolId?: string | null;
+  /** Assigned pool profile slug; the profile link prefers it over the raw id. */
+  poolSlug?: string | null;
   /** Content hash of the stored avatar in R2 (drives /api/avatar/<hash>), or null/absent when not stored. */
   imageHash?: string | null;
   /** Stable seed for the identicon fallback: the DRep credential hex when known, else the author id. */
@@ -80,6 +85,8 @@ export function describeAuthor(
       u?.display_name ?? drep?.name ?? pool?.name ?? pool?.ticker ?? truncateId(authorId),
     drepId: u?.drep_id ?? null,
     drepSlug: drep?.slug ?? null,
+    poolId: u?.pool_id ?? null,
+    poolSlug: pool?.slug ?? null,
     imageHash: drep?.imageContentHash ?? pool?.imageContentHash ?? null,
     identiconSeed: drep?.hex ?? pool?.poolHash ?? authorId,
     badges: roleBadges(u),
@@ -133,13 +140,17 @@ export async function loadAuthorIdentities(
 }
 
 /**
- * Public profile link for an author: only DReps with a synced row have one,
- * and internal links prefer the SEO slug so they never pay the canonical
- * redirect. The single source of this rule for every component that links an
- * author (post headers, the account menu).
+ * Public profile link for an author: DReps and pool operators with a synced
+ * row have one, and internal links prefer the SEO slug so they never pay the
+ * canonical redirect. When an account is both, the DRep link takes
+ * precedence. The single source of this rule for every component that links
+ * an author (post headers, the account menu).
  */
 export function authorProfileHref(a: AuthorDescriptor): string | null {
-  return !a.isSystem && a.drepId ? drepPath({ drepId: a.drepId, slug: a.drepSlug ?? null }) : null;
+  if (a.isSystem) return null;
+  if (a.drepId) return drepPath({ drepId: a.drepId, slug: a.drepSlug ?? null });
+  if (a.poolId) return poolPath({ poolId: a.poolId, slug: a.poolSlug ?? null });
+  return null;
 }
 
 /**
@@ -161,7 +172,7 @@ export async function loadAuthorIdentity(
  * falls back to the truncated id so a full bech32 string never overruns a narrow row.
  * Shared by the positions tab and the top-participants sidebar, which render identical
  * rows. When a pools map is supplied and voter_id matches a pool, resolves to the pool
- * identity with no DRep profile link (drepId: null).
+ * identity with a pool profile link (poolId/poolSlug) instead of a DRep one.
  */
 export function voterDescriptor(
   v: ActionVoterRow,
@@ -173,8 +184,8 @@ export function voterDescriptor(
     return {
       authorId: v.voter_id,
       displayName: pool.name ?? pool.ticker ?? truncateId(v.voter_id),
-      drepId: null, // no pool profile page; authorProfileHref must not build a /drep link
-      drepSlug: null,
+      poolId: v.voter_id,
+      poolSlug: pool.slug ?? null,
       imageHash: pool.imageContentHash ?? null,
       identiconSeed: pool.poolHash ?? v.voter_hex ?? v.voter_id,
       badges: ['SPO'],

@@ -78,7 +78,7 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     drep && db ? getDrepVoteBreakdown(db, drep.drepId) : Promise.resolve({ yes: 0, no: 0, abstain: 0, total: 0 }),
     drep && db ? getDrepRationaleStats(db, drep.drepId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
     drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : Promise.resolve(null),
-    drep && db ? loadEarnedBadges(db, drep.drepId, drepUser?.id ?? null) : Promise.resolve([]),
+    drep && db ? loadEarnedBadges(db, { role: 'drep', id: drep.drepId, userId: drepUser?.id ?? null }) : Promise.resolve([]),
     drep && db ? getBadgeHolderCounts(db) : Promise.resolve(new Map<string, number>()),
     drep && db ? getDrepVotingPowerSeries(db, drep.drepId) : Promise.resolve([]),
   ]);

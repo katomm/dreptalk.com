@@ -1,6 +1,7 @@
 ---
 // Body of the signed-in account menu: identity header (avatar, name, shortened
-// id with a copy button) above Settings, Profile (DReps only) and Log out.
+// id with a copy button) above Settings, Profile (any account with one, DRep
+// or SPO) and Log out.
 // Rendered by RoleEntry in both the desktop dropdown and the flat mobile list,
 // so the rows live here exactly once. The copy button is the only client JS,
 // shipped as a bundled script (the strict CSP forbids inline handlers).
@@ -32,11 +33,13 @@ const icons = {
     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
 } as const;
 
-// Menu rows above Log out; Profile and Vote only exist for accounts with a synced DRep.
+// Menu rows above Log out. Profile shows for any account with a profile link
+// (DRep or SPO); Vote is DRep-only, since /vote redirects everyone else to
+// /login, so it is gated on a synced DRep id rather than on profileHref.
 const items = [
   { label: 'Settings', href: '/settings', icon: icons.settings },
   ...(profileHref ? [{ label: 'Profile', href: profileHref, icon: icons.profile }] : []),
-  ...(profileHref ? [{ label: 'Vote', href: '/vote', icon: icons.vote }] : []),
+  ...(account.drepId ? [{ label: 'Vote', href: '/vote', icon: icons.vote }] : []),
 ];
 ---
 

@@ -31,13 +31,15 @@ describe('describeAuthor SPO pool resolution', () => {
       is_drep: false, is_spo: true, is_cc: false, is_proposer: false, role: 'user',
     } as never)]]);
     const pools = new Map<string, Pool>([['pool1a', {
-      poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool',
+      poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool', slug: 'hephy-pool1a',
       homepage: null, description: null, imageContentHash: 'imghash', imageStoredUrl: '/api/avatar/imghash',
     }]]);
     const d = describeAuthor('u1', users, new Map(), pools);
     expect(d.displayName).toBe('Hephaestus Stake Pool');
     expect(d.imageHash).toBe('imghash');
     expect(d.drepId).toBeNull();
+    expect(d.poolId).toBe('pool1a');
+    expect(d.poolSlug).toBe('hephy-pool1a');
     expect(d.badges).toContain('SPO');
   });
 
@@ -47,7 +49,7 @@ describe('describeAuthor SPO pool resolution', () => {
       is_drep: false, is_spo: true, is_cc: false, is_proposer: false, role: 'user',
     } as never)]]);
     const pools = new Map<string, Pool>([['pool1b', {
-      poolId: 'pool1b', poolHash: 'bb', ticker: 'COOL', name: null,
+      poolId: 'pool1b', poolHash: 'bb', ticker: 'COOL', name: null, slug: null,
       homepage: null, description: null, imageContentHash: null, imageStoredUrl: null,
     }]]);
     expect(describeAuthor('u2', users, new Map(), pools).displayName).toBe('COOL');
@@ -59,7 +61,7 @@ describe('describeAuthor SPO pool resolution', () => {
       is_drep: false, is_spo: true, is_cc: false, is_proposer: false, role: 'user',
     } as never)]]);
     const pools = new Map<string, Pool>([['pool1a', {
-      poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool',
+      poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool', slug: 'hephy-pool1a',
       homepage: null, description: null, imageContentHash: null, imageStoredUrl: null,
     }]]);
     expect(describeAuthor('u3', users, new Map(), pools).displayName).toBe('Alice');
@@ -67,16 +69,17 @@ describe('describeAuthor SPO pool resolution', () => {
 });
 
 describe('voterDescriptor SPO resolution', () => {
-  it('resolves an SPO voter to pool identity and no drep link', () => {
+  it('resolves an SPO voter to pool identity with a pool profile link', () => {
     const pools = new Map<string, Pool>([['pool1a', {
-      poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool',
+      poolId: 'pool1a', poolHash: 'aa', ticker: 'HEPHY', name: 'Hephaestus Stake Pool', slug: 'hephy-pool1a',
       homepage: null, description: null, imageContentHash: 'imghash', imageStoredUrl: '/api/avatar/imghash',
     }]]);
     const v = { voter_id: 'pool1a', vote: 'Yes', voting_power: null, hex: 'aa', voter_hex: 'aa', image_url: null, block_time: null };
     const d = voterDescriptor(v, new Map(), pools);
     expect(d.displayName).toBe('Hephaestus Stake Pool');
     expect(d.imageHash).toBe('imghash');
-    expect(d.drepId).toBeNull();
+    expect(d.poolId).toBe('pool1a');
+    expect(d.poolSlug).toBe('hephy-pool1a');
   });
 
   it('still resolves a DRep voter when no pool matches', () => {

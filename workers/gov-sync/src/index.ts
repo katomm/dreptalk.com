@@ -68,7 +68,7 @@ import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
 import { syncPools } from '../../../src/lib/pools/sync.js';
 import { storePoolAvatars } from '../../../src/lib/pools/avatarStore.js';
-import { listReferencedPoolImageHashes } from '../../../src/lib/db/pools.js';
+import { listReferencedPoolImageHashes, backfillPoolSlugs } from '../../../src/lib/db/pools.js';
 import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/protocolParams.js';
 import { syncCurrentCommitteeMembership, recomputeCommitteePct } from '../../../src/lib/db/committee.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
@@ -465,6 +465,14 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   await phase('slugs', async () => {
     const slugs = await backfillDrepSlugs(env.DB);
     if (slugs.missing > 0) console.log(`[drep-slugs] missing=${slugs.missing} assigned=${slugs.assigned}`);
+    return { items: slugs.assigned };
+  });
+
+  // Mint profile slugs for newly named pools (pure D1, no Koios). Mirrors the
+  // DRep slugs phase above; a pool without a slug simply keeps its id URL.
+  await phase('pool-slugs', async () => {
+    const slugs = await backfillPoolSlugs(env.DB);
+    if (slugs.missing > 0) console.log(`[pool-slugs] missing=${slugs.missing} assigned=${slugs.assigned}`);
     return { items: slugs.assigned };
   });
 

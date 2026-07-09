@@ -31,6 +31,14 @@ export const BADGE_CATEGORY_LABELS: Record<BadgeCategory, string> = {
   crossover: 'Forum and chain',
 };
 
+// Which badge categories a given profile role can earn and therefore display.
+// A DRep never earns SPO/CC/Proposer badges, so its gallery must not list them,
+// even as locked tiles. Forum and crossover badges are earnable by any role.
+export const CATEGORIES_FOR_ROLE: Record<'drep' | 'spo', BadgeCategory[]> = {
+  drep: ['drep', 'forum', 'crossover'],
+  spo: ['spo', 'forum', 'crossover'],
+};
+
 export const BADGES: Badge[] = [
   // DRep, on-chain
   { id: 'first-vote', name: 'First Vote', description: 'Cast your first on-chain vote.', category: 'drep' },
