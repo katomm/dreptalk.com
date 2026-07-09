@@ -97,7 +97,17 @@ export default defineConfig({
         // Override the default script-src sources: keep 'self' and also allow
         // the Cloudflare Web Analytics beacon origin. The per-build script
         // hashes are still appended automatically.
-        resources: ["'self'", 'https://static.cloudflareinsights.com'],
+        //
+        // 'unsafe-eval' is required for mobile wallet in-app browsers. Eternl on
+        // iOS (and likely other mobile wallets) injects its CIP-30 provider via
+        // eval/Function; a strict script-src without it blocks the injection, so
+        // window.cardano never appears and login shows "no wallet detected" (only
+        // on mobile, desktop extensions bypass page CSP via content scripts).
+        // Confirmed on device: 'wasm-unsafe-eval' was not enough, full
+        // 'unsafe-eval' is needed. This does NOT weaken inline-script protection:
+        // the sha256 hashes below still gate inline <script>; 'unsafe-eval' only
+        // permits eval/Function, never inline scripts.
+        resources: ["'self'", 'https://static.cloudflareinsights.com', "'unsafe-eval'"],
         // Astro hashes its own bundled/inline scripts but not author is:inline
         // ones, so add the inlined script hashes explicitly.
         hashes: [themeInitHash, govPrefsHash, voteFiltersHash],
