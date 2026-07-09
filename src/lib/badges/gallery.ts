@@ -117,6 +117,11 @@ export async function loadEarnedBadges(db: D1Database, subject: BadgeSubject): P
 }
 
 export async function buildBadgeGallery(db: D1Database, subject: BadgeSubject): Promise<DrepBadgeGallery> {
+  // loadBadgeCounters is hardwired to voter_role = 'DRep', so this is only safe
+  // while buildBadgeGallery is called with role: 'drep'. A future SPO /badges
+  // page must not reuse this function with role: 'spo' until the counters
+  // query is made role-aware; the SPO profile currently uses loadEarnedBadges,
+  // which needs no counters.
   const [awards, counters] = await Promise.all([loadAwardsMap(db, subject), loadBadgeCounters(db, subject.id, subject.userId)]);
   const allowed = categorySet(subject.role);
 

@@ -550,6 +550,24 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
     margin: 0 0 0.75rem;
     font-size: 0.9375rem;
   }
+  /* Overview SPO-count jump link: a small tappable CTA into the Votes tab,
+     not a plain inline anchor. */
+  .ga-spo-jump {
+    display: inline-block;
+    margin-bottom: 1rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .ga-spo-jump:hover {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: var(--accent);
+  }
   @media (max-width: 900px) {
     .ga-detail-layout {
       grid-template-columns: 1fr;
