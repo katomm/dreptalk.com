@@ -2,12 +2,14 @@
 // Read/write access to the pools table: batch identity reads for rendering, the
 // on-demand sync work-set, and the avatar work queue. Mirrors src/lib/db/dreps.ts.
 import { sqlPlaceholders } from './sql.js';
+import { assignPoolSlugs } from '../pools/slug.js';
 
 export interface Pool {
   poolId: string;
   poolHash: string | null;
   ticker: string | null;
   name: string | null;
+  slug: string | null;
   homepage: string | null;
   description: string | null;
   imageContentHash: string | null;
@@ -19,6 +21,7 @@ interface PoolRow {
   pool_hash: string | null;
   ticker: string | null;
   name: string | null;
+  slug: string | null;
   homepage: string | null;
   description: string | null;
   image_content_hash: string | null;
@@ -31,6 +34,7 @@ function rowToPool(r: PoolRow): Pool {
     poolHash: r.pool_hash,
     ticker: r.ticker,
     name: r.name,
+    slug: r.slug,
     homepage: r.homepage,
     description: r.description,
     imageContentHash: r.image_content_hash,
@@ -49,7 +53,7 @@ export async function getPoolsByIds(db: D1Database, ids: string[]): Promise<Map<
     const rows = (
       await db
         .prepare(
-          `SELECT pool_id, pool_hash, ticker, name, homepage, description,
+          `SELECT pool_id, pool_hash, ticker, name, slug, homepage, description,
                   image_content_hash, image_stored_url
            FROM pools WHERE pool_id IN (${sqlPlaceholders(chunk)})`,
         )
@@ -209,4 +213,49 @@ export async function listReferencedPoolImageHashes(db: D1Database): Promise<Set
       .all<{ h: string }>()
   ).results ?? [];
   return new Set(rows.map((r) => r.h));
+}
+
+/** Pools with a ticker or name but no slug yet, capped for a bounded backfill. */
+export async function listPoolsMissingSlug(
+  db: D1Database,
+  limit = 500,
+): Promise<{ poolId: string; base: string | null }[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT pool_id AS poolId, COALESCE(ticker, name) AS base
+         FROM pools
+         WHERE slug IS NULL AND (ticker IS NOT NULL OR name IS NOT NULL)
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<{ poolId: string; base: string | null }>()
+  ).results ?? [];
+  return rows;
+}
+
+/** All slugs already claimed, to avoid collisions during assignment. */
+export async function listAssignedPoolSlugs(db: D1Database): Promise<Set<string>> {
+  const rows = (await db.prepare('SELECT slug FROM pools WHERE slug IS NOT NULL').all<{ slug: string }>()).results ?? [];
+  return new Set(rows.map((r) => r.slug));
+}
+
+/** Writes assigned slugs; one UPDATE per row (small, bounded batches). */
+export async function setPoolSlugs(db: D1Database, entries: { poolId: string; slug: string }[]): Promise<number> {
+  let assigned = 0;
+  for (const e of entries) {
+    await db.prepare('UPDATE pools SET slug = ? WHERE pool_id = ? AND slug IS NULL').bind(e.slug, e.poolId).run();
+    assigned++;
+  }
+  return assigned;
+}
+
+/** Assigns slugs to pools that lack one. Mirrors backfillDrepSlugs. */
+export async function backfillPoolSlugs(db: D1Database): Promise<{ missing: number; assigned: number }> {
+  const missing = await listPoolsMissingSlug(db);
+  if (missing.length === 0) return { missing: 0, assigned: 0 };
+  const taken = await listAssignedPoolSlugs(db);
+  const entries = assignPoolSlugs(missing, taken);
+  const assigned = await setPoolSlugs(db, entries);
+  return { missing: missing.length, assigned };
 }
