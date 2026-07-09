@@ -10,7 +10,7 @@ function drepArgs(drepId: string) {
     votingPower: null, expiresEpochNo: null, name: null, bio: null, imageUrl: null,
     imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: null, links: null,
     motivations: null, qualifications: null, paymentAddress: null, doNotList: false,
-    anchorUrl: null, anchorHash: null, anchorStatus: 'no-anchor', lastSyncedAt: 0, createdAt: 0,
+    anchorUrl: null, anchorHash: null, anchorStatus: 'no-anchor', profileExtractVersion: 0, lastSyncedAt: 0, createdAt: 0,
   };
 }
 

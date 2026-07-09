@@ -268,4 +268,84 @@ describe('extractCip119Profile', () => {
     expect(p.motivations).toBe('m1\nm2');
     expect(p.qualifications).toBe('q1\nq2');
   });
+
+  // CIP-100/CIP-119 are JSON-LD. A field value may be written in the compact
+  // string form ("givenName": "Will Norris") or the expanded value-object form
+  // ("givenName": {"@value": "Will Norris"}). Both are semantically identical.
+  // Several real mainnet DReps register with the expanded form, so the extractor
+  // must unwrap @value everywhere it reads a string.
+  describe('JSON-LD expanded @value form', () => {
+    it('unwraps a @value givenName into the name', () => {
+      const doc = { body: { givenName: { '@value': 'Will Norris' } } };
+      expect(extractCip119Profile(doc).name).toBe('Will Norris');
+    });
+
+    it('unwraps @value on objectives, motivations, qualifications, and paymentAddress', () => {
+      const addr = `addr1q9${'x'.repeat(40)}`;
+      const doc = {
+        body: {
+          objectives: { '@value': 'Bio text.' },
+          motivations: { '@value': 'Motivations text.' },
+          qualifications: { '@value': 'Qualifications text.' },
+          paymentAddress: { '@value': addr },
+        },
+      };
+      const p = extractCip119Profile(doc);
+      expect(p.bio).toBe('Bio text.');
+      expect(p.motivations).toBe('Motivations text.');
+      expect(p.qualifications).toBe('Qualifications text.');
+      expect(p.paymentAddress).toBe(addr);
+    });
+
+    it('unwraps @value on reference uri and label', () => {
+      const doc = {
+        body: {
+          references: [
+            { '@type': 'Other', uri: { '@value': 'https://x.com/will' }, label: { '@value': 'Will on X' } },
+          ],
+        },
+      };
+      expect(extractCip119Profile(doc).links).toEqual([
+        { label: 'Will on X', uri: 'https://x.com/will' },
+      ]);
+    });
+
+    it('unwraps @value on an ImageObject contentUrl', () => {
+      const doc = { body: { image: { '@type': 'ImageObject', contentUrl: { '@value': 'https://ipfs.io/ipfs/QmX' } } } };
+      expect(extractCip119Profile(doc).imageUrl).toBe('https://ipfs.io/ipfs/QmX');
+    });
+
+    it('extracts a fully expanded real-world doc (all fields under @value)', () => {
+      const doc = {
+        body: {
+          givenName: { '@value': 'Will Norris' },
+          objectives: { '@value': 'Committed to decentralization.' },
+          motivations: { '@value': 'Here since 2021.' },
+          qualifications: { '@value': "Master's in Physics." },
+          paymentAddress: { '@value': `addr1q9${'z'.repeat(40)}` },
+          image: {
+            '@type': 'ImageObject',
+            contentUrl: 'https://ipfs.io/ipfs/QmImage',
+          },
+          references: [
+            { '@type': 'Other', uri: { '@value': 'https://x.com/Cardano_Will' }, label: { '@value': 'X Profile' } },
+          ],
+        },
+      };
+      const p = extractCip119Profile(doc);
+      expect(p.name).toBe('Will Norris');
+      expect(p.bio).toBe('Committed to decentralization.');
+      expect(p.motivations).toBe('Here since 2021.');
+      expect(p.qualifications).toBe("Master's in Physics.");
+      expect(p.imageUrl).toBe('https://ipfs.io/ipfs/QmImage');
+      expect(p.links).toEqual([{ label: 'X Profile', uri: 'https://x.com/Cardano_Will' }]);
+    });
+
+    it('ignores a @value that is not a string', () => {
+      const doc = { body: { givenName: { '@value': 42 }, objectives: { '@value': null } } };
+      const p = extractCip119Profile(doc);
+      expect(p.name).toBeNull();
+      expect(p.bio).toBeNull();
+    });
+  });
 });

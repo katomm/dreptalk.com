@@ -110,6 +110,36 @@ function asRecord(v: unknown): Record<string, unknown> {
 }
 
 /**
+ * Unwraps a JSON-LD value object ({"@value": x}) to x; passes any other value
+ * through unchanged. CIP-100/CIP-119 are JSON-LD, so a field may be written in
+ * the compact form ("givenName": "Will Norris") or the expanded value-object
+ * form ("givenName": {"@value": "Will Norris"}). Both are semantically identical
+ * and several real mainnet DReps register with the expanded form.
+ */
+function jsonLdValue(v: unknown): unknown {
+  if (v && typeof v === 'object' && !Array.isArray(v) && '@value' in v) {
+    return (v as Record<string, unknown>)['@value'];
+  }
+  return v;
+}
+
+/**
+ * Reads a string from a JSON-LD field in either compact or expanded form, or
+ * null when the field holds no string (absent or a non-string). Distinguishes an
+ * absent field from a present empty string, which matters for a precedence chain
+ * that must keep an explicit "" rather than fall through to the next candidate.
+ */
+function jsonLdStringOrNull(v: unknown): string | null {
+  const u = jsonLdValue(v);
+  return typeof u === 'string' ? u : null;
+}
+
+/** Reads a string from a JSON-LD field in either compact or expanded form; '' otherwise. */
+function jsonLdString(v: unknown): string {
+  return jsonLdStringOrNull(v) ?? '';
+}
+
+/**
  * Extracts title/abstract/rationale from a parsed CIP-108 document.
  *
  * `anchorUrl` (the untrusted on-chain anchor) is only used to build the "read the
@@ -197,6 +227,18 @@ function isHttpUrl(raw: string): boolean {
   }
 }
 
+/**
+ * Version of the CIP-119 profile extractor. Stored per DRep row; the sync reuses
+ * a stored profile without re-fetching its anchor ONLY when the row was extracted
+ * at the current version. Bump this when extractCip119Profile changes in a way
+ * that would produce different output for the same document, so existing rows are
+ * re-fetched and re-extracted once over the next few sync runs (bounded by the
+ * per-run anchor budget). Bumped to 1 when the extractor learned to unwrap the
+ * JSON-LD expanded @value form, healing every DRep whose name/bio/links were
+ * previously dropped for using that encoding.
+ */
+export const PROFILE_EXTRACT_VERSION = 1;
+
 /** Extracts a CIP-119 DRep profile from a parsed, untrusted on-chain metadata doc. */
 export function extractCip119Profile(doc: unknown): Cip119Profile {
   // CIP-119 nests all profile fields under a `body` key. Fall back to the root
@@ -204,15 +246,11 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
   const root = asRecord(doc);
   const body = 'body' in root ? asRecord(root.body) : root;
 
-  // name: body.givenName, sanitized and capped.
-  const rawName = typeof body.givenName === 'string' ? body.givenName : '';
-  const name = sanitizeExternalText(rawName, MAX_PROFILE_NAME_LEN) || null;
+  // name: body.givenName, sanitized and capped. Unwrap the JSON-LD @value form.
+  const name = sanitizeExternalText(jsonLdString(body.givenName), MAX_PROFILE_NAME_LEN) || null;
 
   // bio: prefer body.bio, fall back to body.objectives (CIP-119 uses objectives).
-  const rawBio =
-    (typeof body.bio === 'string' && body.bio) ||
-    (typeof body.objectives === 'string' && body.objectives) ||
-    '';
+  const rawBio = jsonLdString(body.bio) || jsonLdString(body.objectives);
   const bio = sanitizeExternalMultiline(rawBio, MAX_PROFILE_BIO_LEN) || null;
 
   // image: body.image may be a plain string URL or a CIP-119 ImageObject with
@@ -224,12 +262,9 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
   let imageDataUri: string | null = null;
   const imgField = body.image;
   const imgRecord = imgField && typeof imgField === 'object' ? asRecord(imgField) : null;
-  const rawImageUrl =
-    typeof imgField === 'string'
-      ? imgField
-      : typeof imgRecord?.contentUrl === 'string'
-        ? imgRecord.contentUrl
-        : '';
+  // image may be a plain string URL, a @value-wrapped string, or an ImageObject
+  // whose contentUrl is itself either a plain string or @value-wrapped.
+  const rawImageUrl = jsonLdString(imgField) || jsonLdString(imgRecord?.contentUrl);
   if (rawImageUrl.startsWith('data:')) {
     if (rawImageUrl.length <= MAX_PROFILE_IMAGE_DATA_LEN) imageDataUri = rawImageUrl;
   } else if (rawImageUrl) {
@@ -240,10 +275,8 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
   // imageSha256: the ImageObject may carry the sha256 of the bytes. Our own
   // uploads embed it (and the bytes live in R2 under that key), so a consumer
   // can serve the image directly without re-downloading.
-  const imageSha256 =
-    typeof imgRecord?.sha256 === 'string' && HEX_HASH_256_RE.test(imgRecord.sha256)
-      ? imgRecord.sha256
-      : null;
+  const rawSha256 = jsonLdString(imgRecord?.sha256);
+  const imageSha256 = HEX_HASH_256_RE.test(rawSha256) ? rawSha256 : null;
 
   // links: body.references is an array; keep only items with http(s) uri/url.
   let links: { label: string; uri: string }[] | null = null;
@@ -252,15 +285,13 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
       .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
       .reduce<{ label: string; uri: string }[]>((acc, item) => {
         if (acc.length >= MAX_PROFILE_LINKS) return acc;
-        const rawUri = typeof item.uri === 'string' ? item.uri
-          : typeof item.url === 'string' ? item.url
-          : '';
+        const rawUri = jsonLdString(item.uri) || jsonLdString(item.url);
         if (!isHttpUrl(rawUri)) return acc;
         const uri = rawUri.slice(0, MAX_PROFILE_LINK_URI_LEN);
-        const rawLabel = typeof item.label === 'string' ? item.label
-          : typeof item.name === 'string' ? item.name
-          : typeof item['@type'] === 'string' ? item['@type']
-          : '';
+        // Precedence label -> name -> @type; an explicit "" label is kept (?? not ||)
+        // rather than falling through, matching the pre-@value behavior.
+        const rawLabel =
+          jsonLdStringOrNull(item.label) ?? jsonLdStringOrNull(item.name) ?? jsonLdString(item['@type']);
         const label = sanitizeExternalText(rawLabel, MAX_PROFILE_LINK_LABEL_LEN);
         acc.push({ label, uri });
         return acc;
@@ -269,15 +300,16 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
   }
 
   const motivations =
-    sanitizeExternalMultiline(typeof body.motivations === 'string' ? body.motivations : '', MAX_PROFILE_MOTIVATIONS_LEN) || null;
+    sanitizeExternalMultiline(jsonLdString(body.motivations), MAX_PROFILE_MOTIVATIONS_LEN) || null;
   const qualifications =
-    sanitizeExternalMultiline(typeof body.qualifications === 'string' ? body.qualifications : '', MAX_PROFILE_QUALIFICATIONS_LEN) || null;
-  const rawPay = typeof body.paymentAddress === 'string' ? body.paymentAddress.trim() : '';
+    sanitizeExternalMultiline(jsonLdString(body.qualifications), MAX_PROFILE_QUALIFICATIONS_LEN) || null;
+  const rawPay = jsonLdString(body.paymentAddress).trim();
   const paymentAddress =
     rawPay.length > 0 && rawPay.length <= MAX_PROFILE_PAYMENT_ADDR_LEN && isCardanoPaymentAddress(rawPay)
       ? rawPay
       : null;
-  const doNotList = body.doNotList === true || body.doNotList === 'true';
+  const dnl = jsonLdValue(body.doNotList);
+  const doNotList = dnl === true || dnl === 'true';
 
   return { name, bio, imageUrl, imageDataUri, imageSha256, links, motivations, qualifications, paymentAddress, doNotList };
 }

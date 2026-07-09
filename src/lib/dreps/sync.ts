@@ -17,7 +17,7 @@ import {
 import { assignSlugs } from './slug.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { gcDrepMetadata } from '../db/drepMetadata.js';
-import { fetchAnchorDoc, extractCip119Profile } from '../governance/metadata.js';
+import { fetchAnchorDoc, extractCip119Profile, PROFILE_EXTRACT_VERSION } from '../governance/metadata.js';
 import { ingestDataUriAvatar, type ImageDownscaler } from './avatarStore.js';
 
 // Koios paginates drep_list at 1000 rows; page through by incrementing offset.
@@ -81,7 +81,7 @@ export interface DrepSyncDeps {
 // like status/votingPower are filled later by buildRow).
 type ResolvedProfile = Pick<
   Drep,
-  'name' | 'bio' | 'imageUrl' | 'imageContentHash' | 'imageStoredUrl' | 'links' | 'motivations' | 'qualifications' | 'paymentAddress' | 'doNotList' | 'anchorUrl' | 'anchorHash' | 'anchorStatus'
+  'name' | 'bio' | 'imageUrl' | 'imageContentHash' | 'imageStoredUrl' | 'links' | 'motivations' | 'qualifications' | 'paymentAddress' | 'doNotList' | 'anchorUrl' | 'anchorHash' | 'anchorStatus' | 'profileExtractVersion'
 >;
 
 /** Splits an array into fixed-size chunks. */
@@ -133,9 +133,17 @@ async function resolveProfile(
   const metaHash = info.meta_hash ?? null;
 
   if (metaUrl && metaHash) {
-    // Reuse the stored profile when the hash is unchanged and the last fetch
-    // succeeded. This is the key cost saver: no re-fetch on an unchanged anchor.
-    if (existing && metaHash === existing.anchorHash && existing.anchorStatus === 'ok') {
+    // Reuse the stored profile when the hash is unchanged, the last fetch
+    // succeeded, AND it was extracted at the current version. This is the key
+    // cost saver: no re-fetch on an unchanged anchor. The version check makes an
+    // extractor bump re-fetch every 'ok' row once (bounded by the anchor budget),
+    // so a parser fix heals already-stored rows instead of leaving them frozen.
+    if (
+      existing &&
+      metaHash === existing.anchorHash &&
+      existing.anchorStatus === 'ok' &&
+      existing.profileExtractVersion === PROFILE_EXTRACT_VERSION
+    ) {
       return {
         profile: {
           name: existing.name,
@@ -151,6 +159,7 @@ async function resolveProfile(
           anchorUrl: metaUrl,
           anchorHash: metaHash,
           anchorStatus: 'ok',
+          profileExtractVersion: PROFILE_EXTRACT_VERSION,
         },
         fetched: false,
       };
@@ -194,6 +203,7 @@ async function resolveProfile(
           anchorUrl: metaUrl,
           anchorHash: metaHash,
           anchorStatus: 'ok',
+          profileExtractVersion: PROFILE_EXTRACT_VERSION,
         },
         fetched: true,
       };
@@ -219,6 +229,9 @@ async function resolveProfile(
         anchorUrl: metaUrl,
         anchorHash: metaHash,
         anchorStatus: result.status,
+        // Preserve the stored version (do not claim the current one): a deferred
+        // or failed fetch has not re-extracted, so the next run must retry.
+        profileExtractVersion: existing?.profileExtractVersion ?? 0,
       },
       fetched: canFetch,
     };
@@ -242,6 +255,8 @@ async function resolveProfile(
       anchorUrl: null,
       anchorHash: null,
       anchorStatus: 'no-anchor',
+      // No document to extract; mark current so this row does not re-run forever.
+      profileExtractVersion: PROFILE_EXTRACT_VERSION,
     },
     fetched: false,
   };
@@ -289,6 +304,7 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     anchorUrl: profile.anchorUrl,
     anchorHash: profile.anchorHash,
     anchorStatus: profile.anchorStatus,
+    profileExtractVersion: profile.profileExtractVersion,
     lastSyncedAt: now,
     // Preserve the original creation time on update; set it on first insert.
     createdAt: existing?.createdAt ?? now,
@@ -321,7 +337,10 @@ function hasChanged(next: Drep, existing: Drep | undefined): boolean {
     next.doNotList !== existing.doNotList ||
     next.anchorUrl !== existing.anchorUrl ||
     next.anchorHash !== existing.anchorHash ||
-    next.anchorStatus !== existing.anchorStatus
+    next.anchorStatus !== existing.anchorStatus ||
+    // A version-only bump (fields unchanged, e.g. a row that already had a
+    // string-form name) must still persist so the row stops re-fetching.
+    next.profileExtractVersion !== existing.profileExtractVersion
   );
 }
 

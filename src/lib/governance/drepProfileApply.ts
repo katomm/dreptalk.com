@@ -12,7 +12,7 @@
 // If the tx never confirms, the next sync reads the on-chain anchor and reverts
 // the row. Only the logged-in DRep's own row is touched.
 
-import { extractCip119Profile } from './metadata.js';
+import { extractCip119Profile, PROFILE_EXTRACT_VERSION } from './metadata.js';
 import { getDrepMetadataByHash } from '../db/drepMetadata.js';
 import { updateDrepProfileFromAnchor } from '../db/dreps.js';
 
@@ -79,6 +79,8 @@ async function applyInternal(input: ApplyDrepProfileInput): Promise<ApplyDrepPro
     anchorUrl: `${input.origin}/drep/${input.hash}.json`,
     anchorHash: input.hash,
     anchorStatus: 'ok',
+    // Parsed with the current extractor, so the next sync takes the reuse path.
+    profileExtractVersion: PROFILE_EXTRACT_VERSION,
     lastSyncedAt: input.now,
   });
 
