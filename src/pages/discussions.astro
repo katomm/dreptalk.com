@@ -9,6 +9,9 @@ import { loadActivityFeed, parseActivityFilter, type ActivityFilter } from '@/li
 import { getCategories } from '../../config/categories.js';
 import { cacheControlFor, formatRelativeTime, parsePage, pageToOffset, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
+import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
+import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
+import { loadAuthorIdentities } from '@/lib/forum/author.js';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
@@ -21,12 +24,19 @@ const page = parsePage(Astro.url.searchParams.get('page'));
 const offset = pageToOffset(page, PAGE_SIZE);
 
 // Category stats and the activity page are independent; load them together.
-const [stats, feed] = db
+const [stats, feed, recentIds] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { filter, limit: PAGE_SIZE, offset }),
+      listRecentlyActiveAuthorIds(db, 10),
     ])
-  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), { events: [], total: 0 }];
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), { events: [], total: 0 }, []];
+
+// Hydrate the recently-active author ids into presentational descriptors using
+// the shared forum resolver (avatar, name, role badges, profile link), keeping
+// the query's recency order.
+const recentIdentities = db && recentIds.length ? await loadAuthorIdentities(db, recentIds) : null;
+const recentAuthors = recentIdentities ? recentIds.map((id) => recentIdentities.describe(id)) : [];
 
 // Tabs and pager keep the active filter; a filter change resets to page 1.
 const tabHref = (f: ActivityFilter) => `/discussions?filter=${f}`;
@@ -85,6 +95,8 @@ const breadcrumbLd = {
       footer={true}
     />
   </div>
+
+  <RecentlyActiveCard authors={recentAuthors} />
 </Layout>
 
 <style>
