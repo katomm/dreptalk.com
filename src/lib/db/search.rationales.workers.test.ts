@@ -44,7 +44,7 @@ function drepArgs(overrides: Partial<Parameters<typeof upsertDrep>[1]>): Paramet
     deposit: null, votingPower: '5000000000', expiresEpochNo: null, name: null, bio: null,
     imageUrl: null, imageContentHash: null, imageStoredUrl: null, imageFetchFailedAt: null,
     links: null, motivations: null, qualifications: null, paymentAddress: null, doNotList: false,
-    anchorUrl: null, anchorHash: null, anchorStatus: 'pending', lastSyncedAt: NOW, createdAt: NOW,
+    anchorUrl: null, anchorHash: null, anchorStatus: 'pending', profileExtractVersion: 0, lastSyncedAt: NOW, createdAt: NOW,
     ...overrides,
   };
 }

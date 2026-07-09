@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { syncDreps } from './sync.js';
+import { PROFILE_EXTRACT_VERSION } from '../governance/metadata.js';
 import { getDrepById, upsertDrep } from '../db/dreps.js';
 import { putDrepMetadata, getDrepMetadataByHash } from '../db/drepMetadata.js';
 import type { DrepListRow, DrepInfoRow } from '../koios/client.js';
@@ -146,6 +147,35 @@ describe('syncDreps', () => {
     const afterSecond = await getDrepById(env.DB, id);
     expect(afterSecond).toEqual(afterFirst);
     expect(afterSecond!.lastSyncedAt).toBe(NOW);
+  });
+
+  it('re-fetches and re-extracts an ok row stored at a stale profile-extract version', async () => {
+    // The version gate is how a parser fix heals already-stored rows: an 'ok' row
+    // whose anchor hash is unchanged is normally reused with no fetch, but a stale
+    // profile_extract_version must force one re-fetch so the new extractor runs.
+    const id = 'drep1-stale-version';
+    await upsertDrep(env.DB, {
+      drepId: id, hex: `${id}-hex`, hasScript: false, status: 'active', active: true,
+      deposit: '500000000', votingPower: '1000000000', expiresEpochNo: 400,
+      // Simulates the bug's aftermath: an ok row with the name dropped.
+      name: null, bio: null, imageUrl: null, imageContentHash: null, imageStoredUrl: null,
+      imageFetchFailedAt: null, links: null, motivations: null, qualifications: null,
+      paymentAddress: null, doNotList: false,
+      anchorUrl: 'https://example.com/a.json', anchorHash: profileHash, anchorStatus: 'ok',
+      profileExtractVersion: 0, lastSyncedAt: 1, createdAt: 1,
+    });
+
+    const info = infoRow(id, { meta_url: 'https://example.com/a.json', meta_hash: profileHash });
+    const { koios } = fakeKoios({ pages: [[listRow(id)]], infoById: new Map([[id, info]]) });
+    const fetcher = countingProfileFetch();
+    const res = await syncDreps({ koios, db: env.DB, fetchImpl: fetcher.fetchImpl, now: NOW });
+
+    // Re-fetched despite the unchanged hash, and the name is recovered.
+    expect(fetcher.calls()).toBe(1);
+    expect(res).toMatchObject({ anchorsFetched: 1, updated: 1 });
+    const healed = await getDrepById(env.DB, id);
+    expect(healed!.name).toBe('Alice DRep');
+    expect(healed!.profileExtractVersion).toBe(PROFILE_EXTRACT_VERSION);
   });
 
   it('updates a DRep whose status/active changed without re-fetching the anchor', async () => {
@@ -492,6 +522,8 @@ describe('stored-avatar preservation', () => {
       anchorUrl: 'https://example.com/keep.json',
       anchorHash,
       anchorStatus: 'ok',
+      // Current version so the sync takes the no-fetch reuse path (the point of this test).
+      profileExtractVersion: PROFILE_EXTRACT_VERSION,
       lastSyncedAt: 1,
       createdAt: 1,
     });

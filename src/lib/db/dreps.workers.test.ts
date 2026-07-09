@@ -41,6 +41,7 @@ const BASE_ARGS = {
   anchorUrl: 'https://example.com/drep.json',
   anchorHash: 'a'.repeat(64),
   anchorStatus: 'fetched',
+  profileExtractVersion: 0,
   lastSyncedAt: NOW,
   createdAt: NOW,
 };

@@ -56,6 +56,13 @@ export interface Drep {
   anchorUrl: string | null;
   anchorHash: string | null;
   anchorStatus: string;
+  /**
+   * PROFILE_EXTRACT_VERSION the profile fields were last extracted at. The sync
+   * takes the no-fetch reuse path only when this equals the current version, so
+   * bumping the extractor re-fetches every row once. 0 for rows written before
+   * the column existed.
+   */
+  profileExtractVersion: number;
   lastSyncedAt: number;
   createdAt: number;
 }
@@ -91,6 +98,7 @@ interface DrepRow {
   anchor_url: string | null;
   anchor_hash: string | null;
   anchor_status: string;
+  profile_extract_version: number;
   last_synced_at: number;
   created_at: number;
 }
@@ -127,6 +135,8 @@ function rowToDrep(row: DrepRow): Drep {
     anchorUrl: row.anchor_url,
     anchorHash: row.anchor_hash,
     anchorStatus: row.anchor_status,
+    // COALESCE guards a NULL from a row inserted before the column's DEFAULT.
+    profileExtractVersion: row.profile_extract_version ?? 0,
     lastSyncedAt: row.last_synced_at,
     createdAt: row.created_at,
   };
@@ -376,6 +386,7 @@ export async function upsertDrep(
     anchorUrl: string | null;
     anchorHash: string | null;
     anchorStatus: string;
+    profileExtractVersion: number;
     lastSyncedAt: number;
     createdAt: number;
   },
@@ -389,8 +400,9 @@ export async function upsertDrep(
           expires_epoch_no, name, bio, image_url, image_content_hash,
           image_stored_url, image_fetch_failed_at, links,
           motivations, qualifications, payment_address, do_not_list,
-          anchor_url, anchor_hash, anchor_status, last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          anchor_url, anchor_hash, anchor_status, profile_extract_version,
+          last_synced_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(drep_id) DO UPDATE SET
          hex = excluded.hex,
          has_script = excluded.has_script,
@@ -413,6 +425,7 @@ export async function upsertDrep(
          anchor_url = excluded.anchor_url,
          anchor_hash = excluded.anchor_hash,
          anchor_status = excluded.anchor_status,
+         profile_extract_version = excluded.profile_extract_version,
          last_synced_at = excluded.last_synced_at,
          created_at = dreps.created_at`,
     )
@@ -439,6 +452,7 @@ export async function upsertDrep(
       args.anchorUrl,
       args.anchorHash,
       args.anchorStatus,
+      args.profileExtractVersion,
       args.lastSyncedAt,
       args.createdAt,
     )
@@ -547,6 +561,8 @@ export async function updateDrepProfileFromAnchor(
     anchorUrl: string | null;
     anchorHash: string | null;
     anchorStatus: string;
+    /** Extractor version this profile was parsed at; passed so the next sync reuses it. */
+    profileExtractVersion: number;
     lastSyncedAt: number;
   },
 ): Promise<boolean> {
@@ -557,7 +573,8 @@ export async function updateDrepProfileFromAnchor(
          name = ?, bio = ?, links = ?, image_url = ?,
          image_content_hash = ?, image_stored_url = ?, image_fetch_failed_at = NULL,
          motivations = ?, qualifications = ?, payment_address = ?, do_not_list = ?,
-         anchor_url = ?, anchor_hash = ?, anchor_status = ?, last_synced_at = ?
+         anchor_url = ?, anchor_hash = ?, anchor_status = ?,
+         profile_extract_version = ?, last_synced_at = ?
        WHERE drep_id = ?`,
     )
     .bind(
@@ -574,6 +591,7 @@ export async function updateDrepProfileFromAnchor(
       args.anchorUrl,
       args.anchorHash,
       args.anchorStatus,
+      args.profileExtractVersion,
       args.lastSyncedAt,
       args.drepId,
     )

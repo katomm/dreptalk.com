@@ -41,6 +41,7 @@ async function seedRow(drepId: string) {
     anchorUrl: 'https://dreptalk.com/drep/old.json',
     anchorHash: 'ff'.repeat(32),
     anchorStatus: 'ok',
+    profileExtractVersion: 0,
     lastSyncedAt: 1_000,
     createdAt: 1_000,
   });

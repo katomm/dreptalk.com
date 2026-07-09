@@ -81,6 +81,7 @@ function drepArgs(overrides: Partial<Parameters<typeof upsertDrep>[1]>): Paramet
     anchorUrl: null,
     anchorHash: null,
     anchorStatus: 'pending',
+    profileExtractVersion: 0,
     lastSyncedAt: NOW,
     createdAt: NOW,
     ...overrides,

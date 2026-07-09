@@ -47,6 +47,7 @@ const BASE = {
   anchorUrl: null,
   anchorHash: null,
   anchorStatus: 'no-anchor',
+  profileExtractVersion: 0,
   lastSyncedAt: 1,
   createdAt: 1,
   imageContentHash: null,
