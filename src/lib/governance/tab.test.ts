@@ -25,3 +25,14 @@ describe('GA_TABS', () => {
     expect(GA_TABS.map((t) => t.id)).toEqual(['overview', 'discussion', 'positions', 'onchain', 'history']);
   });
 });
+
+describe('governance tabs', () => {
+  it('labels the positions tab neutrally so SPO votes are discoverable', () => {
+    const positions = GA_TABS.find((t) => t.id === 'positions');
+    expect(positions?.label).toBe('Votes');
+  });
+
+  it('still resolves the positions tab id (existing URLs keep working)', () => {
+    expect(parseGaTab('positions')).toBe('positions');
+  });
+});

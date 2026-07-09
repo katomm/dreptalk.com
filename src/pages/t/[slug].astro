@@ -432,6 +432,11 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
               <GaHistory action={govAction} network={network} />
             ) : (
               <>
+                {spoTotal > 0 && (
+                  <a class="ga-spo-jump" href={`/t/${topic.slug}?tab=positions&role=spo`}>
+                    {spoTotal} {spoTotal === 1 ? 'SPO' : 'SPOs'} voted on this action, see how &rarr;
+                  </a>
+                )}
                 <GaOverview
                   action={govAction}
                   onchain={onchainChanges}
