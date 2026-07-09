@@ -86,6 +86,15 @@ export async function getUserByDrepId(db: D1Database, drepId: string): Promise<U
   return row ? rowToUser(row) : null;
 }
 
+/** Returns the user row whose pool_id matches, or null. No index on pool_id (small table, one row per user). */
+export async function getUserByPoolId(db: D1Database, poolId: string): Promise<User | null> {
+  const row = await db
+    .prepare('SELECT * FROM users WHERE pool_id = ? LIMIT 1')
+    .bind(poolId)
+    .first<UserRow>();
+  return row ? rowToUser(row) : null;
+}
+
 /**
  * Fetches multiple users by id in a single query (no N+1).
  * Builds a parameterized IN clause from the id list.

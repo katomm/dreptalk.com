@@ -42,6 +42,15 @@ function rowToPool(r: PoolRow): Pool {
   };
 }
 
+/** Looks up a pool by its bech32 id or its SEO slug, whichever matches. */
+export async function getPoolByIdOrSlug(db: D1Database, key: string): Promise<Pool | null> {
+  const row = await db
+    .prepare('SELECT * FROM pools WHERE pool_id = ?1 OR slug = ?1 LIMIT 1')
+    .bind(key)
+    .first<PoolRow>();
+  return row ? rowToPool(row) : null;
+}
+
 // D1 binds at most 100 params per query; chunk the id list well under that.
 const ID_CHUNK = 90;
 

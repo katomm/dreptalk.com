@@ -363,3 +363,100 @@ export async function markStalePendingVotesFailed(db: D1Database, cutoffSeconds:
     .run();
   return res.meta.changes ?? 0;
 }
+
+// The functions below are the SPO (pool) equivalents of the DRep stat/history
+// functions above, scoped to voter_role = 'SPO'. They are deliberately small
+// copies rather than a role parameter on the DRep functions, so the proven
+// DRep code paths stay untouched.
+
+/** A pool's on-chain votes (role 'SPO'), joined to the action and its thread. */
+export async function getPoolVotingHistory(
+  db: D1Database,
+  poolId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<DrepVoteHistoryRow[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 500);
+  const offset = Math.max(opts?.offset ?? 0, 0);
+  const rows = (
+    await db
+      .prepare(
+        `SELECT v.ga_id AS ga_id, v.vote AS vote, g.title AS title, g.type AS type,
+                g.status AS status, g.decided_epoch AS decided_epoch, t.slug AS topic_slug,
+                v.meta_url AS meta_url, v.block_time AS block_time, r.body_html AS rationale_html
+         FROM drep_votes v
+         JOIN governance_actions g ON g.id = v.ga_id
+         LEFT JOIN topics t ON t.id = g.topic_id
+         LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
+         WHERE v.voter_id = ? AND v.voter_role = 'SPO'
+         ORDER BY g.decided_epoch DESC, g.id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .bind(poolId, limit, offset)
+      .all<DrepVoteHistoryRow>()
+  ).results ?? [];
+  return rows;
+}
+
+/** Count of a pool's recorded on-chain votes (role 'SPO'). */
+export async function countPoolVotes(db: D1Database, poolId: string): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO'`)
+    .bind(poolId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** Yes / No / Abstain counts for a pool (role 'SPO'). */
+export async function getPoolVoteBreakdown(db: D1Database, poolId: string): Promise<DrepVoteBreakdown> {
+  const rows = (
+    await db
+      .prepare(`SELECT vote, COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO' GROUP BY vote`)
+      .bind(poolId)
+      .all<{ vote: string; n: number }>()
+  ).results ?? [];
+  const out: DrepVoteBreakdown = { yes: 0, no: 0, abstain: 0, total: 0 };
+  for (const r of rows) {
+    const v = r.vote.toLowerCase();
+    if (v === 'yes') out.yes += r.n;
+    else if (v === 'no') out.no += r.n;
+    else out.abstain += r.n;
+    out.total += r.n;
+  }
+  return out;
+}
+
+/** How often a pool attached a rationale anchor to its vote vs not. */
+export async function getPoolRationaleStats(db: D1Database, poolId: string): Promise<DrepRationaleStats> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN meta_url IS NULL OR meta_url = '' THEN 1 ELSE 0 END) AS without
+       FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO'`,
+    )
+    .bind(poolId)
+    .first<{ total: number; without: number }>();
+  const total = row?.total ?? 0;
+  const without = row?.without ?? 0;
+  return { total, without, withRationale: total - without };
+}
+
+/**
+ * Participation over concluded actions the pool could vote on. Unlike DReps we
+ * have no pool registration epoch, so the denominator is every decided action
+ * that carries at least one SPO vote (i.e. was SPO-votable), and the numerator
+ * is those this pool voted on. Never null: a pool with no eligible actions reads
+ * as 0 of 0, which the stats component renders as "no concluded actions yet".
+ */
+export async function getPoolParticipation(db: D1Database, poolId: string): Promise<DrepParticipation> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS eligible, COUNT(v.ga_id) AS voted
+       FROM governance_actions g
+       LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'SPO'
+       WHERE g.decided_epoch IS NOT NULL
+         AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'SPO')`,
+    )
+    .bind(poolId)
+    .first<{ eligible: number; voted: number }>();
+  return { eligible: row?.eligible ?? 0, voted: row?.voted ?? 0 };
+}
