@@ -9,8 +9,9 @@ import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 /**
  * Ordered author ids of the most recently active DReps/SPOs: users with a
  * governance role (is_drep or is_spo) who have authored a non-deleted,
- * non-hidden post, ranked by their most recent such post, newest first.
- * Uses idx_posts_author (author_id, created_at). Limit is clamped to [1, 50].
+ * non-hidden post in a non-deleted topic, ranked by their most recent such
+ * post, newest first. Posts in deleted topics do not count, matching the rest
+ * of the forum. Uses idx_posts_author (author_id, created_at). Limit clamped to [1, 50].
  */
 export async function listRecentlyActiveAuthorIds(db: D1Database, limit: number): Promise<string[]> {
   const n = Math.min(Math.max(Math.trunc(limit) || 0, 1), 50);
@@ -20,7 +21,9 @@ export async function listRecentlyActiveAuthorIds(db: D1Database, limit: number)
         `SELECT u.id
          FROM users u
          JOIN posts p ON p.author_id = u.id
+         JOIN topics t ON t.id = p.topic_id
          WHERE p.deleted = 0 AND p.hidden = 0
+           AND t.deleted = 0
            AND (u.is_drep = 1 OR u.is_spo = 1)
            AND u.id <> ?
          GROUP BY u.id

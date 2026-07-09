@@ -16,23 +16,23 @@ async function seedUser(
     .run();
 }
 
-async function seedTopic() {
+async function seedTopic(id = 't1', opts: { deleted?: boolean } = {}) {
   await env.DB.prepare(
-    `INSERT INTO topics (id, category_slug, author_id, source, title, slug, last_post_at, created_at)
-     VALUES ('t1', 'general', 'gov-sync', 'user', 'T', 't-1', ?, ?)`,
-  ).bind(NOW, NOW).run();
+    `INSERT INTO topics (id, category_slug, author_id, source, title, slug, deleted, last_post_at, created_at)
+     VALUES (?, 'general', 'gov-sync', 'user', 'T', ?, ?, ?, ?)`,
+  ).bind(id, `t-${id}`, opts.deleted ? 1 : 0, NOW, NOW).run();
 }
 
 async function seedPost(
   id: string,
   authorId: string,
   createdAt: number,
-  opts: { deleted?: boolean; hidden?: boolean } = {},
+  opts: { deleted?: boolean; hidden?: boolean; topicId?: string } = {},
 ) {
   await env.DB.prepare(
     `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, deleted, hidden, created_at)
-     VALUES (?, 't1', ?, 'b', '<p>b</p>', ?, ?, ?)`,
-  ).bind(id, authorId, opts.deleted ? 1 : 0, opts.hidden ? 1 : 0, createdAt).run();
+     VALUES (?, ?, ?, 'b', '<p>b</p>', ?, ?, ?)`,
+  ).bind(id, opts.topicId ?? 't1', authorId, opts.deleted ? 1 : 0, opts.hidden ? 1 : 0, createdAt).run();
 }
 
 describe('listRecentlyActiveAuthorIds', () => {
@@ -79,6 +79,22 @@ describe('listRecentlyActiveAuthorIds', () => {
 
     const ids = await listRecentlyActiveAuthorIds(env.DB, 10);
     expect(ids).toEqual(['drepZ', 'drepY']);
+  });
+
+  it('ignores posts in deleted topics', async () => {
+    await seedTopic('t1');
+    await seedTopic('tDel', { deleted: true });
+
+    // Only post lives in a deleted topic: excluded.
+    await seedUser('drepDeletedTopic', { isDrep: true });
+    await seedPost('dp1', 'drepDeletedTopic', NOW + 900, { topicId: 'tDel' });
+
+    // Post in a live topic: included.
+    await seedUser('drepLive', { isDrep: true });
+    await seedPost('lp1', 'drepLive', NOW + 100, { topicId: 't1' });
+
+    const ids = await listRecentlyActiveAuthorIds(env.DB, 10);
+    expect(ids).toEqual(['drepLive']);
   });
 
   it('respects the limit, newest first', async () => {
