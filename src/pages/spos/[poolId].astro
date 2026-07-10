@@ -65,7 +65,7 @@ const postsHead = posts.slice(0, FORUM_HEAD);
 const postsTail = posts.slice(FORUM_HEAD);
 
 const hasMetadata = !!(pool?.name || pool?.ticker || pool?.description);
-const indexable = !!pool && isIndexableProfile({ hasMetadata, postCount: posts.length, votesCast });
+const indexable = !!pool && isIndexableProfile({ hasMetadata, postCount: posts.length });
 
 if (pool) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));

@@ -21,16 +21,18 @@ export function isCanonicalDrepParam(
 }
 
 /**
- * SEO quality-gate: a profile is indexable only when it carries real content,
- * so thousands of empty profiles do not become thin/duplicate pages. Thin
- * profiles stay reachable but are emitted noindex.
+ * SEO quality-gate: a profile is indexable only when it carries a real identity
+ * or human-written content (on-chain name/bio, or a forum post). A recorded vote
+ * alone is not enough: a nameless drep whose only content is a votes table reads
+ * as thin/near-duplicate to search engines and never ranks, so admitting those
+ * hundreds of profiles only dilutes crawl budget. Thin profiles stay reachable
+ * but are emitted noindex and kept out of the sitemap.
  */
 export function isIndexableProfile(p: {
   hasMetadata: boolean;
   postCount: number;
-  votesCast: number;
 }): boolean {
-  return p.hasMetadata || p.postCount > 0 || p.votesCast > 0;
+  return p.hasMetadata || p.postCount > 0;
 }
 
 /**

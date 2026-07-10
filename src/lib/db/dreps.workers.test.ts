@@ -173,11 +173,13 @@ describe('listIndexableDrepIds', () => {
     expect(ids).not.toContain('drep1thin');
   });
 
-  it('includes a DRep that has on-chain votes but no metadata', async () => {
+  it('excludes a DRep that has on-chain votes but no metadata (thin, vote-only)', async () => {
+    // A recorded vote alone no longer qualifies: a nameless vote-only profile is
+    // thin and kept out of the sitemap. Mirrors isIndexableProfile.
     await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1voter', name: null, bio: null });
     await upsertVotes(db(), 'ga-x', [{ voterRole: 'DRep', voterId: 'drep1voter', voterHex: null, vote: 'Yes' }], 1);
     const ids = await listIndexableDrepIds(db());
-    expect(ids).toContain('drep1voter');
+    expect(ids).not.toContain('drep1voter');
   });
 });
 

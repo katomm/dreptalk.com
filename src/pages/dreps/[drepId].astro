@@ -97,7 +97,7 @@ const postsHead = posts.slice(0, FORUM_HEAD);
 const postsTail = posts.slice(FORUM_HEAD);
 
 const hasMetadata = !!(drep?.name || drep?.bio);
-const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length, votesCast });
+const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length });
 
 if (drep) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
