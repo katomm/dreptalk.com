@@ -12,12 +12,14 @@ import { getActionVoters, getDrepVotingHistory, type ActionVoterRow } from '@/li
 import { getUserById } from '@/lib/db/users.js';
 import { orderVoteCandidates, buildPersonalizedRing } from '@/lib/hero/personalize.js';
 import { getDrepsByIds } from '@/lib/db/dreps.js';
-import { voterDescriptor, authorProfileHref } from '@/lib/forum/author.js';
+import { voterDescriptor, authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author.js';
 import { heroRingSlots, HERO_RING_RADII } from '@/lib/hero/ring.js';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { readableType, statusBadge, voteTone, TONE_COLORS } from '@/lib/governance/view.js';
 import { cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
+import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
+import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
@@ -38,13 +40,20 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 // Category stats, the activity feed, and the voted-hero candidate are
 // independent; load them together. votedHero is the newest action that already
 // has enough DRep voters to drive the live ring.
-const [stats, feed, votedHero] = db
+const [stats, feed, votedHero, recentIds] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 15 }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
+      listRecentlyActiveAuthorIds(db, 10),
     ])
-  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null];
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, []];
+
+// Recently active DReps/SPOs for the list under the activity feed. Reuses the
+// shared forum author resolver (avatar, name, role badges, profile link) and
+// keeps the query's recency order.
+const recentIdentities = db && recentIds.length ? await loadAuthorIdentities(db, recentIds) : null;
+const recentAuthors = recentIdentities ? recentIds.map((id) => recentIdentities.describe(id)) : [];
 
 // Personalized hero for a logged-in DRep: center on an action they voted on and
 // pin their own avatar into the ring. Only DReps reach this, so the extra reads
@@ -420,6 +429,8 @@ const heroFeatures = [
       />
     </div>
   </section>
+
+  <RecentlyActiveCard authors={recentAuthors} />
 </Layout>
 
 <style>
