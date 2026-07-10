@@ -5,10 +5,12 @@
 import { getRationaleFetchQueue, upsertActionRationale } from '../db/actionRationale.js';
 import { fetchVoteRationale } from './voteRationaleAnchor.js';
 
-// Fetch rationales for DReps with at least 100,000 ADA of voting power. Set low
+// Fetch rationales for DReps with at least 10,000 ADA of voting power. Set low
 // enough to cover small-but-active DReps who write thoughtful rationales, while
-// still skipping dust-weight voters. Lovelace = ADA * 1e6.
-export const VOTE_RATIONALE_MIN_POWER_LOVELACE = 100_000_000_000;
+// still skipping dust-weight voters. Below this line only a few hundred anchored
+// votes exist site-wide, so the gate mostly bounds ongoing fetches, not backlog.
+// Lovelace = ADA * 1e6.
+export const VOTE_RATIONALE_MIN_POWER_LOVELACE = 10_000_000_000;
 
 // Fetch up to this many rationales per run. Sized to drain the backlog opened by
 // the lower power threshold within a day or so, while staying gentle on anchor
