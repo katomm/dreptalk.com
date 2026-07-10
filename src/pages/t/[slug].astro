@@ -49,15 +49,16 @@ const { slug } = Astro.params;
 
 const db = env.DB as D1Database | undefined;
 
-// A pasted governance-action id (the bech32 gov_action1... form shown on
-// explorers and in vote links) routes to its discussion: resolve it to the
+// A pasted governance-action id routes to its discussion: resolve it to the
 // canonical topic slug and 301-redirect, mirroring the DRep id->slug redirect.
-// Real topic slugs always carry a hyphen, so they never collide with the
-// hyphen-free bech32 form. Detection and resolution are the same helpers the
-// search uses, so both stay one source of truth.
+// Covers the bech32 gov_action1... form (vote links) and the CIP-129 hex form
+// that explorer.cardano.org deep-links with (64-hex tx hash + hex index byte,
+// no '#'). Real topic slugs always carry a hyphen, so they never collide with
+// the hyphen-free identifier forms. Detection and resolution are the same
+// helpers the search uses, so both stay one source of truth.
 if (slug && db) {
   const ident = detectIdentifier(slug);
-  if (ident?.kind === 'gov-action' && ident.by === 'proposal_id') {
+  if (ident?.kind === 'gov-action' && (ident.by === 'proposal_id' || ident.by === 'id')) {
     const hit = await resolveIdentifier(db, ident);
     if (hit) return Astro.redirect(hit.href, 301);
   }
