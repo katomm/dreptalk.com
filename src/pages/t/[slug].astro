@@ -28,7 +28,7 @@ import { getUserById } from '@/lib/db/users.js';
 import VotePanel from '@/components/VotePanel.js';
 import MultisigVotePanel from '@/components/MultisigVotePanel.js';
 import { parseDrepId } from '@/lib/cardano/identity.js';
-import { loadAuthorIdentities, systemAuthor, type AuthorDescriptor } from '@/lib/forum/author.js';
+import { loadAuthorIdentities, systemAuthor, authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { isWriter } from '@/lib/auth/roles.js';
 import { currentNetwork } from '@/lib/api/response.js';
@@ -291,7 +291,6 @@ const prevPage = page > 1 ? page - 1 : null;
 // Pagination counts top-level posts; replies render with their parent.
 const nextPage = thread.topLevel.length === PAGE_SIZE ? page + 1 : null;
 
-const firstPostAuthor = topic?.author_id ?? '';
 const firstPostDate = topic
   ? new Date(topic.created_at).toISOString()
   : new Date().toISOString();
@@ -304,15 +303,31 @@ const openingExcerpt = thread.openingPost?.body_html
 const metaDescription =
   openingExcerpt || (topic ? `Discussion of ${topic.title} on DRepTalk.` : 'Discussion on DRepTalk.');
 
+// The author node needs a name (Google flags a missing author.name as a
+// critical error) and, where the author has a public profile, a url. A
+// governance-sourced topic is authored by the platform, so it resolves to the
+// DRepTalk organization; a user topic resolves to the person, linking to their
+// DRep/pool profile when one exists.
+const authorProfileUrl = authorProfileHref(topicAuthor);
+const authorLd = topicAuthor.isSystem
+  ? {
+      '@type': 'Organization',
+      name: 'DRepTalk',
+      url: siteOrigin + '/',
+    }
+  : {
+      '@type': 'Person',
+      name: topicAuthor.displayName,
+      identifier: topicAuthor.authorId,
+      ...(authorProfileUrl ? { url: siteOrigin + authorProfileUrl } : {}),
+    };
+
 const discussionLd = topic
   ? {
       '@context': 'https://schema.org',
       '@type': 'DiscussionForumPosting',
       headline: topic.title,
-      author: {
-        '@type': 'Person',
-        identifier: firstPostAuthor,
-      },
+      author: authorLd,
       datePublished: firstPostDate,
       url: siteOrigin + `/t/${topic.slug}`,
       commentCount: Math.max(0, topic.post_count - 1),
