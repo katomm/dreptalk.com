@@ -7,7 +7,9 @@ export interface NavLink {
 
 export const NAV_LINKS: readonly NavLink[] = [
   { label: 'Governance Actions', href: '/c/governance-actions' },
-  { label: 'Discussions', href: '/discussions' },
+  // Lands on the Discussion tab (human forum activity); the page itself defaults
+  // to the "All" feed, which the homepage's "View all activity" link points to.
+  { label: 'Discussions', href: '/discussions?filter=comments' },
   { label: 'DReps', href: '/dreps' },
   { label: 'Treasury', href: '/c/budget' },
 ];

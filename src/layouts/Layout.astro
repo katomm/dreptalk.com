@@ -54,9 +54,12 @@ const account: AuthorDescriptor | null = sessionUser
 
 const pathname = Astro.url.pathname;
 const navLinks = NAV_LINKS;
-// Highlight the link whose path prefixes the current page.
-const isActive = (href: string) =>
-  pathname === href || pathname.startsWith(href + '/');
+// Highlight the link whose path prefixes the current page. A nav href may carry a
+// query (e.g. a default filter), so match on the path portion only.
+const isActive = (href: string) => {
+  const path = href.split('?')[0];
+  return pathname === path || pathname.startsWith(path + '/');
+};
 
 const helpEntries: HelpEntry[] = (await getCollection('guides'))
   // Keywords haystack is the page title plus the description, so a guide is

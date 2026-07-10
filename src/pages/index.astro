@@ -41,7 +41,7 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 const [stats, feed, votedHero] = db
   ? await Promise.all([
       getCategoryStats(db),
-      loadActivityFeed(db, { limit: 8 }).then((r) => r.events),
+      loadActivityFeed(db, { limit: 15 }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null];

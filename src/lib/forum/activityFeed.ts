@@ -19,18 +19,18 @@ export type ActivityFilter = 'all' | 'governance' | 'comments';
 // topic-starts it also includes).
 export const ACTIVITY_TABS: readonly { filter: ActivityFilter; label: string }[] = [
   { filter: 'all', label: 'All' },
-  { filter: 'governance', label: 'Governance actions' },
+  { filter: 'governance', label: 'Governance Actions' },
   { filter: 'comments', label: 'Discussion' },
 ];
 
 const VALID_FILTERS = new Set<string>(ACTIVITY_TABS.map((t) => t.filter));
 
-// Default tab/feed: human forum activity (topics + replies), so the feed is not
-// flooded by the many auto-imported on-chain governance events (which the "All"
-// and "Governance actions" tabs still surface).
-export const DEFAULT_ACTIVITY_FILTER: ActivityFilter = 'comments';
+// Default tab/feed: everything, so the feed shows the full picture of what is
+// happening across governance and discussion. The "Discussion" tab still narrows
+// to human forum activity (topics + replies) for anyone who wants only that.
+export const DEFAULT_ACTIVITY_FILTER: ActivityFilter = 'all';
 
-/** Parses the ?filter= param; defaults to the discussion feed for anything unrecognized. */
+/** Parses the ?filter= param; defaults to the full feed for anything unrecognized. */
 export function parseActivityFilter(value: string | null): ActivityFilter {
   return value && VALID_FILTERS.has(value) ? (value as ActivityFilter) : DEFAULT_ACTIVITY_FILTER;
 }

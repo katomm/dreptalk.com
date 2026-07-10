@@ -10,6 +10,9 @@ import { getCategories } from '../../config/categories.js';
 import { cacheControlFor, formatRelativeTime, parsePage, pageToOffset, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
+// Segmented pill styles for the activity filter, shared with the governance-actions
+// list and /vote so the three controls stay identical.
+import '@/styles/list-controls.css';
 import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 
