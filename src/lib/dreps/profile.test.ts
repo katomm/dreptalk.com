@@ -3,14 +3,15 @@ import { isIndexableProfile, influencePct, drepMetaDescription, drepProfileSumma
 
 describe('isIndexableProfile (SEO quality-gate)', () => {
   it('is indexable with on-chain metadata', () => {
-    expect(isIndexableProfile({ hasMetadata: true, postCount: 0, votesCast: 0 })).toBe(true);
+    expect(isIndexableProfile({ hasMetadata: true, postCount: 0 })).toBe(true);
   });
-  it('is indexable with forum activity or votes', () => {
-    expect(isIndexableProfile({ hasMetadata: false, postCount: 3, votesCast: 0 })).toBe(true);
-    expect(isIndexableProfile({ hasMetadata: false, postCount: 0, votesCast: 5 })).toBe(true);
+  it('is indexable with forum activity', () => {
+    expect(isIndexableProfile({ hasMetadata: false, postCount: 3 })).toBe(true);
   });
-  it('is NOT indexable when thin', () => {
-    expect(isIndexableProfile({ hasMetadata: false, postCount: 0, votesCast: 0 })).toBe(false);
+  it('is NOT indexable when thin: a recorded vote alone does not qualify', () => {
+    // A nameless vote-only profile is thin/near-duplicate and never ranks, so it
+    // stays noindex and out of the sitemap.
+    expect(isIndexableProfile({ hasMetadata: false, postCount: 0 })).toBe(false);
   });
 });
 
