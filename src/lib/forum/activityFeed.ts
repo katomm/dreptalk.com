@@ -19,7 +19,7 @@ export type ActivityFilter = 'all' | 'governance' | 'comments';
 // topic-starts it also includes).
 export const ACTIVITY_TABS: readonly { filter: ActivityFilter; label: string }[] = [
   { filter: 'all', label: 'All' },
-  { filter: 'governance', label: 'Governance actions' },
+  { filter: 'governance', label: 'Governance Actions' },
   { filter: 'comments', label: 'Discussion' },
 ];
 

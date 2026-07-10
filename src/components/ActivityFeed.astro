@@ -38,9 +38,9 @@ const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer } = 
   </header>
 
   {tabs && (
-    <nav class="af-tabs" aria-label="Filter activity">
+    <nav class="seg af-tabs" aria-label="Filter activity">
       {ACTIVITY_TABS.map((t) => (
-        <a class="af-tab" aria-current={t.filter === tabs.active ? 'true' : undefined} href={tabs.hrefFor(t.filter)}>{t.label}</a>
+        <a class="seg__btn" aria-current={t.filter === tabs.active ? 'true' : undefined} href={tabs.hrefFor(t.filter)}>{t.label}</a>
       ))}
     </nav>
   )}
@@ -79,10 +79,10 @@ const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer } = 
   .af-viewall { display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0; font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--border); border-radius: 999px; padding: 0.4rem 0.75rem; }
   .af-viewall:hover { background: var(--surface-2); }
 
-  .af-tabs { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 1rem; }
-  .af-tab { display: inline-flex; align-items: center; padding: 0.375rem 0.75rem; font-size: 0.85rem; text-decoration: none; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; transition: color 0.12s, background 0.12s, border-color 0.12s; }
-  .af-tab:hover { color: var(--fg); }
-  .af-tab[aria-current='true'] { color: var(--fg); background: var(--surface-2); border-color: var(--fg); font-weight: 600; }
+  /* Tabs reuse the shared .seg / .seg__btn pill (styles/list-controls.css), so this
+     filter reads identically to the governance-actions and /vote controls. Only the
+     spacing below the group is component-specific. */
+  .af-tabs { margin-bottom: 1rem; }
 
   .af-empty { color: var(--muted); }
   .af-footer { display: flex; align-items: center; justify-content: center; gap: 0.4rem; margin: 1.25rem 0 0; font-size: 0.8125rem; color: var(--muted); }
