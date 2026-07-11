@@ -4,10 +4,11 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import ActivityFeed from '@/components/ActivityFeed.astro';
+import CategorySidebar from '@/components/CategorySidebar.astro';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { loadActivityFeed, parseActivityFilter, type ActivityFilter } from '@/lib/forum/activityFeed.js';
 import { getCategories } from '../../config/categories.js';
-import { cacheControlFor, formatRelativeTime, parsePage, pageToOffset, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { cacheControlFor, parsePage, pageToOffset, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 // Segmented pill styles for the activity filter, shared with the governance-actions
@@ -66,27 +67,7 @@ const breadcrumbLd = {
   <h1 style="margin:0 0 1.25rem;">Discussions</h1>
 
   <div class="discussions-grid">
-    <section aria-label="Categories">
-      <h2 style="font-size:0.8125rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin:0 0 0.75rem;">Categories</h2>
-      <div style="display:flex;flex-direction:column;">
-        {categories.map((c) => {
-          const s = stats.get(c.slug);
-          return (
-            <a href={`/c/${c.slug}`} style="border-bottom:1px solid var(--border);padding:0.75rem 0;text-decoration:none;color:inherit;display:block;">
-              <div style="display:flex;align-items:center;gap:0.5rem;">
-                <span aria-hidden="true" style={`width:0.5rem;height:0.5rem;border-radius:999px;flex-shrink:0;background:${c.kind === 'governance' ? 'var(--accent)' : 'var(--muted)'};`}></span>
-                <span style="font-weight:600;color:var(--fg);">{c.name}</span>
-                <span style="margin-left:auto;font-size:0.8125rem;color:var(--muted);">{s?.topicCount ?? 0}</span>
-              </div>
-              <p style="margin:0.3rem 0 0 1rem;font-size:0.8125rem;color:var(--muted);">{c.description}</p>
-              {s?.lastPostAt && (
-                <p style="margin:0.2rem 0 0 1rem;font-size:0.75rem;color:var(--muted);">Last activity {formatRelativeTime(s.lastPostAt, now)}</p>
-              )}
-            </a>
-          );
-        })}
-      </div>
-    </section>
+    <CategorySidebar categories={categories} stats={stats} now={now} />
 
     <ActivityFeed
       events={feed.events}
