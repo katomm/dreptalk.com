@@ -70,7 +70,7 @@ export async function getTopicExcerpts(
           `SELECT topic_id, body_html, created_at
            FROM posts
            WHERE topic_id IN (${sqlPlaceholders(chunk)})
-             AND parent_post_id IS NULL AND deleted = 0
+             AND parent_post_id IS NULL AND deleted = 0 AND hidden = 0
              AND (source IS NULL OR source != 'vote_rationale')
            ORDER BY topic_id, created_at ASC`,
         )
