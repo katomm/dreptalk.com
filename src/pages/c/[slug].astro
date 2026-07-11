@@ -11,7 +11,14 @@ import Pager from '@/components/Pager.astro';
 import CategorySidebar from '@/components/CategorySidebar.astro';
 import { getCategory, getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getTopicsByIds, getCategoryStats, type Topic } from '@/lib/db/forum.js';
-import { getDiscussionTopics, parseDiscussionSort, DISCUSSION_SORTS, type DiscussionSort } from '@/lib/db/discussions.js';
+import {
+  getDiscussionTopics,
+  getParticipantCounts,
+  getTopicExcerpts,
+  parseDiscussionSort,
+  DISCUSSION_SORTS,
+  type DiscussionSort,
+} from '@/lib/db/discussions.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams.js';
 import { loadTreasuryOverview, type TreasuryOverviewData } from '@/lib/treasury/overview.js';
@@ -30,7 +37,7 @@ import '@/styles/list-controls.css';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { proposerView } from '@/lib/identity/proposer.js';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
 // Raw inline script (pinned in the CSP by its hash in astro.config.mjs) that
 // persists/restores the reader's sort choice in localStorage.
@@ -108,6 +115,11 @@ let tallyAsOf: number | null = null;
 // Treasury overview embedded above the thread list, budget category only, so
 // no other category pays for this extra query.
 let treasuryOverview: TreasuryOverviewData | null = null;
+// Per-topic participant counts and first-post excerpts for the discussions-variant
+// TopicRow (Replies/Participants stats, one-line excerpt). Discussion categories
+// only; the governance overview keeps its own tally/countdown enrichment instead.
+let participantCounts = new Map<string, number>();
+let excerptHtml = new Map<string, string>();
 
 if (category && db) {
   if (isBudgetCategory) {
@@ -156,6 +168,11 @@ if (category && db) {
     );
   } else {
     topics = await getDiscussionTopics(db, category.slug, { sort: discussionSort, limit: PAGE_SIZE, offset });
+    const topicIds = topics.map((t) => t.id);
+    [participantCounts, excerptHtml] = await Promise.all([
+      getParticipantCounts(db, topicIds),
+      getTopicExcerpts(db, topicIds),
+    ]);
   }
 }
 
@@ -451,6 +468,9 @@ const breadcrumbLd = {
                     now={now}
                     network={network}
                     author={identities ? identities.describe(topic.author_id) : undefined}
+                    variant="discussions"
+                    participants={participantCounts.get(topic.id) ?? 0}
+                    excerpt={excerptHtml.has(topic.id) ? excerptFromHtml(excerptHtml.get(topic.id)!, 140) : undefined}
                   />
                 ))}
               </div>
