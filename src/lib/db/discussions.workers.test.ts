@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, createPost } from './forum.js';
-import { getTopicParticipants, getParticipantCounts, getRelatedTopics, getTopicExcerpts } from './discussions.js';
+import {
+  getTopicParticipants,
+  getParticipantCounts,
+  getRelatedTopics,
+  getTopicExcerpts,
+  getDiscussionTopics,
+  parseDiscussionSort,
+} from './discussions.js';
 
 const db = () => env.DB;
 
@@ -81,5 +88,52 @@ describe('getRelatedTopics', () => {
     expect(ids.indexOf(newer.id)).toBeLessThan(ids.indexOf(older.id));
     expect(ids).not.toContain(otherCat.id);
     expect(related.every((t) => t.category_slug === 'constitution')).toBe(true);
+  });
+});
+
+describe('parseDiscussionSort', () => {
+  it('defaults unknown to latest', () => {
+    expect(parseDiscussionSort('bogus')).toBe('latest');
+    expect(parseDiscussionSort('unanswered')).toBe('unanswered');
+  });
+});
+
+describe('getDiscussionTopics', () => {
+  const CAT = 'budget';
+  it('unanswered returns only topics with a single post', async () => {
+    const { topic: lonely } = await createTopic(db(), {
+      categorySlug: CAT, authorId: 'alice', title: 'Lonely',
+      bodyMd: 'op', bodyHtml: '<p>op</p>', now: 1_700_040_000_000, rand: 'ds01',
+    });
+    const { topic: answered } = await createTopic(db(), {
+      categorySlug: CAT, authorId: 'alice', title: 'Answered',
+      bodyMd: 'op', bodyHtml: '<p>op</p>', now: 1_700_040_100_000, rand: 'ds02',
+    });
+    await createPost(db(), { topicId: answered.id, authorId: 'bob', bodyMd: 'r', bodyHtml: '<p>r</p>', now: 1_700_040_200_000, rand: 'ds03' });
+
+    const rows = await getDiscussionTopics(db(), CAT, { sort: 'unanswered' });
+    const ids = rows.map((t) => t.id);
+    expect(ids).toContain(lonely.id);
+    expect(ids).not.toContain(answered.id);
+  });
+
+  it('newest orders by created_at desc', async () => {
+    const { topic: first } = await createTopic(db(), { categorySlug: CAT, authorId: 'alice', title: 'First', bodyMd: 'op', bodyHtml: '<p>op</p>', now: 1_700_041_000_000, rand: 'ds10' });
+    const { topic: second } = await createTopic(db(), { categorySlug: CAT, authorId: 'alice', title: 'Second', bodyMd: 'op', bodyHtml: '<p>op</p>', now: 1_700_041_100_000, rand: 'ds11' });
+    const rows = await getDiscussionTopics(db(), CAT, { sort: 'newest' });
+    const ids = rows.map((t) => t.id);
+    expect(ids.indexOf(second.id)).toBeLessThan(ids.indexOf(first.id));
+  });
+
+  it('trending ranks topics with recent replies first', async () => {
+    const now = 1_700_050_000_000;
+    const { topic: hot } = await createTopic(db(), { categorySlug: CAT, authorId: 'alice', title: 'Hot', bodyMd: 'op', bodyHtml: '<p>op</p>', now: now - 3_000_000, rand: 'ds20' });
+    const { topic: cold } = await createTopic(db(), { categorySlug: CAT, authorId: 'alice', title: 'Cold', bodyMd: 'op', bodyHtml: '<p>op</p>', now: now - 2_000_000, rand: 'ds21' });
+    // A recent reply on hot (createPost writes a reply_created activity row at `now`).
+    await createPost(db(), { topicId: hot.id, authorId: 'bob', bodyMd: 'r', bodyHtml: '<p>r</p>', now: now - 1_000_000, rand: 'ds22' });
+
+    const rows = await getDiscussionTopics(db(), CAT, { sort: 'trending', nowMs: now });
+    const ids = rows.map((t) => t.id);
+    expect(ids.indexOf(hot.id)).toBeLessThan(ids.indexOf(cold.id));
   });
 });

@@ -104,3 +104,71 @@ export async function getRelatedTopics(
   ).results ?? [];
   return rows.map(rowToTopic);
 }
+
+export type DiscussionSort = 'latest' | 'newest' | 'trending' | 'unanswered';
+
+export const DISCUSSION_SORTS: readonly { key: DiscussionSort; label: string }[] = [
+  { key: 'latest', label: 'All discussions' },
+  { key: 'trending', label: 'Trending' },
+  { key: 'newest', label: 'Newest' },
+  { key: 'unanswered', label: 'Unanswered' },
+];
+
+export function parseDiscussionSort(v: string | null | undefined): DiscussionSort {
+  return v === 'newest' || v === 'trending' || v === 'unanswered' ? v : 'latest';
+}
+
+const TRENDING_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Returns non-deleted topics for a category, sorted per the requested view:
+ * latest (default) and newest by activity/creation time, unanswered restricts
+ * to topics with a single post, trending ranks by recent reply activity within
+ * a 7-day window before nowMs (defaults to Date.now()). limit clamped [1,100],
+ * default 30; offset >= 0.
+ */
+export async function getDiscussionTopics(
+  db: D1Database,
+  categorySlug: string,
+  opts: { sort?: DiscussionSort; limit?: number; offset?: number; nowMs?: number },
+): Promise<Topic[]> {
+  const sort = opts.sort ?? 'latest';
+  const limit = Math.min(Math.max(opts.limit ?? 30, 1), 100);
+  const offset = Math.max(opts.offset ?? 0, 0);
+
+  if (sort === 'trending') {
+    const since = (opts.nowMs ?? Date.now()) - TRENDING_WINDOW_MS;
+    const rows = (
+      await db
+        .prepare(
+          `SELECT t.* FROM topics t
+           LEFT JOIN (
+             SELECT topic_id, COUNT(*) AS recent
+             FROM activity
+             WHERE type = 'reply_created' AND created_at >= ?
+             GROUP BY topic_id
+           ) a ON a.topic_id = t.id
+           WHERE t.category_slug = ? AND t.deleted = 0
+           ORDER BY t.pinned DESC, COALESCE(a.recent, 0) DESC, t.last_post_at DESC
+           LIMIT ? OFFSET ?`,
+        )
+        .bind(since, categorySlug, limit, offset)
+        .all<TopicRow>()
+    ).results ?? [];
+    return rows.map(rowToTopic);
+  }
+
+  const where =
+    sort === 'unanswered'
+      ? 't.category_slug = ? AND t.deleted = 0 AND t.post_count = 1'
+      : 't.category_slug = ? AND t.deleted = 0';
+  const order = sort === 'newest' ? 't.pinned DESC, t.created_at DESC' : 't.pinned DESC, t.last_post_at DESC';
+
+  const rows = (
+    await db
+      .prepare(`SELECT t.* FROM topics t WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
+      .bind(categorySlug, limit, offset)
+      .all<TopicRow>()
+  ).results ?? [];
+  return rows.map(rowToTopic);
+}
