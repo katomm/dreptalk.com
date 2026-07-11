@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, createPost } from './forum.js';
-import { getTopicParticipants, getParticipantCounts, getRelatedTopics } from './discussions.js';
+import { getTopicParticipants, getParticipantCounts, getRelatedTopics, getTopicExcerpts } from './discussions.js';
 
 const db = () => env.DB;
 
@@ -47,6 +47,20 @@ describe('getParticipantCounts', () => {
   it('returns an empty map for no ids', async () => {
     const counts = await getParticipantCounts(db(), []);
     expect(counts.size).toBe(0);
+  });
+});
+
+describe('getTopicExcerpts', () => {
+  it('returns the opening post body per topic', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general', authorId: 'alice', title: 'Excerpt topic',
+      bodyMd: 'the opening body', bodyHtml: '<p>the opening body</p>', now: 1_700_030_000_000, rand: 'ex01',
+    });
+    await createPost(db(), { topicId: topic.id, authorId: 'bob', bodyMd: 'a reply', bodyHtml: '<p>a reply</p>', now: 1_700_030_100_000, rand: 'ex02' });
+
+    const map = await getTopicExcerpts(db(), [topic.id]);
+
+    expect(map.get(topic.id)).toBe('<p>the opening body</p>');
   });
 });
 

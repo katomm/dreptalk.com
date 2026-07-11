@@ -55,6 +55,35 @@ export async function getParticipantCounts(
   return out;
 }
 
+export async function getTopicExcerpts(
+  db: D1Database,
+  topicIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (topicIds.length === 0) return out;
+  const CHUNK = 100;
+  for (let i = 0; i < topicIds.length; i += CHUNK) {
+    const chunk = topicIds.slice(i, i + CHUNK);
+    const rows = (
+      await db
+        .prepare(
+          `SELECT topic_id, body_html, created_at
+           FROM posts
+           WHERE topic_id IN (${sqlPlaceholders(chunk)})
+             AND parent_post_id IS NULL AND deleted = 0
+             AND (source IS NULL OR source != 'vote_rationale')
+           ORDER BY topic_id, created_at ASC`,
+        )
+        .bind(...chunk)
+        .all<{ topic_id: string; body_html: string; created_at: number }>()
+    ).results ?? [];
+    for (const r of rows) {
+      if (!out.has(r.topic_id)) out.set(r.topic_id, r.body_html);
+    }
+  }
+  return out;
+}
+
 export async function getRelatedTopics(
   db: D1Database,
   categorySlug: string,
