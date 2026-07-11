@@ -17,14 +17,14 @@ export const GET: APIRoute = async ({ site }) => {
 
   const entries: Array<{ path: string; lastmod?: string }> = [
     { path: '/' },
-    { path: '/register-drep' },
-    { path: '/badges' },
-    { path: '/help' },
+    { path: '/register-drep/' },
+    { path: '/badges/' },
+    { path: '/help/' },
     ...(await getCollection('guides')).map((g) => ({
-      path: `/help/${g.id}`,
+      path: `/help/${g.id}/`,
       ...(g.data.updated ? { lastmod: g.data.updated.toISOString() } : {}),
     })),
-    ...getCategories().map((c) => ({ path: `/c/${c.slug}` })),
+    ...getCategories().map((c) => ({ path: `/c/${c.slug}/` })),
   ];
 
   const db = env.DB as D1Database | undefined;
@@ -37,10 +37,10 @@ export const GET: APIRoute = async ({ site }) => {
       ).results ?? [];
     // last_post_at is stored in milliseconds (same as created_at).
     for (const row of rows) {
-      entries.push({ path: `/t/${row.slug}`, lastmod: new Date(row.last_post_at).toISOString() });
+      entries.push({ path: `/t/${row.slug}/`, lastmod: new Date(row.last_post_at).toISOString() });
     }
     for (const id of await listIndexableDrepIds(db)) {
-      entries.push({ path: `/dreps/${id}` });
+      entries.push({ path: `/dreps/${id}/` });
     }
   }
 

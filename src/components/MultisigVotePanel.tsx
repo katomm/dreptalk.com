@@ -686,7 +686,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
             {openVotes.map((item) => (
               <li key={item.id} style={{ fontSize: '0.8125rem', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
                 <a
-                  href={`/drep/cosign/${item.id}`}
+                  href={`/drep/cosign/${item.id}/`}
                   style={{ color: 'var(--accent)', textDecoration: 'underline', wordBreak: 'break-all' }}
                 >
                   {item.vote.toUpperCase()} on {item.gaId}

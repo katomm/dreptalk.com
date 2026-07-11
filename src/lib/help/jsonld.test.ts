@@ -12,9 +12,9 @@ describe('buildBreadcrumbLd', () => {
     expect(items[2]).toMatchObject({
       position: 3,
       name: 'Open source',
-      item: 'https://dreptalk.com/help/open-source',
+      item: 'https://dreptalk.com/help/open-source/',
     });
-    expect(items[1].item).toBe('https://dreptalk.com/help');
+    expect(items[1].item).toBe('https://dreptalk.com/help/');
   });
 });
 
@@ -24,7 +24,7 @@ describe('buildArticleLd', () => {
     expect(ld['@type']).toBe('Article');
     expect(ld.headline).toBe('Open source - DRepTalk');
     expect(ld.description).toBe('Desc');
-    expect(ld.url).toBe('https://dreptalk.com/help/open-source');
+    expect(ld.url).toBe('https://dreptalk.com/help/open-source/');
     expect(ld.inLanguage).toBe('en');
     expect('dateModified' in ld).toBe(false);
   });

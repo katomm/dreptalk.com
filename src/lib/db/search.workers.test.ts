@@ -98,7 +98,7 @@ describe('searchAll', () => {
     const r = await searchAll(db(), '"treasury"*');
     expect(r.governanceActions).toHaveLength(1);
     expect(r.governanceActions[0]).toMatchObject({
-      href: '/t/ga-treasury',
+      href: '/t/ga-treasury/',
       title: 'Raise treasury cap',
       type: 'InfoAction',
       status: 'active',
@@ -126,7 +126,7 @@ describe('searchAll', () => {
 
     const r = await searchAll(db(), '"treasury"*');
     expect(r.discussions).toHaveLength(1);
-    expect(r.discussions[0]).toMatchObject({ href: '/t/treasury-chat', title: 'Treasury chat', categorySlug: 'general' });
+    expect(r.discussions[0]).toMatchObject({ href: '/t/treasury-chat/', title: 'Treasury chat', categorySlug: 'general' });
     expect(r.governanceActions).toHaveLength(0);
   });
 
@@ -164,7 +164,7 @@ describe('searchAll', () => {
     const r = await searchAll(db(), '"treasury"*');
     expect(r.governanceActions).toHaveLength(1);
     expect(r.governanceActions[0]).toMatchObject({
-      href: '/t/ga-post-only',
+      href: '/t/ga-post-only/',
       title: 'Info Action Title',
       type: 'InfoAction',
       status: 'active',
@@ -186,7 +186,7 @@ describe('searchAll', () => {
     const r = await searchAll(db(), '"treasury"*');
     expect(r.dreps).toHaveLength(1);
     expect(r.dreps[0]).toMatchObject({
-      href: '/dreps/drep1one',
+      href: '/dreps/drep1one/',
       drepId: 'drep1one',
       name: 'Treasury Watcher',
       status: 'registered',
@@ -201,16 +201,16 @@ describe('resolveIdentifier', () => {
     await seedTopic({ id: 'gt1', title: 'T', slug: 'ga-slug', source: 'governance' });
     await seedGa({ id: GA1, proposalId: 'gov_action1one', title: 'The Action', topicId: 'gt1' });
     const hit = await resolveIdentifier(db(), { kind: 'gov-action', by: 'proposal_id', value: 'gov_action1one' });
-    expect(hit).toEqual({ kind: 'governance-action', href: '/t/ga-slug', label: 'The Action' });
+    expect(hit).toEqual({ kind: 'governance-action', href: '/t/ga-slug/', label: 'The Action' });
   });
 
   it('resolves a tx hash with and without index', async () => {
     await seedTopic({ id: 'gt1', title: 'T', slug: 'ga-slug', source: 'governance' });
     await seedGa({ id: GA1, proposalId: 'gov_action1one', title: null, topicId: 'gt1' });
     const exact = await resolveIdentifier(db(), { kind: 'gov-action', by: 'id', value: GA1 });
-    expect(exact).toMatchObject({ kind: 'governance-action', href: '/t/ga-slug', label: GA1 });
+    expect(exact).toMatchObject({ kind: 'governance-action', href: '/t/ga-slug/', label: GA1 });
     const prefix = await resolveIdentifier(db(), { kind: 'gov-action', by: 'id-prefix', value: `${'a'.repeat(64)}#` });
-    expect(prefix).toMatchObject({ href: '/t/ga-slug' });
+    expect(prefix).toMatchObject({ href: '/t/ga-slug/' });
   });
 
   it('resolves a drep by stored id, and by hex when the pasted flavor differs', async () => {
@@ -220,10 +220,10 @@ describe('resolveIdentifier', () => {
     await upsertDrep(db(), drepArgs({ drepId: 'drep1stored', hex, name: 'Stored DRep' }));
 
     const direct = await resolveIdentifier(db(), { kind: 'drep', drepId: 'drep1stored' });
-    expect(direct).toEqual({ kind: 'drep', href: '/dreps/drep1stored', label: 'Stored DRep' });
+    expect(direct).toEqual({ kind: 'drep', href: '/dreps/drep1stored/', label: 'Stored DRep' });
 
     const viaHex = await resolveIdentifier(db(), { kind: 'drep', drepId: cip129 });
-    expect(viaHex).toEqual({ kind: 'drep', href: '/dreps/drep1stored', label: 'Stored DRep' });
+    expect(viaHex).toEqual({ kind: 'drep', href: '/dreps/drep1stored/', label: 'Stored DRep' });
   });
 
   it('returns null when the GA topic is soft-deleted', async () => {
@@ -242,7 +242,7 @@ describe('resolveIdentifier', () => {
     await upsertDrep(db(), drepArgs({ drepId: 'drep_script1stored', hex, hasScript: true, name: 'Script DRep' }));
 
     const hit = await resolveIdentifier(db(), { kind: 'drep', drepId: cip129Script });
-    expect(hit).toEqual({ kind: 'drep', href: '/dreps/drep_script1stored', label: 'Script DRep' });
+    expect(hit).toEqual({ kind: 'drep', href: '/dreps/drep_script1stored/', label: 'Script DRep' });
   });
 
   it('returns null for a 29-byte drep payload with an invalid CIP-129 header', async () => {

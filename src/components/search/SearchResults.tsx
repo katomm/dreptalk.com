@@ -172,7 +172,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
       didMount.current = true;
       return;
     }
-    const url = `/search?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}${page > 1 ? `&page=${page}` : ''}`;
+    const url = `/search/?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}${page > 1 ? `&page=${page}` : ''}`;
     window.history.replaceState(null, '', url);
 
     if (!hasQuery) {

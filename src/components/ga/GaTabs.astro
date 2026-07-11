@@ -15,7 +15,7 @@ interface Props {
 const { slug, active, commentCount, positionsCount } = Astro.props;
 
 function tabHref(id: GaTabId): string {
-  return id === 'overview' ? `/t/${slug}` : `/t/${slug}?tab=${id}`;
+  return id === 'overview' ? `/t/${slug}/` : `/t/${slug}/?tab=${id}`;
 }
 
 function tabLabel(id: GaTabId, label: string): string {

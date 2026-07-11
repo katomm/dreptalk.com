@@ -21,7 +21,7 @@ const { action, onchain, slug, commentCount, loggedIn, locked } = Astro.props;
 
 // The discussion lives behind its own tab; the overview only links into it. The
 // composer sits at the bottom of that tab under the #reply anchor.
-const discussionHref = `/t/${slug}?tab=discussion`;
+const discussionHref = `/t/${slug}/?tab=discussion`;
 const commentLabel = commentCount === 1 ? '1 comment' : `${commentCount} comments`;
 const hasComments = commentCount > 0;
 
@@ -93,7 +93,7 @@ const isLongRationale = rationaleText.length > 5000;
         <a class="btn btn-primary" href={`${discussionHref}#reply`}>{hasComments ? 'Add your comment' : 'Start the discussion'}</a>
       ) : (
         <>
-          <a class="btn btn-primary" href="/login">Sign in to post</a>
+          <a class="btn btn-primary" href="/login/">Sign in to post</a>
           {/* Nothing to read yet when there are no comments, so the secondary
               "Read the discussion" link only appears once the thread has some. */}
           {hasComments && <a class="ga-join__link" href={discussionHref}>Read the discussion</a>}

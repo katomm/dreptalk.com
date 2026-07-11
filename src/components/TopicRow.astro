@@ -58,9 +58,9 @@ const gaCountdown = governance
     <div class="topic-row__titleline">
       {topic.pinned && <span aria-hidden="true" title="Pinned" class="topic-row__glyph topic-row__glyph--pin">&#128204;</span>}
       {topic.locked && <span aria-hidden="true" title="Locked" class="topic-row__glyph">&#128274;</span>}
-      <a class="topic-row__title" href={`/t/${topic.slug}`}>{topic.title}</a>
+      <a class="topic-row__title" href={`/t/${topic.slug}/`}>{topic.title}</a>
       {category && (
-        <a class="topic-row__cat" href={`/c/${category.slug}`}>{category.name}</a>
+        <a class="topic-row__cat" href={`/c/${category.slug}/`}>{category.name}</a>
       )}
       {gaBadge && (
         <span class="topic-row__gabadge" style={`--badge:${TONE_COLORS[gaBadge.tone]};`}>{gaBadge.label}</span>

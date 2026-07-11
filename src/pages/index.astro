@@ -189,7 +189,7 @@ const heroCard = personalized
         title: personalized.card.title,
         badge: badge.label,
         tone: TONE_COLORS[badge.tone],
-        href: `/t/${personalized.card.slug}` as string | null,
+        href: `/t/${personalized.card.slug}/` as string | null,
       };
     })()
   : heroAction
@@ -201,7 +201,7 @@ const heroCard = personalized
           title: a.title as string,
           badge: badge.label,
           tone: TONE_COLORS[badge.tone],
-          href: `/t/${heroAction.slug}` as string | null,
+          href: `/t/${heroAction.slug}/` as string | null,
         };
       })()
     : {
@@ -275,8 +275,8 @@ const heroFeatures = [
       </ul>
 
       <div class="hero__cta reveal" style="--reveal-delay:180ms">
-        <a class="btn btn-primary" href="/c/governance-actions">Browse Governance Actions</a>
-        {!user && <a class="btn btn-secondary" href="/login">Sign in to post</a>}
+        <a class="btn btn-primary" href="/c/governance-actions/">Browse Governance Actions</a>
+        {!user && <a class="btn btn-secondary" href="/login/">Sign in to post</a>}
       </div>
     </div>
 
@@ -404,7 +404,7 @@ const heroFeatures = [
           {categories.map((c) => {
             const s = stats.get(c.slug);
             return (
-              <a href={`/c/${c.slug}`} style="border-bottom:1px solid var(--border);padding:0.75rem 0;text-decoration:none;color:inherit;display:block;">
+              <a href={`/c/${c.slug}/`} style="border-bottom:1px solid var(--border);padding:0.75rem 0;text-decoration:none;color:inherit;display:block;">
                 <div style="display:flex;align-items:center;gap:0.5rem;">
                   <span aria-hidden="true" style={`width:0.5rem;height:0.5rem;border-radius:999px;flex-shrink:0;background:${c.kind === 'governance' ? 'var(--accent)' : 'var(--muted)'};`}></span>
                   <span style="font-weight:600;color:var(--fg);">{c.name}</span>
@@ -425,7 +425,7 @@ const heroFeatures = [
         now={now}
         title="Latest activity"
         subtitle="A summary of what's happening in governance."
-        viewAllHref="/discussions"
+        viewAllHref="/discussions/"
       />
     </div>
   </section>

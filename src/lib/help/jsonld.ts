@@ -14,8 +14,8 @@ export function buildBreadcrumbLd(origin: string, slug: string, cardLabel: strin
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: `${origin}/` },
-      { '@type': 'ListItem', position: 2, name: 'Help', item: `${origin}/help` },
-      { '@type': 'ListItem', position: 3, name: cardLabel, item: `${origin}/help/${slug}` },
+      { '@type': 'ListItem', position: 2, name: 'Help', item: `${origin}/help/` },
+      { '@type': 'ListItem', position: 3, name: cardLabel, item: `${origin}/help/${slug}/` },
     ],
   };
 }
@@ -32,7 +32,7 @@ export function buildArticleLd(
     '@type': 'Article',
     headline: title,
     description,
-    url: `${origin}/help/${slug}`,
+    url: `${origin}/help/${slug}/`,
     inLanguage: 'en',
     publisher: { '@type': 'Organization', name: 'DRepTalk', url: origin },
   };

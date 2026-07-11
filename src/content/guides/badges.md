@@ -7,7 +7,7 @@ order: 3
 ---
 
 Badges recognize governance participation. They are earned automatically; there is
-nothing to claim or apply for. The [badge overview](/badges) lists every
+nothing to claim or apply for. The [badge overview](/badges/) lists every
 badge and how many participants have earned it.
 
 - **What counts.** On-chain activity (votes, vote rationales,
@@ -38,6 +38,6 @@ toward badges.
 
 ## Related
 
-- [Signing in](/help/signing-in)
-- [Writing a vote rationale](/help/writing-a-vote-rationale)
-- [Moderation](/help/moderation)
+- [Signing in](/help/signing-in/)
+- [Writing a vote rationale](/help/writing-a-vote-rationale/)
+- [Moderation](/help/moderation/)

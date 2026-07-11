@@ -49,6 +49,6 @@ we mark it "not counted" and strike its weight through.
 
 ## Related
 
-- [Governance action statuses](/help/governance-statuses)
-- [Sorting governance actions](/help/sorting)
-- [Open source](/help/open-source)
+- [Governance action statuses](/help/governance-statuses/)
+- [Sorting governance actions](/help/sorting/)
+- [Open source](/help/open-source/)

@@ -143,7 +143,7 @@ const breadcrumbLd = drep
       '@type': 'BreadcrumbList',
       itemListElement: [
         { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: siteOrigin + '/' },
-        { '@type': 'ListItem', position: 2, name: 'DReps', item: siteOrigin + '/dreps' },
+        { '@type': 'ListItem', position: 2, name: 'DReps', item: siteOrigin + '/dreps/' },
         { '@type': 'ListItem', position: 3, name: displayName, item: canonical },
       ],
     }
@@ -191,7 +191,7 @@ const profileSummary = drep
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
       <a href="/">DRepTalk</a>
       <span style="margin:0 0.375rem;">/</span>
-      <a href="/dreps">DReps</a>
+      <a href="/dreps/">DReps</a>
     </nav>
 
     <header class="drep-hd">
@@ -282,7 +282,7 @@ const profileSummary = drep
         <h2 class="drep-summary__h">Badges <span class="drep-summary__count">({earnedBadges.length})</span></h2>
         {showcase.length === 0 ? (
           <p class="drep-summary__empty">
-            No badges yet. <a href={`${drepPath(drep)}/badges`}>See what can be earned</a>.
+            No badges yet. <a href={`${drepPath(drep)}badges/`}>See what can be earned</a>.
           </p>
         ) : (
           <Fragment>
@@ -291,7 +291,7 @@ const profileSummary = drep
                 <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} tip={t.badge.description} size={72} />
               ))}
             </div>
-            <a href={`${drepPath(drep)}/badges`} class="drep-summary__all">All badges →</a>
+            <a href={`${drepPath(drep)}badges/`} class="drep-summary__all">All badges →</a>
           </Fragment>
         )}
       </section>

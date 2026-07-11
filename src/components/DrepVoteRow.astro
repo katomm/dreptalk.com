@@ -25,7 +25,7 @@ const rationaleHtml = row.rationale_html || null;
 // Link the action to its DRepTalk discussion thread (the on-site page for a
 // governance action). Every synced action has one; on the rare row without a
 // thread yet, the title stays plain text.
-const href = row.topic_slug ? `/t/${row.topic_slug}` : null;
+const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
 ---
 
 {

@@ -40,7 +40,7 @@ const { voters, dreps, slug, total, rationaleCount = 0 } = Astro.props;
       })}
     </ul>
     {total > voters.length && (
-      <a class="top-participants__more" href={`/t/${slug}?tab=positions`}>
+      <a class="top-participants__more" href={`/t/${slug}/?tab=positions`}>
         See all {total.toLocaleString('en-US')} positions{rationaleCount > 0 ? ` and ${rationaleCount.toLocaleString('en-US')} rationale${rationaleCount === 1 ? '' : 's'}` : ''}
       </a>
     )}

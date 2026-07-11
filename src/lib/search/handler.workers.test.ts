@@ -40,7 +40,7 @@ describe('handleSearch', () => {
   it('short-circuits to the exact hit on a resolved identifier', async () => {
     await seedGaWithTopic();
     const r = await handleSearch(db(), 'gov_action1budget');
-    expect(r.exact).toEqual({ kind: 'governance-action', href: '/t/budget-action', label: 'Budget action' });
+    expect(r.exact).toEqual({ kind: 'governance-action', href: '/t/budget-action/', label: 'Budget action' });
     expect(r.governanceActions).toHaveLength(0);
     expect(r.discussions).toHaveLength(0);
     expect(r.dreps).toHaveLength(0);
@@ -57,6 +57,6 @@ describe('handleSearch', () => {
     const r = await handleSearch(db(), 'budget');
     expect(r.exact).toBeNull();
     expect(r.governanceActions).toHaveLength(1);
-    expect(r.governanceActions[0].href).toBe('/t/budget-action');
+    expect(r.governanceActions[0].href).toBe('/t/budget-action/');
   });
 });
