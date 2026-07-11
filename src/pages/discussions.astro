@@ -31,7 +31,7 @@ const offset = pageToOffset(page, PAGE_SIZE);
 const [stats, feed, recentIds] = db
   ? await Promise.all([
       getCategoryStats(db),
-      loadActivityFeed(db, { filter, limit: PAGE_SIZE, offset }),
+      loadActivityFeed(db, { filter, limit: PAGE_SIZE, offset, withParticipants: true }),
       listRecentlyActiveAuthorIds(db, 10),
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), { events: [], total: 0 }, []];
@@ -72,8 +72,9 @@ const breadcrumbLd = {
     <ActivityFeed
       events={feed.events}
       now={now}
+      variant="discussions"
       title="Latest activity"
-      subtitle="A summary of what's happening in governance."
+      subtitle="Stay up to date with the latest discussions across all categories."
       tabs={{ active: filter, hrefFor: tabHref }}
       pagination={{ prevHref, nextHref, page, totalPages }}
       footer={true}

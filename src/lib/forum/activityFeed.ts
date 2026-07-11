@@ -8,6 +8,7 @@
 import { getActivityPage, type ActivityKind } from '../db/activity.js';
 import { getTopicsByIds } from '../db/forum.js';
 import { getGovernanceActionsByTopicIds } from '../db/governance.js';
+import { getParticipantCounts } from '../db/discussions.js';
 import { loadAuthorIdentities, type AuthorDescriptor } from './author.js';
 import { getCategory } from '../../../config/categories.js';
 
@@ -45,6 +46,7 @@ export interface ActivityEvent {
     slug: string;
     categoryName: string;
     isGovernance: boolean;
+    postCount: number;
   };
   /** Current governance status, for the badge on gov_created / gov_status. */
   governanceStatus: string | null;
@@ -52,6 +54,8 @@ export interface ActivityEvent {
   statusTransition: { from: string; to: string } | null;
   /** Reply post id for the deep link on reply_created; null otherwise. */
   refPostId: string | null;
+  /** Distinct posters on the topic, only computed when withParticipants is set; null otherwise. */
+  participants: number | null;
 }
 
 function parseTransition(payload: string | null): { from: string; to: string } | null {
@@ -73,7 +77,7 @@ function parseTransition(payload: string | null): { from: string; to: string } |
  */
 export async function loadActivityFeed(
   db: D1Database,
-  opts: { filter?: ActivityFilter; limit: number; offset?: number },
+  opts: { filter?: ActivityFilter; limit: number; offset?: number; withParticipants?: boolean },
 ): Promise<{ events: ActivityEvent[]; total: number }> {
   const filter = opts.filter ?? DEFAULT_ACTIVITY_FILTER;
   const limit = Math.min(Math.max(opts.limit, 1), 50);
@@ -95,10 +99,12 @@ export async function loadActivityFeed(
   const govTopicIds = live
     .filter((r) => topicsById.get(r.topic_id)?.source === 'governance')
     .map((r) => r.topic_id);
+  const liveTopicIds = [...new Set(live.map((r) => r.topic_id))];
 
-  const [identities, govByTopic] = await Promise.all([
+  const [identities, govByTopic, participantsMap] = await Promise.all([
     loadAuthorIdentities(db, live.map((r) => r.actor_id)),
     govTopicIds.length ? getGovernanceActionsByTopicIds(db, govTopicIds) : Promise.resolve(new Map()),
+    opts.withParticipants ? getParticipantCounts(db, liveTopicIds) : Promise.resolve(null),
   ]);
 
   const events = live.map((r) => {
@@ -115,10 +121,12 @@ export async function loadActivityFeed(
         slug: t.slug,
         categoryName: getCategory(t.category_slug)?.name ?? t.category_slug,
         isGovernance: t.source === 'governance',
+        postCount: t.post_count,
       },
       governanceStatus: gov?.status ?? transition?.to ?? null,
       statusTransition: transition,
       refPostId: r.ref_post_id,
+      participants: participantsMap ? (participantsMap.get(r.topic_id) ?? 0) : null,
     };
   });
 

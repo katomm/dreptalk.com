@@ -14,9 +14,30 @@ import { statusBadge, govStatusVerb, isTerminalStatus, TONE_COLORS } from '@/lib
 interface Props {
   event: ActivityEvent;
   now: number;
+  variant?: 'default' | 'discussions';
 }
 
-const { event, now } = Astro.props;
+const { event, now, variant = 'default' } = Astro.props;
+
+// Discussions-variant icon paths: reused verbatim from CategorySidebar's
+// governance-actions and general icons, so the leading type icon matches the
+// category iconography elsewhere on the page.
+const GAVEL_PATH = 'M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6';
+const MESSAGE_PATH = 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z';
+
+// Meta-line verb for the discussions variant: "{actor} {verb} in {category}".
+// System events (gov_created/gov_status) have no actor, so the verb alone still
+// reads as a caption under the title.
+const discussionsVerb =
+  event.kind === 'topic_created'
+    ? 'started'
+    : event.kind === 'reply_created'
+      ? event.topic.isGovernance
+        ? 'commented'
+        : 'replied'
+      : event.kind === 'gov_created'
+        ? 'New governance action'
+        : govStatusVerb(event.statusTransition?.to ?? '');
 
 // Replies deep-link to the post; everything else links to the topic. On a
 // governance action the comments live under the Discussion tab, so target that
@@ -38,9 +59,55 @@ const profileHref = actor ? authorProfileHref(actor) : null;
 const seed = actor?.identiconSeed ?? actor?.authorId ?? '';
 const isComment = event.kind === 'reply_created';
 
+// System events (gov_created/gov_status) have no actor, so the verb starts the
+// caption. Capitalize it in that case so it does not read as a lowercase
+// fragment ("Was ratified in Governance Actions" rather than "was ratified ...").
+const discussionsVerbText = actor
+  ? discussionsVerb
+  : discussionsVerb.charAt(0).toUpperCase() + discussionsVerb.slice(1);
+
 const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
 ---
 
+{variant === 'discussions' ? (
+<div class="act-row act-row--wide">
+  {actor && !actor.isSystem ? (
+    <Avatar seed={seed} imageHash={actor.imageHash} size={AVATAR_SIZE.rowLead} />
+  ) : (
+    <span class="act-tile" aria-hidden="true">
+      <LogoMark style="width:22px;height:22px;color:var(--muted);" />
+    </span>
+  )}
+
+  <div class="act-body2">
+    <div class="act-titlerow">
+      <svg class="act-type-icon" aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d={event.topic.isGovernance ? GAVEL_PATH : MESSAGE_PATH} />
+      </svg>
+      <a class="act-title2" href={href}>{event.topic.title}</a>
+    </div>
+    <p class="act-meta2">
+      {actor && (
+        <Fragment>
+          {profileHref ? <a class="act-name2" href={profileHref}>{actor.displayName}</a> : <span class="act-name2">{actor.displayName}</span>}
+          {' '}
+        </Fragment>
+      )}{discussionsVerbText} in {event.topic.categoryName}<span class="act-dot" aria-hidden="true">&middot;</span>{formatRelativeTime(event.createdAt, now)}
+    </p>
+  </div>
+
+  <div class="act-stats">
+    <div class="act-stat">
+      <span class="act-stat__num">{event.topic.postCount - 1}</span>
+      <span class="act-stat__label">Replies</span>
+    </div>
+    <div class="act-stat">
+      <span class="act-stat__num">{event.participants ?? 0}</span>
+      <span class="act-stat__label">Participants</span>
+    </div>
+  </div>
+</div>
+) : (
 <div class="act-row">
   {actor && !actor.isSystem ? (
     <Avatar seed={seed} imageHash={actor.imageHash} size={AVATAR_SIZE.rowLead} />
@@ -91,6 +158,7 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
     )}
   </span>
 </div>
+)}
 
 <style>
   .act-row {
@@ -163,4 +231,21 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
   .act-time { display: inline-flex; align-items: center; gap: 0.3rem; }
   .act-ext { color: var(--muted); display: inline-flex; }
   .act-ext:hover { color: var(--fg); }
+
+  /* ---- discussions variant: title-first row, no role badges ---- */
+  .act-row--wide { align-items: center; gap: 1rem; }
+  .act-body2 { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+  .act-titlerow { display: flex; align-items: center; gap: 0.45rem; min-width: 0; }
+  .act-type-icon { flex-shrink: 0; color: var(--muted); }
+  .act-title2 { font-weight: 600; font-size: 0.9375rem; color: var(--fg); text-decoration: none; }
+  .act-title2:hover { text-decoration: underline; }
+  .act-meta2 { margin: 0; color: var(--muted); font-size: 0.8125rem; }
+  .act-name2 { font-weight: 600; color: var(--fg); text-decoration: none; }
+  .act-name2:hover { text-decoration: underline; }
+  .act-dot { margin: 0 0.4rem; opacity: 0.6; }
+  /* Right stat cluster: Replies / Participants, number over a muted label. Never wraps. */
+  .act-stats { flex-shrink: 0; display: flex; align-items: center; gap: 1.5rem; }
+  .act-stat { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; min-width: 3rem; }
+  .act-stat__num { font-size: 0.9375rem; font-weight: 700; color: var(--fg); line-height: 1.2; }
+  .act-stat__label { font-size: 0.6875rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
 </style>
