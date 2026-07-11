@@ -129,6 +129,15 @@ export const PROPOSERS: Proposer[] = [
     addresses: ['stake1uy5mx9230r5c0a8tp69kpw6773ycm9spghazx9t8gnyfzgs8ymlec'],
     icon: '/orgs/yuta.jpg',
   },
+  {
+    // Submitter of the 2026 NCL replacement (Epochs 613-713) and the AlphaGrowth
+    // PRIME treasury withdrawal, both from this address. The on-chain metadata
+    // author is a throwaway label (their COO stated it is irrelevant), so we
+    // attribute by submitter as usual.
+    slug: 'midgard-labs',
+    name: 'Midgard Labs',
+    addresses: ['stake1u8c9lgcnx2n47m9t2ccufra270d9vfp4updxmgndv4f7hyg8mykgg'],
+  },
 ];
 
 /** Lowercase + trim, so lookups are case/whitespace-insensitive. */
