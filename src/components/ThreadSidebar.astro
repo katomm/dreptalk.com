@@ -1,0 +1,72 @@
+---
+import type { Topic } from '@/lib/db/forum.js';
+import type { Category } from '../../config/categories.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+
+interface Props {
+  topic: Topic;
+  category: Category | undefined;
+  topicAuthor: AuthorDescriptor;
+  participants: { author: AuthorDescriptor; posts: number }[];
+  participantTotal: number;
+  related: { title: string; slug: string; replies: number; lastPostAt: number }[];
+  now: number;
+}
+const { topic, category, topicAuthor, participants, participantTotal, related, now } = Astro.props;
+---
+
+<aside class="thread-side">
+  <section class="side-card">
+    <h2 class="side-card__title">About this topic</h2>
+    {category?.description && <p class="side-card__desc">{category.description}</p>}
+    <dl class="side-kv">
+      <div><dt>Category</dt><dd>{category ? <a href={`/c/${topic.category_slug}`}>{category.name}</a> : topic.category_slug}</dd></div>
+      <div><dt>Created by</dt><dd>{topicAuthor.displayName}</dd></div>
+      <div><dt>Created</dt><dd>{formatRelativeTime(topic.created_at, now)}</dd></div>
+      <div><dt>Last activity</dt><dd>{formatRelativeTime(topic.last_post_at, now)}</dd></div>
+    </dl>
+  </section>
+
+  <section class="side-card">
+    <h2 class="side-card__title">Participants ({participantTotal})</h2>
+    {participants.map((p) => (
+      <div class="side-part">
+        <AuthorIdentity author={p.author} size={34}>
+          <span slot="sub">{p.posts} {p.posts === 1 ? 'post' : 'posts'}</span>
+        </AuthorIdentity>
+      </div>
+    ))}
+  </section>
+
+  {related.length > 0 && (
+    <section class="side-card">
+      <h2 class="side-card__title">Related topics</h2>
+      {related.map((r) => (
+        <a class="side-rel" href={`/t/${r.slug}`}>
+          <span class="side-rel__title">{r.title}</span>
+          <span class="side-rel__meta">{r.replies} {r.replies === 1 ? 'reply' : 'replies'} · {formatRelativeTime(r.lastPostAt, now)}</span>
+        </a>
+      ))}
+      <a class="side-rel__all" href={`/c/${topic.category_slug}`}>View all in this category</a>
+    </section>
+  )}
+</aside>
+
+<style>
+  .thread-side { display: flex; flex-direction: column; gap: 0.9rem; }
+  .side-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; }
+  .side-card__title { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.6rem; }
+  .side-card__desc { font-size: 0.8125rem; color: var(--muted); margin: 0 0 0.75rem; line-height: 1.5; }
+  .side-kv { margin: 0; }
+  .side-kv > div { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.35rem 0; border-top: 1px solid var(--border); }
+  .side-kv dt { color: var(--muted); font-size: 0.75rem; margin: 0; }
+  .side-kv dd { margin: 0; font-size: 0.8125rem; font-weight: 600; text-align: right; }
+  .side-part { margin-top: 0.6rem; }
+  .side-rel { display: block; text-decoration: none; color: inherit; padding: 0.6rem 0; border-top: 1px solid var(--border); }
+  .side-rel:first-of-type { border-top: 0; }
+  .side-rel__title { display: block; font-size: 0.8125rem; font-weight: 600; line-height: 1.35; color: var(--fg); }
+  .side-rel__meta { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+  .side-rel__all { display: inline-block; margin-top: 0.6rem; font-size: 0.78rem; font-weight: 600; color: var(--accent); text-decoration: none; }
+</style>
