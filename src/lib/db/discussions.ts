@@ -1,5 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { sqlPlaceholders } from './sql.js';
+
 export interface TopicParticipant {
   authorId: string;
   posts: number;
@@ -25,4 +27,29 @@ export async function getTopicParticipants(
       .all<{ author_id: string; posts: number }>()
   ).results ?? [];
   return rows.map((r) => ({ authorId: r.author_id, posts: r.posts }));
+}
+
+export async function getParticipantCounts(
+  db: D1Database,
+  topicIds: string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (topicIds.length === 0) return out;
+  const CHUNK = 100;
+  for (let i = 0; i < topicIds.length; i += CHUNK) {
+    const chunk = topicIds.slice(i, i + CHUNK);
+    const rows = (
+      await db
+        .prepare(
+          `SELECT topic_id, COUNT(DISTINCT author_id) AS participants
+           FROM posts
+           WHERE topic_id IN (${sqlPlaceholders(chunk)}) AND deleted = 0
+           GROUP BY topic_id`,
+        )
+        .bind(...chunk)
+        .all<{ topic_id: string; participants: number }>()
+    ).results ?? [];
+    for (const r of rows) out.set(r.topic_id, r.participants);
+  }
+  return out;
 }
