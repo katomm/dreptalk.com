@@ -6,6 +6,7 @@ import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import ThreadPosts from '@/components/ThreadPosts.astro';
+import ThreadSidebar from '@/components/ThreadSidebar.astro';
 import TitleEditor from '@/components/TitleEditor.astro';
 import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
@@ -14,6 +15,7 @@ import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
+import { getTopicParticipants, getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
 import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
@@ -103,6 +105,31 @@ const topicAuthor: AuthorDescriptor = topic
     ? systemAuthor(topic.author_id)
     : describe(topic.author_id)
   : { authorId: '', displayName: '' };
+
+// Sidebar data for user topics only (governance topics use GaSidebar instead).
+// Participants and related topics are independent reads; run them concurrently.
+let sidebarData: {
+  participants: { author: AuthorDescriptor; posts: number }[];
+  participantTotal: number;
+  related: { title: string; slug: string; replies: number; lastPostAt: number }[];
+} | null = null;
+if (db && topic && !isGovernanceTopic) {
+  const [partRows, related] = await Promise.all([
+    getTopicParticipants(db, topic.id, { limit: 8 }),
+    getRelatedTopics(db, topic.category_slug, topic.id, { limit: 5 }),
+  ]);
+  const partIdentities = await loadAuthorIdentities(db, partRows.map((p) => p.authorId));
+  sidebarData = {
+    participants: partRows.map((p) => ({ author: partIdentities.describe(p.authorId), posts: p.posts })),
+    participantTotal: thread.stats?.participants ?? partRows.length,
+    related: related.map((r) => ({
+      title: r.title,
+      slug: r.slug,
+      replies: Math.max(0, r.post_count - 1),
+      lastPostAt: r.last_post_at,
+    })),
+  };
+}
 
 if (!notFound) {
   Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
@@ -519,26 +546,55 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
         </div>
       </>
     ) : (
-      // Non-governance topics: single-column thread.
-      <ThreadPosts
-        topic={topic}
-        thread={thread}
-        govVotes={govVotes}
-        user={user}
-        topicAuthor={topicAuthor}
-        describe={describe}
-        flaggedPostIds={flaggedPostIds}
-        viewerReactions={viewerReactions}
-        isGovernanceTopic={isGovernanceTopic}
-        prevPage={prevPage}
-        nextPage={nextPage}
-        now={now}
-      />
+      // Non-governance topics: two-column thread with the discussion sidebar.
+      <div class="thread-layout">
+        <div class="thread-main">
+          <ThreadPosts
+            topic={topic}
+            thread={thread}
+            govVotes={govVotes}
+            user={user}
+            topicAuthor={topicAuthor}
+            describe={describe}
+            flaggedPostIds={flaggedPostIds}
+            viewerReactions={viewerReactions}
+            isGovernanceTopic={isGovernanceTopic}
+            prevPage={prevPage}
+            nextPage={nextPage}
+            now={now}
+          />
+        </div>
+        {sidebarData && (
+          <ThreadSidebar
+            topic={topic}
+            category={category}
+            topicAuthor={topicAuthor}
+            participants={sidebarData.participants}
+            participantTotal={sidebarData.participantTotal}
+            related={sidebarData.related}
+            now={now}
+          />
+        )}
+      </div>
     )}
   </Layout>
 )}
 
 <style>
+  /* User-topic two-column layout: thread on the left, ThreadSidebar on the
+     right. Single column below 60rem (sidebar stacks below the thread). */
+  .thread-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    align-items: start;
+  }
+  @media (min-width: 60rem) {
+    .thread-layout {
+      grid-template-columns: 1fr 300px;
+    }
+  }
+
   /* Two-column layout: main content on the left, sidebar on the right.
      Single column on mobile (sidebar stacks below). */
   .ga-detail-layout {
