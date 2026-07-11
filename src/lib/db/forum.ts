@@ -49,7 +49,7 @@ export interface Post {
 }
 
 // Raw row shapes as stored in D1 (booleans as 0/1 integers).
-interface TopicRow {
+export interface TopicRow {
   id: string;
   category_slug: string;
   author_id: string;
@@ -95,7 +95,7 @@ const POST_COLUMNS =
   'id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at, source, vote';
 
 /** Maps a raw D1 row to the Topic type (0/1 integers to JS booleans). */
-function rowToTopic(row: TopicRow): Topic {
+export function rowToTopic(row: TopicRow): Topic {
   return {
     id: row.id,
     category_slug: row.category_slug,

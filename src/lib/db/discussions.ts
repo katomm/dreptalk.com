@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { sqlPlaceholders } from './sql.js';
+import { rowToTopic, type Topic, type TopicRow } from './forum.js';
 
 export interface TopicParticipant {
   authorId: string;
@@ -52,4 +53,25 @@ export async function getParticipantCounts(
     for (const r of rows) out.set(r.topic_id, r.participants);
   }
   return out;
+}
+
+export async function getRelatedTopics(
+  db: D1Database,
+  categorySlug: string,
+  excludeTopicId: string,
+  opts?: { limit?: number },
+): Promise<Topic[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 5, 1), 20);
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM topics
+         WHERE category_slug = ? AND id != ? AND deleted = 0
+         ORDER BY last_post_at DESC
+         LIMIT ?`,
+      )
+      .bind(categorySlug, excludeTopicId, limit)
+      .all<TopicRow>()
+  ).results ?? [];
+  return rows.map(rowToTopic);
 }

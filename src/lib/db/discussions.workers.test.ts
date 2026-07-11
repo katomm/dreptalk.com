@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, createPost } from './forum.js';
-import { getTopicParticipants, getParticipantCounts } from './discussions.js';
+import { getTopicParticipants, getParticipantCounts, getRelatedTopics } from './discussions.js';
 
 const db = () => env.DB;
 
@@ -47,5 +47,25 @@ describe('getParticipantCounts', () => {
   it('returns an empty map for no ids', async () => {
     const counts = await getParticipantCounts(db(), []);
     expect(counts.size).toBe(0);
+  });
+});
+
+describe('getRelatedTopics', () => {
+  it('returns same-category topics, newest first, excluding the current one', async () => {
+    const mk = (title: string, now: number, rand: string) =>
+      createTopic(db(), { categorySlug: 'constitution', authorId: 'alice', title, bodyMd: 'op', bodyHtml: '<p>op</p>', now, rand });
+    const { topic: current } = await mk('Current', 1_700_020_000_000, 'rel0');
+    const { topic: older } = await mk('Older', 1_700_020_100_000, 'rel1');
+    const { topic: newer } = await mk('Newer', 1_700_020_200_000, 'rel2');
+    // A topic in a different category must be excluded.
+    const { topic: otherCat } = await createTopic(db(), { categorySlug: 'general', authorId: 'alice', title: 'Other cat', bodyMd: 'op', bodyHtml: '<p>op</p>', now: 1_700_020_400_000, rand: 'rel4' });
+
+    const related = await getRelatedTopics(db(), 'constitution', current.id, { limit: 5 });
+
+    const ids = related.map((t) => t.id);
+    expect(ids).not.toContain(current.id);
+    expect(ids.indexOf(newer.id)).toBeLessThan(ids.indexOf(older.id));
+    expect(ids).not.toContain(otherCat.id);
+    expect(related.every((t) => t.category_slug === 'constitution')).toBe(true);
   });
 });
