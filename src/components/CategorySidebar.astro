@@ -1,6 +1,7 @@
 ---
 import type { Category } from '../../config/categories.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { GAVEL_PATH, MESSAGE_PATH } from '@/lib/forum/icons.js';
 
 interface Props {
   categories: readonly Category[];
@@ -11,10 +12,10 @@ interface Props {
 const { categories, stats, selectedSlug, now } = Astro.props;
 
 const ICONS: Record<string, string> = {
-  'governance-actions': 'M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6',
+  'governance-actions': GAVEL_PATH,
   constitution: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
   budget: 'M3 7h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 7l2-4h14l2 4M16 12h4',
-  general: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+  general: MESSAGE_PATH,
 };
 const FALLBACK_ICON = ICONS.general;
 const BULB = 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12c1 1 1 2 1 3h6c0-1 0-2 1-3a7 7 0 0 0-4-12z';

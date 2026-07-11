@@ -113,7 +113,7 @@ let sidebarData: {
   participantTotal: number;
   related: { title: string; slug: string; replies: number; lastPostAt: number }[];
 } | null = null;
-if (db && topic && !isGovernanceTopic) {
+if (db && topic && !topic.deleted && !isGovernanceTopic) {
   const [partRows, related] = await Promise.all([
     getTopicParticipants(db, topic.id, { limit: 8 }),
     getRelatedTopics(db, topic.category_slug, topic.id, { limit: 5 }),

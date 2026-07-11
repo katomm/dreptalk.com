@@ -9,6 +9,7 @@ import LogoMark from '@/components/LogoMark.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { authorProfileHref } from '@/lib/forum/author.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { GAVEL_PATH, MESSAGE_PATH } from '@/lib/forum/icons.js';
 import { statusBadge, govStatusVerb, isTerminalStatus, TONE_COLORS } from '@/lib/governance/view.js';
 
 interface Props {
@@ -18,12 +19,6 @@ interface Props {
 }
 
 const { event, now, variant = 'default' } = Astro.props;
-
-// Discussions-variant icon paths: reused verbatim from CategorySidebar's
-// governance-actions and general icons, so the leading type icon matches the
-// category iconography elsewhere on the page.
-const GAVEL_PATH = 'M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6';
-const MESSAGE_PATH = 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z';
 
 // Meta-line verb for the discussions variant: "{actor} {verb} in {category}".
 // System events (gov_created/gov_status) have no actor, so the verb alone still

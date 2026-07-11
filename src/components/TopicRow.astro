@@ -17,6 +17,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
 import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartMs, type CardanoNetwork } from '@/lib/config/network.js';
+import { GAVEL_PATH, MESSAGE_PATH } from '@/lib/forum/icons.js';
 
 interface Props {
   topic: Topic;
@@ -35,12 +36,8 @@ interface Props {
 
 const { topic, now, network, author, category, governance, variant = 'default', excerpt, participants } = Astro.props;
 
-// Discussions-variant leading type icon path: reused verbatim from
-// CategorySidebar/ActivityRow so the icon matches elsewhere on the page. The
-// discussion list never passes `governance`, so this is message in practice;
-// gavel is kept for parity with ActivityRow should that ever change.
-const GAVEL_PATH = 'M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6';
-const MESSAGE_PATH = 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z';
+// The discussion list never passes `governance`, so the leading type icon is
+// message in practice; gavel is kept for parity with ActivityRow.
 
 // Left column: the author avatar, or the neutral system tile for a
 // system-authored (governance) topic, mirroring the activity feed row.
