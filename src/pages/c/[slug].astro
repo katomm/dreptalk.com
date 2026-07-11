@@ -189,14 +189,14 @@ const govQuery = (o: { sort?: GovSort; type?: string | null; status?: GovStatus 
 // category so paging stays within the selected view.
 const pageHref = (p: number) =>
   isGovernanceCategory
-    ? `/c/${category!.slug}?${govQuery({})}&page=${p}`
-    : `/c/${category!.slug}?page=${p}`;
+    ? `/c/${category!.slug}/?${govQuery({})}&page=${p}`
+    : `/c/${category!.slug}/?page=${p}`;
 
 // Governance control links (status chips, sort dropdown, type dropdown) share
 // the same query string and only vary one param; this keeps them in sync and
 // resets to page 1.
 const ctrlHref = (o: { sort?: GovSort; type?: string | null; status?: GovStatus }) =>
-  `/c/${category!.slug}?${govQuery(o)}`;
+  `/c/${category!.slug}/?${govQuery(o)}`;
 
 const breadcrumbLd = {
   '@context': 'https://schema.org',
@@ -212,7 +212,7 @@ const breadcrumbLd = {
       '@type': 'ListItem',
       position: 2,
       name: category?.name ?? 'Category',
-      item: siteOrigin + `/c/${slug}`,
+      item: siteOrigin + `/c/${slug}/`,
     },
   ],
 };
@@ -246,7 +246,7 @@ const breadcrumbLd = {
     </div>
 
     {treasuryOverview && (
-      <TreasuryOverview data={treasuryOverview} detailHref="/treasury" />
+      <TreasuryOverview data={treasuryOverview} detailHref="/treasury/" />
     )}
 
     {isGovernanceCategory && (
@@ -356,7 +356,7 @@ const breadcrumbLd = {
                 params={overviewParams}
                 network={network}
                 now={now}
-                href={`/t/${r.topic.slug}`}
+                href={`/t/${r.topic.slug}/`}
                 epochParamsJson={govParamsRawJson}
               />
             );

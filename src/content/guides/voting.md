@@ -27,7 +27,7 @@ The vote is built for you, but your wallet signs and submits it. Your private ke
 
 ## Adding a rationale
 
-A rationale is optional but encouraged. When you include one, it is recorded with your vote on-chain and shown on the action's Positions tab, and you can see the link to the on-chain record before you sign. A checkbox lets you also post a copy into the action's discussion thread so others can respond; that cross-post is off by default. The on-chain rationale is permanent and cannot be edited, since it reflects what was committed on-chain. For what makes a good rationale and how to structure it, see [Writing a vote rationale](/help/writing-a-vote-rationale).
+A rationale is optional but encouraged. When you include one, it is recorded with your vote on-chain and shown on the action's Positions tab, and you can see the link to the on-chain record before you sign. A checkbox lets you also post a copy into the action's discussion thread so others can respond; that cross-post is off by default. The on-chain rationale is permanent and cannot be edited, since it reflects what was committed on-chain. For what makes a good rationale and how to structure it, see [Writing a vote rationale](/help/writing-a-vote-rationale/).
 
 ## Changing your vote
 
@@ -35,7 +35,7 @@ While an action is still open you can change your vote. Cast again with the new 
 
 ## Related
 
-- [Writing a vote rationale](/help/writing-a-vote-rationale)
-- [Governance action types](/help/governance-action-types)
-- [Managing your DRep](/help/managing-your-drep)
-- [Data freshness](/help/data-freshness)
+- [Writing a vote rationale](/help/writing-a-vote-rationale/)
+- [Governance action types](/help/governance-action-types/)
+- [Managing your DRep](/help/managing-your-drep/)
+- [Data freshness](/help/data-freshness/)

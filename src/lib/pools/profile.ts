@@ -4,7 +4,7 @@ import { truncateId } from '../forum/view.js';
 
 /** Canonical profile path for a pool: the slug when assigned, else the raw id. */
 export function poolPath(p: { poolId: string; slug?: string | null }): string {
-  return `/spos/${p.slug ?? p.poolId}`;
+  return `/spos/${p.slug ?? p.poolId}/`;
 }
 
 /** True when the requested segment is already canonical; the route 301s otherwise. */

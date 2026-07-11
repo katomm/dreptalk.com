@@ -99,7 +99,7 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
     }
     const row = await stmt.first<{ id: string; title: string | null; slug: string | null }>();
     if (!row?.slug) return null;
-    return { kind: 'governance-action', href: `/t/${row.slug}`, label: row.title ?? row.id };
+    return { kind: 'governance-action', href: `/t/${row.slug}/`, label: row.title ?? row.id };
   }
 
   const direct = await db
@@ -258,7 +258,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
   for (const ga of gaRows) {
     if (!ga.slug) continue; // every synced GA gets a topic; guard only
     governanceActions.push({
-      href: `/t/${ga.slug}`,
+      href: `/t/${ga.slug}/`,
       title: ga.title ?? ga.ga_id,
       type: ga.type,
       status: ga.status,
@@ -270,12 +270,12 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
   const discussions: TopicHit[] = [];
   for (const thread of threads.values()) {
     if (thread.ga_id != null) {
-      const direct = governanceActions.find((g) => g.href === `/t/${thread.slug}`);
+      const direct = governanceActions.find((g) => g.href === `/t/${thread.slug}/`);
       if (direct) {
         direct.discussionMatches = thread.postMatches;
       } else if (governanceActions.length < GROUP_LIMIT) {
         governanceActions.push({
-          href: `/t/${thread.slug}`,
+          href: `/t/${thread.slug}/`,
           title: thread.ga_title ?? thread.ga_id,
           type: thread.ga_type ?? 'InfoAction',
           status: thread.ga_status ?? 'active',
@@ -285,7 +285,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
       }
     } else if (discussions.length < GROUP_LIMIT) {
       discussions.push({
-        href: `/t/${thread.slug}`,
+        href: `/t/${thread.slug}/`,
         title: thread.title,
         categorySlug: thread.category_slug,
         postCount: thread.post_count,
@@ -375,7 +375,7 @@ const RATIONALE_SELECT = `
 
 function toRationaleHit(r: RationaleRow): RationaleHit {
   return {
-    href: `/t/${r.topic_slug}?tab=positions#voter-${r.voter_id}`,
+    href: `/t/${r.topic_slug}/?tab=positions#voter-${r.voter_id}`,
     drepId: r.voter_id,
     drepName: r.drep_name,
     imageHash: r.image_content_hash,
@@ -407,7 +407,7 @@ export async function searchGovernancePage(db: D1Database, match: string, page: 
   const hits: GaHit[] = rows
     .filter((r) => r.slug)
     .map((r) => ({
-      href: `/t/${r.slug}`,
+      href: `/t/${r.slug}/`,
       title: r.title ?? r.ga_id,
       type: r.type,
       status: r.status,
@@ -496,7 +496,7 @@ export async function searchForumPage(db: D1Database, match: string, page: numbe
   ]);
   const rows = (rowsRes.results ?? []) as unknown as ForumRow[];
   const hits: TopicHit[] = rows.map((r) => ({
-    href: `/t/${r.slug}`,
+    href: `/t/${r.slug}/`,
     title: r.title,
     categorySlug: r.category_slug,
     postCount: r.post_count,

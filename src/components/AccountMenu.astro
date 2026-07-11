@@ -37,9 +37,9 @@ const icons = {
 // (DRep or SPO); Vote is DRep-only, since /vote redirects everyone else to
 // /login, so it is gated on a synced DRep id rather than on profileHref.
 const items = [
-  { label: 'Settings', href: '/settings', icon: icons.settings },
+  { label: 'Settings', href: '/settings/', icon: icons.settings },
   ...(profileHref ? [{ label: 'Profile', href: profileHref, icon: icons.profile }] : []),
-  ...(account.drepId ? [{ label: 'Vote', href: '/vote', icon: icons.vote }] : []),
+  ...(account.drepId ? [{ label: 'Vote', href: '/vote/', icon: icons.vote }] : []),
 ];
 ---
 

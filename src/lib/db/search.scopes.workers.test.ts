@@ -97,9 +97,9 @@ describe('searchForumPage', () => {
     const res = await searchForumPage(db(), 'treasury*', 1);
     expect(res.total).toBe(2);
     const slugs = res.hits.map((h) => h.href);
-    expect(slugs).toContain('/t/t1');
-    expect(slugs).toContain('/t/t2');
-    expect(slugs.filter((s) => s === '/t/t1')).toHaveLength(1);
+    expect(slugs).toContain('/t/t1/');
+    expect(slugs).toContain('/t/t2/');
+    expect(slugs.filter((s) => s === '/t/t1/')).toHaveLength(1);
   });
 
   it('excludes deleted topics and hidden or deleted posts, keeping title matches', async () => {
@@ -109,7 +109,7 @@ describe('searchForumPage', () => {
 
     const res = await searchForumPage(db(), 'zeta*', 1);
     expect(res.total).toBe(1);
-    expect(res.hits[0].href).toBe('/t/t3');
+    expect(res.hits[0].href).toBe('/t/t3/');
     expect(res.hits[0].snippet).toBeNull();
   });
 

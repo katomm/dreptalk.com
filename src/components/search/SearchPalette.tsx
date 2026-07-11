@@ -120,7 +120,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
   const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 
   // The dedicated results page carries the active query and scope.
-  const seeAllHref = `/search?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}`;
+  const seeAllHref = `/search/?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}`;
 
   // Focus + scroll lock while open; reset the scope pill each time it opens.
   useEffect(() => {

@@ -30,7 +30,7 @@ your delegation carries more weight in the governance system.
 
 ## Choosing a DRep
 
-Browse the [DRep directory](/dreps) to find someone whose views align with
+Browse the [DRep directory](/dreps/) to find someone whose views align with
 yours. Each DRep profile shows their name, a bio describing their governance
 philosophy, and their activity: which actions they voted on and what
 rationales they published.
@@ -54,7 +54,7 @@ Lace, Eternl, and Typhon all support this.
 
 1. Open the governance or voting section of your wallet.
 2. Find the DRep you want to delegate to. You can search by DRep ID, which
-   you can copy from their profile on the [DRep directory](/dreps).
+   you can copy from their profile on the [DRep directory](/dreps/).
 3. Select the DRep and confirm the delegation transaction.
 4. Your wallet shows you the exact cost before anything is sent. There is no
    deposit; you pay only a small network fee, similar to a standard Cardano
@@ -93,5 +93,5 @@ The only cost is the small network fee for each delegation transaction.
 
 ## Related
 
-- [How to become a DRep](/help/become-a-drep)
-- [Governance action types](/help/governance-action-types)
+- [How to become a DRep](/help/become-a-drep/)
+- [Governance action types](/help/governance-action-types/)

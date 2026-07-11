@@ -145,7 +145,7 @@ export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewPr
         <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', lineHeight: 1.5, color: 'var(--muted)' }}>
           They are public and can be viewed on explorers and by anyone in the Cardano ecosystem.
         </p>
-        <a href="/help/managing-your-drep" style={{ fontSize: '0.8125rem', color: 'var(--accent)' }}>
+        <a href="/help/managing-your-drep/" style={{ fontSize: '0.8125rem', color: 'var(--accent)' }}>
           Learn more about CIP-119
         </a>
       </div>

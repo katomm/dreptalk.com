@@ -32,6 +32,6 @@ on GitHub.
 
 ## Related
 
-- [Governance action statuses](/help/governance-statuses)
-- [Governance action types](/help/governance-action-types)
-- [Sorting governance actions](/help/sorting)
+- [Governance action statuses](/help/governance-statuses/)
+- [Governance action types](/help/governance-action-types/)
+- [Sorting governance actions](/help/sorting/)

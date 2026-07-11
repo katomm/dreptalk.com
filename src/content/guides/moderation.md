@@ -27,6 +27,6 @@ moderation mechanism, and the threshold is kept deliberately simple.
 
 ## Related
 
-- [Signing in](/help/signing-in)
-- [Open source](/help/open-source)
-- [Badges](/help/badges)
+- [Signing in](/help/signing-in/)
+- [Open source](/help/open-source/)
+- [Badges](/help/badges/)

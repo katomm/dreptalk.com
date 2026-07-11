@@ -448,7 +448,7 @@ function StatusCallout({ loginState, onReset, role, method }: StatusCalloutProps
             {isDRep && (
               <>
                 <span style={{ color: 'var(--muted)', margin: '0 0.5rem' }}>or</span>
-                <a href="/register-drep" style={{ color: 'var(--accent)', fontSize: '0.8125rem' }}>
+                <a href="/register-drep/" style={{ color: 'var(--accent)', fontSize: '0.8125rem' }}>
                   register as a DRep
                 </a>
               </>
@@ -522,7 +522,7 @@ function WalletTab({ network, loginState, onLoginStateChange }: WalletTabProps) 
     if (result.ok && result.user) {
       rememberWallet(selectedWallet);
       onLoginStateChange({ status: 'success', userId: result.user.id, roles: result.user.roles });
-      window.location.assign('/discussions');
+      window.location.assign('/discussions/');
     } else {
       onLoginStateChange({ status: 'error', message: friendlyLoginError(result.error, signRole, network) });
     }
@@ -696,7 +696,7 @@ function SignerTab({ network, loginState, onLoginStateChange }: SignerTabProps) 
     });
 
     if (r.ok && r.user) {
-      window.location.assign('/discussions');
+      window.location.assign('/discussions/');
     } else {
       onLoginStateChange({ status: 'error', message: friendlyLoginError(r.error, role, network) });
       // Challenge is single-use; refresh so the user can retry without reloading.

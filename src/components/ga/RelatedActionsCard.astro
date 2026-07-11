@@ -21,7 +21,7 @@ const { actions } = Astro.props;
         const displayTitle = a.title ?? readableType(a.type);
         return (
           <li class="related-item">
-            <a class="related-link" href={`/t/${a.topic_slug}`}>
+            <a class="related-link" href={`/t/${a.topic_slug}/`}>
               <span class="related-title">{displayTitle}</span>
               <span class="related-meta">
                 <span class="related-type">{readableType(a.type)}</span>

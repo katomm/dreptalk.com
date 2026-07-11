@@ -14,10 +14,10 @@ const { id } = Astro.params;
 
 const user = Astro.locals.user;
 if (!user) {
-  return Astro.redirect('/login');
+  return Astro.redirect('/login/');
 }
 if (!user.roles.includes('drep')) {
-  return Astro.redirect('/login');
+  return Astro.redirect('/login/');
 }
 
 const network = currentNetwork().network;

@@ -42,9 +42,9 @@ const recentIdentities = db && recentIds.length ? await loadAuthorIdentities(db,
 const recentAuthors = recentIdentities ? recentIds.map((id) => recentIdentities.describe(id)) : [];
 
 // Tabs and pager keep the active filter; a filter change resets to page 1.
-const tabHref = (f: ActivityFilter) => `/discussions?filter=${f}`;
-const prevHref = page > 1 ? `/discussions?filter=${filter}&page=${page - 1}` : null;
-const nextHref = offset + PAGE_SIZE < feed.total ? `/discussions?filter=${filter}&page=${page + 1}` : null;
+const tabHref = (f: ActivityFilter) => `/discussions/?filter=${f}`;
+const prevHref = page > 1 ? `/discussions/?filter=${filter}&page=${page - 1}` : null;
+const nextHref = offset + PAGE_SIZE < feed.total ? `/discussions/?filter=${filter}&page=${page + 1}` : null;
 const totalPages = Math.max(1, Math.ceil(feed.total / PAGE_SIZE));
 
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
@@ -55,7 +55,7 @@ const breadcrumbLd = {
   '@type': 'BreadcrumbList',
   itemListElement: [
     { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: siteOrigin + '/' },
-    { '@type': 'ListItem', position: 2, name: 'Discussions', item: siteOrigin + '/discussions' },
+    { '@type': 'ListItem', position: 2, name: 'Discussions', item: siteOrigin + '/discussions/' },
   ],
 };
 ---
@@ -72,7 +72,7 @@ const breadcrumbLd = {
         {categories.map((c) => {
           const s = stats.get(c.slug);
           return (
-            <a href={`/c/${c.slug}`} style="border-bottom:1px solid var(--border);padding:0.75rem 0;text-decoration:none;color:inherit;display:block;">
+            <a href={`/c/${c.slug}/`} style="border-bottom:1px solid var(--border);padding:0.75rem 0;text-decoration:none;color:inherit;display:block;">
               <div style="display:flex;align-items:center;gap:0.5rem;">
                 <span aria-hidden="true" style={`width:0.5rem;height:0.5rem;border-radius:999px;flex-shrink:0;background:${c.kind === 'governance' ? 'var(--accent)' : 'var(--muted)'};`}></span>
                 <span style="font-weight:600;color:var(--fg);">{c.name}</span>
