@@ -18,46 +18,110 @@ const { topic, category, topicAuthor, participants, participantTotal, related, n
 ---
 
 <aside class="thread-side">
-  <section class="side-card">
-    <h2 class="side-card__title">About this topic</h2>
-    {category?.description && <p class="side-card__desc">{category.description}</p>}
-    <dl class="side-kv">
-      <div><dt>Category</dt><dd>{category ? <a href={`/c/${topic.category_slug}`}>{category.name}</a> : topic.category_slug}</dd></div>
-      <div><dt>Created by</dt><dd>{topicAuthor.displayName}</dd></div>
-      <div><dt>Created</dt><dd>{formatRelativeTime(topic.created_at, now)}</dd></div>
-      <div><dt>Last activity</dt><dd>{formatRelativeTime(topic.last_post_at, now)}</dd></div>
-    </dl>
-  </section>
+  <details class="side-card" open>
+    <summary class="side-card__title">
+      About this topic
+      <span class="side-card__chevron" aria-hidden="true"></span>
+    </summary>
+    <div class="side-card__body">
+      {category?.description && <p class="side-card__desc">{category.description}</p>}
+      <dl class="side-kv">
+        <div><dt>Category</dt><dd>{category ? <a href={`/c/${topic.category_slug}`}>{category.name}</a> : topic.category_slug}</dd></div>
+        <div><dt>Created by</dt><dd>{topicAuthor.displayName}</dd></div>
+        <div><dt>Created</dt><dd>{formatRelativeTime(topic.created_at, now)}</dd></div>
+        <div><dt>Last activity</dt><dd>{formatRelativeTime(topic.last_post_at, now)}</dd></div>
+      </dl>
+    </div>
+  </details>
 
-  <section class="side-card">
-    <h2 class="side-card__title">Participants ({participantTotal})</h2>
-    {participants.map((p) => (
-      <div class="side-part">
-        <AuthorIdentity author={p.author} size={34}>
-          <span slot="sub">{p.posts} {p.posts === 1 ? 'post' : 'posts'}</span>
-        </AuthorIdentity>
-      </div>
-    ))}
-  </section>
+  <details class="side-card" open>
+    <summary class="side-card__title">
+      Participants ({participantTotal})
+      <span class="side-card__chevron" aria-hidden="true"></span>
+    </summary>
+    <div class="side-card__body">
+      {participants.map((p) => (
+        <div class="side-part">
+          <AuthorIdentity author={p.author} size={34}>
+            <span slot="sub">{p.posts} {p.posts === 1 ? 'post' : 'posts'}</span>
+          </AuthorIdentity>
+        </div>
+      ))}
+    </div>
+  </details>
 
   {related.length > 0 && (
-    <section class="side-card">
-      <h2 class="side-card__title">Related topics</h2>
-      {related.map((r) => (
-        <a class="side-rel" href={`/t/${r.slug}`}>
-          <span class="side-rel__title">{r.title}</span>
-          <span class="side-rel__meta">{r.replies} {r.replies === 1 ? 'reply' : 'replies'} · {formatRelativeTime(r.lastPostAt, now)}</span>
-        </a>
-      ))}
-      <a class="side-rel__all" href={`/c/${topic.category_slug}`}>View all in this category</a>
-    </section>
+    <details class="side-card" open>
+      <summary class="side-card__title">
+        Related topics
+        <span class="side-card__chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="side-card__body">
+        {related.map((r) => (
+          <a class="side-rel" href={`/t/${r.slug}`}>
+            <span class="side-rel__title">{r.title}</span>
+            <span class="side-rel__meta">{r.replies} {r.replies === 1 ? 'reply' : 'replies'} · {formatRelativeTime(r.lastPostAt, now)}</span>
+          </a>
+        ))}
+        <a class="side-rel__all" href={`/c/${topic.category_slug}`}>View all in this category</a>
+      </div>
+    </details>
   )}
 </aside>
+
+<script>
+  const mq = window.matchMedia('(min-width: 60rem)');
+  const sync = () => {
+    if (!mq.matches) return;
+    for (const d of document.querySelectorAll('details.side-card')) {
+      (d as HTMLDetailsElement).open = true;
+    }
+  };
+  mq.addEventListener('change', sync);
+  sync();
+</script>
 
 <style>
   .thread-side { display: flex; flex-direction: column; gap: 0.9rem; }
   .side-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; }
-  .side-card__title { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.6rem; }
+  .side-card__title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0;
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+  .side-card__title::-webkit-details-marker { display: none; }
+  .side-card__chevron {
+    width: 0.5rem;
+    height: 0.5rem;
+    flex-shrink: 0;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+  }
+  .side-card[open] > .side-card__title .side-card__chevron {
+    transform: rotate(-135deg);
+  }
+  .side-card__body { margin-top: 0.6rem; }
+  /* At desktop widths the sidebar always shows fully expanded, static cards:
+     the mobile accordion toggle is disabled and its chevron hidden. A small
+     script (below) force-reopens any card left collapsed from mobile when
+     the viewport crosses this breakpoint. */
+  @media (min-width: 60rem) {
+    .side-card__title {
+      pointer-events: none;
+      cursor: default;
+    }
+    .side-card__chevron {
+      display: none;
+    }
+  }
   .side-card__desc { font-size: 0.8125rem; color: var(--muted); margin: 0 0 0.75rem; line-height: 1.5; }
   .side-kv { margin: 0; }
   .side-kv > div { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.35rem 0; border-top: 1px solid var(--border); }
