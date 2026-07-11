@@ -8,8 +8,9 @@ import NotFound from '@/components/NotFound.astro';
 import TopicRow from '@/components/TopicRow.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
 import Pager from '@/components/Pager.astro';
-import { getCategory, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG } from '../../../config/categories.js';
-import { getTopicsByCategory, getTopicsByIds, type Topic } from '@/lib/db/forum.js';
+import CategorySidebar from '@/components/CategorySidebar.astro';
+import { getCategory, getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG } from '../../../config/categories.js';
+import { getTopicsByCategory, getTopicsByIds, getCategoryStats, type Topic } from '@/lib/db/forum.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams.js';
 import { loadTreasuryOverview, type TreasuryOverviewData } from '@/lib/treasury/overview.js';
@@ -153,6 +154,13 @@ if (category && db) {
   }
 }
 
+// All categories plus per-category topic counts / last-activity, for the discussion
+// categories' sidebar. Skipped for the governance category, which does not show it.
+const allCategories = getCategories();
+const catStats = db && category && !isGovernanceCategory
+  ? await getCategoryStats(db)
+  : new Map<string, { topicCount: number; lastPostAt: number | null }>();
+
 const identities = db && topics.length ? await loadAuthorIdentities(db, topics.map((t) => t.author_id)) : null;
 
 if (!notFound) {
@@ -230,178 +238,210 @@ const breadcrumbLd = {
 
     {isGovernanceCategory && <script is:inline set:html={govPrefsRestoreJs} />}
 
-    <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
-      <a href="/">DRepTalk</a>
-      <span style="margin:0 0.375rem;">/</span>
-      <span>{category.name}</span>
-    </nav>
-
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1.5rem;">
-      <div>
-        <h1 style="margin:0 0 0.25rem;">{category.name}</h1>
-        <p style="margin:0;color:var(--muted);font-size:0.875rem;">
-          {category.description}
-        </p>
-      </div>
-    </div>
-
-    {treasuryOverview && (
-      <TreasuryOverview data={treasuryOverview} detailHref="/treasury" />
-    )}
-
-    {isGovernanceCategory && (
-      <div class="ga-controls">
-        <nav class="seg" aria-label="Filter by status">
-          {GOV_STATUSES.map((s) => (
-            <a
-              class="seg__btn"
-              aria-current={s.mode === statusVal ? 'true' : undefined}
-              href={ctrlHref({ status: s.mode })}
-            >
-              {s.label}
-            </a>
-          ))}
-        </nav>
-        <div class="ga-controls__right">
-          <details class="ga-dropdown" data-auto-dismiss>
-            <summary class="ctrl-box ga-dropdown__summary">
-              <span class="ga-dropdown__label">Sort</span>
-              <span class="ga-dropdown__value">{GOV_SORTS.find((s) => s.mode === sort)?.label}</span>
-              <span class="ga-dropdown__caret" aria-hidden="true">▾</span>
-            </summary>
-            <div class="ga-dropdown__menu" role="menu">
-              {GOV_SORTS.map((s) => (
-                <a
-                  class="ga-dropdown__opt"
-                  aria-current={s.mode === sort ? 'true' : undefined}
-                  href={ctrlHref({ sort: s.mode })}
-                >
-                  {s.label}
-                </a>
-              ))}
-            </div>
-          </details>
-          <details class="ga-dropdown" data-auto-dismiss>
-            <summary class="ctrl-box ga-dropdown__summary">
-              <span class="ga-dropdown__label">Type</span>
-              <span class="ga-dropdown__value">
-                {typeFilter ? GOV_ACTION_TYPES.find((t) => t.value === typeFilter)?.label : 'All types'}
-              </span>
-              <span class="ga-dropdown__caret" aria-hidden="true">▾</span>
-            </summary>
-            <div class="ga-dropdown__menu" role="menu">
-              <a
-                class="ga-dropdown__opt"
-                aria-current={typeFilter === null ? 'true' : undefined}
-                href={ctrlHref({ type: null })}
-              >
-                All types
-              </a>
-              {GOV_ACTION_TYPES.map((t) => (
-                <a
-                  class="ga-dropdown__opt"
-                  aria-current={typeFilter === t.value ? 'true' : undefined}
-                  href={ctrlHref({ type: t.value })}
-                >
-                  {t.label}
-                </a>
-              ))}
-            </div>
-          </details>
-        </div>
-      </div>
-    )}
-
     {isGovernanceCategory ? (
-      pageRows.length === 0 ? (
-        typeFilter || statusVal !== 'all' ? (
-          <p style="color:var(--muted);">
-            No governance actions match these filters.{' '}
-            <a href={ctrlHref({ type: null, status: 'all' })}>Clear filters</a>
-          </p>
-        ) : (
-          <p style="color:var(--muted);">No governance actions in this view.</p>
-        )
-      ) : (
-        <>
-        <div class="ga-wrap">
-        <div class="ga-list">
-          <div class="ga-list__head">
-            <span>Governance Action</span>
-            <span>Voting</span>
-            <span>Activity</span>
-            {/* The Time Left header doubles as a sort shortcut for Closing Soon
-               (soonest expiry first); it mirrors the Closing Soon tab's state. */}
-            <a
-              class="ga-list__sortlink"
-              href={ctrlHref({ sort: 'closing' })}
-              aria-current={sort === 'closing' ? 'true' : undefined}
-              aria-label="Sort by soonest closing"
-            >
-              Time Left{sort === 'closing' && <span class="ga-list__caret" aria-hidden="true">↑</span>}
-            </a>
+      <>
+        <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+          <a href="/">DRepTalk</a>
+          <span style="margin:0 0.375rem;">/</span>
+          <span>{category.name}</span>
+        </nav>
+
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1.5rem;">
+          <div>
+            <h1 style="margin:0 0 0.25rem;">{category.name}</h1>
+            <p style="margin:0;color:var(--muted);font-size:0.875rem;">
+              {category.description}
+            </p>
           </div>
-          {pageRows.map((r) => {
-            const pv = proposerView(r.action.returnAddress);
-            const proposer = pv.kind === 'known' ? pv.name : pv.kind === 'unknown' ? pv.short : undefined;
-            const proposerIcon = pv.kind === 'known' ? (pv.icon ?? undefined) : undefined;
-            return (
-              <GovActionRow
-                topic={r.topic}
-                action={r.action}
-                proposer={proposer}
-                proposerIcon={proposerIcon}
-                drepStakeTotal={drepStakeTotal}
-                committeeSize={committeeSize}
-                params={overviewParams}
-                network={network}
-                now={now}
-                href={`/t/${r.topic.slug}`}
-                epochParamsJson={govParamsRawJson}
-              />
-            );
-          })}
         </div>
-        {/* Disclose how stale the cached on-chain numbers are: DRep stake from the
-           dreps sync, tallies from per-action sync. Same formatter/phrasing as the
-           GA thread header. */}
-        {stakeAsOf != null && (
-          <p class="ga-asof">Stake data as of {formatRelativeTime(stakeAsOf, now)}. Cached, not live.</p>
-        )}
-        {tallyAsOf != null && (
-          <p class="ga-asof">Tallies as of {formatRelativeTime(tallyAsOf, now)}. Cached, not live.</p>
-        )}
+
+        <div class="ga-controls">
+          <nav class="seg" aria-label="Filter by status">
+            {GOV_STATUSES.map((s) => (
+              <a
+                class="seg__btn"
+                aria-current={s.mode === statusVal ? 'true' : undefined}
+                href={ctrlHref({ status: s.mode })}
+              >
+                {s.label}
+              </a>
+            ))}
+          </nav>
+          <div class="ga-controls__right">
+            <details class="ga-dropdown" data-auto-dismiss>
+              <summary class="ctrl-box ga-dropdown__summary">
+                <span class="ga-dropdown__label">Sort</span>
+                <span class="ga-dropdown__value">{GOV_SORTS.find((s) => s.mode === sort)?.label}</span>
+                <span class="ga-dropdown__caret" aria-hidden="true">▾</span>
+              </summary>
+              <div class="ga-dropdown__menu" role="menu">
+                {GOV_SORTS.map((s) => (
+                  <a
+                    class="ga-dropdown__opt"
+                    aria-current={s.mode === sort ? 'true' : undefined}
+                    href={ctrlHref({ sort: s.mode })}
+                  >
+                    {s.label}
+                  </a>
+                ))}
+              </div>
+            </details>
+            <details class="ga-dropdown" data-auto-dismiss>
+              <summary class="ctrl-box ga-dropdown__summary">
+                <span class="ga-dropdown__label">Type</span>
+                <span class="ga-dropdown__value">
+                  {typeFilter ? GOV_ACTION_TYPES.find((t) => t.value === typeFilter)?.label : 'All types'}
+                </span>
+                <span class="ga-dropdown__caret" aria-hidden="true">▾</span>
+              </summary>
+              <div class="ga-dropdown__menu" role="menu">
+                <a
+                  class="ga-dropdown__opt"
+                  aria-current={typeFilter === null ? 'true' : undefined}
+                  href={ctrlHref({ type: null })}
+                >
+                  All types
+                </a>
+                {GOV_ACTION_TYPES.map((t) => (
+                  <a
+                    class="ga-dropdown__opt"
+                    aria-current={typeFilter === t.value ? 'true' : undefined}
+                    href={ctrlHref({ type: t.value })}
+                  >
+                    {t.label}
+                  </a>
+                ))}
+              </div>
+            </details>
+          </div>
         </div>
-        </>
-      )
-    ) : topics.length === 0 ? (
-      <p style="color:var(--muted);">No topics yet in this category.</p>
+
+        {pageRows.length === 0 ? (
+          typeFilter || statusVal !== 'all' ? (
+            <p style="color:var(--muted);">
+              No governance actions match these filters.{' '}
+              <a href={ctrlHref({ type: null, status: 'all' })}>Clear filters</a>
+            </p>
+          ) : (
+            <p style="color:var(--muted);">No governance actions in this view.</p>
+          )
+        ) : (
+          <>
+          <div class="ga-wrap">
+          <div class="ga-list">
+            <div class="ga-list__head">
+              <span>Governance Action</span>
+              <span>Voting</span>
+              <span>Activity</span>
+              {/* The Time Left header doubles as a sort shortcut for Closing Soon
+                 (soonest expiry first); it mirrors the Closing Soon tab's state. */}
+              <a
+                class="ga-list__sortlink"
+                href={ctrlHref({ sort: 'closing' })}
+                aria-current={sort === 'closing' ? 'true' : undefined}
+                aria-label="Sort by soonest closing"
+              >
+                Time Left{sort === 'closing' && <span class="ga-list__caret" aria-hidden="true">↑</span>}
+              </a>
+            </div>
+            {pageRows.map((r) => {
+              const pv = proposerView(r.action.returnAddress);
+              const proposer = pv.kind === 'known' ? pv.name : pv.kind === 'unknown' ? pv.short : undefined;
+              const proposerIcon = pv.kind === 'known' ? (pv.icon ?? undefined) : undefined;
+              return (
+                <GovActionRow
+                  topic={r.topic}
+                  action={r.action}
+                  proposer={proposer}
+                  proposerIcon={proposerIcon}
+                  drepStakeTotal={drepStakeTotal}
+                  committeeSize={committeeSize}
+                  params={overviewParams}
+                  network={network}
+                  now={now}
+                  href={`/t/${r.topic.slug}`}
+                  epochParamsJson={govParamsRawJson}
+                />
+              );
+            })}
+          </div>
+          {/* Disclose how stale the cached on-chain numbers are: DRep stake from the
+             dreps sync, tallies from per-action sync. Same formatter/phrasing as the
+             GA thread header. */}
+          {stakeAsOf != null && (
+            <p class="ga-asof">Stake data as of {formatRelativeTime(stakeAsOf, now)}. Cached, not live.</p>
+          )}
+          {tallyAsOf != null && (
+            <p class="ga-asof">Tallies as of {formatRelativeTime(tallyAsOf, now)}. Cached, not live.</p>
+          )}
+          </div>
+          </>
+        )}
+
+        <Pager
+          prevHref={prevPage ? pageHref(prevPage) : null}
+          nextHref={nextPage ? pageHref(nextPage) : null}
+          page={page}
+          totalPages={totalPages}
+          label="Topic list pagination"
+        />
+      </>
     ) : (
-      <div style="display:flex;flex-direction:column;gap:0;">
-        {topics.map((topic) => (
-          <TopicRow
-            topic={topic}
-            now={now}
-            network={network}
-            author={identities ? identities.describe(topic.author_id) : undefined}
-          />
-        ))}
-      </div>
-    )}
+      <>
+        <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+          <a href="/">DRepTalk</a>
+          <span style="margin:0 0.375rem;">/</span>
+          <span>{category.name}</span>
+        </nav>
 
-    <Pager
-      prevHref={prevPage ? pageHref(prevPage) : null}
-      nextHref={nextPage ? pageHref(nextPage) : null}
-      page={page}
-      totalPages={totalPages}
-      label="Topic list pagination"
-    />
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1.5rem;">
+          <div>
+            <h1 style="margin:0 0 0.25rem;">{category.name}</h1>
+            <p style="margin:0;color:var(--muted);font-size:0.875rem;">
+              {category.description}
+            </p>
+          </div>
+        </div>
 
-    {showComposer && (
-      <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
-        <h2 style="margin:0 0 1rem;font-size:1.125rem;">Start a new topic</h2>
-        <Composer client:load mode="topic" categorySlug={category.slug} />
-      </section>
+        <div class="cat-layout">
+          <CategorySidebar categories={allCategories} stats={catStats} selectedSlug={category.slug} now={now} />
+          <div class="cat-main">
+            {treasuryOverview && (
+              <TreasuryOverview data={treasuryOverview} detailHref="/treasury" />
+            )}
+
+            {topics.length === 0 ? (
+              <p style="color:var(--muted);">No topics yet in this category.</p>
+            ) : (
+              <div style="display:flex;flex-direction:column;gap:0;">
+                {topics.map((topic) => (
+                  <TopicRow
+                    topic={topic}
+                    now={now}
+                    network={network}
+                    author={identities ? identities.describe(topic.author_id) : undefined}
+                  />
+                ))}
+              </div>
+            )}
+
+            <Pager
+              prevHref={prevPage ? pageHref(prevPage) : null}
+              nextHref={nextPage ? pageHref(nextPage) : null}
+              page={page}
+              totalPages={totalPages}
+              label="Topic list pagination"
+            />
+
+            {showComposer && (
+              <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
+                <h2 style="margin:0 0 1rem;font-size:1.125rem;">Start a new topic</h2>
+                <Composer client:load mode="topic" categorySlug={category.slug} />
+              </section>
+            )}
+          </div>
+        </div>
+      </>
     )}
   </Layout>
 )}
@@ -527,5 +567,25 @@ const breadcrumbLd = {
     font-size: 0.75rem;
     color: var(--muted);
     margin: 0.75rem 0 0;
+  }
+
+  /* Discussion category two-column layout: sidebar on the left, topic list in
+     the main column. Single column below 60rem; the sidebar is hidden there
+     until mobile category chips arrive in a later task. */
+  .cat-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    align-items: start;
+  }
+  @media (min-width: 60rem) {
+    .cat-layout {
+      grid-template-columns: 20rem 1fr;
+    }
+  }
+  @media (max-width: 60rem) {
+    .cat-layout > :global(.cat-sidebar) {
+      display: none;
+    }
   }
 </style>
