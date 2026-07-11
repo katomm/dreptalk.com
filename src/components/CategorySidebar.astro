@@ -1,0 +1,78 @@
+---
+import type { Category } from '../../config/categories.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+
+interface Props {
+  categories: readonly Category[];
+  stats: Map<string, { topicCount: number; lastPostAt: number | null }>;
+  selectedSlug?: string;
+  now: number;
+}
+const { categories, stats, selectedSlug, now } = Astro.props;
+
+const ICONS: Record<string, string> = {
+  'governance-actions': 'M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6',
+  constitution: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+  budget: 'M3 7h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 7l2-4h14l2 4M16 12h4',
+  general: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+};
+const FALLBACK_ICON = ICONS.general;
+const BULB = 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12c1 1 1 2 1 3h6c0-1 0-2 1-3a7 7 0 0 0-4-12z';
+
+const suggestHref =
+  'https://github.com/katomm/dreptalk.com/issues/new?title=Category+or+feature+suggestion&body=%23%23+What+would+you+like+to+see%3F%0A%0A';
+---
+
+<section class="cat-sidebar" aria-label="Categories">
+  <h2 class="cat-sidebar__title">Categories</h2>
+  <div class="cat-sidebar__list">
+    {categories.map((c) => {
+      const s = stats.get(c.slug);
+      const selected = c.slug === selectedSlug;
+      return (
+        <a href={`/c/${c.slug}`} class:list={['cat-row', { 'cat-row--on': selected }]} aria-current={selected ? 'page' : undefined}>
+          <span class="cat-row__ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d={ICONS[c.slug] ?? FALLBACK_ICON} /></svg>
+          </span>
+          <span class="cat-row__body">
+            <span class="cat-row__name">{c.name}<span class="cat-row__count">{s?.topicCount ?? 0}</span></span>
+            <span class="cat-row__desc">{c.description}</span>
+            {s?.lastPostAt && <span class="cat-row__meta">Last activity {formatRelativeTime(s.lastPostAt, now)}</span>}
+          </span>
+        </a>
+      );
+    })}
+  </div>
+  <a class="cat-suggest" href={suggestHref} target="_blank" rel="noopener">
+    <span class="cat-row__ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d={BULB} /></svg>
+    </span>
+    <span class="cat-suggest__body">
+      <span class="cat-suggest__name">Suggest a category or feature</span>
+      <span class="cat-row__desc">Missing something? Opens a GitHub issue.</span>
+    </span>
+    <svg class="cat-suggest__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
+  </a>
+</section>
+
+<style>
+  .cat-sidebar { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem; }
+  .cat-sidebar__title { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--fg); }
+  .cat-sidebar__list { display: flex; flex-direction: column; gap: 0.15rem; }
+  .cat-row { display: flex; gap: 0.7rem; padding: 0.7rem; border-radius: 12px; text-decoration: none; color: inherit; }
+  .cat-row:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .cat-row--on { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .cat-row--on .cat-row__name { color: var(--accent); }
+  .cat-row__ico { width: 34px; height: 34px; flex: none; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+  .cat-row__ico svg { width: 18px; height: 18px; }
+  .cat-row__body { min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+  .cat-row__name { font-weight: 600; font-size: 0.875rem; color: var(--fg); display: flex; align-items: center; gap: 0.4rem; }
+  .cat-row__count { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.75rem; font-weight: 700; }
+  .cat-row__desc { font-size: 0.75rem; color: var(--muted); line-height: 1.35; }
+  .cat-row__meta { font-size: 0.6875rem; color: var(--muted); }
+  .cat-suggest { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; padding: 0.75rem; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); text-decoration: none; color: inherit; }
+  .cat-suggest:hover { border-color: var(--accent); }
+  .cat-suggest__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+  .cat-suggest__name { font-weight: 600; font-size: 0.875rem; color: var(--fg); }
+  .cat-suggest__chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
+</style>
