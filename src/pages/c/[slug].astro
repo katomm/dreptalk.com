@@ -10,7 +10,8 @@ import GovActionRow from '@/components/GovActionRow.astro';
 import Pager from '@/components/Pager.astro';
 import CategorySidebar from '@/components/CategorySidebar.astro';
 import { getCategory, getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG } from '../../../config/categories.js';
-import { getTopicsByCategory, getTopicsByIds, getCategoryStats, type Topic } from '@/lib/db/forum.js';
+import { getTopicsByIds, getCategoryStats, type Topic } from '@/lib/db/forum.js';
+import { getDiscussionTopics, parseDiscussionSort, DISCUSSION_SORTS, type DiscussionSort } from '@/lib/db/discussions.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams.js';
 import { loadTreasuryOverview, type TreasuryOverviewData } from '@/lib/treasury/overview.js';
@@ -80,6 +81,10 @@ const sort = parseGovSort(Astro.url.searchParams.get('sort'));
 const typeFilter = parseGovType(Astro.url.searchParams.get('type'));
 // Optional status filter (?status=). Unknown/absent -> 'all'.
 const statusVal = parseGovStatus(Astro.url.searchParams.get('status'));
+// Discussion categories get their own sort modes (all/trending/newest/unanswered);
+// kept as a separate variable from the governance `sort` above since the two only
+// ever apply to mutually exclusive branches (isGovernanceCategory).
+const discussionSort = parseDiscussionSort(Astro.url.searchParams.get('sort'));
 
 let topics: Topic[] = [];
 let govTotal = 0;
@@ -150,7 +155,7 @@ if (category && db) {
       null,
     );
   } else {
-    topics = await getTopicsByCategory(db, category.slug, { limit: PAGE_SIZE, offset });
+    topics = await getDiscussionTopics(db, category.slug, { sort: discussionSort, limit: PAGE_SIZE, offset });
   }
 }
 
@@ -194,11 +199,15 @@ const govQuery = (o: { sort?: GovSort; type?: string | null; status?: GovStatus 
 };
 
 // Page links preserve the active sort, status, and type for the governance
-// category so paging stays within the selected view.
+// category, and the active sort for discussion categories, so paging stays
+// within the selected view.
 const pageHref = (p: number) =>
   isGovernanceCategory
     ? `/c/${category!.slug}?${govQuery({})}&page=${p}`
-    : `/c/${category!.slug}?page=${p}`;
+    : `/c/${category!.slug}?page=${p}${discussionSort !== 'latest' ? `&sort=${discussionSort}` : ''}`;
+
+// Discussion sort tab links.
+const sortHref = (key: DiscussionSort) => `/c/${category!.slug}?sort=${key}`;
 
 // Governance control links (status chips, sort dropdown, type dropdown) share
 // the same query string and only vary one param; this keeps them in sync and
@@ -410,6 +419,28 @@ const breadcrumbLd = {
               <TreasuryOverview data={treasuryOverview} detailHref="/treasury" />
             )}
 
+            <nav class="cat-chips" aria-label="Categories">
+              {allCategories.map((c) => (
+                <a class:list={['cat-chip', { 'cat-chip--on': c.slug === category.slug }]} href={`/c/${c.slug}`}>
+                  {c.name}<span>{catStats.get(c.slug)?.topicCount ?? 0}</span>
+                </a>
+              ))}
+            </nav>
+
+            <div class="disc-controls">
+              <div class="seg" role="tablist">
+                {DISCUSSION_SORTS.map((s) => (
+                  <a
+                    class:list={['seg__btn', { 'is-active': s.key === discussionSort }]}
+                    href={sortHref(s.key)}
+                    aria-current={s.key === discussionSort ? 'true' : undefined}
+                  >
+                    {s.label}
+                  </a>
+                ))}
+              </div>
+            </div>
+
             {topics.length === 0 ? (
               <p style="color:var(--muted);">No topics yet in this category.</p>
             ) : (
@@ -587,5 +618,44 @@ const breadcrumbLd = {
     .cat-layout > :global(.cat-sidebar) {
       display: none;
     }
+  }
+
+  /* Discussion category filter tabs, above the topic list. */
+  .disc-controls {
+    margin-bottom: 1.25rem;
+  }
+
+  /* Mobile category chip row: replaces the sidebar (hidden below 60rem) with a
+     horizontal-scroll list of all categories. */
+  .cat-chips {
+    display: none;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 60rem) {
+    .cat-chips {
+      display: flex;
+    }
+  }
+  .cat-chip {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 999px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8125rem;
+    text-decoration: none;
+    color: var(--fg);
+  }
+  .cat-chip--on {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    border-color: transparent;
+    font-weight: 600;
   }
 </style>
