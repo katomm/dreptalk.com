@@ -50,7 +50,7 @@ const breadcrumbLd = {
   '@type': 'BreadcrumbList',
   itemListElement: [
     { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: `${siteOrigin}/` },
-    { '@type': 'ListItem', position: 2, name: 'Register as a DRep', item: `${siteOrigin}/register-drep` },
+    { '@type': 'ListItem', position: 2, name: 'Register as a DRep', item: `${siteOrigin}/register-drep/` },
   ],
 };
 ---
@@ -71,7 +71,7 @@ const breadcrumbLd = {
   <p style="color:var(--muted);max-width:38rem;margin-bottom:2rem;">
     This is also where you manage your DRep metadata: update your name, bio,
     links, and avatar any time, and your wallet signs the change on-chain. Read
-    more in <a href="/help/managing-your-drep">managing your DRep</a>.
+    more in <a href="/help/managing-your-drep/">managing your DRep</a>.
   </p>
   <DRepService network={network} client:load />
 </Layout>

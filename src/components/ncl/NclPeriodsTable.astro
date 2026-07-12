@@ -23,7 +23,7 @@ const { periods, currentEpoch } = Astro.props;
     const remaining = formatAda(String(status.remainingLovelace)) ?? '0 ₳';
 
     return (
-      <a class="ncl-periods__row" href={`/treasury/${period.id}`}>
+      <a class="ncl-periods__row" href={`/treasury/${period.id}/`}>
         <div class="ncl-periods__cell ncl-periods__cell--period">
           <div class="ncl-periods__label">{period.label}</div>
           <div class="ncl-periods__sub">Epochs {period.startEpoch} to {period.endEpoch}</div>

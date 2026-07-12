@@ -7,7 +7,7 @@ import { treasuryTotalLovelace } from '../governance/onchain.js';
 
 // A pasted bech32 proposal_id resolves to its canonical topic via /t/[slug]'s
 // redirect, so actions link by proposal_id without a topic join.
-const toTopicHref = (proposalId: string) => `/t/${proposalId}`;
+const toTopicHref = (proposalId: string) => `/t/${proposalId}/`;
 
 export interface EnactedWithdrawal {
   id: string;

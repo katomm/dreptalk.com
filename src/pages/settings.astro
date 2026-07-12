@@ -15,7 +15,7 @@ import { getDrepById } from '@/lib/db/dreps';
 
 const user = Astro.locals.user;
 if (!user) {
-  return Astro.redirect('/login');
+  return Astro.redirect('/login/');
 }
 
 const env = runtimeEnv(Astro.locals);

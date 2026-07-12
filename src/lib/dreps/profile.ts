@@ -6,7 +6,7 @@
  * id-to-slug redirect.
  */
 export function drepPath(d: { drepId: string; slug?: string | null }): string {
-  return `/dreps/${d.slug ?? d.drepId}`;
+  return `/dreps/${d.slug ?? d.drepId}/`;
 }
 
 /**

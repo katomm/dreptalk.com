@@ -46,12 +46,12 @@ const nextPage = activeVoters.length === pageSize ? page + 1 : null;
 
 // Build hrefs that preserve tab=positions and role, replacing only the page param.
 function pageHref(p: number): string {
-  return `/t/${slug}?tab=positions&role=${role}&page=${p}`;
+  return `/t/${slug}/?tab=positions&role=${role}&page=${p}`;
 }
 
 // Role toggle hrefs: preserve tab=positions, reset page to avoid stale offsets.
-const drepHref = `/t/${slug}?tab=positions&role=drep`;
-const spoHref = `/t/${slug}?tab=positions&role=spo`;
+const drepHref = `/t/${slug}/?tab=positions&role=drep`;
+const spoHref = `/t/${slug}/?tab=positions&role=spo`;
 ---
 
 <div class="ga-positions">

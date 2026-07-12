@@ -31,7 +31,7 @@ const suggestHref =
       const s = stats.get(c.slug);
       const selected = c.slug === selectedSlug;
       return (
-        <a href={`/c/${c.slug}`} class:list={['cat-row', { 'cat-row--on': selected }]} aria-current={selected ? 'page' : undefined}>
+        <a href={`/c/${c.slug}/`} class:list={['cat-row', { 'cat-row--on': selected }]} aria-current={selected ? 'page' : undefined}>
           <span class="cat-row__ico" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d={ICONS[c.slug] ?? FALLBACK_ICON} /></svg>
           </span>

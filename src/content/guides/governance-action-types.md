@@ -45,9 +45,9 @@ Three bodies participate in Cardano on-chain governance:
 - **SPOs (Stake Pool Operators):** SPOs vote to represent the interests of the network's block producers. They are required for no-confidence motions, constitutional committee changes, and hard forks. They also co-vote on security-relevant protocol parameter changes.
 - **The Constitutional Committee:** A group of elected representatives who verify that proposed actions conform to the Cardano constitution. They vote on most action types, with two exceptions: no-confidence motions (where they have a conflict of interest) and updates to the constitutional committee or its threshold (where they are themselves the subject of the action).
 
-Which combination of bodies must approve a given action, and what share of each body's stake or seats is required, are both governed by **protocol parameters**. Those thresholds can change over time; the exact current values are not stated here. For the lifecycle of a specific action after voting closes, see [Governance action statuses](/help/governance-statuses). You can browse all live governance actions in the [governance actions feed](/c/governance-actions).
+Which combination of bodies must approve a given action, and what share of each body's stake or seats is required, are both governed by **protocol parameters**. Those thresholds can change over time; the exact current values are not stated here. For the lifecycle of a specific action after voting closes, see [Governance action statuses](/help/governance-statuses/). You can browse all live governance actions in the [governance actions feed](/c/governance-actions/).
 
 ## Related
 
-- [Governance action statuses](/help/governance-statuses)
-- [Writing a vote rationale](/help/writing-a-vote-rationale)
+- [Governance action statuses](/help/governance-statuses/)
+- [Writing a vote rationale](/help/writing-a-vote-rationale/)

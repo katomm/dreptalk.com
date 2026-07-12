@@ -29,6 +29,6 @@ so it orders by when it was proposed on-chain.
 
 ## Related
 
-- [Governance action statuses](/help/governance-statuses)
-- [Proposers](/help/proposers)
-- [Governance action types](/help/governance-action-types)
+- [Governance action statuses](/help/governance-statuses/)
+- [Proposers](/help/proposers/)
+- [Governance action types](/help/governance-action-types/)

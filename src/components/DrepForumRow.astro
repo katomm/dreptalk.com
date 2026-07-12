@@ -15,7 +15,7 @@ const { post, now } = Astro.props;
 
 <div class="factivity__row">
   <div class="factivity__head">
-    <a class="factivity__title" href={`/t/${post.topic_slug}#post-${post.id}`}>{post.topic_title}</a>
+    <a class="factivity__title" href={`/t/${post.topic_slug}/#post-${post.id}`}>{post.topic_title}</a>
     <span class="factivity__when">{formatRelativeTime(post.created_at, now)}</span>
   </div>
   <p class="factivity__excerpt">{excerptFromHtml(post.body_html, 160)}</p>

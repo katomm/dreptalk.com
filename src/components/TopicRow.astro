@@ -73,9 +73,9 @@ const gaCountdown = governance
           <path d={governance ? GAVEL_PATH : MESSAGE_PATH} />
         </svg>
       )}
-      <a class="topic-row__title" href={`/t/${topic.slug}`}>{topic.title}</a>
+      <a class="topic-row__title" href={`/t/${topic.slug}/`}>{topic.title}</a>
       {category && (
-        <a class="topic-row__cat" href={`/c/${category.slug}`}>{category.name}</a>
+        <a class="topic-row__cat" href={`/c/${category.slug}/`}>{category.name}</a>
       )}
       {gaBadge && (
         <span class="topic-row__gabadge" style={`--badge:${TONE_COLORS[gaBadge.tone]};`}>{gaBadge.label}</span>

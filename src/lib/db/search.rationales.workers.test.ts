@@ -72,7 +72,7 @@ describe('searchRationalesPage', () => {
       drepName: 'Alice',
       vote: 'Yes',
       actionTitle: 'Raise treasury cap',
-      href: '/t/raise-treasury?tab=positions#voter-drep1alice',
+      href: '/t/raise-treasury/?tab=positions#voter-drep1alice',
     });
     expect(res.hits[0].snippet).toContain('treasury');
   });

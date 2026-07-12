@@ -21,7 +21,7 @@ Pick the **DRep** role and connect a CIP-95 capable wallet
 (for example Lace, Eternl, or Typhon). You sign with your **DRep key**.
 We derive your DRep ID from that signature and confirm on-chain that it belongs to a
 registered, active DRep. Script-based DReps are not supported yet. If your wallet is
-not yet a registered DRep, you can [register as a DRep](/register-drep) first.
+not yet a registered DRep, you can [register as a DRep](/register-drep/) first.
 
 ## Proposers
 
@@ -54,6 +54,6 @@ payment to sign in, stop: that is not how DRepTalk works.
 
 ## Related
 
-- [Managing your DRep](/help/managing-your-drep)
-- [Become a DRep](/help/become-a-drep)
-- [Delegate to a DRep](/help/delegate-to-a-drep)
+- [Managing your DRep](/help/managing-your-drep/)
+- [Become a DRep](/help/become-a-drep/)
+- [Delegate to a DRep](/help/delegate-to-a-drep/)

@@ -27,7 +27,7 @@ example Lace, Eternl, or Typhon).
 
 ## How do I register as a DRep on Cardano?
 
-Go to [Register as a DRep](/register-drep), connect your wallet, and fill in
+Go to [Register as a DRep](/register-drep/), connect your wallet, and fill in
 your profile: name, a short bio, links, and an optional profile image (JPG or
 PNG, up to 256 KB). DRepTalk hosts this as a CIP-119 metadata document and your
 wallet submits the registration certificate pointing at it. Registration locks a
@@ -38,7 +38,7 @@ in full when you later deregister.
 
 Your on-chain metadata is what wallets, explorers, and DRepTalk show to
 delegators. If yours is outdated, or you registered without any, sign in as a
-DRep and open [Settings](/settings). The form is prefilled with your current
+DRep and open [Settings](/settings/). The form is prefilled with your current
 on-chain profile; edit the name, bio, or links, upload an image if you like, and
 submit. Your wallet signs an update certificate that points to the new document.
 There is **no deposit** for updates, only the small network fee.
@@ -49,7 +49,7 @@ other sites show it after their next sync (on DRepTalk, within about an hour).
 ## How do I get my 500 ADA DRep deposit back?
 
 The 500 ADA you locked when you registered is refunded automatically when you
-**deregister** (retire) your DRep. Sign in as a DRep, open [Settings](/settings),
+**deregister** (retire) your DRep. Sign in as a DRep, open [Settings](/settings/),
 and use **Retire DRep** in the danger zone. Your wallet submits a deregistration
 certificate, and the full deposit is returned to your wallet once the transaction
 confirms. There is no separate withdrawal step and no extra deposit; you pay only
@@ -57,7 +57,7 @@ the small network fee for the transaction.
 
 ## How do I retire (deregister) my DRep?
 
-Retiring is done from [Settings](/settings). It submits a deregistration
+Retiring is done from [Settings](/settings/). It submits a deregistration
 certificate to the chain: your 500 ADA deposit is refunded once it confirms, and
 everyone who delegated their voting power to you loses that delegation. You can
 register again later, but delegators would need to delegate to you again.
@@ -73,5 +73,5 @@ cost before anything is submitted; if something looks different, reject it.
 
 ## Related
 
-- [How to become a DRep](/help/become-a-drep)
-- [Writing a vote rationale](/help/writing-a-vote-rationale)
+- [How to become a DRep](/help/become-a-drep/)
+- [Writing a vote rationale](/help/writing-a-vote-rationale/)

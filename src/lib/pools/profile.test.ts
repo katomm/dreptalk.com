@@ -6,8 +6,8 @@ const noSlug = { poolId: 'pool1abc', slug: null };
 
 describe('pool profile helpers', () => {
   it('prefers the slug for the path, falls back to the id', () => {
-    expect(poolPath(withSlug)).toBe('/spos/hype-4x9k2');
-    expect(poolPath(noSlug)).toBe('/spos/pool1abc');
+    expect(poolPath(withSlug)).toBe('/spos/hype-4x9k2/');
+    expect(poolPath(noSlug)).toBe('/spos/pool1abc/');
   });
 
   it('recognises the canonical param', () => {

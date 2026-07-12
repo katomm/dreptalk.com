@@ -11,7 +11,7 @@ Becoming a DRep (delegated representative) is how you take an active role in
 Cardano governance. This guide explains what the role is, what it involves
 day-to-day, and what you need to get started. For the exact on-chain steps,
 costs, and how to change or retire later, see
-[Managing your DRep](/help/managing-your-drep).
+[Managing your DRep](/help/managing-your-drep/).
 
 ## What is a DRep?
 
@@ -70,7 +70,7 @@ stake to start.
 
 ## Steps to register
 
-1. Go to [Register as a DRep](/register-drep) and connect your CIP-95 wallet.
+1. Go to [Register as a DRep](/register-drep/) and connect your CIP-95 wallet.
 2. Fill in your profile: a display name, a short bio describing your background
    and governance philosophy, optional links (website, social profiles), and an
    optional profile image.
@@ -81,13 +81,13 @@ Once the transaction confirms, your DRep is live on the chain.
 
 For the full details on what the registration transaction includes, how to
 update your metadata later, and how to retire and reclaim your deposit, see
-[Managing your DRep](/help/managing-your-drep).
+[Managing your DRep](/help/managing-your-drep/).
 
 ## After you register
 
 Your profile becomes discoverable to ADA holders looking for a DRep to delegate
 to. Wallets that support CIP-95 governance, block explorers, and DRepTalk's own
-[DRep directory](/dreps) will all list you.
+[DRep directory](/dreps/) will all list you.
 
 From this point you can:
 
@@ -96,7 +96,7 @@ From this point you can:
 - **Post rationales.** Explain your votes publicly so delegators can follow your
   reasoning.
 - **Update your profile.** If your bio, links, or image becomes outdated, you
-  can update them at any time from [Settings](/settings). Updates are on-chain
+  can update them at any time from [Settings](/settings/). Updates are on-chain
   but cost only a small network fee, not a new deposit.
 
 Keep your metadata current. Delegators who visit your profile and find stale
@@ -104,6 +104,6 @@ or empty information may move their delegation elsewhere.
 
 ## Related
 
-- [Managing your DRep](/help/managing-your-drep)
-- [How to delegate to a DRep](/help/delegate-to-a-drep)
-- [Writing a vote rationale](/help/writing-a-vote-rationale)
+- [Managing your DRep](/help/managing-your-drep/)
+- [How to delegate to a DRep](/help/delegate-to-a-drep/)
+- [Writing a vote rationale](/help/writing-a-vote-rationale/)

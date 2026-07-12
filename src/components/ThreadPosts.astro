@@ -125,8 +125,8 @@ const notVoted = (author: AuthorDescriptor) =>
 
 {(prevPage || nextPage) && (
   <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
-    {prevPage && <a href={`/t/${topic.slug}${pageQueryPrefix}${prevPage}`}>Previous page</a>}
-    {nextPage && <a href={`/t/${topic.slug}${pageQueryPrefix}${nextPage}`}>Next page</a>}
+    {prevPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${prevPage}`}>Previous page</a>}
+    {nextPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${nextPage}`}>Next page</a>}
   </nav>
 )}
 
@@ -158,7 +158,7 @@ const notVoted = (author: AuthorDescriptor) =>
         Sign in with a verified on-chain role (DRep, SPO, CC, proposer) to share your perspective.
       </p>
     </div>
-    <a class="btn btn-primary" href="/login">Sign in</a>
+    <a class="btn btn-primary" href="/login/">Sign in</a>
   </aside>
 )}
 

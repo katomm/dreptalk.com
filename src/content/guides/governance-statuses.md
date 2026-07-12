@@ -9,7 +9,7 @@ order: 2
 Each governance action carries a status label derived from its on-chain lifecycle.
 The labels differ by action type: enactable actions can be ratified and enacted, while
 info actions only signal and never enact. All values are synced on a schedule and shown
-with an "as of" time (see [data freshness](/help/data-freshness)).
+with an "as of" time (see [data freshness](/help/data-freshness/)).
 
 ## While we are catching up
 
@@ -41,6 +41,6 @@ Signalling only, no on-chain effect.
 
 ## Related
 
-- [Data freshness](/help/data-freshness)
-- [Sorting governance actions](/help/sorting)
-- [Governance action types](/help/governance-action-types)
+- [Data freshness](/help/data-freshness/)
+- [Sorting governance actions](/help/sorting/)
+- [Governance action types](/help/governance-action-types/)

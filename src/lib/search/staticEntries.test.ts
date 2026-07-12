@@ -8,7 +8,7 @@ describe('matchStaticEntries', () => {
 
   it('matches a page by keyword', () => {
     const hits = matchStaticEntries('directory');
-    expect(hits.some((e) => e.href === '/dreps')).toBe(true);
+    expect(hits.some((e) => e.href === '/dreps/')).toBe(true);
   });
 
   it('only contains Pages entries now', () => {

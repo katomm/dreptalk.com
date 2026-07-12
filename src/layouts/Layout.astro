@@ -63,14 +63,18 @@ const navLinks = NAV_LINKS;
 // Highlight the link whose path prefixes the current page. A nav href may carry a
 // query (e.g. a default filter), so match on the path portion only.
 const isActive = (href: string) => {
-  const path = href.split('?')[0];
-  return pathname === path || pathname.startsWith(path + '/');
+  // Nav hrefs carry the canonical trailing slash (and may carry a query); match
+  // on the path portion, comparing both sides without a trailing slash so a link
+  // stays highlighted on its own page and on any sub-page.
+  const path = href.split('?')[0].replace(/\/$/, '');
+  const current = pathname.replace(/\/$/, '');
+  return current === path || current.startsWith(path + '/');
 };
 
 const helpEntries: HelpEntry[] = (await getCollection('guides'))
   // Keywords haystack is the page title plus the description, so a guide is
   // findable by terms in either (the short cardLabel is matched separately).
-  .map((g) => ({ label: g.data.cardLabel, href: `/help/${g.id}`, keywords: `${g.data.title} ${g.data.description}`, description: g.data.description }))
+  .map((g) => ({ label: g.data.cardLabel, href: `/help/${g.id}/`, keywords: `${g.data.title} ${g.data.description}`, description: g.data.description }))
   .sort((a, b) => a.label.localeCompare(b.label));
 ---
 <!doctype html>
@@ -189,9 +193,9 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
           <p class="site-footer__tagline">A calmer, accountable home for Cardano governance.</p>
         </div>
         <nav class="site-footer__links" aria-label="Footer">
-          <a href="/help">Help</a>
-          <a href="/privacy">Privacy</a>
-          <a href="/imprint">Imprint</a>
+          <a href="/help/">Help</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="/imprint/">Imprint</a>
           <a
             class="site-footer__github"
             href="https://x.com/dreptalkcom"

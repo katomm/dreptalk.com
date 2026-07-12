@@ -22,6 +22,6 @@ start, open an issue describing what you have in mind and we will help you scope
 
 ## Related
 
-- [Data freshness](/help/data-freshness)
-- [Moderation](/help/moderation)
-- [Signing in](/help/signing-in)
+- [Data freshness](/help/data-freshness/)
+- [Moderation](/help/moderation/)
+- [Signing in](/help/signing-in/)

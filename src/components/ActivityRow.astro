@@ -39,8 +39,8 @@ const discussionsVerb =
 // tab explicitly, otherwise the post anchor lands on the Overview tab where the
 // comment is not rendered and the scroll never resolves.
 const href = event.refPostId
-  ? `/t/${event.topic.slug}${event.topic.isGovernance ? '?tab=discussion' : ''}#post-${event.refPostId}`
-  : `/t/${event.topic.slug}`;
+  ? `/t/${event.topic.slug}/${event.topic.isGovernance ? '?tab=discussion' : ''}#post-${event.refPostId}`
+  : `/t/${event.topic.slug}/`;
 
 const badge =
   (event.kind === 'gov_created' || event.kind === 'gov_status') && event.governanceStatus

@@ -190,7 +190,7 @@ const heroCard = personalized
         title: personalized.card.title,
         badge: badge.label,
         tone: TONE_COLORS[badge.tone],
-        href: `/t/${personalized.card.slug}` as string | null,
+        href: `/t/${personalized.card.slug}/` as string | null,
       };
     })()
   : heroAction
@@ -202,7 +202,7 @@ const heroCard = personalized
           title: a.title as string,
           badge: badge.label,
           tone: TONE_COLORS[badge.tone],
-          href: `/t/${heroAction.slug}` as string | null,
+          href: `/t/${heroAction.slug}/` as string | null,
         };
       })()
     : {
@@ -276,8 +276,8 @@ const heroFeatures = [
       </ul>
 
       <div class="hero__cta reveal" style="--reveal-delay:180ms">
-        <a class="btn btn-primary" href="/c/governance-actions">Browse Governance Actions</a>
-        {!user && <a class="btn btn-secondary" href="/login">Sign in to post</a>}
+        <a class="btn btn-primary" href="/c/governance-actions/">Browse Governance Actions</a>
+        {!user && <a class="btn btn-secondary" href="/login/">Sign in to post</a>}
       </div>
     </div>
 
@@ -407,7 +407,7 @@ const heroFeatures = [
         variant="discussions"
         title="Latest activity"
         subtitle="A summary of what's happening in governance."
-        viewAllHref="/discussions"
+        viewAllHref="/discussions/"
       />
     </div>
   </section>

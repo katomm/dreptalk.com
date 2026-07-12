@@ -64,6 +64,6 @@ That cross-post is optional and off by default. Leave the box unchecked and your
 
 ## Related
 
-- [Governance action types](/help/governance-action-types)
-- [Managing your DRep](/help/managing-your-drep)
-- [Data freshness](/help/data-freshness)
+- [Governance action types](/help/governance-action-types/)
+- [Managing your DRep](/help/managing-your-drep/)
+- [Data freshness](/help/data-freshness/)

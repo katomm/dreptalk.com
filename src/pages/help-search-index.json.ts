@@ -13,7 +13,7 @@ export const GET: APIRoute = async () => {
     const md = g.body ?? '';
     return {
       title: g.data.title,
-      href: `/help/${g.id}`,
+      href: `/help/${g.id}/`,
       headings: extractHeadings(md),
       text: flattenMarkdown(md),
     };

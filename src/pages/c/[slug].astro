@@ -225,17 +225,17 @@ const govQuery = (o: { sort?: GovSort; type?: string | null; status?: GovStatus 
 // within the selected view.
 const pageHref = (p: number) =>
   isGovernanceCategory
-    ? `/c/${category!.slug}?${govQuery({})}&page=${p}`
-    : `/c/${category!.slug}?page=${p}${discussionSort !== 'latest' ? `&sort=${discussionSort}` : ''}`;
+    ? `/c/${category!.slug}/?${govQuery({})}&page=${p}`
+    : `/c/${category!.slug}/?page=${p}${discussionSort !== 'latest' ? `&sort=${discussionSort}` : ''}`;
 
 // Discussion sort tab links.
-const sortHref = (key: DiscussionSort) => `/c/${category!.slug}?sort=${key}`;
+const sortHref = (key: DiscussionSort) => `/c/${category!.slug}/?sort=${key}`;
 
 // Governance control links (status chips, sort dropdown, type dropdown) share
 // the same query string and only vary one param; this keeps them in sync and
 // resets to page 1.
 const ctrlHref = (o: { sort?: GovSort; type?: string | null; status?: GovStatus }) =>
-  `/c/${category!.slug}?${govQuery(o)}`;
+  `/c/${category!.slug}/?${govQuery(o)}`;
 
 const breadcrumbLd = {
   '@context': 'https://schema.org',
@@ -251,7 +251,7 @@ const breadcrumbLd = {
       '@type': 'ListItem',
       position: 2,
       name: category?.name ?? 'Category',
-      item: siteOrigin + `/c/${slug}`,
+      item: siteOrigin + `/c/${slug}/`,
     },
   ],
 };
@@ -292,7 +292,7 @@ const breadcrumbLd = {
           <div class="cat-main">
             <nav class="cat-chips" aria-label="Categories">
               {allCategories.map((c) => (
-                <a class:list={['cat-chip', { 'cat-chip--on': c.slug === category.slug }]} href={`/c/${c.slug}`}>
+                <a class:list={['cat-chip', { 'cat-chip--on': c.slug === category.slug }]} href={`/c/${c.slug}/`}>
                   {c.name}<span>{catStats.get(c.slug)?.topicCount ?? 0}</span>
                 </a>
               ))}
@@ -401,7 +401,7 @@ const breadcrumbLd = {
                   params={overviewParams}
                   network={network}
                   now={now}
-                  href={`/t/${r.topic.slug}`}
+                  href={`/t/${r.topic.slug}/`}
                   epochParamsJson={govParamsRawJson}
                 />
               );
@@ -451,12 +451,12 @@ const breadcrumbLd = {
           <CategorySidebar categories={allCategories} stats={catStats} selectedSlug={category.slug} now={now} />
           <div class="cat-main">
             {treasuryOverview && (
-              <TreasuryOverview data={treasuryOverview} detailHref="/treasury" />
+              <TreasuryOverview data={treasuryOverview} detailHref="/treasury/" />
             )}
 
             <nav class="cat-chips" aria-label="Categories">
               {allCategories.map((c) => (
-                <a class:list={['cat-chip', { 'cat-chip--on': c.slug === category.slug }]} href={`/c/${c.slug}`}>
+                <a class:list={['cat-chip', { 'cat-chip--on': c.slug === category.slug }]} href={`/c/${c.slug}/`}>
                   {c.name}<span>{catStats.get(c.slug)?.topicCount ?? 0}</span>
                 </a>
               ))}

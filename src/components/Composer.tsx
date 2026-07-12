@@ -89,7 +89,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
 
     if (result.ok) {
       if (mode === 'topic' && result.slug) {
-        window.location.href = `/t/${result.slug}`;
+        window.location.href = `/t/${result.slug}/`;
       } else {
         if (result.postId) {
           sessionStorage.setItem('dreptalk:land-on-post', result.postId);
