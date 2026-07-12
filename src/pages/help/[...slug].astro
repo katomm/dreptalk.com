@@ -7,6 +7,7 @@ import HelpLayout from '@/layouts/HelpLayout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import { buildBreadcrumbLd, buildArticleLd, buildFaqLd } from '@/lib/help/jsonld.js';
 import { isoDate } from '@/lib/format/date.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 
 const { slug } = Astro.params;
 const entry = slug ? await getEntry('guides', slug) : undefined;
@@ -24,7 +25,7 @@ const faqLd = buildFaqLd(d.faqs);
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 
-<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel} heading={d.title} ogImage={`/og/help/${entry.id}.png`}>
+<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel} heading={d.title} ogImage={`/og/help/${entry.id}.png?v=${ogCardVersion([d.title, d.description, d.category, d.updated?.getTime()])}`}>
   <JsonLd data={breadcrumbLd} />
   <JsonLd data={articleLd} />
   {faqLd && <JsonLd data={faqLd} />}

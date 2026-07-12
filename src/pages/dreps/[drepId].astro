@@ -27,6 +27,7 @@ import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
 import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary } from '@/lib/dreps/profile.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
@@ -183,7 +184,17 @@ const profileSummary = drep
       retired: isRetired,
     })}
     noindex={!indexable}
-    ogImage={`/og/drep/${drep.slug ?? drep.drepId}.png`}
+    ogImage={`/og/drep/${drep.slug ?? drep.drepId}.png?v=${ogCardVersion([
+      displayName,
+      drep.votingPower,
+      votesCast,
+      influence,
+      participation?.voted,
+      participation?.eligible,
+      drep.active,
+      drep.registeredEpoch,
+      drep.imageContentHash,
+    ])}`}
   >
     {personLd && <JsonLd data={personLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}

@@ -22,6 +22,7 @@ import {
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams.js';
 import { loadTreasuryOverview, type TreasuryOverviewData } from '@/lib/treasury/overview.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 import TreasuryOverview from '@/components/ncl/TreasuryOverview.astro';
 import {
   parseGovSort,
@@ -129,8 +130,9 @@ const catStatsPromise = db && category ? getCategoryStats(db) : null;
 if (category && db) {
   if (isBudgetCategory) {
     treasuryOverview = await loadTreasuryOverview(db);
-    const periodId = treasuryOverview?.currentStatus?.period.id;
-    if (periodId) categoryOgImage = `/og/treasury/${periodId}.png`;
+    const cur = treasuryOverview?.currentStatus;
+    if (cur)
+      categoryOgImage = `/og/treasury/${cur.period.id}.png?v=${ogCardVersion([cur.period.id, cur.consumedLovelace, cur.period.ceilingLovelace])}`;
   }
   if (isGovernanceCategory) {
     // Order and page in the database (O(page size), not O(all actions)). Trending reads
