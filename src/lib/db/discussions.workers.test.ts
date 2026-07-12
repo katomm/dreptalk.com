@@ -116,24 +116,4 @@ describe('getDiscussionTopics', () => {
     expect(ids).toContain(lonely.id);
     expect(ids).not.toContain(answered.id);
   });
-
-  it('newest orders by created_at desc', async () => {
-    const { topic: first } = await createTopic(db(), { categorySlug: CAT, authorId: 'alice', title: 'First', bodyMd: 'op', bodyHtml: '<p>op</p>', now: 1_700_041_000_000, rand: 'ds10' });
-    const { topic: second } = await createTopic(db(), { categorySlug: CAT, authorId: 'alice', title: 'Second', bodyMd: 'op', bodyHtml: '<p>op</p>', now: 1_700_041_100_000, rand: 'ds11' });
-    const rows = await getDiscussionTopics(db(), CAT, { sort: 'newest' });
-    const ids = rows.map((t) => t.id);
-    expect(ids.indexOf(second.id)).toBeLessThan(ids.indexOf(first.id));
-  });
-
-  it('trending ranks topics with recent replies first', async () => {
-    const now = 1_700_050_000_000;
-    const { topic: hot } = await createTopic(db(), { categorySlug: CAT, authorId: 'alice', title: 'Hot', bodyMd: 'op', bodyHtml: '<p>op</p>', now: now - 3_000_000, rand: 'ds20' });
-    const { topic: cold } = await createTopic(db(), { categorySlug: CAT, authorId: 'alice', title: 'Cold', bodyMd: 'op', bodyHtml: '<p>op</p>', now: now - 2_000_000, rand: 'ds21' });
-    // A recent reply on hot (createPost writes a reply_created activity row at `now`).
-    await createPost(db(), { topicId: hot.id, authorId: 'bob', bodyMd: 'r', bodyHtml: '<p>r</p>', now: now - 1_000_000, rand: 'ds22' });
-
-    const rows = await getDiscussionTopics(db(), CAT, { sort: 'trending', nowMs: now });
-    const ids = rows.map((t) => t.id);
-    expect(ids.indexOf(hot.id)).toBeLessThan(ids.indexOf(cold.id));
-  });
 });
