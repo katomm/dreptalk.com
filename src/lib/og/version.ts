@@ -32,7 +32,9 @@ function fingerprint(input: string): string {
  * empty, and the order is significant, so the same inputs always yield the same
  * token and any change to a rendered field yields a different one.
  */
-export function ogCardVersion(parts: (string | number | null | undefined)[]): string {
+export function ogCardVersion(
+  parts: (string | number | bigint | boolean | null | undefined)[],
+): string {
   // Parts are joined with a control char no field value contains, so adjacent
   // parts can never run together into a different-but-equal input.
   return fingerprint([OG_CARD_VERSION, ...parts].map((p) => (p == null ? '' : String(p))).join(''));

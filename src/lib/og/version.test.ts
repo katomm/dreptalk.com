@@ -30,4 +30,12 @@ describe('ogCardVersion', () => {
   it('is URL-safe (base36 only)', () => {
     expect(ogCardVersion(['Any title', 5, 'Name', 'hash', 'active'])).toMatch(/^[0-9a-z]+$/);
   });
+
+  it('accepts bigint and boolean parts (treasury lovelace, drep active flag)', () => {
+    const a = ogCardVersion([123n, true, 500000000000n]);
+    const b = ogCardVersion([124n, true, 500000000000n]);
+    expect(a).toMatch(/^[0-9a-z]+$/);
+    expect(a).not.toBe(b);
+    expect(ogCardVersion([1n, true])).not.toBe(ogCardVersion([1n, false]));
+  });
 });

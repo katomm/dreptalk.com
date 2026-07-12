@@ -6,6 +6,7 @@ import Layout from '@/layouts/Layout.astro';
 import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
 import NclPeriodsTable from '@/components/ncl/NclPeriodsTable.astro';
 import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 
 // Public, low-churn: withdrawals change at most a few times per epoch.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
@@ -13,7 +14,12 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
 const db = env.DB as D1Database | undefined;
 const data = db ? await loadTreasuryOverview(db) : null;
 
-const ogImage = data?.currentStatus ? `/og/treasury/${data.currentStatus.period.id}.png` : '/og.jpg';
+// Version the card URL by what it renders (consumed vs ceiling) so a share
+// refetches once an enacted withdrawal moves the gauge.
+const cur = data?.currentStatus;
+const ogImage = cur
+  ? `/og/treasury/${cur.period.id}.png?v=${ogCardVersion([cur.period.id, cur.consumedLovelace, cur.period.ceilingLovelace])}`
+  : '/og.jpg';
 ---
 
 <Layout

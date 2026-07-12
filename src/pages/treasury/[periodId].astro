@@ -10,6 +10,7 @@ import { formatAda } from '@/lib/format/ada.js';
 import { epochStartMs } from '@/lib/config/network.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 
 // Public, low-churn: withdrawals change at most a few times per epoch.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
@@ -52,7 +53,7 @@ if (notFound) {
       <Layout
         title={`${period.label} - Treasury - DRepTalk`}
         description={`Net Change Limit status for ${period.label}: consumed, remaining, and enacted treasury withdrawals.`}
-        ogImage={`/og/treasury/${period.id}.png`}
+        ogImage={`/og/treasury/${period.id}.png?v=${ogCardVersion([period.id, status.consumedLovelace, period.ceilingLovelace])}`}
       >
         <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
           <a href="/">DRepTalk</a>
