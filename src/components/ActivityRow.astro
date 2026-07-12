@@ -9,7 +9,7 @@ import LogoMark from '@/components/LogoMark.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { authorProfileHref } from '@/lib/forum/author.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { GAVEL_PATH, MESSAGE_PATH } from '@/lib/forum/icons.js';
+import { GAVEL_PATH, MESSAGE_PATH, USERS_PATH } from '@/lib/forum/icons.js';
 import { statusBadge, govStatusVerb, isTerminalStatus, TONE_COLORS } from '@/lib/governance/view.js';
 
 interface Props {
@@ -95,7 +95,7 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
         {event.topic.postCount - 1}
       </span>
       <span class="act-compact-item">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={USERS_PATH} /></svg>
         {event.participants ?? 0}
       </span>
       <span class="act-compact-item">

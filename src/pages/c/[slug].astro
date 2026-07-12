@@ -88,7 +88,7 @@ const sort = parseGovSort(Astro.url.searchParams.get('sort'));
 const typeFilter = parseGovType(Astro.url.searchParams.get('type'));
 // Optional status filter (?status=). Unknown/absent -> 'all'.
 const statusVal = parseGovStatus(Astro.url.searchParams.get('status'));
-// Discussion categories get their own sort modes (all/trending/newest/unanswered);
+// Discussion categories get their own sort modes (all discussions / unanswered);
 // kept as a separate variable from the governance `sort` above since the two only
 // ever apply to mutually exclusive branches (isGovernanceCategory).
 const discussionSort = parseDiscussionSort(Astro.url.searchParams.get('sort'));
@@ -120,6 +120,11 @@ let treasuryOverview: TreasuryOverviewData | null = null;
 // only; the governance overview keeps its own tally/countdown enrichment instead.
 let participantCounts = new Map<string, number>();
 let excerptHtml = new Map<string, string>();
+
+// The category sidebar stats are independent of the per-category data loaded
+// below, so start the query now and let it overlap with that work instead of
+// adding a sequential round trip (awaited further down).
+const catStatsPromise = db && category ? getCategoryStats(db) : null;
 
 if (category && db) {
   if (isBudgetCategory) {
@@ -179,8 +184,8 @@ if (category && db) {
 // All categories plus per-category topic counts / last-activity, for the category
 // sidebar shown on every category page (desktop; hidden on mobile).
 const allCategories = getCategories();
-const catStats = db && category
-  ? await getCategoryStats(db)
+const catStats = catStatsPromise
+  ? await catStatsPromise
   : new Map<string, { topicCount: number; lastPostAt: number | null }>();
 
 const identities = db && topics.length ? await loadAuthorIdentities(db, topics.map((t) => t.author_id)) : null;

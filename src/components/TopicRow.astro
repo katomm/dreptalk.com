@@ -17,7 +17,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
 import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartMs, type CardanoNetwork } from '@/lib/config/network.js';
-import { GAVEL_PATH, MESSAGE_PATH } from '@/lib/forum/icons.js';
+import { GAVEL_PATH, MESSAGE_PATH, USERS_PATH } from '@/lib/forum/icons.js';
 
 interface Props {
   topic: Topic;
@@ -104,7 +104,7 @@ const gaCountdown = governance
           {Math.max(0, topic.post_count - 1)}
         </span>
         <span class="topic-row__compact-item">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={USERS_PATH} /></svg>
           {participants ?? 0}
         </span>
         <span class="topic-row__compact-item">
