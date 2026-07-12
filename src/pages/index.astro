@@ -16,9 +16,10 @@ import { voterDescriptor, authorProfileHref, loadAuthorIdentities } from '@/lib/
 import { heroRingSlots, HERO_RING_RADII } from '@/lib/hero/ring.js';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { readableType, statusBadge, voteTone, TONE_COLORS } from '@/lib/governance/view.js';
-import { cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
+import { cacheControlFor } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
+import CategorySidebar from '@/components/CategorySidebar.astro';
 import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
 
 const db = env.DB as D1Database | undefined;
@@ -398,27 +399,7 @@ const heroFeatures = [
     </div>
 
     <div class="discussions-grid">
-      <section aria-label="Categories">
-        <h3 class="section-label">Categories</h3>
-        <div style="display:flex;flex-direction:column;">
-          {categories.map((c) => {
-            const s = stats.get(c.slug);
-            return (
-              <a href={`/c/${c.slug}`} style="border-bottom:1px solid var(--border);padding:0.75rem 0;text-decoration:none;color:inherit;display:block;">
-                <div style="display:flex;align-items:center;gap:0.5rem;">
-                  <span aria-hidden="true" style={`width:0.5rem;height:0.5rem;border-radius:999px;flex-shrink:0;background:${c.kind === 'governance' ? 'var(--accent)' : 'var(--muted)'};`}></span>
-                  <span style="font-weight:600;color:var(--fg);">{c.name}</span>
-                  <span style="margin-left:auto;font-size:0.8125rem;color:var(--muted);">{s?.topicCount ?? 0}</span>
-                </div>
-                <p style="margin:0.3rem 0 0 1rem;font-size:0.8125rem;color:var(--muted);">{c.description}</p>
-                {s?.lastPostAt && (
-                  <p style="margin:0.2rem 0 0 1rem;font-size:0.75rem;color:var(--muted);">Last activity {formatRelativeTime(s.lastPostAt, now)}</p>
-                )}
-              </a>
-            );
-          })}
-        </div>
-      </section>
+      <CategorySidebar categories={categories} stats={stats} now={now} />
 
       <ActivityFeed
         events={feed}
@@ -873,16 +854,6 @@ const heroFeatures = [
       grid-template-columns: 20rem 1fr;
       gap: 2.5rem;
     }
-  }
-
-  /* Uppercase section labels matching /discussions style. */
-  .section-label {
-    font-size: 0.8125rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted);
-    margin: 0 0 0.75rem;
-    font-weight: 600;
   }
 
   /* ---- Responsive ----------------------------------------------------- */
