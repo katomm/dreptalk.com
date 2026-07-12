@@ -207,6 +207,12 @@ button {
   width: 100%;
 }
 
+/* Wider app-shell max for list and table pages (opt-in via Layout's `wide` prop);
+   text pages keep the narrower --wrap for readable line lengths. */
+.container--wide {
+  max-width: 80rem;
+}
+
 main.container {
   flex: 1 0 auto;
 }
