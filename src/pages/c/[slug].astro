@@ -284,6 +284,13 @@ const breadcrumbLd = {
         <div class="cat-layout">
           <CategorySidebar categories={allCategories} stats={catStats} selectedSlug={category.slug} now={now} />
           <div class="cat-main">
+            <nav class="cat-chips" aria-label="Categories">
+              {allCategories.map((c) => (
+                <a class:list={['cat-chip', { 'cat-chip--on': c.slug === category.slug }]} href={`/c/${c.slug}`}>
+                  {c.name}<span>{catStats.get(c.slug)?.topicCount ?? 0}</span>
+                </a>
+              ))}
+            </nav>
         <div class="ga-controls">
           <nav class="seg" aria-label="Filter by status">
             {GOV_STATUSES.map((s) => (
