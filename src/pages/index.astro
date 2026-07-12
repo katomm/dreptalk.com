@@ -44,7 +44,7 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 const [stats, feed, votedHero, recentIds] = db
   ? await Promise.all([
       getCategoryStats(db),
-      loadActivityFeed(db, { limit: 15 }).then((r) => r.events),
+      loadActivityFeed(db, { limit: 15, withParticipants: true }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
       listRecentlyActiveAuthorIds(db, 10),
     ])
@@ -404,6 +404,7 @@ const heroFeatures = [
       <ActivityFeed
         events={feed}
         now={now}
+        variant="discussions"
         title="Latest activity"
         subtitle="A summary of what's happening in governance."
         viewAllHref="/discussions"
@@ -848,6 +849,7 @@ const heroFeatures = [
     display: grid;
     grid-template-columns: 1fr;
     gap: 2rem;
+    align-items: start;
   }
   @media (min-width: 820px) {
     .discussions-grid {
