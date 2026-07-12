@@ -35,6 +35,7 @@ import { currentNetwork } from '@/lib/api/response.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { parseGaTab } from '@/lib/governance/tab.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
@@ -365,8 +366,21 @@ const breadcrumbLd = topic
 
 // OG card: one dynamic endpoint per thread renders the governance-action card or
 // the discussion card depending on the topic; the site default applies only when
-// the topic is missing.
-const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
+// the topic is missing. The `?v=` token fingerprints the card's visible content
+// (title, reply count, the resolved author name/avatar, gov status) so a scraper
+// that caches the image by URL refetches when any of that changes; it covers the
+// case where an author's name resolves only after the link was first shared. The
+// endpoint ignores the query and always renders current content.
+const ogVersion = topic
+  ? ogCardVersion([
+      topic.title,
+      topic.post_count,
+      topicAuthor.displayName,
+      topicAuthor.imageHash,
+      govAction?.status,
+    ])
+  : undefined;
+const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
 ---
 
 {notFound ? (

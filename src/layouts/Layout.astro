@@ -23,8 +23,9 @@ const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const ogImageUrl = new URL(ogImage, Astro.site).href;
 // Declare the OG image MIME from its extension: the site mixes JPEG cards
 // (overviews, default) with the per-type PNG governance cards, so a single
-// hard-coded type would be wrong for half of them.
-const ogImageType = ogImage.endsWith('.png') ? 'image/png' : 'image/jpeg';
+// hard-coded type would be wrong for half of them. Read the extension from the
+// parsed pathname so a cache-busting `?v=` query on a card URL is ignored.
+const ogImageType = new URL(ogImageUrl).pathname.endsWith('.png') ? 'image/png' : 'image/jpeg';
 // Cloudflare Web Analytics beacon token. The token is public by design: the
 // beacon embeds it in the page HTML for every visitor, so it is committed here
 // instead of being configured per environment. Gated on import.meta.env.PROD so
