@@ -49,7 +49,7 @@ const suggestHref =
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d={BULB} /></svg>
     </span>
     <span class="cat-suggest__body">
-      <span class="cat-suggest__name">Suggest a category or feature</span>
+      <span class="cat-suggest__name">Suggest a feature</span>
       <span class="cat-row__desc">Missing something? Opens a GitHub issue.</span>
     </span>
     <svg class="cat-suggest__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
@@ -71,8 +71,11 @@ const suggestHref =
   .cat-row__count { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.75rem; font-weight: 700; }
   .cat-row__desc { font-size: 0.75rem; color: var(--muted); line-height: 1.35; }
   .cat-row__meta { font-size: 0.6875rem; color: var(--muted); }
-  .cat-suggest { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; padding: 0.75rem; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); text-decoration: none; color: inherit; }
-  .cat-suggest:hover { border-color: var(--accent); }
+  /* A quiet action row, not a nested card: set apart from the list by a hairline
+     divider instead of its own filled box, so it does not read as a box in a box. */
+  .cat-suggest { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.4rem; padding: 0.85rem 0.7rem 0.2rem; border-top: 1px solid var(--border); text-decoration: none; color: inherit; }
+  .cat-suggest:hover .cat-suggest__name,
+  .cat-suggest:hover .cat-suggest__chev { color: var(--accent); }
   .cat-suggest__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
   .cat-suggest__name { font-weight: 600; font-size: 0.875rem; color: var(--fg); }
   .cat-suggest__chev { width: 16px; height: 16px; color: var(--muted); flex: none; }
