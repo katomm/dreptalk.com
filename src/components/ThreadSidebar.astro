@@ -1,39 +1,20 @@
 ---
 import type { Topic } from '@/lib/db/forum.js';
-import type { Category } from '../../config/categories.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 
 interface Props {
   topic: Topic;
-  category: Category | undefined;
-  topicAuthor: AuthorDescriptor;
   participants: { author: AuthorDescriptor; posts: number }[];
   participantTotal: number;
   related: { title: string; slug: string; replies: number; lastPostAt: number }[];
   now: number;
 }
-const { topic, category, topicAuthor, participants, participantTotal, related, now } = Astro.props;
+const { topic, participants, participantTotal, related, now } = Astro.props;
 ---
 
 <aside class="thread-side">
-  <details class="side-card" open>
-    <summary class="side-card__title">
-      About this topic
-      <span class="side-card__chevron" aria-hidden="true"></span>
-    </summary>
-    <div class="side-card__body">
-      {category?.description && <p class="side-card__desc">{category.description}</p>}
-      <dl class="side-kv">
-        <div><dt>Category</dt><dd>{category ? <a href={`/c/${topic.category_slug}`}>{category.name}</a> : topic.category_slug}</dd></div>
-        <div><dt>Created by</dt><dd>{topicAuthor.displayName}</dd></div>
-        <div><dt>Created</dt><dd>{formatRelativeTime(topic.created_at, now)}</dd></div>
-        <div><dt>Last activity</dt><dd>{formatRelativeTime(topic.last_post_at, now)}</dd></div>
-      </dl>
-    </div>
-  </details>
-
   <details class="side-card" open>
     <summary class="side-card__title">
       Participants ({participantTotal})
@@ -122,11 +103,6 @@ const { topic, category, topicAuthor, participants, participantTotal, related, n
       display: none;
     }
   }
-  .side-card__desc { font-size: 0.8125rem; color: var(--muted); margin: 0 0 0.75rem; line-height: 1.5; }
-  .side-kv { margin: 0; }
-  .side-kv > div { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.35rem 0; border-top: 1px solid var(--border); }
-  .side-kv dt { color: var(--muted); font-size: 0.75rem; margin: 0; }
-  .side-kv dd { margin: 0; font-size: 0.8125rem; font-weight: 600; text-align: right; }
   .side-part { margin-top: 0.6rem; }
   .side-rel { display: block; text-decoration: none; color: inherit; padding: 0.6rem 0; border-top: 1px solid var(--border); }
   .side-rel:first-of-type { border-top: 0; }
