@@ -629,6 +629,11 @@ const breadcrumbLd = {
     gap: 1.25rem;
     align-items: start;
   }
+  /* Grid items default to min-width:auto; without this the nowrap topic-row
+     excerpt expands the main column and pushes the stat cluster off-screen. */
+  .cat-main {
+    min-width: 0;
+  }
   @media (min-width: 60rem) {
     .cat-layout {
       grid-template-columns: 20rem 1fr;
