@@ -14,6 +14,7 @@ import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
+import { getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
 import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
@@ -104,6 +105,19 @@ const topicAuthor: AuthorDescriptor = topic
     ? systemAuthor(topic.author_id)
     : describe(topic.author_id)
   : { authorId: '', displayName: '' };
+
+// Related topics for user topics only, shown as a slim section below the thread
+// (governance topics keep their own GaSidebar). Same category, most recent first.
+let relatedTopics: { title: string; slug: string; replies: number; lastPostAt: number }[] = [];
+if (db && topic && !topic.deleted && !isGovernanceTopic) {
+  const related = await getRelatedTopics(db, topic.category_slug, topic.id, { limit: 5 });
+  relatedTopics = related.map((r) => ({
+    title: r.title,
+    slug: r.slug,
+    replies: Math.max(0, r.post_count - 1),
+    lastPostAt: r.last_post_at,
+  }));
+}
 
 if (!notFound) {
   Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
@@ -390,6 +404,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     title={`${topic.title} - DRepTalk`}
     description={metaDescription}
     ogImage={ogImage}
+    readingWidth={!isGovernanceTopic}
   >
     {discussionLd && <JsonLd data={discussionLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
@@ -403,17 +418,33 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
       }
     </nav>
 
-    <div style="margin-bottom:1.5rem;">
-      <h1 style="margin:0 0 0.5rem;line-height:1.3;">{topic.title}</h1>
-      {canEditTitle && <TitleEditor topicId={topic.id} title={topic.title} />}
-      <div style="font-size:0.8125rem;color:var(--muted);display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
-        <AuthorIdentity author={topicAuthor} size={AVATAR_SIZE.post} />
-        <span>{formatRelativeTime(topic.created_at, now)}</span>
-        <span>{topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}</span>
-        {topic.title_edited_at && <span>(title edited)</span>}
-        {topic.pinned && <span style="background:var(--accent);color:var(--on-accent);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">pinned</span>}
-        {topic.locked && <span style="background:var(--muted);color:var(--on-badge);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">locked</span>}
+    <div style="margin-bottom:1.5rem;display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+      <div style="min-width:0;flex:1;">
+        <h1 style="margin:0 0 0.5rem;line-height:1.3;">{topic.title}</h1>
+        {canEditTitle && <TitleEditor topicId={topic.id} title={topic.title} />}
+        {/* User topics: the opening post right below already carries the author,
+            date, and post count, so no byline here. Governance keeps its byline
+            (its tabbed layout does not repeat it). Topic-state markers stay. */}
+        {(isGovernanceTopic || topic.title_edited_at || topic.pinned || topic.locked) && (
+          <div style="font-size:0.8125rem;color:var(--muted);display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+            {isGovernanceTopic && (
+              <Fragment>
+                <AuthorIdentity author={topicAuthor} size={AVATAR_SIZE.post} />
+                <span>{formatRelativeTime(topic.created_at, now)}</span>
+                <span>{topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}</span>
+              </Fragment>
+            )}
+            {topic.title_edited_at && <span>(title edited)</span>}
+            {topic.pinned && <span style="background:var(--accent);color:var(--on-accent);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">pinned</span>}
+            {topic.locked && <span style="background:var(--muted);color:var(--on-badge);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">locked</span>}
+          </div>
+        )}
       </div>
+      {!isGovernanceTopic && (
+        <button type="button" class="thread-share-btn" data-copy-link data-copied-label="Copied">
+          Share
+        </button>
+      )}
     </div>
 
     {isGovernanceTopic && govAction ? (
@@ -533,26 +564,106 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
         </div>
       </>
     ) : (
-      // Non-governance topics: single-column thread.
-      <ThreadPosts
-        topic={topic}
-        thread={thread}
-        govVotes={govVotes}
-        user={user}
-        topicAuthor={topicAuthor}
-        describe={describe}
-        flaggedPostIds={flaggedPostIds}
-        viewerReactions={viewerReactions}
-        isGovernanceTopic={isGovernanceTopic}
-        prevPage={prevPage}
-        nextPage={nextPage}
-        now={now}
-      />
+      // Non-governance topics: a single focused reading column.
+      <div class="thread-single">
+        <ThreadPosts
+          topic={topic}
+          thread={thread}
+          govVotes={govVotes}
+          user={user}
+          topicAuthor={topicAuthor}
+          describe={describe}
+          flaggedPostIds={flaggedPostIds}
+          viewerReactions={viewerReactions}
+          isGovernanceTopic={isGovernanceTopic}
+          prevPage={prevPage}
+          nextPage={nextPage}
+          now={now}
+          startIndex={offset}
+        />
+        {relatedTopics.length > 0 && (
+          <section class="thread-related">
+            <h2 class="thread-related__title">Related topics</h2>
+            {relatedTopics.map((r) => (
+              <a class="thread-related__item" href={`/t/${r.slug}/`}>
+                <span class="thread-related__item-title">{r.title}</span>
+                <span class="thread-related__item-meta">{r.replies} {r.replies === 1 ? 'reply' : 'replies'} &middot; {formatRelativeTime(r.lastPostAt, now)}</span>
+              </a>
+            ))}
+            <a class="thread-related__all" href={`/c/${topic.category_slug}/`}>View all in this category</a>
+          </section>
+        )}
+      </div>
     )}
   </Layout>
 )}
 
 <style>
+  /* User-topic thread body wrapper. The reading width is set on <main> via the
+     Layout `readingWidth` prop, so breadcrumb, title, and posts all align. */
+  .thread-single {
+    min-width: 0;
+  }
+  .thread-related {
+    margin-top: 2rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+  .thread-related__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.75rem;
+  }
+  .thread-related__item {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .thread-related__item:first-of-type {
+    border-top: 0;
+  }
+  .thread-related__item-title {
+    display: block;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--fg);
+  }
+  .thread-related__item:hover .thread-related__item-title {
+    text-decoration: underline;
+  }
+  .thread-related__item-meta {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+  }
+  .thread-related__all {
+    display: inline-block;
+    margin-top: 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .thread-share-btn {
+    flex-shrink: 0;
+    padding: 0.4rem 0.85rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--fg);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .thread-share-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   /* Two-column layout: main content on the left, sidebar on the right.
      Single column on mobile (sidebar stacks below). */
   .ga-detail-layout {

@@ -17,6 +17,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
 import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartMs, type CardanoNetwork } from '@/lib/config/network.js';
+import { GAVEL_PATH, MESSAGE_PATH, USERS_PATH } from '@/lib/forum/icons.js';
 
 interface Props {
   topic: Topic;
@@ -25,9 +26,18 @@ interface Props {
   author?: AuthorDescriptor;
   category?: Category;
   governance?: GovernanceAction;
+  // Discussions-variant opt-in (default 'default' keeps this component's other
+  // callers, forum search and the governance overview, byte-identical). See
+  // ActivityRow.astro's own discussions variant, which this mirrors.
+  variant?: 'default' | 'discussions';
+  excerpt?: string;
+  participants?: number;
 }
 
-const { topic, now, network, author, category, governance } = Astro.props;
+const { topic, now, network, author, category, governance, variant = 'default', excerpt, participants } = Astro.props;
+
+// The discussion list never passes `governance`, so the leading type icon is
+// message in practice; gavel is kept for parity with ActivityRow.
 
 // Left column: the author avatar, or the neutral system tile for a
 // system-authored (governance) topic, mirroring the activity feed row.
@@ -58,6 +68,11 @@ const gaCountdown = governance
     <div class="topic-row__titleline">
       {topic.pinned && <span aria-hidden="true" title="Pinned" class="topic-row__glyph topic-row__glyph--pin">&#128204;</span>}
       {topic.locked && <span aria-hidden="true" title="Locked" class="topic-row__glyph">&#128274;</span>}
+      {variant === 'discussions' && (
+        <svg class="topic-row__type-icon" aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d={governance ? GAVEL_PATH : MESSAGE_PATH} />
+        </svg>
+      )}
       <a class="topic-row__title" href={`/t/${topic.slug}/`}>{topic.title}</a>
       {category && (
         <a class="topic-row__cat" href={`/c/${category.slug}/`}>{category.name}</a>
@@ -78,6 +93,27 @@ const gaCountdown = governance
       {gaCountdown && <span>{gaCountdown}</span>}
     </div>
 
+    {variant === 'discussions' && excerpt && (
+      <p class="topic-row__excerpt">{excerpt}</p>
+    )}
+
+    {variant === 'discussions' && (
+      <div class="topic-row__compact">
+        <span class="topic-row__compact-item">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={MESSAGE_PATH} /></svg>
+          {Math.max(0, topic.post_count - 1)}
+        </span>
+        <span class="topic-row__compact-item">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={USERS_PATH} /></svg>
+          {participants ?? 0}
+        </span>
+        <span class="topic-row__compact-item">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+          {formatRelativeTime(topic.last_post_at, now)}
+        </span>
+      </div>
+    )}
+
     {gaBar && (
       <div class="topic-row__tally">
         <span class="topic-row__tally-label">DRep</span>
@@ -87,10 +123,27 @@ const gaCountdown = governance
     )}
   </div>
 
-  <span class="topic-row__time">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-    {formatRelativeTime(topic.last_post_at, now)}
-  </span>
+  {variant === 'discussions' ? (
+    <div class="topic-row__stats">
+      <div class="topic-row__stat">
+        <span class="topic-row__stat-num">{Math.max(0, topic.post_count - 1)}</span>
+        <span class="topic-row__stat-label">Replies</span>
+      </div>
+      <div class="topic-row__stat">
+        <span class="topic-row__stat-num">{participants ?? 0}</span>
+        <span class="topic-row__stat-label">Participants</span>
+      </div>
+      <span class="topic-row__time">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+        {formatRelativeTime(topic.last_post_at, now)}
+      </span>
+    </div>
+  ) : (
+    <span class="topic-row__time">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+      {formatRelativeTime(topic.last_post_at, now)}
+    </span>
+  )}
 </div>
 
 <style>
@@ -174,6 +227,36 @@ const gaCountdown = governance
     max-width: 320px;
   }
   .topic-row__tally-label { font-size: 0.6875rem; color: var(--muted); flex-shrink: 0; }
+  /* Discussions-variant leading type icon, inline before the title. */
+  .topic-row__type-icon { flex-shrink: 0; color: var(--muted); }
+  /* Discussions-variant excerpt: muted single line, ellipsized rather than wrapped. */
+  .topic-row__excerpt {
+    margin: 0.3rem 0 0;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Discussions-variant right cluster: Replies / Participants stat blocks (number
+     over a muted label, mirroring ActivityRow's .act-stat), plus the relative
+     time kept alongside them. */
+  .topic-row__stats {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    padding-top: 0.1rem;
+  }
+  .topic-row__stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    min-width: 2.75rem;
+  }
+  .topic-row__stat-num { font-size: 0.9375rem; font-weight: 700; color: var(--fg); line-height: 1.2; }
+  .topic-row__stat-label { font-size: 0.6875rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
   .topic-row__time {
     flex-shrink: 0;
     display: inline-flex;
@@ -183,5 +266,21 @@ const gaCountdown = governance
     font-size: 0.8125rem;
     white-space: nowrap;
     padding-top: 0.1rem;
+  }
+  /* Discussions-variant compact meta line: shown only on narrow screens in place
+     of the desktop stat blocks, so the title keeps full width and wraps normally
+     instead of one word per line. */
+  .topic-row__compact { display: none; }
+  .topic-row__compact-item { display: inline-flex; align-items: center; gap: 0.3rem; }
+  @media (max-width: 40rem) {
+    .topic-row__compact {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 1rem;
+      margin-top: 0.45rem;
+      font-size: 0.8125rem;
+      color: var(--muted);
+    }
+    .topic-row__stats { display: none; }
   }
 </style>

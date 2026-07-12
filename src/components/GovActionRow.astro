@@ -185,14 +185,13 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
         </>
       ) : <span class="garow__sub">{badge.label}</span>}
     </div>
-    <svg class="garow__chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
   </div>
 </a>
 
 <style>
   /* Four columns on wide screens: action, voting, activity, time. The header grid in
      c/[slug].astro mirrors this at every breakpoint. */
-  .garow { display:grid; grid-template-columns:2.2fr 1.7fr 0.9fr 1.3fr; gap:18px; align-items:start;
+  .garow { display:grid; grid-template-columns:2.7fr 1.6fr 0.9fr 1.2fr; gap:18px; align-items:start;
     padding:16px 18px; border-bottom:1px solid var(--border); text-decoration:none; color:var(--fg); }
   .garow:hover { background:var(--surface); }
   /* Let the cell shrink below its content width so the abstract truncates with an
@@ -250,12 +249,11 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .garow__strong { font-weight:600; font-size:0.85rem; }
   .garow__sub { color:var(--muted); font-size:0.75rem; }
 
-  .garow__time { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .garow__time { display:flex; align-items:center; gap:8px; }
   .garow__timebody { display:flex; flex-direction:column; gap:2px; min-width:0; }
   .garow__timehead { display:inline-flex; align-items:center; gap:6px; }
   .garow__timehead svg { color:var(--accent); }
   .garow__accent { color:var(--accent); }
-  .garow__chevron { color:var(--muted); flex:none; }
 
   .badge { font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; padding:2px 7px; border-radius:999px; }
   .badge--active { background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--accent); }
@@ -267,7 +265,7 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
      merge to one voting column already freed the width the old 5-column layout
      needed to reflow here). Header grid in c/[slug].astro mirrors these widths. */
   @media (max-width:1000px) {
-    .garow { grid-template-columns:2fr 1.7fr 0.8fr 1.1fr; }
+    .garow { grid-template-columns:2.4fr 1.6fr 0.8fr 1.1fr; }
   }
   /* Mobile: each row becomes a self-contained rounded card. The voting cell keeps
      its per-body composition list full width, above a two-column footer
@@ -280,7 +278,7 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
       gap:12px 0;
       border:1px solid var(--border);
       border-radius:14px;
-      padding:14px 22px 14px 14px; /* right gutter holds the chevron */
+      padding:14px;
     }
     .garow__main { grid-column:1 / -1; min-width:0; }
     .garow__voting { grid-column:1 / -1; min-width:0; }
@@ -310,7 +308,5 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
       background:color-mix(in srgb, var(--accent) 12%, transparent);
       color:var(--accent);
     }
-    /* The chevron floats in the right gutter, centered on the card. */
-    .garow__chevron { position:absolute; right:8px; top:50%; transform:translateY(-50%); }
   }
 </style>

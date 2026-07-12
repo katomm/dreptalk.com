@@ -31,9 +31,11 @@ interface Props {
   compact?: boolean;
   /** The thread is locked: disables the Edit affordance. */
   topicLocked?: boolean;
+  /** 1-based position in the thread; renders "Post #N" on the right of the header row when set (top-level posts on user topics only). */
+  postNumber?: number;
 }
 
-const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false } = Astro.props;
+const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber } = Astro.props;
 
 const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
 
@@ -72,6 +74,9 @@ const anchorUrl =
     )}
     {post.hidden && canSeeContent && (
       <span style="background:var(--muted);color:var(--on-badge);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
+    )}
+    {postNumber !== undefined && !compact && (
+      <span style="margin-left:auto;">Post #{postNumber}</span>
     )}
   </div>
   {isVoteRationale && (

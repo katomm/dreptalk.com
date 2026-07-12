@@ -79,4 +79,22 @@ describe('loadActivityFeed', () => {
     expect(events.map((e) => e.kind)).toEqual(['reply_created', 'topic_created']);
     expect(total).toBe(2);
   });
+
+  it('fills postCount always and participants when requested', async () => {
+    const { topic } = await createTopic(env.DB, {
+      categorySlug: 'general', authorId: 'alice', title: 'Feed enrich',
+      bodyMd: 'op', bodyHtml: '<p>op</p>', now: 1_700_060_000_000, rand: 'af01',
+    });
+    await createPost(env.DB, { topicId: topic.id, authorId: 'bob', bodyMd: 'r', bodyHtml: '<p>r</p>', now: 1_700_060_100_000 });
+
+    const withP = await loadActivityFeed(env.DB, { filter: 'all', limit: 20, withParticipants: true });
+    const ev = withP.events.find((e) => e.topic.slug === topic.slug);
+    expect(ev?.topic.postCount).toBe(2);
+    expect(ev?.participants).toBe(2);
+
+    const withoutP = await loadActivityFeed(env.DB, { filter: 'all', limit: 20 });
+    const ev2 = withoutP.events.find((e) => e.topic.slug === topic.slug);
+    expect(ev2?.participants).toBeNull();
+    expect(ev2?.topic.postCount).toBe(2);
+  });
 });

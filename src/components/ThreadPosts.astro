@@ -25,6 +25,8 @@ interface Props {
   prevPage: number | null;
   nextPage: number | null;
   now: number;
+  /** 1-based numbering offset for top-level posts on this page; undefined renders no Post #N (governance topics). */
+  startIndex?: number;
 }
 
 const {
@@ -40,6 +42,7 @@ const {
   prevPage,
   nextPage,
   now,
+  startIndex,
 } = Astro.props;
 
 // One gate for both write affordances: the composer section and the per-post
@@ -71,7 +74,7 @@ const notVoted = (author: AuthorDescriptor) =>
 )}
 
 <div style="display:flex;flex-direction:column;gap:0;">
-  {thread.topLevel.map((post) => {
+  {thread.topLevel.map((post, i) => {
     // The opening post: carries the system identity on governance topics, and
     // takes no Reply button (replying to the opener IS a top-level comment).
     const isOpening = post.id === thread.openingPost?.id;
@@ -91,6 +94,7 @@ const notVoted = (author: AuthorDescriptor) =>
           canReply={canParticipate && !isOpening}
           topicLocked={topic.locked}
           now={now}
+          postNumber={startIndex !== undefined ? startIndex + i + 1 : undefined}
         />
         {children.length > 0 && (
           <div class="thread-replies">
@@ -134,7 +138,14 @@ const notVoted = (author: AuthorDescriptor) =>
 
 {canParticipate && (
   <section id="reply" style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;scroll-margin-top:5rem;">
-    <h2 style="margin:0 0 1rem;font-size:1.125rem;">Reply</h2>
+    {isGovernanceTopic ? (
+      <h2 style="margin:0 0 1rem;font-size:1.125rem;">Reply</h2>
+    ) : (
+      <>
+        <h2 class="reply-heading">Join the discussion</h2>
+        <p class="reply-sub">Share your thoughts. Be respectful and stay on topic.</p>
+      </>
+    )}
     <Composer client:load mode="post" topicId={topic.id} />
   </section>
 )}
@@ -245,6 +256,27 @@ const notVoted = (author: AuthorDescriptor) =>
         .catch(() => {
           // Clipboard unavailable (permissions, http): leave the label as is.
         });
+      return;
+    }
+
+    // The header Share button (rendered by t/[slug].astro for user topics)
+    // copies the plain page URL. It lives outside this component's markup,
+    // but this handler is delegated to document, so it catches it too.
+    const copyLinkBtn = target.closest('[data-copy-link]');
+    if (copyLinkBtn) {
+      const original = copyLinkBtn.textContent;
+      const copiedLabel = copyLinkBtn.getAttribute('data-copied-label') ?? 'Copied';
+      navigator.clipboard
+        .writeText(window.location.href)
+        .then(() => {
+          copyLinkBtn.textContent = copiedLabel;
+          setTimeout(() => {
+            copyLinkBtn.textContent = original;
+          }, 1500);
+        })
+        .catch(() => {
+          // Clipboard unavailable (permissions, http): leave the label as is.
+        });
     }
   });
 </script>
@@ -275,5 +307,15 @@ const notVoted = (author: AuthorDescriptor) =>
     margin: 0;
     font-size: 0.875rem;
     color: var(--muted);
+  }
+  .reply-heading {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.2rem;
+  }
+  .reply-sub {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin: 0 0 0.85rem;
   }
 </style>

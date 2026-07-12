@@ -17,8 +17,14 @@ interface Props {
   description?: string;
   noindex?: boolean;
   ogImage?: string;
+  /** Widen the header, content, and footer to the app-shell max, for list and
+      table pages that benefit from the extra room. Text pages stay narrower. */
+  wide?: boolean;
+  /** Narrow only the main content to a comfortable reading column (the nav and
+      footer keep their normal width). For single-column reading pages. */
+  readingWidth?: boolean;
 }
-const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg' } = Astro.props;
+const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg', wide = false, readingWidth = false } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const ogImageUrl = new URL(ogImage, Astro.site).href;
 // Declare the OG image MIME from its extension: the site mixes JPEG cards
@@ -128,7 +134,7 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
       <span class="preprod-flag" role="status">⚠ Preprod testnet</span>
     )}
     <header class="site-header">
-      <div class="site-header__inner container">
+      <div class:list={['site-header__inner', 'container', { 'container--wide': wide }]}>
         <a class="brand" href="/" aria-label="DRepTalk home">
           <LogoMark style="height:38px;width:38px;color:var(--muted)" />
           <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
@@ -174,12 +180,12 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
       </div>
     </header>
 
-    <main class="container">
+    <main class:list={['container', { 'container--wide': wide, 'container--reading': readingWidth }]}>
       <slot />
     </main>
 
     <footer class="site-footer">
-      <div class="site-footer__inner container">
+      <div class:list={['site-footer__inner', 'container', { 'container--wide': wide }]}>
         <div class="site-footer__brand">
           <a class="brand" href="/" aria-label="DRepTalk home">
             <LogoMark style="height:34px;width:34px;color:var(--muted)" />

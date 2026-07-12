@@ -16,9 +16,10 @@ interface Props {
   tabs?: { active: ActivityFilter; hrefFor: (f: ActivityFilter) => string };
   pagination?: { prevHref: string | null; nextHref: string | null; page: number; totalPages?: number | null };
   footer?: boolean;
+  variant?: 'default' | 'discussions';
 }
 
-const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer } = Astro.props;
+const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer, variant = 'default' } = Astro.props;
 ---
 
 <section class="af" aria-label={title}>
@@ -49,7 +50,7 @@ const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer } = 
     <p class="af-empty">No recent activity yet.</p>
   ) : (
     <div class="af-list">
-      {events.map((e) => <ActivityRow event={e} now={now} />)}
+      {events.map((e) => <ActivityRow event={e} now={now} variant={variant} />)}
     </div>
   )}
 
