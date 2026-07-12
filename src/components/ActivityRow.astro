@@ -87,8 +87,22 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
           {profileHref ? <a class="act-name2" href={profileHref}>{actor.displayName}</a> : <span class="act-name2">{actor.displayName}</span>}
           {' '}
         </Fragment>
-      )}{discussionsVerbText} in {event.topic.categoryName}<span class="act-dot" aria-hidden="true">&middot;</span>{formatRelativeTime(event.createdAt, now)}
+      )}{discussionsVerbText} in {event.topic.categoryName}<span class="act-meta2-time"><span class="act-dot" aria-hidden="true">&middot;</span>{formatRelativeTime(event.createdAt, now)}</span>
     </p>
+    <div class="act-compact">
+      <span class="act-compact-item">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={MESSAGE_PATH} /></svg>
+        {event.topic.postCount - 1}
+      </span>
+      <span class="act-compact-item">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+        {event.participants ?? 0}
+      </span>
+      <span class="act-compact-item">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+        {formatRelativeTime(event.createdAt, now)}
+      </span>
+    </div>
   </div>
 
   <div class="act-stats">
@@ -243,4 +257,14 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
   .act-stat { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; min-width: 3rem; }
   .act-stat__num { font-size: 0.9375rem; font-weight: 700; color: var(--fg); line-height: 1.2; }
   .act-stat__label { font-size: 0.6875rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  /* Narrow screens: collapse the desktop stat blocks (and the meta-line time)
+     into one compact inline meta line, mirroring the category topic rows. */
+  .act-compact { display: none; }
+  .act-compact-item { display: inline-flex; align-items: center; gap: 0.3rem; }
+  @media (max-width: 40rem) {
+    .act-row--wide { align-items: flex-start; }
+    .act-stats { display: none; }
+    .act-meta2-time { display: none; }
+    .act-compact { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; font-size: 0.8125rem; color: var(--muted); }
+  }
 </style>
