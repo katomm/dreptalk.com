@@ -97,6 +97,23 @@ const gaCountdown = governance
       <p class="topic-row__excerpt">{excerpt}</p>
     )}
 
+    {variant === 'discussions' && (
+      <div class="topic-row__compact">
+        <span class="topic-row__compact-item">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={MESSAGE_PATH} /></svg>
+          {Math.max(0, topic.post_count - 1)}
+        </span>
+        <span class="topic-row__compact-item">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          {participants ?? 0}
+        </span>
+        <span class="topic-row__compact-item">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+          {formatRelativeTime(topic.last_post_at, now)}
+        </span>
+      </div>
+    )}
+
     {gaBar && (
       <div class="topic-row__tally">
         <span class="topic-row__tally-label">DRep</span>
@@ -249,5 +266,21 @@ const gaCountdown = governance
     font-size: 0.8125rem;
     white-space: nowrap;
     padding-top: 0.1rem;
+  }
+  /* Discussions-variant compact meta line: shown only on narrow screens in place
+     of the desktop stat blocks, so the title keeps full width and wraps normally
+     instead of one word per line. */
+  .topic-row__compact { display: none; }
+  .topic-row__compact-item { display: inline-flex; align-items: center; gap: 0.3rem; }
+  @media (max-width: 40rem) {
+    .topic-row__compact {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem 1rem;
+      margin-top: 0.45rem;
+      font-size: 0.8125rem;
+      color: var(--muted);
+    }
+    .topic-row__stats { display: none; }
   }
 </style>
