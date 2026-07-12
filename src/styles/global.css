@@ -213,6 +213,12 @@ button {
   max-width: 80rem;
 }
 
+/* Reading-column width for single-column text pages; applied to main only so
+   the nav and footer keep their normal width. */
+.container--reading {
+  max-width: 46rem;
+}
+
 main.container {
   flex: 1 0 auto;
 }

@@ -20,8 +20,11 @@ interface Props {
   /** Widen the header, content, and footer to the app-shell max, for list and
       table pages that benefit from the extra room. Text pages stay narrower. */
   wide?: boolean;
+  /** Narrow only the main content to a comfortable reading column (the nav and
+      footer keep their normal width). For single-column reading pages. */
+  readingWidth?: boolean;
 }
-const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg', wide = false } = Astro.props;
+const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg', wide = false, readingWidth = false } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const ogImageUrl = new URL(ogImage, Astro.site).href;
 // Declare the OG image MIME from its extension: the site mixes JPEG cards
@@ -172,7 +175,7 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
       </div>
     </header>
 
-    <main class:list={['container', { 'container--wide': wide }]}>
+    <main class:list={['container', { 'container--wide': wide, 'container--reading': readingWidth }]}>
       <slot />
     </main>
 

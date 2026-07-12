@@ -6,7 +6,6 @@ import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import ThreadPosts from '@/components/ThreadPosts.astro';
-import ThreadSidebar from '@/components/ThreadSidebar.astro';
 import TitleEditor from '@/components/TitleEditor.astro';
 import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
@@ -15,7 +14,7 @@ import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
-import { getTopicParticipants, getRelatedTopics } from '@/lib/db/discussions.js';
+import { getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
 import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
@@ -106,29 +105,17 @@ const topicAuthor: AuthorDescriptor = topic
     : describe(topic.author_id)
   : { authorId: '', displayName: '' };
 
-// Sidebar data for user topics only (governance topics use GaSidebar instead).
-// Participants and related topics are independent reads; run them concurrently.
-let sidebarData: {
-  participants: { author: AuthorDescriptor; posts: number }[];
-  participantTotal: number;
-  related: { title: string; slug: string; replies: number; lastPostAt: number }[];
-} | null = null;
+// Related topics for user topics only, shown as a slim section below the thread
+// (governance topics keep their own GaSidebar). Same category, most recent first.
+let relatedTopics: { title: string; slug: string; replies: number; lastPostAt: number }[] = [];
 if (db && topic && !topic.deleted && !isGovernanceTopic) {
-  const [partRows, related] = await Promise.all([
-    getTopicParticipants(db, topic.id, { limit: 8 }),
-    getRelatedTopics(db, topic.category_slug, topic.id, { limit: 5 }),
-  ]);
-  const partIdentities = await loadAuthorIdentities(db, partRows.map((p) => p.authorId));
-  sidebarData = {
-    participants: partRows.map((p) => ({ author: partIdentities.describe(p.authorId), posts: p.posts })),
-    participantTotal: thread.stats?.participants ?? partRows.length,
-    related: related.map((r) => ({
-      title: r.title,
-      slug: r.slug,
-      replies: Math.max(0, r.post_count - 1),
-      lastPostAt: r.last_post_at,
-    })),
-  };
+  const related = await getRelatedTopics(db, topic.category_slug, topic.id, { limit: 5 });
+  relatedTopics = related.map((r) => ({
+    title: r.title,
+    slug: r.slug,
+    replies: Math.max(0, r.post_count - 1),
+    lastPostAt: r.last_post_at,
+  }));
 }
 
 if (!notFound) {
@@ -403,6 +390,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
     title={`${topic.title} - DRepTalk`}
     description={metaDescription}
     ogImage={ogImage}
+    readingWidth={!isGovernanceTopic}
   >
     {discussionLd && <JsonLd data={discussionLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
@@ -562,33 +550,34 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
         </div>
       </>
     ) : (
-      // Non-governance topics: two-column thread with the discussion sidebar.
-      <div class="thread-layout">
-        <div class="thread-main">
-          <ThreadPosts
-            topic={topic}
-            thread={thread}
-            govVotes={govVotes}
-            user={user}
-            topicAuthor={topicAuthor}
-            describe={describe}
-            flaggedPostIds={flaggedPostIds}
-            viewerReactions={viewerReactions}
-            isGovernanceTopic={isGovernanceTopic}
-            prevPage={prevPage}
-            nextPage={nextPage}
-            now={now}
-            startIndex={offset}
-          />
-        </div>
-        {sidebarData && (
-          <ThreadSidebar
-            topic={topic}
-            participants={sidebarData.participants}
-            participantTotal={sidebarData.participantTotal}
-            related={sidebarData.related}
-            now={now}
-          />
+      // Non-governance topics: a single focused reading column.
+      <div class="thread-single">
+        <ThreadPosts
+          topic={topic}
+          thread={thread}
+          govVotes={govVotes}
+          user={user}
+          topicAuthor={topicAuthor}
+          describe={describe}
+          flaggedPostIds={flaggedPostIds}
+          viewerReactions={viewerReactions}
+          isGovernanceTopic={isGovernanceTopic}
+          prevPage={prevPage}
+          nextPage={nextPage}
+          now={now}
+          startIndex={offset}
+        />
+        {relatedTopics.length > 0 && (
+          <section class="thread-related">
+            <h2 class="thread-related__title">Related topics</h2>
+            {relatedTopics.map((r) => (
+              <a class="thread-related__item" href={`/t/${r.slug}`}>
+                <span class="thread-related__item-title">{r.title}</span>
+                <span class="thread-related__item-meta">{r.replies} {r.replies === 1 ? 'reply' : 'replies'} &middot; {formatRelativeTime(r.lastPostAt, now)}</span>
+              </a>
+            ))}
+            <a class="thread-related__all" href={`/c/${topic.category_slug}`}>View all in this category</a>
+          </section>
         )}
       </div>
     )}
@@ -596,25 +585,54 @@ const ogImage = topic ? `/og/t/${topic.slug}.png` : undefined;
 )}
 
 <style>
-  /* User-topic two-column layout: thread on the left, ThreadSidebar on the
-     right. Single column below 60rem (sidebar stacks below the thread). */
-  .thread-layout {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.25rem;
-    align-items: start;
-  }
-  @media (min-width: 60rem) {
-    .thread-layout {
-      grid-template-columns: 1fr 300px;
-    }
-  }
-  /* Grid items default to min-width:auto, so wide content (long ids, code)
-     forces the track wider than the viewport and the whole page scrolls
-     sideways on a phone; min-width:0 lets the track shrink and content wrap
-     instead. Mirrors .ga-detail-layout__main below. */
-  .thread-main {
+  /* User-topic thread body wrapper. The reading width is set on <main> via the
+     Layout `readingWidth` prop, so breadcrumb, title, and posts all align. */
+  .thread-single {
     min-width: 0;
+  }
+  .thread-related {
+    margin-top: 2rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+  .thread-related__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.75rem;
+  }
+  .thread-related__item {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .thread-related__item:first-of-type {
+    border-top: 0;
+  }
+  .thread-related__item-title {
+    display: block;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--fg);
+  }
+  .thread-related__item:hover .thread-related__item-title {
+    text-decoration: underline;
+  }
+  .thread-related__item-meta {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+  }
+  .thread-related__all {
+    display: inline-block;
+    margin-top: 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
   }
   .thread-share-btn {
     flex-shrink: 0;
