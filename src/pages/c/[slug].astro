@@ -176,10 +176,10 @@ if (category && db) {
   }
 }
 
-// All categories plus per-category topic counts / last-activity, for the discussion
-// categories' sidebar. Skipped for the governance category, which does not show it.
+// All categories plus per-category topic counts / last-activity, for the category
+// sidebar shown on every category page (desktop; hidden on mobile).
 const allCategories = getCategories();
-const catStats = db && category && !isGovernanceCategory
+const catStats = db && category
   ? await getCategoryStats(db)
   : new Map<string, { topicCount: number; lastPostAt: number | null }>();
 
@@ -281,6 +281,9 @@ const breadcrumbLd = {
           </div>
         </div>
 
+        <div class="cat-layout">
+          <CategorySidebar categories={allCategories} stats={catStats} selectedSlug={category.slug} now={now} />
+          <div class="cat-main">
         <div class="ga-controls">
           <nav class="seg" aria-label="Filter by status">
             {GOV_STATUSES.map((s) => (
@@ -411,6 +414,8 @@ const breadcrumbLd = {
           totalPages={totalPages}
           label="Topic list pagination"
         />
+          </div>
+        </div>
       </>
     ) : (
       <>
