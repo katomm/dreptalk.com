@@ -8,6 +8,7 @@
 // explorer link. Connect/identity derivation mirrors DRepService exactly.
 import { useState, useRef } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
+import { srOnlyRadio } from '@/components/srOnlyRadio.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import type { CastDRepVoteOpts } from '@/lib/governance/drepTx.js';
@@ -191,6 +192,9 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
 
   // Vote form state.
   const [vote, setVote] = useState<VoteChoice>('yes');
+  // Which vote option currently holds keyboard focus, so its label can render a
+  // focus ring (the visually hidden radio's own outline is not visible).
+  const [voteFocused, setVoteFocused] = useState<VoteChoice | null>(null);
   const [rationaleText, setRationaleText] = useState('');
   const [rationaleModalOpen, setRationaleModalOpen] = useState(false);
   const [crossPost, setCrossPost] = useState(false);
@@ -610,6 +614,8 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                             background: vote === v ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent',
                             opacity: busy ? 0.7 : 1,
                             textTransform: 'capitalize',
+                            outline: voteFocused === v ? '2px solid var(--accent)' : 'none',
+                            outlineOffset: 2,
                           }}
                         >
                           <input
@@ -618,8 +624,10 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                             value={v}
                             checked={vote === v}
                             onChange={() => setVote(v)}
+                            onFocus={() => setVoteFocused(v)}
+                            onBlur={() => setVoteFocused(null)}
                             disabled={busy}
-                            style={{ display: 'none' }}
+                            style={srOnlyRadio}
                           />
                           {v}
                         </label>
