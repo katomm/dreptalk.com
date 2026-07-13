@@ -68,24 +68,8 @@ export interface MultisigVotePanelProps {
   pendingId?: string;
 }
 
-// Shared inline button style, mirroring VotePanel's primary action button.
-function primaryButtonStyle(busy: boolean): React.CSSProperties {
-  return {
-    padding: '0.625rem 1.25rem',
-    background: busy ? 'var(--muted)' : 'var(--accent)',
-    color: 'var(--accent-fg)',
-    border: 'none',
-    borderRadius: '0.375rem',
-    fontSize: '1rem',
-    fontWeight: 500,
-    cursor: busy ? 'not-allowed' : 'pointer',
-    opacity: busy ? 0.7 : 1,
-    alignSelf: 'flex-start',
-  };
-}
-
 const monoBlockStyle: React.CSSProperties = {
-  fontFamily: 'monospace',
+  fontFamily: 'var(--font-mono)',
   fontSize: '0.8125rem',
   background: 'var(--surface)',
   border: '1px solid var(--border)',
@@ -464,7 +448,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
       ) : (
         <>
           <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={submitting} label="Funding wallet" />
-          <button type="button" onClick={() => void handleSubmit()} disabled={submitting} style={primaryButtonStyle(submitting)}>
+          <button type="button" className="btn btn-primary" onClick={() => void handleSubmit()} disabled={submitting} style={{ alignSelf: 'flex-start' }}>
             {submitting ? 'Submitting...' : 'Submit vote'}
           </button>
         </>
@@ -539,7 +523,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
               disabled={addingWitness}
               style={{
                 width: '100%',
-                fontFamily: 'monospace',
+                fontFamily: 'var(--font-mono)',
                 fontSize: '0.8125rem',
                 padding: '0.625rem 0.75rem',
                 border: '1px solid var(--border)',
@@ -552,9 +536,10 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
             />
             <button
               type="button"
+              className="btn btn-primary"
               onClick={() => void handleAddWitness()}
               disabled={addingWitness || !signerPaste.trim()}
-              style={primaryButtonStyle(addingWitness || !signerPaste.trim())}
+              style={{ alignSelf: 'flex-start' }}
             >
               {addingWitness ? 'Adding...' : 'Add signature'}
             </button>
@@ -669,7 +654,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
         ) : (
           <>
             <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={building} label="Funding wallet" />
-            <button type="button" onClick={() => void handleInitiate()} disabled={building} style={primaryButtonStyle(building)}>
+            <button type="button" className="btn btn-primary" onClick={() => void handleInitiate()} disabled={building} style={{ alignSelf: 'flex-start' }}>
               {building ? 'Building...' : 'Start vote'}
             </button>
             {building && (

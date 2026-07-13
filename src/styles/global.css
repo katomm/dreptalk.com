@@ -69,6 +69,9 @@
   /* Typography (one clean family for body and headings) */
   --font-body: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  /* One monospace stack for on-chain hex, CBOR and JSON, so those never fall
+     back to the OS default (Courier) in some places and SF Mono in others. */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Layout */
   --wrap: 64rem;
@@ -286,6 +289,23 @@ main.container {
 }
 .btn-primary:hover {
   background: var(--accent-hover);
+}
+
+/* One disabled treatment for every .btn variant: dimmed, not-allowed, and hover
+   held at the resting state so a disabled control never looks interactive. */
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-primary:disabled:hover {
+  background: var(--accent);
+}
+.btn-secondary:disabled:hover {
+  border-color: var(--border);
+  color: var(--fg);
+}
+.btn-ghost:disabled:hover {
+  background: transparent;
 }
 
 .btn-secondary {

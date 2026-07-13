@@ -174,7 +174,7 @@ function AnchorInfo({
       </p>
       <p style={{ margin: 0, color: 'var(--muted)', wordBreak: 'break-all' }}>
         Hash:{' '}
-        <span title={anchor.hash} style={{ fontFamily: 'monospace' }}>
+        <span title={anchor.hash} style={{ fontFamily: 'var(--font-mono)' }}>
           {anchor.hash.slice(0, 12)}...
         </span>
         <span style={{ display: 'none' }}>{anchor.hash}</span>
@@ -535,20 +535,10 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                   />
                   <button
                     type="button"
+                    className="btn btn-primary"
                     onClick={() => void handleConnect()}
                     disabled={busy}
-                    style={{
-                      padding: '0.625rem 1.25rem',
-                      background: 'var(--accent)',
-                      color: 'var(--accent-fg)',
-                      border: 'none',
-                      borderRadius: '0.375rem',
-                      fontSize: '1rem',
-                      fontWeight: 500,
-                      cursor: busy ? 'not-allowed' : 'pointer',
-                      opacity: busy ? 0.7 : 1,
-                      alignSelf: 'flex-start',
-                    }}
+                    style={{ alignSelf: 'flex-start' }}
                   >
                     {phase.status === 'connecting' || phase.status === 'checking'
                       ? 'Connecting...'
@@ -714,20 +704,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                   )}
 
                   <div>
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      style={{
-                        padding: '0.625rem 1.25rem',
-                        background: busy ? 'var(--muted)' : 'var(--accent)',
-                        color: 'var(--accent-fg)',
-                        border: 'none',
-                        borderRadius: '0.375rem',
-                        fontSize: '1rem',
-                        fontWeight: 500,
-                        cursor: busy ? 'not-allowed' : 'pointer',
-                      }}
-                    >
+                    <button type="submit" className="btn btn-primary" disabled={busy}>
                       {phase.status === 'submitting' ? 'Awaiting wallet...' : 'Cast vote'}
                     </button>
                   </div>
