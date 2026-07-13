@@ -28,6 +28,7 @@ import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { parseDrepId } from '@/lib/cardano/identity.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import RationaleModal from '@/components/RationaleModal.js';
+import { srOnlyRadio } from '@/components/srOnlyRadio.js';
 
 // The enabled wallet api surface: CIP-30 tx methods + getNetworkId for the
 // network guard. The CIP-95 extension is requested for parity with the key-vote
@@ -156,6 +157,9 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
 
   // ---- initiate-mode state ----
   const [vote, setVote] = useState<VoteChoice>('yes');
+  // Which vote option currently holds keyboard focus, so its label can render a
+  // focus ring (the visually hidden radio's own outline is not visible).
+  const [voteFocused, setVoteFocused] = useState<VoteChoice | null>(null);
   const [rationaleText, setRationaleText] = useState('');
   const [rationaleModalOpen, setRationaleModalOpen] = useState(false);
   const [building, setBuilding] = useState(false);
@@ -623,9 +627,11 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
                   background: vote === v ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'transparent',
                   opacity: building ? 0.7 : 1,
                   textTransform: 'capitalize',
+                  outline: voteFocused === v ? '2px solid var(--accent)' : 'none',
+                  outlineOffset: 2,
                 }}
               >
-                <input type="radio" name="multisig-vote" value={v} checked={vote === v} onChange={() => setVote(v)} disabled={building} style={{ display: 'none' }} />
+                <input type="radio" name="multisig-vote" value={v} checked={vote === v} onChange={() => setVote(v)} onFocus={() => setVoteFocused(v)} onBlur={() => setVoteFocused(null)} disabled={building} style={srOnlyRadio} />
                 {v}
               </label>
             ))}

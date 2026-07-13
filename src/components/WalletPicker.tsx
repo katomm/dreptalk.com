@@ -8,6 +8,7 @@
 import { useId, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { CardanoWalletInfo } from '@/lib/wallet/useCardanoWallets.js';
+import { srOnlyRadio } from '@/components/srOnlyRadio.js';
 
 interface WalletPickerProps {
   wallets: CardanoWalletInfo[];
@@ -30,17 +31,6 @@ const rowBase: CSSProperties = {
   borderRadius: '0.5rem',
   background: 'var(--bg)',
   margin: 0,
-};
-
-// Visually hidden but focusable: the styled <label> is the visible control, the
-// native radio drives selection, keyboard, and assistive tech.
-const srOnlyRadio: CSSProperties = {
-  position: 'absolute',
-  width: 1,
-  height: 1,
-  margin: 0,
-  opacity: 0,
-  pointerEvents: 'none',
 };
 
 /** First letter of the wallet name, used when the extension exposes no icon. */
