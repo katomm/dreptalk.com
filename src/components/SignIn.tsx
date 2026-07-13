@@ -430,14 +430,14 @@ interface StatusCalloutProps {
 function StatusCallout({ loginState, onReset, role, method }: StatusCalloutProps) {
   if (loginState.status === 'connecting') {
     return (
-      <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+      <p role="status" aria-live="polite" style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
         Connecting to wallet...
       </p>
     );
   }
   if (loginState.status === 'awaiting-signature') {
     return (
-      <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+      <p role="status" aria-live="polite" style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
         {method === 'cardano-signer'
           ? 'Verifying your signature...'
           : 'Please sign the login challenge in your wallet.'}

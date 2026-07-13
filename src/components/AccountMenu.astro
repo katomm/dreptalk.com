@@ -43,7 +43,7 @@ const items = [
 ];
 ---
 
-<div class="account-menu" role="menu">
+<div class="account-menu">
   <div class="account-menu__head">
     <Avatar seed={seed} imageHash={imageHash} size={40} />
     <span class="account-menu__head-text">
@@ -53,13 +53,13 @@ const items = [
     <CopyButton value={id} label="Copy your id" />
   </div>
   {items.map((item) => (
-    <a class="account-menu__item" href={item.href} role="menuitem">
+    <a class="account-menu__item" href={item.href}>
       <svg class="account-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={item.icon} />
       {item.label}
     </a>
   ))}
   <form method="POST" action="/api/auth/logout" class="account-menu__logout-form">
-    <button type="submit" class="account-menu__item account-menu__logout-item" role="menuitem">
+    <button type="submit" class="account-menu__item account-menu__logout-item">
       <svg class="account-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.logout} />
       Log out
     </button>

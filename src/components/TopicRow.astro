@@ -66,8 +66,18 @@ const gaCountdown = governance
 
   <div class="topic-row__body">
     <div class="topic-row__titleline">
-      {topic.pinned && <span aria-hidden="true" title="Pinned" class="topic-row__glyph topic-row__glyph--pin">&#128204;</span>}
-      {topic.locked && <span aria-hidden="true" title="Locked" class="topic-row__glyph">&#128274;</span>}
+      {topic.pinned && (
+        <>
+          <span aria-hidden="true" title="Pinned" class="topic-row__glyph topic-row__glyph--pin">&#128204;</span>
+          <span class="sr-only">Pinned. </span>
+        </>
+      )}
+      {topic.locked && (
+        <>
+          <span aria-hidden="true" title="Locked" class="topic-row__glyph">&#128274;</span>
+          <span class="sr-only">Locked. </span>
+        </>
+      )}
       {variant === 'discussions' && (
         <svg class="topic-row__type-icon" aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d={governance ? GAVEL_PATH : MESSAGE_PATH} />

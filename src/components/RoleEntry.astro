@@ -111,9 +111,9 @@ const display = user && account
           <path d="m6 9 6 6 6-6" />
         </svg>
       </summary>
-      <div class="role-entry__menu" role="menu">
+      <div class="role-entry__menu">
         {signinRoles.map((r, i) => (
-          <a class:list={['role-entry__item', { 'role-entry__item--active': i === 0 }]} href={r.href} role="menuitem">
+          <a class:list={['role-entry__item', { 'role-entry__item--active': i === 0 }]} href={r.href}>
             <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={r.icon} />
             {r.label}
           </a>
@@ -128,9 +128,9 @@ const display = user && account
           <path d="m6 9 6 6 6-6" />
         </svg>
       </summary>
-      <div class="role-entry__list" role="menu">
+      <div class="role-entry__list">
         {signinRoles.slice(1).map((r) => (
-          <a class="role-entry__item" href={r.href} role="menuitem">
+          <a class="role-entry__item" href={r.href}>
             <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={r.icon} />
             {r.label}
           </a>

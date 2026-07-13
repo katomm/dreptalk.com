@@ -21,6 +21,8 @@ export default function FlagButton({ postId, initialFlagged, initialCount, initi
   const [count, setCount] = useState(initialCount);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  // Announced to screen readers on each change (color alone does not convey it).
+  const [status, setStatus] = useState('');
 
   const toggle = async () => {
     if (busy) return;
@@ -33,6 +35,7 @@ export default function FlagButton({ postId, initialFlagged, initialCount, initi
       });
       if (!res.ok) {
         setError(true);
+        setStatus('Could not update flag, please try again.');
         return;
       }
       const data = (await res.json()) as { flagged: boolean; flagCount: number; hidden: boolean };
@@ -44,8 +47,10 @@ export default function FlagButton({ postId, initialFlagged, initialCount, initi
       }
       setFlagged(data.flagged);
       setCount(data.flagCount);
+      setStatus(data.flagged ? 'Post flagged for review.' : 'Flag withdrawn.');
     } catch {
       setError(true);
+      setStatus('Could not update flag, please try again.');
     } finally {
       setBusy(false);
     }
@@ -54,28 +59,32 @@ export default function FlagButton({ postId, initialFlagged, initialCount, initi
   const label = flagged ? 'Flagged' : 'Flag';
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      disabled={busy}
-      aria-pressed={flagged}
-      title={error ? 'Could not update flag, try again' : 'Flag this post for community review'}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '0.3rem',
-        background: 'none',
-        border: 'none',
-        padding: 0,
-        cursor: busy ? 'default' : 'pointer',
-        font: 'inherit',
-        fontSize: '0.8125rem',
-        color: error ? 'var(--danger, #c0392b)' : flagged ? 'var(--accent)' : 'var(--muted)',
-        opacity: busy ? 0.6 : 1,
-      }}
-    >
-      <span aria-hidden="true">⚑</span>
-      <span>{label}{count > 0 ? ` (${count})` : ''}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={busy}
+        aria-pressed={flagged}
+        title={error ? 'Could not update flag, try again' : 'Flag this post for community review'}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.3rem',
+          background: 'none',
+          border: 'none',
+          padding: '0.25rem 0.3rem',
+          minHeight: '1.75rem',
+          cursor: busy ? 'default' : 'pointer',
+          font: 'inherit',
+          fontSize: '0.8125rem',
+          color: error ? 'var(--danger, #c0392b)' : flagged ? 'var(--accent)' : 'var(--muted)',
+          opacity: busy ? 0.6 : 1,
+        }}
+      >
+        <span aria-hidden="true">⚑</span>
+        <span>{label}{count > 0 ? ` (${count})` : ''}</span>
+      </button>
+      <span className="sr-only" role="status" aria-live="polite">{status}</span>
+    </>
   );
 }

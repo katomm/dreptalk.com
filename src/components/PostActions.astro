@@ -116,7 +116,10 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
     gap: 0.3rem;
     background: none;
     border: none;
-    padding: 0;
+    /* WCAG 2.5.8: keep the hit area at least 24px tall/wide (these are standalone
+       controls, so the inline-link exception does not apply). */
+    padding: 0.25rem 0.15rem;
+    min-height: 1.75rem;
     cursor: pointer;
     font: inherit;
     font-size: 0.8125rem;
