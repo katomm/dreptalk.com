@@ -95,8 +95,9 @@ export async function loadActivityFeed(
   const collapse = opts.collapseByTopic ?? false;
 
   // When collapsing, oversample raw events so enough distinct threads survive the
-  // fold to fill `limit`; the feed's low volume makes 50 plenty of headroom.
-  const fetchLimit = collapse ? Math.min(Math.max(limit * 4, limit), 50) : limit;
+  // fold to fill `limit` (already clamped to [1,50]); the feed's low volume makes
+  // 50 plenty of headroom.
+  const fetchLimit = collapse ? Math.min(limit * 4, 50) : limit;
   const { rows, total } = await getActivityPage(db, { filter, limit: fetchLimit, offset });
   if (rows.length === 0) return { events: [], total };
 

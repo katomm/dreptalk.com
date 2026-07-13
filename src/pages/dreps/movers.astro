@@ -7,8 +7,8 @@ import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { listVotingPowerMovers, type Drep } from '@/lib/db/dreps.js';
 import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
-import { cacheControlForSynced, formatAdaCompact, truncateId } from '@/lib/forum/view.js';
-import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { cacheControlForSynced, formatAdaCompact } from '@/lib/forum/view.js';
+import { drepDescriptor } from '@/lib/forum/author.js';
 
 const db = env.DB as D1Database | undefined;
 
@@ -22,16 +22,6 @@ const { gainers, losers, epoch } = db
 if (db) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 }
-
-const descriptorFor = (d: Drep): AuthorDescriptor => ({
-  authorId: d.drepId,
-  displayName: d.name ?? truncateId(d.drepId),
-  drepId: d.drepId,
-  drepSlug: d.slug,
-  imageHash: d.imageContentHash,
-  identiconSeed: d.hex ?? d.drepId,
-  badges: [],
-});
 
 const hasData = gainers.length > 0 || losers.length > 0;
 const epochLabel = epoch != null ? `epoch ${epoch}` : 'the latest epoch';
@@ -74,7 +64,7 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
           ) : (
             <ol class="movers-list">
               {col.items.map((d, i) => {
-                const descriptor = descriptorFor(d);
+                const descriptor = drepDescriptor(d);
                 const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
                 return (
                   <li class="movers-row">
@@ -85,12 +75,12 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
                       </AuthorIdentity>
                     </div>
                     {delta && (
-                      <span class={`movers-delta movers-delta--${delta.direction}`}>
-                        <span class="movers-delta__row">
-                          <span class="movers-delta__arrow" aria-hidden="true">{delta.direction === 'up' ? '▲' : '▼'}</span>
-                          {delta.pct != null && <span class="movers-delta__pct">{formatTrendPct(delta.pct)}</span>}
+                      <span class={`drep-trend drep-trend--${delta.direction}`}>
+                        <span class="drep-trend__main">
+                          <span class="drep-trend__arrow" aria-hidden="true">{delta.direction === 'up' ? '▲' : '▼'}</span>
+                          {delta.pct != null && <span class="drep-trend__pct">{formatTrendPct(delta.pct)}</span>}
                         </span>
-                        <span class="movers-delta__ada">{formatAdaCompact(absLovelace(delta.deltaLovelace))}</span>
+                        <span class="drep-trend__ada">{formatAdaCompact(absLovelace(delta.deltaLovelace))}</span>
                       </span>
                     )}
                   </li>
@@ -198,34 +188,11 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
     font-variant-numeric: tabular-nums;
   }
 
-  /* Delta chip: arrow + percent on top, absolute ada below, tinted by direction. */
-  .movers-delta {
+  /* The voting-power delta chip is the shared global .drep-trend component (same as
+     the directory); it just needs to hold its width and sit at the row's end here. */
+  .movers-row .drep-trend {
     flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
     align-items: flex-end;
-    gap: 0.1rem;
-    font-variant-numeric: tabular-nums;
-  }
-  .movers-delta__row {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-weight: 700;
-    font-size: 0.875rem;
-  }
-  .movers-delta__arrow {
-    font-size: 0.7rem;
-  }
-  .movers-delta--up {
-    color: var(--c-pos);
-  }
-  .movers-delta--down {
-    color: var(--c-neg);
-  }
-  .movers-delta__ada {
-    font-size: 0.75rem;
-    color: var(--muted);
   }
 
   .movers-back {

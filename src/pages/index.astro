@@ -20,7 +20,7 @@ import {
   statusBadge,
   voteTone,
   TONE_COLORS,
-  overviewRowVoting,
+  leadingComposition,
   isSpoLedType,
   fmtPctFine,
   type CompositionBar as CompositionBarData,
@@ -49,17 +49,20 @@ const HERO_PLACEHOLDER_COUNT = 6; // decorative ring size when no voted action e
 // One resolved voter: identicon/avatar plus the vote, for both active and ghost rows.
 type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: string };
 
-// Category stats, the activity feed, and the voted-hero candidate are
-// independent; load them together. votedHero is the newest action that already
-// has enough DRep voters to drive the live ring.
-const [stats, feed, votedHero, recentIds] = db
+// Category stats, the activity feed, the voted-hero candidate, and the active
+// DRep stake are independent; load them together. votedHero is the newest action
+// that already has enough DRep voters to drive the live ring. activeDrepStake is
+// the denominator for the hero card's vote-composition bar; it depends only on db,
+// so it rides this Promise.all instead of adding a serial round-trip later.
+const [stats, feed, votedHero, recentIds, activeDrepStake] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 15, withParticipants: true, collapseByTopic: true }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
       listRecentlyActiveAuthorIds(db, 10),
+      getActiveDrepStake(db),
     ])
-  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, []];
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, [], { total: 0, asOf: null }];
 
 // Recently active DReps/SPOs for the list under the activity feed. Reuses the
 // shared forum author resolver (avatar, name, role badges, profile link) and
@@ -227,23 +230,15 @@ const heroCard = personalized
 // Aggregate vote composition for the featured action, shown as a compact
 // Yes/No/Not-voted bar inside the hero card so the ring of individual voters
 // reads against the action-wide tally (the audit's "voter strip lacks tally
-// context"). Only for the default hero, whose full action row is loaded; the
-// leading body (DRep, or SPO for a hard fork) is picked the same way the list
-// rows and OG card do. drepStakeTotal is the denominator that splits No from Not
-// voted; loaded only for DRep-led types (SPO-led carries its own eligible power).
+// context"). Only for the default hero, whose full action row is loaded. The
+// leading body (DRep, or SPO for a hard fork) is picked by leadingComposition, the
+// same helper the OG card uses. drepStakeTotal is the denominator that splits No
+// from Not voted; only DRep-led types need it (SPO-led carries its own eligible power).
 let heroComposition: { bar: CompositionBarData; role: 'DRep' | 'SPO' } | null = null;
 if (db && !personalized && heroAction) {
   const a = heroAction.action;
-  const drepStakeTotal = !isSpoLedType(a.type) ? (await getActiveDrepStake(db)).total || null : null;
-  const { bodies } = overviewRowVoting(a, { drepStakeTotal, committeeSize: null });
-  const order: Array<'DRep' | 'SPO'> = isSpoLedType(a.type) ? ['SPO', 'DRep'] : ['DRep', 'SPO'];
-  for (const role of order) {
-    const body = bodies.find((b) => b.body === role && b.composition);
-    if (body?.composition) {
-      heroComposition = { bar: body.composition, role };
-      break;
-    }
-  }
+  const drepStakeTotal = !isSpoLedType(a.type) ? activeDrepStake.total || null : null;
+  heroComposition = leadingComposition(a, { drepStakeTotal, committeeSize: null });
 }
 
 // A real action makes the card a link to its thread; the placeholder stays a

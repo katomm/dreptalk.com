@@ -202,3 +202,21 @@ export function voterDescriptor(
     badges: [],
   };
 }
+
+/**
+ * A DRep row (from the dreps table) as an AuthorDescriptor, for the directory and
+ * movers lists. Like voterDescriptor's DRep branch but reads a full Drep row rather
+ * than a vote row. Nameless DReps truncate their bech32 id to the short form the
+ * forum resolver uses, so a row never shows an unbroken ~58-char token.
+ */
+export function drepDescriptor(d: Drep): AuthorDescriptor {
+  return {
+    authorId: d.drepId,
+    displayName: d.name ?? truncateId(d.drepId),
+    drepId: d.drepId,
+    drepSlug: d.slug,
+    imageHash: d.imageContentHash,
+    identiconSeed: d.hex ?? d.drepId,
+    badges: [],
+  };
+}

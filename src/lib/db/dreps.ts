@@ -273,7 +273,7 @@ export async function listVotingPowerMovers(
        AND voting_power_prev IS NOT NULL AND voting_power_prev <> ''
        AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`;
   const delta = 'CAST(voting_power_snapshot AS INTEGER) - CAST(voting_power_prev AS INTEGER)';
-  const [gainRes, lossRes, epochRow] = await Promise.all([
+  const [gainRes, lossRes] = await Promise.all([
     db
       .prepare(`SELECT * ${base} AND ${delta} > 0 ORDER BY ${delta} DESC LIMIT ?`)
       .bind(...SPECIAL_DREP_IDS, limit)
@@ -282,13 +282,13 @@ export async function listVotingPowerMovers(
       .prepare(`SELECT * ${base} AND ${delta} < 0 ORDER BY ${delta} ASC LIMIT ?`)
       .bind(...SPECIAL_DREP_IDS, limit)
       .all<DrepRow>(),
-    db.prepare('SELECT MAX(voting_power_snapshot_epoch) AS epoch FROM dreps').first<{ epoch: number | null }>(),
   ]);
-  return {
-    gainers: (gainRes.results ?? []).map(rowToDrep),
-    losers: (lossRes.results ?? []).map(rowToDrep),
-    epoch: epochRow?.epoch ?? null,
-  };
+  const gainers = (gainRes.results ?? []).map(rowToDrep);
+  const losers = (lossRes.results ?? []).map(rowToDrep);
+  // The snapshot epoch is a global per-sync value; every mover row carries it, so
+  // read it off the loaded rows instead of a separate MAX() scan over ~2k dreps.
+  const epoch = gainers[0]?.votingPowerSnapshotEpoch ?? losers[0]?.votingPowerSnapshotEpoch ?? null;
+  return { gainers, losers, epoch };
 }
 
 /**
