@@ -1,15 +1,18 @@
 ---
-// Overview "Rationale highlights": the strongest DReps' vote rationales, shown as
-// short excerpts on the canonical Overview URL. The full rationales live on the
-// Votes tab; this surfaces the site's unique content (why big DReps voted as they
-// did) on the indexed page and bridges readers into the Votes tab. Abstains and
-// rationale-less votes are already filtered out by getRationaleHighlights.
+// Overview "Rationale highlights": a balanced set of the strongest DReps' vote
+// rationales (top Yes + top No by power), shown on the canonical Overview URL so
+// the site's unique content is on the indexed page, not only the Votes tab. Each
+// card shows a preview and expands the full rationale inline (native <details>,
+// CSP-safe) rather than sending the reader to another page; short rationales that
+// fit the preview render in full without a toggle. Abstains and rationale-less
+// votes are already filtered out by getRationaleHighlights.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
-import { excerptFromHtml } from '@/lib/forum/view.js';
+import { excerptFromHtml, htmlToText } from '@/lib/forum/view.js';
+import { ensureLinkTarget } from '@/lib/markdown.js';
 import type { RationaleHighlight } from '@/lib/db/actionRationale.js';
 import type { Drep } from '@/lib/db/dreps.js';
 
@@ -25,18 +28,23 @@ const { highlights, dreps, slug, totalRationales } = Astro.props;
 
 const positionsHref = `/t/${slug}/?tab=positions`;
 // Long enough to convey the DRep's reasoning, short enough to stay a highlight.
+// A rationale whose plain text fits this shows in full without an expand toggle.
 const EXCERPT_LEN = 260;
 ---
 
 {highlights.length > 0 && (
   <section class="ga-highlights" aria-labelledby="ga-highlights-title">
     <p class="ga-highlights__label" id="ga-highlights-title">Rationale highlights</p>
-    <p class="ga-highlights__sub">Why some of the largest DReps voted the way they did.</p>
+    <p class="ga-highlights__sub">Why some of the largest DReps voted for and against, in their own words.</p>
 
     <ul class="ga-highlights__list">
       {highlights.map((h) => {
         const descriptor = voterDescriptor(h, dreps);
         const ada = formatAdaCompact(h.voting_power);
+        const fullHtml = ensureLinkTarget(h.body_html);
+        // Only expandable when the full text is longer than the preview; a short
+        // rationale renders in full so there is nothing hidden behind a toggle.
+        const expandable = htmlToText(h.body_html).length > EXCERPT_LEN;
         const excerpt = excerptFromHtml(h.body_html, EXCERPT_LEN);
         return (
           <li class="ga-highlights__item">
@@ -47,10 +55,17 @@ const EXCERPT_LEN = 260;
               <VoteBadge vote={h.vote} compact />
               {ada && <span class="ga-highlights__power">{ada}</span>}
             </div>
-            <p class="ga-highlights__excerpt">{excerpt}</p>
-            <a class="ga-highlights__more" href={`${positionsHref}#voter-${h.voter_id}`}>
-              Read full rationale
-            </a>
+            {expandable ? (
+              <details class="ga-highlights__details">
+                <summary class="ga-highlights__summary">
+                  <p class="ga-highlights__excerpt">{excerpt}</p>
+                  <span class="ga-highlights__toggle" aria-hidden="true"></span>
+                </summary>
+                <div class="ga-highlights__body" set:html={fullHtml} />
+              </details>
+            ) : (
+              <div class="ga-highlights__body ga-highlights__body--static" set:html={fullHtml} />
+            )}
           </li>
         );
       })}
@@ -63,11 +78,8 @@ const EXCERPT_LEN = 260;
 )}
 
 <style>
-  .ga-highlights {
-    margin-top: 1.75rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--border);
-  }
+  /* Rendered as its own grid block by the thread page, so spacing above comes from
+     the layout gap; no top margin/border of its own. */
   .ga-highlights__label {
     font-size: 0.8125rem;
     font-weight: 600;
@@ -114,20 +126,56 @@ const EXCERPT_LEN = 260;
     font-variant-numeric: tabular-nums;
   }
   .ga-highlights__excerpt {
-    margin: 0.55rem 0 0.5rem;
+    margin: 0.55rem 0 0.35rem;
     font-size: 0.9375rem;
     line-height: 1.55;
     color: var(--fg);
   }
-  .ga-highlights__more {
+
+  /* Expandable card: the summary carries the preview + toggle; the full rationale
+     reveals inline on open (native <details>, no script). */
+  .ga-highlights__summary {
+    list-style: none;
+    cursor: pointer;
+  }
+  .ga-highlights__summary::-webkit-details-marker {
+    display: none;
+  }
+  .ga-highlights__toggle {
+    display: inline-block;
     font-size: 0.8125rem;
     font-weight: 600;
     color: var(--accent);
-    text-decoration: none;
   }
-  .ga-highlights__more:hover {
-    text-decoration: underline;
+  .ga-highlights__toggle::after {
+    content: 'Show full rationale';
   }
+  .ga-highlights__details[open] .ga-highlights__toggle::after {
+    content: 'Show less';
+  }
+  /* On open, the full body replaces the preview so the opening lines are not doubled. */
+  .ga-highlights__details[open] .ga-highlights__excerpt {
+    display: none;
+  }
+  .ga-highlights__summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .ga-highlights__body {
+    margin-top: 0.55rem;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--fg);
+  }
+  .ga-highlights__body :global(p) {
+    margin: 0 0 0.75rem;
+  }
+  .ga-highlights__body :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
   .ga-highlights__all {
     display: inline-block;
     margin-top: 0.9rem;

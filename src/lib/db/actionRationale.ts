@@ -70,34 +70,44 @@ export interface RationaleHighlight extends ActionVoterRow {
 }
 
 /**
- * The strongest DRep rationales on one action, for the Overview "Rationale
- * highlights" section: DReps who cast a Yes or No (abstains excluded) AND left a
- * rendered rationale, ordered by voting power desc. This surfaces the site's
- * unique content (vote rationales) on the canonical Overview URL instead of only
- * on the Votes tab. Joined to dreps for name/avatar/power. Default limit 3.
+ * A balanced set of the strongest DRep rationales on one action, for the Overview
+ * "Rationale highlights" section: the top `perVote` Yes and top `perVote` No voters
+ * (abstains excluded) who left a rendered rationale, each side ranked by voting
+ * power. Showing both sides keeps the highlights from becoming a one-sided echo of
+ * whichever way the largest DReps leaned; a side with fewer rationales simply
+ * contributes fewer rows. This surfaces the site's unique content (vote rationales)
+ * on the canonical Overview URL instead of only on the Votes tab. Joined to dreps
+ * for name/avatar/power, returned ordered by power across both sides. Default 2 per side.
  */
 export async function getRationaleHighlights(
   db: D1Database,
   gaId: string,
-  limit = 3,
+  perVote = 2,
 ): Promise<RationaleHighlight[]> {
-  const capped = Math.min(Math.max(limit, 1), 10);
+  const capped = Math.min(Math.max(perVote, 1), 5);
   const rows = (
     await db
       .prepare(
-        `SELECT v.voter_id AS voter_id, v.vote AS vote,
-                d.voting_power AS voting_power, d.hex AS hex, v.voter_hex AS voter_hex,
-                d.image_url AS image_url, v.block_time AS block_time,
-                r.body_html AS body_html, r.source AS source
-         FROM action_rationale r
-         JOIN drep_votes v ON v.ga_id = r.ga_id AND v.voter_id = r.voter_id
-              AND v.voter_role = 'DRep' AND (v.local_status IS NULL OR v.local_status <> 'failed')
-         LEFT JOIN dreps d ON d.drep_id = v.voter_id
-         WHERE r.ga_id = ?1
-           AND r.body_html IS NOT NULL AND r.body_html <> ''
-           AND lower(v.vote) IN ('yes', 'no')
-         ORDER BY (d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id
-         LIMIT ?2`,
+        `SELECT voter_id, vote, voting_power, hex, voter_hex, image_url, block_time, body_html, source
+         FROM (
+           SELECT v.voter_id AS voter_id, v.vote AS vote,
+                  d.voting_power AS voting_power, d.hex AS hex, v.voter_hex AS voter_hex,
+                  d.image_url AS image_url, v.block_time AS block_time,
+                  r.body_html AS body_html, r.source AS source,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY lower(v.vote)
+                    ORDER BY (d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id
+                  ) AS rn
+           FROM action_rationale r
+           JOIN drep_votes v ON v.ga_id = r.ga_id AND v.voter_id = r.voter_id
+                AND v.voter_role = 'DRep' AND (v.local_status IS NULL OR v.local_status <> 'failed')
+           LEFT JOIN dreps d ON d.drep_id = v.voter_id
+           WHERE r.ga_id = ?1
+             AND r.body_html IS NOT NULL AND r.body_html <> ''
+             AND lower(v.vote) IN ('yes', 'no')
+         )
+         WHERE rn <= ?2
+         ORDER BY (voting_power IS NULL), CAST(voting_power AS INTEGER) DESC, voter_id`,
       )
       .bind(gaId, capped)
       .all<RationaleHighlight>()
