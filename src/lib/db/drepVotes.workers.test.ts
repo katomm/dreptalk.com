@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters } from './drepVotes.js';
+import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId } from './drepVotes.js';
+import { createTopic } from './forum.js';
+import { upsertActionRationale } from './actionRationale.js';
+import { upsertVoteRationalePost } from './voteRationalePost.js';
 
 async function seedAction(id: string, title: string, decidedEpoch: number) {
   await env.DB.prepare(
@@ -89,5 +92,52 @@ describe('local vote record + reconcile', () => {
     expect(n).toBe(1);
     const v = await getViewerVote(env.DB, gaId, drepId);
     expect(v?.local_status).toBe('failed');
+  });
+
+  it('hides a reconciled failed vote from public reads but keeps it for the viewer', async () => {
+    await seedAction('gaFail', 'Fail Action', 600);
+    await recordLocalVote(env.DB, { gaId: 'gaFail', drepId: 'drepFail', voterHex: null, vote: 'yes', metaUrl: null, txHash: 'txf', now: 1000 });
+    // Optimistic (pending) vote is visible everywhere.
+    expect((await getVotesByGaId(env.DB, 'gaFail')).has('drepFail')).toBe(true);
+    expect(await countDrepVotes(env.DB, 'drepFail')).toBe(1);
+
+    await markStalePendingVotesFailed(env.DB, 5000);
+
+    // Gone from every public read once reconciled to failed...
+    expect((await getVotesByGaId(env.DB, 'gaFail')).has('drepFail')).toBe(false);
+    expect(await countDrepVotes(env.DB, 'drepFail')).toBe(0);
+    expect((await getDrepVotingHistory(env.DB, 'drepFail')).length).toBe(0);
+    // ...but the voter still sees their own failed attempt (drives the retry UI).
+    expect((await getViewerVote(env.DB, 'gaFail', 'drepFail'))?.local_status).toBe('failed');
+  });
+
+  it('reaps the optimistic rationale and cross-post when a vote fails', async () => {
+    const { topic } = await createTopic(env.DB, {
+      categorySlug: 'governance', authorId: 'sys', title: 'Reap Action',
+      bodyMd: 'x', bodyHtml: '<p>x</p>', source: 'governance', now: 1, rand: 'reap',
+    });
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, decided_epoch, topic_id, created_at, last_synced_at)
+       VALUES ('gaReap', 'InfoAction', 'Reap', 'enacted', 600, ?, 0, 0)`,
+    ).bind(topic.id).run();
+    await env.DB.prepare(`INSERT INTO users (id, drep_id, created_at, last_verified_at) VALUES ('userReap', 'drepReap', 0, 0)`).run();
+    // Artifacts vote/record writes optimistically.
+    await upsertActionRationale(env.DB, {
+      gaId: 'gaReap', voterId: 'drepReap', bodyHtml: '<p>r</p>', source: 'dreptalk',
+      anchorUrl: null, status: 'ok', createdAt: 1000, now: 1000,
+    });
+    await upsertVoteRationalePost(env.DB, { topicId: topic.id, authorId: 'userReap', vote: 'yes', bodyMd: 'r', bodyHtml: '<p>r</p>', now: 1000 });
+    await recordLocalVote(env.DB, { gaId: 'gaReap', drepId: 'drepReap', voterHex: null, vote: 'yes', metaUrl: null, txHash: 'txr', now: 1000 });
+
+    const before = (await env.DB.prepare('SELECT post_count FROM topics WHERE id = ?').bind(topic.id).first<{ post_count: number }>())?.post_count ?? 0;
+
+    await markStalePendingVotesFailed(env.DB, 5000);
+
+    const rat = await env.DB.prepare(`SELECT COUNT(*) AS n FROM action_rationale WHERE ga_id = 'gaReap' AND voter_id = 'drepReap'`).first<{ n: number }>();
+    expect(rat?.n).toBe(0); // dreptalk rationale deleted
+    const post = await env.DB.prepare(`SELECT deleted FROM posts WHERE topic_id = ? AND author_id = 'userReap' AND source = 'vote_rationale'`).bind(topic.id).first<{ deleted: number }>();
+    expect(post?.deleted).toBe(1); // cross-post soft-deleted
+    const after = (await env.DB.prepare('SELECT post_count FROM topics WHERE id = ?').bind(topic.id).first<{ post_count: number }>())?.post_count ?? 0;
+    expect(after).toBe(before - 1); // topic count kept in step
   });
 });

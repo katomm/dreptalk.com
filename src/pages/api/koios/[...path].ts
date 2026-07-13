@@ -1,7 +1,17 @@
 import type { APIRoute } from 'astro';
 import { resolveNetwork } from '@/lib/config/network';
+import { checkRate } from '@/lib/rate';
+import { clientIpFrom } from '@/lib/http/clientIp';
+import type { RateLimiter } from '@/lib/rateLimiterDO';
 
 export const prerender = false;
+
+// Per-IP throttle: this proxy is unauthenticated and forwards to a metered
+// upstream (Koios) using our server-side API key. Without a cap, anyone can
+// exhaust the key's quota or use us as an open Koios proxy. The limit is
+// generous so a legitimate tx build (several reads in a burst) is never blocked.
+const RATE_MAX = 100;
+const RATE_WINDOW_SEC = 60;
 
 // Hop-by-hop headers that must not be forwarded to the upstream.
 const HOP_BY_HOP = new Set([
@@ -48,20 +58,41 @@ export function _setFetchImpl(f: typeof fetch): void {
   _fetchImpl = f;
 }
 
-function resolveKoiosConfig(): { baseUrl: string; token?: string } {
-  // In Workers runtime env is available via cloudflare:workers.
-  // In Node test environments it is not, so fall back to process.env.
-  let env: Record<string, string | undefined>;
+// In the Workers runtime env is available via cloudflare:workers; in Node test
+// environments it is not, so fall back to process.env. Dynamic require so Node
+// tests never blow up on the missing virtual module.
+function resolveWorkerEnv(): Record<string, unknown> {
   try {
-    // Dynamic require so Node tests never blow up on the missing virtual module.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    ({ env } = require('cloudflare:workers') as { env: Record<string, string | undefined> });
+    const { env } = require('cloudflare:workers') as { env: Record<string, unknown> };
+    return env;
   } catch {
-    env = process.env as Record<string, string | undefined>;
+    return process.env as unknown as Record<string, unknown>;
   }
-  const baseUrl = resolveNetwork(env.CARDANO_NETWORK ?? null).koiosBaseUrl;
-  const token = env.KOIOS_API_KEY || undefined;
+}
+
+function resolveKoiosConfig(): { baseUrl: string; token?: string } {
+  const env = resolveWorkerEnv();
+  const baseUrl = resolveNetwork((env.CARDANO_NETWORK as string | undefined) ?? null).koiosBaseUrl;
+  const token = (env.KOIOS_API_KEY as string | undefined) || undefined;
   return { baseUrl, token };
+}
+
+// Enforces the per-IP quota; returns a 429 response when exceeded, else null.
+// When the RATE_LIMITER binding is absent (Node unit tests) throttling is skipped.
+async function throttle(request: Request): Promise<Response | null> {
+  const rateLimiter = resolveWorkerEnv().RATE_LIMITER as DurableObjectNamespace<RateLimiter> | undefined;
+  if (!rateLimiter) return null;
+  const allowed = await checkRate(rateLimiter, `koios:${clientIpFrom(request.headers)}`, {
+    max: RATE_MAX,
+    windowSec: RATE_WINDOW_SEC,
+    now: Date.now(),
+  });
+  if (allowed) return null;
+  return new Response(JSON.stringify({ error: 'rate_limited' }), {
+    status: 429,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 async function proxyRequest(request: Request, subPath: string): Promise<Response> {
@@ -119,6 +150,9 @@ export const GET: APIRoute = async ({ request, params }) => {
     });
   }
 
+  const limited = await throttle(request);
+  if (limited) return limited;
+
   try {
     return await proxyRequest(request, subPath);
   } catch {
@@ -147,6 +181,9 @@ export const POST: APIRoute = async ({ request, params }) => {
       headers: { 'content-type': 'application/json' },
     });
   }
+
+  const limited = await throttle(request);
+  if (limited) return limited;
 
   try {
     return await proxyRequest(request, subPath);

@@ -89,6 +89,7 @@ export async function getDrepVotingHistory(
          LEFT JOIN topics t ON t.id = g.topic_id
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
          WHERE v.voter_id = ? AND v.voter_role = 'DRep'
+           AND (v.local_status IS NULL OR v.local_status <> 'failed')
          ORDER BY g.decided_epoch DESC, g.id DESC
          LIMIT ? OFFSET ?`,
       )
@@ -101,7 +102,7 @@ export async function getDrepVotingHistory(
 /** Count of a DRep's recorded on-chain votes (role 'DRep'). Uses idx_drep_votes_voter. */
 export async function countDrepVotes(db: D1Database, voterId: string): Promise<number> {
   const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep'`)
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep' AND (local_status IS NULL OR local_status <> 'failed')`)
     .bind(voterId)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -140,6 +141,7 @@ export async function getActionVoters(
          FROM drep_votes v
          LEFT JOIN dreps d ON d.drep_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'DRep'
+           AND (v.local_status IS NULL OR v.local_status <> 'failed')
          ORDER BY (d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id
          LIMIT ? OFFSET ?`,
       )
@@ -152,7 +154,7 @@ export async function getActionVoters(
 /** Count of DRep votes (role 'DRep') on one action. */
 export async function countActionVoters(db: D1Database, gaId: string): Promise<number> {
   const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ? AND voter_role = 'DRep'`)
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ? AND voter_role = 'DRep' AND (local_status IS NULL OR local_status <> 'failed')`)
     .bind(gaId)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -209,7 +211,10 @@ export async function getVotesByGaId(
 ): Promise<Map<string, { role: string; vote: string; meta_url: string | null }>> {
   const rows = (
     await db
-      .prepare('SELECT voter_id, voter_role, vote, meta_url FROM drep_votes WHERE ga_id = ?')
+      .prepare(
+        `SELECT voter_id, voter_role, vote, meta_url FROM drep_votes
+         WHERE ga_id = ? AND (local_status IS NULL OR local_status <> 'failed')`,
+      )
       .bind(gaId)
       .all<{ voter_id: string; voter_role: string; vote: string; meta_url: string | null }>()
   ).results ?? [];
@@ -236,7 +241,8 @@ export async function getDrepRationaleStats(db: D1Database, voterId: string): Pr
     .prepare(
       `SELECT COUNT(*) AS total,
               SUM(CASE WHEN meta_url IS NULL OR meta_url = '' THEN 1 ELSE 0 END) AS without
-       FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep'`,
+       FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep'
+         AND (local_status IS NULL OR local_status <> 'failed')`,
     )
     .bind(voterId)
     .first<{ total: number; without: number }>();
@@ -260,7 +266,11 @@ export interface DrepVoteBreakdown {
 export async function getDrepVoteBreakdown(db: D1Database, voterId: string): Promise<DrepVoteBreakdown> {
   const rows = (
     await db
-      .prepare(`SELECT vote, COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep' GROUP BY vote`)
+      .prepare(
+        `SELECT vote, COUNT(*) AS n FROM drep_votes
+         WHERE voter_id = ? AND voter_role = 'DRep' AND (local_status IS NULL OR local_status <> 'failed')
+         GROUP BY vote`,
+      )
       .bind(voterId)
       .all<{ vote: string; n: number }>()
   ).results ?? [];
@@ -304,9 +314,11 @@ export async function getDrepParticipation(
       `SELECT COUNT(*) AS eligible, COUNT(v.ga_id) AS voted
        FROM governance_actions g
        LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'DRep'
+            AND (v.local_status IS NULL OR v.local_status <> 'failed')
        WHERE g.decided_epoch IS NOT NULL
          AND g.decided_epoch >= ?
-         AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep')`,
+         AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep'
+                       AND (dv.local_status IS NULL OR dv.local_status <> 'failed'))`,
     )
     .bind(voterId, registeredEpoch)
     .first<{ eligible: number; voted: number }>();
@@ -352,16 +364,68 @@ export async function getViewerVote(db: D1Database, gaId: string, drepId: string
 }
 
 /**
+ * Removes the optimistic side effects of a vote that never confirmed on chain:
+ * the DRep-written ("dreptalk") rationale on the Positions tab and the frozen
+ * vote_rationale cross-post in the action's thread (with the topic post_count
+ * kept in step). Never touches synced ("onchain") rationales, and only matches
+ * posts by a user whose drep_id is the failed voter, so a real vote's artifacts
+ * are safe. Idempotent: a second pass over the same failed vote is a no-op.
+ */
+async function reapFailedVoteArtifacts(db: D1Database, gaId: string, voterId: string): Promise<void> {
+  // 1. The optimistic Positions-tab rationale (only the client-written kind).
+  await db
+    .prepare(`DELETE FROM action_rationale WHERE ga_id = ? AND voter_id = ? AND source = 'dreptalk'`)
+    .bind(gaId, voterId)
+    .run();
+
+  // 2. The frozen cross-post(s) in the action's discussion, authored by a user
+  //    whose drep_id is this voter. Soft-delete and decrement the topic count.
+  const posts = (
+    await db
+      .prepare(
+        `SELECT p.id AS id, p.topic_id AS topic_id
+         FROM posts p
+         JOIN governance_actions g ON g.topic_id = p.topic_id AND g.id = ?
+         JOIN users u ON u.id = p.author_id AND u.drep_id = ?
+         WHERE p.source = 'vote_rationale' AND p.deleted = 0`,
+      )
+      .bind(gaId, voterId)
+      .all<{ id: string; topic_id: string }>()
+  ).results ?? [];
+  for (const p of posts) {
+    await db.batch([
+      db.prepare(`UPDATE posts SET deleted = 1 WHERE id = ?`).bind(p.id),
+      db.prepare(`UPDATE topics SET post_count = MAX(post_count - 1, 0) WHERE id = ?`).bind(p.topic_id),
+    ]);
+  }
+}
+
+/**
  * Flags optimistic votes that never appeared on chain. A pending row whose
  * synced_at (submit time, seconds) is older than the cutoff was not replaced by
- * the authoritative sync, so its tx failed or rolled back. Returns rows changed.
+ * the authoritative sync, so its tx failed or rolled back: mark it 'failed' (kept
+ * for the voter's own panel and audit, but hidden from every public vote read)
+ * and reap the optimistic rationale + cross-post it left behind. Returns rows changed.
  */
 export async function markStalePendingVotesFailed(db: D1Database, cutoffSeconds: number): Promise<number> {
-  const res = await db
+  // Capture which votes will fail before the UPDATE, so their artifacts can be reaped.
+  const stale = (
+    await db
+      .prepare(`SELECT ga_id, voter_id FROM drep_votes WHERE local_status = 'pending' AND synced_at < ?`)
+      .bind(cutoffSeconds)
+      .all<{ ga_id: string; voter_id: string }>()
+  ).results ?? [];
+  if (stale.length === 0) return 0;
+
+  await db
     .prepare(`UPDATE drep_votes SET local_status = 'failed' WHERE local_status = 'pending' AND synced_at < ?`)
     .bind(cutoffSeconds)
     .run();
-  return res.meta.changes ?? 0;
+
+  for (const v of stale) {
+    await reapFailedVoteArtifacts(db, v.ga_id, v.voter_id);
+  }
+  return stale.length;
 }
 
 // The functions below are the SPO (pool) equivalents of the DRep stat/history
