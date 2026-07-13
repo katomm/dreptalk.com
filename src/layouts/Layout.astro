@@ -130,6 +130,7 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
     )}
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     {net.network === 'preprod' && (
       <span class="preprod-flag" role="status">⚠ Preprod testnet</span>
     )}
@@ -180,7 +181,7 @@ const helpEntries: HelpEntry[] = (await getCollection('guides'))
       </div>
     </header>
 
-    <main class:list={['container', { 'container--wide': wide, 'container--reading': readingWidth }]}>
+    <main id="main" class:list={['container', { 'container--wide': wide, 'container--reading': readingWidth }]}>
       <slot />
     </main>
 

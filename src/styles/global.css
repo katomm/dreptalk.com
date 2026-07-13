@@ -142,6 +142,32 @@ html[data-theme='dark'] {
   border: 0;
 }
 
+/* Bypass-blocks link (WCAG 2.4.1): the first focusable element on every page,
+   off-screen until it receives keyboard focus, then pinned top-left so keyboard
+   and screen-reader users can jump straight to <main id="main"> past the header. */
+.skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 1000;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-150%);
+  transition: transform 0.15s ease;
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .skip-link {
+    transition: none;
+  }
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   /* Always reserve the scrollbar gutter so the centered layout keeps the same

@@ -96,12 +96,17 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
     }
   }
 
-  await addPendingWitness(
+  const outcome = await addPendingWitness(
     db,
     id,
     { key_hash: result.witness.keyHashHex, witness_hex: body.witnessSetHex },
     Math.floor(Date.now() / 1000),
   );
+  if (outcome === 'gone') {
+    // Collecting ended (submitted/expired) between validation and write, or the
+    // append kept losing a concurrent race; ask the caller to retry.
+    return jsonResponse({ error: 'no longer collecting' }, 409);
+  }
 
   // Re-read the updated row to build accurate progress.
   const updated = await getPendingMultisig(db, id);

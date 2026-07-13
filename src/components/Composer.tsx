@@ -236,7 +236,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
           style={{
             padding: '0.5rem 1.25rem',
             background: submitting ? 'var(--muted)' : 'var(--accent)',
-            color: '#fff',
+            color: 'var(--accent-fg)',
             border: 'none',
             borderRadius: '0.375rem',
             fontSize: '0.9375rem',

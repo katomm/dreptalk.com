@@ -3,9 +3,10 @@
 // bound to the caller's rationale state, and closing keeps whatever was typed.
 // The vote itself is cast from the panel, not here. Dialog mechanics (backdrop,
 // Escape, outside-click close) mirror DelegateDialog.
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor.js';
 import { MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale.js';
+import { useDialogA11y } from '@/components/useDialogA11y.js';
 
 export default function RationaleModal({
   value,
@@ -19,41 +20,13 @@ export default function RationaleModal({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
 
-  // Escape or a click outside the panel closes. Mirrors DelegateDialog: an
-  // outside-click is a document mousedown test against the panel, not a backdrop
-  // onClick, so the backdrop stays free of interaction handlers.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    const onDown = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onDown);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onDown);
-    };
-  }, [onClose]);
-
-  // Lock body scroll while open (restored on close).
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
-  // Focus the editor on open so typing starts immediately.
-  useEffect(() => {
-    editorRef.current?.focus();
-  }, []);
+  // Escape / outside-click close, body-scroll lock, focus trap, focus restore on
+  // close, and initial focus on the editor so typing starts immediately.
+  useDialogA11y({ panelRef, onClose, lockScroll: true, initialFocusRef: editorRef });
 
   return (
     <div className="drep-dialog__backdrop">
-      <div ref={panelRef} className="drep-dialog drep-dialog--wide" role="dialog" aria-modal="true" aria-labelledby="rationale-dialog-title">
+      <div ref={panelRef} className="drep-dialog drep-dialog--wide" role="dialog" aria-modal="true" aria-labelledby="rationale-dialog-title" tabIndex={-1}>
         <div className="drep-dialog__head">
           <h2 id="rationale-dialog-title" className="drep-dialog__title">Write your vote rationale</h2>
           <button type="button" className="drep-dialog__close" onClick={onClose} aria-label="Close">
