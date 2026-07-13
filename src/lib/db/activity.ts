@@ -54,6 +54,32 @@ export function activityInsert(
 }
 
 /**
+ * Records a gov_status transition event, but only if one for the same topic and
+ * target status does not already exist. A terminal transition happens once per
+ * topic, so (topic_id, payload.to) is its stable identity: two overlapping tally
+ * runs (both holding the pre-transition status), or a re-run over an
+ * already-recorded transition, cannot double-post the same milestone to the feed.
+ * The guard is a single INSERT ... WHERE NOT EXISTS, so it stays cheap and needs
+ * no separate read.
+ */
+export async function insertGovStatusEventIfNew(
+  db: D1Database,
+  a: { topicId: string; from: string; to: string; createdAt: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at)
+       SELECT ?, 'gov_status', NULL, ?, NULL, ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM activity
+         WHERE type = 'gov_status' AND topic_id = ? AND json_extract(payload, '$.to') = ?
+       )`,
+    )
+    .bind(crypto.randomUUID(), a.topicId, JSON.stringify({ from: a.from, to: a.to }), a.createdAt, a.topicId, a.to)
+    .run();
+}
+
+/**
  * Returns the newest activity events, newest first. The id DESC tiebreaker keeps
  * the order deterministic when two events share a created_at (backfilled rows
  * commonly do). Default limit 30, capped at 50.

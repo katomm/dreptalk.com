@@ -43,6 +43,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const [loading, setLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Aborts the in-flight preview request so a slower older response can never
+  // overwrite a newer one (fast typing), and is cancelled on unmount.
+  const previewAbortRef = useRef<AbortController | null>(null);
   // True until the first fetch after opening preview, so that toggle renders
   // immediately while later keystrokes still debounce.
   const firstPreviewRef = useRef(true);
@@ -79,28 +82,38 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   }, [value]);
 
   const fetchPreview = useCallback(async (md: string) => {
+    // Supersede any in-flight preview so an older, slower response cannot land
+    // after a newer one and show stale HTML.
+    previewAbortRef.current?.abort();
     if (!md.trim()) {
       setPreviewHtml('');
       setLoading(false);
       return;
     }
+    const ctrl = new AbortController();
+    previewAbortRef.current = ctrl;
     setLoading(true);
     try {
       const res = await fetch('/api/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bodyMd: md }),
+        signal: ctrl.signal,
       });
-      if (res.ok) {
+      if (!ctrl.signal.aborted && res.ok) {
         const data = (await res.json()) as { html: string };
-        setPreviewHtml(data.html);
+        if (!ctrl.signal.aborted) setPreviewHtml(data.html);
       }
     } catch {
-      // Preview errors are silent; the user can still compose.
+      // Preview errors (including the AbortError on supersede) are silent; the
+      // user can still compose.
     } finally {
-      setLoading(false);
+      if (!ctrl.signal.aborted) setLoading(false);
     }
   }, []);
+
+  // Cancel any in-flight preview when the editor unmounts.
+  useEffect(() => () => previewAbortRef.current?.abort(), []);
 
   // Re-arm the immediate-render flag whenever preview closes, so the next open
   // fetches without waiting on the debounce.

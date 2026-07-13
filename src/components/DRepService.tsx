@@ -6,6 +6,7 @@
 // (see registerDRep). The only server calls here are reading public chain data
 // via the Koios proxy and hosting the metadata document.
 import { useState, useRef } from 'react';
+import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { registerDRep, retireDRep } from '@/lib/governance/drepTx.js';
@@ -139,7 +140,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
     // Check current on-chain status via the Koios proxy. A registered, active
     // DRep should not be offered registration again (retire is a later phase).
     try {
-      const res = await fetch('/api/koios/drep_info', {
+      const res = await fetchWithTimeout('/api/koios/drep_info', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ _drep_ids: [identity.drepId] }),
@@ -187,7 +188,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
       // URL + blake2b-256 hash. Hosting is unauthenticated; authenticity is bound
       // on-chain by the anchor hash the wallet commits in the reg_drep tx below,
       // so a forged document (whose hash would not match the anchor) is ignored.
-      const metaRes = await fetch('/api/drep/metadata', {
+      const metaRes = await fetchWithTimeout('/api/drep/metadata', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({

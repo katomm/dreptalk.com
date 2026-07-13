@@ -6,6 +6,7 @@
 // (unreg_drep, deposit refund). The wallet signs and submits; the server only
 // hosts the metadata document and proxies Koios.
 import { useState, useRef } from 'react';
+import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { updateDRepMetadata, retireDRep } from '@/lib/governance/drepTx.js';
@@ -162,7 +163,7 @@ export default function DrepSettings({
       const connected = await connectAndVerify();
       if (!connected) return;
 
-      const metaRes = await fetch('/api/drep/metadata', {
+      const metaRes = await fetchWithTimeout('/api/drep/metadata', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -202,7 +203,7 @@ export default function DrepSettings({
       // shows now instead of after the next sync. Best effort: a failure here
       // never turns the successful transaction into an error, it only means the
       // success copy keeps the "after next sync" wording.
-      const immediate = await fetch('/api/drep/profile', {
+      const immediate = await fetchWithTimeout('/api/drep/profile', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ hash }),

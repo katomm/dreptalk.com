@@ -18,6 +18,7 @@
 // submit (witness). The funder's wallet is the only one that can sign the inputs,
 // so submission must happen from the wallet that built the tx.
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton as CopyIdButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
@@ -213,7 +214,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
   const refresh = useCallback(async () => {
     if (!trackedId) return;
     try {
-      const res = await fetch(`/api/drep/multisig/${trackedId}`);
+      const res = await fetchWithTimeout(`/api/drep/multisig/${trackedId}`);
       if (!res.ok) return;
       const data = (await res.json()) as PendingState;
       setPending(data);
@@ -255,7 +256,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
       // Host the rationale first (when present) so its anchor lands in the tx.
       let anchor: { url: string; hash: string } | undefined;
       if (rationaleText.trim()) {
-        const res = await fetch('/api/vote/rationale', {
+        const res = await fetchWithTimeout('/api/vote/rationale', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ drepId: scriptDrepId, gaId, rationale: rationaleText }),
@@ -272,7 +273,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
       if (parsed?.kind !== 'script') {
         throw new Error('This DRep is not a native-script DRep.');
       }
-      const scriptRes = await fetch('/api/koios/script_info', {
+      const scriptRes = await fetchWithTimeout('/api/koios/script_info', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ _script_hashes: [parsed.hashHex] }),
@@ -303,7 +304,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
       });
 
       // Store it and surface the share link + progress.
-      const storeRes = await fetch('/api/drep/multisig', {
+      const storeRes = await fetchWithTimeout('/api/drep/multisig', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -362,7 +363,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
         ]),
       );
 
-      const res = await fetch(`/api/drep/multisig/${trackedId}/witness`, {
+      const res = await fetchWithTimeout(`/api/drep/multisig/${trackedId}/witness`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ witnessSetHex }),
@@ -387,7 +388,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
     setSubmitting(true);
     try {
       // Server folds the collected member witnesses into the unsigned tx.
-      const assembleRes = await fetch(`/api/drep/multisig/${trackedId}/submit`, { method: 'POST' });
+      const assembleRes = await fetchWithTimeout(`/api/drep/multisig/${trackedId}/submit`, { method: 'POST' });
       if (!assembleRes.ok) {
         const body = (await assembleRes.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ? `Could not assemble the vote: ${body.error}.` : 'Could not assemble the vote. Please try again.');
@@ -407,7 +408,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
       const finalTx = Transaction.addVKeyWitnessesHex(assembledTxHex, fundingWs);
       const txHash = await api.submitTx(finalTx);
 
-      await fetch(`/api/drep/multisig/${trackedId}/submitted`, {
+      await fetchWithTimeout(`/api/drep/multisig/${trackedId}/submitted`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ txHash }),

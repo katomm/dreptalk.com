@@ -9,6 +9,7 @@
 import { useState, useRef } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import { srOnlyRadio } from '@/components/srOnlyRadio.js';
+import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import type { CastDRepVoteOpts } from '@/lib/governance/drepTx.js';
@@ -272,7 +273,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
     // blocked by a transient read error. The wallet + chain remain the final
     // authority at submit time.
     try {
-      const res = await fetch('/api/koios/drep_info', {
+      const res = await fetchWithTimeout('/api/koios/drep_info', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ _drep_ids: [identity.drepId] }),
@@ -332,7 +333,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
         setRationaleAnchor(anchor);
       },
       async hostRationale({ gaId: gId, drepId, rationale, origin: _origin }) {
-        const res = await fetch('/api/vote/rationale', {
+        const res = await fetchWithTimeout('/api/vote/rationale', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ drepId, gaId: gId, rationale }),
@@ -349,7 +350,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
         return castDRepVote(opts);
       },
       async recordVote(rec) {
-        const res = await fetch('/api/vote/record', {
+        const res = await fetchWithTimeout('/api/vote/record', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(rec),
