@@ -49,7 +49,7 @@ const EXCERPT_LEN = 260;
             </div>
             <p class="ga-highlights__excerpt">{excerpt}</p>
             <a class="ga-highlights__more" href={`${positionsHref}#voter-${h.voter_id}`}>
-              Read full rationale &rarr;
+              Read full rationale
             </a>
           </li>
         );
@@ -57,7 +57,7 @@ const EXCERPT_LEN = 260;
     </ul>
 
     {totalRationales > highlights.length && (
-      <a class="ga-highlights__all" href={positionsHref}>See all {totalRationales} rationales &rarr;</a>
+      <a class="ga-highlights__all" href={positionsHref}>See all {totalRationales} rationales</a>
     )}
   </section>
 )}
