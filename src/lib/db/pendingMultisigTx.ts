@@ -77,8 +77,16 @@ export async function addPendingWitness(
   return 'gone';
 }
 
-export async function markPendingSubmitted(db: D1Database, id: string, txHash: string, _now: number): Promise<void> {
-  await db.prepare(`UPDATE pending_multisig_tx SET status = 'submitted', tx_hash = ? WHERE id = ?`).bind(txHash, id).run();
+// Atomically claim the collecting -> submitted transition. The status predicate
+// makes this a compare-and-swap: only the first of two concurrent submits flips
+// the row (changes > 0); the loser matches no row and must not record a vote or
+// overwrite tx_hash. Returns whether this call performed the transition.
+export async function markPendingSubmitted(db: D1Database, id: string, txHash: string, _now: number): Promise<boolean> {
+  const res = await db
+    .prepare(`UPDATE pending_multisig_tx SET status = 'submitted', tx_hash = ? WHERE id = ? AND status = 'collecting'`)
+    .bind(txHash, id)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 export async function listPendingForDrep(db: D1Database, drepId: string, now: number): Promise<PendingMultisigRow[]> {

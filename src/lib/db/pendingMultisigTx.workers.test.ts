@@ -38,6 +38,18 @@ describe('pendingMultisigTx', () => {
     expect(row?.tx_hash).toBe('ff'.repeat(32));
   });
 
+  it('markPendingSubmitted is an atomic claim: only the first call wins', async () => {
+    await createPendingMultisig(env.DB, { ...base, id: 'tok-claim' });
+    // Two concurrent submits serialize; only the first flips collecting -> submitted.
+    const first = await markPendingSubmitted(env.DB, 'tok-claim', 'aa'.repeat(32), 1002);
+    const second = await markPendingSubmitted(env.DB, 'tok-claim', 'bb'.repeat(32), 1003);
+    expect(first).toBe(true);
+    expect(second).toBe(false); // loser matches no row, changes nothing
+    const row = await getPendingMultisig(env.DB, 'tok-claim');
+    expect(row?.status).toBe('submitted');
+    expect(row?.tx_hash).toBe('aa'.repeat(32)); // winner's hash preserved, not overwritten
+  });
+
   it('lists collecting for a drep and deletes expired', async () => {
     await createPendingMultisig(env.DB, { ...base, id: 'tok4', drepId: 'drepA', expiresAt: 5000 });
     await createPendingMultisig(env.DB, { ...base, id: 'tok5', drepId: 'drepA', expiresAt: 50 });

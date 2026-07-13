@@ -28,7 +28,7 @@ import {
   type GovernanceTally,
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, type VoteInput } from '../db/drepVotes.js';
-import { activityInsert } from '../db/activity.js';
+import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
 
@@ -280,12 +280,12 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       // same-status tally refresh emits nothing either. created_at is the on-chain
       // boundary of the decided epoch (statusEventTime), not detection time.
       if (status !== ga.status && isTerminalStatus(status) && ga.topicId) {
-        await activityInsert(db, {
-          type: 'gov_status',
+        await insertGovStatusEventIfNew(db, {
           topicId: ga.topicId,
-          payload: { from: ga.status, to: status },
+          from: ga.status,
+          to: status,
           createdAt: statusEventTime(decidedEpoch),
-        }).run();
+        });
       }
 
       updated++;
@@ -318,12 +318,12 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       // Dated at the enacted-epoch boundary (statusEventTime), not detection time,
       // so a backlog catch-up does not float a weeks-old enactment to "just now".
       if (isTerminalStatus(status) && ga.topicId) {
-        await activityInsert(db, {
-          type: 'gov_status',
+        await insertGovStatusEventIfNew(db, {
           topicId: ga.topicId,
-          payload: { from: ga.status, to: status },
+          from: ga.status,
+          to: status,
           createdAt: statusEventTime(decidedEpoch),
-        }).run();
+        });
       }
       reSynced++;
     } catch (err) {

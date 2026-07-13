@@ -4,6 +4,7 @@
 // CIP-119 document. The server validates magic bytes; the checks here only
 // keep obvious mistakes out of a network round trip.
 import { useRef, useState } from 'react';
+import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 
 export interface HostedImage {
   url: string;
@@ -36,7 +37,7 @@ export default function DrepImageUpload({ value, onChange, disabled }: DrepImage
     }
     setBusy(true);
     try {
-      const res = await fetch('/api/drep/image', { method: 'POST', body: file });
+      const res = await fetchWithTimeout('/api/drep/image', { method: 'POST', body: file });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         setError(body?.error ?? 'Upload failed. Please try again.');

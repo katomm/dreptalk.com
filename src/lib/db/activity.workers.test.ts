@@ -2,10 +2,27 @@
 // Activity event log tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { activityInsert, getRecentActivity, getActivityPage } from './activity.js';
+import { activityInsert, getRecentActivity, getActivityPage, insertGovStatusEventIfNew } from './activity.js';
 import { createTopic, createPost } from './forum.js';
 
 const db = () => env.DB;
+
+describe('insertGovStatusEventIfNew', () => {
+  it('records a transition once and dedups a repeat of the same (topic, target status)', async () => {
+    await insertGovStatusEventIfNew(db(), { topicId: 'gtopic', from: 'active', to: 'enacted', createdAt: 100 });
+    // Overlapping cron run (or re-run) reports the same transition: must not duplicate.
+    await insertGovStatusEventIfNew(db(), { topicId: 'gtopic', from: 'active', to: 'enacted', createdAt: 200 });
+
+    const gov = (await getRecentActivity(db(), { limit: 10 })).filter((r) => r.type === 'gov_status' && r.topic_id === 'gtopic');
+    expect(gov.length).toBe(1);
+    expect(gov[0].created_at).toBe(100); // the first-recorded event stands
+
+    // A different target status is a distinct milestone and is recorded.
+    await insertGovStatusEventIfNew(db(), { topicId: 'gtopic', from: 'ratified', to: 'expired', createdAt: 300 });
+    const after = (await getRecentActivity(db(), { limit: 10 })).filter((r) => r.type === 'gov_status' && r.topic_id === 'gtopic');
+    expect(after.length).toBe(2);
+  });
+});
 
 describe('activityInsert + getRecentActivity', () => {
   it('inserts a row and reads it back', async () => {

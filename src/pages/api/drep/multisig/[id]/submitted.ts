@@ -62,7 +62,13 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
 
   const now = Math.floor(Date.now() / 1000);
 
-  await markPendingSubmitted(db, id, txHash, now);
+  // Atomically claim collecting -> submitted; only the winner records the vote.
+  // Closes the gap between the stale-read guard above and the write, where two
+  // concurrent /submitted calls could both proceed and race on tx_hash.
+  const claimed = await markPendingSubmitted(db, id, txHash, now);
+  if (!claimed) {
+    return jsonResponse({ error: 'already submitted' }, 409);
+  }
   await recordLocalVote(db, {
     gaId: actionParams.gaId,
     drepId: row.drep_id,
