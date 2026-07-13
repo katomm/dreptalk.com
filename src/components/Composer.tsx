@@ -230,20 +230,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
       )}
 
       <div>
-        <button
-          type="submit"
-          disabled={submitting}
-          style={{
-            padding: '0.5rem 1.25rem',
-            background: submitting ? 'var(--muted)' : 'var(--accent)',
-            color: 'var(--accent-fg)',
-            border: 'none',
-            borderRadius: '0.375rem',
-            fontSize: '0.9375rem',
-            cursor: submitting ? 'not-allowed' : 'pointer',
-            fontWeight: 500,
-          }}
-        >
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
           {submitting ? 'Submitting...' : editingPostId ? 'Save edit' : mode === 'topic' ? 'Post topic' : 'Post reply'}
         </button>
       </div>

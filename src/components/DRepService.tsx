@@ -352,20 +352,10 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               />
               <button
                 type="button"
+                className="btn btn-primary"
                 onClick={handleConnect}
                 disabled={busy}
-                style={{
-                  padding: '0.625rem 1.25rem',
-                  background: 'var(--accent)',
-                  color: 'var(--accent-fg)',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  fontSize: '1rem',
-                  fontWeight: 500,
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  opacity: busy ? 0.7 : 1,
-                  alignSelf: 'flex-start',
-                }}
+                style={{ alignSelf: 'flex-start' }}
               >
                 {phase.status === 'connecting'
                   ? 'Connecting...'
@@ -465,20 +455,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
               )}
 
               <div>
-                <button
-                  type="submit"
-                  disabled={busy}
-                  style={{
-                    padding: '0.625rem 1.25rem',
-                    background: busy ? 'var(--muted)' : 'var(--accent)',
-                    color: 'var(--accent-fg)',
-                    border: 'none',
-                    borderRadius: '0.375rem',
-                    fontSize: '1rem',
-                    fontWeight: 500,
-                    cursor: busy ? 'not-allowed' : 'pointer',
-                  }}
-                >
+                <button type="submit" className="btn btn-primary" disabled={busy}>
                   {phase.status === 'submitting' ? 'Awaiting wallet...' : 'Register as DRep'}
                 </button>
               </div>

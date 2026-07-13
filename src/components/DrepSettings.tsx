@@ -318,20 +318,7 @@ export default function DrepSettings({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
-          <button
-            type="submit"
-            disabled={busy}
-            style={{
-              padding: '0.625rem 1.25rem',
-              background: busy ? 'var(--muted)' : 'var(--accent)',
-              color: 'var(--accent-fg)',
-              border: 'none',
-              borderRadius: '0.375rem',
-              fontSize: '1rem',
-              fontWeight: 500,
-              cursor: busy ? 'not-allowed' : 'pointer',
-            }}
-          >
+          <button type="submit" className="btn btn-primary" disabled={busy}>
             {phase.status === 'submitting' && phase.action === 'update' ? 'Awaiting wallet...' : 'Update on-chain'}
           </button>
           {selectedWalletName && (
