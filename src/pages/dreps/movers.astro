@@ -1,0 +1,243 @@
+---
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
+import { listVotingPowerMovers, type Drep } from '@/lib/db/dreps.js';
+import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
+import { cacheControlForSynced, formatAdaCompact, truncateId } from '@/lib/forum/view.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+
+const db = env.DB as D1Database | undefined;
+
+// Top gainers and losers by per-epoch voting-power delta. The data (per-epoch
+// snapshots) is already maintained for the directory's delta chip; this is a new
+// view over it, no new pipeline.
+const { gainers, losers, epoch } = db
+  ? await listVotingPowerMovers(db, { limit: 10 })
+  : { gainers: [] as Drep[], losers: [] as Drep[], epoch: null };
+
+if (db) {
+  Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+}
+
+const descriptorFor = (d: Drep): AuthorDescriptor => ({
+  authorId: d.drepId,
+  displayName: d.name ?? truncateId(d.drepId),
+  drepId: d.drepId,
+  drepSlug: d.slug,
+  imageHash: d.imageContentHash,
+  identiconSeed: d.hex ?? d.drepId,
+  badges: [],
+});
+
+const hasData = gainers.length > 0 || losers.length > 0;
+const epochLabel = epoch != null ? `epoch ${epoch}` : 'the latest epoch';
+
+const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
+  { key: 'up', title: 'Top gainers', items: gainers },
+  { key: 'down', title: 'Top losers', items: losers },
+];
+---
+
+<Layout
+  title="Movers of the Epoch - Cardano DReps - DRepTalk"
+  description="Which Cardano DReps gained or lost the most voting power this epoch. The biggest delegation shifts among Cardano's delegate representatives, updated every epoch on DRepTalk."
+>
+  <nav class="movers-crumbs" aria-label="Breadcrumb">
+    <a href="/">DRepTalk</a>
+    <span aria-hidden="true">/</span>
+    <a href="/dreps/">DReps</a>
+    <span aria-hidden="true">/</span>
+    <span>Movers</span>
+  </nav>
+
+  <h1>Movers of the epoch</h1>
+  <p class="movers-intro">
+    The DReps whose voting power shifted the most in {epochLabel}, by delegation gained or lost versus the previous epoch.
+  </p>
+
+  {!hasData ? (
+    <p class="movers-none">Not enough epoch snapshots yet to rank movers. Check back next epoch.</p>
+  ) : (
+    <div class="movers-grid">
+      {columns.map((col) => (
+        <section class="movers-col">
+          <h2 class={`movers-col__title movers-col__title--${col.key}`}>
+            <span class="movers-col__icon" aria-hidden="true">{col.key === 'up' ? '▲' : '▼'}</span>
+            {col.title}
+          </h2>
+          {col.items.length === 0 ? (
+            <p class="movers-empty">No {col.key === 'up' ? 'gainers' : 'losers'} this epoch.</p>
+          ) : (
+            <ol class="movers-list">
+              {col.items.map((d, i) => {
+                const descriptor = descriptorFor(d);
+                const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
+                return (
+                  <li class="movers-row">
+                    <span class="movers-rank">{i + 1}</span>
+                    <div class="movers-identity">
+                      <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate>
+                        <span slot="sub" class="movers-power">{formatAdaCompact(d.votingPower)} voting power</span>
+                      </AuthorIdentity>
+                    </div>
+                    {delta && (
+                      <span class={`movers-delta movers-delta--${delta.direction}`}>
+                        <span class="movers-delta__row">
+                          <span class="movers-delta__arrow" aria-hidden="true">{delta.direction === 'up' ? '▲' : '▼'}</span>
+                          {delta.pct != null && <span class="movers-delta__pct">{formatTrendPct(delta.pct)}</span>}
+                        </span>
+                        <span class="movers-delta__ada">{formatAdaCompact(absLovelace(delta.deltaLovelace))}</span>
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
+      ))}
+    </div>
+  )}
+
+  <p class="movers-back"><a href="/dreps/">&larr; All DReps</a></p>
+</Layout>
+
+<style>
+  .movers-crumbs {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+  }
+  .movers-crumbs a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .movers-crumbs a:hover {
+    color: var(--fg);
+  }
+
+  .movers-intro {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0.4rem 0 1.75rem;
+  }
+  .movers-none {
+    color: var(--muted);
+  }
+
+  .movers-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  @media (min-width: 720px) {
+    .movers-grid {
+      grid-template-columns: 1fr 1fr;
+      gap: 2.5rem;
+    }
+  }
+
+  .movers-col__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.1rem;
+    margin: 0 0 0.9rem;
+  }
+  .movers-col__icon {
+    font-size: 0.8rem;
+  }
+  .movers-col__title--up .movers-col__icon {
+    color: var(--c-pos);
+  }
+  .movers-col__title--down .movers-col__icon {
+    color: var(--c-neg);
+  }
+
+  .movers-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .movers-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .movers-row:first-child {
+    border-top: none;
+  }
+  .movers-rank {
+    flex-shrink: 0;
+    width: 1.5rem;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .movers-identity {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .movers-power {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Delta chip: arrow + percent on top, absolute ada below, tinted by direction. */
+  .movers-delta {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.1rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .movers-delta__row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 700;
+    font-size: 0.875rem;
+  }
+  .movers-delta__arrow {
+    font-size: 0.7rem;
+  }
+  .movers-delta--up {
+    color: var(--c-pos);
+  }
+  .movers-delta--down {
+    color: var(--c-neg);
+  }
+  .movers-delta__ada {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .movers-back {
+    margin-top: 2rem;
+    font-size: 0.9rem;
+  }
+  .movers-back a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .movers-back a:hover {
+    text-decoration: underline;
+  }
+</style>

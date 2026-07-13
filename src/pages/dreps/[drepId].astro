@@ -124,15 +124,30 @@ const canonical = drep ? `${siteOrigin}${drepPath(drep)}` : siteOrigin;
 const delegateNetwork = currentNetwork().network;
 const delegateCredentialHex = drep ? (drep.hex ?? drepCredentialHexFromId(drep.drepId)) : null;
 
+// The DRep profile as a Person entity: name, on-chain identifier, canonical URL,
+// and (when present) bio + avatar. Kept as its own node so it stays a
+// self-contained entity nested under the ProfilePage below.
 const personLd = drep
   ? {
-      '@context': 'https://schema.org',
       '@type': 'Person',
       name: displayName,
       identifier: drep.drepId,
       url: canonical,
       ...(drep.bio ? { description: excerptFromHtml(drep.bio, 300) } : {}),
       ...(drep.imageContentHash ? { image: `${siteOrigin}/api/avatar/${drep.imageContentHash}` } : {}),
+    }
+  : null;
+
+// Wrap the Person as the mainEntity of a ProfilePage. Google has dedicated
+// profile-page rich-result handling, and a DRep page is exactly that: a person
+// profile. The Person keeps its own name/identifier/url, the ProfilePage carries
+// the page URL, so the page node and the subject it is about stay distinct.
+const profilePageLd = personLd
+  ? {
+      '@context': 'https://schema.org',
+      '@type': 'ProfilePage',
+      url: canonical,
+      mainEntity: personLd,
     }
   : null;
 
@@ -196,7 +211,7 @@ const profileSummary = drep
       drep.imageContentHash,
     ])}`}
   >
-    {personLd && <JsonLd data={personLd} />}
+    {profilePageLd && <JsonLd data={profilePageLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
 
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">

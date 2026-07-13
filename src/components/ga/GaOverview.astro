@@ -3,8 +3,11 @@
 // the join-discussion CTA. Vote tallies (stake participation, sentiment) live in
 // the sidebar's Voting Information card, so the overview no longer repeats them.
 import GaOnchainChanges from './GaOnchainChanges.astro';
+import GaRationaleHighlights from './GaRationaleHighlights.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
+import type { RationaleHighlight } from '@/lib/db/actionRationale.js';
+import type { Drep } from '@/lib/db/dreps.js';
 import { ensureLinkTarget, renderMarkdown } from '@/lib/markdown.js';
 
 interface Props {
@@ -15,9 +18,16 @@ interface Props {
   commentCount: number;
   loggedIn: boolean;
   locked: boolean;
+  /** Top DRep rationales (with text, non-abstain) for the highlights section. */
+  highlights: RationaleHighlight[];
+  /** Resolved identities for the highlight voters. */
+  highlightDreps: Map<string, Drep>;
+  /** Total readable rationales on the action, for the highlights "see all" link. */
+  rationaleCount: number;
 }
 
-const { action, onchain, slug, commentCount, loggedIn, locked } = Astro.props;
+const { action, onchain, slug, commentCount, loggedIn, locked, highlights, highlightDreps, rationaleCount } =
+  Astro.props;
 
 // The discussion lives behind its own tab; the overview only links into it. The
 // composer sits at the bottom of that tab under the #reply anchor.
@@ -71,6 +81,15 @@ const isLongRationale = rationaleText.length > 5000;
   {!action.rationaleHtml && !abstractHtml && (
     <p class="ga-overview__empty">No details available for this action.</p>
   )}
+
+  {/* The site's unique content: what the biggest DReps said when they voted.
+      Surfaced on the canonical Overview URL, with links into the Votes tab. */}
+  <GaRationaleHighlights
+    highlights={highlights}
+    dreps={highlightDreps}
+    slug={slug}
+    totalRationales={rationaleCount}
+  />
 
   {/* Bridge from the overview into the discussion. Readers land here, so this is
       the page's main nudge to weigh in; the discussion tab itself owns the

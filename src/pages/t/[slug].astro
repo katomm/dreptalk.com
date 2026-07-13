@@ -22,7 +22,12 @@ import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow 
 import { isSpoLedType } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
-import { getActionRationales, countActionRationales } from '@/lib/db/actionRationale.js';
+import {
+  getActionRationales,
+  countActionRationales,
+  getRationaleHighlights,
+  type RationaleHighlight,
+} from '@/lib/db/actionRationale.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
 import { getPoolsByIds, type Pool } from '@/lib/db/pools.js';
 import { getUserById } from '@/lib/db/users.js';
@@ -239,19 +244,30 @@ const tab = parseGaTab(Astro.url.searchParams.get('tab'));
 // Positions tab: paginated voter list. Top participants and total count are always
 // loaded (sidebar card + tab badge). Resolved in parallel; voter rows only on the
 // positions tab. DRep identities fetched once via a single getDrepsByIds call.
-const [topVoters, positionVoters, positionsTotal] = isGovernanceTopic && govAction && db
+// Overview "Rationale highlights": the top few DRep rationales (with text,
+// non-abstain), loaded only on the default Overview tab where they render.
+const RATIONALE_HIGHLIGHT_LIMIT = 3;
+const [topVoters, positionVoters, positionsTotal, rationaleHighlights] = isGovernanceTopic && govAction && db
   ? await Promise.all([
       getActionVoters(db, govAction.id, { limit: 5 }),
       tab === 'positions'
         ? getActionVoters(db, govAction.id, { limit: PAGE_SIZE, offset: pageToOffset(page, PAGE_SIZE) })
         : Promise.resolve([] as Awaited<ReturnType<typeof getActionVoters>>),
       countActionVoters(db, govAction.id),
+      tab === 'overview'
+        ? getRationaleHighlights(db, govAction.id, RATIONALE_HIGHLIGHT_LIMIT)
+        : Promise.resolve([] as RationaleHighlight[]),
     ])
-  : ([[], [], 0] as [ActionVoterRow[], ActionVoterRow[], number]);
+  : ([[], [], 0, []] as [ActionVoterRow[], ActionVoterRow[], number, RationaleHighlight[]]);
 
-// Resolve DRep identities for both lists in a single batch query (no N+1).
+// Resolve DRep identities for the voter lists and the highlights in a single
+// batch query (no N+1). Highlight voters may not appear in the top-5, so include them.
 const voterIds = [
-  ...new Set([...topVoters.map((v) => v.voter_id), ...positionVoters.map((v) => v.voter_id)]),
+  ...new Set([
+    ...topVoters.map((v) => v.voter_id),
+    ...positionVoters.map((v) => v.voter_id),
+    ...rationaleHighlights.map((h) => h.voter_id),
+  ]),
 ];
 const drepsMap = db && voterIds.length > 0
   ? await getDrepsByIds(db, voterIds)
@@ -505,6 +521,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                   commentCount={Math.max(0, topic.post_count - 1)}
                   loggedIn={!!user}
                   locked={!!topic.locked}
+                  highlights={rationaleHighlights}
+                  highlightDreps={drepsMap}
+                  rationaleCount={rationaleCount}
                 />
                 {nclProps && (
                   <NclPanel
