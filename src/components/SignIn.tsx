@@ -352,6 +352,8 @@ function MultisigPanel({ enabled, onToggle, scriptId, onScriptIdChange, disabled
           type="button"
           role="switch"
           aria-checked={enabled}
+          aria-labelledby="multisig-switch-label"
+          aria-describedby="multisig-switch-hint"
           onClick={onToggle}
           disabled={disabled}
           style={{
@@ -381,11 +383,19 @@ function MultisigPanel({ enabled, onToggle, scriptId, onScriptIdChange, disabled
             }}
           />
         </button>
-        <span style={{ fontSize: '0.875rem', color: 'var(--fg)', userSelect: 'none' }}>
+        <span id="multisig-switch-label" style={{ fontSize: '0.875rem', color: 'var(--fg)', userSelect: 'none' }}>
           This is a multisig / script DRep
         </span>
-        <span title="A script DRep is controlled by a native multisig script, not a single key. Enter the DRep ID and prove membership by signing with one of its authorized keys.">
+        <span
+          aria-hidden="true"
+          title="A script DRep is controlled by a native multisig script, not a single key. Enter the DRep ID and prove membership by signing with one of its authorized keys."
+        >
           {IconInfo}
+        </span>
+        {/* Same explanation as the tooltip, exposed to assistive tech (the icon's
+            title alone is not announced on a non-focusable span). */}
+        <span id="multisig-switch-hint" className="sr-only">
+          A script DRep is controlled by a native multisig script, not a single key. Enter the DRep ID and prove membership by signing with one of its authorized keys.
         </span>
       </div>
 

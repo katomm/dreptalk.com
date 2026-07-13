@@ -72,7 +72,7 @@ function primaryButtonStyle(busy: boolean): React.CSSProperties {
   return {
     padding: '0.625rem 1.25rem',
     background: busy ? 'var(--muted)' : 'var(--accent)',
-    color: '#fff',
+    color: 'var(--accent-fg)',
     border: 'none',
     borderRadius: '0.375rem',
     fontSize: '1rem',

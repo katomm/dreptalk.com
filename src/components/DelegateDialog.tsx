@@ -4,9 +4,10 @@
 // submits the vote_deleg certificate. The Evolution SDK tx builder is pulled in
 // lazily (dynamic import at submit time) so callers do not ship the heavy tx
 // bundle on first load.
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import { useDialogA11y } from '@/components/useDialogA11y.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
@@ -55,25 +56,10 @@ export default function DelegateDialog({
 
   const busy = phase.status === 'connecting' || phase.status === 'submitting';
 
-  // Escape or a click outside the panel closes the dialog, but never mid-flight
-  // (connecting/submitting) so a wallet round-trip is not orphaned. Outside-click
-  // is a document mousedown test against the panel rather than a backdrop onClick,
-  // which keeps the static backdrop free of interaction handlers.
-  useEffect(() => {
-    const dismissable = !busy;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && dismissable) onClose();
-    };
-    const onDown = (e: MouseEvent) => {
-      if (dismissable && panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onDown);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onDown);
-    };
-  }, [busy, onClose]);
+  // Escape / outside-click close (never mid-flight, so a wallet round-trip is not
+  // orphaned), plus focus trap and focus restore on close. dismissable tracks the
+  // live busy state.
+  useDialogA11y({ panelRef, onClose, dismissable: !busy });
 
   const shortId = truncateIdMiddle(target.drepId, 12, 6);
 
@@ -173,7 +159,7 @@ export default function DelegateDialog({
 
   return (
     <div className="drep-dialog__backdrop">
-      <div ref={panelRef} className="drep-dialog" role="dialog" aria-modal="true" aria-labelledby="drep-dialog-title">
+      <div ref={panelRef} className="drep-dialog" role="dialog" aria-modal="true" aria-labelledby="drep-dialog-title" tabIndex={-1}>
         <div className="drep-dialog__head">
           <h2 id="drep-dialog-title" className="drep-dialog__title">Delegate voting power</h2>
           <button type="button" className="drep-dialog__close" onClick={onClose} disabled={busy} aria-label="Close">

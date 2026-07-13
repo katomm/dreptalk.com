@@ -43,19 +43,38 @@ export async function getPendingMultisig(db: D1Database, id: string): Promise<Pe
   return (await db.prepare(`SELECT * FROM pending_multisig_tx WHERE id = ?`).bind(id).first<PendingMultisigRow>()) ?? null;
 }
 
+// Optimistic-concurrency retries: witnesses live in a single JSON column, so two
+// co-signers appending at once would otherwise clobber each other (last write
+// wins, one signature silently lost). The UPDATE is guarded on the exact prior
+// value read (compare-and-swap); a losing writer sees 0 changed rows and retries
+// against the now-current value. A handful of attempts covers realistic
+// concurrency (a native script has a small, bounded signer set).
+const ADD_WITNESS_MAX_ATTEMPTS = 8;
+
 export async function addPendingWitness(
   db: D1Database,
   id: string,
   witness: { key_hash: string; witness_hex: string },
   _now: number,
 ): Promise<'added' | 'gone'> {
-  const row = await getPendingMultisig(db, id);
-  if (row?.status !== 'collecting') return 'gone';
-  const list = JSON.parse(row.witnesses) as Array<{ key_hash: string; witness_hex: string }>;
-  if (list.some((w) => w.key_hash === witness.key_hash)) return 'added'; // idempotent on duplicate key
-  list.push(witness);
-  await db.prepare(`UPDATE pending_multisig_tx SET witnesses = ? WHERE id = ?`).bind(JSON.stringify(list), id).run();
-  return 'added';
+  for (let attempt = 0; attempt < ADD_WITNESS_MAX_ATTEMPTS; attempt++) {
+    const row = await getPendingMultisig(db, id);
+    if (row?.status !== 'collecting') return 'gone';
+    const list = JSON.parse(row.witnesses) as Array<{ key_hash: string; witness_hex: string }>;
+    if (list.some((w) => w.key_hash === witness.key_hash)) return 'added'; // idempotent on duplicate key
+    list.push(witness);
+    // Compare-and-swap: only write when witnesses is still exactly what we read,
+    // and the row is still collecting. A concurrent append changes the blob, so
+    // this matches 0 rows and we loop with a fresh read.
+    const res = await db
+      .prepare(`UPDATE pending_multisig_tx SET witnesses = ? WHERE id = ? AND witnesses = ? AND status = 'collecting'`)
+      .bind(JSON.stringify(list), id, row.witnesses)
+      .run();
+    if ((res.meta.changes ?? 0) > 0) return 'added';
+  }
+  // Exhausted retries under sustained contention: report as not-added so the
+  // caller can surface a retry rather than a false success.
+  return 'gone';
 }
 
 export async function markPendingSubmitted(db: D1Database, id: string, txHash: string, _now: number): Promise<void> {

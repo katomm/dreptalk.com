@@ -338,7 +338,8 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
                     data-drep-name={descriptor.displayName}
                     data-drep-cred={cred ?? ''}
                     data-drep-script={d.hasScript ? '1' : '0'}
-                    aria-haspopup="menu"
+                    aria-haspopup="true"
+                    aria-expanded="false"
                     aria-label={`Actions for ${descriptor.displayName}`}
                   >
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
