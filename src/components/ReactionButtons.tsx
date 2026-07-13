@@ -54,6 +54,9 @@ export default function ReactionButtons({
   const [downCount, setDownCount] = useState(initialDownCount);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  // Announced to screen readers on each change (the color/aria-pressed shift alone
+  // does not convey the new count or a failure).
+  const [status, setStatus] = useState('');
 
   const toggle = async (side: Reaction) => {
     if (busy || !canReact) return;
@@ -68,14 +71,23 @@ export default function ReactionButtons({
       });
       if (!res.ok) {
         setError(true);
+        setStatus('Could not update reaction, please try again.');
         return;
       }
       const data = (await res.json()) as { reaction: Reaction | null; upCount: number; downCount: number };
       setReaction(data.reaction);
       setUpCount(data.upCount);
       setDownCount(data.downCount);
+      setStatus(
+        data.reaction === 'up'
+          ? 'Thumbs up recorded.'
+          : data.reaction === 'down'
+            ? 'Thumbs down recorded.'
+            : 'Reaction removed.',
+      );
     } catch {
       setError(true);
+      setStatus('Could not update reaction, please try again.');
     } finally {
       setBusy(false);
     }
@@ -109,9 +121,12 @@ export default function ReactionButtons({
               display: 'inline-flex',
               alignItems: 'center',
               gap: '0.3rem',
+              justifyContent: 'center',
               background: 'none',
               border: 'none',
-              padding: 0,
+              padding: '0.25rem 0.3rem',
+              minHeight: '1.75rem',
+              minWidth: '1.75rem',
               cursor: busy || !canReact ? 'default' : 'pointer',
               font: 'inherit',
               fontSize: '0.8125rem',
@@ -124,6 +139,7 @@ export default function ReactionButtons({
           </button>
         );
       })}
+      <span className="sr-only" role="status" aria-live="polite">{status}</span>
     </span>
   );
 }

@@ -141,7 +141,7 @@ function ErrorCallout({ message }: { message: string }) {
 function ProgressLine({ pending }: { pending: PendingState }) {
   const need = pending.threshold ?? pending.totalLeaves;
   return (
-    <p style={{ margin: 0, fontSize: '0.875rem', color: pending.satisfied ? 'var(--accent)' : 'var(--muted)', fontWeight: 600 }}>
+    <p role="status" aria-live="polite" style={{ margin: 0, fontSize: '0.875rem', color: pending.satisfied ? 'var(--accent)' : 'var(--muted)', fontWeight: 600 }}>
       {pending.satisfied
         ? 'All required signatures collected.'
         : `${pending.signedLeaves} of ${need} signatures collected.`}

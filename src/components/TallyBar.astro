@@ -15,10 +15,14 @@ interface Props {
 
 const { bar, height = 8, pendingNo = false } = Astro.props;
 const noColor = pendingNo ? TONE_BAR_COLORS.neutral : TONE_BAR_COLORS.negative;
+// Text alternative so the color-only bar is not lost to screen readers (the
+// numbers are not always rendered alongside it, e.g. the topic-row mini-tally).
+const noLabel = pendingNo ? 'not yet voted' : 'no';
+const tallyLabel = `Tally: yes ${Math.round(bar.yes)}%, ${noLabel} ${Math.round(bar.no)}%, abstain ${Math.round(bar.abstain)}%`;
 ---
 
-<div aria-hidden="true" style={`display:flex;height:${height}px;border-radius:999px;overflow:hidden;background:var(--border);`}>
-  <div style={`width:${bar.yes}%;background:${TONE_BAR_COLORS.positive};`}></div>
-  <div style={`width:${bar.no}%;background:${noColor};`}></div>
-  <div style={`width:${bar.abstain}%;background:${TONE_BAR_COLORS.neutral};`}></div>
+<div role="img" aria-label={tallyLabel} style={`display:flex;height:${height}px;border-radius:999px;overflow:hidden;background:var(--border);`}>
+  <div aria-hidden="true" style={`width:${bar.yes}%;background:${TONE_BAR_COLORS.positive};`}></div>
+  <div aria-hidden="true" style={`width:${bar.no}%;background:${noColor};`}></div>
+  <div aria-hidden="true" style={`width:${bar.abstain}%;background:${TONE_BAR_COLORS.neutral};`}></div>
 </div>

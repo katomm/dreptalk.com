@@ -19,13 +19,17 @@ interface Props {
 
 const { bar, height = 10, thresholdPct = null, compactMarker = false } = Astro.props;
 const clamp = (n: number): number => Math.min(100, Math.max(0, n));
+// Text alternative so the color-only bar is not lost to screen readers.
+const barLabel =
+  `Voting power: yes ${Math.round(bar.yes)}%, no ${Math.round(bar.no)}%, not voted ${Math.round(bar.notVoted)}%` +
+  (thresholdPct != null ? `, threshold ${Math.round(clamp(thresholdPct))}%` : '');
 ---
 
 <div class="cbar">
-  <div class="cbar__track" style={`height:${height}px`} aria-hidden="true">
-    <span class="cbar__seg" style={`width:${bar.yes}%;background:${TONE_BAR_COLORS.positive}`}></span>
-    <span class="cbar__seg" style={`width:${bar.no}%;background:${TONE_BAR_COLORS.negative}`}></span>
-    <span class="cbar__seg cbar__seg--nv" style={`width:${bar.notVoted}%`}></span>
+  <div class="cbar__track" style={`height:${height}px`} role="img" aria-label={barLabel}>
+    <span class="cbar__seg" style={`width:${bar.yes}%;background:${TONE_BAR_COLORS.positive}`} aria-hidden="true"></span>
+    <span class="cbar__seg" style={`width:${bar.no}%;background:${TONE_BAR_COLORS.negative}`} aria-hidden="true"></span>
+    <span class="cbar__seg cbar__seg--nv" style={`width:${bar.notVoted}%`} aria-hidden="true"></span>
   </div>
   {thresholdPct != null && (
     <span
