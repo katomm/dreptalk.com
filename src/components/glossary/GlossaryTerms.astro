@@ -2,11 +2,11 @@
 // Marks the first occurrence of each glossary term inside the given host
 // containers and shows a hover/focus tooltip with the definition and a link
 // to the glossary entry. Pure client-side DOM pass over server-rendered
-// prose; the only SSR cost is the small JSON payload below.
+// prose; the only SSR cost is the small (per-isolate cached) JSON payload.
 //
 // Place the component OUTSIDE the host containers so its own markup is never
 // annotated. Terms already inside links, code, or headings are skipped.
-import { getCollection } from 'astro:content';
+import { getGlossaryPayloadJson } from '@/lib/glossary/payload.js';
 
 interface Props {
   // Comma-separated CSS selector list of the containers to annotate.
@@ -14,42 +14,32 @@ interface Props {
 }
 
 const { hosts } = Astro.props;
-
-const payload = Object.fromEntries(
-  (await getCollection('glossary')).map((e) => [e.id, { term: e.data.term, description: e.data.description }]),
-);
+const payloadJson = await getGlossaryPayloadJson();
 ---
 
-<script type="application/json" id="glossary-terms-payload" set:html={JSON.stringify(payload).replace(/</g, '\\u003c')} />
+<script type="application/json" id="glossary-terms-payload" set:html={payloadJson} />
 
-<div class="glossary-tooltip" id="glossaryTooltip" data-hosts={hosts} role="tooltip" aria-hidden="true">
+<div class="glossary-tooltip" id="glossaryTooltip" data-hosts={hosts} role="tooltip">
   <span class="glossary-tooltip__term"></span>
   <span class="glossary-tooltip__text"></span>
   <a class="glossary-tooltip__link" href="/glossary/">Read more</a>
 </div>
 
 <script>
-  import { GLOSSARY_PATTERNS } from '@/lib/glossary/patterns.js';
+  import { GLOSSARY_PATTERNS, firstMatch } from '@/lib/glossary/patterns.js';
 
   type Entry = { term: string; description: string };
 
   const SKIP_SELECTOR = 'a, code, pre, script, style, h1, h2, h3, h4, .glossary-tooltip';
 
-  function shouldSkip(node: Node): boolean {
-    for (let el = node.parentElement; el; el = el.parentElement) {
-      if (el.matches(SKIP_SELECTOR)) return true;
-      if (el === document.body) break;
-    }
-    return false;
-  }
-
-  /** Wraps the first occurrence of each not-yet-seen term in a glossary link. */
-  function annotate(hosts: string, seen: Set<string>) {
+  /** Wraps the first occurrence of each term in a link to its glossary entry. */
+  function annotate(hosts: string) {
+    const seen = new Set<string>();
     for (const host of document.querySelectorAll<HTMLElement>(hosts)) {
       const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, {
         acceptNode(node) {
           if (!node.textContent || !node.textContent.trim()) return NodeFilter.FILTER_REJECT;
-          if (shouldSkip(node)) return NodeFilter.FILTER_REJECT;
+          if (node.parentElement?.closest(SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT;
           return NodeFilter.FILTER_ACCEPT;
         },
       });
@@ -59,35 +49,26 @@ const payload = Object.fromEntries(
       while ((current = walker.nextNode())) queue.push(current as Text);
 
       while (queue.length > 0) {
+        // Every term is marked at most once, so stop as soon as all are found
+        // instead of walking the rest of what can be a very long page.
+        if (seen.size === GLOSSARY_PATTERNS.length) return;
+
         const node = queue.shift() as Text;
         const text = node.textContent ?? '';
-
-        // Earliest match across all patterns whose key is not yet marked.
-        let bestIdx = -1;
-        let bestLen = 0;
-        let bestKey = '';
-        for (const { key, regex } of GLOSSARY_PATTERNS) {
-          if (seen.has(key)) continue;
-          const m = regex.exec(text);
-          if (m && (bestIdx === -1 || m.index < bestIdx)) {
-            bestIdx = m.index;
-            bestLen = m[0].length;
-            bestKey = key;
-          }
-        }
-        if (bestIdx === -1) continue;
-        seen.add(bestKey);
+        const match = firstMatch(text, seen);
+        if (!match) continue;
+        seen.add(match.key);
 
         const link = document.createElement('a');
         link.className = 'glossary-term';
-        link.href = `/glossary/${bestKey}/`;
-        link.dataset.glossaryKey = bestKey;
+        link.href = `/glossary/${match.key}/`;
+        link.dataset.glossaryKey = match.key;
         link.setAttribute('aria-describedby', 'glossaryTooltip');
-        link.textContent = text.slice(bestIdx, bestIdx + bestLen);
+        link.textContent = text.slice(match.index, match.index + match.length);
 
-        const after = document.createTextNode(text.slice(bestIdx + bestLen));
+        const after = document.createTextNode(text.slice(match.index + match.length));
         const frag = document.createDocumentFragment();
-        if (bestIdx > 0) frag.appendChild(document.createTextNode(text.slice(0, bestIdx)));
+        if (match.index > 0) frag.appendChild(document.createTextNode(text.slice(0, match.index)));
         frag.appendChild(link);
         frag.appendChild(after);
         node.replaceWith(frag);
@@ -98,39 +79,30 @@ const payload = Object.fromEntries(
     }
   }
 
-  function init() {
-    const tooltip = document.getElementById('glossaryTooltip');
-    const payloadEl = document.getElementById('glossary-terms-payload');
-    if (!tooltip || !payloadEl) return;
-    const hosts = tooltip.dataset.hosts;
-    if (!hosts) return;
+  const tooltip = document.getElementById('glossaryTooltip');
+  const payloadEl = document.getElementById('glossary-terms-payload');
+  const hosts = tooltip?.dataset.hosts;
+  const termEl = tooltip?.querySelector<HTMLElement>('.glossary-tooltip__term');
+  const textEl = tooltip?.querySelector<HTMLElement>('.glossary-tooltip__text');
+  const linkEl = tooltip?.querySelector<HTMLAnchorElement>('.glossary-tooltip__link');
 
-    let payload: Record<string, Entry>;
-    try {
-      payload = JSON.parse(payloadEl.textContent ?? '{}');
-    } catch {
-      return;
-    }
+  if (tooltip && payloadEl && hosts && termEl && textEl && linkEl) {
+    const payload: Record<string, Entry> = JSON.parse(payloadEl.textContent ?? '{}');
 
     // Position relative to the document regardless of where the component
     // was rendered.
     document.body.appendChild(tooltip);
 
-    annotate(hosts, new Set());
-
-    const termEl = tooltip.querySelector<HTMLElement>('.glossary-tooltip__term');
-    const textEl = tooltip.querySelector<HTMLElement>('.glossary-tooltip__text');
-    const linkEl = tooltip.querySelector<HTMLAnchorElement>('.glossary-tooltip__link');
-    if (!termEl || !textEl || !linkEl) return;
+    annotate(hosts);
 
     // Touch path: first tap shows the tooltip, second tap on the same term
     // navigates. The hover/focus path stays click-to-navigate.
     let armedKey: string | null = null;
     let armedTimer: number | undefined;
 
-    function showTooltip(target: HTMLElement) {
+    const showTooltip = (target: HTMLElement) => {
       const key = target.dataset.glossaryKey;
-      if (!key || !payload[key] || !tooltip || !termEl || !textEl || !linkEl) return;
+      if (!key) return;
       termEl.textContent = payload[key].term;
       textEl.textContent = payload[key].description;
       linkEl.href = `/glossary/${key}/`;
@@ -144,15 +116,13 @@ const payload = Object.fromEntries(
       );
       tooltip.style.left = `${left + window.scrollX}px`;
       tooltip.style.top = `${rect.bottom + window.scrollY + 8}px`;
-      tooltip.setAttribute('aria-hidden', 'false');
-    }
+    };
 
-    function hideTooltip() {
-      tooltip?.classList.remove('is-visible');
-      tooltip?.setAttribute('aria-hidden', 'true');
+    const hideTooltip = () => {
+      tooltip.classList.remove('is-visible');
       armedKey = null;
-      if (armedTimer) window.clearTimeout(armedTimer);
-    }
+      window.clearTimeout(armedTimer);
+    };
 
     document.addEventListener('mouseover', (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>('[data-glossary-key]');
@@ -186,24 +156,20 @@ const payload = Object.fromEntries(
         e.stopPropagation();
         showTooltip(target);
         armedKey = key;
-        if (armedTimer) window.clearTimeout(armedTimer);
+        window.clearTimeout(armedTimer);
         armedTimer = window.setTimeout(hideTooltip, 6000);
       },
       true,
     );
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
   }
 </script>
 
 <style is:global>
   /* The attribute doubles the specificity so the term keeps the surrounding
      text color inside prose containers that give plain links the accent color
-     ("a", ".prose a"). Terms should read as annotated text, not as links. */
+     ("a", ".prose a"). Terms should read as annotated text, not as links.
+     Contract: this wins over plain global rules; host containers must not add
+     Astro-scoped link color rules of their own (scoping raises specificity). */
   .glossary-term[data-glossary-key] {
     color: inherit;
     text-decoration: underline dotted;

@@ -11,6 +11,27 @@ export interface GlossaryPattern {
   regex: RegExp;
 }
 
+export interface TermMatch {
+  key: string;
+  index: number;
+  length: number;
+}
+
+/**
+ * Earliest match in `text` across all patterns whose key is not in `seen`.
+ * Ties on index go to the earlier pattern, which is what makes the
+ * longer-phrases-first ordering below binding.
+ */
+export function firstMatch(text: string, seen?: ReadonlySet<string>): TermMatch | undefined {
+  let best: TermMatch | undefined;
+  for (const { key, regex } of GLOSSARY_PATTERNS) {
+    if (seen?.has(key)) continue;
+    const m = regex.exec(text);
+    if (m && (!best || m.index < best.index)) best = { key, index: m.index, length: m[0].length };
+  }
+  return best;
+}
+
 export const GLOSSARY_PATTERNS: GlossaryPattern[] = [
   // Multi-word phrases first so they win over their substrings.
   { key: 'update-constitutional-committee', regex: /\bupdate (?:the |of )?constitutional committee\b/i },

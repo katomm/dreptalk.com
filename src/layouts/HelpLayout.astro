@@ -77,10 +77,8 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     font-size: 0.9875rem;
     color: var(--fg);
   }
-  /* Glossary term links keep the text color (styled by GlossaryTerms). */
-  .prose :global(a:not(.glossary-term)) {
-    color: var(--accent);
-  }
+  /* Link color comes from the global .prose rules; no scoped copy here, its
+     raised specificity would override the GlossaryTerms term styling. */
   .prose :global(ul),
   .prose :global(ol) {
     padding-left: 1.25rem;
