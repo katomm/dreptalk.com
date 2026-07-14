@@ -3,6 +3,7 @@
 // breadcrumb, heading, optional "Last updated" line, and the prose styling
 // for the rendered markdown in the slot.
 import Layout from '@/layouts/Layout.astro';
+import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import { isoDate } from '@/lib/format/date.js';
 
 interface Props {
@@ -18,9 +19,12 @@ interface Props {
   parent?: { href: string; label: string };
   // When set, renders a "Last updated" line above the content.
   updated?: Date;
+  // Mark glossary terms in the prose with definition tooltips. Off on the
+  // glossary's own pages, which are already densely cross-linked.
+  glossaryTerms?: boolean;
 }
 
-const { title, description, crumb, heading = crumb, ogImage, parent = { href: '/help/', label: 'Help' }, updated } = Astro.props;
+const { title, description, crumb, heading = crumb, ogImage, parent = { href: '/help/', label: 'Help' }, updated, glossaryTerms = false } = Astro.props;
 
 // Public help pages: cache at the edge but keep them reasonably fresh.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
@@ -44,6 +48,8 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
   <article class="prose">
     <slot />
   </article>
+
+  {glossaryTerms && <GlossaryTerms hosts="article.prose" />}
 </Layout>
 
 <style>
@@ -71,7 +77,8 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     font-size: 0.9875rem;
     color: var(--fg);
   }
-  .prose :global(a) {
+  /* Glossary term links keep the text color (styled by GlossaryTerms). */
+  .prose :global(a:not(.glossary-term)) {
     color: var(--accent);
   }
   .prose :global(ul),

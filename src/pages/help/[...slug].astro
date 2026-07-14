@@ -25,7 +25,7 @@ const articleLd = buildArticleLd(origin, entry.id, d.title, d.description, d.upd
 const faqLd = buildFaqLd(d.faqs);
 ---
 
-<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel} heading={d.title} updated={d.updated} ogImage={`/og/help/${entry.id}.png?v=${ogCardVersion([d.title, d.description, d.category, d.updated?.getTime()])}`}>
+<HelpLayout title={`${d.title} - DRepTalk`} description={d.description} crumb={d.cardLabel} heading={d.title} updated={d.updated} glossaryTerms ogImage={`/og/help/${entry.id}.png?v=${ogCardVersion([d.title, d.description, d.category, d.updated?.getTime()])}`}>
   <JsonLd data={breadcrumbLd} />
   <JsonLd data={articleLd} />
   {faqLd && <JsonLd data={faqLd} />}
