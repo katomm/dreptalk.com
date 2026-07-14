@@ -511,21 +511,39 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               <GaHistory action={govAction} network={network} />
             ) : (
               <>
-                {spoTotal > 0 && (
-                  <a class="ga-spo-jump" href={`/t/${topic.slug}/?tab=positions&role=spo`}>
-                    {spoTotal} {spoTotal === 1 ? 'SPO' : 'SPOs'} voted on this action, see how
-                  </a>
-                )}
-                <GaOverview action={govAction} onchain={onchainChanges} />
-                {nclProps && (
-                  <NclPanel
-                    status={nclProps.status}
-                    windowWithdrawals={[]}
-                    definingLinks={nclProps.definingLinks}
-                    relatedLinks={nclProps.relatedLinks}
-                    compact={true}
-                  />
-                )}
+                <div class="ga-overview-block">
+                  {spoTotal > 0 && (
+                    <a class="ga-spo-jump" href={`/t/${topic.slug}/?tab=positions&role=spo`}>
+                      {spoTotal} {spoTotal === 1 ? 'SPO' : 'SPOs'} voted on this action, see how
+                    </a>
+                  )}
+                  <GaOverview action={govAction} onchain={onchainChanges} />
+                  {nclProps && (
+                    <NclPanel
+                      status={nclProps.status}
+                      windowWithdrawals={[]}
+                      definingLinks={nclProps.definingLinks}
+                      relatedLinks={nclProps.relatedLinks}
+                      compact={true}
+                    />
+                  )}
+                </div>
+                {/* Highlights + join sit in the main column so they flow directly
+                    below the overview on desktop (no gap waiting on the taller
+                    sidebar). On mobile the column dissolves and they reorder after
+                    the sidebar cards (see --sidebar-first). */}
+                <GaRationaleHighlights
+                  highlights={rationaleHighlights}
+                  dreps={drepsMap}
+                  slug={topic.slug}
+                  totalRationales={rationaleCount}
+                />
+                <GaJoinDiscussion
+                  slug={topic.slug}
+                  commentCount={Math.max(0, topic.post_count - 1)}
+                  loggedIn={!!user}
+                  locked={!!topic.locked}
+                />
               </>
             )}
           </div>
@@ -572,27 +590,6 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               )}
             </GaSidebar>
           </div>
-          {/* Rationale highlights and the join-discussion bridge are grid-level
-              blocks (not nested in the main column) so the mobile stack can place
-              the rationales after the Voting Information card and the join CTA
-              last. On desktop they flow down the left (main) column below the
-              overview. Overview tab only. */}
-          {tab === 'overview' && (
-            <>
-              <GaRationaleHighlights
-                highlights={rationaleHighlights}
-                dreps={drepsMap}
-                slug={topic.slug}
-                totalRationales={rationaleCount}
-              />
-              <GaJoinDiscussion
-                slug={topic.slug}
-                commentCount={Math.max(0, topic.post_count - 1)}
-                loggedIn={!!user}
-                locked={!!topic.locked}
-              />
-            </>
-          )}
         </div>
       </>
     ) : (
@@ -712,15 +709,17 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
   .ga-detail-layout__sidebar {
     min-width: 0;
   }
+  /* The main column stacks its blocks (overview, rationale highlights, join CTA)
+     itself, so they flow directly one after another regardless of the sidebar's
+     height (no gap where a short overview meets a taller sidebar). */
+  .ga-detail-layout__main {
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+  }
   .ga-detail-layout__sidebar {
     position: sticky;
     top: 1.5rem;
-  }
-  /* Rationale highlights and the join CTA are grid-level blocks; keep them in the
-     left (main) column on desktop so they flow below the overview content. */
-  .ga-detail-layout > :global(.ga-highlights),
-  .ga-detail-layout > :global(.ga-join) {
-    grid-column: 1;
   }
   .vote-panel-wrapper {
     margin-bottom: 1.5rem;
@@ -776,8 +775,15 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     .ga-detail-layout--sidebar-first :global(.ga-sidebar > :first-child) {
       order: 1;
     }
+    /* The main column dissolves too, so its blocks (overview, highlights, join)
+       become items of this single-column grid and can be ordered around the
+       sidebar cards. */
     .ga-detail-layout--sidebar-first .ga-detail-layout__main {
+      display: contents;
+    }
+    .ga-detail-layout--sidebar-first .ga-overview-block {
       order: 2;
+      min-width: 0;
     }
     /* The DRep vote CTA leads the column, ahead of the status card. */
     .ga-detail-layout--sidebar-first .vote-panel-wrapper {
@@ -785,11 +791,13 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     }
     /* Then the rationale highlights (after the voting info + detail cards), and the
        join-discussion bridge last. */
-    .ga-detail-layout--sidebar-first > :global(.ga-highlights) {
+    .ga-detail-layout--sidebar-first :global(.ga-highlights) {
       order: 4;
+      min-width: 0;
     }
-    .ga-detail-layout--sidebar-first > :global(.ga-join) {
+    .ga-detail-layout--sidebar-first :global(.ga-join) {
       order: 5;
+      min-width: 0;
     }
   }
 </style>
