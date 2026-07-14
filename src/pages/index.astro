@@ -37,6 +37,9 @@ const db = env.DB as D1Database | undefined;
 const now = Date.now();
 const user = Astro.locals.user;
 
+// Rolling window for the "distinct DReps/SPOs active in discussions" feed stat.
+const ACTIVE_FORUM_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 // The hero "live voting" scene shows the strongest DRep voters actively (avatar
 // plus a vote badge) ringed by fainter "ghost" voters, so it reads as a vote in
 // progress. We pull a few more than we show to fill both rings from one query.
@@ -57,11 +60,11 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 const [stats, feed, votedHero, recentIds, activeDrepStake, activeForumCounts] = db
   ? await Promise.all([
       getCategoryStats(db),
-      loadActivityFeed(db, { limit: 15, withParticipants: true, collapseByTopic: true }).then((r) => r.events),
+      loadActivityFeed(db, { limit: 15, withParticipants: true }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
       listRecentlyActiveAuthorIds(db, 10),
       getActiveDrepStake(db),
-      getActiveForumRoleCounts(db),
+      getActiveForumRoleCounts(db, now - ACTIVE_FORUM_WINDOW_MS),
     ])
   : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, [], { total: 0, asOf: null }, { dreps: 0, spos: 0 }];
 

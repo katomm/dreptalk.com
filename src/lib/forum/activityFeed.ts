@@ -56,8 +56,6 @@ export interface ActivityEvent {
   refPostId: string | null;
   /** Distinct posters on the topic, only computed when withParticipants is set; null otherwise. */
   participants: number | null;
-  /** Additional events on this thread folded into this row (collapseByTopic only); 0 otherwise. */
-  extraCount: number;
 }
 
 function parseTransition(payload: string | null): { from: string; to: string } | null {
@@ -79,26 +77,13 @@ function parseTransition(payload: string | null): { from: string; to: string } |
  */
 export async function loadActivityFeed(
   db: D1Database,
-  opts: {
-    filter?: ActivityFilter;
-    limit: number;
-    offset?: number;
-    withParticipants?: boolean;
-    /** Collapse to one row per thread (newest event), counting the rest as "+N more".
-     *  For the homepage summary; the full /discussions feed keeps every event. */
-    collapseByTopic?: boolean;
-  },
+  opts: { filter?: ActivityFilter; limit: number; offset?: number; withParticipants?: boolean },
 ): Promise<{ events: ActivityEvent[]; total: number }> {
   const filter = opts.filter ?? DEFAULT_ACTIVITY_FILTER;
   const limit = Math.min(Math.max(opts.limit, 1), 50);
   const offset = Math.max(opts.offset ?? 0, 0);
-  const collapse = opts.collapseByTopic ?? false;
 
-  // When collapsing, oversample raw events so enough distinct threads survive the
-  // fold to fill `limit` (already clamped to [1,50]); the feed's low volume makes
-  // 50 plenty of headroom.
-  const fetchLimit = collapse ? Math.min(limit * 4, 50) : limit;
-  const { rows, total } = await getActivityPage(db, { filter, limit: fetchLimit, offset });
+  const { rows, total } = await getActivityPage(db, { filter, limit, offset });
   if (rows.length === 0) return { events: [], total };
 
   const topicIds = [...new Set(rows.map((r) => r.topic_id))];
@@ -106,29 +91,10 @@ export async function loadActivityFeed(
 
   // Defensive: a topic deleted between the page query and this read would still be
   // returned by getTopicsByIds; drop those so removed content never renders.
-  const liveRows = rows.filter((r) => {
+  const live = rows.filter((r) => {
     const t = topicsById.get(r.topic_id);
     return t && !t.deleted;
   });
-
-  // Collapse to one row per thread (rows are newest-first, so the first occurrence
-  // is the latest event), tallying the folded-away events per thread for the
-  // "+N more" badge. Skipped for the granular /discussions feed.
-  const extraByTopic = new Map<string, number>();
-  let live = liveRows;
-  if (collapse) {
-    const seen = new Set<string>();
-    const kept: typeof liveRows = [];
-    for (const r of liveRows) {
-      if (seen.has(r.topic_id)) {
-        extraByTopic.set(r.topic_id, (extraByTopic.get(r.topic_id) ?? 0) + 1);
-        continue;
-      }
-      seen.add(r.topic_id);
-      kept.push(r);
-    }
-    live = kept.slice(0, limit);
-  }
 
   const govTopicIds = live
     .filter((r) => topicsById.get(r.topic_id)?.source === 'governance')
@@ -161,7 +127,6 @@ export async function loadActivityFeed(
       statusTransition: transition,
       refPostId: r.ref_post_id,
       participants: participantsMap ? (participantsMap.get(r.topic_id) ?? 0) : null,
-      extraCount: extraByTopic.get(r.topic_id) ?? 0,
     };
   });
 

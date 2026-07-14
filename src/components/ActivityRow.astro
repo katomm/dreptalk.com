@@ -62,11 +62,6 @@ const discussionsVerbText = actor
   : discussionsVerb.charAt(0).toUpperCase() + discussionsVerb.slice(1);
 
 const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
-
-// Additional events on this thread folded into this row by the collapsed
-// (homepage) feed. The row itself shows the latest event; this counts the rest.
-const moreLabel =
-  event.extraCount > 0 ? `+${event.extraCount} more update${event.extraCount === 1 ? '' : 's'}` : null;
 ---
 
 {variant === 'discussions' ? (
@@ -92,7 +87,7 @@ const moreLabel =
           {profileHref ? <a class="act-name2" href={profileHref}>{actor.displayName}</a> : <span class="act-name2">{actor.displayName}</span>}
           {' '}
         </Fragment>
-      )}{discussionsVerbText} in {event.topic.categoryName}<span class="act-meta2-time"><span class="act-dot" aria-hidden="true">&middot;</span>{formatRelativeTime(event.createdAt, now)}</span>{moreLabel && (<span class="act-more"><span class="act-dot" aria-hidden="true">&middot;</span>{moreLabel}</span>)}
+      )}{discussionsVerbText} in {event.topic.categoryName}<span class="act-meta2-time"><span class="act-dot" aria-hidden="true">&middot;</span>{formatRelativeTime(event.createdAt, now)}</span>
     </p>
     <div class="act-compact">
       <span class="act-compact-item">
@@ -254,8 +249,6 @@ const moreLabel =
   .act-title2 { font-weight: 600; font-size: 0.9375rem; color: var(--fg); text-decoration: none; }
   .act-title2:hover { text-decoration: underline; }
   .act-meta2 { margin: 0; color: var(--muted); font-size: 0.8125rem; }
-  /* Count of folded-away events on this thread in the collapsed feed. */
-  .act-more { color: var(--accent); font-weight: 600; }
   .act-name2 { font-weight: 600; color: var(--fg); text-decoration: none; }
   .act-name2:hover { text-decoration: underline; }
   .act-dot { margin: 0 0.4rem; opacity: 0.6; }
