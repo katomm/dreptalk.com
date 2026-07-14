@@ -30,7 +30,8 @@ const groups = CATEGORY_ORDER.map((cat) => ({
   <h1 style="margin:0 0 0.5rem;">Help</h1>
   <p class="help-lede">
     Guides and short pages on becoming a DRep, delegating your voting power,
-    Cardano governance, and how DRepTalk works.
+    Cardano governance, and how DRepTalk works. Looking up a single term
+    instead? See the <a href="/glossary/">glossary</a>.
   </p>
 
   {featured && (
@@ -72,6 +73,9 @@ const groups = CATEGORY_ORDER.map((cat) => ({
     color: var(--muted);
     max-width: 60ch;
     line-height: 1.6;
+  }
+  .help-lede a {
+    color: var(--accent);
   }
 
   .help-list {

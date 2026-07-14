@@ -1,6 +1,7 @@
 import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
 import { CATEGORY_ORDER } from './lib/help/categories.js';
+import { GROUP_ORDER } from './lib/glossary/groups.js';
 
 const guides = defineCollection({
   loader: glob({ pattern: '*.md', base: './src/content/guides' }),
@@ -16,4 +17,15 @@ const guides = defineCollection({
   }),
 });
 
-export const collections = { guides };
+const glossary = defineCollection({
+  loader: glob({ pattern: '*.md', base: './src/content/glossary' }),
+  schema: z.object({
+    term: z.string(),
+    description: z.string(),
+    group: z.enum(GROUP_ORDER),
+    order: z.number(),
+    updated: z.coerce.date().optional(),
+  }),
+});
+
+export const collections = { guides, glossary };
