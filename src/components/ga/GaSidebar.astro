@@ -1,6 +1,6 @@
 ---
 // Sidebar column for the governance-action detail page: stacks status, voting
-// info, top DRep participants, proposer, and related actions cards.
+// info, proposer, more-from-this-proposer, and top DRep participants cards.
 import ActionStatusCard from './ActionStatusCard.astro';
 import VotingInfoCard from './VotingInfoCard.astro';
 import ProposerCard from './ProposerCard.astro';
@@ -42,9 +42,9 @@ const { action, params, drepStakeTotal, network, topVoters, dreps, related, slug
       action type. */}
   <slot name="after-status" />
   <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} />
-  <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} rationaleCount={rationaleCount} />
   <ProposerCard returnAddress={action.returnAddress} />
   <RelatedActionsCard actions={related} />
+  <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} rationaleCount={rationaleCount} />
 </aside>
 
 <style>
