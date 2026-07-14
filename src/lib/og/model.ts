@@ -222,17 +222,15 @@ export function treasuryCardModel(status: NclStatus): TreasuryCardModel {
   };
 }
 
-/** One DRep the endpoint has already resolved to a display name and avatar. */
+/** One DRep the endpoint has resolved to a display name plus its two snapshots. */
 export interface MoverInput {
   name: string;
-  avatarDataUrl: string;
   snapshot: string | null;
   prev: string | null;
 }
 
 export interface MoverRow {
   name: string;
-  avatarDataUrl: string;
   /** Unsigned percent change, or null when the previous snapshot was zero. */
   pct: string | null;
   /** Absolute ada change, compact (e.g. "2.7M ₳"). */
@@ -249,13 +247,12 @@ export interface MoversCardModel {
 }
 
 // The delta strings come straight from the same trend helpers the directory chip
-// uses, so the card and the page always agree. Name is clamped short because the
-// two columns each get roughly half the canvas beside an avatar and the figure.
+// uses, so the card and the page always agree. Name is clamped because each column
+// gets roughly half the canvas beside the figure.
 function moverRow(m: MoverInput): MoverRow {
   const delta = computeVotingPowerDelta(m.snapshot, m.prev);
   return {
-    name: clamp(m.name, 18),
-    avatarDataUrl: m.avatarDataUrl,
+    name: clamp(m.name, 22),
     pct: delta?.pct != null ? formatTrendPct(delta.pct) : null,
     ada: delta ? (formatAdaCompact(absLovelace(delta.deltaLovelace)) ?? '') : '',
   };
