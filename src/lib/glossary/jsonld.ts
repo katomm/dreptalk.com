@@ -1,19 +1,7 @@
-// Pure JSON-LD builders for glossary entries. Kept free of Astro APIs so they
-// are unit-testable and reused by the entry route.
+// Pure JSON-LD builder for glossary entries. Kept free of Astro APIs so it is
+// unit-testable. Breadcrumbs come from the shared builder in lib/jsonld.
 
 import { isoDate } from '../format/date.js';
-
-export function buildGlossaryBreadcrumbLd(origin: string, slug: string, term: string): Record<string, unknown> {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: `${origin}/` },
-      { '@type': 'ListItem', position: 2, name: 'Glossary', item: `${origin}/glossary/` },
-      { '@type': 'ListItem', position: 3, name: term, item: `${origin}/glossary/${slug}/` },
-    ],
-  };
-}
 
 export function buildDefinedTermLd(
   origin: string,

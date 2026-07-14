@@ -30,12 +30,15 @@ export const STATIC_ENTRIES: readonly StaticEntry[] = [
   { group: 'Pages', label: 'Glossary', href: '/glossary/', keywords: 'definitions terms vocabulary governance glossary' },
 ];
 
-/** Case-insensitive label/keyword filter; empty query returns everything. */
-export function matchEntries<T extends { label: string; keywords: string }>(entries: readonly T[], q: string): T[] {
+/** Case-insensitive label/keyword/description filter; empty query returns everything. */
+export function matchEntries<T extends { label: string; keywords: string; description?: string }>(entries: readonly T[], q: string): T[] {
   const needle = q.trim().toLowerCase();
   if (!needle) return [...entries];
   return entries.filter(
-    (e) => e.label.toLowerCase().includes(needle) || e.keywords.toLowerCase().includes(needle),
+    (e) =>
+      e.label.toLowerCase().includes(needle) ||
+      e.keywords.toLowerCase().includes(needle) ||
+      (e.description?.toLowerCase().includes(needle) ?? false),
   );
 }
 

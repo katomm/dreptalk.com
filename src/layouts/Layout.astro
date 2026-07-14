@@ -9,7 +9,7 @@ import LogoMark from '@/components/LogoMark.astro';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { NAV_LINKS } from '@/lib/config/nav.js';
 import { loadAuthorIdentity, type AuthorDescriptor } from '@/lib/forum/author';
-import { getCollection } from 'astro:content';
+import { getHelpEntries } from '@/lib/search/helpEntries.js';
 import type { HelpEntry } from '@/lib/search/staticEntries.js';
 
 interface Props {
@@ -72,12 +72,7 @@ const isActive = (href: string) => {
   return current === path || current.startsWith(path + '/');
 };
 
-const helpEntries: HelpEntry[] = [
-  // Keywords haystack is the page title plus the description, so a guide is
-  // findable by terms in either (the short cardLabel is matched separately).
-  ...(await getCollection('guides')).map((g) => ({ label: g.data.cardLabel, href: `/help/${g.id}/`, keywords: `${g.data.title} ${g.data.description}`, description: g.data.description })),
-  ...(await getCollection('glossary')).map((g) => ({ label: g.data.term, href: `/glossary/${g.id}/`, keywords: `${g.data.term} ${g.data.description}`, description: g.data.description })),
-].sort((a, b) => a.label.localeCompare(b.label));
+const helpEntries: HelpEntry[] = await getHelpEntries();
 ---
 <!doctype html>
 <html lang="en">

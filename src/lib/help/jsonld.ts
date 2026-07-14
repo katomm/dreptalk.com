@@ -1,23 +1,12 @@
 // Pure JSON-LD builders for help guides. Kept free of Astro APIs so they are
-// unit-testable and reused by the guide route.
+// unit-testable and reused by the guide route. Breadcrumbs come from the
+// shared builder in lib/jsonld.
 
 import { isoDate } from '../format/date.js';
 
 export interface Faq {
   q: string;
   a: string;
-}
-
-export function buildBreadcrumbLd(origin: string, slug: string, cardLabel: string): Record<string, unknown> {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: `${origin}/` },
-      { '@type': 'ListItem', position: 2, name: 'Help', item: `${origin}/help/` },
-      { '@type': 'ListItem', position: 3, name: cardLabel, item: `${origin}/help/${slug}/` },
-    ],
-  };
 }
 
 export function buildArticleLd(

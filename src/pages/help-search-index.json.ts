@@ -7,28 +7,19 @@ import { flattenMarkdown, extractHeadings, type HelpDoc } from '@/lib/search/hel
 
 export const prerender = true;
 
+const toDoc = (title: string, href: string, md: string): HelpDoc => ({
+  title,
+  href,
+  headings: extractHeadings(md),
+  text: flattenMarkdown(md),
+});
+
 export const GET: APIRoute = async () => {
   const guides = await getCollection('guides');
   const glossary = await getCollection('glossary');
   const docs: HelpDoc[] = [
-    ...guides.map((g) => {
-      const md = g.body ?? '';
-      return {
-        title: g.data.title,
-        href: `/help/${g.id}/`,
-        headings: extractHeadings(md),
-        text: flattenMarkdown(md),
-      };
-    }),
-    ...glossary.map((g) => {
-      const md = g.body ?? '';
-      return {
-        title: g.data.term,
-        href: `/glossary/${g.id}/`,
-        headings: extractHeadings(md),
-        text: flattenMarkdown(md),
-      };
-    }),
+    ...guides.map((g) => toDoc(g.data.title, `/help/${g.id}/`, g.body ?? '')),
+    ...glossary.map((g) => toDoc(g.data.term, `/glossary/${g.id}/`, g.body ?? '')),
   ];
   return new Response(JSON.stringify(docs), {
     headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' },

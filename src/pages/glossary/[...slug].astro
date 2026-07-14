@@ -5,8 +5,8 @@ export const prerender = false;
 import { getEntry, render } from 'astro:content';
 import HelpLayout from '@/layouts/HelpLayout.astro';
 import JsonLd from '@/components/JsonLd.astro';
-import { buildGlossaryBreadcrumbLd, buildDefinedTermLd } from '@/lib/glossary/jsonld.js';
-import { isoDate } from '@/lib/format/date.js';
+import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
+import { buildDefinedTermLd } from '@/lib/glossary/jsonld.js';
 
 const { slug } = Astro.params;
 const entry = slug ? await getEntry('glossary', slug) : undefined;
@@ -16,56 +16,16 @@ const { Content } = await render(entry);
 const d = entry.data;
 const origin = Astro.site?.origin ?? 'https://dreptalk.com';
 
-const breadcrumbLd = buildGlossaryBreadcrumbLd(origin, entry.id, d.term);
+const breadcrumbLd = buildBreadcrumbLd(origin, [
+  { name: 'Glossary', path: '/glossary/' },
+  { name: d.term, path: `/glossary/${entry.id}/` },
+]);
 const definedTermLd = buildDefinedTermLd(origin, entry.id, d.term, d.description, d.updated);
-
-// Public glossary pages: cache at the edge but keep them reasonably fresh.
-Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 
-<HelpLayout title={`${d.term} - Glossary - DRepTalk`} description={d.description} crumb={d.term} parentHref="/glossary/" parentLabel="Glossary">
+<HelpLayout title={`${d.term} - Glossary - DRepTalk`} description={d.description} crumb={d.term} parent={{ href: '/glossary/', label: 'Glossary' }} updated={d.updated}>
   <JsonLd data={breadcrumbLd} />
   <JsonLd data={definedTermLd} />
 
-  {d.updated && (
-    <p class="entry-updated">Last updated {isoDate(d.updated)}</p>
-  )}
-
-  <article class="prose">
-    <Content />
-  </article>
+  <Content />
 </HelpLayout>
-
-<style>
-  .entry-updated {
-    margin: 0 0 1.25rem;
-    font-size: 0.8125rem;
-    color: var(--muted);
-  }
-  .prose {
-    max-width: 64ch;
-  }
-  .prose :global(p),
-  .prose :global(li) {
-    color: var(--muted);
-    line-height: 1.65;
-    font-size: 0.9375rem;
-  }
-  .prose :global(h2) {
-    margin: 1.75rem 0 0.5rem;
-    font-size: 1.0625rem;
-    color: var(--fg);
-  }
-  .prose :global(a) {
-    color: var(--accent);
-  }
-  .prose :global(ul) {
-    padding-left: 1.25rem;
-  }
-  .prose :global(li) {
-    margin: 0.3rem 0;
-  }
-  .prose :global(strong) {
-    color: var(--fg);
-  }
-</style>
