@@ -206,13 +206,11 @@ describe('moversCardModel', () => {
   // 100 -> 140 ada is a +40% gain; the reverse a loss. Values are lovelace strings.
   const gain: MoverInput = {
     name: 'CryptoCrow',
-    avatarDataUrl: 'data:image/svg+xml;base64,x',
     snapshot: '140000000',
     prev: '100000000',
   };
   const loss: MoverInput = {
     name: 'NEDSCAVE.IO',
-    avatarDataUrl: 'data:image/svg+xml;base64,y',
     snapshot: '75000000',
     prev: '100000000',
   };
@@ -236,7 +234,7 @@ describe('moversCardModel', () => {
     });
     expect(m.epochLabel).toBe('Latest epoch');
     expect(m.subtitle).toContain('this epoch');
-    expect(m.gainers[0].name.length).toBeLessThanOrEqual(18);
+    expect(m.gainers[0].name.length).toBeLessThanOrEqual(22);
     expect(m.gainers[0].name.endsWith('…')).toBe(true);
     expect(m.losers).toHaveLength(0);
   });

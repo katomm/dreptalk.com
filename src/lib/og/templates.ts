@@ -205,18 +205,18 @@ function triangle(dir: 'up' | 'down', color: string, size: number): string {
 function moverRowHtml(r: MoverRow, index: number, dir: 'up' | 'down', color: string): string {
   // Prefer the percent as the headline figure; fall back to the ada delta when the
   // previous snapshot was zero (percent undefined). The ada line only repeats below
-  // when the percent is the headline, so it never shows twice.
+  // when the percent is the headline, so it never shows twice. No avatars here: six
+  // embedded raster avatars overrun the render's CPU budget, so the card stays text.
   const headline = r.pct ?? r.ada;
   const sub = r.pct
-    ? `<div style="display:flex;font-size:20px;font-weight:500;color:${MUTED};">${esc(r.ada)}</div>`
+    ? `<div style="display:flex;font-size:22px;font-weight:500;color:${MUTED};">${esc(r.ada)}</div>`
     : '';
-  return `<div style="display:flex;align-items:center;margin-bottom:18px;">
-      <span style="display:flex;width:26px;font-size:22px;font-weight:700;color:${SUBTLE};">${index + 1}</span>
-      <img src="${r.avatarDataUrl}" width="52" height="52" style="border-radius:13px;margin:0 16px 0 4px;" />
-      <div style="display:flex;flex:1;overflow:hidden;font-size:27px;font-weight:700;color:${INK};">${esc(r.name)}</div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;margin-left:12px;">
-        <div style="display:flex;align-items:center;font-size:28px;font-weight:800;color:${color};">
-          <span style="display:flex;margin-right:7px;">${triangle(dir, color, 18)}</span>${esc(headline)}
+  return `<div style="display:flex;align-items:center;margin-bottom:24px;">
+      <span style="display:flex;width:36px;font-size:26px;font-weight:700;color:${SUBTLE};">${index + 1}</span>
+      <div style="display:flex;flex:1;overflow:hidden;font-size:30px;font-weight:700;color:${INK};margin-right:16px;">${esc(r.name)}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;">
+        <div style="display:flex;align-items:center;font-size:30px;font-weight:800;color:${color};">
+          <span style="display:flex;margin-right:8px;">${triangle(dir, color, 20)}</span>${esc(headline)}
         </div>
         ${sub}
       </div>
