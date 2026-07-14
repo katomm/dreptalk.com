@@ -338,35 +338,57 @@ const openingExcerpt = thread.openingPost?.body_html
 const metaDescription =
   openingExcerpt || (topic ? `Discussion of ${topic.title} on DRepTalk.` : 'Discussion on DRepTalk.');
 
-// The author node needs a name (Google flags a missing author.name as a
-// critical error) and, where the author has a public profile, a url. A
-// governance-sourced topic is authored by the platform, so it resolves to the
-// DRepTalk organization; a user topic resolves to the person, linking to their
+// One author node shapes the required `name` (Google flags a missing author.name
+// as a critical error) and the recommended `url` the same way everywhere an
+// author appears, the topic author and every comment author, so a reply author
+// can never reintroduce the missing-name error. A governance-sourced author is
+// the platform (Organization); everyone else is a Person linking to their
 // DRep/pool profile when one exists.
-const authorProfileUrl = authorProfileHref(topicAuthor);
-const authorLd = topicAuthor.isSystem
-  ? {
-      '@type': 'Organization',
-      name: 'DRepTalk',
-      url: siteOrigin + '/',
-    }
-  : {
-      '@type': 'Person',
-      name: topicAuthor.displayName,
-      identifier: topicAuthor.authorId,
-      ...(authorProfileUrl ? { url: siteOrigin + authorProfileUrl } : {}),
-    };
+const authorNode = (a: AuthorDescriptor) => {
+  if (a.isSystem) return { '@type': 'Organization', name: 'DRepTalk', url: siteOrigin + '/' };
+  const profileUrl = authorProfileHref(a);
+  return {
+    '@type': 'Person',
+    name: a.displayName,
+    identifier: a.authorId,
+    ...(profileUrl ? { url: siteOrigin + profileUrl } : {}),
+  };
+};
+
+// Google recommends the on-page replies as a `comment` array (a missing
+// `comment` is a non-critical warning). The opening post is the posting itself,
+// not a comment; hidden (flagged) and text-empty posts carry nothing readable,
+// so both are skipped. Built from data already loaded for the page, no extra
+// queries.
+const commentLd = topic
+  ? pagePosts
+      .filter((p) => p.id !== thread.openingPost?.id && !p.hidden)
+      .map((p) => {
+        const text = excerptFromHtml(p.body_html, 500);
+        return text
+          ? {
+              '@type': 'Comment',
+              author: authorNode(describe(p.author_id)),
+              datePublished: new Date(p.created_at).toISOString(),
+              text,
+              url: siteOrigin + `/t/${topic.slug}/#post-${p.id}`,
+            }
+          : null;
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+  : [];
 
 const discussionLd = topic
   ? {
       '@context': 'https://schema.org',
       '@type': 'DiscussionForumPosting',
       headline: topic.title,
-      author: authorLd,
+      author: authorNode(topicAuthor),
       datePublished: firstPostDate,
       url: siteOrigin + `/t/${topic.slug}/`,
       commentCount: Math.max(0, topic.post_count - 1),
       ...(openingExcerpt ? { text: openingExcerpt } : {}),
+      ...(commentLd.length ? { comment: commentLd } : {}),
     }
   : null;
 
