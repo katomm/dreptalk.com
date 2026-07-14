@@ -6,6 +6,38 @@
 
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 
+export interface ActiveForumRoleCounts {
+  dreps: number;
+  spos: number;
+}
+
+/**
+ * How many distinct DReps and SPOs have taken part in the forum: users with a
+ * governance role who authored a non-deleted, non-hidden post in a live topic,
+ * excluding the governance-sync importer. The "how many different people are
+ * active in discussions" signal for the activity view. Cumulative, not windowed:
+ * on a young forum a rolling window reads as near-empty, while the running
+ * distinct-participant count grows and stays meaningful. A user who is both a DRep
+ * and an SPO counts in both.
+ */
+export async function getActiveForumRoleCounts(db: D1Database): Promise<ActiveForumRoleCounts> {
+  const row = await db
+    .prepare(
+      `SELECT
+         COUNT(DISTINCT CASE WHEN u.is_drep = 1 THEN u.id END) AS dreps,
+         COUNT(DISTINCT CASE WHEN u.is_spo = 1 THEN u.id END) AS spos
+       FROM users u
+       JOIN posts p ON p.author_id = u.id
+       JOIN topics t ON t.id = p.topic_id
+       WHERE p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0
+         AND (u.is_drep = 1 OR u.is_spo = 1)
+         AND u.id <> ?`,
+    )
+    .bind(GOV_SYNC_AUTHOR)
+    .first<{ dreps: number; spos: number }>();
+  return { dreps: row?.dreps ?? 0, spos: row?.spos ?? 0 };
+}
+
 /**
  * Ordered author ids of the most recently active DReps/SPOs: users with a
  * governance role (is_drep or is_spo) who have authored a non-deleted,

@@ -2,6 +2,7 @@
 
 import { sqlPlaceholders } from './sql.js';
 import { rowToTopic, type Topic, type TopicRow } from './forum.js';
+import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 
 export interface TopicParticipant {
   authorId: string;
@@ -42,12 +43,14 @@ export async function getParticipantCounts(
     const rows = (
       await db
         .prepare(
+          // Exclude the governance-sync importer so a freshly imported action with
+          // no human replies reads as 0 participants, not 1 (the auto-post author).
           `SELECT topic_id, COUNT(DISTINCT author_id) AS participants
            FROM posts
-           WHERE topic_id IN (${sqlPlaceholders(chunk)}) AND deleted = 0
+           WHERE topic_id IN (${sqlPlaceholders(chunk)}) AND deleted = 0 AND author_id <> ?
            GROUP BY topic_id`,
         )
-        .bind(...chunk)
+        .bind(...chunk, GOV_SYNC_AUTHOR)
         .all<{ topic_id: string; participants: number }>()
     ).results ?? [];
     for (const r of rows) out.set(r.topic_id, r.participants);

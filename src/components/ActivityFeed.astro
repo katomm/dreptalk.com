@@ -17,9 +17,13 @@ interface Props {
   pagination?: { prevHref: string | null; nextHref: string | null; page: number; totalPages?: number | null };
   footer?: boolean;
   variant?: 'default' | 'discussions';
+  /** Distinct DReps/SPOs taking part in the forum, shown as a header stat. */
+  activeCounts?: { dreps: number; spos: number };
 }
 
-const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer, variant = 'default' } = Astro.props;
+const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer, variant = 'default', activeCounts } =
+  Astro.props;
+const showActive = !!activeCounts && (activeCounts.dreps > 0 || activeCounts.spos > 0);
 ---
 
 <section class="af" aria-label={title}>
@@ -30,6 +34,13 @@ const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer, var
         {title}
       </h2>
       <p class="af-subtitle">{subtitle}</p>
+      {showActive && (
+        <p class="af-active">
+          <svg class="af-active__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+          <span><strong>{activeCounts!.dreps}</strong> {activeCounts!.dreps === 1 ? 'DRep' : 'DReps'} &middot; <strong>{activeCounts!.spos}</strong> {activeCounts!.spos === 1 ? 'SPO' : 'SPOs'}</span>
+          <span class="af-active__label">taking part in the discussion</span>
+        </p>
+      )}
     </div>
     {viewAllHref && (
       <a class="af-viewall" href={viewAllHref}>View all activity
@@ -77,6 +88,12 @@ const { events, now, title, subtitle, viewAllHref, tabs, pagination, footer, var
   .af-title { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.25rem; }
   .af-pulse { color: var(--accent); flex-shrink: 0; }
   .af-subtitle { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--muted); }
+  /* Distinct DReps/SPOs taking part: the "how many different people are active"
+     signal, sat under the subtitle. */
+  .af-active { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--muted); }
+  .af-active__icon { color: var(--accent); flex-shrink: 0; }
+  .af-active strong { color: var(--fg); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .af-active__label { color: var(--muted); }
   .af-viewall { display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0; font-size: 0.85rem; font-weight: 600; color: var(--accent); text-decoration: none; border: 1px solid var(--border); border-radius: 999px; padding: 0.4rem 0.75rem; }
   .af-viewall:hover { background: var(--surface-2); }
 

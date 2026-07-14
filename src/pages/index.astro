@@ -31,7 +31,7 @@ import { cacheControlFor } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 import CategorySidebar from '@/components/CategorySidebar.astro';
-import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
+import { listRecentlyActiveAuthorIds, getActiveForumRoleCounts } from '@/lib/db/recentlyActive.js';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
@@ -54,15 +54,16 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 // that already has enough DRep voters to drive the live ring. activeDrepStake is
 // the denominator for the hero card's vote-composition bar; it depends only on db,
 // so it rides this Promise.all instead of adding a serial round-trip later.
-const [stats, feed, votedHero, recentIds, activeDrepStake] = db
+const [stats, feed, votedHero, recentIds, activeDrepStake, activeForumCounts] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 15, withParticipants: true, collapseByTopic: true }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
       listRecentlyActiveAuthorIds(db, 10),
       getActiveDrepStake(db),
+      getActiveForumRoleCounts(db),
     ])
-  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, [], { total: 0, asOf: null }];
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, [], { total: 0, asOf: null }, { dreps: 0, spos: 0 }];
 
 // Recently active DReps/SPOs for the list under the activity feed. Reuses the
 // shared forum author resolver (avatar, name, role badges, profile link) and
@@ -444,6 +445,7 @@ const heroFeatures = [
         title="Latest activity"
         subtitle="A summary of what's happening in governance."
         viewAllHref="/discussions/"
+        activeCounts={activeForumCounts}
       />
     </div>
   </section>
