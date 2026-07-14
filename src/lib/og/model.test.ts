@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { discussionCardModel, drepCardModel, type GovCardInput, govCardModel, helpCardModel } from './model.js';
+import {
+  discussionCardModel,
+  drepCardModel,
+  type GovCardInput,
+  govCardModel,
+  helpCardModel,
+  type MoverInput,
+  moversCardModel,
+} from './model.js';
+import { moversCardHtml } from './templates.js';
 import { accentForType, BRAND_ACCENT } from './theme.js';
 
 const baseAction: GovCardInput = {
@@ -190,5 +199,66 @@ describe('helpCardModel', () => {
     expect(m.title.endsWith('…')).toBe(true);
     expect(m.subtitle).toMatch(/\S\.\.\.$/);
     expect((m.subtitle as string).length).toBeLessThan(150);
+  });
+});
+
+describe('moversCardModel', () => {
+  // 100 -> 140 ada is a +40% gain; the reverse a loss. Values are lovelace strings.
+  const gain: MoverInput = {
+    name: 'CryptoCrow',
+    avatarDataUrl: 'data:image/svg+xml;base64,x',
+    snapshot: '140000000',
+    prev: '100000000',
+  };
+  const loss: MoverInput = {
+    name: 'NEDSCAVE.IO',
+    avatarDataUrl: 'data:image/svg+xml;base64,y',
+    snapshot: '75000000',
+    prev: '100000000',
+  };
+
+  it('derives the epoch pill and subtitle, and the per-row percent and ada delta', () => {
+    const m = moversCardModel({ epoch: 643, gainers: [gain], losers: [loss] });
+    expect(m.epochLabel).toBe('Epoch 643');
+    expect(m.subtitle).toContain('epoch 643');
+    expect(m.gainers[0].pct).toBe('40.0%');
+    expect(m.gainers[0].ada).toBe('40 ₳');
+    // The chip carries direction via colour/arrow, so the figure is unsigned.
+    expect(m.losers[0].pct).toBe('25.0%');
+    expect(m.losers[0].ada).toBe('25 ₳');
+  });
+
+  it('falls back to a generic epoch label and clamps overlong names', () => {
+    const m = moversCardModel({
+      epoch: null,
+      gainers: [{ ...gain, name: 'x'.repeat(40) }],
+      losers: [],
+    });
+    expect(m.epochLabel).toBe('Latest epoch');
+    expect(m.subtitle).toContain('this epoch');
+    expect(m.gainers[0].name.length).toBeLessThanOrEqual(18);
+    expect(m.gainers[0].name.endsWith('…')).toBe(true);
+    expect(m.losers).toHaveLength(0);
+  });
+
+  it('shows no percent when the previous snapshot was zero', () => {
+    const m = moversCardModel({
+      epoch: 643,
+      gainers: [{ ...gain, prev: '0' }],
+      losers: [],
+    });
+    expect(m.gainers[0].pct).toBeNull();
+    expect(m.gainers[0].ada).toBe('140 ₳');
+  });
+
+  it('renders an html card that includes both columns and the movers data', () => {
+    const html = moversCardHtml(moversCardModel({ epoch: 643, gainers: [gain], losers: [loss] }));
+    expect(html).toContain('Movers of the epoch');
+    expect(html).toContain('Top gainers');
+    expect(html).toContain('Top losers');
+    expect(html).toContain('CryptoCrow');
+    expect(html).toContain('NEDSCAVE.IO');
+    // Every flex container satori needs is declared; no bare multi-child div slipped in.
+    expect(html).not.toMatch(/<div (?![^>]*display:flex)[^>]*>\s*</);
   });
 });
