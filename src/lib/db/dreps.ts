@@ -253,6 +253,45 @@ export async function listDreps(
 }
 
 /**
+ * The DReps whose voting power moved most between the previous epoch snapshot and
+ * the latest one, split into gainers and losers. Ranked by the absolute lovelace
+ * delta (snapshot - prev), so the ranking reflects real shifts in the power
+ * landscape rather than a tiny DRep's large percentage swing. Requires both
+ * snapshots present and excludes the pseudo-DReps; flat (unchanged) rows appear in
+ * neither list. `epoch` is the latest snapshot epoch, for the page's "this epoch"
+ * label. Default limit 10 per list, capped 25.
+ */
+export async function listVotingPowerMovers(
+  db: D1Database,
+  opts?: { limit?: number },
+): Promise<{ gainers: Drep[]; losers: Drep[]; epoch: number | null }> {
+  const limit = Math.min(Math.max(opts?.limit ?? 10, 1), 25);
+  // Both snapshots must be present and numeric for a delta to exist. The pseudo-
+  // DReps (always-abstain / always-no-confidence) are standing options, not movers.
+  const base = `FROM dreps
+     WHERE voting_power_snapshot IS NOT NULL AND voting_power_snapshot <> ''
+       AND voting_power_prev IS NOT NULL AND voting_power_prev <> ''
+       AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`;
+  const delta = 'CAST(voting_power_snapshot AS INTEGER) - CAST(voting_power_prev AS INTEGER)';
+  const [gainRes, lossRes] = await Promise.all([
+    db
+      .prepare(`SELECT * ${base} AND ${delta} > 0 ORDER BY ${delta} DESC LIMIT ?`)
+      .bind(...SPECIAL_DREP_IDS, limit)
+      .all<DrepRow>(),
+    db
+      .prepare(`SELECT * ${base} AND ${delta} < 0 ORDER BY ${delta} ASC LIMIT ?`)
+      .bind(...SPECIAL_DREP_IDS, limit)
+      .all<DrepRow>(),
+  ]);
+  const gainers = (gainRes.results ?? []).map(rowToDrep);
+  const losers = (lossRes.results ?? []).map(rowToDrep);
+  // The snapshot epoch is a global per-sync value; every mover row carries it, so
+  // read it off the loaded rows instead of a separate MAX() scan over ~2k dreps.
+  const epoch = gainers[0]?.votingPowerSnapshotEpoch ?? losers[0]?.votingPowerSnapshotEpoch ?? null;
+  return { gainers, losers, epoch };
+}
+
+/**
  * Drep ids currently marked active. The sync diffs this against the registered
  * enumeration to find rows that still claim active voting power but have left the
  * registered set (the DRep deregistered). Excludes the pseudo-DReps, which are

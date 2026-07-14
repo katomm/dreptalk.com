@@ -15,16 +15,30 @@ import { getDrepsByIds } from '@/lib/db/dreps.js';
 import { voterDescriptor, authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author.js';
 import { heroRingSlots, HERO_RING_RADII } from '@/lib/hero/ring.js';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
-import { readableType, statusBadge, voteTone, TONE_COLORS } from '@/lib/governance/view.js';
+import {
+  readableType,
+  statusBadge,
+  voteTone,
+  TONE_COLORS,
+  leadingComposition,
+  isSpoLedType,
+  fmtPctFine,
+  type CompositionBar as CompositionBarData,
+} from '@/lib/governance/view.js';
+import CompositionBar from '@/components/ga/CompositionBar.astro';
+import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 import CategorySidebar from '@/components/CategorySidebar.astro';
-import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
+import { listRecentlyActiveAuthorIds, getActiveForumRoleCounts } from '@/lib/db/recentlyActive.js';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
 const user = Astro.locals.user;
+
+// Rolling window for the "distinct DReps/SPOs active in discussions" feed stat.
+const ACTIVE_FORUM_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 // The hero "live voting" scene shows the strongest DRep voters actively (avatar
 // plus a vote badge) ringed by fainter "ghost" voters, so it reads as a vote in
@@ -38,17 +52,21 @@ const HERO_PLACEHOLDER_COUNT = 6; // decorative ring size when no voted action e
 // One resolved voter: identicon/avatar plus the vote, for both active and ghost rows.
 type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: string };
 
-// Category stats, the activity feed, and the voted-hero candidate are
-// independent; load them together. votedHero is the newest action that already
-// has enough DRep voters to drive the live ring.
-const [stats, feed, votedHero, recentIds] = db
+// Category stats, the activity feed, the voted-hero candidate, and the active
+// DRep stake are independent; load them together. votedHero is the newest action
+// that already has enough DRep voters to drive the live ring. activeDrepStake is
+// the denominator for the hero card's vote-composition bar; it depends only on db,
+// so it rides this Promise.all instead of adding a serial round-trip later.
+const [stats, feed, votedHero, recentIds, activeDrepStake, activeForumCounts] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 15, withParticipants: true }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
       listRecentlyActiveAuthorIds(db, 10),
+      getActiveDrepStake(db),
+      getActiveForumRoleCounts(db, now - ACTIVE_FORUM_WINDOW_MS),
     ])
-  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, []];
+  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, [], { total: 0, asOf: null }, { dreps: 0, spos: 0 }];
 
 // Recently active DReps/SPOs for the list under the activity feed. Reuses the
 // shared forum author resolver (avatar, name, role badges, profile link) and
@@ -213,6 +231,20 @@ const heroCard = personalized
         href: null as string | null,
       };
 
+// Aggregate vote composition for the featured action, shown as a compact
+// Yes/No/Not-voted bar inside the hero card so the ring of individual voters
+// reads against the action-wide tally (the audit's "voter strip lacks tally
+// context"). Only for the default hero, whose full action row is loaded. The
+// leading body (DRep, or SPO for a hard fork) is picked by leadingComposition, the
+// same helper the OG card uses. drepStakeTotal is the denominator that splits No
+// from Not voted; only DRep-led types need it (SPO-led carries its own eligible power).
+let heroComposition: { bar: CompositionBarData; role: 'DRep' | 'SPO' } | null = null;
+if (db && !personalized && heroAction) {
+  const a = heroAction.action;
+  const drepStakeTotal = !isSpoLedType(a.type) ? activeDrepStake.total || null : null;
+  heroComposition = leadingComposition(a, { drepStakeTotal, committeeSize: null });
+}
+
 // A real action makes the card a link to its thread; the placeholder stays a
 // plain (decorative) div.
 const HeroCardTag = heroCard.href ? 'a' : 'div';
@@ -330,6 +362,14 @@ const heroFeatures = [
             <span class="gov-card__label">{heroCard.label}</span>
             <span class="gov-card__title">{heroCard.title}</span>
             <span class="gov-card__badge" style={`--tone:${heroCard.tone}`}>{heroCard.badge}</span>
+            {heroComposition && (
+              <div class="gov-card__tally">
+                <CompositionBar bar={heroComposition.bar} height={7} />
+                <span class="gov-card__tally-cap">
+                  {heroComposition.role === 'SPO' ? 'SPOs' : 'DReps'} &middot; {fmtPctFine(heroComposition.bar.yes)} Yes
+                </span>
+              </div>
+            )}
           </HeroCardTag>
 
           {showScene
@@ -408,6 +448,7 @@ const heroFeatures = [
         title="Latest activity"
         subtitle="A summary of what's happening in governance."
         viewAllHref="/discussions/"
+        activeCounts={activeForumCounts}
       />
     </div>
   </section>
@@ -554,7 +595,8 @@ const heroFeatures = [
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
       'icon label label'
-      'icon title badge';
+      'icon title badge'
+      'tally tally tally';
     align-items: center;
     gap: 0.15rem 0.65rem;
     padding: 1rem 1.1rem;
@@ -608,6 +650,23 @@ const heroFeatures = [
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow: hidden;
+  }
+  /* Action-wide vote composition under the card body: the aggregate the ring of
+     individual voters sits around. Separated by a hairline so it reads as a summary. */
+  .gov-card__tally {
+    grid-area: tally;
+    margin-top: 0.55rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .gov-card__tally-cap {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
   }
   .gov-card__badge {
     grid-area: badge;

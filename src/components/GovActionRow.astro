@@ -178,7 +178,7 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
         <>
           <span class="garow__timehead">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            <span class="garow__strong garow__accent">~{daysLeft} days left</span>
+            <span class="garow__strong garow__accent">~{daysLeft} {daysLeft === 1 ? 'day' : 'days'} left</span>
           </span>
           {votingEnds && <span class="garow__sub">Voting ends {votingEnds}</span>}
           {action.expiryEpoch != null && <span class="garow__sub">(Epoch {action.expiryEpoch})</span>}

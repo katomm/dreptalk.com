@@ -122,11 +122,28 @@ export async function getActivityPage(
 
   const types = opts.filter === 'all' ? [] : FILTER_TYPES[opts.filter];
   const typeClause = types.length ? ` AND a.type IN (${sqlPlaceholders(types)})` : '';
-  const base = `FROM activity a JOIN topics t ON t.id = a.topic_id WHERE t.deleted = 0${typeClause}`;
+  // Per governance action, surface only its newest lifecycle event, so the row
+  // always reflects the action's current status: it reads "ratified" while ratified,
+  // then flips to "enacted" (or expired/dropped/closed) once concluded, never both at
+  // once. Governance events (gov_created + gov_status) share one partition per thread,
+  // so only the newest survives; human events each get their own partition, so every
+  // topic-start and reply is kept (discussion activity is never collapsed). gov_rn = 1
+  // is the row to show.
+  const cols = 'a.id, a.type, a.actor_id, a.topic_id, a.ref_post_id, a.payload, a.created_at';
+  const ranked =
+    `SELECT ${cols},
+            ROW_NUMBER() OVER (
+              PARTITION BY a.topic_id,
+                CASE WHEN a.type IN ('gov_created', 'gov_status') THEN 'gov' ELSE a.id END
+              ORDER BY a.created_at DESC, a.id DESC
+            ) AS gov_rn
+     FROM activity a JOIN topics t ON t.id = a.topic_id
+     WHERE t.deleted = 0${typeClause}`;
+  const base = `FROM (${ranked}) a WHERE a.gov_rn = 1`;
 
   const [pageRes, countRow] = await Promise.all([
     db
-      .prepare(`SELECT a.* ${base} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`)
+      .prepare(`SELECT ${cols} ${base} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`)
       .bind(...types, limit, offset)
       .all<ActivityRow>(),
     db.prepare(`SELECT COUNT(*) AS n ${base}`).bind(...types).first<{ n: number }>(),

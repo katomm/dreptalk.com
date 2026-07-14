@@ -1,0 +1,64 @@
+---
+// Bridge from the overview into the discussion tab. Readers land on the overview,
+// so this is the page's main nudge to weigh in; the discussion tab itself owns the
+// composer and the signed-out sign-in banner. Rendered as its own block by the
+// thread page so it can sit at the very end of the mobile stack.
+interface Props {
+  slug: string;
+  commentCount: number;
+  loggedIn: boolean;
+  locked: boolean;
+}
+
+const { slug, commentCount, loggedIn, locked } = Astro.props;
+
+const discussionHref = `/t/${slug}/?tab=discussion`;
+const commentLabel = commentCount === 1 ? '1 comment' : `${commentCount} comments`;
+const hasComments = commentCount > 0;
+---
+
+<aside class="ga-join">
+  <div class="ga-join__text">
+    <p class="ga-join__title">Join the discussion</p>
+    <p class="ga-join__sub">
+      {locked
+        ? `${commentLabel}. This topic is locked, but you can still read what DReps said.`
+        : commentCount > 0
+          ? `${commentLabel} so far. Read the debate or add your perspective.`
+          : 'No comments yet. Be the first to share your perspective.'}
+    </p>
+  </div>
+  <div class="ga-join__actions">
+    {locked ? (
+      <a class="btn btn-secondary" href={discussionHref}>Read the discussion</a>
+    ) : loggedIn ? (
+      <a class="btn btn-primary" href={`${discussionHref}#reply`}>{hasComments ? 'Add your comment' : 'Start the discussion'}</a>
+    ) : (
+      <>
+        <a class="btn btn-primary" href="/login/">Sign in to post</a>
+        {/* Nothing to read yet when there are no comments, so the secondary
+            "Read the discussion" link only appears once the thread has some. */}
+        {hasComments && <a class="ga-join__link" href={discussionHref}>Read the discussion</a>}
+      </>
+    )}
+  </div>
+</aside>
+
+<style>
+  .ga-join {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.25rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .ga-join__text { flex: 1 1 16rem; min-width: 0; }
+  .ga-join__title { margin: 0; font-weight: 600; font-size: 0.975rem; color: var(--fg); }
+  .ga-join__sub { margin: 0.15rem 0 0; font-size: 0.875rem; color: var(--muted); line-height: 1.45; }
+  .ga-join__actions { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; }
+  .ga-join__link { color: var(--accent); text-decoration: none; font-size: 0.875rem; font-weight: 600; }
+  .ga-join__link:hover { text-decoration: underline; }
+</style>

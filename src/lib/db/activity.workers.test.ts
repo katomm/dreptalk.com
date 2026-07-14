@@ -151,11 +151,14 @@ describe('getActivityPage', () => {
 
   it('filters by type, excludes deleted topics, and returns a total', async () => {
     await seedTopic('gov1', 'governance');
+    await seedTopic('gov2', 'governance');
     await seedTopic('forum1', 'user');
     await seedTopic('del1', 'user', 1);
 
+    // gov_created and gov_status sit on different actions so both survive the
+    // per-action lifecycle collapse; this case is about the type filter itself.
     await db().batch([
-      activityInsert(db(), { type: 'gov_created', topicId: 'gov1', createdAt: 100 }),
+      activityInsert(db(), { type: 'gov_created', topicId: 'gov2', createdAt: 100 }),
       activityInsert(db(), { type: 'gov_status', topicId: 'gov1', payload: { from: 'active', to: 'enacted' }, createdAt: 200 }),
       activityInsert(db(), { type: 'reply_created', topicId: 'forum1', actorId: 'a', refPostId: 'p1', createdAt: 300 }),
       activityInsert(db(), { type: 'topic_created', topicId: 'forum1', actorId: 'a', createdAt: 400 }),
@@ -176,6 +179,47 @@ describe('getActivityPage', () => {
     expect(comments.total).toBe(2);
     expect(comments.rows.map((r) => r.type)).toEqual(['topic_created', 'reply_created']);
     expect(comments.rows.every((r) => r.topic_id === 'forum1')).toBe(true);
+  });
+
+  it('shows a governance action once, as its newest lifecycle status', async () => {
+    await seedTopic('gA', 'governance');
+    await db().batch([
+      activityInsert(db(), { type: 'gov_created', topicId: 'gA', createdAt: 100 }),
+      activityInsert(db(), { type: 'gov_status', topicId: 'gA', payload: { from: 'active', to: 'ratified' }, createdAt: 200 }),
+      activityInsert(db(), { type: 'gov_status', topicId: 'gA', payload: { from: 'ratified', to: 'enacted' }, createdAt: 300 }),
+    ]);
+
+    const res = await getActivityPage(db(), { filter: 'all', limit: 50, offset: 0 });
+    // created and ratified are superseded by the newest event: one row, the outcome.
+    expect(res.total).toBe(1);
+    expect(res.rows.map((r) => r.type)).toEqual(['gov_status']);
+    expect(res.rows[0].payload).toContain('enacted');
+  });
+
+  it('shows a ratified action as ratified until it enacts', async () => {
+    await seedTopic('gR', 'governance');
+    await db().batch([
+      activityInsert(db(), { type: 'gov_created', topicId: 'gR', createdAt: 100 }),
+      activityInsert(db(), { type: 'gov_status', topicId: 'gR', payload: { from: 'active', to: 'ratified' }, createdAt: 200 }),
+    ]);
+
+    const res = await getActivityPage(db(), { filter: 'all', limit: 50, offset: 0 });
+    // No enacted yet: the row shows the current status (ratified), not the old created event.
+    expect(res.total).toBe(1);
+    expect(res.rows[0].payload).toContain('ratified');
+  });
+
+  it('never collapses human topic-starts and replies on a thread', async () => {
+    await seedTopic('fT', 'user');
+    await db().batch([
+      activityInsert(db(), { type: 'topic_created', topicId: 'fT', actorId: 'a', createdAt: 100 }),
+      activityInsert(db(), { type: 'reply_created', topicId: 'fT', actorId: 'b', refPostId: 'p1', createdAt: 200 }),
+      activityInsert(db(), { type: 'reply_created', topicId: 'fT', actorId: 'c', refPostId: 'p2', createdAt: 300 }),
+    ]);
+
+    const res = await getActivityPage(db(), { filter: 'all', limit: 50, offset: 0 });
+    // All three human events are kept; only governance lifecycle events collapse.
+    expect(res.total).toBe(3);
   });
 
   it('paginates with limit and offset', async () => {

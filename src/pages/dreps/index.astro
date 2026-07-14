@@ -18,8 +18,8 @@ import { influencePct } from '@/lib/dreps/profile.js';
 import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
-import { parsePage, pageToOffset, cacheControlForSynced, formatAda, formatAdaCompact, truncateId } from '@/lib/forum/view.js';
-import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { parsePage, pageToOffset, cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
+import { drepDescriptor } from '@/lib/forum/author.js';
 
 const db = env.DB as D1Database | undefined;
 const PAGE_SIZE = 50;
@@ -158,19 +158,6 @@ const prevPage = page > 1 ? page - 1 : null;
 const qs = (p: number) =>
   `?page=${p}${activeOnly ? '' : '&all=1'}${sort === 'delegators' ? '&sort=delegators' : ''}`;
 
-const descriptorFor = (d: typeof dreps[number]): AuthorDescriptor => ({
-  authorId: d.drepId,
-  // Nameless DReps would otherwise show their full bech32 id, an unbreakable
-  // ~58-char token that overruns the row width on a phone. Truncate to the same
-  // short form the forum author resolver uses for ids without a name.
-  displayName: d.name ?? truncateId(d.drepId),
-  drepId: d.drepId,
-  drepSlug: d.slug,
-  imageHash: d.imageContentHash,
-  identiconSeed: d.hex ?? d.drepId,
-  badges: [],
-});
-
 // The 28-byte DRep credential the delegation tx targets. Prefer the stored Koios
 // `hex`; fall back to deriving it from the drep id. Null disables the delegate
 // action for that row (it stays viewable/copyable).
@@ -230,6 +217,8 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
 
   <p class="dreps-filter">
     {activeOnly ? <a href="?all=1">Show all DReps</a> : <a href="?">Active only</a>}
+    <span style="margin:0 0.5rem;color:var(--muted);" aria-hidden="true">&middot;</span>
+    <a href="/dreps/movers/">Movers of the epoch</a>
   </p>
 
   {dreps.length === 0 ? (
@@ -260,7 +249,7 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
       </thead>
       <tbody>
         {dreps.map((d, i) => {
-          const descriptor = descriptorFor(d);
+          const descriptor = drepDescriptor(d);
           const pct = influencePct(d.votingPower, totalActivePower);
           const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
           const cred = credentialHexFor(d);

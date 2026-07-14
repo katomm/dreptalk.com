@@ -505,10 +505,30 @@ export interface OverviewRowVoting {
  * Returns null when no eligible body has a synced tally yet.
  */
 export function headlineComposition(a: RowVotingInput): { yesPct: number; role: VoterRole } | null {
-  const { bodies } = overviewRowVoting(a, { drepStakeTotal: null, committeeSize: null });
+  const pick = leadingComposition(a, { drepStakeTotal: null, committeeSize: null });
+  return pick ? { yesPct: pick.bar.yes, role: pick.role } : null;
+}
+
+/**
+ * The leading body's full Yes/No/Not-voted composition bar for an action: SPO-led
+ * types (see isSpoLedType) lead with SPO, all others with DRep; the first body with
+ * a synced composition wins. opts feeds the honest No-vs-Not-voted split
+ * (drepStakeTotal / committeeSize); pass null for a share-only context. Returns null
+ * when no eligible body has a synced tally yet. The single source of the leading-body
+ * pick, shared by headlineComposition (which projects .yes for the OG card) and the
+ * homepage hero tally bar (which renders the whole bar against the real denominator).
+ */
+export function leadingComposition(
+  a: RowVotingInput,
+  opts: { drepStakeTotal: number | null; committeeSize: number | null },
+): { bar: CompositionBar; role: VoterRole } | null {
+  const { bodies } = overviewRowVoting(a, opts);
   const order: VoterRole[] = isSpoLedType(a.type) ? ['SPO', 'DRep'] : ['DRep', 'SPO'];
-  const pick = order.map((role) => bodies.find((x) => x.body === role && x.composition != null)).find(Boolean);
-  return pick?.composition ? { yesPct: pick.composition.yes, role: pick.body as VoterRole } : null;
+  for (const role of order) {
+    const body = bodies.find((x) => x.body === role && x.composition != null);
+    if (body?.composition) return { bar: body.composition, role };
+  }
+  return null;
 }
 
 /**
