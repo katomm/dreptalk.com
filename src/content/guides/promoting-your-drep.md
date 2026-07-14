@@ -12,7 +12,7 @@ faqs:
   - q: "How quickly do my votes and rationales show up on DRepTalk?"
     a: "On-chain values are synced on a schedule, so a new vote or rationale usually appears within minutes rather than instantly. Pages show an as-of time for their data."
   - q: "Do I have to post on the DRepTalk forum to attract delegators?"
-    a: "No. Your on-chain voting record matters most. Forum posts add context and make you easier to evaluate, but they are optional."
+    a: "It is not required, but it clearly helps your visibility. Every post carries your DRep identity and links back to your profile, so the discussions are where undecided delegators get to know you. Your on-chain voting record remains the foundation."
 ---
 
 Hundreds of DReps are registered on Cardano, and delegators pick the ones they
@@ -92,8 +92,10 @@ appears within minutes rather than instantly. See
 
 ### Do I have to post on the forum to attract delegators?
 
-No. Your on-chain voting record matters most. Forum posts add context and make
-you easier to evaluate, but they are optional.
+It is not required, but it clearly helps your visibility. Every post carries
+your DRep identity and links back to your profile, so the discussions are where
+undecided delegators get to know you. Your on-chain voting record remains the
+foundation; the forum is how people find the person behind it.
 
 ## Related
 
