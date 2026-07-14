@@ -6,6 +6,7 @@
 import { epochCountdown, headlineComposition, readableType, statusBadge } from '../governance/view.js';
 import type { RowVotingInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
+import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '../dreps/votingPowerTrend.js';
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
 import { getCategory } from '../../../config/categories.js';
@@ -218,5 +219,61 @@ export function treasuryCardModel(status: NclStatus): TreasuryCardModel {
     gaugeColor: GAUGE_COLOR,
     headline: `${status.consumedPct}% consumed`,
     amounts: `${consumed} of ${ceiling}, ${remaining} remaining`,
+  };
+}
+
+/** One DRep the endpoint has already resolved to a display name and avatar. */
+export interface MoverInput {
+  name: string;
+  avatarDataUrl: string;
+  snapshot: string | null;
+  prev: string | null;
+}
+
+export interface MoverRow {
+  name: string;
+  avatarDataUrl: string;
+  /** Unsigned percent change, or null when the previous snapshot was zero. */
+  pct: string | null;
+  /** Absolute ada change, compact (e.g. "2.7M ₳"). */
+  ada: string;
+}
+
+export interface MoversCardModel {
+  accent: string;
+  /** Pill label, e.g. "Epoch 643". */
+  epochLabel: string;
+  subtitle: string;
+  gainers: MoverRow[];
+  losers: MoverRow[];
+}
+
+// The delta strings come straight from the same trend helpers the directory chip
+// uses, so the card and the page always agree. Name is clamped short because the
+// two columns each get roughly half the canvas beside an avatar and the figure.
+function moverRow(m: MoverInput): MoverRow {
+  const delta = computeVotingPowerDelta(m.snapshot, m.prev);
+  return {
+    name: clamp(m.name, 18),
+    avatarDataUrl: m.avatarDataUrl,
+    pct: delta?.pct != null ? formatTrendPct(delta.pct) : null,
+    ada: delta ? (formatAdaCompact(absLovelace(delta.deltaLovelace)) ?? '') : '',
+  };
+}
+
+export function moversCardModel(input: {
+  epoch: number | null;
+  gainers: MoverInput[];
+  losers: MoverInput[];
+}): MoversCardModel {
+  return {
+    accent: BRAND_ACCENT,
+    epochLabel: input.epoch != null ? `Epoch ${input.epoch}` : 'Latest epoch',
+    subtitle:
+      input.epoch != null
+        ? `The biggest DRep voting-power shifts in epoch ${input.epoch}`
+        : 'The biggest DRep voting-power shifts this epoch',
+    gainers: input.gainers.map(moverRow),
+    losers: input.losers.map(moverRow),
   };
 }

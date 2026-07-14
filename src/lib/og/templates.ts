@@ -7,7 +7,15 @@
 
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
-import type { DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, TreasuryCardModel } from './model.js';
+import type {
+  DiscussionCardModel,
+  DrepCardModel,
+  DrepStat,
+  GovCardModel,
+  MoverRow,
+  MoversCardModel,
+  TreasuryCardModel,
+} from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
 // escaping &, " or ' would show the entity literally. We only neutralize the one
@@ -183,6 +191,62 @@ export function treasuryCardHtml(m: TreasuryCardModel): string {
       <div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:8px;">${esc(m.amounts)}</div>
     </div>`;
   return cardShell(m.accent, 'Treasury', body);
+}
+
+// A small filled triangle as an SVG data URL (the proven satori image path). Used
+// for the gainer/loser direction instead of the ▲/▼ glyphs, which are not in the
+// Plus Jakarta Sans subset and would render as tofu.
+function triangle(dir: 'up' | 'down', color: string, size: number): string {
+  const points = dir === 'up' ? '12,5 20,19 4,19' : '12,19 20,5 4,5';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"><polygon points="${points}" fill="${color}"/></svg>`;
+  return `<img src="data:image/svg+xml;base64,${btoa(svg)}" width="${size}" height="${size}" />`;
+}
+
+function moverRowHtml(r: MoverRow, index: number, dir: 'up' | 'down', color: string): string {
+  // Prefer the percent as the headline figure; fall back to the ada delta when the
+  // previous snapshot was zero (percent undefined). The ada line only repeats below
+  // when the percent is the headline, so it never shows twice.
+  const headline = r.pct ?? r.ada;
+  const sub = r.pct
+    ? `<div style="display:flex;font-size:20px;font-weight:500;color:${MUTED};">${esc(r.ada)}</div>`
+    : '';
+  return `<div style="display:flex;align-items:center;margin-bottom:18px;">
+      <span style="display:flex;width:26px;font-size:22px;font-weight:700;color:${SUBTLE};">${index + 1}</span>
+      <img src="${r.avatarDataUrl}" width="52" height="52" style="border-radius:13px;margin:0 16px 0 4px;" />
+      <div style="display:flex;flex:1;overflow:hidden;font-size:27px;font-weight:700;color:${INK};">${esc(r.name)}</div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;margin-left:12px;">
+        <div style="display:flex;align-items:center;font-size:28px;font-weight:800;color:${color};">
+          <span style="display:flex;margin-right:7px;">${triangle(dir, color, 18)}</span>${esc(headline)}
+        </div>
+        ${sub}
+      </div>
+    </div>`;
+}
+
+function moversColumn(heading: string, dir: 'up' | 'down', rows: MoverRow[]): string {
+  const color = dir === 'up' ? TALLY.yes : TALLY.no;
+  const head = `<div style="display:flex;align-items:center;margin-bottom:22px;">
+      <span style="display:flex;margin-right:10px;">${triangle(dir, color, 22)}</span>
+      <span style="display:flex;font-size:28px;font-weight:700;color:${INK};">${esc(heading)}</span>
+    </div>`;
+  const list = rows.length
+    ? rows.map((r, i) => moverRowHtml(r, i, dir, color)).join('')
+    : `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};">No ${dir === 'up' ? 'gainers' : 'losers'} this epoch.</div>`;
+  // The gainers column reserves right-hand gutter so the two lists don't collide.
+  const gutter = dir === 'up' ? 'margin-right:56px;' : '';
+  return `<div style="display:flex;flex-direction:column;flex:1;${gutter}">${head}${list}</div>`;
+}
+
+export function moversCardHtml(m: MoversCardModel): string {
+  const body = `<div style="display:flex;flex-direction:column;">
+      ${title('Movers of the epoch')}
+      <div style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-top:10px;">${esc(m.subtitle)}</div>
+    </div>
+    <div style="display:flex;">
+      ${moversColumn('Top gainers', 'up', m.gainers)}
+      ${moversColumn('Top losers', 'down', m.losers)}
+    </div>`;
+  return cardShell(m.accent, `Movers · ${m.epochLabel}`, body);
 }
 
 // Also renders help-guide cards: helpCardModel returns the same shape with no

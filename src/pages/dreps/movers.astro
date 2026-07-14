@@ -9,6 +9,7 @@ import { listVotingPowerMovers, type Drep } from '@/lib/db/dreps.js';
 import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
 import { cacheControlForSynced, formatAdaCompact } from '@/lib/forum/view.js';
 import { drepDescriptor } from '@/lib/forum/author.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 
 const db = env.DB as D1Database | undefined;
 
@@ -26,6 +27,18 @@ if (db) {
 const hasData = gainers.length > 0 || losers.length > 0;
 const epochLabel = epoch != null ? `epoch ${epoch}` : 'the latest epoch';
 
+// Dynamic OG card of the top gainers/losers, versioned by the epoch and the two
+// leaders so a fresh scrape refetches once the standings turn over each epoch.
+const ogImage = hasData
+  ? `/og/dreps/movers.png?v=${ogCardVersion([
+      epoch,
+      gainers[0]?.drepId,
+      gainers[0]?.votingPowerSnapshot,
+      losers[0]?.drepId,
+      losers[0]?.votingPowerSnapshot,
+    ])}`
+  : undefined;
+
 const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
   { key: 'up', title: 'Top gainers', items: gainers },
   { key: 'down', title: 'Top losers', items: losers },
@@ -35,6 +48,7 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
 <Layout
   title="Movers of the Epoch - Cardano DReps - DRepTalk"
   description="Which Cardano DReps gained or lost the most voting power this epoch. The biggest delegation shifts among Cardano's delegate representatives, updated every epoch on DRepTalk."
+  ogImage={ogImage}
 >
   <nav class="movers-crumbs" aria-label="Breadcrumb">
     <a href="/">DRepTalk</a>
