@@ -1,18 +1,30 @@
 ---
+// Shared chrome for the long-form content sections (help guides, glossary):
+// breadcrumb, heading, optional "Last updated" line, and the prose styling
+// for the rendered markdown in the slot.
 import Layout from '@/layouts/Layout.astro';
+import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
+import { isoDate } from '@/lib/format/date.js';
 
 interface Props {
   title: string;
   description?: string;
-  // Breadcrumb label for this page (the trailing "DRepTalk / Help / {crumb}" segment).
+  // Breadcrumb label for this page (the trailing "DRepTalk / {parent} / {crumb}" segment).
   crumb: string;
   // h1 text; defaults to the breadcrumb label when the two are the same.
   heading?: string;
   // Per-page OG card; Layout falls back to the site default when absent.
   ogImage?: string;
+  // Middle breadcrumb segment; defaults to the help hub, the glossary passes its own.
+  parent?: { href: string; label: string };
+  // When set, renders a "Last updated" line above the content.
+  updated?: Date;
+  // Mark glossary terms in the prose with definition tooltips. Off on the
+  // glossary's own pages, which are already densely cross-linked.
+  glossaryTerms?: boolean;
 }
 
-const { title, description, crumb, heading = crumb, ogImage } = Astro.props;
+const { title, description, crumb, heading = crumb, ogImage, parent = { href: '/help/', label: 'Help' }, updated, glossaryTerms = false } = Astro.props;
 
 // Public help pages: cache at the edge but keep them reasonably fresh.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
@@ -22,11 +34,65 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
   <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
     <a href="/">DRepTalk</a>
     <span style="margin:0 0.375rem;">/</span>
-    <a href="/help/">Help</a>
+    <a href={parent.href}>{parent.label}</a>
     <span style="margin:0 0.375rem;">/</span>
     <span>{crumb}</span>
   </nav>
 
   <h1 style="margin:0 0 0.5rem;">{heading}</h1>
-  <slot />
+
+  {updated && (
+    <p class="page-updated">Last updated {isoDate(updated)}</p>
+  )}
+
+  <article class="prose">
+    <slot />
+  </article>
+
+  {glossaryTerms && <GlossaryTerms hosts="article.prose" />}
 </Layout>
+
+<style>
+  .page-updated {
+    margin: 0 0 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .prose {
+    max-width: 64ch;
+  }
+  .prose :global(p),
+  .prose :global(li) {
+    color: var(--muted);
+    line-height: 1.65;
+    font-size: 0.9375rem;
+  }
+  .prose :global(h2) {
+    margin: 1.75rem 0 0.5rem;
+    font-size: 1.0625rem;
+    color: var(--fg);
+  }
+  .prose :global(h3) {
+    margin: 1.25rem 0 0.4rem;
+    font-size: 0.9875rem;
+    color: var(--fg);
+  }
+  /* Link color comes from the global .prose rules; no scoped copy here, its
+     raised specificity would override the GlossaryTerms term styling. */
+  .prose :global(ul),
+  .prose :global(ol) {
+    padding-left: 1.25rem;
+  }
+  .prose :global(li) {
+    margin: 0.3rem 0;
+  }
+  .prose :global(strong) {
+    color: var(--fg);
+  }
+  .prose :global(code) {
+    font-size: 0.85em;
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+  }
+</style>

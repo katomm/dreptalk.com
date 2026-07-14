@@ -1,0 +1,31 @@
+---
+// src/pages/glossary/[...slug].astro
+export const prerender = false;
+
+import { getEntry, render } from 'astro:content';
+import HelpLayout from '@/layouts/HelpLayout.astro';
+import JsonLd from '@/components/JsonLd.astro';
+import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
+import { buildDefinedTermLd } from '@/lib/glossary/jsonld.js';
+
+const { slug } = Astro.params;
+const entry = slug ? await getEntry('glossary', slug) : undefined;
+if (!entry) return new Response('Not found', { status: 404 });
+
+const { Content } = await render(entry);
+const d = entry.data;
+const origin = Astro.site?.origin ?? 'https://dreptalk.com';
+
+const breadcrumbLd = buildBreadcrumbLd(origin, [
+  { name: 'Glossary', path: '/glossary/' },
+  { name: d.term, path: `/glossary/${entry.id}/` },
+]);
+const definedTermLd = buildDefinedTermLd(origin, entry.id, d.term, d.description, d.updated);
+---
+
+<HelpLayout title={`${d.term} - Glossary - DRepTalk`} description={d.description} crumb={d.term} parent={{ href: '/glossary/', label: 'Glossary' }} updated={d.updated}>
+  <JsonLd data={breadcrumbLd} />
+  <JsonLd data={definedTermLd} />
+
+  <Content />
+</HelpLayout>

@@ -1,0 +1,115 @@
+---
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import { getCollection } from 'astro:content';
+import { GROUP_ORDER } from '@/lib/glossary/groups.js';
+
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+
+const entries = await getCollection('glossary');
+
+// Group entries by their glossary group, preserving GROUP_ORDER and sorting
+// within each group by `order`.
+const groups = GROUP_ORDER.map((grp) => ({
+  group: grp,
+  items: entries
+    .filter((e) => e.data.group === grp)
+    .sort((a, b) => a.data.order - b.data.order),
+})).filter((grp) => grp.items.length > 0);
+---
+
+<Layout title="Glossary - DRepTalk" description="Definitions of the core Cardano governance terms: DReps, SPOs, the Constitutional Committee, delegation, voting power, and every governance action type.">
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Glossary</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.5rem;">Glossary</h1>
+  <p class="glossary-lede">
+    Short definitions of the terms used in Cardano governance, each linking to
+    the guides and live data where the concept shows up. Looking for
+    step-by-step instructions instead? See the <a href="/help/">help guides</a>.
+  </p>
+
+  {groups.map((grp) => (
+    <section class="glossary-group">
+      <h2 class="glossary-group__title">{grp.group}</h2>
+      <ul class="glossary-list">
+        {grp.items.map((e) => (
+          <li>
+            <a href={`/glossary/${e.id}/`} class="glossary-item">
+              <span class="glossary-item__term">{e.data.term}</span>
+              <span class="glossary-item__text">{e.data.description}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</Layout>
+
+<style>
+  .glossary-lede {
+    margin: 0;
+    color: var(--muted);
+    max-width: 60ch;
+    line-height: 1.6;
+  }
+  .glossary-lede a {
+    color: var(--accent);
+  }
+
+  .glossary-group {
+    margin-top: 2rem;
+  }
+  .glossary-group__title {
+    margin: 0 0 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .glossary-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+  .glossary-list li + li {
+    border-top: 1px solid var(--border);
+  }
+
+  .glossary-item {
+    display: block;
+    padding: 0.85rem 1.1rem;
+    text-decoration: none;
+    color: inherit;
+    transition: background-color 0.15s ease;
+  }
+  .glossary-item:hover {
+    background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+  }
+  .glossary-item:hover .glossary-item__term {
+    text-decoration: underline;
+  }
+
+  .glossary-item__term {
+    display: block;
+    font-weight: 700;
+    font-size: 0.9875rem;
+    color: var(--accent);
+  }
+  .glossary-item__text {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+</style>

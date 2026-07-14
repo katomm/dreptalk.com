@@ -15,6 +15,7 @@ import GaPositions from '@/components/ga/GaPositions.astro';
 import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
+import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
 import { getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
@@ -623,6 +624,12 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           </section>
         )}
       </div>
+    )}
+
+    {/* Term tooltips only on the synced governance prose (abstract, proposer
+        rationale, vote rationales), never on user-authored posts. */}
+    {isGovernanceTopic && govAction && (
+      <GlossaryTerms hosts=".ga-abstract__body, .ga-rationale .prose, .ga-positions__rationale-body, .ga-highlights__body" />
     )}
   </Layout>
 )}

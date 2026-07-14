@@ -1,0 +1,220 @@
+---
+// Marks the first occurrence of each glossary term inside the given host
+// containers and shows a hover/focus tooltip with the definition and a link
+// to the glossary entry. Pure client-side DOM pass over server-rendered
+// prose; the only SSR cost is the small (per-isolate cached) JSON payload.
+//
+// Place the component OUTSIDE the host containers so its own markup is never
+// annotated. Terms already inside links, code, or headings are skipped.
+import { getGlossaryPayloadJson } from '@/lib/glossary/payload.js';
+
+interface Props {
+  // Comma-separated CSS selector list of the containers to annotate.
+  hosts: string;
+}
+
+const { hosts } = Astro.props;
+const payloadJson = await getGlossaryPayloadJson();
+---
+
+<script type="application/json" id="glossary-terms-payload" set:html={payloadJson} />
+
+<div class="glossary-tooltip" id="glossaryTooltip" data-hosts={hosts} role="tooltip">
+  <span class="glossary-tooltip__term"></span>
+  <span class="glossary-tooltip__text"></span>
+  <a class="glossary-tooltip__link" href="/glossary/">Read more</a>
+</div>
+
+<script>
+  import { GLOSSARY_PATTERNS, firstMatch } from '@/lib/glossary/patterns.js';
+
+  type Entry = { term: string; description: string };
+
+  const SKIP_SELECTOR = 'a, code, pre, script, style, h1, h2, h3, h4, .glossary-tooltip';
+
+  /** Wraps the first occurrence of each term in a link to its glossary entry. */
+  function annotate(hosts: string) {
+    const seen = new Set<string>();
+    for (const host of document.querySelectorAll<HTMLElement>(hosts)) {
+      const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          if (!node.textContent || !node.textContent.trim()) return NodeFilter.FILTER_REJECT;
+          if (node.parentElement?.closest(SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      });
+
+      const queue: Text[] = [];
+      let current: Node | null;
+      while ((current = walker.nextNode())) queue.push(current as Text);
+
+      while (queue.length > 0) {
+        // Every term is marked at most once, so stop as soon as all are found
+        // instead of walking the rest of what can be a very long page.
+        if (seen.size === GLOSSARY_PATTERNS.length) return;
+
+        const node = queue.shift() as Text;
+        const text = node.textContent ?? '';
+        const match = firstMatch(text, seen);
+        if (!match) continue;
+        seen.add(match.key);
+
+        const link = document.createElement('a');
+        link.className = 'glossary-term';
+        link.href = `/glossary/${match.key}/`;
+        link.dataset.glossaryKey = match.key;
+        link.setAttribute('aria-describedby', 'glossaryTooltip');
+        link.textContent = text.slice(match.index, match.index + match.length);
+
+        const after = document.createTextNode(text.slice(match.index + match.length));
+        const frag = document.createDocumentFragment();
+        if (match.index > 0) frag.appendChild(document.createTextNode(text.slice(0, match.index)));
+        frag.appendChild(link);
+        frag.appendChild(after);
+        node.replaceWith(frag);
+
+        // Keep scanning the remainder of this text node for further terms.
+        queue.unshift(after);
+      }
+    }
+  }
+
+  const tooltip = document.getElementById('glossaryTooltip');
+  const payloadEl = document.getElementById('glossary-terms-payload');
+  const hosts = tooltip?.dataset.hosts;
+  const termEl = tooltip?.querySelector<HTMLElement>('.glossary-tooltip__term');
+  const textEl = tooltip?.querySelector<HTMLElement>('.glossary-tooltip__text');
+  const linkEl = tooltip?.querySelector<HTMLAnchorElement>('.glossary-tooltip__link');
+
+  if (tooltip && payloadEl && hosts && termEl && textEl && linkEl) {
+    const payload: Record<string, Entry> = JSON.parse(payloadEl.textContent ?? '{}');
+
+    // Position relative to the document regardless of where the component
+    // was rendered.
+    document.body.appendChild(tooltip);
+
+    annotate(hosts);
+
+    // Touch path: first tap shows the tooltip, second tap on the same term
+    // navigates. The hover/focus path stays click-to-navigate.
+    let armedKey: string | null = null;
+    let armedTimer: number | undefined;
+
+    const showTooltip = (target: HTMLElement) => {
+      const key = target.dataset.glossaryKey;
+      if (!key) return;
+      termEl.textContent = payload[key].term;
+      textEl.textContent = payload[key].description;
+      linkEl.href = `/glossary/${key}/`;
+      tooltip.classList.add('is-visible');
+      // Position after the class flip so the tooltip is measurable.
+      const rect = target.getBoundingClientRect();
+      const tipRect = tooltip.getBoundingClientRect();
+      const left = Math.min(
+        Math.max(8, rect.left + rect.width / 2 - tipRect.width / 2),
+        window.innerWidth - tipRect.width - 8,
+      );
+      tooltip.style.left = `${left + window.scrollX}px`;
+      tooltip.style.top = `${rect.bottom + window.scrollY + 8}px`;
+    };
+
+    const hideTooltip = () => {
+      tooltip.classList.remove('is-visible');
+      armedKey = null;
+      window.clearTimeout(armedTimer);
+    };
+
+    document.addEventListener('mouseover', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-glossary-key]');
+      if (t) showTooltip(t);
+    });
+    document.addEventListener('mouseout', (e) => {
+      if ((e.target as HTMLElement).closest('[data-glossary-key]')) hideTooltip();
+    });
+    document.addEventListener('focusin', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-glossary-key]');
+      if (t) showTooltip(t);
+    });
+    document.addEventListener('focusout', () => hideTooltip());
+
+    // Capture phase: intercept the first touch tap before the link navigates.
+    document.addEventListener(
+      'click',
+      (e) => {
+        const target = (e.target as HTMLElement).closest<HTMLElement>('[data-glossary-key]');
+        if (!target) {
+          hideTooltip();
+          return;
+        }
+        if (!window.matchMedia('(hover: none)').matches) return;
+        const key = target.dataset.glossaryKey ?? null;
+        if (armedKey === key) {
+          hideTooltip();
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        showTooltip(target);
+        armedKey = key;
+        window.clearTimeout(armedTimer);
+        armedTimer = window.setTimeout(hideTooltip, 6000);
+      },
+      true,
+    );
+  }
+</script>
+
+<style is:global>
+  /* The attribute doubles the specificity so the term keeps the surrounding
+     text color inside prose containers that give plain links the accent color
+     ("a", ".prose a"). Terms should read as annotated text, not as links.
+     Contract: this wins over plain global rules; host containers must not add
+     Astro-scoped link color rules of their own (scoping raises specificity). */
+  .glossary-term[data-glossary-key] {
+    color: inherit;
+    text-decoration: underline dotted;
+    text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  .glossary-term[data-glossary-key]:hover,
+  .glossary-term[data-glossary-key]:focus-visible {
+    color: var(--accent);
+    text-decoration-style: solid;
+    text-decoration-color: var(--accent);
+  }
+
+  .glossary-tooltip {
+    position: absolute;
+    z-index: 60;
+    display: none;
+    flex-direction: column;
+    gap: 0.3rem;
+    max-width: 20rem;
+    padding: 0.7rem 0.85rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .glossary-tooltip.is-visible {
+    display: flex;
+  }
+  .glossary-tooltip__term {
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .glossary-tooltip__text {
+    color: var(--muted);
+  }
+  .glossary-tooltip__link {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .glossary-tooltip__link:hover {
+    text-decoration: underline;
+  }
+</style>

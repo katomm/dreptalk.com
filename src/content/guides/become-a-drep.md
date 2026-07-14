@@ -16,14 +16,14 @@ costs, and how to change or retire later, see
 ## What is a DRep?
 
 A DRep is a delegated representative who votes on Cardano governance actions
-on behalf of ADA holders who choose to delegate their voting power. Governance
+on behalf of ada holders who choose to delegate their voting power. Governance
 actions include things like protocol parameter changes, treasury withdrawals,
 and constitutional amendments.
 
-Your voting power as a DRep does not come from your own ADA balance. It comes
+Your voting power as a DRep does not come from your own ada balance. It comes
 entirely from the stake that others delegate to you. If ten people delegate a
-combined 200,000 ADA to you, you cast votes with 200,000 ADA of weight,
-regardless of how much ADA you personally hold. Your own stake counts only if
+combined 200,000 ada to you, you cast votes with 200,000 ada of weight,
+regardless of how much ada you personally hold. Your own stake counts only if
 you delegate it to yourself.
 
 Anyone can register as a DRep. There is no minimum stake requirement and no
@@ -58,11 +58,11 @@ To register as a DRep you need:
 - **A CIP-95 capable wallet.** The registration and all subsequent on-chain
   actions require a wallet that supports the CIP-95 governance standard. Lace,
   Eternl, and Typhon all support this. Standard staking-only wallets do not.
-- **A refundable 500 ADA deposit.** Registering locks 500 ADA on the chain.
+- **A refundable 500 ada deposit.** Registering locks 500 ada on the chain.
   This deposit is returned in full when you deregister. It is not a fee; it
   is automatically refunded to your wallet when you retire your DRep.
-- **A small amount of ADA for network fees.** The registration transaction
-  itself costs a small fee (a few tenths of an ADA), similar to any other
+- **A small amount of ada for network fees.** The registration transaction
+  itself costs a small fee (a few tenths of an ada), similar to any other
   Cardano transaction.
 
 You do not need any coding skills, a server, or a minimum amount of delegated
@@ -85,7 +85,7 @@ update your metadata later, and how to retire and reclaim your deposit, see
 
 ## After you register
 
-Your profile becomes discoverable to ADA holders looking for a DRep to delegate
+Your profile becomes discoverable to ada holders looking for a DRep to delegate
 to. Wallets that support CIP-95 governance, block explorers, and DRepTalk's own
 [DRep directory](/dreps/) will all list you.
 

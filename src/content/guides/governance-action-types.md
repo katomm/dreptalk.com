@@ -31,7 +31,7 @@ This action adjusts one or more on-chain protocol parameters, such as transactio
 
 ## Treasury withdrawals
 
-A treasury withdrawal moves ADA from the on-chain treasury to a specified stake address, funding project proposals or grants. It is voted on by **DReps and the constitutional committee**.
+A treasury withdrawal moves ada from the on-chain treasury to a specified stake address, funding project proposals or grants. It is voted on by **DReps and the constitutional committee**.
 
 ## Info action
 
