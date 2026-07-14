@@ -1,19 +1,18 @@
 ---
 title: "Managing your DRep: register, change metadata, get your deposit back"
-description: "How to register as a Cardano DRep, change your on-chain metadata (name, bio, links, image), and deregister to get your 500 ADA deposit back. Step by step and non-custodial: your wallet signs every transaction."
+description: "How to register as a Cardano DRep, change your on-chain metadata (name, bio, links, image), and deregister to get your 500 ada deposit back. Step by step and non-custodial: your wallet signs every transaction."
 cardLabel: "Managing your DRep"
 category: "For DReps"
 order: 1
-featured: true
 faqs:
   - q: "How do I register as a DRep on Cardano?"
-    a: "Open Register as a DRep, connect a CIP-95 capable wallet (for example Lace, Eternl, or Typhon), and fill in your profile: name, a short bio, links, and an optional image. Your wallet submits the registration certificate. Registering locks a refundable 500 ADA deposit plus a small network fee; the deposit is returned in full when you later deregister."
+    a: "Open Register as a DRep, connect a CIP-95 capable wallet (for example Lace, Eternl, or Typhon), and fill in your profile: name, a short bio, links, and an optional image. Your wallet submits the registration certificate. Registering locks a refundable 500 ada deposit plus a small network fee; the deposit is returned in full when you later deregister."
   - q: "How do I change my DRep metadata?"
     a: "Sign in as a DRep and open Settings. The form is prefilled with your current on-chain profile (name, bio, links, image). Edit it and submit; your wallet signs an update certificate that points to the new metadata. The change is on the chain as soon as the transaction confirms, and wallets and explorers show it after their next sync."
   - q: "How much does it cost to update my DRep metadata?"
-    a: "Updating your metadata has no deposit. Your wallet pays only the small Cardano network fee. The 500 ADA deposit is only locked once, at registration, and stays locked until you deregister."
-  - q: "How do I get my 500 ADA DRep deposit back?"
-    a: "The 500 ADA deposit is refunded automatically when you deregister (retire) your DRep. Sign in as a DRep, open Settings, and use Retire DRep. Your wallet submits a deregistration certificate, and the full deposit is returned to your wallet once the transaction confirms."
+    a: "Updating your metadata has no deposit. Your wallet pays only the small Cardano network fee. The 500 ada deposit is only locked once, at registration, and stays locked until you deregister."
+  - q: "How do I get my 500 ada DRep deposit back?"
+    a: "The 500 ada deposit is refunded automatically when you deregister (retire) your DRep. Sign in as a DRep, open Settings, and use Retire DRep. Your wallet submits a deregistration certificate, and the full deposit is returned to your wallet once the transaction confirms."
   - q: "Does retiring my DRep delete my DRepTalk forum account?"
     a: "No. Deregistering is an on-chain action only. It retires your DRep on Cardano and refunds your deposit, but it does not delete your DRepTalk forum account, your posts, or your profile page."
 ---
@@ -31,7 +30,7 @@ Go to [Register as a DRep](/register-drep/), connect your wallet, and fill in
 your profile: name, a short bio, links, and an optional profile image (JPG or
 PNG, up to 256 KB). DRepTalk hosts this as a CIP-119 metadata document and your
 wallet submits the registration certificate pointing at it. Registration locks a
-**refundable 500 ADA deposit** plus a small network fee; the deposit comes back
+**refundable 500 ada deposit** plus a small network fee; the deposit comes back
 in full when you later deregister.
 
 ## How do I set up or change my DRep metadata?
@@ -46,9 +45,9 @@ There is **no deposit** for updates, only the small network fee.
 The change is on the chain as soon as the transaction confirms; DRepTalk and
 other sites show it after their next sync (on DRepTalk, within about an hour).
 
-## How do I get my 500 ADA DRep deposit back?
+## How do I get my 500 ada DRep deposit back?
 
-The 500 ADA you locked when you registered is refunded automatically when you
+The 500 ada you locked when you registered is refunded automatically when you
 **deregister** (retire) your DRep. Sign in as a DRep, open [Settings](/settings/),
 and use **Retire DRep** in the danger zone. Your wallet submits a deregistration
 certificate, and the full deposit is returned to your wallet once the transaction
@@ -58,7 +57,7 @@ the small network fee for the transaction.
 ## How do I retire (deregister) my DRep?
 
 Retiring is done from [Settings](/settings/). It submits a deregistration
-certificate to the chain: your 500 ADA deposit is refunded once it confirms, and
+certificate to the chain: your 500 ada deposit is refunded once it confirms, and
 everyone who delegated their voting power to you loses that delegation. You can
 register again later, but delegators would need to delegate to you again.
 

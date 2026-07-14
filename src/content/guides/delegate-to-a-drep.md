@@ -1,13 +1,13 @@
 ---
 title: "How to delegate your voting power to a Cardano DRep"
-description: "How any ADA holder hands their Cardano voting power to a DRep, what Abstain and No Confidence mean, and how to switch DReps later."
+description: "How any ada holder hands their Cardano voting power to a DRep, what Abstain and No Confidence mean, and how to switch DReps later."
 cardLabel: "Delegating to a DRep"
 category: "Start here"
 order: 2
 updated: 2026-06-23
 ---
 
-Every ADA holder on Cardano has voting power in the governance system. If you
+Every ada holder on Cardano has voting power in the governance system. If you
 do not want to vote yourself, you can hand that power to a DRep (delegated
 representative) who will vote on your behalf. This guide explains how
 delegation works, how to choose a DRep, and what your options are if you
@@ -15,13 +15,13 @@ prefer not to delegate to a specific person.
 
 ## What delegating voting power means
 
-When you delegate your voting power, your ADA stays in your wallet the entire
-time. You are not sending your ADA anywhere and you do not lock it up. The
+When you delegate your voting power, your ada stays in your wallet the entire
+time. You are not sending your ada anywhere and you do not lock it up. The
 only thing you are delegating is the right to cast governance votes with your
 stake weight.
 
-Delegating voting power is also completely separate from staking your ADA to a
-stake pool for rewards. You can do both at the same time: keep your ADA staked
+Delegating voting power is also completely separate from staking your ada to a
+stake pool for rewards. You can do both at the same time: keep your ada staked
 to a stake pool and simultaneously delegate your governance vote to a DRep.
 Changing one does not affect the other.
 
