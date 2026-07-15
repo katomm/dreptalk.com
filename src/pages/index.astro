@@ -19,6 +19,7 @@ import {
   readableType,
   statusBadge,
   voteTone,
+  govTypeTone,
   TONE_COLORS,
   leadingComposition,
   isSpoLedType,
@@ -26,6 +27,7 @@ import {
   type CompositionBar as CompositionBarData,
 } from '@/lib/governance/view.js';
 import CompositionBar from '@/components/ga/CompositionBar.astro';
+import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
@@ -200,6 +202,7 @@ const heroCard = personalized
   ? (() => {
       const badge = statusBadge(personalized.card.status);
       return {
+        typeTone: govTypeTone(personalized.card.type),
         label: readableType(personalized.card.type),
         title: personalized.card.title,
         badge: badge.label,
@@ -212,6 +215,7 @@ const heroCard = personalized
         const a = heroAction.action;
         const badge = statusBadge(a.status);
         return {
+          typeTone: govTypeTone(a.type),
           label: readableType(a.type),
           title: a.title as string,
           badge: badge.label,
@@ -220,6 +224,7 @@ const heroCard = personalized
         };
       })()
     : {
+        typeTone: govTypeTone('TreasuryWithdrawals'),
         label: 'Governance Action',
         title: 'Treasury Withdrawal',
         badge: 'Active',
@@ -312,6 +317,7 @@ const heroFeatures = [
     <div class="hero__visual reveal" style="--reveal-delay:160ms" aria-hidden={heroCard.href ? undefined : 'true'}>
       <div class="hero-scene">
         <div class="hero-scene__glow" aria-hidden="true"></div>
+        <div class="hero-scene__grain" aria-hidden="true"></div>
 
         <svg class="hero-scene__rings" aria-hidden="true" viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
           <g class="ring-guides">
@@ -353,7 +359,7 @@ const heroFeatures = [
             aria-label={heroCard.href ? `Latest governance action: ${heroCard.title}, ${heroCard.badge}` : undefined}
           >
             <span class="gov-card__icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18" /><path d="M5 21V10l7-5 7 5v11" /><path d="M9 21v-6h6v6" /><path d="M3 10h18" /></svg>
+              <GovTypeIcon tone={heroCard.typeTone} size={20} />
             </span>
             <span class="gov-card__label">{heroCard.label}</span>
             <span class="gov-card__title">{heroCard.title}</span>
@@ -554,6 +560,29 @@ const heroFeatures = [
       radial-gradient(45% 50% at 55% 72%, rgba(45, 212, 191, 0.22), transparent 70%);
     filter: blur(6px);
   }
+  /* Static grain over the glow, same footprint. A separate sibling layer (not a
+     ::after of the glow) so the glow's blur() cannot smear the speckles away.
+     Overlay blending lets the grayscale grain lighten and darken, so it reads on
+     both themes. The mask repeats the glow's three color blobs exactly (mask
+     layers union by default), so grain exists only where there is color; without
+     it the speckles wash the whole scene box in gray on the light background. */
+  .hero-scene__grain {
+    position: absolute;
+    inset: 4%;
+    border-radius: 28px;
+    background: var(--noise);
+    mix-blend-mode: overlay;
+    opacity: var(--noise-opacity);
+    -webkit-mask-image:
+      radial-gradient(45% 45% at 35% 30%, #000, transparent 70%),
+      radial-gradient(45% 45% at 70% 40%, #000, transparent 70%),
+      radial-gradient(45% 50% at 55% 72%, #000, transparent 70%);
+    mask-image:
+      radial-gradient(45% 45% at 35% 30%, #000, transparent 70%),
+      radial-gradient(45% 45% at 70% 40%, #000, transparent 70%),
+      radial-gradient(45% 50% at 55% 72%, #000, transparent 70%);
+    pointer-events: none;
+  }
   .hero-scene__rings {
     position: absolute;
     inset: 0;
@@ -582,7 +611,9 @@ const heroFeatures = [
     position: absolute;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%);
+    /* Centering and the hover lift compose through --lift, so the hover state
+       never has to restate the centering offsets. */
+    transform: translate(-50%, calc(-50% + var(--lift, 0px)));
     z-index: 1;
     width: 64%;
     min-width: 210px;
@@ -601,13 +632,15 @@ const heroFeatures = [
     box-shadow: var(--shadow-lg);
     color: inherit;
     text-decoration: none;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   }
-  /* When backed by a real action the card links to its thread. */
+  /* When backed by a real action the card links to its thread. Hover adds a
+     small lift (transform-only, so it stays on the compositor). */
   a.gov-card:hover,
   a.gov-card:focus-visible {
     border-color: var(--accent);
     box-shadow: var(--shadow-lg), 0 0 0 1px var(--accent);
+    --lift: -2px;
     outline: none;
   }
   .gov-card__icon {

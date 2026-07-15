@@ -1,0 +1,46 @@
+---
+// The governance-type pill (glyph + readable label), shared by the action list
+// rows and the vote dashboard so the markup and the pill CSS stay
+// single-sourced. Deliberately quiet: the chip and label stay gray so the
+// status badge next to it owns the row's color; only the small glyph keeps its
+// type hue (--gov-*) as a subtle accent that tells the types apart at a glance.
+import { govTypeTone, readableType } from '@/lib/governance/view.js';
+import GovTypeIcon from '@/components/GovTypeIcon.astro';
+
+interface Props {
+  type: string; // raw on-chain type ("TreasuryWithdrawals") or readable form
+}
+const { type } = Astro.props;
+const tone = govTypeTone(type);
+---
+<span class="pill">
+  <span class="pill__icon" style={`--ph:var(--gov-${tone})`}>
+    <GovTypeIcon tone={tone} size={11} />
+  </span>
+  {readableType(type)}
+</span>
+
+<style>
+  /* inline-flex so the type glyph and label center on one line. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    /* A gray tint alone disappears on the white background, so the neutral
+       chip needs the hairline border to still read as a pill. */
+    background: color-mix(in srgb, var(--muted) 8%, transparent);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  /* The glyph inherits the type hue via currentColor. */
+  .pill__icon {
+    display: inline-flex;
+    color: var(--ph);
+  }
+</style>

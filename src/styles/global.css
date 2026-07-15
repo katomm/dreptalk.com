@@ -39,6 +39,15 @@
   /* Destructive actions (Log out, flag, delete). */
   --danger: #dc2626;
   --grad: linear-gradient(120deg, #8b5cf6 0%, #3b82f6 50%, #2dd4bf 100%);
+  /* Fine monochrome grain (tiled SVG turbulence), laid as a static extra layer
+     over soft gradient glows so they read as texture rather than a flat digital
+     gradient. Painted once at load, zero runtime cost. Use sites composite it
+     with mix-blend-mode: overlay at opacity var(--noise-opacity), so grain
+     intensity is tuned here for both themes at once: on the near-black dark
+     background the light speckles lift far more than on white, hence the much
+     fainter dark value. */
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --noise-opacity: 0.3;
 
   /* Positive/negative badge text. As text over their own 14% tint on --bg these
      reach ~5.5:1 / ~5.2:1 (WCAG AA); the brighter old values fell below 4.5:1. */
@@ -106,6 +115,9 @@ html[data-theme='dark'] {
      over their 14% tint on the dark bg they reach ~6.7:1 / ~5.8:1 (WCAG AA). */
   --c-pos: #5cb88a;
   --c-neg: #e07d75;
+
+  /* See the --noise-opacity note in :root. */
+  --noise-opacity: 0.22;
 
   /* Same gov-type hues, lifted for legibility over their tint on the deep bg. */
   --gov-constitution: #c4b5fd;
