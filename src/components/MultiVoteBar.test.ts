@@ -111,4 +111,17 @@ describe('submitMultiVote', () => {
     const { deps } = makeDeps();
     await expect(submitMultiVote(deps, makeArgs({ selections: [] }))).rejects.toThrow();
   });
+
+  it('still resolves with the txHash when recordVotes rejects (votes are already on chain)', async () => {
+    const { deps, recordVotes } = makeDeps();
+    recordVotes.mockRejectedValueOnce(new Error('record timeout'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await submitMultiVote(deps, makeArgs());
+      expect(res.txHash).toBe('d'.repeat(64));
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });

@@ -89,14 +89,21 @@ export async function submitVote(
     anchorHashHex: anchor?.hash,
     origin: args.origin,
   });
-  await deps.recordVote({
-    gaId: args.gaId,
-    vote: args.vote,
-    txHash,
-    rationaleUrl: anchor?.url,
-    rationaleText: hasRationale ? args.rationaleText : undefined,
-    crossPost: hasRationale ? args.crossPost : undefined,
-  });
+  // Recording is non-fatal BY CONTRACT: at this point the vote is already on
+  // chain, so a failed optimistic record (HTTP error or thrown timeout) must
+  // never surface as a submit error; the periodic sync heals it.
+  try {
+    await deps.recordVote({
+      gaId: args.gaId,
+      vote: args.vote,
+      txHash,
+      rationaleUrl: anchor?.url,
+      rationaleText: hasRationale ? args.rationaleText : undefined,
+      crossPost: hasRationale ? args.crossPost : undefined,
+    });
+  } catch (err) {
+    console.warn('[VotePanel] recording the vote failed (the vote is on chain)', err);
+  }
   return { txHash };
 }
 

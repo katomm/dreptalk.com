@@ -99,6 +99,31 @@ describe('submitVote orchestration', () => {
     });
     expect(recordVote).toHaveBeenCalledWith(expect.objectContaining({ crossPost: true }));
   });
+
+  it('still resolves with the txHash when recordVote rejects (the vote is already on chain)', async () => {
+    const deps = {
+      hostRationale: vi.fn(),
+      castVote: vi.fn(async () => ({ txHash: 'tx' })),
+      recordVote: vi.fn(async () => {
+        throw new Error('record timeout');
+      }),
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await submitVote(deps, {
+        gaId: `${'a'.repeat(64)}#0`,
+        vote: 'yes',
+        rationaleText: '',
+        drepKeyHash: new Uint8Array(28),
+        network: 'preprod',
+        origin: 'https://x',
+      });
+      expect(res.txHash).toBe('tx');
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('expiredActionMessage', () => {

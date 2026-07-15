@@ -125,19 +125,26 @@ export async function submitMultiVote(
     }),
   });
 
-  await deps.recordVotes({
-    txHash,
-    votes: perAction.map((p) => {
-      const anchor = p.text.length > 0 ? anchors.get(p.text) : undefined;
-      return {
-        gaId: p.gaId,
-        vote: p.choice,
-        rationaleUrl: anchor?.url,
-        rationaleText: p.text.length > 0 ? p.text : undefined,
-        crossPost: p.text.length > 0 ? args.crossPost : undefined,
-      };
-    }),
-  });
+  // Recording is non-fatal BY CONTRACT: at this point the votes are already
+  // on chain, so a failed optimistic record (HTTP error or thrown timeout)
+  // must never surface as a submit error; the periodic sync heals it.
+  try {
+    await deps.recordVotes({
+      txHash,
+      votes: perAction.map((p) => {
+        const anchor = p.text.length > 0 ? anchors.get(p.text) : undefined;
+        return {
+          gaId: p.gaId,
+          vote: p.choice,
+          rationaleUrl: anchor?.url,
+          rationaleText: p.text.length > 0 ? p.text : undefined,
+          crossPost: p.text.length > 0 ? args.crossPost : undefined,
+        };
+      }),
+    });
+  } catch (err) {
+    console.warn('[MultiVoteBar] recording votes failed (votes are on chain)', err);
+  }
 
   return { txHash };
 }
@@ -201,6 +208,19 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
       delete next[gaId];
       return next;
     });
+  }
+
+  // Full batch reset: used by Clear and by the success path so a rationale
+  // written for one batch can never silently carry over into (and be
+  // published on-chain for) an unrelated later batch.
+  function resetBatchState() {
+    setSelections({});
+    setSharedRationale('');
+    setOverrides({});
+    setOpenOverrides({});
+    setCrossPost(false);
+    setDroppedNotice([]);
+    setExpanded(false);
   }
 
   async function handleConnect() {
@@ -307,7 +327,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
         walletApi: api,
       });
       const count = items.length;
-      setSelections({});
+      resetBatchState();
       setPhase({ status: 'success', txHash, count });
     } catch (err) {
       const msg = expiredActionMessage(err) ?? readableError(err);
@@ -319,8 +339,11 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
     }
   }
 
-  // Nothing selected and no result to show: render nothing.
-  if (items.length === 0 && phase.status !== 'success') return null;
+  // Nothing selected, no result, and no dropped-actions notice: render
+  // nothing. The notice must keep the bar alive even with zero items, or a
+  // liveness check that drops EVERY selected action would hide the bar before
+  // the user ever learns why the batch vanished.
+  if (items.length === 0 && phase.status !== 'success' && droppedNotice.length === 0) return null;
 
   const barStyle: React.CSSProperties = {
     position: 'fixed',
@@ -337,6 +360,26 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
     margin: '0 auto',
     padding: '0.75rem 1rem',
   };
+
+  // Every selected action was dropped by the liveness re-check: keep the bar
+  // up with only the explanation. Nothing can be signed in this state (there
+  // are no items); Close dismisses the notice and hides the bar.
+  if (items.length === 0 && phase.status !== 'success') {
+    return (
+      <div style={barStyle} role="status">
+        <div style={innerStyle}>
+          <div className="callout callout--info" role="status">
+            <div className="callout__body">
+              Removed from your batch because voting has closed: {droppedNotice.join(', ')}. No vote was cast.
+            </div>
+          </div>
+          <button type="button" className="btn btn--sm" style={{ marginTop: '0.5rem' }} onClick={() => setDroppedNotice([])}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Success state replaces the bar content until dismissed.
   if (phase.status === 'success') {
@@ -373,7 +416,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
             {items.length} {items.length === 1 ? 'vote' : 'votes'} selected
           </span>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="button" className="btn btn--sm" onClick={() => { setSelections({}); setExpanded(false); }} disabled={busy}>
+            <button type="button" className="btn btn--sm" onClick={resetBatchState} disabled={busy}>
               Clear
             </button>
             <button type="button" className="btn btn-primary btn--sm" onClick={() => setExpanded((e) => !e)} disabled={busy && !expanded}>
