@@ -178,11 +178,21 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
 
   const busy = phase.status === 'connecting' || phase.status === 'checking' || phase.status === 'submitting';
 
+  // Mirrored into a ref because the delegated click handler below is
+  // registered once with [] deps and cannot read `busy` from the closure.
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+
   // Event delegation: the row buttons are SSR markup owned by vote.astro.
   useEffect(() => {
     function onClick(e: MouseEvent) {
       const btn = (e.target as HTMLElement).closest?.('[data-mv-choice]') as HTMLElement | null;
       if (!btn) return;
+      // Freeze the selection while a submit is in flight (connect through
+      // record): letting it change here would desync the review panel from
+      // the transaction the wallet is already signing, and a mid-flight
+      // change would be silently wiped by resetBatchState() on success.
+      if (busyRef.current) return;
       const gaId = btn.dataset.ga;
       const choice = btn.dataset.mvChoice as VoteChoice | undefined;
       if (!gaId || !choice) return;
@@ -201,6 +211,16 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
     }
   }, [selections]);
+
+  // Mirror the busy state onto the SSR buttons: visual + AT feedback that
+  // the pills are frozen while a submit is in flight.
+  useEffect(() => {
+    for (const btn of Array.from(document.querySelectorAll<HTMLElement>('[data-mv-choice]'))) {
+      btn.classList.toggle('is-disabled', busy);
+      if (busy) btn.setAttribute('aria-disabled', 'true');
+      else btn.removeAttribute('aria-disabled');
+    }
+  }, [busy]);
 
   function removeItem(gaId: string) {
     setSelections((prev) => {
@@ -366,7 +386,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
   // are no items); Close dismisses the notice and hides the bar.
   if (items.length === 0 && phase.status !== 'success') {
     return (
-      <div style={barStyle} role="status">
+      <div style={barStyle}>
         <div style={innerStyle}>
           <div className="callout callout--info" role="status">
             <div className="callout__body">
