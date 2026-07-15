@@ -24,7 +24,7 @@ import { drepCredentialAddress, drepIdFromPubKey } from '../cardano/identity.js'
 import { verifyCip8 } from '../auth/cose.js';
 import { createKoiosClient } from '../koios/client.js';
 import { resolveDRep } from '../auth/resolveRole.js';
-import { buildGovActionId, queueRegisterDrepOps, queueVoteOps } from './drepTx.js';
+import { buildGovActionId, queueRegisterDrepOps, queueVotesOps } from './drepTx.js';
 import { DREPTALK_CIP20_LABEL, dreptalkCip20Metadatum } from '../cardano/tx.js';
 
 const LIVE = process.env.DREPTALK_LIVE === '1';
@@ -134,10 +134,10 @@ describe.skipIf(!LIVE)('LIVE preprod e2e', () => {
 
     const client = Client.make(preprod).withKoios({ baseUrl: KOIOS }).withAddress(paymentAddress);
 
-    // WITH the fix: queueVoteOps declares the DRep key as a required signer.
-    const withSigner = await queueVoteOps(
-      client.newTx() as unknown as Parameters<typeof queueVoteOps>[0],
-      { drepKeyHash: keyHash, govActionId: buildGovActionId(govActionId), vote: 'abstain', anchor: null },
+    // WITH the fix: queueVotesOps declares the DRep key as a required signer.
+    const withSigner = await queueVotesOps(
+      client.newTx() as unknown as Parameters<typeof queueVotesOps>[0],
+      { drepKeyHash: keyHash, votes: [{ govActionId: buildGovActionId(govActionId), vote: 'abstain', anchor: null }] },
     )
       .collectFrom({ inputs: utxos })
       .build({ availableUtxos: utxos });

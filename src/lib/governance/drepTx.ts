@@ -418,29 +418,6 @@ export function queueVotesOps(
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
 }
 
-/**
- * Delegates to queueVotesOps for backward compatibility. Original single-vote
- * builder that queues the voting procedure, the DRep-key required signer, and
- * the CIP-20 attribution tag. Like reg_drep, the vote is witnessed by the DRep
- * key (which controls no input); EvolutionSDK sizes the fee only for declared
- * signers, so the DRep key MUST be declared via addSigner or the fee falls one
- * vkey short. Pure (no network); exported for unit tests.
- */
-export function queueVoteOps(
-  txb: DrepTxBuilder,
-  parts: {
-    drepKeyHash: Uint8Array;
-    govActionId: GovernanceAction.GovActionId;
-    vote: 'yes' | 'no' | 'abstain';
-    anchor: Anchor.Anchor | null;
-  },
-): DrepTxBuilder {
-  return queueVotesOps(txb, {
-    drepKeyHash: parts.drepKeyHash,
-    votes: [{ govActionId: parts.govActionId, vote: parts.vote, anchor: parts.anchor }],
-  });
-}
-
 export interface DRepVoteInput {
   /** Stored governance action id, "<txHash>#<index>". */
   govActionId: string;

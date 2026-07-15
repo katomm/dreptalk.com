@@ -14,7 +14,6 @@ import {
   stakeCredentialFromRewardAddress,
   queueDelegateVotesOps,
   buildGovActionId,
-  queueVoteOps,
   queueVotesOps,
   castDRepVotes,
 } from './drepTx.js';
@@ -248,8 +247,8 @@ describe('buildGovActionId', () => {
   });
 });
 
-describe('queueVoteOps', () => {
-  it('queues a single-vote procedure, the DRep signer, and the CIP-20 tag', () => {
+describe('queueVotesOps (single vote)', () => {
+  it('queues a one-vote procedure, the DRep signer, and the CIP-20 tag', () => {
     const calls: Record<string, unknown[]> = {};
     // Recording stub: every builder method records its args and returns the stub.
     // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
@@ -259,11 +258,9 @@ describe('queueVoteOps', () => {
     );
 
     const drepKeyHash = new Uint8Array(28).fill(7);
-    queueVoteOps(stub, {
+    queueVotesOps(stub, {
       drepKeyHash,
-      govActionId: buildGovActionId(`${'a'.repeat(64)}#0`),
-      vote: 'yes',
-      anchor: null,
+      votes: [{ govActionId: buildGovActionId(`${'a'.repeat(64)}#0`), vote: 'yes', anchor: null }],
     });
 
     expect(calls.vote).toHaveLength(1);

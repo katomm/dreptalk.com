@@ -11,18 +11,32 @@
 // POST /api/vote/rationale; (3) castDRepVotes builds ONE transaction with all
 // votes and per-vote anchors, the wallet signs and submits; (4) batch
 // POST /api/vote/record mirrors the result optimistically.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { connectAsDrep, type EnabledWalletApi, type DRepIdentity } from '@/lib/wallet/drepWalletConnect.js';
 import type { WalletApi as TxWalletApi, CastDRepVotesOpts } from '@/lib/governance/drepTx.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { expiredActionMessage } from '@/components/VotePanel.js';
+import {
+  PreSignError,
+  hostVoteRationale,
+  loadDrepTxModule,
+  postVoteRecord,
+  readDraft,
+  writeDraft,
+} from '@/lib/governance/voteFlowClient.js';
+import { MAX_UNIQUE_BATCH_RATIONALES } from '@/lib/governance/voteLimits.js';
+import { TONE_COLORS, voteTone } from '@/lib/governance/view.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import RationaleModal from '@/components/RationaleModal.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
+
+// Re-exported so tests (and any future caller) keep one import site for the
+// batch-submit contract.
+export { PreSignError, MAX_UNIQUE_BATCH_RATIONALES };
 
 type VoteChoice = 'yes' | 'no' | 'abstain';
 
@@ -117,13 +131,6 @@ export function effectiveRationale(shared: string, override: string): string {
   return shared.trim();
 }
 
-// The rationale hosting endpoint is rate limited to 10 requests per minute per
-// IP, and each DISTINCT text in a batch costs one request (identical texts are
-// hosted once). Capping distinct texts at that limit means a batch can never
-// 429 mid-hosting; the UI blocks submission above it, and submitMultiVote
-// enforces it defensively.
-export const MAX_UNIQUE_BATCH_RATIONALES = 10;
-
 /** Number of distinct non-empty effective rationale texts across a selection. */
 export function countUniqueRationales(
   gaIds: string[],
@@ -137,14 +144,6 @@ export function countUniqueRationales(
   }
   return texts.size;
 }
-
-/**
- * A failure that happened strictly BEFORE the wallet could sign anything
- * (validation, rationale hosting, loading the tx-builder module). The error
- * handler shows these as-is and skips the "a batch vote is all-or-nothing"
- * note, which only makes sense once a transaction could actually have failed.
- */
-export class PreSignError extends Error {}
 
 export interface SubmitMultiVoteDeps {
   hostRationale: (args: { gaId: string; drepId: string; rationale: string }) => Promise<{ url: string; hash: string }>;
@@ -240,12 +239,12 @@ export async function submitMultiVote(
 // Component
 // ---------------------------------------------------------------------------
 
-// Same tone variables the vote badges and row pills use (TONE_COLORS in
-// governance/view.ts), so choice colors never drift between surfaces.
+// Derived from the shared tone vocabulary (view.ts) so the choice colors here
+// can never drift from the vote badges and row pills.
 const CHOICE_COLORS: Record<VoteChoice, string> = {
-  yes: 'var(--c-pos)',
-  no: 'var(--c-neg)',
-  abstain: 'var(--muted)',
+  yes: TONE_COLORS[voteTone('yes')],
+  no: TONE_COLORS[voteTone('no')],
+  abstain: TONE_COLORS[voteTone('abstain')],
 };
 
 export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
@@ -262,12 +261,31 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
   const [droppedNotice, setDroppedNotice] = useState<string[]>([]);
   const enabledApiRef = useRef<EnabledWalletApi | null>(null);
 
-  const byId = new Map(actions.map((a) => [a.gaId, a]));
-  const items = Object.entries(selections)
-    .filter(([gaId]) => byId.has(gaId))
-    .map(([gaId, choice]) => ({ action: byId.get(gaId) as MultiVoteAction, choice }));
+  // Memoized: the component re-renders on every rationale keystroke and phase
+  // change, and neither derivation depends on those.
+  const byId = useMemo(() => new Map(actions.map((a) => [a.gaId, a])), [actions]);
+  const items = useMemo(
+    () =>
+      Object.entries(selections)
+        .filter(([gaId]) => byId.has(gaId))
+        .map(([gaId, choice]) => ({ action: byId.get(gaId) as MultiVoteAction, choice })),
+    [selections, byId],
+  );
 
   const busy = phase.status === 'connecting' || phase.status === 'checking' || phase.status === 'submitting';
+
+  // One style for every inline text-link button in the panel; busy switches
+  // the cursor everywhere at once.
+  const linkBtn = (color: string, extra: React.CSSProperties = {}): React.CSSProperties => ({
+    background: 'none',
+    border: 'none',
+    color,
+    cursor: busy ? 'not-allowed' : 'pointer',
+    padding: 0,
+    font: 'inherit',
+    textDecoration: 'underline',
+    ...extra,
+  });
 
   // Distinct rationale texts are capped by the hosting rate limit; block the
   // submit (with a notice) instead of letting the batch die on a 429.
@@ -298,7 +316,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: actions is SSR data, render-stable for the page's lifetime; the restore must run exactly once
   useEffect(() => {
     const draft = restoreDraft(
-      window.localStorage.getItem(DRAFT_STORAGE_KEY),
+      readDraft(DRAFT_STORAGE_KEY),
       actions.map((a) => a.gaId),
     );
     if (draft) {
@@ -316,15 +334,8 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
       Object.keys(selections).length === 0 &&
       sharedRationale.trim().length === 0 &&
       Object.values(overrides).every((t) => t.trim().length === 0);
-    try {
-      if (empty) window.localStorage.removeItem(DRAFT_STORAGE_KEY);
-      else {
-        const draft: MultiVoteDraft = { selections, sharedRationale, overrides, crossPost };
-        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-      }
-    } catch {
-      // Storage can be full or blocked; drafting is best-effort, never fatal.
-    }
+    const draft: MultiVoteDraft = { selections, sharedRationale, overrides, crossPost };
+    writeDraft(DRAFT_STORAGE_KEY, empty ? null : JSON.stringify(draft));
   }, [selections, sharedRationale, overrides, crossPost]);
 
   // Event delegation: the row buttons are SSR markup owned by vote.astro.
@@ -387,11 +398,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
     setExpanded(false);
     // The persist effect would remove the empty draft anyway; do it eagerly so
     // a crash right after success/clear cannot resurrect the submitted batch.
-    try {
-      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
-    } catch {
-      // Best-effort, like all draft storage.
-    }
+    writeDraft(DRAFT_STORAGE_KEY, null);
   }
 
   async function handleConnect() {
@@ -452,46 +459,15 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
       // Fall through: liveness is best-effort, submit remains the final gate.
     }
 
+    // The shared vote-flow helpers keep these three deps identical to the
+    // single-vote panel's, so the two flows cannot drift.
     const realDeps: SubmitMultiVoteDeps = {
-      async hostRationale({ gaId, drepId, rationale }) {
-        const res = await fetchWithTimeout('/api/vote/rationale', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ drepId, gaId, rationale }),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new PreSignError(
-            body?.error ? `Could not host rationale: ${body.error}.` : 'Could not host a vote rationale. Please try again.',
-          );
-        }
-        return res.json() as Promise<{ url: string; hash: string }>;
-      },
+      hostRationale: hostVoteRationale,
       async castVotes(opts) {
-        // Lazy-import so the heavy SDK only loads when the user submits. The
-        // import itself can fail on a stale page (after a deploy the old hashed
-        // chunk is gone); translate that into a reload hint instead of a
-        // cryptic fetch error. Nothing was signed at this point.
-        let mod: typeof import('@/lib/governance/drepTx.js');
-        try {
-          mod = await import('@/lib/governance/drepTx.js');
-        } catch {
-          throw new PreSignError(
-            'Could not load the transaction builder; this page may be outdated after a site update. Please reload the page and try again. No vote was submitted.',
-          );
-        }
-        return mod.castDRepVotes(opts);
+        return (await loadDrepTxModule()).castDRepVotes(opts);
       },
       async recordVotes(rec) {
-        const res = await fetchWithTimeout('/api/vote/record', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(rec),
-        });
-        if (!res.ok) {
-          // Non-fatal: the votes are already on chain; the hourly sync heals.
-          console.warn('[MultiVoteBar] /api/vote/record failed', res.status);
-        }
+        await postVoteRecord(rec, 'MultiVoteBar');
       },
     };
 
@@ -648,7 +624,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
                         {choice}
                       </span>
                       <button type="button" onClick={() => removeItem(action.gaId)} disabled={busy} aria-label={`Remove ${action.title} from batch`}
-                        style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline', fontSize: '0.8125rem' }}>
+                        style={linkBtn('var(--muted)', { fontSize: '0.8125rem' })}>
                         Remove
                       </button>
                     </span>
@@ -662,18 +638,15 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
                     {(overrides[action.gaId] ?? '').trim() ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                         <span>Custom rationale, {(overrides[action.gaId] ?? '').length} characters.</span>
-                        <button type="button" onClick={() => setRationaleModalTarget(action.gaId)} disabled={busy}
-                          style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                        <button type="button" onClick={() => setRationaleModalTarget(action.gaId)} disabled={busy} style={linkBtn('var(--accent)')}>
                           Edit
                         </button>
-                        <button type="button" onClick={() => setOverrides((p) => ({ ...p, [action.gaId]: '' }))} disabled={busy}
-                          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                        <button type="button" onClick={() => setOverrides((p) => ({ ...p, [action.gaId]: '' }))} disabled={busy} style={linkBtn('var(--muted)')}>
                           Remove
                         </button>
                       </span>
                     ) : (
-                      <button type="button" onClick={() => setRationaleModalTarget(action.gaId)} disabled={busy}
-                        style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                      <button type="button" onClick={() => setRationaleModalTarget(action.gaId)} disabled={busy} style={linkBtn('var(--muted)')}>
                         Add a custom rationale for this action
                       </button>
                     )}
@@ -691,12 +664,10 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
               {sharedRationale.trim() ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.875rem' }}>
                   <span>Rationale added, {sharedRationale.length} characters.</span>
-                  <button type="button" onClick={() => setRationaleModalTarget('shared')} disabled={busy}
-                    style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                  <button type="button" onClick={() => setRationaleModalTarget('shared')} disabled={busy} style={linkBtn('var(--accent)')}>
                     Edit
                   </button>
-                  <button type="button" onClick={() => setSharedRationale('')} disabled={busy}
-                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                  <button type="button" onClick={() => setSharedRationale('')} disabled={busy} style={linkBtn('var(--muted)')}>
                     Remove
                   </button>
                 </div>
@@ -760,13 +731,9 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
                   className="btn btn-primary"
                   disabled={busy || items.length === 0 || tooManyRationales}
                   onClick={() => {
-                    const identity =
-                      phase.status === 'form' || phase.status === 'submitting'
-                        ? phase.identity
-                        : phase.status === 'error' && phase.identity
-                          ? phase.identity
-                          : null;
-                    if (identity) void handleSubmit(identity);
+                    // The enclosing branch only renders once an identity exists
+                    // (form/submitting/error-with-identity); this narrows the type.
+                    if ('identity' in phase && phase.identity) void handleSubmit(phase.identity);
                   }}
                   style={{ alignSelf: 'flex-start' }}
                 >

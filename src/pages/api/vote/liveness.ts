@@ -8,12 +8,12 @@
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { MAX_BATCH_VOTES } from '@/lib/governance/voteLimits';
 
 export const prerender = false;
 
-// Cap well below D1's 100-bound-params-per-query limit.
 const schema = z.object({
-  gaIds: z.array(z.string().regex(/^[0-9a-fA-F]{64}#\d{1,5}$/)).min(1).max(50),
+  gaIds: z.array(z.string().regex(/^[0-9a-fA-F]{64}#\d{1,5}$/)).min(1).max(MAX_BATCH_VOTES),
 });
 
 export const POST: APIRoute = async ({ request, locals }) => {

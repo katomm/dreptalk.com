@@ -22,6 +22,13 @@ export interface DRepIdentity {
 }
 
 /**
+ * The connected wallet's DRep is not eligible to vote here (script credential,
+ * or not a registered active DRep). Typed so the preflight's catch can tell
+ * these apart from transient read failures without matching message text.
+ */
+export class DrepIneligibleError extends Error {}
+
+/**
  * Connects a wallet as a key-credential DRep: enables with the CIP-95
  * extension, runs the network guard, derives the DRep key hash + bech32 id,
  * and preflights the on-chain DRep status via Koios. Throws an Error with a
@@ -76,12 +83,12 @@ export async function connectAsDrep(
       const row = Array.isArray(rows) ? rows[0] : undefined;
       if (row) {
         if (row.has_script === true) {
-          throw new Error(
+          throw new DrepIneligibleError(
             'Your wallet uses a script-credential DRep, which cannot sign votes directly. Only key-credential DReps can vote here.',
           );
         }
         if (row.drep_status !== 'registered' || row.active !== true) {
-          throw new Error(
+          throw new DrepIneligibleError(
             "Your wallet's DRep key is not a registered, active DRep. Register as a DRep before voting.",
           );
         }
@@ -92,9 +99,7 @@ export async function connectAsDrep(
     // Non-ok response: fall through and let the submit step be the final gate.
   } catch (err) {
     // Rethrow our own eligibility errors; swallow read failures only.
-    if (err instanceof Error && (err.message.includes('script-credential') || err.message.includes('registered, active'))) {
-      throw err;
-    }
+    if (err instanceof DrepIneligibleError) throw err;
   }
 
   return { api, identity };

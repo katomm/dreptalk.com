@@ -9,7 +9,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import { srOnlyRadio } from '@/components/srOnlyRadio.js';
-import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import type { CastDRepVoteOpts } from '@/lib/governance/drepTx.js';
@@ -17,6 +16,7 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { connectAsDrep, type EnabledWalletApi, type DRepIdentity } from '@/lib/wallet/drepWalletConnect.js';
+import { hostVoteRationale, loadDrepTxModule, postVoteRecord, readDraft, writeDraft } from '@/lib/governance/voteFlowClient.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import RationaleModal from '@/components/RationaleModal.js';
 import type { ViewerVoteRow } from '@/lib/db/drepVotes.js';
@@ -240,7 +240,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   const draftKey = `${VOTE_DRAFT_KEY_PREFIX}${gaId}`;
   const draftRestoredRef = useRef(false);
   useEffect(() => {
-    const draft = restoreVoteDraft(window.localStorage.getItem(draftKey));
+    const draft = restoreVoteDraft(readDraft(draftKey));
     if (draft) {
       setVote(draft.vote);
       setRationaleText(draft.rationaleText);
@@ -251,16 +251,8 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   }, [draftKey]);
   useEffect(() => {
     if (!draftRestoredRef.current) return;
-    try {
-      if (rationaleText.trim().length === 0) {
-        window.localStorage.removeItem(draftKey);
-      } else {
-        const draft: VoteDraft = { vote, rationaleText, crossPost };
-        window.localStorage.setItem(draftKey, JSON.stringify(draft));
-      }
-    } catch {
-      // Storage can be full or blocked; drafting is best-effort, never fatal.
-    }
+    const draft: VoteDraft = { vote, rationaleText, crossPost };
+    writeDraft(draftKey, rationaleText.trim().length === 0 ? null : JSON.stringify(draft));
   }, [draftKey, vote, rationaleText, crossPost]);
 
   const busy =
@@ -307,48 +299,20 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
 
     setPhase({ status: 'submitting', identity });
 
+    // The shared vote-flow helpers keep these deps identical to the batch
+    // panel's, so the two flows cannot drift.
     const realDeps: SubmitVoteDeps = {
       onRationaleHosted: (anchor) => {
         setRationaleAnchor(anchor);
       },
-      async hostRationale({ gaId: gId, drepId, rationale, origin: _origin }) {
-        const res = await fetchWithTimeout('/api/vote/rationale', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ drepId, gaId: gId, rationale }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => null) as { error?: string } | null;
-          throw new Error(body?.error ? `Could not host rationale: ${body.error}.` : 'Could not host the vote rationale. Please try again.');
-        }
-        return res.json() as Promise<{ url: string; hash: string }>;
+      async hostRationale({ gaId: gId, drepId, rationale }) {
+        return hostVoteRationale({ gaId: gId, drepId, rationale });
       },
       async castVote(opts) {
-        // Lazy-import so the heavy SDK only loads when the user submits. The
-        // import itself can fail on a stale page (after a deploy the old hashed
-        // chunk is gone); translate that into a reload hint instead of a
-        // cryptic fetch error. Nothing was signed at this point.
-        let mod: typeof import('@/lib/governance/drepTx.js');
-        try {
-          mod = await import('@/lib/governance/drepTx.js');
-        } catch {
-          throw new Error(
-            'Could not load the transaction builder; this page may be outdated after a site update. Please reload the page and try again. No vote was submitted.',
-          );
-        }
-        return mod.castDRepVote(opts);
+        return (await loadDrepTxModule()).castDRepVote(opts);
       },
       async recordVote(rec) {
-        const res = await fetchWithTimeout('/api/vote/record', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(rec),
-        });
-        if (!res.ok) {
-          // Non-fatal: the vote is already on chain; a record failure is not
-          // worth surfacing as an error. Log and continue.
-          console.warn('[VotePanel] /api/vote/record failed', res.status);
-        }
+        await postVoteRecord(rec, 'VotePanel');
       },
     };
 
@@ -366,11 +330,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
       });
       // The vote is on chain: drop the draft eagerly so a crash right after
       // success cannot resurrect the already-submitted rationale.
-      try {
-        window.localStorage.removeItem(draftKey);
-      } catch {
-        // Best-effort, like all draft storage.
-      }
+      writeDraft(draftKey, null);
       setPhase({ status: 'success', txHash });
     } catch (err) {
       const msg = expiredActionMessage(err) ?? readableError(err);

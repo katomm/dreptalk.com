@@ -14,6 +14,7 @@ import { upsertVoteRationalePost, removeVoteRationalePost } from '@/lib/db/voteR
 import { upsertActionRationale } from '@/lib/db/actionRationale';
 import { renderMarkdown } from '@/lib/markdown';
 import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale';
+import { MAX_BATCH_VOTES } from '@/lib/governance/voteLimits';
 
 export const prerender = false;
 
@@ -36,12 +37,11 @@ const voteEntrySchema = z.object({
 const txHashSchema = z.string().regex(/^[0-9a-fA-F]{64}$/);
 
 // Two accepted shapes: the original single-vote body, and the multi-vote batch
-// where all votes share one transaction. Batch size is capped to match the
-// liveness endpoint; duplicates are rejected because drep_votes is keyed on
-// (ga_id, voter_id) and a duplicate would be a client bug.
+// where all votes share one transaction. Duplicates are rejected because
+// drep_votes is keyed on (ga_id, voter_id) and a duplicate would be a client bug.
 const schema = z.union([
   voteEntrySchema.extend({ txHash: txHashSchema }),
-  z.object({ txHash: txHashSchema, votes: z.array(voteEntrySchema).min(1).max(50) }),
+  z.object({ txHash: txHashSchema, votes: z.array(voteEntrySchema).min(1).max(MAX_BATCH_VOTES) }),
 ]);
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -83,47 +83,60 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const nowSec = Math.floor(Date.now() / 1000);
   const nowMs = Date.now();
 
-  for (const entry of votes) {
-    const { gaId, vote, rationaleUrl, rationaleText, crossPost } = entry;
-    await recordLocalVote(db, {
-      gaId,
-      drepId,
-      voterHex: null,
-      vote,
-      metaUrl: rationaleUrl ?? null,
-      txHash,
-      now: nowSec,
-    });
+  // One lookup for all topic ids instead of one query per vote; the batch is
+  // capped at MAX_BATCH_VOTES, far below D1's 100-bound-params limit.
+  const placeholders = votes.map(() => '?').join(',');
+  const topicRows =
+    (
+      await db
+        .prepare(`SELECT id, topic_id FROM governance_actions WHERE id IN (${placeholders})`)
+        .bind(...votes.map((v) => v.gaId))
+        .all<{ id: string; topic_id: string | null }>()
+    ).results ?? [];
+  const topicByGa = new Map(topicRows.map((r) => [r.id, r.topic_id]));
 
-    if (rationaleText) {
-      const ga = await db
-        .prepare(`SELECT topic_id FROM governance_actions WHERE id = ?`)
-        .bind(gaId)
-        .first<{ topic_id: string | null }>();
-      if (ga?.topic_id) {
-        const canonical = buildVoteRationale({ rationale: rationaleText }).rationale;
-        if (crossPost) {
-          await upsertVoteRationalePost(db, {
-            topicId: ga.topic_id,
-            authorId: user.id,
-            vote,
-            bodyMd: canonical,
-            bodyHtml: renderMarkdown(canonical),
-            now: nowMs,
+  // Entries are independent rows (duplicate gaIds were rejected above), so the
+  // per-vote writes run concurrently instead of up to ~150 serial round-trips.
+  await Promise.all(
+    votes.map(async (entry) => {
+      const { gaId, vote, rationaleUrl, rationaleText, crossPost } = entry;
+      await recordLocalVote(db, {
+        gaId,
+        drepId,
+        voterHex: null,
+        vote,
+        metaUrl: rationaleUrl ?? null,
+        txHash,
+        now: nowSec,
+      });
+
+      if (rationaleText) {
+        const topicId = topicByGa.get(gaId);
+        if (topicId) {
+          const canonical = buildVoteRationale({ rationale: rationaleText }).rationale;
+          if (crossPost) {
+            await upsertVoteRationalePost(db, {
+              topicId,
+              authorId: user.id,
+              vote,
+              bodyMd: canonical,
+              bodyHtml: renderMarkdown(canonical),
+              now: nowMs,
+            });
+          } else {
+            // Opt-out, or a re-vote with the box unchecked: ensure no stale
+            // cross-post is left standing in the discussion.
+            await removeVoteRationalePost(db, { topicId, authorId: user.id });
+          }
+          await upsertActionRationale(db, {
+            gaId, voterId: drepId, bodyHtml: renderMarkdown(canonical),
+            source: 'dreptalk', anchorUrl: rationaleUrl ?? null,
+            status: 'ok', createdAt: nowMs, now: nowMs,
           });
-        } else {
-          // Opt-out, or a re-vote with the box unchecked: ensure no stale
-          // cross-post is left standing in the discussion.
-          await removeVoteRationalePost(db, { topicId: ga.topic_id, authorId: user.id });
         }
-        await upsertActionRationale(db, {
-          gaId, voterId: drepId, bodyHtml: renderMarkdown(canonical),
-          source: 'dreptalk', anchorUrl: rationaleUrl ?? null,
-          status: 'ok', createdAt: nowMs, now: nowMs,
-        });
       }
-    }
-  }
+    }),
+  );
 
   return jsonResponse({ ok: true });
 };

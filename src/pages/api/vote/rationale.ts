@@ -7,10 +7,13 @@ import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
 import { handleVoteRationale } from '@/lib/governance/voteRationaleHandler';
+import { RATIONALE_RATE_MAX, RATIONALE_RATE_WINDOW_SEC } from '@/lib/governance/voteLimits';
 
 export const prerender = false;
-const RATE_MAX = 10;
-const RATE_WINDOW_SEC = 60;
+// Shared constants: the batch UI caps distinct rationale texts at this same
+// limit so a multi-vote submission can never 429 mid-hosting.
+const RATE_MAX = RATIONALE_RATE_MAX;
+const RATE_WINDOW_SEC = RATIONALE_RATE_WINDOW_SEC;
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = runtimeEnv(locals as App.Locals);
