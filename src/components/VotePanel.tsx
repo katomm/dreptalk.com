@@ -262,9 +262,19 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
         return res.json() as Promise<{ url: string; hash: string }>;
       },
       async castVote(opts) {
-        // Lazy-import so the heavy SDK only loads when the user submits.
-        const { castDRepVote } = await import('@/lib/governance/drepTx.js');
-        return castDRepVote(opts);
+        // Lazy-import so the heavy SDK only loads when the user submits. The
+        // import itself can fail on a stale page (after a deploy the old hashed
+        // chunk is gone); translate that into a reload hint instead of a
+        // cryptic fetch error. Nothing was signed at this point.
+        let mod: typeof import('@/lib/governance/drepTx.js');
+        try {
+          mod = await import('@/lib/governance/drepTx.js');
+        } catch {
+          throw new Error(
+            'Could not load the transaction builder; this page may be outdated after a site update. Please reload the page and try again. No vote was submitted.',
+          );
+        }
+        return mod.castDRepVote(opts);
       },
       async recordVote(rec) {
         const res = await fetchWithTimeout('/api/vote/record', {

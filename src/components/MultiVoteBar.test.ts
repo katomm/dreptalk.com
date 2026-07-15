@@ -8,6 +8,7 @@ import {
   submitMultiVote,
   countUniqueRationales,
   MAX_UNIQUE_BATCH_RATIONALES,
+  PreSignError,
   type SubmitMultiVoteDeps,
 } from './MultiVoteBar';
 
@@ -142,9 +143,12 @@ describe('submitMultiVote', () => {
       choice: 'yes' as const,
     }));
     const overrides = Object.fromEntries(selections.map((s, i) => [s.gaId, `distinct rationale ${i}`]));
-    await expect(
-      submitMultiVote(deps, makeArgs({ selections, overrides })),
-    ).rejects.toThrow(/rationale texts/);
+    const rejection = await submitMultiVote(deps, makeArgs({ selections, overrides })).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(rejection).toBeInstanceOf(PreSignError);
+    expect(String(rejection)).toMatch(/rationale texts/);
     // The guard must fire before the first hosting request (a mid-loop 429
     // would abort the submit after some documents were already hosted).
     expect(hostRationale).not.toHaveBeenCalled();

@@ -90,6 +90,14 @@ export function countUniqueRationales(
   return texts.size;
 }
 
+/**
+ * A failure that happened strictly BEFORE the wallet could sign anything
+ * (validation, rationale hosting, loading the tx-builder module). The error
+ * handler shows these as-is and skips the "a batch vote is all-or-nothing"
+ * note, which only makes sense once a transaction could actually have failed.
+ */
+export class PreSignError extends Error {}
+
 export interface SubmitMultiVoteDeps {
   hostRationale: (args: { gaId: string; drepId: string; rationale: string }) => Promise<{ url: string; hash: string }>;
   castVotes: (opts: CastDRepVotesOpts) => Promise<{ txHash: string }>;
@@ -132,7 +140,7 @@ export async function submitMultiVote(
   // a frustrating dead end for the DRep).
   const uniqueTexts = new Set(perAction.map((p) => p.text).filter((t) => t.length > 0));
   if (uniqueTexts.size > MAX_UNIQUE_BATCH_RATIONALES) {
-    throw new Error(
+    throw new PreSignError(
       `This batch has ${uniqueTexts.size} different rationale texts; at most ${MAX_UNIQUE_BATCH_RATIONALES} are supported per submission. Reuse the shared rationale for some votes, or split the batch.`,
     );
   }
@@ -360,16 +368,26 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
         });
         if (!res.ok) {
           const body = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(
+          throw new PreSignError(
             body?.error ? `Could not host rationale: ${body.error}.` : 'Could not host a vote rationale. Please try again.',
           );
         }
         return res.json() as Promise<{ url: string; hash: string }>;
       },
       async castVotes(opts) {
-        // Lazy-import so the heavy SDK only loads when the user submits.
-        const { castDRepVotes } = await import('@/lib/governance/drepTx.js');
-        return castDRepVotes(opts);
+        // Lazy-import so the heavy SDK only loads when the user submits. The
+        // import itself can fail on a stale page (after a deploy the old hashed
+        // chunk is gone); translate that into a reload hint instead of a
+        // cryptic fetch error. Nothing was signed at this point.
+        let mod: typeof import('@/lib/governance/drepTx.js');
+        try {
+          mod = await import('@/lib/governance/drepTx.js');
+        } catch {
+          throw new PreSignError(
+            'Could not load the transaction builder; this page may be outdated after a site update. Please reload the page and try again. No vote was submitted.',
+          );
+        }
+        return mod.castDRepVotes(opts);
       },
       async recordVotes(rec) {
         const res = await fetchWithTimeout('/api/vote/record', {
@@ -400,12 +418,13 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
       resetBatchState();
       setPhase({ status: 'success', txHash, count });
     } catch (err) {
-      const msg = expiredActionMessage(err) ?? readableError(err);
-      setPhase({
-        status: 'error',
-        message: `${msg} Note: a batch vote is all-or-nothing; if one action closed, no vote in this batch was cast.`,
-        identity,
-      });
+      // Pre-sign failures carry their own complete message; the all-or-nothing
+      // note only applies once a transaction could actually have been rejected.
+      const msg =
+        err instanceof PreSignError
+          ? err.message
+          : `${expiredActionMessage(err) ?? readableError(err)} Note: a batch vote is all-or-nothing; if one action closed, no vote in this batch was cast.`;
+      setPhase({ status: 'error', message: msg, identity });
     }
   }
 
