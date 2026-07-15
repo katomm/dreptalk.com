@@ -19,10 +19,10 @@ import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { expiredActionMessage } from '@/components/VotePanel.js';
 import WalletConnection from '@/components/WalletConnection.js';
+import RationaleModal from '@/components/RationaleModal.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
-import { MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale.js';
 
 type VoteChoice = 'yes' | 'no' | 'abstain';
 
@@ -198,7 +198,9 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [sharedRationale, setSharedRationale] = useState('');
   const [overrides, setOverrides] = useState<Record<string, string>>({});
-  const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
+  // Which rationale the modal editor (with Markdown preview) is bound to:
+  // 'shared' or a gaId ("<64hex>#<n>", so it can never collide with 'shared').
+  const [rationaleModalTarget, setRationaleModalTarget] = useState<'shared' | string | null>(null);
   const [crossPost, setCrossPost] = useState(false);
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
   const [droppedNotice, setDroppedNotice] = useState<string[]>([]);
@@ -285,7 +287,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
     setSelections({});
     setSharedRationale('');
     setOverrides({});
-    setOpenOverrides({});
+    setRationaleModalTarget(null);
     setCrossPost(false);
     setDroppedNotice([]);
     setExpanded(false);
@@ -535,40 +537,58 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
                       Changes your previous {action.prevVote.toLowerCase()} vote.
                     </p>
                   )}
-                  <div style={{ marginTop: '0.375rem' }}>
-                    <button type="button" onClick={() => setOpenOverrides((p) => ({ ...p, [action.gaId]: !p[action.gaId] }))} disabled={busy}
-                      style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', fontSize: '0.8125rem', textDecoration: 'underline' }}>
-                      {openOverrides[action.gaId] || (overrides[action.gaId] ?? '').trim() ? 'Custom rationale for this action' : 'Add a custom rationale for this action'}
-                    </button>
-                    {(openOverrides[action.gaId] || (overrides[action.gaId] ?? '').trim()) && (
-                      <textarea
-                        value={overrides[action.gaId] ?? ''}
-                        onChange={(e) => setOverrides((p) => ({ ...p, [action.gaId]: e.target.value }))}
-                        disabled={busy}
-                        maxLength={MAX_VOTE_RATIONALE}
-                        rows={3}
-                        placeholder="Overrides the shared rationale for this action only"
-                        style={{ width: '100%', marginTop: '0.375rem', fontFamily: 'inherit', fontSize: '0.875rem', padding: '0.5rem', borderRadius: '0.375rem', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--fg)', resize: 'vertical' }}
-                      />
+                  <div style={{ marginTop: '0.375rem', fontSize: '0.8125rem' }}>
+                    {(overrides[action.gaId] ?? '').trim() ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <span>Custom rationale, {(overrides[action.gaId] ?? '').length} characters.</span>
+                        <button type="button" onClick={() => setRationaleModalTarget(action.gaId)} disabled={busy}
+                          style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                          Edit
+                        </button>
+                        <button type="button" onClick={() => setOverrides((p) => ({ ...p, [action.gaId]: '' }))} disabled={busy}
+                          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                          Remove
+                        </button>
+                      </span>
+                    ) : (
+                      <button type="button" onClick={() => setRationaleModalTarget(action.gaId)} disabled={busy}
+                        style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                        Add a custom rationale for this action
+                      </button>
                     )}
                   </div>
                 </li>
               ))}
             </ul>
 
-            {/* Shared rationale */}
+            {/* Shared rationale: edited in the roomy modal (Markdown + preview),
+                mirroring the single-vote flow. */}
             <div>
-              <label style={{ display: 'block', fontSize: '0.875rem', color: 'var(--muted)', fontWeight: 500, marginBottom: '0.375rem' }}>
+              <span style={{ display: 'block', fontSize: '0.875rem', color: 'var(--muted)', fontWeight: 500, marginBottom: '0.375rem' }}>
                 Shared rationale <span style={{ fontWeight: 400 }}>(optional, published on-chain as CIP-100, applied to every vote without a custom rationale)</span>
-                <textarea
-                  value={sharedRationale}
-                  onChange={(e) => setSharedRationale(e.target.value)}
+              </span>
+              {sharedRationale.trim() ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.875rem' }}>
+                  <span>Rationale added, {sharedRationale.length} characters.</span>
+                  <button type="button" onClick={() => setRationaleModalTarget('shared')} disabled={busy}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                    Edit
+                  </button>
+                  <button type="button" onClick={() => setSharedRationale('')} disabled={busy}
+                    style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}>
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setRationaleModalTarget('shared')}
                   disabled={busy}
-                  maxLength={MAX_VOTE_RATIONALE}
-                  rows={4}
-                  style={{ width: '100%', marginTop: '0.375rem', fontFamily: 'inherit', fontSize: '0.875rem', padding: '0.5rem', borderRadius: '0.375rem', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--fg)', resize: 'vertical' }}
-                />
-              </label>
+                  style={{ padding: '0.5rem 0.875rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg)', color: 'var(--fg)', cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}
+                >
+                  Write a shared rationale
+                </button>
+              )}
             </div>
 
             {(sharedRationale.trim() || Object.values(overrides).some((t) => t.trim())) && (
@@ -643,6 +663,26 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
           </div>
         )}
       </div>
+
+      {/* Rationale editor with Markdown preview, bound to the shared text or to
+          one action's custom override. Same modal the single-vote flow uses. */}
+      {rationaleModalTarget !== null && (
+        <RationaleModal
+          value={rationaleModalTarget === 'shared' ? sharedRationale : (overrides[rationaleModalTarget] ?? '')}
+          onChange={(v) =>
+            rationaleModalTarget === 'shared'
+              ? setSharedRationale(v)
+              : setOverrides((p) => ({ ...p, [rationaleModalTarget]: v }))
+          }
+          onClose={() => setRationaleModalTarget(null)}
+          title={rationaleModalTarget === 'shared' ? 'Write your shared rationale' : 'Write a custom rationale'}
+          note={
+            rationaleModalTarget === 'shared'
+              ? 'Optional. Published on-chain (CIP-100) with every selected vote that has no custom rationale. Markdown is supported.'
+              : 'Optional. Published on-chain (CIP-100) with this vote only, replacing the shared rationale for this action. Markdown is supported.'
+          }
+        />
+      )}
     </div>
   );
 }
