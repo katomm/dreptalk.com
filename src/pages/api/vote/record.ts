@@ -1,4 +1,5 @@
 // POST /api/vote/record
+// Accepts a single vote or a batch of votes sharing one transaction.
 // Optimistic local record of a just-submitted DRep vote, plus the frozen
 // rationale post. The tx is built and submitted by the wallet, NOT here; this
 // only mirrors the result so the UI reflects it before the hourly sync. Gated
@@ -16,10 +17,9 @@ import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRat
 
 export const prerender = false;
 
-const schema = z.object({
+const voteEntrySchema = z.object({
   gaId: z.string().regex(/^[0-9a-fA-F]{64}#\d{1,5}$/),
   vote: z.enum(['yes', 'no', 'abstain']),
-  txHash: z.string().regex(/^[0-9a-fA-F]{64}$/),
   rationaleUrl: z.string().url().optional(),
   // Cap tied to MAX_VOTE_RATIONALE so the input contract can't drift from the
   // canonical limit. A small buffer above it tolerates whitespace, CRLFs, and
@@ -32,6 +32,17 @@ const schema = z.object({
   // removed).
   crossPost: z.boolean().optional(),
 });
+
+const txHashSchema = z.string().regex(/^[0-9a-fA-F]{64}$/);
+
+// Two accepted shapes: the original single-vote body, and the multi-vote batch
+// where all votes share one transaction. Batch size is capped to match the
+// liveness endpoint; duplicates are rejected because drep_votes is keyed on
+// (ga_id, voter_id) and a duplicate would be a client bug.
+const schema = z.union([
+  voteEntrySchema.extend({ txHash: txHashSchema }),
+  z.object({ txHash: txHashSchema, votes: z.array(voteEntrySchema).min(1).max(50) }),
+]);
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = (locals as App.Locals).user;
@@ -52,7 +63,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const parsed = schema.safeParse(raw);
   if (!parsed.success) return jsonResponse({ error: 'invalid input' }, 400);
-  const { gaId, vote, txHash, rationaleUrl, rationaleText, crossPost } = parsed.data;
+  const { txHash } = parsed.data;
+  const votes = 'votes' in parsed.data ? parsed.data.votes : [parsed.data];
+
+  const ids = new Set(votes.map((v) => v.gaId.toLowerCase()));
+  if (ids.size !== votes.length) {
+    return jsonResponse({ error: 'duplicate governance action in batch' }, 400);
+  }
 
   // Derive drep_id from the session user: never trust a client-supplied value.
   const dbUser = await getUserById(db, user.id);
@@ -65,42 +82,46 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // the opening post, so each table gets its own unit.
   const nowSec = Math.floor(Date.now() / 1000);
   const nowMs = Date.now();
-  await recordLocalVote(db, {
-    gaId,
-    drepId,
-    voterHex: null,
-    vote,
-    metaUrl: rationaleUrl ?? null,
-    txHash,
-    now: nowSec,
-  });
 
-  if (rationaleText) {
-    const ga = await db
-      .prepare(`SELECT topic_id FROM governance_actions WHERE id = ?`)
-      .bind(gaId)
-      .first<{ topic_id: string | null }>();
-    if (ga?.topic_id) {
-      const canonical = buildVoteRationale({ rationale: rationaleText }).rationale;
-      if (crossPost) {
-        await upsertVoteRationalePost(db, {
-          topicId: ga.topic_id,
-          authorId: user.id,
-          vote,
-          bodyMd: canonical,
-          bodyHtml: renderMarkdown(canonical),
-          now: nowMs,
+  for (const entry of votes) {
+    const { gaId, vote, rationaleUrl, rationaleText, crossPost } = entry;
+    await recordLocalVote(db, {
+      gaId,
+      drepId,
+      voterHex: null,
+      vote,
+      metaUrl: rationaleUrl ?? null,
+      txHash,
+      now: nowSec,
+    });
+
+    if (rationaleText) {
+      const ga = await db
+        .prepare(`SELECT topic_id FROM governance_actions WHERE id = ?`)
+        .bind(gaId)
+        .first<{ topic_id: string | null }>();
+      if (ga?.topic_id) {
+        const canonical = buildVoteRationale({ rationale: rationaleText }).rationale;
+        if (crossPost) {
+          await upsertVoteRationalePost(db, {
+            topicId: ga.topic_id,
+            authorId: user.id,
+            vote,
+            bodyMd: canonical,
+            bodyHtml: renderMarkdown(canonical),
+            now: nowMs,
+          });
+        } else {
+          // Opt-out, or a re-vote with the box unchecked: ensure no stale
+          // cross-post is left standing in the discussion.
+          await removeVoteRationalePost(db, { topicId: ga.topic_id, authorId: user.id });
+        }
+        await upsertActionRationale(db, {
+          gaId, voterId: drepId, bodyHtml: renderMarkdown(canonical),
+          source: 'dreptalk', anchorUrl: rationaleUrl ?? null,
+          status: 'ok', createdAt: nowMs, now: nowMs,
         });
-      } else {
-        // Opt-out, or a re-vote with the box unchecked: ensure no stale
-        // cross-post is left standing in the discussion.
-        await removeVoteRationalePost(db, { topicId: ga.topic_id, authorId: user.id });
       }
-      await upsertActionRationale(db, {
-        gaId, voterId: drepId, bodyHtml: renderMarkdown(canonical),
-        source: 'dreptalk', anchorUrl: rationaleUrl ?? null,
-        status: 'ok', createdAt: nowMs, now: nowMs,
-      });
     }
   }
 
