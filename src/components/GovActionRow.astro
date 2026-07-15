@@ -10,6 +10,7 @@ import {
   govTypeTone,
 } from '@/lib/governance/view.js';
 import CompositionBar from '@/components/ga/CompositionBar.astro';
+import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 import { decodeOnchainChanges, summarizeOnchain, parameterChangeScope } from '@/lib/governance/onchain.js';
 import { evaluateThresholds, hasOnchainThreshold, type Body } from '@/lib/governance/thresholds.js';
@@ -102,7 +103,7 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
 <a class="garow" href={href}>
   <div class="garow__main">
     <span class="garow__tags">
-      <span class="pill" style={`--ph:var(--gov-${typeTone})`}>{readableType(action.type)}</span>
+      <span class="pill" style={`--ph:var(--gov-${typeTone})`}><GovTypeIcon type={action.type} size={11} />{readableType(action.type)}</span>
       <span class={`badge badge--${badge.tone}`}>{badge.label}</span>
     </span>
     <p class="garow__title">{action.title ?? topic.title}</p>
@@ -199,9 +200,12 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .garow__main { min-width:0; }
   /* Type pill and status badge sit on one line above the title. */
   .garow__tags { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 6px; }
-  .pill { display:inline-block; font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
+  /* inline-flex (not inline-block) so the type glyph and label center on one
+     line; the glyph inherits the pill's tone via currentColor. */
+  .pill { display:inline-flex; align-items:center; gap:4px; font-size:0.625rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
     padding:3px 8px; border-radius:999px;
     background:color-mix(in srgb, var(--ph) 14%, transparent); color:var(--ph); }
+  .pill :global(svg) { flex-shrink:0; }
   .garow__title { font-weight:700; font-size:0.95rem; margin:0 0 3px; }
   /* On-chain summary: a fixed line under the title so each action's substance sits
      in the same place on every row. Wraps on narrow widths rather than overflowing. */

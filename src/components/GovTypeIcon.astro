@@ -1,0 +1,93 @@
+---
+// One glyph per governance action type, in the same hand-inlined Lucide-style
+// stroke look used across the site (24x24, stroke 2, round caps). Colored via
+// currentColor so it inherits the type pill's tone (--gov-*) or any text color.
+// The tone mapping is govTypeTone, so raw on-chain and readable type strings
+// both resolve; unknown types fall back to the generic building glyph.
+import { govTypeTone } from '@/lib/governance/view.js';
+
+interface Props {
+  type: string; // raw on-chain type ("TreasuryWithdrawals") or readable form
+  size?: number;
+}
+const { type, size = 14 } = Astro.props;
+const tone = govTypeTone(type);
+---
+<svg
+  width={size}
+  height={size}
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  {tone === 'constitution' && (
+    <>
+      <path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4" />
+      <path d="M19 17V5a2 2 0 0 0-2-2H4" />
+    </>
+  )}
+  {tone === 'treasury' && (
+    <>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M18.09 10.37A6 6 0 1 1 10.34 18" />
+      <path d="M7 6h1v4" />
+      <path d="m16.71 13.88.7.71-2.82 2.82" />
+    </>
+  )}
+  {tone === 'parameter' && (
+    <>
+      <line x1="21" x2="14" y1="4" y2="4" />
+      <line x1="10" x2="3" y1="4" y2="4" />
+      <line x1="21" x2="12" y1="12" y2="12" />
+      <line x1="8" x2="3" y1="12" y2="12" />
+      <line x1="21" x2="16" y1="20" y2="20" />
+      <line x1="12" x2="3" y1="20" y2="20" />
+      <line x1="14" x2="14" y1="2" y2="6" />
+      <line x1="8" x2="8" y1="10" y2="14" />
+      <line x1="16" x2="16" y1="18" y2="22" />
+    </>
+  )}
+  {tone === 'info' && (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4" />
+      <path d="M12 8h.01" />
+    </>
+  )}
+  {tone === 'hardfork' && (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="12" cy="18" r="3" />
+      <path d="M6 9v2c0 .6.4 1 1 1h10c.6 0 1-.4 1-1V9" />
+      <path d="M12 12v3" />
+    </>
+  )}
+  {tone === 'committee' && (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </>
+  )}
+  {tone === 'noconfidence' && (
+    <>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="m9.5 9.5 5 5" />
+      <path d="m14.5 9.5-5 5" />
+    </>
+  )}
+  {tone === 'other' && (
+    <>
+      <path d="M3 21h18" />
+      <path d="M5 21V10l7-5 7 5v11" />
+      <path d="M9 21v-6h6v6" />
+      <path d="M3 10h18" />
+    </>
+  )}
+</svg>

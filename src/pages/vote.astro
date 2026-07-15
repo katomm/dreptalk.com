@@ -8,6 +8,7 @@
 export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
+import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
@@ -167,6 +168,7 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
                     <div class="vote-row__main">
                       <div class="vote-row__tags">
                         <span class="pill" style={`--ph:var(--gov-${typeTone})`}>
+                          <GovTypeIcon type={row.type} size={11} />
                           {readableType(row.type)}
                         </span>
                         {row.viewerVote ? (
@@ -226,6 +228,7 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
                   <div class="history-row__main">
                     <div class="history-row__tags">
                       <span class="pill" style={`--ph:var(--gov-${typeTone})`}>
+                        <GovTypeIcon type={row.type} size={11} />
                         {readableType(row.type)}
                       </span>
                       <span
@@ -315,8 +318,12 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     margin: 0 0 0.375rem;
   }
 
+  /* inline-flex (not inline-block) so the type glyph and label center on one
+     line; the glyph inherits the pill's tone via currentColor. */
   .pill {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-size: 0.625rem;
     font-weight: 700;
     text-transform: uppercase;

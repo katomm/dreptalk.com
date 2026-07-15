@@ -39,6 +39,12 @@
   /* Destructive actions (Log out, flag, delete). */
   --danger: #dc2626;
   --grad: linear-gradient(120deg, #8b5cf6 0%, #3b82f6 50%, #2dd4bf 100%);
+  /* Fine monochrome grain (tiled SVG turbulence), laid as a static extra layer
+     over soft gradient glows so they read as texture rather than a flat digital
+     gradient. Painted once at load, zero runtime cost. The grayscale speckles
+     work on both themes when composited with mix-blend-mode: overlay at the use
+     site, so there is no dark-theme override. */
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 
   /* Positive/negative badge text. As text over their own 14% tint on --bg these
      reach ~5.5:1 / ~5.2:1 (WCAG AA); the brighter old values fell below 4.5:1. */

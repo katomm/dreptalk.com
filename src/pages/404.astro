@@ -43,6 +43,31 @@ import Layout from '@/layouts/Layout.astro';
       z-index: -1;
       pointer-events: none;
     }
+    /* Static grain over the glow (same footprint), so the blurred gradient reads
+       as texture instead of a flat blob. Radially masked so no tile edge shows
+       where the glow has faded out; overlay blending keeps it working on both
+       themes. One paint at load, zero runtime cost. */
+    .notfound::after {
+      content: '';
+      position: absolute;
+      top: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(26rem, 80%);
+      height: 14rem;
+      background: var(--noise);
+      mix-blend-mode: overlay;
+      opacity: 0.5;
+      -webkit-mask-image: radial-gradient(60% 60% at 50% 50%, #000 30%, transparent 100%);
+      mask-image: radial-gradient(60% 60% at 50% 50%, #000 30%, transparent 100%);
+      z-index: -1;
+      pointer-events: none;
+    }
+    /* On the near-black background the light speckles lift far more than on
+       white, so the dark theme runs the grain much fainter. */
+    :global(html[data-theme='dark']) .notfound::after {
+      opacity: 0.22;
+    }
     .notfound__code {
       font-family: var(--font-display);
       font-weight: 800;
