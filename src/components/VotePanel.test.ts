@@ -2,7 +2,7 @@
 // React rendering is not tested here; only the pure submit logic is exercised,
 // with hostRationale, castVote, and recordVote replaced by mocks.
 import { describe, it, expect, vi } from 'vitest';
-import { submitVote, expiredActionMessage } from './VotePanel.js';
+import { submitVote, expiredActionMessage, restoreVoteDraft } from './VotePanel.js';
 
 describe('submitVote orchestration', () => {
   it('hosts rationale, casts, then records (rationale path)', async () => {
@@ -155,5 +155,24 @@ describe('expiredActionMessage', () => {
   it('returns null for a generic connection error', () => {
     const result = expiredActionMessage(new Error('fetch failed: connection refused'));
     expect(result).toBeNull();
+  });
+});
+
+describe('restoreVoteDraft', () => {
+  it('restores a draft carrying rationale text', () => {
+    const raw = JSON.stringify({ vote: 'no', rationaleText: 'my reasoning', crossPost: true });
+    expect(restoreVoteDraft(raw)).toEqual({ vote: 'no', rationaleText: 'my reasoning', crossPost: true });
+  });
+
+  it('returns null for missing, corrupt, or text-less drafts', () => {
+    expect(restoreVoteDraft(null)).toBeNull();
+    expect(restoreVoteDraft('{broken')).toBeNull();
+    // A vote choice alone is one click; only rationale text makes a draft worth keeping.
+    expect(restoreVoteDraft(JSON.stringify({ vote: 'no', rationaleText: '  ', crossPost: false }))).toBeNull();
+  });
+
+  it('falls back to yes for an invalid stored vote choice', () => {
+    const raw = JSON.stringify({ vote: 'maybe', rationaleText: 'text', crossPost: false });
+    expect(restoreVoteDraft(raw)?.vote).toBe('yes');
   });
 });

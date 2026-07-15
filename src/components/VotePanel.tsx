@@ -6,7 +6,7 @@
 // (2) calls castDRepVote to build/sign/submit the vote tx, (3) records the
 // optimistic result via POST /api/vote/record, (4) shows success with an
 // explorer link. Connect/identity derivation mirrors DRepService exactly.
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import { srOnlyRadio } from '@/components/srOnlyRadio.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
@@ -134,6 +134,37 @@ export function expiredActionMessage(err: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Draft persistence
+// ---------------------------------------------------------------------------
+
+// A rationale typed in the thread's vote panel survives a reload, tab close,
+// or browser crash until the vote is submitted. Keyed per governance action so
+// drafts in different threads never collide. Mirrors MultiVoteBar's batch
+// draft; a draft is only worth keeping while it carries rationale text.
+export const VOTE_DRAFT_KEY_PREFIX = 'dreptalk:vote-draft:';
+
+export interface VoteDraft {
+  vote: VoteChoice;
+  rationaleText: string;
+  crossPost: boolean;
+}
+
+/** Parses a stored single-vote draft; null when corrupt or without text. Pure; exported for unit tests. */
+export function restoreVoteDraft(raw: string | null): VoteDraft | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<VoteDraft>;
+    const rationaleText = typeof parsed.rationaleText === 'string' ? parsed.rationaleText : '';
+    if (rationaleText.trim().length === 0) return null;
+    const vote =
+      parsed.vote === 'yes' || parsed.vote === 'no' || parsed.vote === 'abstain' ? parsed.vote : 'yes';
+    return { vote, rationaleText, crossPost: parsed.crossPost === true };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // React component
 // ---------------------------------------------------------------------------
 
@@ -200,6 +231,37 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   // When a prior vote exists, start in "change vote" mode if the user explicitly
   // requests it. The connect step is shown regardless (wallet auth is required).
   const [changingVote, setChangingVote] = useState(!initialViewerVote);
+
+  // Draft persistence: restore runs once after hydration (no localStorage
+  // during SSR); the persist effect stays quiet until then so it can never
+  // clobber a stored draft with the pre-restore empty state. A present draft
+  // also reopens the change-vote form: the DRep was mid-edit when the page
+  // died, so do not hide their text behind the prior-vote summary.
+  const draftKey = `${VOTE_DRAFT_KEY_PREFIX}${gaId}`;
+  const draftRestoredRef = useRef(false);
+  useEffect(() => {
+    const draft = restoreVoteDraft(window.localStorage.getItem(draftKey));
+    if (draft) {
+      setVote(draft.vote);
+      setRationaleText(draft.rationaleText);
+      setCrossPost(draft.crossPost);
+      setChangingVote(true);
+    }
+    draftRestoredRef.current = true;
+  }, [draftKey]);
+  useEffect(() => {
+    if (!draftRestoredRef.current) return;
+    try {
+      if (rationaleText.trim().length === 0) {
+        window.localStorage.removeItem(draftKey);
+      } else {
+        const draft: VoteDraft = { vote, rationaleText, crossPost };
+        window.localStorage.setItem(draftKey, JSON.stringify(draft));
+      }
+    } catch {
+      // Storage can be full or blocked; drafting is best-effort, never fatal.
+    }
+  }, [draftKey, vote, rationaleText, crossPost]);
 
   const busy =
     phase.status === 'connecting' ||
@@ -302,6 +364,13 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
         origin: window.location.origin,
         walletApi: api,
       });
+      // The vote is on chain: drop the draft eagerly so a crash right after
+      // success cannot resurrect the already-submitted rationale.
+      try {
+        window.localStorage.removeItem(draftKey);
+      } catch {
+        // Best-effort, like all draft storage.
+      }
       setPhase({ status: 'success', txHash });
     } catch (err) {
       const msg = expiredActionMessage(err) ?? readableError(err);
