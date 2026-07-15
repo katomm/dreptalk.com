@@ -34,10 +34,11 @@ import {
   type GovStatus,
 } from '@/lib/governance/sort.js';
 import { GOV_ACTION_TYPES, parseGovType } from '@/lib/governance/types.js';
+import { govTypeTone } from '@/lib/governance/view.js';
+import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import '@/styles/list-controls.css';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
-import { proposerView } from '@/lib/identity/proposer.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
 // Raw inline script (pinned in the CSP by its hash in astro.config.mjs) that
@@ -201,6 +202,9 @@ const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 // Show composer only for authenticated users on discussion (non-governance) categories.
 const user = Astro.locals.user;
 const showComposer = !!user && !!category && isDiscussion(category.slug);
+// DReps get a shortcut from the governance overview to their personal voting
+// dashboard (otherwise buried in the account menu). Role check only, no query.
+const isDrepViewer = user?.roles.includes('drep') ?? false;
 
 const prevPage = page > 1 ? page - 1 : null;
 const nextPage = isGovernanceCategory
@@ -312,7 +316,13 @@ const breadcrumbLd = {
             ))}
           </nav>
           <div class="ga-controls__right">
-            <details class="ga-dropdown" data-auto-dismiss>
+            {isDrepViewer && (
+              <a class="ga-dashlink" href="/vote/">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M5 7c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v12H5V7z"/><path d="M22 19H2"/></svg>
+                Voting Dashboard
+              </a>
+            )}
+            <details class="ga-dropdown ga-dropdown--end" data-auto-dismiss>
               <summary class="ctrl-box ga-dropdown__summary">
                 <span class="ga-dropdown__label">Sort</span>
                 <span class="ga-dropdown__value">{GOV_SORTS.find((s) => s.mode === sort)?.label}</span>
@@ -330,11 +340,18 @@ const breadcrumbLd = {
                 ))}
               </div>
             </details>
-            <details class="ga-dropdown" data-auto-dismiss>
+            <details class="ga-dropdown ga-dropdown--end" data-auto-dismiss>
               <summary class="ctrl-box ga-dropdown__summary">
                 <span class="ga-dropdown__label">Type</span>
                 <span class="ga-dropdown__value">
-                  {typeFilter ? GOV_ACTION_TYPES.find((t) => t.value === typeFilter)?.label : 'All types'}
+                  {typeFilter ? (
+                    <>
+                      <span class="gov-oico" style={`--ph:var(--gov-${govTypeTone(typeFilter)})`}>
+                        <GovTypeIcon tone={govTypeTone(typeFilter)} size={14} />
+                      </span>
+                      {GOV_ACTION_TYPES.find((t) => t.value === typeFilter)?.label}
+                    </>
+                  ) : 'All types'}
                 </span>
                 <span class="ga-dropdown__caret" aria-hidden="true">▾</span>
               </summary>
@@ -344,17 +361,24 @@ const breadcrumbLd = {
                   aria-current={typeFilter === null ? 'true' : undefined}
                   href={ctrlHref({ type: null })}
                 >
+                  <span class="gov-oico" aria-hidden="true"></span>
                   All types
                 </a>
-                {GOV_ACTION_TYPES.map((t) => (
-                  <a
-                    class="ga-dropdown__opt"
-                    aria-current={typeFilter === t.value ? 'true' : undefined}
-                    href={ctrlHref({ type: t.value })}
-                  >
-                    {t.label}
-                  </a>
-                ))}
+                {GOV_ACTION_TYPES.map((t) => {
+                  const tone = govTypeTone(t.value);
+                  return (
+                    <a
+                      class="ga-dropdown__opt"
+                      aria-current={typeFilter === t.value ? 'true' : undefined}
+                      href={ctrlHref({ type: t.value })}
+                    >
+                      <span class="gov-oico" style={`--ph:var(--gov-${tone})`}>
+                        <GovTypeIcon tone={tone} size={14} />
+                      </span>
+                      {t.label}
+                    </a>
+                  );
+                })}
               </div>
             </details>
           </div>
@@ -388,26 +412,19 @@ const breadcrumbLd = {
                 Time Left{sort === 'closing' && <span class="ga-list__caret" aria-hidden="true">↑</span>}
               </a>
             </div>
-            {pageRows.map((r) => {
-              const pv = proposerView(r.action.returnAddress);
-              const proposer = pv.kind === 'known' ? pv.name : pv.kind === 'unknown' ? pv.short : undefined;
-              const proposerIcon = pv.kind === 'known' ? (pv.icon ?? undefined) : undefined;
-              return (
-                <GovActionRow
-                  topic={r.topic}
-                  action={r.action}
-                  proposer={proposer}
-                  proposerIcon={proposerIcon}
-                  drepStakeTotal={drepStakeTotal}
-                  committeeSize={committeeSize}
-                  params={overviewParams}
-                  network={network}
-                  now={now}
-                  href={`/t/${r.topic.slug}/`}
-                  epochParamsJson={govParamsRawJson}
-                />
-              );
-            })}
+            {pageRows.map((r) => (
+              <GovActionRow
+                topic={r.topic}
+                action={r.action}
+                drepStakeTotal={drepStakeTotal}
+                committeeSize={committeeSize}
+                params={overviewParams}
+                network={network}
+                now={now}
+                href={`/t/${r.topic.slug}/`}
+                epochParamsJson={govParamsRawJson}
+              />
+            ))}
           </div>
           {/* Disclose how stale the cached on-chain numbers are: DRep stake from the
              dreps sync, tallies from per-action sync. Same formatter/phrasing as the
@@ -518,80 +535,25 @@ const breadcrumbLd = {
 )}
 
 <style>
-  /* Governance overview controls: sort tabs on the left, type filter on the
-     right. Wrap onto stacked rows on narrow screens. */
-  .ga-controls {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.75rem 1rem;
-    margin-bottom: 1.25rem;
-  }
-  .ga-controls__right {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem 1rem;
-  }
-
-  /* Sort and type dropdowns: a details/summary disclosure using the shared
-     .ctrl-box look, with an absolutely positioned menu of plain links (no
-     client JS). Matches the /vote dashboard's visual language. */
-  .ga-dropdown { position: relative; }
-  .ga-dropdown__summary {
+  /* DRep shortcut to the personal voting dashboard: a quiet accent-tinted pill
+     that sits with the Sort/Type dropdowns. */
+  .ga-dashlink {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    list-style: none;
-  }
-  .ga-dropdown__summary::-webkit-details-marker { display: none; }
-  .ga-dropdown__label { color: var(--muted); }
-  .ga-dropdown__value { font-weight: 600; }
-  .ga-dropdown[open] .ga-dropdown__caret { transform: rotate(180deg); }
-  .ga-dropdown__menu {
-    position: absolute;
-    z-index: 20;
-    top: calc(100% + 4px);
-    right: 0;
-    min-width: 12rem;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.25rem;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  }
-  .ga-dropdown__opt {
-    padding: 0.4rem 0.6rem;
-    border-radius: calc(var(--radius) - 2px);
-    color: inherit;
-    text-decoration: none;
-    font-size: 0.875rem;
-  }
-  .ga-dropdown__opt:hover { background: var(--surface-2); }
-  .ga-dropdown__opt[aria-current='true'] { color: var(--accent); font-weight: 600; }
-
-  /* The list and its header row. The header grid MUST match GovActionRow's
-     row grid (columns, gap, horizontal padding) so the labels align. */
-  .ga-list {
-    display: flex;
-    flex-direction: column;
-    border-top: 1px solid var(--border);
-  }
-  .ga-list__head {
-    display: grid;
-    grid-template-columns: 2.7fr 1.6fr 0.9fr 1.2fr;
-    gap: 18px;
-    padding: 10px 18px;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted);
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.8125rem;
     font-weight: 600;
+    text-decoration: none;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid transparent;
   }
+  .ga-dashlink:hover {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
   /* The Time Left header is a sort shortcut; it inherits the calm header look and
      gets emphasized when its sort (Closing Soon) is active. */
   .ga-list__sortlink {
@@ -610,34 +572,6 @@ const breadcrumbLd = {
   }
   .ga-list__caret {
     font-size: 0.9em;
-  }
-
-  /* Mirror GovActionRow's tightened four-column grid at the same breakpoint. */
-  @media (max-width: 1000px) {
-    .ga-list__head {
-      grid-template-columns: 2.4fr 1.6fr 0.8fr 1.1fr;
-    }
-  }
-
-  /* Rows collapse to a single column below 720px, so the header would no longer
-     align; hide it there. */
-  @media (max-width: 720px) {
-    .ga-list__head {
-      display: none;
-    }
-    /* Rows become standalone cards on mobile (see GovActionRow), so drop the
-       table's top border and space the cards apart instead. */
-    .ga-list {
-      border-top: none;
-      gap: 12px;
-    }
-  }
-
-  /* Staleness footnote: the cached on-chain numbers are never live. */
-  .ga-asof {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin: 0.75rem 0 0;
   }
 
   /* Discussion category two-column layout: sidebar on the left, topic list in

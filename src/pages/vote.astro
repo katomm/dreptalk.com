@@ -9,12 +9,18 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import GovTypePill from '@/components/GovTypePill.astro';
+import GovTypeIcon from '@/components/GovTypeIcon.astro';
+import GovActionRow from '@/components/GovActionRow.astro';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
 import { getDrepVotingHistory, getDrepParticipation } from '@/lib/db/drepVotes';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps';
-import { epochDaysLeft, voteTone, TONE_COLORS } from '@/lib/governance/view';
+import { getTopicsByIds, type Topic } from '@/lib/db/forum';
+import { getGovernanceActionsByTopicIds, type GovernanceAction } from '@/lib/db/governance';
+import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams';
+import { getActiveDrepStake } from '@/lib/db/stakeParticipation';
+import { epochDaysLeft, voteTone, TONE_COLORS, govTypeTone } from '@/lib/governance/view';
 import { resolveNetwork, epochStartUnix } from '@/lib/config/network';
 import { deriveVoteStats, isClosingSoon } from '@/lib/governance/voteDashboard';
 import { GOV_ACTION_TYPES } from '@/lib/governance/types';
@@ -39,8 +45,10 @@ const db = env.DB as D1Database | undefined;
 const dbUser = db ? await getUserById(db, user.id) : null;
 const drepId = dbUser?.drep_id ?? null;
 
-// Network + render instant for the wall-clock voting countdown (mirrors GovActionRow).
-const network = resolveNetwork(currentNetwork().network);
+// Raw network id (passed to GovActionRow, which resolves it itself) plus the
+// resolved form for this page's own expiry math. Render instant for the countdown.
+const networkId = currentNetwork().network;
+const network = resolveNetwork(networkId);
 const now = Date.now();
 
 // Fetch votable actions, voting history and the DRep record in parallel.
@@ -52,19 +60,56 @@ const [votableRows, historyRows, drep] = drepId && db
     ])
   : [[], [], null];
 
-// Participation depends on the DRep's registration epoch, so it runs after.
-const participation = drep && db ? await getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : null;
+// Hydrate the open actions into full GovernanceAction + Topic rows via the same
+// batched loaders the governance overview uses, so /vote renders the identical
+// GovActionRow (with live tallies/bars). Also load the tally denominators (DRep
+// stake, committee size, protocol params) that the composition bars need.
+const openTopicIds = votableRows
+  .map((r) => r.topic_id)
+  .filter((id): id is string => !!id);
+const hydratePromise =
+  db && openTopicIds.length
+    ? Promise.all([
+        getTopicsByIds(db, openTopicIds),
+        getGovernanceActionsByTopicIds(db, openTopicIds),
+        getProtocolParams(db),
+        getActiveDrepStake(db),
+      ])
+    : Promise.resolve([
+        new Map<string, Topic>(),
+        new Map<string, GovernanceAction>(),
+        null as ProtocolParams | null,
+        { total: 0, asOf: null as number | null },
+      ] as [Map<string, Topic>, Map<string, GovernanceAction>, ProtocolParams | null, { total: number; asOf: number | null }]);
+// Participation depends only on `drep` (already resolved above), not on the
+// hydration, so it runs alongside it rather than in a second serial round-trip.
+const participationPromise =
+  drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : Promise.resolve(null);
+const [[topicById, actionByTopic, overviewParams, stake], participation] = await Promise.all([
+  hydratePromise,
+  participationPromise,
+]);
+const govParamsRawJson = overviewParams?.rawJson ?? null;
+const committeeSize = overviewParams?.committeeSize ?? null;
+const drepStakeTotal = stake.total > 0 ? stake.total : null;
+
 const participationPct =
   participation && participation.eligible > 0
     ? Math.round((participation.voted / participation.eligible) * 100)
     : null;
 
-// Enrich each open action once: wall-clock days left + closing-soon flag.
-const actions = votableRows.map((row) => {
-  const expiryUnix = row.expiry_epoch != null ? epochStartUnix(row.expiry_epoch, network) : null;
-  const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, row.status, now);
-  return { row, daysLeft, closingSoon: isClosingSoon(daysLeft) };
-});
+// Enrich each open action: full action/topic pair + wall-clock days left +
+// closing-soon flag. Drop any row whose topic or action failed to hydrate (a
+// rare active action without a thread, which has nowhere to vote anyway).
+const actions = votableRows
+  .map((row) => {
+    const action = row.topic_id ? actionByTopic.get(row.topic_id) : undefined;
+    const topic = row.topic_id ? topicById.get(row.topic_id) : undefined;
+    const expiryUnix = row.expiry_epoch != null ? epochStartUnix(row.expiry_epoch, network) : null;
+    const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, row.status, now);
+    return { row, action, topic, daysLeft, closingSoon: isClosingSoon(daysLeft) };
+  })
+  .filter((a): a is typeof a & { action: GovernanceAction; topic: Topic } => !!a.action && !!a.topic);
 
 const stats = deriveVoteStats(actions.map((a) => ({ voted: !!a.row.viewerVote, daysLeft: a.daysLeft })));
 // Only offer type-filter options for types actually present in the list.
@@ -120,88 +165,106 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
       <!-- Open actions -->
       <section style="margin-bottom:3rem;">
         <h2 style="margin:0 0 1rem;font-size:1.125rem;">Open actions</h2>
-        {votableRows.length === 0 ? (
+        {actions.length === 0 ? (
           <p style="color:var(--muted);font-size:0.9375rem;margin:0;">
             No active governance actions to vote on right now.
           </p>
         ) : (
           <>
-            <div class="vote-controls" data-vote-controls>
+            <div class="ga-controls" data-vote-controls>
               <div class="seg" role="group" aria-label="Filter by your vote status">
                 <button type="button" class="seg__btn is-active" data-status="all" aria-pressed="true">All</button>
                 <button type="button" class="seg__btn" data-status="notvoted" aria-pressed="false">Not voted</button>
                 <button type="button" class="seg__btn" data-status="voted" aria-pressed="false">Voted</button>
               </div>
-              {presentTypes.length > 1 && (
-                <label class="vote-select">
-                  <span class="vote-select__label">Type</span>
-                  <select data-type-filter class="ctrl-box">
-                    <option value="">All types</option>
-                    {presentTypes.map((t) => <option value={t.value}>{t.label}</option>)}
-                  </select>
-                </label>
-              )}
-              <label class="vote-select">
-                <span class="vote-select__label">Sort</span>
-                <select data-sort class="ctrl-box">
-                  <option value="closing">Closing soonest</option>
-                  <option value="recent">Recently opened</option>
-                  <option value="type">By type</option>
-                </select>
-              </label>
+              <div class="ga-controls__right">
+                <details class="ga-dropdown ga-dropdown--end" data-auto-dismiss>
+                  <summary class="ctrl-box ga-dropdown__summary">
+                    <span class="ga-dropdown__label">Sort</span>
+                    <span class="ga-dropdown__value" data-sort-value>Closing soonest</span>
+                    <span class="ga-dropdown__caret" aria-hidden="true">▾</span>
+                  </summary>
+                  <div class="ga-dropdown__menu" role="menu">
+                    <button type="button" class="ga-dropdown__opt" data-sort-opt="closing" aria-current="true">Closing soonest</button>
+                    <button type="button" class="ga-dropdown__opt" data-sort-opt="recent">Recently opened</button>
+                    <button type="button" class="ga-dropdown__opt" data-sort-opt="type">By type</button>
+                  </div>
+                </details>
+                {presentTypes.length > 1 && (
+                  <details class="ga-dropdown ga-dropdown--end" data-auto-dismiss>
+                    <summary class="ctrl-box ga-dropdown__summary">
+                      <span class="ga-dropdown__label">Type</span>
+                      <span class="ga-dropdown__value" data-type-value>All types</span>
+                      <span class="ga-dropdown__caret" aria-hidden="true">▾</span>
+                    </summary>
+                    <div class="ga-dropdown__menu" role="menu">
+                      <button type="button" class="ga-dropdown__opt" data-type-opt="" aria-current="true">
+                        <span class="gov-oico" aria-hidden="true"></span>
+                        All types
+                      </button>
+                      {presentTypes.map((t) => {
+                        const tone = govTypeTone(t.value);
+                        return (
+                          <button type="button" class="ga-dropdown__opt" data-type-opt={t.value}>
+                            <span class="gov-oico" style={`--ph:var(--gov-${tone})`}>
+                              <GovTypeIcon tone={tone} size={14} />
+                            </span>
+                            {t.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </details>
+                )}
+              </div>
             </div>
 
-            <div class="vote-list" data-vote-list>
-              {actions.map(({ row, daysLeft, closingSoon }) => {
-                const voteColor = row.viewerVote ? TONE_COLORS[voteTone(row.viewerVote)] : null;
-                const threadHref = row.slug ? `/t/${row.slug}/` : null;
-                return (
-                  <div
-                    class:list={['vote-row', { 'vote-row--soon': closingSoon }]}
-                    data-vote-row
-                    data-voted={row.viewerVote ? '1' : '0'}
-                    data-type={row.type}
-                    data-expiry={row.expiry_epoch ?? ''}
-                    data-submitted-at={row.submitted_at ?? ''}
-                    data-submitted-epoch={row.submitted_epoch ?? ''}
-                  >
-                    <div class="vote-row__main">
-                      <div class="vote-row__tags">
-                        <GovTypePill type={row.type} />
-                        {row.viewerVote ? (
-                          <span class="vote-badge" style={`color:${voteColor};border-color:${voteColor}`}>
-                            {row.viewerStatus === 'pending'
-                              ? `Voted ${row.viewerVote} (pending)`
-                              : row.viewerStatus === 'failed'
-                                ? `Vote failed`
-                                : `Voted ${row.viewerVote}`}
-                          </span>
-                        ) : (
-                          <span class="vote-badge vote-badge--none">Not voted</span>
-                        )}
-                        {closingSoon && <span class="vote-badge vote-badge--soon">Closing soon</span>}
-                      </div>
-                      <p class="vote-row__title">
-                        {threadHref ? <a href={threadHref}>{row.title ?? row.id}</a> : (row.title ?? row.id)}
-                      </p>
-                      {row.expiry_epoch != null && (
-                        <p class="vote-row__meta">
-                          {daysLeft != null
-                            ? `~${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left (epoch ${row.expiry_epoch})`
-                            : `Epoch ${row.expiry_epoch}`}
-                        </p>
-                      )}
-                    </div>
-                    <div class="vote-row__action">
-                      {threadHref ? (
-                        <a href={threadHref} class="btn btn-primary btn--sm">Vote</a>
-                      ) : (
-                        <span style="color:var(--muted);font-size:0.875rem;">No thread yet</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+            <div class="ga-wrap">
+              <div class="ga-list" data-vote-list>
+                <div class="ga-list__head ga-list__head--dashboard">
+                  <span>Governance Action</span>
+                  <span>Voting</span>
+                </div>
+                {actions.map(({ row, action, topic, closingSoon }) => {
+                  const voteBadge = row.viewerVote
+                    ? {
+                        label:
+                          row.viewerStatus === 'pending'
+                            ? `Voted ${row.viewerVote} (pending)`
+                            : row.viewerStatus === 'failed'
+                              ? 'Vote failed'
+                              : `Voted ${row.viewerVote}`,
+                        color: TONE_COLORS[voteTone(row.viewerVote)],
+                      }
+                    : { label: 'Not voted', color: null };
+                  // The /vote client filter's data-* schema (opaque to GovActionRow).
+                  const rowAttrs = {
+                    'data-vote-row': '',
+                    'data-voted': row.viewerVote ? '1' : '0',
+                    'data-type': action.type,
+                    'data-expiry': String(action.expiryEpoch ?? ''),
+                    'data-submitted-at': String(action.submittedAt ?? ''),
+                    'data-submitted-epoch': String(action.submittedEpoch ?? ''),
+                  };
+                  return (
+                    <GovActionRow
+                      topic={topic}
+                      action={action}
+                      drepStakeTotal={drepStakeTotal}
+                      committeeSize={committeeSize}
+                      params={overviewParams}
+                      network={networkId}
+                      now={now}
+                      href={`/t/${topic.slug}/`}
+                      epochParamsJson={govParamsRawJson}
+                      voteBadge={voteBadge}
+                      closingSoon={closingSoon}
+                      rowAttrs={rowAttrs}
+                      variant="dashboard"
+                    />
+                  );
+                })}
+              </div>
             </div>
             <p class="vote-empty" data-vote-empty hidden></p>
           </>
@@ -258,12 +321,11 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
       </section>
     </>
   )}
-  {drepId && votableRows.length > 0 && <script is:inline set:html={voteFiltersJs} />}
+  {drepId && actions.length > 0 && <script is:inline set:html={voteFiltersJs} />}
 </Layout>
 
 <style>
-  /* ---- Open-action list -------------------------------------------------- */
-  .vote-list,
+  /* ---- Voting record list ------------------------------------------------ */
   .history-list {
     display: flex;
     flex-direction: column;
@@ -272,7 +334,6 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     overflow: hidden;
   }
 
-  .vote-row,
   .history-row {
     display: flex;
     align-items: center;
@@ -281,28 +342,18 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     padding: 0.875rem 1rem;
     border-bottom: 1px solid var(--border);
   }
-  /* The client filter toggles the hidden attribute on rows. This author rule
-     for .vote-row sets display:flex, which outranks the UA [hidden] rule, so
-     a hidden row would still show. Re-assert display:none at higher specificity. */
-  .vote-row[hidden] {
-    display: none;
-  }
-  .vote-row:last-child,
   .history-row:last-child {
     border-bottom: none;
   }
-  .vote-row:hover,
   .history-row:hover {
     background: var(--surface);
   }
 
-  .vote-row__main,
   .history-row__main {
     min-width: 0;
     flex: 1;
   }
 
-  .vote-row__tags,
   .history-row__tags {
     display: flex;
     align-items: center;
@@ -311,6 +362,7 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     margin: 0 0 0.375rem;
   }
 
+  /* Vote badge in the voting-record rows (outlined, colored inline by tone). */
   .vote-badge {
     display: inline-flex;
     align-items: center;
@@ -323,12 +375,7 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     padding: 0.1rem 0.4rem;
     line-height: 1;
   }
-  .vote-badge--none {
-    color: var(--muted);
-    border-color: var(--border);
-  }
 
-  .vote-row__title,
   .history-row__title {
     font-weight: 600;
     font-size: 0.9375rem;
@@ -337,31 +384,18 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .vote-row__title a,
   .history-row__title a {
     color: inherit;
     text-decoration: none;
   }
-  .vote-row__title a:hover,
   .history-row__title a:hover {
     color: var(--accent);
   }
 
-  .vote-row__meta,
   .history-row__meta {
     color: var(--muted);
     font-size: 0.8125rem;
     margin: 0;
-  }
-
-  .vote-row__action {
-    flex-shrink: 0;
-  }
-
-  /* Small primary button variant for the vote action. */
-  .btn--sm {
-    padding: 0.375rem 0.875rem;
-    font-size: 0.875rem;
   }
 
   .rationale-link {
@@ -405,31 +439,6 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     margin-top: 0.15rem;
   }
 
-  /* ---- Control bar ------------------------------------------------------- */
-  .vote-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    margin: 0 0 1rem;
-  }
-  .vote-select {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.8125rem;
-    color: var(--muted);
-  }
-
-  /* ---- Closing-soon highlight ------------------------------------------- */
-  .vote-row--soon {
-    border-left: 3px solid var(--accent);
-  }
-  .vote-badge--soon {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-
   .vote-empty {
     color: var(--muted);
     font-size: 0.9375rem;
@@ -437,13 +446,6 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
   }
 
   @media (max-width: 600px) {
-    .vote-row {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-    .vote-row__action {
-      align-self: flex-end;
-    }
     .vote-stats {
       grid-template-columns: repeat(2, 1fr);
     }
