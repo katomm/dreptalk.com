@@ -33,13 +33,15 @@ const icons = {
     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
 } as const;
 
-// Menu rows above Log out. Profile shows for any account with a profile link
-// (DRep or SPO); the Voting Dashboard is DRep-only, since /vote redirects
-// everyone else to /login, so it is gated on a synced DRep id, not profileHref.
+// Menu rows above Log out, most-used first: for a DRep that is the Voting
+// Dashboard, then Profile, then Settings. Profile shows for any account with a
+// profile link (DRep or SPO); the Voting Dashboard is DRep-only, since /vote
+// redirects everyone else to /login, so it is gated on a synced DRep id, not
+// profileHref.
 const items = [
-  { label: 'Settings', href: '/settings/', icon: icons.settings },
-  ...(profileHref ? [{ label: 'Profile', href: profileHref, icon: icons.profile }] : []),
   ...(account.drepId ? [{ label: 'Voting Dashboard', href: '/vote/', icon: icons.vote }] : []),
+  ...(profileHref ? [{ label: 'Profile', href: profileHref, icon: icons.profile }] : []),
+  { label: 'Settings', href: '/settings/', icon: icons.settings },
 ];
 ---
 
