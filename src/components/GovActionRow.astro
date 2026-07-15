@@ -261,6 +261,11 @@ const Root = hasControls ? 'div' : 'a';
   .garow--dashboard { grid-template-columns:2.7fr 1.6fr 112px; }
   .garow--dashboard .garow__activity,
   .garow--dashboard .garow__time { display:none; }
+  /* Dashboard rows: the main cell drives the row height, so the two right-hand
+     cells (voting bars, vote controls) both center vertically. Top-hanging bars
+     next to centered controls read restless. The overview keeps top alignment
+     (its four columns are all top-anchored). */
+  .garow--dashboard .garow__voting { align-self:center; }
   .garow__vote { align-self:center; }
   /* Controls variant: the root is a <div>, the thread link lives on the title and
      stretches over the whole card via ::after; the controls column stacks above
