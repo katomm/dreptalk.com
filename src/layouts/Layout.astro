@@ -131,7 +131,11 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
       <span class="preprod-flag" role="status">⚠ Preprod testnet</span>
     )}
     <header class="site-header">
-      <div class:list={['site-header__inner', 'container', { 'container--wide': wide }]}>
+      {/* Header and footer keep one fixed width on every page (the wide shell),
+          while main varies per page type (reading / default / wide). If they
+          followed the page's `wide` prop, the logo and nav links would shift
+          sideways on every navigation between list and detail pages. */}
+      <div class="site-header__inner container container--wide">
         <a class="brand" href="/" aria-label="DRepTalk home">
           <LogoMark style="height:38px;width:38px;color:var(--muted)" />
           <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
@@ -182,7 +186,7 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
     </main>
 
     <footer class="site-footer">
-      <div class:list={['site-footer__inner', 'container', { 'container--wide': wide }]}>
+      <div class="site-footer__inner container container--wide">
         <div class="site-footer__brand">
           <a class="brand" href="/" aria-label="DRepTalk home">
             <LogoMark style="height:34px;width:34px;color:var(--muted)" />
