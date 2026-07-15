@@ -114,8 +114,19 @@ const expiryUnix =
 const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, action.status, now);
 // Only shown while voting is still open; once past, the status badge carries the outcome.
 const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expiryUnix) : null;
+// Dashboard rows can carry interactive controls (the multi-vote choice pills)
+// in the reserved right column. Buttons must not nest inside an anchor, so a
+// row WITH controls renders a <div> root and moves the thread link onto the
+// title, stretched over the card via ::after; the controls column sits above
+// that overlay. Rows without controls keep the plain full-row anchor.
+const hasControls = isDashboard && Astro.slots.has('controls');
+const Root = hasControls ? 'div' : 'a';
 ---
-<a class:list={['garow', { 'garow--dashboard': isDashboard }]} href={href} {...rowAttrs}>
+<Root
+  class:list={['garow', { 'garow--dashboard': isDashboard, 'garow--controls': hasControls }]}
+  href={hasControls ? undefined : href}
+  {...rowAttrs}
+>
   <div class="garow__main">
     <span class="garow__tags">
       <GovTypePill type={action.type} />
@@ -127,7 +138,13 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
       )}
       {closingSoon && <span class="badge badge--soon">Closing soon</span>}
     </span>
-    <p class="garow__title">{action.title ?? topic.title}</p>
+    <p class="garow__title">
+      {hasControls ? (
+        <a class="garow__link" href={href}>{action.title ?? topic.title}</a>
+      ) : (
+        action.title ?? topic.title
+      )}
+    </p>
     {onchain && (
       <p class={`garow__onchain garow__onchain--${onchain.tone}`}>
         {onchain.prefix && <span class="garow__oc-prefix">{onchain.prefix}</span>}
@@ -214,15 +231,22 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
     </div>
   </div>
 
-  {/* Dashboard variant: the freed right column holds a Vote call-to-action. The
-      whole row is already a link to the thread, so this is a styled affordance,
-      not a nested anchor. */}
+  {/* Dashboard variant: the freed right column holds the caller's vote controls
+      when provided (real buttons, sitting above the stretched title link), else
+      a Vote call-to-action. The CTA is a styled affordance, not a nested anchor:
+      in that case the whole row is the link. */}
   {isDashboard && (
-    <div class="garow__vote">
-      <span class="garow__votebtn">Vote</span>
-    </div>
+    hasControls ? (
+      <div class="garow__vote garow__vote--controls">
+        <slot name="controls" />
+      </div>
+    ) : (
+      <div class="garow__vote">
+        <span class="garow__votebtn">Vote</span>
+      </div>
+    )
   )}
-</a>
+</Root>
 
 <style>
   /* Four columns on wide screens: action, voting, activity, time. The header grid in
@@ -238,6 +262,15 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .garow--dashboard .garow__activity,
   .garow--dashboard .garow__time { display:none; }
   .garow__vote { align-self:center; }
+  /* Controls variant: the root is a <div>, the thread link lives on the title and
+     stretches over the whole card via ::after; the controls column stacks above
+     that overlay so its buttons stay clickable. */
+  .garow--controls { position:relative; }
+  .garow__link { color:inherit; text-decoration:none; }
+  /* z-index 1 lifts the overlay above positioned descendants of the row (the
+     composition-bar segments), so a click on the bars still navigates. */
+  .garow__link::after { content:''; position:absolute; inset:0; z-index:1; }
+  .garow__vote--controls { position:relative; z-index:2; }
   .garow__votebtn {
     display:flex; align-items:center; justify-content:center; width:100%;
     padding:0.45rem 0.6rem; border-radius:999px;

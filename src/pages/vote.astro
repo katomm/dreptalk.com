@@ -11,6 +11,7 @@ import Layout from '@/layouts/Layout.astro';
 import GovTypePill from '@/components/GovTypePill.astro';
 import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
+import MultiVoteBar from '@/components/MultiVoteBar';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
@@ -110,6 +111,10 @@ const actions = votableRows
     return { row, action, topic, daysLeft, closingSoon: isClosingSoon(daysLeft) };
   })
   .filter((a): a is typeof a & { action: GovernanceAction; topic: Topic } => !!a.action && !!a.topic);
+
+// Batch voting is key-DRep only: script DReps sign via the multisig flow in
+// the thread sidebar and keep the plain Vote link rows.
+const canMultiVote = Boolean(drepId && drep && !drep.hasScript);
 
 const stats = deriveVoteStats(actions.map((a) => ({ voted: !!a.row.viewerVote, daysLeft: a.daysLeft })));
 // Only offer type-filter options for types actually present in the list.
@@ -261,7 +266,17 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
                       closingSoon={closingSoon}
                       rowAttrs={rowAttrs}
                       variant="dashboard"
-                    />
+                    >
+                      {canMultiVote && (
+                        <div slot="controls" class="mv-choices" role="group" aria-label={`Vote on ${action.title ?? topic.title}`}>
+                          {(['yes', 'no', 'abstain'] as const).map((c) => (
+                            <button type="button" class="mv-btn" data-mv-choice={c} data-ga={row.id} aria-pressed="false">
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </GovActionRow>
                   );
                 })}
               </div>
@@ -270,6 +285,18 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
           </>
         )}
       </section>
+
+      {canMultiVote && actions.length > 0 && (
+        <MultiVoteBar
+          client:load
+          network={networkId}
+          actions={actions.map((a) => ({
+            gaId: a.row.id,
+            title: a.action.title ?? a.topic.title,
+            prevVote: a.row.viewerVote,
+          }))}
+        />
+      )}
 
       <!-- Voting record -->
       <section>
@@ -325,6 +352,72 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
 </Layout>
 
 <style>
+  /* ---- Multi-vote choice pills (controls slot of GovActionRow) ------------ */
+  /* Stacked to fill the dashboard row's fixed right column. Scoped here: the
+     slot content is authored in this file, so these styles reach the buttons. */
+  .mv-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+  }
+  .mv-btn {
+    width: 100%;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+    line-height: 1.2;
+  }
+  .mv-btn:hover:not(.is-disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  /* Per-choice colors for the active pill, matching the review panel and the
+     vote badges (TONE_COLORS: yes = --c-pos, no = --c-neg, abstain = muted). */
+  .mv-btn[data-mv-choice='yes'].is-active {
+    border-color: var(--c-pos);
+    color: var(--c-pos);
+    background: color-mix(in srgb, var(--c-pos) 10%, transparent);
+    font-weight: 700;
+  }
+  .mv-btn[data-mv-choice='no'].is-active {
+    border-color: var(--c-neg);
+    color: var(--c-neg);
+    background: color-mix(in srgb, var(--c-neg) 10%, transparent);
+    font-weight: 700;
+  }
+  .mv-btn[data-mv-choice='abstain'].is-active {
+    border-color: var(--muted);
+    color: var(--muted);
+    background: color-mix(in srgb, var(--muted) 12%, transparent);
+    font-weight: 700;
+  }
+  /* Mirrors the island's busy freeze: selection is locked while a submit runs. */
+  .mv-btn.is-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* Mobile: the controls column spans the card bottom (like the Vote CTA), so
+     the three pills sit side by side. */
+  @media (max-width: 720px) {
+    .mv-choices {
+      flex-direction: row;
+    }
+    .mv-btn {
+      padding: 0.5rem 0.6rem;
+    }
+  }
+  /* Keep the last rows reachable when the sticky batch bar is visible. */
+  .ga-wrap {
+    margin-bottom: 4.5rem;
+  }
+
   /* ---- Voting record list ------------------------------------------------ */
   .history-list {
     display: flex;
