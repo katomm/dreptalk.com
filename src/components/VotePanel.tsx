@@ -6,35 +6,20 @@
 // (2) calls castDRepVote to build/sign/submit the vote tx, (3) records the
 // optimistic result via POST /api/vote/record, (4) shows success with an
 // explorer link. Connect/identity derivation mirrors DRepService exactly.
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import { srOnlyRadio } from '@/components/srOnlyRadio.js';
-import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import type { CastDRepVoteOpts } from '@/lib/governance/drepTx.js';
-import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
-import { blake2b224 } from '@/lib/crypto/blake.js';
-import { hexToBytes } from '@/lib/crypto/hex.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
+import { connectAsDrep, type EnabledWalletApi, type DRepIdentity } from '@/lib/wallet/drepWalletConnect.js';
+import { hostVoteRationale, loadDrepTxModule, postVoteRecord, readDraft, writeDraft } from '@/lib/governance/voteFlowClient.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import RationaleModal from '@/components/RationaleModal.js';
 import type { ViewerVoteRow } from '@/lib/db/drepVotes.js';
-
-// The enabled wallet api surface: CIP-30 tx methods + CIP-95 extension +
-// getNetworkId for the network guard. Same shape as in DRepService.
-type EnabledWalletApi = TxWalletApi & {
-  getNetworkId(): Promise<number>;
-  cip95?: { getPubDRepKey(): Promise<string> };
-};
-
-interface DRepIdentity {
-  drepId: string;
-  drepKeyHash: Uint8Array;
-}
 
 type VoteChoice = 'yes' | 'no' | 'abstain';
 
@@ -104,14 +89,21 @@ export async function submitVote(
     anchorHashHex: anchor?.hash,
     origin: args.origin,
   });
-  await deps.recordVote({
-    gaId: args.gaId,
-    vote: args.vote,
-    txHash,
-    rationaleUrl: anchor?.url,
-    rationaleText: hasRationale ? args.rationaleText : undefined,
-    crossPost: hasRationale ? args.crossPost : undefined,
-  });
+  // Recording is non-fatal BY CONTRACT: at this point the vote is already on
+  // chain, so a failed optimistic record (HTTP error or thrown timeout) must
+  // never surface as a submit error; the periodic sync heals it.
+  try {
+    await deps.recordVote({
+      gaId: args.gaId,
+      vote: args.vote,
+      txHash,
+      rationaleUrl: anchor?.url,
+      rationaleText: hasRationale ? args.rationaleText : undefined,
+      crossPost: hasRationale ? args.crossPost : undefined,
+    });
+  } catch (err) {
+    console.warn('[VotePanel] recording the vote failed (the vote is on chain)', err);
+  }
   return { txHash };
 }
 
@@ -139,6 +131,37 @@ export function expiredActionMessage(err: unknown): string | null {
     return 'This governance action is no longer accepting votes (it may have expired). Please refresh the page.';
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Draft persistence
+// ---------------------------------------------------------------------------
+
+// A rationale typed in the thread's vote panel survives a reload, tab close,
+// or browser crash until the vote is submitted. Keyed per governance action so
+// drafts in different threads never collide. Mirrors MultiVoteBar's batch
+// draft; a draft is only worth keeping while it carries rationale text.
+export const VOTE_DRAFT_KEY_PREFIX = 'dreptalk:vote-draft:';
+
+export interface VoteDraft {
+  vote: VoteChoice;
+  rationaleText: string;
+  crossPost: boolean;
+}
+
+/** Parses a stored single-vote draft; null when corrupt or without text. Pure; exported for unit tests. */
+export function restoreVoteDraft(raw: string | null): VoteDraft | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<VoteDraft>;
+    const rationaleText = typeof parsed.rationaleText === 'string' ? parsed.rationaleText : '';
+    if (rationaleText.trim().length === 0) return null;
+    const vote =
+      parsed.vote === 'yes' || parsed.vote === 'no' || parsed.vote === 'abstain' ? parsed.vote : 'yes';
+    return { vote, rationaleText, crossPost: parsed.crossPost === true };
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +232,29 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
   // requests it. The connect step is shown regardless (wallet auth is required).
   const [changingVote, setChangingVote] = useState(!initialViewerVote);
 
+  // Draft persistence: restore runs once after hydration (no localStorage
+  // during SSR); the persist effect stays quiet until then so it can never
+  // clobber a stored draft with the pre-restore empty state. A present draft
+  // also reopens the change-vote form: the DRep was mid-edit when the page
+  // died, so do not hide their text behind the prior-vote summary.
+  const draftKey = `${VOTE_DRAFT_KEY_PREFIX}${gaId}`;
+  const draftRestoredRef = useRef(false);
+  useEffect(() => {
+    const draft = restoreVoteDraft(readDraft(draftKey));
+    if (draft) {
+      setVote(draft.vote);
+      setRationaleText(draft.rationaleText);
+      setCrossPost(draft.crossPost);
+      setChangingVote(true);
+    }
+    draftRestoredRef.current = true;
+  }, [draftKey]);
+  useEffect(() => {
+    if (!draftRestoredRef.current) return;
+    const draft: VoteDraft = { vote, rationaleText, crossPost };
+    writeDraft(draftKey, rationaleText.trim().length === 0 ? null : JSON.stringify(draft));
+  }, [draftKey, vote, rationaleText, crossPost]);
+
   const busy =
     phase.status === 'connecting' ||
     phase.status === 'checking' ||
@@ -224,96 +270,21 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
 
     setPhase({ status: 'connecting' });
 
-    let api: EnabledWalletApi;
     try {
-      api = (await walletInfo.raw.enable({ extensions: [{ cip: 95 }] })) as unknown as EnabledWalletApi;
-    } catch (err) {
-      setPhase({ status: 'error', message: readableError(err) });
-      return;
-    }
-
-    // Network guard: fail clearly before any tx is built.
-    try {
-      await assertWalletNetwork(api, network);
-    } catch (err) {
-      setPhase({ status: 'error', message: readableError(err) });
-      return;
-    }
-
-    // CIP-95 must be present to read the DRep key.
-    if (!api.cip95 || typeof api.cip95.getPubDRepKey !== 'function') {
-      setPhase({
-        status: 'error',
-        message:
-          'This wallet does not support CIP-95, which is required to vote as a DRep. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).',
+      const { api, identity } = await connectAsDrep(walletInfo.raw, network, {
+        onEnabled: (enabledApi) => {
+          // Cache the api and remember the wallet as soon as it is enabled,
+          // mirroring the pre-refactor behavior exactly.
+          enabledApiRef.current = enabledApi;
+          rememberWallet(selected);
+        },
+        onChecking: (identity) => setPhase({ status: 'checking', identity }),
       });
-      return;
-    }
-
-    enabledApiRef.current = api;
-    rememberWallet(selected);
-
-    // Derive DRep key hash + bech32 id. Same derivation as DRepService.
-    let identity: DRepIdentity;
-    try {
-      const pubKeyHex = await api.cip95.getPubDRepKey();
-      const pubKeyBytes = hexToBytes(pubKeyHex);
-      const drepKeyHash = blake2b224(pubKeyBytes);
-      identity = { drepKeyHash, drepId: drepIdFromKeyHash(drepKeyHash) };
+      enabledApiRef.current = api;
+      setPhase({ status: 'form', identity });
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
-      return;
     }
-
-    setPhase({ status: 'checking', identity });
-
-    // Verify this is a registered, active, key-credential DRep before showing
-    // the vote form. Mirrors DRepService's status preflight exactly: a Koios or
-    // network failure falls through so a legitimately registered DRep is never
-    // blocked by a transient read error. The wallet + chain remain the final
-    // authority at submit time.
-    try {
-      const res = await fetchWithTimeout('/api/koios/drep_info', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ _drep_ids: [identity.drepId] }),
-      });
-      if (res.ok) {
-        const rows = (await res.json()) as Array<{
-          has_script?: boolean;
-          drep_status?: string;
-          active?: boolean;
-        }>;
-        const row = Array.isArray(rows) ? rows[0] : undefined;
-        if (row) {
-          if (row.has_script === true) {
-            setPhase({
-              status: 'error',
-              message:
-                'Your wallet uses a script-credential DRep, which cannot sign votes directly. Only key-credential DReps can vote here.',
-            });
-            return;
-          }
-          if (row.drep_status !== 'registered' || row.active !== true) {
-            setPhase({
-              status: 'error',
-              message:
-                'Your wallet\'s DRep key is not a registered, active DRep. Register as a DRep before voting.',
-            });
-            return;
-          }
-        }
-        // If the row is absent the DRep has never been seen on-chain: also not
-        // eligible. However an absent row could also mean a brand-new DRep whose
-        // sync has not yet landed in Koios, so we fall through rather than block.
-      }
-      // Non-ok response: fall through and let the submit step be the final gate.
-    } catch {
-      // A failed status read must not block a legitimately registered DRep.
-      // Fall through to the form and let the wallet + chain decide at submit.
-    }
-
-    setPhase({ status: 'form', identity });
   }
 
   // ------------------------------------------------------------------
@@ -328,38 +299,20 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
 
     setPhase({ status: 'submitting', identity });
 
+    // The shared vote-flow helpers keep these deps identical to the batch
+    // panel's, so the two flows cannot drift.
     const realDeps: SubmitVoteDeps = {
       onRationaleHosted: (anchor) => {
         setRationaleAnchor(anchor);
       },
-      async hostRationale({ gaId: gId, drepId, rationale, origin: _origin }) {
-        const res = await fetchWithTimeout('/api/vote/rationale', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ drepId, gaId: gId, rationale }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => null) as { error?: string } | null;
-          throw new Error(body?.error ? `Could not host rationale: ${body.error}.` : 'Could not host the vote rationale. Please try again.');
-        }
-        return res.json() as Promise<{ url: string; hash: string }>;
+      async hostRationale({ gaId: gId, drepId, rationale }) {
+        return hostVoteRationale({ gaId: gId, drepId, rationale });
       },
       async castVote(opts) {
-        // Lazy-import so the heavy SDK only loads when the user submits.
-        const { castDRepVote } = await import('@/lib/governance/drepTx.js');
-        return castDRepVote(opts);
+        return (await loadDrepTxModule()).castDRepVote(opts);
       },
       async recordVote(rec) {
-        const res = await fetchWithTimeout('/api/vote/record', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(rec),
-        });
-        if (!res.ok) {
-          // Non-fatal: the vote is already on chain; a record failure is not
-          // worth surfacing as an error. Log and continue.
-          console.warn('[VotePanel] /api/vote/record failed', res.status);
-        }
+        await postVoteRecord(rec, 'VotePanel');
       },
     };
 
@@ -375,6 +328,9 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
         origin: window.location.origin,
         walletApi: api,
       });
+      // The vote is on chain: drop the draft eagerly so a crash right after
+      // success cannot resurrect the already-submitted rationale.
+      writeDraft(draftKey, null);
       setPhase({ status: 'success', txHash });
     } catch (err) {
       const msg = expiredActionMessage(err) ?? readableError(err);

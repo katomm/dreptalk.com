@@ -12,10 +12,16 @@ export default function RationaleModal({
   value,
   onChange,
   onClose,
+  title = 'Write your vote rationale',
+  note = 'Optional. Published on-chain with your vote (CIP-100) and shown as a post on this action. Markdown is supported.',
 }: {
   value: string;
   onChange: (v: string) => void;
   onClose: () => void;
+  /** Dialog heading; the default matches the single-vote flow. */
+  title?: string;
+  /** Explainer line under the heading; the default matches the single-vote flow. */
+  note?: string;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
@@ -28,15 +34,13 @@ export default function RationaleModal({
     <div className="drep-dialog__backdrop">
       <div ref={panelRef} className="drep-dialog drep-dialog--wide" role="dialog" aria-modal="true" aria-labelledby="rationale-dialog-title" tabIndex={-1}>
         <div className="drep-dialog__head">
-          <h2 id="rationale-dialog-title" className="drep-dialog__title">Write your vote rationale</h2>
+          <h2 id="rationale-dialog-title" className="drep-dialog__title">{title}</h2>
           <button type="button" className="drep-dialog__close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
 
-        <p className="drep-dialog__note">
-          Optional. Published on-chain with your vote (CIP-100) and shown as a post on this action. Markdown is supported.
-        </p>
+        <p className="drep-dialog__note">{note}</p>
 
         <MarkdownEditor
           ref={editorRef}

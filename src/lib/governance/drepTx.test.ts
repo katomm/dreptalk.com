@@ -3,7 +3,8 @@
 // The full registerDRep function is covered by the preprod e2e suite (Phase B-11).
 
 import { describe, it, expect } from 'vitest';
-import type { VotingProcedures } from '@evolution-sdk/evolution';
+import type { VotingProcedures, GovernanceAction } from '@evolution-sdk/evolution';
+import { Anchor, Url } from '@evolution-sdk/evolution';
 import {
   buildRegisterDrepParts,
   queueRegisterDrepOps,
@@ -13,7 +14,8 @@ import {
   stakeCredentialFromRewardAddress,
   queueDelegateVotesOps,
   buildGovActionId,
-  queueVoteOps,
+  queueVotesOps,
+  castDRepVotes,
 } from './drepTx.js';
 import { bytesToHex } from '../crypto/hex.js';
 
@@ -245,8 +247,8 @@ describe('buildGovActionId', () => {
   });
 });
 
-describe('queueVoteOps', () => {
-  it('queues a single-vote procedure, the DRep signer, and the CIP-20 tag', () => {
+describe('queueVotesOps (single vote)', () => {
+  it('queues a one-vote procedure, the DRep signer, and the CIP-20 tag', () => {
     const calls: Record<string, unknown[]> = {};
     // Recording stub: every builder method records its args and returns the stub.
     // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
@@ -256,11 +258,9 @@ describe('queueVoteOps', () => {
     );
 
     const drepKeyHash = new Uint8Array(28).fill(7);
-    queueVoteOps(stub, {
+    queueVotesOps(stub, {
       drepKeyHash,
-      govActionId: buildGovActionId(`${'a'.repeat(64)}#0`),
-      vote: 'yes',
-      anchor: null,
+      votes: [{ govActionId: buildGovActionId(`${'a'.repeat(64)}#0`), vote: 'yes', anchor: null }],
     });
 
     expect(calls.vote).toHaveLength(1);
@@ -268,5 +268,96 @@ describe('queueVoteOps', () => {
     expect(calls.attachMetadata).toHaveLength(1);
     const voteArg = calls.vote[0] as { votingProcedures: VotingProcedures.VotingProcedures };
     expect(voteArg.votingProcedures.procedures.size).toBe(1);
+  });
+});
+
+describe('queueVotesOps (multi-vote)', () => {
+  function makeStub() {
+    const calls: Record<string, unknown[]> = {};
+    // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
+    const stub: any = new Proxy(
+      {},
+      { get: (_t, prop: string) => (arg: unknown) => { if (!calls[prop]) calls[prop] = []; calls[prop].push(arg); return stub; } },
+    );
+    return { stub, calls };
+  }
+
+  const drepKeyHash = new Uint8Array(28).fill(7);
+  const idA = buildGovActionId(`${'a'.repeat(64)}#0`);
+  const idB = buildGovActionId(`${'b'.repeat(64)}#1`);
+  const idC = buildGovActionId(`${'c'.repeat(64)}#2`);
+  const anchorA = new Anchor.Anchor({
+    anchorUrl: new Url.Url({ href: 'https://dreptalk.com/vote-rationale/aa.json' }),
+    anchorDataHash: new Uint8Array(32).fill(1),
+  });
+  const anchorC = new Anchor.Anchor({
+    anchorUrl: new Url.Url({ href: 'https://dreptalk.com/vote-rationale/cc.json' }),
+    anchorDataHash: new Uint8Array(32).fill(2),
+  });
+
+  it('builds ONE vote op with one voter entry holding all gov actions', () => {
+    const { stub, calls } = makeStub();
+    queueVotesOps(stub, {
+      drepKeyHash,
+      votes: [
+        { govActionId: idA, vote: 'yes', anchor: anchorA },
+        { govActionId: idB, vote: 'no', anchor: null },
+        { govActionId: idC, vote: 'abstain', anchor: anchorC },
+      ],
+    });
+
+    // Exactly one .vote() call: repeated calls would merge by object identity
+    // and can emit duplicate CBOR map keys (SDK gotcha).
+    expect(calls.vote).toHaveLength(1);
+    expect(calls.addSigner).toHaveLength(1);
+    expect(calls.attachMetadata).toHaveLength(1);
+
+    const voteArg = calls.vote[0] as { votingProcedures: VotingProcedures.VotingProcedures };
+    // One voter (the DRep), three gov actions under it.
+    expect(voteArg.votingProcedures.procedures.size).toBe(1);
+    const inner = [...voteArg.votingProcedures.procedures.values()][0] as Map<
+      GovernanceAction.GovActionId,
+      VotingProcedures.VotingProcedure
+    >;
+    expect(inner.size).toBe(3);
+    // Anchors land on the right actions (multiVote keys by our instances).
+    expect(inner.get(idA)?.anchor).toBe(anchorA);
+    expect(inner.get(idB)?.anchor).toBeNull();
+    expect(inner.get(idC)?.anchor).toBe(anchorC);
+  });
+
+  it('rejects an empty vote list', () => {
+    const { stub } = makeStub();
+    expect(() => queueVotesOps(stub, { drepKeyHash, votes: [] })).toThrow();
+  });
+});
+
+describe('castDRepVotes input validation', () => {
+  it('rejects duplicate governance actions before any network access', async () => {
+    const dup = { govActionId: `${'a'.repeat(64)}#0`, vote: 'yes' as const };
+    await expect(
+      castDRepVotes({
+        // Validation throws before the wallet is touched, so a bare object is fine.
+        // biome-ignore lint/suspicious/noExplicitAny: unused past validation
+        walletApi: {} as any,
+        network: 'preprod',
+        drepKeyHash: new Uint8Array(28).fill(7),
+        origin: 'https://dreptalk.com',
+        votes: [dup, { ...dup, vote: 'no' as const }],
+      }),
+    ).rejects.toThrow(/duplicate/i);
+  });
+
+  it('rejects an empty batch', async () => {
+    await expect(
+      castDRepVotes({
+        // biome-ignore lint/suspicious/noExplicitAny: unused past validation
+        walletApi: {} as any,
+        network: 'preprod',
+        drepKeyHash: new Uint8Array(28).fill(7),
+        origin: 'https://dreptalk.com',
+        votes: [],
+      }),
+    ).rejects.toThrow();
   });
 });

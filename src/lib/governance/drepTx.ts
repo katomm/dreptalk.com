@@ -381,31 +381,107 @@ function voteValue(vote: 'yes' | 'no' | 'abstain') {
 }
 
 /**
- * Queues the voting procedure, the DRep-key required signer, and the CIP-20
- * attribution tag. Like reg_drep, the vote is witnessed by the DRep key (which
- * controls no input); EvolutionSDK sizes the fee only for declared signers, so
- * the DRep key MUST be declared via addSigner or the fee falls one vkey short.
- * Pure (no network); exported for unit tests.
+ * Queues one voting-procedures op carrying ALL of this DRep's votes, the
+ * DRep-key required signer, and the CIP-20 attribution tag. All votes MUST go
+ * through a single multiVote call: the SDK merges repeated .vote() calls by
+ * object identity, which can emit duplicate CBOR map keys for value-equal
+ * voter or action ids. Pure (no network); exported for unit tests.
  */
-export function queueVoteOps(
+export function queueVotesOps(
   txb: DrepTxBuilder,
   parts: {
     drepKeyHash: Uint8Array;
-    govActionId: GovernanceAction.GovActionId;
-    vote: 'yes' | 'no' | 'abstain';
-    anchor: Anchor.Anchor | null;
+    votes: Array<{
+      govActionId: GovernanceAction.GovActionId;
+      vote: 'yes' | 'no' | 'abstain';
+      anchor: Anchor.Anchor | null;
+    }>;
   },
 ): DrepTxBuilder {
+  if (parts.votes.length === 0) {
+    throw new Error('At least one vote is required.');
+  }
   const voter = new VotingProcedures.DRepVoter({
     drep: DRep.fromKeyHash(KeyHash.fromBytes(parts.drepKeyHash)),
   });
-  const procedure = new VotingProcedures.VotingProcedure({ vote: voteValue(parts.vote), anchor: parts.anchor });
-  const votingProcedures = VotingProcedures.singleVote(voter, parts.govActionId, procedure);
+  const votingProcedures = VotingProcedures.multiVote(
+    voter,
+    parts.votes.map((v): [GovernanceAction.GovActionId, VotingProcedures.VotingProcedure] => [
+      v.govActionId,
+      new VotingProcedures.VotingProcedure({ vote: voteValue(v.vote), anchor: v.anchor }),
+    ]),
+  );
 
   return txb
     .vote({ votingProcedures })
     .addSigner({ keyHash: KeyHash.fromBytes(parts.drepKeyHash) })
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+export interface DRepVoteInput {
+  /** Stored governance action id, "<txHash>#<index>". */
+  govActionId: string;
+  vote: 'yes' | 'no' | 'abstain';
+  /** Hosted rationale URL from POST /api/vote/rationale; omit for no rationale. */
+  anchorUrl?: string;
+  /** 64-char blake2b-256 hex paired with anchorUrl. */
+  anchorHashHex?: string;
+}
+
+export interface CastDRepVotesOpts {
+  /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
+  walletApi: WalletApi;
+  network: CardanoNetwork;
+  /** 28-byte blake2b-224 of the CIP-95 DRep verification key. */
+  drepKeyHash: Uint8Array;
+  votes: DRepVoteInput[];
+  /** window.location.origin, base for the /api/koios proxy. */
+  origin: string;
+}
+
+/**
+ * Builds, signs, and submits ONE Conway vote transaction casting the connected
+ * DRep's votes on one or more governance actions. Each vote carries its own
+ * optional rationale anchor. One DRep signature covers all votes. Ledger
+ * semantics are all-or-nothing: if any targeted action is no longer active at
+ * submit time the whole transaction is rejected. Non-custodial: the wallet
+ * signs and submits. Requires a live wallet and a reachable Koios provider;
+ * validation up to the duplicate check is unit-tested offline.
+ */
+export async function castDRepVotes(opts: CastDRepVotesOpts): Promise<{ txHash: string }> {
+  if (opts.votes.length === 0) {
+    throw new Error('At least one vote is required.');
+  }
+  const seen = new Set<string>();
+  const votes = opts.votes.map((v) => {
+    const key = v.govActionId.trim().toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(`Duplicate governance action in batch: ${v.govActionId}`);
+    }
+    seen.add(key);
+    return {
+      govActionId: buildGovActionId(v.govActionId),
+      vote: v.vote,
+      anchor:
+        v.anchorUrl && v.anchorHashHex
+          ? new Anchor.Anchor({
+              anchorUrl: new Url.Url({ href: v.anchorUrl }),
+              anchorDataHash: hexToBytes(v.anchorHashHex),
+            })
+          : null,
+    };
+  });
+
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  // Votes carry no deposit, so the inputs only need to cover the fee.
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
+
+  const built = await queueVotesOps(client.newTx(), { drepKeyHash: opts.drepKeyHash, votes })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
+
+  return signAndSubmit(built, opts.walletApi);
 }
 
 export interface CastDRepVoteOpts {
@@ -433,24 +509,20 @@ export interface CastDRepVoteOpts {
  * Koios provider; not covered by offline unit tests.
  */
 export async function castDRepVote(opts: CastDRepVoteOpts): Promise<{ txHash: string }> {
-  const govActionId = buildGovActionId(opts.govActionId);
-  const anchor =
-    opts.anchorUrl && opts.anchorHashHex
-      ? new Anchor.Anchor({
-          anchorUrl: new Url.Url({ href: opts.anchorUrl }),
-          anchorDataHash: hexToBytes(opts.anchorHashHex),
-        })
-      : null;
-
-  const client = makeClient(opts.network, opts.origin, opts.walletApi);
-  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
-  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
-
-  const built = await queueVoteOps(client.newTx(), { drepKeyHash: opts.drepKeyHash, govActionId, vote: opts.vote, anchor })
-    .collectFrom({ inputs })
-    .build({ availableUtxos });
-
-  return signAndSubmit(built, opts.walletApi);
+  return castDRepVotes({
+    walletApi: opts.walletApi,
+    network: opts.network,
+    drepKeyHash: opts.drepKeyHash,
+    origin: opts.origin,
+    votes: [
+      {
+        govActionId: opts.govActionId,
+        vote: opts.vote,
+        anchorUrl: opts.anchorUrl,
+        anchorHashHex: opts.anchorHashHex,
+      },
+    ],
+  });
 }
 
 /**

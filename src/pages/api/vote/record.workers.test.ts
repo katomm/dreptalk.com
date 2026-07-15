@@ -326,3 +326,109 @@ describe('POST /api/vote/record', () => {
     expect(topic?.post_count).toBe(1);
   });
 });
+
+const GA_ID_2 = `${'c'.repeat(64)}#1`;
+
+async function seedSecondGovAction() {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO governance_actions (id, type, title, status, topic_id, created_at, last_synced_at)
+     VALUES (?, 'InfoAction', 'Second Action', 'active', NULL, ?, ?)`,
+  ).bind(GA_ID_2, NOW, NOW).run();
+}
+
+describe('POST /api/vote/record (batch)', () => {
+  it('records every vote of a batch under one txHash', async () => {
+    await seedUser();
+    await seedGovAction();
+    await seedSecondGovAction();
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: {
+        txHash: TX_HASH,
+        votes: [
+          { gaId: GA_ID, vote: 'yes' },
+          { gaId: GA_ID_2, vote: 'abstain' },
+        ],
+      },
+    }));
+    expect(res.status).toBe(200);
+
+    const v1 = await getViewerVote(env.DB, GA_ID, DREP_ID);
+    const v2 = await getViewerVote(env.DB, GA_ID_2, DREP_ID);
+    expect(v1?.vote).toBe('yes');
+    expect(v2?.vote).toBe('abstain');
+    expect(v1?.tx_hash).toBe(TX_HASH);
+    expect(v2?.tx_hash).toBe(TX_HASH);
+    expect(v1?.local_status).toBe('pending');
+    expect(v2?.local_status).toBe('pending');
+  });
+
+  it('rejects a batch with duplicate gaIds', async () => {
+    await seedUser();
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: {
+        txHash: TX_HASH,
+        votes: [
+          { gaId: GA_ID, vote: 'yes' },
+          { gaId: GA_ID, vote: 'no' },
+        ],
+      },
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an empty batch', async () => {
+    await seedUser();
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { txHash: TX_HASH, votes: [] },
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  it('hosts a rationale and cross-post for a batch entry that carries rationaleText', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId);
+    await seedSecondGovAction();
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: {
+        txHash: TX_HASH,
+        votes: [
+          { gaId: GA_ID, vote: 'yes', rationaleText: 'Batch rationale for the first action.', crossPost: true },
+          { gaId: GA_ID_2, vote: 'abstain' },
+        ],
+      },
+    }));
+    expect(res.status).toBe(200);
+
+    const v1 = await getViewerVote(env.DB, GA_ID, DREP_ID);
+    const v2 = await getViewerVote(env.DB, GA_ID_2, DREP_ID);
+    expect(v1?.vote).toBe('yes');
+    expect(v2?.vote).toBe('abstain');
+    expect(v1?.tx_hash).toBe(TX_HASH);
+    expect(v2?.tx_hash).toBe(TX_HASH);
+
+    const rows = (
+      await env.DB.prepare(
+        `SELECT * FROM posts WHERE source = 'vote_rationale' AND author_id = ?`,
+      )
+        .bind(USER_ID)
+        .all<{ vote: string; body_md: string }>()
+    ).results;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].vote).toBe('yes');
+    expect(rows[0].body_md).toBe('Batch rationale for the first action.');
+
+    const ar = await env.DB
+      .prepare(`SELECT body_html, source FROM action_rationale WHERE ga_id = ? AND voter_id = ?`)
+      .bind(GA_ID, DREP_ID)
+      .first<{ body_html: string; source: string }>();
+    expect(ar?.source).toBe('dreptalk');
+    expect(ar?.body_html).toContain('Batch rationale for the first action');
+  });
+});
