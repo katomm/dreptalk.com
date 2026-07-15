@@ -1,0 +1,36 @@
+---
+// The colored governance-type pill (glyph + readable label), shared by the
+// action list rows and the vote dashboard so the markup, the tone wiring and
+// the pill CSS stay single-sourced. The tone is derived once and drives both
+// the pill hue (--ph) and the glyph.
+import { govTypeTone, readableType } from '@/lib/governance/view.js';
+import GovTypeIcon from '@/components/GovTypeIcon.astro';
+
+interface Props {
+  type: string; // raw on-chain type ("TreasuryWithdrawals") or readable form
+}
+const { type } = Astro.props;
+const tone = govTypeTone(type);
+---
+<span class="pill" style={`--ph:var(--gov-${tone})`}>
+  <GovTypeIcon tone={tone} size={11} />
+  {readableType(type)}
+</span>
+
+<style>
+  /* inline-flex so the type glyph and label center on one line; the glyph
+     inherits the pill's tone via currentColor. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ph) 14%, transparent);
+    color: var(--ph);
+  }
+</style>

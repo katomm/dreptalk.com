@@ -1,17 +1,18 @@
 ---
-// One glyph per governance action type, in the same hand-inlined Lucide-style
-// stroke look used across the site (24x24, stroke 2, round caps). Colored via
-// currentColor so it inherits the type pill's tone (--gov-*) or any text color.
-// The tone mapping is govTypeTone, so raw on-chain and readable type strings
-// both resolve; unknown types fall back to the generic building glyph.
-import { govTypeTone } from '@/lib/governance/view.js';
+// One glyph per governance action type tone, in the same hand-inlined
+// Lucide-style stroke look used across the site (24x24, stroke 2, round caps).
+// Colored via currentColor so it inherits the surrounding tone (--gov-*) or
+// text color. Takes the already-normalized tone (govTypeTone) rather than the
+// raw type string, so callers that computed it for the pill hue do not pay for
+// a second derivation; 'other' falls back to the generic building glyph.
+import type { GovTypeTone } from '@/lib/governance/view.js';
+import { USERS_PATH, SHIELD_PATH } from '@/lib/forum/icons.js';
 
 interface Props {
-  type: string; // raw on-chain type ("TreasuryWithdrawals") or readable form
-  size?: number;
+  tone: GovTypeTone;
+  size: number;
 }
-const { type, size = 14 } = Astro.props;
-const tone = govTypeTone(type);
+const { tone, size } = Astro.props;
 ---
 <svg
   width={size}
@@ -67,17 +68,10 @@ const tone = govTypeTone(type);
       <path d="M12 12v3" />
     </>
   )}
-  {tone === 'committee' && (
-    <>
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </>
-  )}
+  {tone === 'committee' && <path d={USERS_PATH} />}
   {tone === 'noconfidence' && (
     <>
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d={SHIELD_PATH} />
       <path d="m9.5 9.5 5 5" />
       <path d="m14.5 9.5-5 5" />
     </>

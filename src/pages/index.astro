@@ -19,6 +19,7 @@ import {
   readableType,
   statusBadge,
   voteTone,
+  govTypeTone,
   TONE_COLORS,
   leadingComposition,
   isSpoLedType,
@@ -201,7 +202,7 @@ const heroCard = personalized
   ? (() => {
       const badge = statusBadge(personalized.card.status);
       return {
-        type: personalized.card.type,
+        typeTone: govTypeTone(personalized.card.type),
         label: readableType(personalized.card.type),
         title: personalized.card.title,
         badge: badge.label,
@@ -214,7 +215,7 @@ const heroCard = personalized
         const a = heroAction.action;
         const badge = statusBadge(a.status);
         return {
-          type: a.type,
+          typeTone: govTypeTone(a.type),
           label: readableType(a.type),
           title: a.title as string,
           badge: badge.label,
@@ -223,7 +224,7 @@ const heroCard = personalized
         };
       })()
     : {
-        type: 'TreasuryWithdrawals',
+        typeTone: govTypeTone('TreasuryWithdrawals'),
         label: 'Governance Action',
         title: 'Treasury Withdrawal',
         badge: 'Active',
@@ -358,7 +359,7 @@ const heroFeatures = [
             aria-label={heroCard.href ? `Latest governance action: ${heroCard.title}, ${heroCard.badge}` : undefined}
           >
             <span class="gov-card__icon" aria-hidden="true">
-              <GovTypeIcon type={heroCard.type} size={20} />
+              <GovTypeIcon tone={heroCard.typeTone} size={20} />
             </span>
             <span class="gov-card__label">{heroCard.label}</span>
             <span class="gov-card__title">{heroCard.title}</span>
@@ -570,15 +571,10 @@ const heroFeatures = [
     border-radius: 28px;
     background: var(--noise);
     mix-blend-mode: overlay;
-    opacity: 0.55;
+    opacity: var(--noise-opacity);
     -webkit-mask-image: radial-gradient(70% 70% at 50% 50%, #000 45%, transparent 100%);
     mask-image: radial-gradient(70% 70% at 50% 50%, #000 45%, transparent 100%);
     pointer-events: none;
-  }
-  /* On the near-black background the light speckles lift far more than on white,
-     so the dark theme runs the grain much fainter. */
-  :global(html[data-theme='dark']) .hero-scene__grain {
-    opacity: 0.22;
   }
   .hero-scene__rings {
     position: absolute;
@@ -608,7 +604,9 @@ const heroFeatures = [
     position: absolute;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%);
+    /* Centering and the hover lift compose through --lift, so the hover state
+       never has to restate the centering offsets. */
+    transform: translate(-50%, calc(-50% + var(--lift, 0px)));
     z-index: 1;
     width: 64%;
     min-width: 210px;
@@ -630,13 +628,12 @@ const heroFeatures = [
     transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   }
   /* When backed by a real action the card links to its thread. Hover adds a
-     small lift on top of the centering translate (transform-only, so it stays
-     on the compositor). */
+     small lift (transform-only, so it stays on the compositor). */
   a.gov-card:hover,
   a.gov-card:focus-visible {
     border-color: var(--accent);
     box-shadow: var(--shadow-lg), 0 0 0 1px var(--accent);
-    transform: translate(-50%, calc(-50% - 2px));
+    --lift: -2px;
     outline: none;
   }
   .gov-card__icon {

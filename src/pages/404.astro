@@ -57,16 +57,11 @@ import Layout from '@/layouts/Layout.astro';
       height: 14rem;
       background: var(--noise);
       mix-blend-mode: overlay;
-      opacity: 0.5;
+      opacity: var(--noise-opacity);
       -webkit-mask-image: radial-gradient(60% 60% at 50% 50%, #000 30%, transparent 100%);
       mask-image: radial-gradient(60% 60% at 50% 50%, #000 30%, transparent 100%);
       z-index: -1;
       pointer-events: none;
-    }
-    /* On the near-black background the light speckles lift far more than on
-       white, so the dark theme runs the grain much fainter. */
-    :global(html[data-theme='dark']) .notfound::after {
-      opacity: 0.22;
     }
     .notfound__code {
       font-family: var(--font-display);
