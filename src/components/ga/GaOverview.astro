@@ -7,6 +7,7 @@ import GaOnchainChanges from './GaOnchainChanges.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
 import { ensureLinkTarget, renderMarkdown } from '@/lib/markdown.js';
+import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 
 interface Props {
   action: GovernanceAction;
@@ -28,6 +29,32 @@ const rationaleText = action.rationaleHtml
   ? action.rationaleHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   : '';
 const isLongRationale = rationaleText.length > 5000;
+
+// When neither an abstract nor a rationale renders, "No details available" is
+// misleading: most such actions DID ship a full metadata document, but the
+// proposer anchored it to a mutable URL that has since 404'd or drifted from the
+// on-chain hash. anchor_status records which of those it was, so we can name the
+// real cause instead of implying the proposer supplied nothing. The anchor stays
+// linkable (resolving ipfs:// to a gateway) so a reader can still inspect the
+// source, with the integrity caveat spelled out for a hash mismatch.
+const hasBody = Boolean(abstractHtml || action.rationaleHtml);
+const anchorHref = action.anchorUrl ? resolveAnchorUrl(action.anchorUrl) : null;
+let emptyReason = 'No details are available for this action.';
+if (!hasBody) {
+  if (!action.anchorUrl) {
+    emptyReason = 'The proposer did not attach a metadata document to this action.';
+  } else if (action.anchorStatus === 'ok') {
+    emptyReason = 'The attached metadata document contains no summary or rationale.';
+  } else if (action.anchorStatus === 'hash-mismatch') {
+    emptyReason =
+      'The metadata document at the anchor no longer matches the on-chain hash, so it cannot be shown here.';
+  } else if (action.anchorStatus === 'pending') {
+    emptyReason = 'The metadata document has not been retrieved yet.';
+  } else {
+    // fetch-failed, too-large, bad-content-type, parse-failed, unsupported-url
+    emptyReason = 'The metadata document could not be retrieved from its anchor.';
+  }
+}
 ---
 
 <section class="ga-overview">
@@ -58,8 +85,21 @@ const isLongRationale = rationaleText.length > 5000;
     </div>
   )}
 
-  {!action.rationaleHtml && !abstractHtml && (
-    <p class="ga-overview__empty">No details available for this action.</p>
+  {!hasBody && (
+    <p class="ga-overview__empty">
+      {emptyReason}
+      {anchorHref && (
+        <>
+          {' '}
+          <a
+            class="ga-overview__anchor"
+            href={anchorHref}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+          >View the anchor document</a>.
+        </>
+      )}
+    </p>
   )}
 </section>
 
@@ -69,6 +109,12 @@ const isLongRationale = rationaleText.length > 5000;
     font-style: italic;
     font-size: 0.9375rem;
     margin: 0;
+  }
+
+  .ga-overview__anchor {
+    color: var(--accent);
+    font-style: normal;
+    text-decoration: underline;
   }
 
   /* Section labels shared by abstract + rationale blocks */
