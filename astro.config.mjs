@@ -68,6 +68,18 @@ export default defineConfig({
     optimizeDeps: {
       include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
     },
+    // The SSR dep optimizer runs a separate pass (deps_ssr). If it discovers
+    // react-dom/server only on the first SSR request, it re-optimizes mid-flight
+    // and the in-flight chunk URLs 404 ("file does not exist ... in the optimize
+    // deps directory"), plus React briefly splits into two copies (null
+    // dispatcher). Pre-including the server-side React entrypoints bundles them at
+    // startup so no mid-session re-optimize happens. Dev-only; the prod build is
+    // unaffected.
+    ssr: {
+      optimizeDeps: {
+        include: ['react', 'react-dom', 'react-dom/server', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+      },
+    },
   },
   security: {
     // Content Security Policy for SSR responses. With the Cloudflare adapter,
