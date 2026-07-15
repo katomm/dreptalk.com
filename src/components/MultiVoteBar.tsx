@@ -484,14 +484,6 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 600, fontSize: '0.9375rem' }}>
             {items.length} {items.length === 1 ? 'vote' : 'votes'} selected
-            {/* Subtle re-vote hint, not a blocker: overriding an earlier vote is
-                legitimate (the newest on-chain vote counts), the DRep should
-                just not do it by accident. Details sit on the review items. */}
-            {revoteCount > 0 && (
-              <span style={{ fontWeight: 400, fontSize: '0.8125rem', color: 'var(--muted)' }}>
-                {' '}&middot; {revoteCount === 1 ? '1 changes an earlier vote' : `${revoteCount} change earlier votes`}
-              </span>
-            )}
           </span>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button type="button" className="btn btn--sm" onClick={resetBatchState} disabled={busy}>
@@ -502,6 +494,23 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
             </button>
           </div>
         </div>
+
+        {/* Re-vote admonition: clearly visible without expanding the review,
+            but not a blocker; overriding an earlier vote is legitimate (the
+            newest on-chain vote counts). Per-action details sit in the review. */}
+        {revoteCount > 0 && (
+          <div className="callout callout--warning" role="status" style={{ marginTop: '0.625rem' }}>
+            <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <div className="callout__body">
+              {revoteCount === 1
+                ? 'One of these votes changes an earlier on-chain vote.'
+                : `${revoteCount} of these votes change earlier on-chain votes.`}{' '}
+              The review shows which.
+            </div>
+          </div>
+        )}
 
         {/* Review panel */}
         {expanded && (
