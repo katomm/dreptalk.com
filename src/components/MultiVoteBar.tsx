@@ -50,6 +50,54 @@ type Phase =
 // Pure helpers (exported for unit tests)
 // ---------------------------------------------------------------------------
 
+// Draft persistence: the batch (selections, rationale texts, cross-post flag)
+// survives a reload, tab close, or browser crash until the transaction is
+// submitted or the DRep clears it. Rationale texts are the valuable part; a
+// long CIP-100 text must never die with the tab.
+export const DRAFT_STORAGE_KEY = 'dreptalk:multivote-draft';
+
+export interface MultiVoteDraft {
+  selections: Record<string, VoteChoice>;
+  sharedRationale: string;
+  overrides: Record<string, string>;
+  crossPost: boolean;
+}
+
+const VOTE_CHOICES: readonly VoteChoice[] = ['yes', 'no', 'abstain'];
+
+/**
+ * Parses a stored draft and prunes it to the currently open actions, so a
+ * draft never resurrects a closed action. Returns null for corrupt or empty
+ * drafts. Pure; exported for unit tests.
+ */
+export function restoreDraft(raw: string | null, validGaIds: string[]): MultiVoteDraft | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<MultiVoteDraft>;
+    const valid = new Set(validGaIds);
+    const selections: Record<string, VoteChoice> = {};
+    for (const [gaId, choice] of Object.entries(parsed.selections ?? {})) {
+      if (valid.has(gaId) && VOTE_CHOICES.includes(choice as VoteChoice)) {
+        selections[gaId] = choice as VoteChoice;
+      }
+    }
+    const overrides: Record<string, string> = {};
+    for (const [gaId, text] of Object.entries(parsed.overrides ?? {})) {
+      if (valid.has(gaId) && typeof text === 'string' && text.trim().length > 0) {
+        overrides[gaId] = text;
+      }
+    }
+    const sharedRationale = typeof parsed.sharedRationale === 'string' ? parsed.sharedRationale : '';
+    const crossPost = parsed.crossPost === true;
+    if (Object.keys(selections).length === 0 && Object.keys(overrides).length === 0 && sharedRationale.trim().length === 0) {
+      return null;
+    }
+    return { selections, sharedRationale, overrides, crossPost };
+  } catch {
+    return null;
+  }
+}
+
 /** Immutable selection toggle: same choice again deselects the action. */
 export function toggleSelection(
   selections: Record<string, VoteChoice>,
@@ -241,6 +289,44 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
   const busyRef = useRef(false);
   busyRef.current = busy;
 
+  // Draft persistence. Restore runs once after hydration (localStorage does
+  // not exist during SSR, and reading it in the initial state would make the
+  // client render diverge from the server-rendered null). The persist effect
+  // stays quiet until the restore attempt finished so it can never clobber a
+  // stored draft with the pre-restore empty state.
+  const draftRestoredRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: actions is SSR data, render-stable for the page's lifetime; the restore must run exactly once
+  useEffect(() => {
+    const draft = restoreDraft(
+      window.localStorage.getItem(DRAFT_STORAGE_KEY),
+      actions.map((a) => a.gaId),
+    );
+    if (draft) {
+      setSelections(draft.selections);
+      setSharedRationale(draft.sharedRationale);
+      setOverrides(draft.overrides);
+      setCrossPost(draft.crossPost);
+    }
+    draftRestoredRef.current = true;
+    // actions is render-stable per page load (SSR data); run once on mount.
+  }, []);
+  useEffect(() => {
+    if (!draftRestoredRef.current) return;
+    const empty =
+      Object.keys(selections).length === 0 &&
+      sharedRationale.trim().length === 0 &&
+      Object.values(overrides).every((t) => t.trim().length === 0);
+    try {
+      if (empty) window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+      else {
+        const draft: MultiVoteDraft = { selections, sharedRationale, overrides, crossPost };
+        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      }
+    } catch {
+      // Storage can be full or blocked; drafting is best-effort, never fatal.
+    }
+  }, [selections, sharedRationale, overrides, crossPost]);
+
   // Event delegation: the row buttons are SSR markup owned by vote.astro.
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -299,6 +385,13 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
     setCrossPost(false);
     setDroppedNotice([]);
     setExpanded(false);
+    // The persist effect would remove the empty draft anyway; do it eagerly so
+    // a crash right after success/clear cannot resurrect the submitted batch.
+    try {
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {
+      // Best-effort, like all draft storage.
+    }
   }
 
   async function handleConnect() {

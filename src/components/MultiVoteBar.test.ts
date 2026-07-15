@@ -9,6 +9,7 @@ import {
   countUniqueRationales,
   MAX_UNIQUE_BATCH_RATIONALES,
   PreSignError,
+  restoreDraft,
   type SubmitMultiVoteDeps,
 } from './MultiVoteBar';
 
@@ -30,6 +31,40 @@ describe('effectiveRationale', () => {
     expect(effectiveRationale('shared text', '   ')).toBe('shared text');
     expect(effectiveRationale('', '')).toBe('');
     expect(effectiveRationale('  ', '')).toBe('');
+  });
+});
+
+describe('restoreDraft', () => {
+  it('restores a stored draft, pruning closed actions from selections and overrides', () => {
+    const raw = JSON.stringify({
+      selections: { ga1: 'yes', gaGone: 'no' },
+      sharedRationale: 'shared text',
+      overrides: { ga1: 'special', gaGone: 'stale', ga2: '   ' },
+      crossPost: true,
+    });
+    const draft = restoreDraft(raw, ['ga1', 'ga2']);
+    expect(draft).toEqual({
+      selections: { ga1: 'yes' },
+      sharedRationale: 'shared text',
+      overrides: { ga1: 'special' },
+      crossPost: true,
+    });
+  });
+
+  it('returns null for missing, corrupt, or effectively empty drafts', () => {
+    expect(restoreDraft(null, ['ga1'])).toBeNull();
+    expect(restoreDraft('not json{', ['ga1'])).toBeNull();
+    // Only a closed action remained: nothing worth restoring.
+    expect(
+      restoreDraft(JSON.stringify({ selections: { gaGone: 'yes' }, sharedRationale: '', overrides: {}, crossPost: false }), ['ga1']),
+    ).toBeNull();
+  });
+
+  it('drops invalid vote choices instead of restoring them', () => {
+    const raw = JSON.stringify({ selections: { ga1: 'maybe' }, sharedRationale: 'text', overrides: {}, crossPost: false });
+    const draft = restoreDraft(raw, ['ga1']);
+    expect(draft?.selections).toEqual({});
+    expect(draft?.sharedRationale).toBe('text');
   });
 });
 
