@@ -158,10 +158,19 @@
   color: var(--muted);
   font-weight: 600;
 }
+/* Dashboard header (/vote): only Governance Action + Voting; mirrors the
+   .garow--dashboard grid (incl. the fixed Vote-button track) so the two labels
+   line up over their columns. */
+.ga-list__head--dashboard {
+  grid-template-columns: 2.7fr 1.6fr 112px;
+}
 /* Mirror GovActionRow's tightened four-column grid at the same breakpoint. */
 @media (max-width: 1000px) {
   .ga-list__head {
     grid-template-columns: 2.4fr 1.6fr 0.8fr 1.1fr;
+  }
+  .ga-list__head--dashboard {
+    grid-template-columns: 2.4fr 1.6fr 112px;
   }
 }
 /* Rows collapse to a single column below 720px, so the header would no longer

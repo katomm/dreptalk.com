@@ -221,11 +221,9 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
 
             <div class="ga-wrap">
               <div class="ga-list" data-vote-list>
-                <div class="ga-list__head">
+                <div class="ga-list__head ga-list__head--dashboard">
                   <span>Governance Action</span>
                   <span>Voting</span>
-                  <span>Activity</span>
-                  <span>Time Left</span>
                 </div>
                 {actions.map(({ row, action, topic, closingSoon }) => {
                   const voteBadge = row.viewerVote
@@ -262,6 +260,7 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
                       voteBadge={voteBadge}
                       closingSoon={closingSoon}
                       rowAttrs={rowAttrs}
+                      variant="dashboard"
                     />
                   );
                 })}

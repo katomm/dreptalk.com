@@ -320,7 +320,6 @@ const breadcrumbLd = {
               <a class="ga-dashlink" href="/vote/">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M5 7c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v12H5V7z"/><path d="M22 19H2"/></svg>
                 Voting Dashboard
-                <span class="ga-dashlink__arr" aria-hidden="true">&rarr;</span>
               </a>
             )}
             <details class="ga-dropdown ga-dropdown--end" data-auto-dismiss>
@@ -553,12 +552,6 @@ const breadcrumbLd = {
   }
   .ga-dashlink:hover {
     background: color-mix(in srgb, var(--accent) 18%, transparent);
-  }
-  .ga-dashlink__arr {
-    transition: transform 0.12s;
-  }
-  .ga-dashlink:hover .ga-dashlink__arr {
-    transform: translateX(2px);
   }
 
   /* The Time Left header is a sort shortcut; it inherits the calm header look and

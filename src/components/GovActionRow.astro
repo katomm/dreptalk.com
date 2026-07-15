@@ -35,6 +35,10 @@ interface Props {
   // Opaque extra attributes spread onto the row anchor, e.g. the /vote client
   // filter's data-* schema. The row never interprets them.
   rowAttrs?: Record<string, string | undefined>;
+  // Layout variant. 'overview' (default) is the four-column governance table.
+  // 'dashboard' drops the Activity and Time Left columns (reserving that space
+  // for future dashboard controls) and folds the time-left into the meta line.
+  variant?: 'overview' | 'dashboard';
 }
 const {
   topic,
@@ -49,7 +53,9 @@ const {
   voteBadge,
   closingSoon,
   rowAttrs = {},
+  variant = 'overview',
 } = Astro.props;
+const isDashboard = variant === 'dashboard';
 // Resolve the proposer from the action's reward address: a known org name+logo,
 // else a truncated address. Derived here so callers just pass the action.
 const pv = proposerView(action.returnAddress);
@@ -109,7 +115,7 @@ const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, ac
 // Only shown while voting is still open; once past, the status badge carries the outcome.
 const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expiryUnix) : null;
 ---
-<a class="garow" href={href} {...rowAttrs}>
+<a class:list={['garow', { 'garow--dashboard': isDashboard }]} href={href} {...rowAttrs}>
   <div class="garow__main">
     <span class="garow__tags">
       <GovTypePill type={action.type} />
@@ -145,6 +151,11 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
         ? <img class="garow__pico" src={proposerIcon} alt="" width="14" height="14" loading="lazy" />
         : proposerIdenticon && <span class="garow__pico garow__pico--ident" set:html={proposerIdenticon} />}
       {proposer ?? 'Unknown'}{action.submittedEpoch != null && <> &middot; Epoch {action.submittedEpoch}</>}
+      {/* Dashboard variant drops the Time Left column, so the countdown moves
+          here next to the proposer/epoch line. */}
+      {isDashboard && daysLeft != null && (
+        <> &middot; <span class="garow__accent">~{daysLeft} {daysLeft === 1 ? 'day' : 'days'} left</span></>
+      )}
     </p>
   </div>
 
@@ -202,6 +213,15 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
       ) : <span class="garow__sub">{badge.label}</span>}
     </div>
   </div>
+
+  {/* Dashboard variant: the freed right column holds a Vote call-to-action. The
+      whole row is already a link to the thread, so this is a styled affordance,
+      not a nested anchor. */}
+  {isDashboard && (
+    <div class="garow__vote">
+      <span class="garow__votebtn">Vote</span>
+    </div>
+  )}
 </a>
 
 <style>
@@ -210,6 +230,21 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .garow { display:grid; grid-template-columns:2.7fr 1.6fr 0.9fr 1.2fr; gap:18px; align-items:start;
     padding:16px 18px; border-bottom:1px solid var(--border); text-decoration:none; color:var(--fg); }
   .garow:hover { background:var(--surface); }
+  /* Dashboard variant (/vote): drop the Activity and Time Left columns and end on a
+     fixed-width Vote CTA. Action and voting absorb the freed space (they grow past
+     their overview widths); the fixed last track keeps the button aligned and lets
+     the .ga-list__head--dashboard header line up over the same columns. */
+  .garow--dashboard { grid-template-columns:2.7fr 1.6fr 112px; }
+  .garow--dashboard .garow__activity,
+  .garow--dashboard .garow__time { display:none; }
+  .garow__vote { align-self:center; }
+  .garow__votebtn {
+    display:flex; align-items:center; justify-content:center; width:100%;
+    padding:0.45rem 0.6rem; border-radius:999px;
+    background:var(--accent); color:var(--accent-fg);
+    font-size:0.8125rem; font-weight:600; white-space:nowrap;
+  }
+  .garow:hover .garow__votebtn { background:color-mix(in srgb, var(--accent) 88%, #000); }
   /* Let the cell shrink below its content width so the abstract truncates with an
      ellipsis instead of stretching the row into one endless line. */
   .garow__main { min-width:0; }
@@ -288,6 +323,8 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
      needed to reflow here). Header grid in c/[slug].astro mirrors these widths. */
   @media (max-width:1000px) {
     .garow { grid-template-columns:2.4fr 1.6fr 0.8fr 1.1fr; }
+    /* Mirror the tightened action/voting widths; keep the fixed Vote-button track. */
+    .garow--dashboard { grid-template-columns:2.4fr 1.6fr 112px; }
   }
   /* Mobile: each row becomes a self-contained rounded card. The voting cell keeps
      its per-body composition list full width, above a two-column footer
@@ -307,6 +344,12 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
     /* Drop the proposer/epoch line on mobile: mostly a truncated stake address
        on a small screen; the proposer stays on the detail page. */
     .garow__meta { display:none; }
+    /* The dashboard card has no footer, so keep its meta line: it carries the
+       time-left the dropped Time Left column would otherwise show. */
+    .garow--dashboard .garow__meta { display:block; }
+    /* Vote CTA spans the card full width at the bottom. */
+    .garow--dashboard .garow__vote { grid-column:1 / -1; }
+    .garow--dashboard .garow__votebtn { padding:0.6rem; }
     /* Activity holds the first footer column; the time block is the second. */
     .garow__activity { grid-column:1 / 2; flex-direction:row; gap:0; min-width:0; }
     .garow__stat { flex:1 1 0; padding:0 6px; align-items:center; text-align:center; }
