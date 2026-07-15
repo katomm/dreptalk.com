@@ -69,6 +69,27 @@ export function effectiveRationale(shared: string, override: string): string {
   return shared.trim();
 }
 
+// The rationale hosting endpoint is rate limited to 10 requests per minute per
+// IP, and each DISTINCT text in a batch costs one request (identical texts are
+// hosted once). Capping distinct texts at that limit means a batch can never
+// 429 mid-hosting; the UI blocks submission above it, and submitMultiVote
+// enforces it defensively.
+export const MAX_UNIQUE_BATCH_RATIONALES = 10;
+
+/** Number of distinct non-empty effective rationale texts across a selection. */
+export function countUniqueRationales(
+  gaIds: string[],
+  shared: string,
+  overrides: Record<string, string>,
+): number {
+  const texts = new Set<string>();
+  for (const gaId of gaIds) {
+    const text = effectiveRationale(shared, overrides[gaId] ?? '');
+    if (text.length > 0) texts.add(text);
+  }
+  return texts.size;
+}
+
 export interface SubmitMultiVoteDeps {
   hostRationale: (args: { gaId: string; drepId: string; rationale: string }) => Promise<{ url: string; hash: string }>;
   castVotes: (opts: CastDRepVotesOpts) => Promise<{ txHash: string }>;
@@ -105,6 +126,16 @@ export async function submitMultiVote(
     ...s,
     text: effectiveRationale(args.sharedRationale, args.overrides[s.gaId] ?? ''),
   }));
+
+  // Never start hosting a batch the rate limit cannot finish: one dead request
+  // mid-loop would abort the whole submit (safely, before signing, but still
+  // a frustrating dead end for the DRep).
+  const uniqueTexts = new Set(perAction.map((p) => p.text).filter((t) => t.length > 0));
+  if (uniqueTexts.size > MAX_UNIQUE_BATCH_RATIONALES) {
+    throw new Error(
+      `This batch has ${uniqueTexts.size} different rationale texts; at most ${MAX_UNIQUE_BATCH_RATIONALES} are supported per submission. Reuse the shared rationale for some votes, or split the batch.`,
+    );
+  }
 
   // Host each unique rationale text once; identical texts share an anchor.
   const anchors = new Map<string, { url: string; hash: string }>();
@@ -179,6 +210,15 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
     .map(([gaId, choice]) => ({ action: byId.get(gaId) as MultiVoteAction, choice }));
 
   const busy = phase.status === 'connecting' || phase.status === 'checking' || phase.status === 'submitting';
+
+  // Distinct rationale texts are capped by the hosting rate limit; block the
+  // submit (with a notice) instead of letting the batch die on a 429.
+  const uniqueRationales = countUniqueRationales(
+    items.map((i) => i.action.gaId),
+    sharedRationale,
+    overrides,
+  );
+  const tooManyRationales = uniqueRationales > MAX_UNIQUE_BATCH_RATIONALES;
 
   // Mirrored into a ref because the delegated click handler below is
   // registered once with [] deps and cannot read `busy` from the closure.
@@ -553,10 +593,17 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
                     <div className="callout__body">{phase.message}</div>
                   </div>
                 )}
+                {tooManyRationales && (
+                  <div className="callout callout--info" role="status">
+                    <div className="callout__body">
+                      This batch has {uniqueRationales} different rationale texts; at most {MAX_UNIQUE_BATCH_RATIONALES} are supported per submission. Reuse the shared rationale for some votes, or split the batch.
+                    </div>
+                  </div>
+                )}
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={busy || items.length === 0}
+                  disabled={busy || items.length === 0 || tooManyRationales}
                   onClick={() => {
                     const identity =
                       phase.status === 'form' || phase.status === 'submitting'

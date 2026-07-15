@@ -2,7 +2,14 @@
 // effective-rationale resolution, and the dependency-injected batch submit
 // orchestration (mirrors VotePanel.test.ts's approach to submitVote).
 import { describe, it, expect, vi } from 'vitest';
-import { effectiveRationale, toggleSelection, submitMultiVote, type SubmitMultiVoteDeps } from './MultiVoteBar';
+import {
+  effectiveRationale,
+  toggleSelection,
+  submitMultiVote,
+  countUniqueRationales,
+  MAX_UNIQUE_BATCH_RATIONALES,
+  type SubmitMultiVoteDeps,
+} from './MultiVoteBar';
 
 describe('toggleSelection', () => {
   it('adds, changes, and toggles off a choice', () => {
@@ -22,6 +29,21 @@ describe('effectiveRationale', () => {
     expect(effectiveRationale('shared text', '   ')).toBe('shared text');
     expect(effectiveRationale('', '')).toBe('');
     expect(effectiveRationale('  ', '')).toBe('');
+  });
+});
+
+describe('countUniqueRationales', () => {
+  it('counts distinct effective texts: shared once, overrides individually, empties ignored', () => {
+    const gaIds = ['ga1', 'ga2', 'ga3', 'ga4'];
+    expect(countUniqueRationales(gaIds, '', {})).toBe(0);
+    // Shared text applies to every action but counts once.
+    expect(countUniqueRationales(gaIds, 'shared', {})).toBe(1);
+    // One override on top of shared: two distinct texts.
+    expect(countUniqueRationales(gaIds, 'shared', { ga2: 'special' })).toBe(2);
+    // Two overrides with the SAME text dedupe.
+    expect(countUniqueRationales(gaIds, 'shared', { ga2: 'special', ga3: 'special' })).toBe(2);
+    // No shared text: only non-empty overrides count.
+    expect(countUniqueRationales(gaIds, '', { ga1: 'a', ga2: 'b', ga3: '   ' })).toBe(2);
   });
 });
 
@@ -110,6 +132,34 @@ describe('submitMultiVote', () => {
   it('rejects an empty selection', async () => {
     const { deps } = makeDeps();
     await expect(submitMultiVote(deps, makeArgs({ selections: [] }))).rejects.toThrow();
+  });
+
+  it('rejects a batch exceeding the distinct-rationale cap before hosting anything', async () => {
+    const { deps, hostRationale } = makeDeps();
+    const n = MAX_UNIQUE_BATCH_RATIONALES + 1;
+    const selections = Array.from({ length: n }, (_, i) => ({
+      gaId: `${String(i).padStart(2, '0').repeat(32)}#0`,
+      choice: 'yes' as const,
+    }));
+    const overrides = Object.fromEntries(selections.map((s, i) => [s.gaId, `distinct rationale ${i}`]));
+    await expect(
+      submitMultiVote(deps, makeArgs({ selections, overrides })),
+    ).rejects.toThrow(/rationale texts/);
+    // The guard must fire before the first hosting request (a mid-loop 429
+    // would abort the submit after some documents were already hosted).
+    expect(hostRationale).not.toHaveBeenCalled();
+  });
+
+  it('accepts a batch at exactly the distinct-rationale cap', async () => {
+    const { deps, hostRationale } = makeDeps();
+    const selections = Array.from({ length: MAX_UNIQUE_BATCH_RATIONALES }, (_, i) => ({
+      gaId: `${String(i).padStart(2, '0').repeat(32)}#0`,
+      choice: 'no' as const,
+    }));
+    const overrides = Object.fromEntries(selections.map((s, i) => [s.gaId, `distinct rationale ${i}`]));
+    const res = await submitMultiVote(deps, makeArgs({ selections, overrides }));
+    expect(res.txHash).toBe('d'.repeat(64));
+    expect(hostRationale).toHaveBeenCalledTimes(MAX_UNIQUE_BATCH_RATIONALES);
   });
 
   it('still resolves with the txHash when recordVotes rejects (votes are already on chain)', async () => {
