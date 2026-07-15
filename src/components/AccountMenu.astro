@@ -34,12 +34,12 @@ const icons = {
 } as const;
 
 // Menu rows above Log out. Profile shows for any account with a profile link
-// (DRep or SPO); Vote is DRep-only, since /vote redirects everyone else to
-// /login, so it is gated on a synced DRep id rather than on profileHref.
+// (DRep or SPO); the Voting Dashboard is DRep-only, since /vote redirects
+// everyone else to /login, so it is gated on a synced DRep id, not profileHref.
 const items = [
   { label: 'Settings', href: '/settings/', icon: icons.settings },
   ...(profileHref ? [{ label: 'Profile', href: profileHref, icon: icons.profile }] : []),
-  ...(account.drepId ? [{ label: 'Vote', href: '/vote/', icon: icons.vote }] : []),
+  ...(account.drepId ? [{ label: 'Voting Dashboard', href: '/vote/', icon: icons.vote }] : []),
 ];
 ---
 

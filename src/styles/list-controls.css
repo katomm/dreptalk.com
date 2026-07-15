@@ -38,3 +38,147 @@
   color: inherit;
   cursor: pointer;
 }
+
+/* Sort/Type dropdowns: a <details>/<summary> disclosure using the .ctrl-box look,
+   with an absolutely positioned menu of options (links on the governance list, JS
+   filter buttons on /vote). Shared here so both pages stay identical. The menu
+   left-anchors by default (triggers sit on the left of the /vote control bar); add
+   .ga-dropdown--end to right-anchor it (governance controls sit on the right). */
+.ga-dropdown {
+  position: relative;
+}
+.ga-dropdown__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  list-style: none;
+}
+.ga-dropdown__summary::-webkit-details-marker {
+  display: none;
+}
+.ga-dropdown__label {
+  color: var(--muted);
+}
+.ga-dropdown__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+.ga-dropdown[open] .ga-dropdown__caret {
+  transform: rotate(180deg);
+}
+.ga-dropdown__menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: auto;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.25rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.ga-dropdown--end .ga-dropdown__menu {
+  left: auto;
+  right: 0;
+}
+.ga-dropdown__opt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ga-dropdown__opt:hover {
+  background: var(--surface-2);
+}
+.ga-dropdown__opt[aria-current='true'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+/* Fixed-size box so the type glyph (or the empty "All types" spacer) keeps every
+   option label on the same left edge. Colored via the inline --ph type hue. */
+.gov-oico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--ph);
+}
+
+/* Governance-actions / vote control bar: status segments on the left, the
+   Sort/Type dropdowns on the right. Shared so both pages read identically. */
+.ga-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+}
+.ga-controls__right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+/* The action list and its header row. The header grid MUST match GovActionRow's
+   row grid (columns, gap, horizontal padding) so the labels align. */
+.ga-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+.ga-list__head {
+  display: grid;
+  grid-template-columns: 2.7fr 1.6fr 0.9fr 1.2fr;
+  gap: 18px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+/* Mirror GovActionRow's tightened four-column grid at the same breakpoint. */
+@media (max-width: 1000px) {
+  .ga-list__head {
+    grid-template-columns: 2.4fr 1.6fr 0.8fr 1.1fr;
+  }
+}
+/* Rows collapse to a single column below 720px, so the header would no longer
+   align; hide it there and space the rows (now standalone cards) apart. */
+@media (max-width: 720px) {
+  .ga-list__head {
+    display: none;
+  }
+  .ga-list {
+    border-top: none;
+    gap: 12px;
+  }
+}
+
+/* Staleness footnote: the cached on-chain numbers are never live. */
+.ga-asof {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0.75rem 0 0;
+}

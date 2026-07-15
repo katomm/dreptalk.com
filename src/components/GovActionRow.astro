@@ -13,6 +13,7 @@ import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/confi
 import { decodeOnchainChanges, summarizeOnchain, parameterChangeScope } from '@/lib/governance/onchain.js';
 import { evaluateThresholds, hasOnchainThreshold, type Body } from '@/lib/governance/thresholds.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
+import { proposerView } from '@/lib/identity/proposer.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { Topic } from '@/lib/db/forum.js';
@@ -20,8 +21,6 @@ import type { Topic } from '@/lib/db/forum.js';
 interface Props {
   topic: Topic;
   action: GovernanceAction;
-  proposer?: string;       // resolved display name or truncated address
-  proposerIcon?: string;   // bundled logo path for a known proposer
   drepStakeTotal: number | null;  // total active DRep voting power, for DRep turnout
   committeeSize: number | null;   // current CC seat count, for CC turnout
   params: ProtocolParams | null;  // protocol params, for each row's threshold marker
@@ -29,12 +28,17 @@ interface Props {
   now: number;             // render instant, for the wall-clock voting countdown
   href: string;
   epochParamsJson?: string | null; // current protocol params, for the param old→new summary
+  // Presentation-ready viewer-vote badge (vote dashboard only); the caller owns
+  // the label/color so this shared row stays ignorant of DRep vote states.
+  voteBadge?: { label: string; color: string | null };
+  closingSoon?: boolean;   // adds the "Closing soon" chip (vote dashboard only)
+  // Opaque extra attributes spread onto the row anchor, e.g. the /vote client
+  // filter's data-* schema. The row never interprets them.
+  rowAttrs?: Record<string, string | undefined>;
 }
 const {
   topic,
   action,
-  proposer,
-  proposerIcon,
   drepStakeTotal,
   committeeSize,
   params,
@@ -42,7 +46,15 @@ const {
   now,
   href,
   epochParamsJson,
+  voteBadge,
+  closingSoon,
+  rowAttrs = {},
 } = Astro.props;
+// Resolve the proposer from the action's reward address: a known org name+logo,
+// else a truncated address. Derived here so callers just pass the action.
+const pv = proposerView(action.returnAddress);
+const proposer = pv.kind === 'known' ? pv.name : pv.kind === 'unknown' ? pv.short : undefined;
+const proposerIcon = pv.kind === 'known' ? (pv.icon ?? undefined) : undefined;
 // No bundled logo: fall back to the cardenticon, seeded by the reward address
 // (decodes stake1... natively), so the list mirrors the detail page rather than
 // showing a bare name. Skipped when there is no address (renders as "Unknown").
@@ -97,11 +109,17 @@ const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, ac
 // Only shown while voting is still open; once past, the status badge carries the outcome.
 const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expiryUnix) : null;
 ---
-<a class="garow" href={href}>
+<a class="garow" href={href} {...rowAttrs}>
   <div class="garow__main">
     <span class="garow__tags">
       <GovTypePill type={action.type} />
       <span class={`badge badge--${badge.tone}`}>{badge.label}</span>
+      {voteBadge && (
+        voteBadge.color
+          ? <span class="badge badge--vote" style={`color:${voteBadge.color}`}>{voteBadge.label}</span>
+          : <span class="badge badge--neutral">{voteBadge.label}</span>
+      )}
+      {closingSoon && <span class="badge badge--soon">Closing soon</span>}
     </span>
     <p class="garow__title">{action.title ?? topic.title}</p>
     {onchain && (
@@ -255,6 +273,15 @@ const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expi
   .badge--positive { background:color-mix(in srgb, var(--c-pos) 14%, transparent); color:var(--c-pos); }
   .badge--neutral { background:var(--surface-2); color:var(--muted); }
   .badge--negative { background:color-mix(in srgb, var(--c-neg) 14%, transparent); color:var(--c-neg); }
+  /* Viewer's own vote (vote dashboard): outlined in the vote-tone color so it
+     stands apart from the filled status badge next to it. */
+  .badge--vote { background:transparent; border:1px solid currentColor; }
+  /* Closing-soon marker: accent outline, distinct from the filled ACTIVE badge. */
+  .badge--soon { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+
+  /* The /vote client filter toggles [hidden] on rows; the base .garow is
+     display:grid, which outranks the UA [hidden] rule, so re-assert none. */
+  .garow[hidden] { display:none; }
 
   /* Below the wide breakpoint the four columns tighten but stay a table row (the
      merge to one voting column already freed the width the old 5-column layout
