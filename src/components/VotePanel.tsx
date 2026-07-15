@@ -13,28 +13,13 @@ import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import type { CastDRepVoteOpts } from '@/lib/governance/drepTx.js';
-import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
-import { blake2b224 } from '@/lib/crypto/blake.js';
-import { hexToBytes } from '@/lib/crypto/hex.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
+import { connectAsDrep, type EnabledWalletApi, type DRepIdentity } from '@/lib/wallet/drepWalletConnect.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import RationaleModal from '@/components/RationaleModal.js';
 import type { ViewerVoteRow } from '@/lib/db/drepVotes.js';
-
-// The enabled wallet api surface: CIP-30 tx methods + CIP-95 extension +
-// getNetworkId for the network guard. Same shape as in DRepService.
-type EnabledWalletApi = TxWalletApi & {
-  getNetworkId(): Promise<number>;
-  cip95?: { getPubDRepKey(): Promise<string> };
-};
-
-interface DRepIdentity {
-  drepId: string;
-  drepKeyHash: Uint8Array;
-}
 
 type VoteChoice = 'yes' | 'no' | 'abstain';
 
@@ -224,96 +209,21 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
 
     setPhase({ status: 'connecting' });
 
-    let api: EnabledWalletApi;
     try {
-      api = (await walletInfo.raw.enable({ extensions: [{ cip: 95 }] })) as unknown as EnabledWalletApi;
-    } catch (err) {
-      setPhase({ status: 'error', message: readableError(err) });
-      return;
-    }
-
-    // Network guard: fail clearly before any tx is built.
-    try {
-      await assertWalletNetwork(api, network);
-    } catch (err) {
-      setPhase({ status: 'error', message: readableError(err) });
-      return;
-    }
-
-    // CIP-95 must be present to read the DRep key.
-    if (!api.cip95 || typeof api.cip95.getPubDRepKey !== 'function') {
-      setPhase({
-        status: 'error',
-        message:
-          'This wallet does not support CIP-95, which is required to vote as a DRep. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).',
+      const { api, identity } = await connectAsDrep(walletInfo.raw, network, {
+        onEnabled: (enabledApi) => {
+          // Cache the api and remember the wallet as soon as it is enabled,
+          // mirroring the pre-refactor behavior exactly.
+          enabledApiRef.current = enabledApi;
+          rememberWallet(selected);
+        },
+        onChecking: (identity) => setPhase({ status: 'checking', identity }),
       });
-      return;
-    }
-
-    enabledApiRef.current = api;
-    rememberWallet(selected);
-
-    // Derive DRep key hash + bech32 id. Same derivation as DRepService.
-    let identity: DRepIdentity;
-    try {
-      const pubKeyHex = await api.cip95.getPubDRepKey();
-      const pubKeyBytes = hexToBytes(pubKeyHex);
-      const drepKeyHash = blake2b224(pubKeyBytes);
-      identity = { drepKeyHash, drepId: drepIdFromKeyHash(drepKeyHash) };
+      enabledApiRef.current = api;
+      setPhase({ status: 'form', identity });
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
-      return;
     }
-
-    setPhase({ status: 'checking', identity });
-
-    // Verify this is a registered, active, key-credential DRep before showing
-    // the vote form. Mirrors DRepService's status preflight exactly: a Koios or
-    // network failure falls through so a legitimately registered DRep is never
-    // blocked by a transient read error. The wallet + chain remain the final
-    // authority at submit time.
-    try {
-      const res = await fetchWithTimeout('/api/koios/drep_info', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ _drep_ids: [identity.drepId] }),
-      });
-      if (res.ok) {
-        const rows = (await res.json()) as Array<{
-          has_script?: boolean;
-          drep_status?: string;
-          active?: boolean;
-        }>;
-        const row = Array.isArray(rows) ? rows[0] : undefined;
-        if (row) {
-          if (row.has_script === true) {
-            setPhase({
-              status: 'error',
-              message:
-                'Your wallet uses a script-credential DRep, which cannot sign votes directly. Only key-credential DReps can vote here.',
-            });
-            return;
-          }
-          if (row.drep_status !== 'registered' || row.active !== true) {
-            setPhase({
-              status: 'error',
-              message:
-                'Your wallet\'s DRep key is not a registered, active DRep. Register as a DRep before voting.',
-            });
-            return;
-          }
-        }
-        // If the row is absent the DRep has never been seen on-chain: also not
-        // eligible. However an absent row could also mean a brand-new DRep whose
-        // sync has not yet landed in Koios, so we fall through rather than block.
-      }
-      // Non-ok response: fall through and let the submit step be the final gate.
-    } catch {
-      // A failed status read must not block a legitimately registered DRep.
-      // Fall through to the form and let the wallet + chain decide at submit.
-    }
-
-    setPhase({ status: 'form', identity });
   }
 
   // ------------------------------------------------------------------
