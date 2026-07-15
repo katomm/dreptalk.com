@@ -220,6 +220,12 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
   );
   const tooManyRationales = uniqueRationales > MAX_UNIQUE_BATCH_RATIONALES;
 
+  // Selections that would replace an earlier on-chain vote (same choice as
+  // before does not count): surfaced as a subtle counter in the collapsed bar.
+  const revoteCount = items.filter(
+    (i) => i.action.prevVote && i.action.prevVote.toLowerCase() !== i.choice,
+  ).length;
+
   // Mirrored into a ref because the delegated click handler below is
   // registered once with [] deps and cannot read `busy` from the closure.
   const busyRef = useRef(false);
@@ -476,6 +482,14 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 600, fontSize: '0.9375rem' }}>
             {items.length} {items.length === 1 ? 'vote' : 'votes'} selected
+            {/* Subtle re-vote hint, not a blocker: overriding an earlier vote is
+                legitimate (the newest on-chain vote counts), the DRep should
+                just not do it by accident. Details sit on the review items. */}
+            {revoteCount > 0 && (
+              <span style={{ fontWeight: 400, fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                {' '}&middot; {revoteCount === 1 ? '1 changes an earlier vote' : `${revoteCount} change earlier votes`}
+              </span>
+            )}
           </span>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button type="button" className="btn btn--sm" onClick={resetBatchState} disabled={busy}>
