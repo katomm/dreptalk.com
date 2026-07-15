@@ -185,7 +185,9 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
       : 'Voting power unchanged since the previous epoch';
 ---
 
-<Layout title="Cardano DReps - Delegate Representatives - DRepTalk" description="Browse every Cardano DRep ranked by active voting power. See each delegate representative's voting record, delegation, and governance participation on DRepTalk." ogImage="/og-dreps.jpg">
+{/* wide: all four primary-nav destinations share the wide shell, so the content
+    column keeps one width while moving through the main nav. */}
+<Layout title="Cardano DReps - Delegate Representatives - DRepTalk" description="Browse every Cardano DRep ranked by active voting power. See each delegate representative's voting record, delegation, and governance participation on DRepTalk." ogImage="/og-dreps.jpg" wide>
   <h1>DReps</h1>
   <p class="dreps-intro">
     Decentralized Representatives in Cardano governance, ranked by active voting power.
