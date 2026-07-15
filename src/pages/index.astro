@@ -563,8 +563,9 @@ const heroFeatures = [
   /* Static grain over the glow, same footprint. A separate sibling layer (not a
      ::after of the glow) so the glow's blur() cannot smear the speckles away.
      Overlay blending lets the grayscale grain lighten and darken, so it reads on
-     both themes; the radial mask fades it out where the glow itself fades, so no
-     hard tile edge shows on the plain background. */
+     both themes. The mask repeats the glow's three color blobs exactly (mask
+     layers union by default), so grain exists only where there is color; without
+     it the speckles wash the whole scene box in gray on the light background. */
   .hero-scene__grain {
     position: absolute;
     inset: 4%;
@@ -572,8 +573,14 @@ const heroFeatures = [
     background: var(--noise);
     mix-blend-mode: overlay;
     opacity: var(--noise-opacity);
-    -webkit-mask-image: radial-gradient(70% 70% at 50% 50%, #000 45%, transparent 100%);
-    mask-image: radial-gradient(70% 70% at 50% 50%, #000 45%, transparent 100%);
+    -webkit-mask-image:
+      radial-gradient(45% 45% at 35% 30%, #000, transparent 70%),
+      radial-gradient(45% 45% at 70% 40%, #000, transparent 70%),
+      radial-gradient(45% 50% at 55% 72%, #000, transparent 70%);
+    mask-image:
+      radial-gradient(45% 45% at 35% 30%, #000, transparent 70%),
+      radial-gradient(45% 45% at 70% 40%, #000, transparent 70%),
+      radial-gradient(45% 50% at 55% 72%, #000, transparent 70%);
     pointer-events: none;
   }
   .hero-scene__rings {
