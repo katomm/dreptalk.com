@@ -153,9 +153,11 @@ export async function submitMultiVote(
 // Component
 // ---------------------------------------------------------------------------
 
+// Same tone variables the vote badges and row pills use (TONE_COLORS in
+// governance/view.ts), so choice colors never drift between surfaces.
 const CHOICE_COLORS: Record<VoteChoice, string> = {
-  yes: 'var(--success, #22a06b)',
-  no: 'var(--danger, #d64545)',
+  yes: 'var(--c-pos)',
+  no: 'var(--c-neg)',
   abstain: 'var(--muted)',
 };
 

@@ -708,3 +708,14 @@ export function compositionAmounts(
     hasAbstain: (abP ?? 0) > 0,
   };
 }
+
+/**
+ * Display fallback for governance actions without a resolved title: shortens
+ * the raw "<64-hex txHash>#<index>" id to "abcdef…12345#0". Anything that does
+ * not match the id shape is returned unchanged.
+ */
+export function shortGovActionId(id: string): string {
+  const m = /^([0-9a-fA-F]{64})#(\d+)$/.exec(id);
+  if (!m) return id;
+  return `${m[1].slice(0, 6)}…${m[1].slice(-5)}#${m[2]}`;
+}

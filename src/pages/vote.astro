@@ -20,7 +20,7 @@ import { getTopicsByIds, type Topic } from '@/lib/db/forum';
 import { getGovernanceActionsByTopicIds, type GovernanceAction } from '@/lib/db/governance';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation';
-import { epochDaysLeft, voteTone, TONE_COLORS, govTypeTone } from '@/lib/governance/view';
+import { epochDaysLeft, voteTone, TONE_COLORS, govTypeTone, shortGovActionId } from '@/lib/governance/view';
 import { resolveNetwork, epochStartUnix } from '@/lib/config/network';
 import { deriveVoteStats, isClosingSoon } from '@/lib/governance/voteDashboard';
 import { GOV_ACTION_TYPES } from '@/lib/governance/types';
@@ -157,7 +157,7 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
         <div class="vote-stat">
           <span class="vote-stat__num">{participationPct != null ? `${participationPct}%` : 'n/a'}</span>
           <span class="vote-stat__label">
-            {participation && participation.eligible > 0 ? `Voted on ${participation.voted} of ${participation.eligible}` : 'Participation'}
+            {participation && participation.eligible > 0 ? `Voted on ${participation.voted} of ${participation.eligible} decided` : 'Participation'}
           </span>
         </div>
       </div>
@@ -296,9 +296,9 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
                     </div>
                     <p class="history-row__title">
                       {row.topic_slug ? (
-                        <a href={`/t/${row.topic_slug}/`}>{row.title ?? row.ga_id}</a>
+                        <a href={`/t/${row.topic_slug}/`}>{row.title ?? shortGovActionId(row.ga_id)}</a>
                       ) : (
-                        (row.title ?? row.ga_id)
+                        (row.title ?? shortGovActionId(row.ga_id))
                       )}
                     </p>
                     {(row.decided_epoch != null || row.meta_url) && (

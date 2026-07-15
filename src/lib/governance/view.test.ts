@@ -23,6 +23,7 @@ import {
   bodyComposition,
   compositionAmounts,
   absentBodyNote,
+  shortGovActionId,
   TERMINAL_STATUSES,
   type RoleTallyInput,
   type RowVotingInput,
@@ -601,5 +602,16 @@ describe('absentBodyNote', () => {
     expect(
       absentBodyNote({ type: 'ParameterChange' } as any, { paramTouchesSecurity: true }),
     ).toBeNull();
+  });
+});
+
+describe('shortGovActionId', () => {
+  it('shortens a raw governance action id', () => {
+    const id = `${'f5606fe257993da5aa5032142306027d4f76e0e14bba567415f55bd1b02bf53a'}#0`;
+    expect(shortGovActionId(id)).toBe('f5606f…bf53a#0');
+  });
+
+  it('returns non-id strings unchanged', () => {
+    expect(shortGovActionId('2025 Net Change Limit')).toBe('2025 Net Change Limit');
   });
 });
