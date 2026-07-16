@@ -26,7 +26,13 @@ interface Props {
 }
 const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg', wide = false, readingWidth = false } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
-const ogImageUrl = new URL(ogImage, Astro.site).href;
+// og:url and og:image must resolve on the host that actually served the page. On
+// preprod that is preprod.dreptalk.com, so build them from the request origin
+// rather than the hard-coded mainnet Astro.site. canonical stays on the stable
+// apex on purpose (SEO), and on mainnet the request origin equals Astro.site so
+// nothing changes there.
+const ogUrl = new URL(Astro.url.pathname, Astro.url.origin).href;
+const ogImageUrl = new URL(ogImage, Astro.url.origin).href;
 // Declare the OG image MIME from its extension: the site mixes JPEG cards
 // (overviews, default) with the per-type PNG governance cards, so a single
 // hard-coded type would be wrong for half of them. Read the extension from the
@@ -103,7 +109,7 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content={canonical} />
+    <meta property="og:url" content={ogUrl} />
     <meta property="og:site_name" content="DRepTalk" />
     <meta property="og:image" content={ogImageUrl} />
     <meta property="og:image:type" content={ogImageType} />
