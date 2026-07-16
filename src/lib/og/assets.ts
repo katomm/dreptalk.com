@@ -1,11 +1,11 @@
 /// <reference types="@cloudflare/workers-types" />
 // Avatar helper for the OG cards. satori embeds images as data URLs, so a stored
 // DRep avatar is read from R2 and base64-encoded here. The generated identicon is
-// already an SVG data URL from cardenticon, used as the fallback when a DRep has
-// no uploaded image. (The brand mark is an inline SVG built in templates.ts.)
+// already an SVG data URL, used as the fallback when a DRep has no uploaded image.
+// (The brand mark is an inline SVG built in templates.ts.)
 
 import { AVATAR_KEY_PREFIX } from '../dreps/avatarStore.js';
-import { cardenticonDataURL } from '../../vendor/cardenticon/index.js';
+import { identiconDataUri } from '../identity/identicon.js';
 
 function toBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -16,8 +16,8 @@ function toBase64(buf: ArrayBuffer): string {
 
 /**
  * Avatar data URL for a DRep or forum author: the self-hosted R2 image when one
- * is stored, otherwise the deterministic cardenticon identicon. Any R2 miss or
- * error falls through to the identicon so a card always renders.
+ * is stored, otherwise the deterministic identicon. Any R2 miss or error falls
+ * through to the identicon so a card always renders.
  */
 export async function loadAvatar(
   avatars: R2Bucket | undefined,
@@ -37,5 +37,5 @@ export async function loadAvatar(
       // fall through to the identicon
     }
   }
-  return cardenticonDataURL(seed, { size: 160 });
+  return identiconDataUri(seed, 160);
 }

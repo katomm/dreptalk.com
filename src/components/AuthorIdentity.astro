@@ -11,6 +11,7 @@
 import { authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
 import Avatar from '@/components/Avatar.astro';
 import LogoMark from '@/components/LogoMark.astro';
+import type { IdenticonKind } from '@/lib/identity/identicon';
 export type { AuthorDescriptor };
 
 interface Props {
@@ -23,9 +24,11 @@ interface Props {
    * mid-word wrap would collide with a neighboring value column.
    */
   truncate?: boolean;
+  /** Entity kind for the identicon glyph; pass "pool" for an SPO voter. */
+  kind?: IdenticonKind;
 }
 
-const { author, size = 28, truncate = false } = Astro.props;
+const { author, size = 28, truncate = false, kind } = Astro.props;
 const { displayName, imageHash, badges = [], isSystem = false } = author;
 
 // Same seed everywhere for a given author (DRep hex when known, else the id).
@@ -43,7 +46,7 @@ const hasSub = Astro.slots.has('sub');
       <LogoMark style={`width:${Math.round(size * 0.6)}px;height:${Math.round(size * 0.6)}px;color:var(--muted);`} />
     </span>
   ) : (
-    <Avatar seed={seed} imageHash={imageHash} size={size} />
+    <Avatar seed={seed} imageHash={imageHash} size={size} kind={kind} />
   )}
 
   {hasSub ? (

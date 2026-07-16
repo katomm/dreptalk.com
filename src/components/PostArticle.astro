@@ -55,7 +55,7 @@ const anchorUrl =
 
 <article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
   <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-    <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.post} />
+    <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.card} />
     {!isVoteRationale && (authorVote ? <VoteBadge vote={authorVote.vote} /> : authorHasNotVoted && <VoteBadge hasNotVoted />)}
     {isVoteRationale && post.vote && (
       <span

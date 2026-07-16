@@ -2,7 +2,7 @@
 //
 // Dynamic Open Graph card for a DRep profile, rendered on demand and cached.
 // `id` is the DRep slug or raw drep id (both URL-safe). Avatar is the stored R2
-// image when present, else the cardenticon identicon.
+// image when present, else the identicon.
 import type { APIRoute } from 'astro';
 import { runtimeEnv } from '@/lib/api/response';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';

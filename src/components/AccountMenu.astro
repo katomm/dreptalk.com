@@ -9,6 +9,7 @@ import { authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author';
 import { truncateIdMiddle } from '@/lib/forum/view';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 
 interface Props {
   /** Resolved identity of the signed-in user. */
@@ -47,7 +48,7 @@ const items = [
 
 <div class="account-menu">
   <div class="account-menu__head">
-    <Avatar seed={seed} imageHash={imageHash} size={40} />
+    <Avatar seed={seed} imageHash={imageHash} size={AVATAR_SIZE.rowLead} />
     <span class="account-menu__head-text">
       <span class="account-menu__head-name">{name}</span>
       <span class="account-menu__head-id" title={id}>{truncateIdMiddle(id)}</span>

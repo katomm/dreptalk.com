@@ -6,7 +6,7 @@
 // handlers, so this layering is the fallback mechanism. The single avatar
 // implementation, shared by AuthorIdentity, the header pill, the account menu
 // and the DRep profile hero.
-import { identiconSvg } from '@/lib/identity/identicon';
+import { identiconSvg, type IdenticonKind } from '@/lib/identity/identicon';
 
 interface Props {
   /** Stable identicon seed (DRep credential hex when known, else the user id). */
@@ -17,12 +17,15 @@ interface Props {
   size?: number;
   /** Replace the border with a subtle ring for placement on accent surfaces. */
   ring?: boolean;
+  /** Entity kind for the identicon centre glyph. Only needed for a hex pool hash
+      seed ("pool"); a hex seed otherwise reads as a DRep and bech32 auto-detects. */
+  kind?: IdenticonKind;
 }
-const { seed, imageHash = null, size = 28, ring = false } = Astro.props;
+const { seed, imageHash = null, size = 28, ring = false, kind } = Astro.props;
 ---
 
 <span class:list={['avatar', { 'avatar--ring': ring }]} style={`--avatar-size:${size}px;`} aria-hidden="true">
-  <span class="avatar__icon" set:html={identiconSvg(seed, size)} />
+  <span class="avatar__icon" set:html={identiconSvg(seed, size, kind)} />
   {imageHash && (
     <span class="avatar__img" style={`background-image:url(/api/avatar/${imageHash})`}></span>
   )}
@@ -37,7 +40,7 @@ const { seed, imageHash = null, size = 28, ring = false } = Astro.props;
     flex-shrink: 0;
     border-radius: 999px;
     overflow: hidden;
-    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    background: var(--avatar-ground);
     border: 1px solid var(--border);
   }
   .avatar--ring {

@@ -1,6 +1,7 @@
 ---
 // Sidebar card: proposer identity (logo+name->website or identicon+address).
 import ProposerIdentity from '@/components/ProposerIdentity.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 
 interface Props {
   returnAddress: string | null;
@@ -12,7 +13,7 @@ const { returnAddress } = Astro.props;
 {returnAddress && (
   <div class="sidebar-card">
     <p class="sidebar-card__title">Proposer</p>
-    <ProposerIdentity returnAddress={returnAddress} size={24} />
+    <ProposerIdentity returnAddress={returnAddress} size={AVATAR_SIZE.card} />
   </div>
 )}
 
