@@ -5,6 +5,7 @@ import { defineMiddleware } from 'astro:middleware';
 import { env } from 'cloudflare:workers';
 import { parseSessionToken, getSession } from './lib/auth/session.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
+import { isDatabaseUnavailable, serviceUnavailableResponse } from './lib/http/serviceUnavailable.js';
 import { currentNetwork } from './lib/api/response.js';
 
 export const onRequest = defineMiddleware(async (context, next) => {
@@ -34,7 +35,19 @@ export const onRequest = defineMiddleware(async (context, next) => {
     }
   }
 
-  const response = await next();
+  // Render the page. If it throws because D1 is briefly unavailable (a
+  // Cloudflare-side storage hiccup, not our bug), serve a friendly 503 page
+  // instead of a blank 500. Any other error keeps its normal 500 so it stays
+  // visible. The shared post-processing below still runs on the 503.
+  let response: Response;
+  try {
+    response = await next();
+  } catch (err) {
+    if (!isDatabaseUnavailable(err)) throw err;
+    console.error('Serving 503 (database temporarily unavailable):', err);
+    response = serviceUnavailableResponse(url.pathname);
+  }
+
   applySecurityHeaders(response.headers);
   relaxStyleSrc(response.headers);
   // Keep the preprod mirror (preprod.dreptalk.com) out of search indexes so it
