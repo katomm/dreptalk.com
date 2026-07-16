@@ -36,6 +36,28 @@ describe('SPO vote stats', () => {
     expect((await getPoolVotingHistory(env.DB, 'pool1x')).map((r) => r.ga_id)).toEqual(['ga-2', 'ga-1']);
   });
 
+  it('orders a pool history by vote time, surfacing a recent vote on an open action', async () => {
+    // Decided action, voted at NOW.
+    await seedActionWithSpoVote('ga-old', 'poolRev', 'Yes', null, 10);
+    // Open action (decided_epoch NULL) with a more recent vote.
+    await env.DB
+      .prepare(
+        `INSERT INTO governance_actions (id, type, anchor_status, status, created_at, last_synced_at, decided_epoch, title)
+         VALUES ('ga-open', 'InfoAction', 'no-anchor', 'voting', ?, ?, NULL, 'Open Action')`,
+      )
+      .bind(NOW, NOW)
+      .run();
+    await env.DB
+      .prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at)
+         VALUES ('ga-open', 'SPO', 'poolRev', NULL, 'No', NULL, ?, ?)`,
+      )
+      .bind(NOW + 1000, NOW)
+      .run();
+
+    expect((await getPoolVotingHistory(env.DB, 'poolRev')).map((r) => r.ga_id)).toEqual(['ga-open', 'ga-old']);
+  });
+
   it('participation counts decided actions that any SPO voted on', async () => {
     await seedActionWithSpoVote('ga-1', 'pool1x', 'Yes', null, 10); // pool1x voted
     await seedActionWithSpoVote('ga-2', 'pool1y', 'Yes', null, 11); // another SPO voted, pool1x did not
