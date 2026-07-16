@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.7.0",
-    "@astrojs/react": "^5.0.0",
+    "@astrojs/react": "^6.0.1",
     "@evolution-sdk/evolution": "^0.5.9",
     "@noble/curves": "^2.2.0",
     "@stricahq/cardano-identicon": "^1.0.0",
