@@ -7,7 +7,7 @@ import type { CSSProperties } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import type { DrepProfileValue } from '@/components/DrepProfileFields.js';
 import { linkDisplayLabel } from '@/lib/dreps/linkLabel.js';
-import { identiconSvg } from '@/lib/identity/identicon.js';
+import { identiconDataUri } from '@/lib/identity/identicon.js';
 
 interface DrepProfilePreviewProps {
   value: DrepProfileValue;
@@ -60,7 +60,7 @@ export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewPr
   const links = value.links.filter((l) => l.uri.trim());
   const avatarSrc = value.image?.url
     ? value.image.url
-    : `data:image/svg+xml,${encodeURIComponent(identiconSvg(seed, AVATAR_SIZE))}`;
+    : identiconDataUri(seed, AVATAR_SIZE);
 
   return (
     <div>

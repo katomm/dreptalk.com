@@ -25,6 +25,10 @@
   --muted: #6b6880;
   --border: #ece9f4;
 
+  /* Ground behind an identicon avatar (the accent-tinted circle it sits on).
+     Resolves per theme via the inherited --accent/--surface. */
+  --avatar-ground: color-mix(in srgb, var(--accent) 12%, var(--surface));
+
   /* Brand */
   --accent: #6d28d9;
   --accent-fg: #ffffff;
@@ -1058,3 +1062,14 @@ main.container {
     animation: none;
   }
 }
+
+/* Identicon theme toggle. identiconSvg() emits a light and a dark SVG side by
+   side (both palettes in plain attributes, no inline <style>, so it stays within
+   the CSP and follows the manual data-theme toggle). Show the one matching the
+   active theme; the other is removed from flow so the visible SVG fills its box.
+   !important is deliberate: the per-component `.x :global(svg) { display: block }`
+   rules outrank a bare class, and these are injected via set:html across
+   components where source order is not guaranteed. */
+.idi-d { display: none !important; }
+html[data-theme='dark'] .idi-l { display: none !important; }
+html[data-theme='dark'] .idi-d { display: block !important; }

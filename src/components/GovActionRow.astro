@@ -13,6 +13,7 @@ import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/confi
 import { decodeOnchainChanges, summarizeOnchain, parameterChangeScope } from '@/lib/governance/onchain.js';
 import { evaluateThresholds, hasOnchainThreshold, type Body } from '@/lib/governance/thresholds.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { proposerView } from '@/lib/identity/proposer.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
@@ -61,11 +62,11 @@ const isDashboard = variant === 'dashboard';
 const pv = proposerView(action.returnAddress);
 const proposer = pv.kind === 'known' ? pv.name : pv.kind === 'unknown' ? pv.short : undefined;
 const proposerIcon = pv.kind === 'known' ? (pv.icon ?? undefined) : undefined;
-// No bundled logo: fall back to the cardenticon, seeded by the reward address
+// No bundled logo: fall back to the identicon, seeded by the reward address
 // (decodes stake1... natively), so the list mirrors the detail page rather than
 // showing a bare name. Skipped when there is no address (renders as "Unknown").
 const proposerIdenticon =
-  !proposerIcon && action.returnAddress ? identiconSvg(action.returnAddress, 14) : null;
+  !proposerIcon && action.returnAddress ? identiconSvg(action.returnAddress, AVATAR_SIZE.card) : null;
 const badge = statusBadge(action.status);
 // One-line on-chain summary in a fixed spot, so the substance of each action reads
 // the same on every row regardless of how the proposer wrote the title. Treasury
@@ -114,6 +115,11 @@ const expiryUnix =
 const daysLeft = epochDaysLeft(expiryUnix != null ? expiryUnix * 1000 : null, action.status, now);
 // Only shown while voting is still open; once past, the status badge carries the outcome.
 const votingEnds = daysLeft != null && expiryUnix != null ? formatEpochDate(expiryUnix) : null;
+// Proposer sub-line parts: the epoch always when known, the countdown only on the
+// dashboard variant (which drops the Time Left column). Named once so the markup
+// does not re-test them three times.
+const showEpoch = action.submittedEpoch != null;
+const showDaysLeft = isDashboard && daysLeft != null;
 // Dashboard rows can carry interactive controls (the multi-vote choice pills)
 // in the reserved right column. Buttons must not nest inside an anchor, so a
 // row WITH controls renders a <div> root and moves the thread link onto the
@@ -163,17 +169,26 @@ const Root = hasControls ? 'div' : 'a';
         usable payload) have no on-chain line, so the abstract becomes the preview, with
         room for two lines. */}
     {!onchain && action.abstract && <p class="garow__desc">{action.abstract}</p>}
-    <p class="garow__meta">
-      {proposerIcon
-        ? <img class="garow__pico" src={proposerIcon} alt="" width="14" height="14" loading="lazy" />
-        : proposerIdenticon && <span class="garow__pico garow__pico--ident" set:html={proposerIdenticon} />}
-      {proposer ?? 'Unknown'}{action.submittedEpoch != null && <> &middot; Epoch {action.submittedEpoch}</>}
-      {/* Dashboard variant drops the Time Left column, so the countdown moves
-          here next to the proposer/epoch line. */}
-      {isDashboard && daysLeft != null && (
-        <> &middot; <span class="garow__accent">~{daysLeft} {daysLeft === 1 ? 'day' : 'days'} left</span></>
+    <div class="garow__meta">
+      {(proposerIcon || proposerIdenticon) && (
+        <span class="garow__proavatar" style={`--proavatar:${AVATAR_SIZE.card}px`}>
+          {proposerIcon
+            ? <img src={proposerIcon} alt="" width={AVATAR_SIZE.card} height={AVATAR_SIZE.card} loading="lazy" />
+            : <span class="garow__proicon" set:html={proposerIdenticon} />}
+        </span>
       )}
-    </p>
+      <span class="garow__prostack">
+        <span class="garow__proname">{proposer ?? 'Unknown'}</span>
+        {(showEpoch || showDaysLeft) && (
+          <span class="garow__prosub">
+            {showEpoch && <>Epoch {action.submittedEpoch}</>}
+            {showDaysLeft && (
+              <>{showEpoch && ' · '}<span class="garow__accent">~{daysLeft} {daysLeft === 1 ? 'day' : 'days'} left</span></>
+            )}
+          </span>
+        )}
+      </span>
+    </div>
   </div>
 
   <!-- Voting: one merged row per eligible body. The composition bar carries BOTH
@@ -309,12 +324,19 @@ const Root = hasControls ? 'div' : 'a';
      without pushing the row taller than the metric columns. */
   .garow__desc { color:var(--muted); font-size:0.8rem; margin:0 0 6px;
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .garow__meta { color:var(--muted); font-size:0.75rem; margin:0; }
-  .garow__pico { vertical-align:-2px; margin-right:4px; border-radius:3px; }
-  /* Identicon fallback: an inline SVG span has no intrinsic size, so pin it to the
-     same 14px box as the logo and clip the rounded corners. */
-  .garow__pico--ident { display:inline-block; width:14px; height:14px; overflow:hidden; }
-  .garow__pico--ident :global(svg) { width:100%; height:100%; display:block; }
+  /* Proposer identity: a round avatar (org logo or identicon) beside a two-line
+     block, name over epoch/countdown. Gives the identicon real presence instead
+     of a tiny inline mark. */
+  .garow__meta { display:flex; align-items:center; gap:9px; margin:0; min-width:0; }
+  /* Size comes from AVATAR_SIZE.card via the inline --proavatar var. */
+  .garow__proavatar { width:var(--proavatar); height:var(--proavatar); flex:none;
+    border-radius:999px; overflow:hidden; background:var(--avatar-ground); }
+  .garow__proavatar img { width:100%; height:100%; object-fit:cover; display:block; }
+  .garow__proicon { display:block; width:100%; height:100%; }
+  .garow__proicon :global(svg) { width:100%; height:100%; display:block; }
+  .garow__prostack { display:flex; flex-direction:column; min-width:0; line-height:1.3; }
+  .garow__proname { font-size:0.8rem; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .garow__prosub { font-size:0.72rem; color:var(--muted); }
 
   /* Voting cell: a compact label + composition bar + Yes-of-eligible percentage per
      eligible body (DRep/SPO/CC), stacked vertically. The single bar shows turnout
@@ -384,7 +406,7 @@ const Root = hasControls ? 'div' : 'a';
     .garow__meta { display:none; }
     /* The dashboard card has no footer, so keep its meta line: it carries the
        time-left the dropped Time Left column would otherwise show. */
-    .garow--dashboard .garow__meta { display:block; }
+    .garow--dashboard .garow__meta { display:flex; }
     /* Vote CTA spans the card full width at the bottom. */
     .garow--dashboard .garow__vote { grid-column:1 / -1; }
     .garow--dashboard .garow__votebtn { padding:0.6rem; }

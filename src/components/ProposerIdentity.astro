@@ -15,7 +15,7 @@ const { returnAddress, size = 20 } = Astro.props;
 const v = proposerView(returnAddress);
 
 // Identicon for an unknown proposer, or a known org that has no logo yet. Seeded
-// by the raw reward address (cardenticon decodes stake1... natively).
+// by the raw reward address (a stake1... address decodes natively).
 const needsIdenticon = v.kind === 'unknown' || (v.kind === 'known' && !v.icon);
 const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, size) : null;
 ---
@@ -60,9 +60,10 @@ const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, si
     width: var(--s);
     height: var(--s);
     flex-shrink: 0;
-    border-radius: 4px;
+    border-radius: 50%;
     overflow: hidden;
     display: inline-block;
+    background: var(--avatar-ground);
   }
   .proposer__icon :global(svg) { width: 100%; height: 100%; display: block; }
   .proposer__name { font-weight: 600; color: var(--fg); text-decoration: none; }

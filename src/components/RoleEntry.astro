@@ -15,6 +15,7 @@ import { roleLabels } from '@/lib/auth/roles';
 import type { AuthorDescriptor } from '@/lib/forum/author';
 import AccountMenu from '@/components/AccountMenu.astro';
 import Avatar from '@/components/Avatar.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 
 interface Props {
   layout?: 'split' | 'flat';
@@ -74,7 +75,7 @@ const display = user && account
       <details class="role-entry__more" data-auto-dismiss>
         <summary class="role-entry__pill" aria-label="Account menu" title={`Signed in as ${display.allRoles}`}>
           <span class="role-entry__pill-main">
-            <Avatar seed={display.seed} imageHash={display.imageHash} size={26} ring />
+            <Avatar seed={display.seed} imageHash={display.imageHash} size={AVATAR_SIZE.compact} ring />
             <span class="role-entry__pill-text">
               <span class="role-entry__pill-name">{display.name}</span>
               <span class="role-entry__pill-role">{display.role}</span>

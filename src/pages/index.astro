@@ -5,6 +5,7 @@ import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import ActivityFeed from '@/components/ActivityFeed.astro';
 import Avatar from '@/components/Avatar.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { getCategories } from '../../config/categories.js';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { getLatestGovernanceAction, getLatestActionWithVotes } from '@/lib/db/governance.js';
@@ -345,7 +346,7 @@ const heroFeatures = [
               const g = hero.ghosts[i];
               return (
                 <span class="ghost" style={`left:${s.x * 100}%; top:${s.y * 100}%; --enter-delay:${300 + i * 60}ms`}>
-                  <Avatar seed={g.descriptor.identiconSeed ?? g.descriptor.authorId} imageHash={g.descriptor.imageHash} size={24} />
+                  <Avatar seed={g.descriptor.identiconSeed ?? g.descriptor.authorId} imageHash={g.descriptor.imageHash} size={AVATAR_SIZE.compact} />
                 </span>
               );
             })}
@@ -391,7 +392,7 @@ const heroFeatures = [
                     title={`${p.descriptor.displayName} voted ${label}`}
                     aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
                   >
-                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={isSelf ? 32 : 26} />
+                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={isSelf ? AVATAR_SIZE.card : AVATAR_SIZE.compact} />
                     <span class="pill__name">{p.descriptor.displayName}</span>
                     <span class="pill__vote">
                       <span class="pill__vote-icon" aria-hidden="true">
