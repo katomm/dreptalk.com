@@ -36,7 +36,7 @@
     "@evolution-sdk/evolution": "^0.5.9",
     "@noble/curves": "^2.2.0",
     "@stricahq/cardano-identicon": "^1.0.0",
-    "astro": "^6.4.5",
+    "astro": "^7.1.0",
     "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cborg": "^5.1.3",
