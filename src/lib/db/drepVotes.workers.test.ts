@@ -21,12 +21,33 @@ describe('getDrepVotingHistory + countDrepVotes', () => {
     await upsertVotes(env.DB, 'ga1', [{ voterRole: 'DRep', voterId: 'drepOther', voterHex: null, vote: 'Yes' }], 1);
 
     const history = await getDrepVotingHistory(env.DB, 'drepX', { limit: 10 });
-    expect(history.map((h) => h.ga_id)).toEqual(['ga2', 'ga1']); // newest decided first
+    // No block_time on these votes, so ordering falls back to the action's decided epoch.
+    expect(history.map((h) => h.ga_id)).toEqual(['ga2', 'ga1']);
     expect(history[0].vote).toBe('No');
     expect(history[0].title).toBe('Action Two');
 
     expect(await countDrepVotes(env.DB, 'drepX')).toBe(2);
     expect(await countDrepVotes(env.DB, 'drepOther')).toBe(1);
+  });
+
+  it('orders by the vote time so a freshly changed vote on an open action leads', async () => {
+    // A long-decided action the DRep voted on ages ago.
+    await seedAction('gaDecided', 'Decided Action', 500);
+    await upsertVotes(env.DB, 'gaDecided', [
+      { voterRole: 'DRep', voterId: 'drepRev', voterHex: null, vote: 'No', blockTime: 1_000 },
+    ], 1);
+    // An action still open for voting (decided_epoch NULL) the DRep just re-voted on.
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, decided_epoch, topic_id, created_at, last_synced_at)
+       VALUES ('gaOpen', 'InfoAction', 'Open Action', 'voting', NULL, NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(env.DB, 'gaOpen', [
+      { voterRole: 'DRep', voterId: 'drepRev', voterHex: null, vote: 'Yes', blockTime: 2_000 },
+    ], 1);
+
+    // The most recent vote must lead; an open action must not sink below decided ones.
+    const history = await getDrepVotingHistory(env.DB, 'drepRev', { limit: 10 });
+    expect(history.map((h) => h.ga_id)).toEqual(['gaOpen', 'gaDecided']);
   });
 
   it('upsertVotes persists the vote anchor hash', async () => {

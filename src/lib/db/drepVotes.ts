@@ -66,7 +66,11 @@ export interface DrepVoteHistoryRow {
 
 /**
  * A DRep's on-chain votes (role 'DRep'), joined to the action and (when present)
- * its forum topic for linking, ordered by the action's decided epoch then id.
+ * its forum topic for linking, ordered by vote time (most recent vote first) so
+ * a freshly cast or changed vote leads. Votes on still-open actions have no
+ * decided epoch, so ordering by the vote's block_time (not the action's decided
+ * epoch, which is NULL and would sink them) keeps the history a true activity
+ * timeline. Rows with no block_time fall back to the action's decided epoch/id.
  * Uses idx_drep_votes_voter. Default limit 20, capped 500.
  */
 export async function getDrepVotingHistory(
@@ -90,7 +94,7 @@ export async function getDrepVotingHistory(
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
          WHERE v.voter_id = ? AND v.voter_role = 'DRep'
            AND (v.local_status IS NULL OR v.local_status <> 'failed')
-         ORDER BY g.decided_epoch DESC, g.id DESC
+         ORDER BY (v.block_time IS NULL), v.block_time DESC, g.decided_epoch DESC, g.id DESC
          LIMIT ? OFFSET ?`,
       )
       .bind(voterId, limit, offset)
@@ -452,7 +456,7 @@ export async function getPoolVotingHistory(
          LEFT JOIN topics t ON t.id = g.topic_id
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
          WHERE v.voter_id = ? AND v.voter_role = 'SPO'
-         ORDER BY g.decided_epoch DESC, g.id DESC
+         ORDER BY (v.block_time IS NULL), v.block_time DESC, g.decided_epoch DESC, g.id DESC
          LIMIT ? OFFSET ?`,
       )
       .bind(poolId, limit, offset)
