@@ -10,7 +10,7 @@ import DrepSettings from '@/components/DrepSettings.tsx';
 import { roleLabels } from '@/lib/auth/roles';
 import { truncateId } from '@/lib/forum/view';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
-import { getUserById } from '@/lib/db/users';
+import { getSelfDrepId } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
 
 const user = Astro.locals.user;
@@ -22,8 +22,7 @@ const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 const network = currentNetwork().network;
 
-const dbUser = db ? await getUserById(db, user.id) : null;
-const drepId = user.roles.includes('drep') ? (dbUser?.drep_id ?? null) : null;
+const drepId = db && user.roles.includes('drep') ? await getSelfDrepId(db, user) : null;
 const drep = drepId && db ? await getDrepById(db, drepId) : null;
 
 // Prefill: synced on-chain metadata when available, empty form otherwise

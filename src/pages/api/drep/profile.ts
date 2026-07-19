@@ -7,7 +7,7 @@
 
 import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
-import { getUserById } from '@/lib/db/users';
+import { getSelfDrepId } from '@/lib/db/users';
 import { HEX_HASH_256_RE } from '@/lib/crypto/hex';
 import { applyDrepProfile } from '@/lib/governance/drepProfileApply';
 
@@ -38,11 +38,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   // Resolve the session user's drep_id; a non-DRep session simply applies
   // nothing (the handler returns applied:false).
-  const user = await getUserById(db, locals.user.id);
+  const drepId = await getSelfDrepId(db, locals.user);
 
   const result = await applyDrepProfile({
     db,
-    drepId: user?.drep_id ?? null,
+    drepId,
     hash,
     origin: new URL(request.url).origin,
     now: Date.now(),

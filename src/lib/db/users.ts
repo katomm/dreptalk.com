@@ -80,14 +80,20 @@ export async function getUserById(db: D1Database, id: string): Promise<User | nu
 /**
  * The drep_id of the logged-in DRep, or null when the session isn't a DRep (or the
  * user row is gone). The session `id` isn't always the drep_id (a multi-role user
- * keeps its first-verified credential as id), so read drep_id off the user row.
+ * keeps its first-verified credential as id), so the value is read off the user row.
  * Centralizes the lookup the DRep-facing pages share.
+ *
+ * Sessions minted after drepId-on-session carry drep_id, so the common path returns
+ * it with no D1 read. Only legacy sessions predating the field (drepId === undefined)
+ * fall back to a single getUserById read; those age out within the 30-day session TTL.
+ * Pass Astro.locals.user (or an API route's locals.user) directly.
  */
 export async function getSelfDrepId(
   db: D1Database,
-  user: { id: string; roles: string[] } | null,
+  user: { id: string; roles: string[]; drepId?: string | null } | null,
 ): Promise<string | null> {
   if (!user?.roles.includes('drep')) return null;
+  if (user.drepId !== undefined) return user.drepId;
   return (await getUserById(db, user.id))?.drep_id ?? null;
 }
 
@@ -131,6 +137,7 @@ export async function getUsersByIds(db: D1Database, ids: string[]): Promise<Map<
   }
   return result;
 }
+
 
 /** A writer role proven on-chain at login. */
 export type AuthRole = 'drep' | 'proposer' | 'spo' | 'cc';

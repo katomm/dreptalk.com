@@ -4,7 +4,7 @@
 // cannot list another DRep's pending votes.
 import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
-import { getUserById } from '@/lib/db/users';
+import { getSelfDrepId } from '@/lib/db/users';
 import { listPendingForDrep } from '@/lib/db/pendingMultisigTx';
 
 export const prerender = false;
@@ -20,8 +20,7 @@ export const GET: APIRoute = async ({ locals }) => {
   if (!db) return jsonResponse({ error: 'service unavailable' }, 503);
 
   // Derive the DRep id from the session user record, never from a query param.
-  const dbUser = await getUserById(db, user.id);
-  const drepId = dbUser?.drep_id ?? null;
+  const drepId = await getSelfDrepId(db, user);
   if (!drepId) {
     return jsonResponse({ items: [] }, 200);
   }

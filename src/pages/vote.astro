@@ -13,7 +13,7 @@ import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
 import MultiVoteBar from '@/components/MultiVoteBar';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
-import { getUserById } from '@/lib/db/users';
+import { getSelfDrepId } from '@/lib/db/users';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
 import { getDrepVotingHistory, getDrepParticipation } from '@/lib/db/drepVotes';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps';
@@ -42,9 +42,8 @@ if (!isDrep) {
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 
-// Resolve the drep_id from the database row (same pattern as settings.astro).
-const dbUser = db ? await getUserById(db, user.id) : null;
-const drepId = dbUser?.drep_id ?? null;
+// Resolve the drep_id from the session (falls back to a DB read for legacy sessions).
+const drepId = db ? await getSelfDrepId(db, user) : null;
 
 // Raw network id (passed to GovActionRow, which resolves it itself) plus the
 // resolved form for this page's own expiry math. Render instant for the countdown.

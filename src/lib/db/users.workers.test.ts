@@ -137,6 +137,22 @@ describe('getUsersByIds', () => {
   });
 });
 
+describe('getSelfDrepId (session fast-path)', () => {
+  it('returns the session drepId without a DB read when present', async () => {
+    // id intentionally absent from the DB: the value must come from the session.
+    expect(
+      await getSelfDrepId(db(), { id: 'no-such-row', roles: ['drep'], drepId: 'drep1fromsession' }),
+    ).toBe('drep1fromsession');
+  });
+
+  it('returns null when the session carries drepId: null (no DB fallback)', async () => {
+    // A DB row with a drep_id exists, but the session says the user has none.
+    const id = `self-null-${NOW}`;
+    await upsertUserFromAuth(db(), { drepId: id, roles: ['drep'], now: NOW });
+    expect(await getSelfDrepId(db(), { id, roles: ['drep'], drepId: null })).toBeNull();
+  });
+});
+
 describe('upsertUserFromAuth (proposer)', () => {
   it('inserts a new proposer user keyed by stakeAddr', async () => {
     const stakeAddr = `stake_test1-insert-proposer-${NOW}`;

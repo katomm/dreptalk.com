@@ -37,6 +37,26 @@ describe('createSession + getSession round-trip', () => {
   });
 });
 
+describe('createSession carries drepId', () => {
+  it('round-trips a drepId set at mint time', async () => {
+    const now = 1_700_000_000;
+    const drepId = 'drep1selftest';
+    const token = await createSession(
+      kv(),
+      { id: 'user-drep', roles: ['drep'], drepId },
+      { now },
+    );
+    const record = await getSession(kv(), token, { now });
+    expect(record!.drepId).toBe(drepId);
+  });
+
+  it('stores drepId as null when the user has none', async () => {
+    const token = await createSession(kv(), { id: 'user-no-drep', roles: ['member'] });
+    const record = await getSession(kv(), token);
+    expect(record!.drepId).toBeNull();
+  });
+});
+
 describe('getSession sliding renewal', () => {
   it('refreshes lastSeen when now is more than 6h after lastSeen', async () => {
     const createdAt = 1_700_000_000;
