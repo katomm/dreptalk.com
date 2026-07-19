@@ -624,6 +624,12 @@ main.container {
 .drep-table__trend-sub { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); font-size: 0.85em; }
 .drep-table td { padding: 0.6rem 0; border-top: 1px solid var(--border); vertical-align: middle; }
 .drep-table tbody tr:first-child td { border-top: none; }
+/* The logged-in DRep's own row, when it falls on the visible page: a tinted band
+   with an accent edge so it reads as "you" without disturbing the row rhythm. */
+.drep-table tbody tr.drep-row--self td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.drep-table tbody tr.drep-row--self td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* Voting-power figure inside the pinned self-card's trailing metric slot. */
+.drep-self-power { font-weight: 600; font-variant-numeric: tabular-nums; }
 /* td-qualified so padding-right beats the `.drep-table td { padding: 0.6rem 0 }`
    shorthand; this is the gap between the rank and the avatar in the next column. */
 .drep-table td.drep-table__rank { text-align: right; color: var(--muted); font-size: 0.8125rem; font-weight: 500; font-variant-numeric: tabular-nums; opacity: 0.75; padding-right: 1.35rem; }

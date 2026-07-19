@@ -291,6 +291,149 @@ export async function listVotingPowerMovers(
   return { gainers, losers, epoch };
 }
 
+export interface DrepRanking {
+  drep: Drep;
+  /**
+   * 1-based position within the same filtered/sorted listing, or null when the
+   * DRep isn't part of it: a special pseudo-DRep, an inactive DRep while the view
+   * is active-only, or (under the delegator sort) a DRep with no counted delegators.
+   */
+  rank: number | null;
+  /** Size of the listing the rank sits within. */
+  total: number;
+}
+
+/**
+ * Where a single DRep stands in the directory listing, for the "this is you" row
+ * a logged-in DRep sees pinned above the table. Mirrors listDreps' filter (special
+ * DReps excluded, active-only optional) and sort (power, or delegators with the
+ * same NULLS-last / power tie-break) so the rank matches what the table shows. The
+ * comparisons run against the DRep's own value via a subquery, keeping all
+ * lovelace math in SQLite (64-bit) rather than risking JS Number precision.
+ */
+export async function getDrepRanking(
+  db: D1Database,
+  drepId: string,
+  opts: { activeOnly: boolean; sort: 'power' | 'delegators' },
+): Promise<DrepRanking | null> {
+  const drep = await getDrepById(db, drepId);
+  if (!drep) return null;
+
+  const where: string[] = [`drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`];
+  const binds: unknown[] = [...SPECIAL_DREP_IDS];
+  if (opts.activeOnly) where.push('active = 1');
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+
+  const totalRow = await db
+    .prepare(`SELECT COUNT(*) AS c FROM dreps ${whereSql}`)
+    .bind(...binds)
+    .first<{ c: number }>();
+  const total = totalRow?.c ?? 0;
+
+  // Outside the ranked set (special DRep, or inactive under an active-only view):
+  // surface the DRep with no rank rather than a misleading position.
+  if ((SPECIAL_DREP_IDS as readonly string[]).includes(drepId) || (opts.activeOnly && !drep.active)) {
+    return { drep, rank: null, total };
+  }
+  // The delegator sort pushes never-counted rows to the end; an uncounted self has
+  // no meaningful rank there (it still ranks by power on the default view).
+  if (opts.sort === 'delegators' && drep.delegatorCount == null) {
+    return { drep, rank: null, total };
+  }
+
+  const aheadSql =
+    opts.sort === 'delegators'
+      ? `delegator_count IS NOT NULL AND (
+           delegator_count > (SELECT delegator_count FROM dreps WHERE drep_id = ?)
+           OR ( delegator_count = (SELECT delegator_count FROM dreps WHERE drep_id = ?)
+                AND CAST(voting_power AS INTEGER) > (SELECT CAST(voting_power AS INTEGER) FROM dreps WHERE drep_id = ?) )
+         )`
+      : `CAST(voting_power AS INTEGER) > (SELECT CAST(voting_power AS INTEGER) FROM dreps WHERE drep_id = ?)`;
+  const aheadBinds = opts.sort === 'delegators' ? [drepId, drepId, drepId] : [drepId];
+
+  const aheadRow = await db
+    .prepare(`SELECT COUNT(*) AS c FROM dreps ${whereSql} AND ${aheadSql}`)
+    .bind(...binds, ...aheadBinds)
+    .first<{ c: number }>();
+  return { drep, rank: (aheadRow?.c ?? 0) + 1, total };
+}
+
+export interface DrepMoverStanding {
+  drep: Drep;
+  direction: 'up' | 'down' | 'flat';
+  /** Rank among movers in the same direction (1 = biggest), or null when flat or a snapshot is missing. */
+  rank: number | null;
+  /** Count of movers in that direction this epoch. */
+  total: number;
+  /** Latest snapshot epoch this standing is for. */
+  epoch: number | null;
+}
+
+/**
+ * A single DRep's own place in the movers-of-the-epoch ranking, for the pinned
+ * "your movement" row on /dreps/movers. Ranking mirrors listVotingPowerMovers:
+ * absolute lovelace delta (snapshot - prev), split by direction. Flat rows, a
+ * missing snapshot, and the pseudo-DReps carry no standing. The magnitude compare
+ * uses the DRep's own delta via a subquery so the math stays in SQLite.
+ */
+export async function getDrepMoverStanding(
+  db: D1Database,
+  drepId: string,
+): Promise<DrepMoverStanding | null> {
+  const drep = await getDrepById(db, drepId);
+  if (!drep) return null;
+
+  const snap = toBigOrNull(drep.votingPowerSnapshot);
+  const prev = toBigOrNull(drep.votingPowerPrev);
+  const epoch = drep.votingPowerSnapshotEpoch;
+  if (snap == null || prev == null || (SPECIAL_DREP_IDS as readonly string[]).includes(drepId)) {
+    return { drep, direction: 'flat', rank: null, total: 0, epoch };
+  }
+  const d = snap - prev;
+  const direction: 'up' | 'down' | 'flat' = d > 0n ? 'up' : d < 0n ? 'down' : 'flat';
+  if (direction === 'flat') return { drep, direction, rank: null, total: 0, epoch };
+
+  const base = `FROM dreps
+     WHERE voting_power_snapshot IS NOT NULL AND voting_power_snapshot <> ''
+       AND voting_power_prev IS NOT NULL AND voting_power_prev <> ''
+       AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`;
+  const deltaExpr = '(CAST(voting_power_snapshot AS INTEGER) - CAST(voting_power_prev AS INTEGER))';
+  const selfDelta = `(SELECT ${deltaExpr} FROM dreps WHERE drep_id = ?)`;
+  // A "bigger" mover in the same direction is further from zero: strictly greater
+  // among gainers, strictly less among losers (matching the ASC loser ordering).
+  const dirCond = direction === 'up' ? `${deltaExpr} > 0` : `${deltaExpr} < 0`;
+  const aheadCond = direction === 'up' ? `${deltaExpr} > ${selfDelta}` : `${deltaExpr} < ${selfDelta}`;
+
+  // Bind order follows the `?` positions in the SQL string: the selfDelta subquery
+  // sits in the SELECT (aheadCond), so drepId binds before the base's NOT IN list.
+  const row = await db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN ${dirCond} THEN 1 ELSE 0 END) AS total,
+         SUM(CASE WHEN ${dirCond} AND ${aheadCond} THEN 1 ELSE 0 END) AS ahead
+       ${base}`,
+    )
+    .bind(drepId, ...SPECIAL_DREP_IDS)
+    .first<{ total: number | null; ahead: number | null }>();
+  return {
+    drep,
+    direction,
+    rank: (row?.ahead ?? 0) + 1,
+    total: row?.total ?? 0,
+    epoch,
+  };
+}
+
+/** Parses a lovelace string to BigInt, or null when absent/empty/non-numeric. */
+function toBigOrNull(value: string | null): bigint | null {
+  if (value == null || value === '') return null;
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Drep ids currently marked active. The sync diffs this against the registered
  * enumeration to find rows that still claim active voting power but have left the

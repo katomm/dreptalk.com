@@ -1,0 +1,71 @@
+---
+// A pinned "this is you" card shown to a logged-in DRep above the directory table
+// and the movers lists, so they see where they stand without hunting through
+// pages. Pure presentation: the page resolves the DRep and its standing and passes
+// a ready descriptor plus the standing line; the trailing metric (voting power and
+// trend, or the epoch delta) comes in through the default slot per page.
+import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+
+interface Props {
+  descriptor: AuthorDescriptor;
+  /** The rank line, e.g. "Rank #312 of 680 by voting power" or a no-rank note. */
+  standing: string;
+  /** Small caption above the identity. */
+  eyebrow?: string;
+}
+const { descriptor, standing, eyebrow = 'This is you' } = Astro.props;
+---
+
+<div class="drep-self">
+  <span class="drep-self__eyebrow">{eyebrow}</span>
+  <div class="drep-self__row">
+    <div class="drep-self__identity">
+      <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate>
+        <span slot="sub" class="drep-self__standing">{standing}</span>
+      </AuthorIdentity>
+    </div>
+    <div class="drep-self__metric"><slot /></div>
+  </div>
+</div>
+
+<style>
+  .drep-self {
+    border: 1px solid var(--accent);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem 0.85rem;
+    margin: 0 0 1.5rem;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+  .drep-self__eyebrow {
+    display: inline-block;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .drep-self__row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem 1rem;
+    flex-wrap: wrap;
+  }
+  .drep-self__identity {
+    flex: 1;
+    min-width: 0;
+  }
+  .drep-self__standing {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .drep-self__metric {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-left: auto;
+  }
+</style>

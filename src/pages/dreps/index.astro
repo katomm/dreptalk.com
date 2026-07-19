@@ -8,8 +8,10 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import DrepConcentration from '@/components/DrepConcentration.tsx';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
 import DrepStatIcon from '@/components/DrepStatIcon.astro';
+import DrepSelfCard from '@/components/DrepSelfCard.astro';
 import Pager from '@/components/Pager.astro';
-import { listDreps, listDrepsForConcentration } from '@/lib/db/dreps.js';
+import { listDreps, listDrepsForConcentration, getDrepRanking } from '@/lib/db/dreps.js';
+import { getUserById } from '@/lib/db/users.js';
 import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
@@ -56,6 +58,19 @@ const toLovelace = (s: string | null): bigint => {
 const concentration = computeConcentration(
   concentrationRows.map((r) => ({ drepId: r.drepId, name: r.name, slug: r.slug, power: toLovelace(r.votingPower) })),
 );
+
+// Where the logged-in DRep stands in this exact listing (same filter + sort), for
+// the pinned "this is you" card and to highlight their own row when it's on the
+// visible page. Only for a DRep-role session; the user id may not be the drep id
+// (a multi-role user keeps its first credential as id), so read drep_id off the
+// user row. One extra read, only when a DRep is signed in.
+const sessionUser = Astro.locals.user;
+const selfDrepId =
+  db && sessionUser?.roles.includes('drep')
+    ? (await getUserById(db, sessionUser.id))?.drep_id ?? null
+    : null;
+const selfRanking =
+  db && selfDrepId ? await getDrepRanking(db, selfDrepId, { activeOnly, sort }) : null;
 
 // The same total the donut uses (active, non-special), so a row's table share and
 // the concentration view agree. Number is exact enough for the percent display.
@@ -183,6 +198,24 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
     : dir === 'down'
       ? 'Voting power down since the previous epoch'
       : 'Voting power unchanged since the previous epoch';
+
+// The pinned self-card contents (rank line, identity, latest-epoch trend), derived
+// once so the template stays declarative. Null unless a DRep is signed in and found.
+const selfDescriptor = selfRanking ? drepDescriptor(selfRanking.drep) : null;
+const selfDelta = selfRanking
+  ? computeVotingPowerDelta(selfRanking.drep.votingPowerSnapshot, selfRanking.drep.votingPowerPrev)
+  : null;
+const selfStanding: string | null = selfRanking
+  ? selfRanking.rank != null
+    ? `Rank #${selfRanking.rank.toLocaleString('en-US')} of ${selfRanking.total.toLocaleString('en-US')} by ${
+        sort === 'delegators' ? 'delegators' : 'voting power'
+      }`
+    : activeOnly && !selfRanking.drep.active
+      ? 'Retired, not in the active ranking'
+      : sort === 'delegators'
+        ? 'Delegator count pending'
+        : `Not yet ranked (of ${selfRanking.total.toLocaleString('en-US')})`
+  : null;
 ---
 
 {/* wide: all four primary-nav destinations share the wide shell, so the content
@@ -223,6 +256,26 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
     <a href="/dreps/movers/">Movers of the epoch</a>
   </p>
 
+  {selfDescriptor && selfStanding && (
+    <DrepSelfCard descriptor={selfDescriptor} standing={selfStanding}>
+      {selfRanking!.drep.votingPower != null && (
+        <span class="drep-self-power">{formatAdaCompact(selfRanking!.drep.votingPower)}</span>
+      )}
+      {selfDelta && (
+        <span class={`drep-trend drep-trend--${selfDelta.direction}`} title={deltaTitle(selfDelta.direction)}>
+          <span class="drep-trend__main">
+            {selfDelta.direction === 'flat' ? (
+              <span class="drep-trend__flat" aria-hidden="true"></span>
+            ) : (
+              <span class="drep-trend__arrow" aria-hidden="true">{selfDelta.direction === 'up' ? '▲' : '▼'}</span>
+            )}
+            {selfDelta.pct != null && <span class="drep-trend__pct">{formatTrendPct(selfDelta.pct)}</span>}
+          </span>
+        </span>
+      )}
+    </DrepSelfCard>
+  )}
+
   {dreps.length === 0 ? (
     <p style="color:var(--muted);">No DReps found.</p>
   ) : (
@@ -256,8 +309,9 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
           const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
           const cred = credentialHexFor(d);
           const rank = listOffset + i + 1;
+          const isSelf = selfDrepId != null && d.drepId === selfDrepId;
           return (
-            <tr>
+            <tr class:list={{ 'drep-row--self': isSelf }}>
               <td class="drep-table__rank">#{rank}</td>
               <td>
                 <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate>
