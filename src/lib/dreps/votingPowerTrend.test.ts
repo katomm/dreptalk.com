@@ -109,4 +109,40 @@ describe('buildPowerChart', () => {
     const ys = c!.line.split(' ').map((p) => Number(p.split(',')[1]));
     for (const y of ys) expect(y).toBeCloseTo(50); // plot.y + plot.h/2
   });
+
+  it('renders a sub-percent move as a nearly-flat line, not a full-height swing', () => {
+    // 1,000,000 -> 1,002,000 is a 0.2% wiggle. Auto-scaling would stretch it edge
+    // to edge; the minimum span keeps its on-screen amplitude tiny.
+    const c = buildPowerChart([1_000_000, 1_002_000], {
+      width: 200,
+      height: 100,
+      padTop: 0,
+      padBottom: 0,
+      padLeft: 0,
+      padRight: 0,
+    })!;
+    const ys = c.line.split(' ').map((p) => Number(p.split(',')[1]));
+    // Both points sit near the vertical centre; the drop is a small fraction of height.
+    for (const y of ys) expect(Math.abs(y - 50)).toBeLessThan(15);
+    // A negligible move collapses to one reference line at the current level.
+    expect(c.yTicks).toHaveLength(1);
+    expect(c.yTicks[0].value).toBe(1_002_000);
+  });
+
+  it('lets a move larger than the minimum span scale naturally to the edges', () => {
+    // 1,000,000 -> 1,200,000 is a 20% jump, well past the 8% floor: it should span
+    // the plot like the un-clamped case, with distinct min/max gridlines.
+    const c = buildPowerChart([1_000_000, 1_200_000], { width: 200, height: 100, padTop: 0, padBottom: 0 })!;
+    expect(c.yTicks.map((t) => t.value)).toEqual([1_000_000, 1_200_000]);
+    const ys = c.line.split(' ').map((p) => Number(p.split(',')[1]));
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(70); // spans most of the 100px height
+  });
+
+  it('respects a custom minSpanFrac', () => {
+    // A generous floor flattens even a 5% move; the tight default would not.
+    const wide = buildPowerChart([100, 105], { width: 200, height: 100, minSpanFrac: 0.5 })!;
+    const wideYs = wide.line.split(' ').map((p) => Number(p.split(',')[1]));
+    expect(wide.yTicks).toHaveLength(1); // clamped -> single reference line
+    expect(Math.max(...wideYs) - Math.min(...wideYs)).toBeLessThan(20);
+  });
 });

@@ -2,7 +2,7 @@
 // Exercises upsertUserFromAuth and getUserById against the real miniflare D1 binding.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId } from './users.js';
+import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId, getSelfDrepId } from './users.js';
 
 const db = () => env.DB;
 const NOW = 1_700_000_000;
@@ -88,6 +88,31 @@ describe('getUserById', () => {
     expect(typeof user!.is_spo).toBe('boolean');
     expect(user!.is_cc).toBe(false);
     expect(typeof user!.is_cc).toBe('boolean');
+  });
+});
+
+describe('getSelfDrepId', () => {
+  it('returns null when there is no session', async () => {
+    expect(await getSelfDrepId(db(), null)).toBeNull();
+  });
+
+  it('returns null when the session lacks the drep role', async () => {
+    const stakeAddr = `stake_test1-self-nondrep-${NOW}`;
+    await upsertUserFromAuth(db(), { stakeAddr, roles: ['proposer'], now: NOW });
+    expect(await getSelfDrepId(db(), { id: stakeAddr, roles: ['proposer'] })).toBeNull();
+  });
+
+  it('returns the drep_id from the user row for a signed-in DRep', async () => {
+    const drepId = `drep1-self-drep-${NOW}`;
+    const user = await upsertUserFromAuth(db(), { drepId, roles: ['drep'], now: NOW });
+    expect(await getSelfDrepId(db(), { id: user.id, roles: ['drep'] })).toBe(drepId);
+  });
+
+  it('returns null when the session claims drep but the user row has no drep_id', async () => {
+    // Defensive: a role without the authoritative id column yields no self drep.
+    const stakeAddr = `stake_test1-self-nodrepid-${NOW}`;
+    const user = await upsertUserFromAuth(db(), { stakeAddr, roles: ['proposer'], now: NOW });
+    expect(await getSelfDrepId(db(), { id: user.id, roles: ['drep'] })).toBeNull();
   });
 });
 

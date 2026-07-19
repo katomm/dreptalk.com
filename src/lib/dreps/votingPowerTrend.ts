@@ -94,6 +94,14 @@ export interface PowerChartOptions {
   padRight?: number;
   padTop?: number;
   padBottom?: number;
+  /**
+   * Minimum visible y span as a fraction of the latest value. Guarantees the plot
+   * shows at least this much headroom so a tiny epoch-to-epoch wiggle renders as a
+   * nearly-flat line instead of being auto-stretched edge to edge. Default 0.08
+   * (the window covers at least +/-4% of the current voting power); a move larger
+   * than this scales naturally and fills the plot.
+   */
+  minSpanFrac?: number;
 }
 
 function round2(n: number): number {
@@ -124,8 +132,21 @@ export function buildPowerChart(values: number[], opts: PowerChartOptions = {}):
   // Headroom so the line never touches the top/bottom edges. A flat series gets a
   // nominal band so it sits on the centre line.
   const pad = range === 0 ? Math.max(Math.abs(dataMin), 1) * 0.1 : range * 0.12;
-  const lo = dataMin - pad;
-  const hi = dataMax + pad;
+  let lo = dataMin - pad;
+  let hi = dataMax + pad;
+
+  // Enforce a minimum visible span relative to the latest value. Without this the
+  // domain hugs the data range, so a sub-percent epoch move gets stretched to fill
+  // the plot and reads as a dramatic swing. Expanding symmetrically around the
+  // data's midpoint keeps a small move looking small and a large move looking large.
+  const latest = values[values.length - 1];
+  const minSpan = Math.abs(latest) * (opts.minSpanFrac ?? 0.08);
+  const clamped = minSpan > hi - lo;
+  if (clamped) {
+    const mid = (lo + hi) / 2;
+    lo = mid - minSpan / 2;
+    hi = mid + minSpan / 2;
+  }
 
   const yFor = (v: number): number => round2(plot.y + plot.h * (1 - (v - lo) / (hi - lo)));
   const xFor = (i: number): number => round2(plot.x + (plot.w * i) / (values.length - 1));
@@ -135,7 +156,10 @@ export function buildPowerChart(values: number[], opts: PowerChartOptions = {}):
   const baseline = round2(plot.y + plot.h);
   const area = `M ${pts[0].x},${baseline} L ${pts.map((p) => `${p.x},${p.y}`).join(' L ')} L ${pts[pts.length - 1].x},${baseline} Z`;
 
-  const tickValues = range === 0 ? [dataMin] : [dataMin, dataMax];
+  // A negligible move (or a truly flat series) collapses to a single reference line
+  // at the current level: two near-identical min/max labels stacked at the centre
+  // would just look like a glitch.
+  const tickValues = range === 0 || clamped ? [latest] : [dataMin, dataMax];
   const yTicks = tickValues.map((value) => ({ value, y: yFor(value) }));
 
   return { width, height, plot, line, area, last: pts[pts.length - 1], yTicks };

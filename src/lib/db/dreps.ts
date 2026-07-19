@@ -5,6 +5,7 @@
 
 import { sqlPlaceholders } from './sql.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
+import { computeVotingPowerDelta } from '../dreps/votingPowerTrend.js';
 
 export interface Drep {
   drepId: string;
@@ -289,6 +290,139 @@ export async function listVotingPowerMovers(
   // read it off the loaded rows instead of a separate MAX() scan over ~2k dreps.
   const epoch = gainers[0]?.votingPowerSnapshotEpoch ?? losers[0]?.votingPowerSnapshotEpoch ?? null;
   return { gainers, losers, epoch };
+}
+
+export interface DrepRanking {
+  drep: Drep;
+  /**
+   * 1-based position within the same filtered/sorted listing, or null when the
+   * DRep isn't part of it: a special pseudo-DRep, an inactive DRep while the view
+   * is active-only, or (under the delegator sort) a DRep with no counted delegators.
+   */
+  rank: number | null;
+  /** Size of the listing the rank sits within. */
+  total: number;
+}
+
+/**
+ * Where a single DRep stands in the directory listing, for the "this is you" row
+ * a logged-in DRep sees pinned above the table. Mirrors listDreps' filter (special
+ * DReps excluded, active-only optional) and sort (power, or delegators with the
+ * same NULLS-last / power tie-break) so the rank matches what the table shows. The
+ * comparisons run against the DRep's own value via a subquery, keeping all
+ * lovelace math in SQLite (64-bit) rather than risking JS Number precision.
+ */
+export async function getDrepRanking(
+  db: D1Database,
+  drepId: string,
+  opts: { activeOnly: boolean; sort: 'power' | 'delegators' },
+): Promise<DrepRanking | null> {
+  const drep = await getDrepById(db, drepId);
+  if (!drep) return null;
+
+  const where: string[] = [`drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`];
+  const binds: unknown[] = [...SPECIAL_DREP_IDS];
+  if (opts.activeOnly) where.push('active = 1');
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+
+  // "Ahead" = ranked strictly above self in the listing's sort. Comparisons run
+  // against the DRep's own value via a subquery, keeping lovelace math in SQLite
+  // (64-bit) rather than risking JS Number precision.
+  const aheadSql =
+    opts.sort === 'delegators'
+      ? `delegator_count IS NOT NULL AND (
+           delegator_count > (SELECT delegator_count FROM dreps WHERE drep_id = ?)
+           OR ( delegator_count = (SELECT delegator_count FROM dreps WHERE drep_id = ?)
+                AND CAST(voting_power AS INTEGER) > (SELECT CAST(voting_power AS INTEGER) FROM dreps WHERE drep_id = ?) )
+         )`
+      : `CAST(voting_power AS INTEGER) > (SELECT CAST(voting_power AS INTEGER) FROM dreps WHERE drep_id = ?)`;
+  const aheadBinds = opts.sort === 'delegators' ? [drepId, drepId, drepId] : [drepId];
+
+  // total and ahead in one round-trip (as getDrepMoverStanding does). The aheadSql
+  // `?` sit in the SELECT, so their binds precede the WHERE's NOT IN list.
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN ${aheadSql} THEN 1 ELSE 0 END) AS ahead
+         FROM dreps ${whereSql}`,
+    )
+    .bind(...aheadBinds, ...binds)
+    .first<{ total: number; ahead: number | null }>();
+  const total = row?.total ?? 0;
+
+  // No meaningful rank: a special pseudo-DRep, an inactive DRep under an active-only
+  // view, or an uncounted DRep under the delegator sort (which lists NULLS last).
+  const unranked =
+    (SPECIAL_DREP_IDS as readonly string[]).includes(drepId) ||
+    (opts.activeOnly && !drep.active) ||
+    (opts.sort === 'delegators' && drep.delegatorCount == null);
+  return { drep, rank: unranked ? null : (row?.ahead ?? 0) + 1, total };
+}
+
+export interface DrepMoverStanding {
+  drep: Drep;
+  direction: 'up' | 'down' | 'flat';
+  /** Rank among movers in the same direction (1 = biggest), or null when flat or a snapshot is missing. */
+  rank: number | null;
+  /** Count of movers in that direction this epoch. */
+  total: number;
+  /** Latest snapshot epoch this standing is for. */
+  epoch: number | null;
+}
+
+/**
+ * A single DRep's own place in the movers-of-the-epoch ranking, for the pinned
+ * "your movement" row on /dreps/movers. Ranking mirrors listVotingPowerMovers:
+ * absolute lovelace delta (snapshot - prev), split by direction. Flat rows, a
+ * missing snapshot, and the pseudo-DReps carry no standing. The magnitude compare
+ * uses the DRep's own delta via a subquery so the math stays in SQLite.
+ */
+export async function getDrepMoverStanding(
+  db: D1Database,
+  drepId: string,
+): Promise<DrepMoverStanding | null> {
+  const drep = await getDrepById(db, drepId);
+  if (!drep) return null;
+
+  const epoch = drep.votingPowerSnapshotEpoch;
+  // Reuse the shared delta helper for the direction: it returns null on a missing/
+  // non-numeric snapshot, exactly the no-standing guard. A flat move and the pseudo-
+  // DReps also carry no standing.
+  const delta = computeVotingPowerDelta(drep.votingPowerSnapshot, drep.votingPowerPrev);
+  if (delta == null || delta.direction === 'flat' || (SPECIAL_DREP_IDS as readonly string[]).includes(drepId)) {
+    return { drep, direction: 'flat', rank: null, total: 0, epoch };
+  }
+  const direction = delta.direction;
+
+  const base = `FROM dreps
+     WHERE voting_power_snapshot IS NOT NULL AND voting_power_snapshot <> ''
+       AND voting_power_prev IS NOT NULL AND voting_power_prev <> ''
+       AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`;
+  const deltaExpr = '(CAST(voting_power_snapshot AS INTEGER) - CAST(voting_power_prev AS INTEGER))';
+  const selfDelta = `(SELECT ${deltaExpr} FROM dreps WHERE drep_id = ?)`;
+  // A "bigger" mover in the same direction is further from zero: strictly greater
+  // among gainers, strictly less among losers (matching the ASC loser ordering).
+  const dirCond = direction === 'up' ? `${deltaExpr} > 0` : `${deltaExpr} < 0`;
+  const aheadCond = direction === 'up' ? `${deltaExpr} > ${selfDelta}` : `${deltaExpr} < ${selfDelta}`;
+
+  // Bind order follows the `?` positions in the SQL string: the selfDelta subquery
+  // sits in the SELECT (aheadCond), so drepId binds before the base's NOT IN list.
+  const row = await db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN ${dirCond} THEN 1 ELSE 0 END) AS total,
+         SUM(CASE WHEN ${dirCond} AND ${aheadCond} THEN 1 ELSE 0 END) AS ahead
+       ${base}`,
+    )
+    .bind(drepId, ...SPECIAL_DREP_IDS)
+    .first<{ total: number | null; ahead: number | null }>();
+  return {
+    drep,
+    direction,
+    rank: (row?.ahead ?? 0) + 1,
+    total: row?.total ?? 0,
+    epoch,
+  };
 }
 
 /**
