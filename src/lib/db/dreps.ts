@@ -5,6 +5,7 @@
 
 import { sqlPlaceholders } from './sql.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
+import { computeVotingPowerDelta } from '../dreps/votingPowerTrend.js';
 
 export interface Drep {
   drepId: string;
@@ -324,23 +325,9 @@ export async function getDrepRanking(
   if (opts.activeOnly) where.push('active = 1');
   const whereSql = `WHERE ${where.join(' AND ')}`;
 
-  const totalRow = await db
-    .prepare(`SELECT COUNT(*) AS c FROM dreps ${whereSql}`)
-    .bind(...binds)
-    .first<{ c: number }>();
-  const total = totalRow?.c ?? 0;
-
-  // Outside the ranked set (special DRep, or inactive under an active-only view):
-  // surface the DRep with no rank rather than a misleading position.
-  if ((SPECIAL_DREP_IDS as readonly string[]).includes(drepId) || (opts.activeOnly && !drep.active)) {
-    return { drep, rank: null, total };
-  }
-  // The delegator sort pushes never-counted rows to the end; an uncounted self has
-  // no meaningful rank there (it still ranks by power on the default view).
-  if (opts.sort === 'delegators' && drep.delegatorCount == null) {
-    return { drep, rank: null, total };
-  }
-
+  // "Ahead" = ranked strictly above self in the listing's sort. Comparisons run
+  // against the DRep's own value via a subquery, keeping lovelace math in SQLite
+  // (64-bit) rather than risking JS Number precision.
   const aheadSql =
     opts.sort === 'delegators'
       ? `delegator_count IS NOT NULL AND (
@@ -351,11 +338,25 @@ export async function getDrepRanking(
       : `CAST(voting_power AS INTEGER) > (SELECT CAST(voting_power AS INTEGER) FROM dreps WHERE drep_id = ?)`;
   const aheadBinds = opts.sort === 'delegators' ? [drepId, drepId, drepId] : [drepId];
 
-  const aheadRow = await db
-    .prepare(`SELECT COUNT(*) AS c FROM dreps ${whereSql} AND ${aheadSql}`)
-    .bind(...binds, ...aheadBinds)
-    .first<{ c: number }>();
-  return { drep, rank: (aheadRow?.c ?? 0) + 1, total };
+  // total and ahead in one round-trip (as getDrepMoverStanding does). The aheadSql
+  // `?` sit in the SELECT, so their binds precede the WHERE's NOT IN list.
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN ${aheadSql} THEN 1 ELSE 0 END) AS ahead
+         FROM dreps ${whereSql}`,
+    )
+    .bind(...aheadBinds, ...binds)
+    .first<{ total: number; ahead: number | null }>();
+  const total = row?.total ?? 0;
+
+  // No meaningful rank: a special pseudo-DRep, an inactive DRep under an active-only
+  // view, or an uncounted DRep under the delegator sort (which lists NULLS last).
+  const unranked =
+    (SPECIAL_DREP_IDS as readonly string[]).includes(drepId) ||
+    (opts.activeOnly && !drep.active) ||
+    (opts.sort === 'delegators' && drep.delegatorCount == null);
+  return { drep, rank: unranked ? null : (row?.ahead ?? 0) + 1, total };
 }
 
 export interface DrepMoverStanding {
@@ -383,15 +384,15 @@ export async function getDrepMoverStanding(
   const drep = await getDrepById(db, drepId);
   if (!drep) return null;
 
-  const snap = toBigOrNull(drep.votingPowerSnapshot);
-  const prev = toBigOrNull(drep.votingPowerPrev);
   const epoch = drep.votingPowerSnapshotEpoch;
-  if (snap == null || prev == null || (SPECIAL_DREP_IDS as readonly string[]).includes(drepId)) {
+  // Reuse the shared delta helper for the direction: it returns null on a missing/
+  // non-numeric snapshot, exactly the no-standing guard. A flat move and the pseudo-
+  // DReps also carry no standing.
+  const delta = computeVotingPowerDelta(drep.votingPowerSnapshot, drep.votingPowerPrev);
+  if (delta == null || delta.direction === 'flat' || (SPECIAL_DREP_IDS as readonly string[]).includes(drepId)) {
     return { drep, direction: 'flat', rank: null, total: 0, epoch };
   }
-  const d = snap - prev;
-  const direction: 'up' | 'down' | 'flat' = d > 0n ? 'up' : d < 0n ? 'down' : 'flat';
-  if (direction === 'flat') return { drep, direction, rank: null, total: 0, epoch };
+  const direction = delta.direction;
 
   const base = `FROM dreps
      WHERE voting_power_snapshot IS NOT NULL AND voting_power_snapshot <> ''
@@ -422,16 +423,6 @@ export async function getDrepMoverStanding(
     total: row?.total ?? 0,
     epoch,
   };
-}
-
-/** Parses a lovelace string to BigInt, or null when absent/empty/non-numeric. */
-function toBigOrNull(value: string | null): bigint | null {
-  if (value == null || value === '') return null;
-  try {
-    return BigInt(value);
-  } catch {
-    return null;
-  }
 }
 
 /**

@@ -77,6 +77,20 @@ export async function getUserById(db: D1Database, id: string): Promise<User | nu
   return row ? rowToUser(row) : null;
 }
 
+/**
+ * The drep_id of the logged-in DRep, or null when the session isn't a DRep (or the
+ * user row is gone). The session `id` isn't always the drep_id (a multi-role user
+ * keeps its first-verified credential as id), so read drep_id off the user row.
+ * Centralizes the lookup the DRep-facing pages share.
+ */
+export async function getSelfDrepId(
+  db: D1Database,
+  user: { id: string; roles: string[] } | null,
+): Promise<string | null> {
+  if (!user?.roles.includes('drep')) return null;
+  return (await getUserById(db, user.id))?.drep_id ?? null;
+}
+
 /** Returns the user row whose drep_id matches, or null. Uses idx_users_drep_id. */
 export async function getUserByDrepId(db: D1Database, drepId: string): Promise<User | null> {
   const row = await db

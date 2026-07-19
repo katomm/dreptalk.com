@@ -7,7 +7,7 @@ import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import DrepSelfCard from '@/components/DrepSelfCard.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { listVotingPowerMovers, getDrepMoverStanding, type Drep } from '@/lib/db/dreps.js';
-import { getUserById } from '@/lib/db/users.js';
+import { getSelfDrepId } from '@/lib/db/users.js';
 import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
 import { cacheControlForSynced, formatAdaCompact } from '@/lib/forum/view.js';
 import { drepDescriptor } from '@/lib/forum/author.js';
@@ -27,13 +27,9 @@ if (db) {
 }
 
 // The logged-in DRep's own movement this epoch, for the pinned "your movement"
-// card, so they see how they moved even when outside the top-ten lists. Only for
-// a DRep session; drep_id lives on the user row (the session id may differ).
-const sessionUser = Astro.locals.user;
-const selfDrepId =
-  db && sessionUser?.roles.includes('drep')
-    ? (await getUserById(db, sessionUser.id))?.drep_id ?? null
-    : null;
+// card, so they see how they moved even when outside the top-ten lists. Only runs
+// when a DRep is signed in.
+const selfDrepId = db ? await getSelfDrepId(db, Astro.locals.user) : null;
 const selfStandingData = db && selfDrepId ? await getDrepMoverStanding(db, selfDrepId) : null;
 const selfDescriptor = selfStandingData ? drepDescriptor(selfStandingData.drep) : null;
 const selfDelta = selfStandingData

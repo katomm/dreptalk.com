@@ -10,8 +10,8 @@ import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
 import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import DrepSelfCard from '@/components/DrepSelfCard.astro';
 import Pager from '@/components/Pager.astro';
-import { listDreps, listDrepsForConcentration, getDrepRanking } from '@/lib/db/dreps.js';
-import { getUserById } from '@/lib/db/users.js';
+import { listDreps, listDrepsForConcentration, getDrepRanking, type DrepRanking } from '@/lib/db/dreps.js';
+import { getSelfDrepId } from '@/lib/db/users.js';
 import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
@@ -61,14 +61,8 @@ const concentration = computeConcentration(
 
 // Where the logged-in DRep stands in this exact listing (same filter + sort), for
 // the pinned "this is you" card and to highlight their own row when it's on the
-// visible page. Only for a DRep-role session; the user id may not be the drep id
-// (a multi-role user keeps its first credential as id), so read drep_id off the
-// user row. One extra read, only when a DRep is signed in.
-const sessionUser = Astro.locals.user;
-const selfDrepId =
-  db && sessionUser?.roles.includes('drep')
-    ? (await getUserById(db, sessionUser.id))?.drep_id ?? null
-    : null;
+// visible page. Only runs when a DRep is signed in.
+const selfDrepId = db ? await getSelfDrepId(db, Astro.locals.user) : null;
 const selfRanking =
   db && selfDrepId ? await getDrepRanking(db, selfDrepId, { activeOnly, sort }) : null;
 
@@ -205,17 +199,15 @@ const selfDescriptor = selfRanking ? drepDescriptor(selfRanking.drep) : null;
 const selfDelta = selfRanking
   ? computeVotingPowerDelta(selfRanking.drep.votingPowerSnapshot, selfRanking.drep.votingPowerPrev)
   : null;
-const selfStanding: string | null = selfRanking
-  ? selfRanking.rank != null
-    ? `Rank #${selfRanking.rank.toLocaleString('en-US')} of ${selfRanking.total.toLocaleString('en-US')} by ${
-        sort === 'delegators' ? 'delegators' : 'voting power'
-      }`
-    : activeOnly && !selfRanking.drep.active
-      ? 'Retired, not in the active ranking'
-      : sort === 'delegators'
-        ? 'Delegator count pending'
-        : `Not yet ranked (of ${selfRanking.total.toLocaleString('en-US')})`
-  : null;
+function selfStandingLine(r: DrepRanking): string {
+  const n = (v: number): string => v.toLocaleString('en-US');
+  if (r.rank != null)
+    return `Rank #${n(r.rank)} of ${n(r.total)} by ${sort === 'delegators' ? 'delegators' : 'voting power'}`;
+  if (activeOnly && !r.drep.active) return 'Retired, not in the active ranking';
+  if (sort === 'delegators') return 'Delegator count pending';
+  return `Not yet ranked (of ${n(r.total)})`;
+}
+const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
 ---
 
 {/* wide: all four primary-nav destinations share the wide shell, so the content
