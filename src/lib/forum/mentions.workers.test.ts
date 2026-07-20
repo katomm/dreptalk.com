@@ -24,6 +24,17 @@ describe('extractMentionSlugs', () => {
     const many = Array.from({ length: 30 }, (_, i) => `@slug-${i}`).join(' ');
     expect(extractMentionSlugs(many).length).toBe(MAX_MENTIONS_PER_POST);
   });
+
+  it('matches at the start of an inline text segment, right after a bold/link/code span', () => {
+    // marked splits inline content into a new text token at each inline element
+    // boundary, so '@a1' right after '**foo**' starts its own segment and
+    // matches the '^' branch, same as the tokenizer Task 5 shares this regex with.
+    expect(extractMentionSlugs('**foo**@a1 x')).toEqual(['a1']);
+  });
+
+  it('still ignores an email address, which never starts a new text segment at @', () => {
+    expect(extractMentionSlugs('foo@bar.com')).toEqual([]);
+  });
 });
 
 describe('resolveMentions', () => {

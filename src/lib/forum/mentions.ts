@@ -15,6 +15,16 @@ export const MAX_MENTIONS_PER_POST = 20;
 
 // Shared syntax contract with the markdown tokenizer (markdown.ts): '@'
 // preceded by start / whitespace / '(' / '>', slug = [a-z0-9][a-z0-9-]{1,63}.
+// The '^' anchor is matched per text segment, not per document: marked splits
+// inline content into a text token at every inline element boundary (bold,
+// code, link, ...), so '@bob' right after '**foo**' or a link is at the start
+// of its own text token and counts as matching '^'. This is intentional, not
+// an escape hatch: Task 5's marked inline tokenizer sees the exact same
+// per-segment '@bob' once the preceding inline token is consumed, so
+// extraction and rendering always agree on what counts as a mention. Emails
+// stay safe under this rule because 'foo@bar.com' never splits into a
+// segment that starts at '@'; the '@' always has 'foo' immediately before it
+// in the same text token.
 const MENTION_RE = /(^|[\s(>])@([a-z0-9][a-z0-9-]{1,63})/g;
 
 /** Unique mention slug candidates from markdown, in order of appearance. */
