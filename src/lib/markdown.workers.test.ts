@@ -334,6 +334,18 @@ describe('mentions', () => {
     expect(html).toContain('<a href="/dreps/alice-drep/"');
     expect(html).toContain('>@alice-drep</a>');
   });
+
+  it('does not linkify a mid-word "@" (GFM email autolink boundary bypass)', () => {
+    // GFM's inline text tokenizer halts before '@' to attempt an email
+    // autolink, so marked can invoke the mention tokenizer at a mid-word
+    // position even though extractMentionSlugs never matches there (the '@'
+    // is not preceded by start / whitespace / '(' / '>').
+    expect(renderMarkdown('foo@alice-drep', { mentionHrefs: hrefs })).not.toContain('<a');
+  });
+
+  it('does not linkify a mention preceded by punctuation other than "(" or ">"', () => {
+    expect(renderMarkdown('.@alice-drep', { mentionHrefs: hrefs })).not.toContain('<a');
+  });
 });
 
 describe('internal hrefs', () => {

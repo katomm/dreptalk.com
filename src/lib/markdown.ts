@@ -47,10 +47,27 @@ const mentionExtension = {
     const m = /(^|[\s(>])@[a-z0-9]/.exec(src);
     return m ? m.index + m[1].length : undefined;
   },
-  tokenizer(src: string): { type: 'mention'; raw: string; slug: string } | undefined {
+  tokenizer(
+    src: string,
+    // biome-ignore lint/suspicious/noExplicitAny: marked's accumulated inline token union is unwieldy for a structural check
+    tokens: any[],
+  ): { type: 'mention'; raw: string; slug: string } | undefined {
     if (!mentionHrefs) return undefined;
     const m = /^@([a-z0-9][a-z0-9-]{1,63})/.exec(src);
     if (!m || !mentionHrefs.has(m[1])) return undefined;
+    // GFM's inline text tokenizer halts before '@' to attempt an email
+    // autolink, so this tokenizer can be invoked at mid-word positions too
+    // (e.g. 'foo@alice-drep'), not only at a genuine segment boundary. Restore
+    // the segment-boundary contract shared with extractMentionSlugs
+    // (src/lib/forum/mentions.ts): reject only when the previous token is
+    // plain text whose last character is not whitespace / '(' / '>'. No
+    // previous token means start of input (accept); a previous inline
+    // element (strong, em, codespan, link, del, escape, html, ...) means
+    // marked already split a new text token here, which is a segment
+    // boundary by construction (accept), matching '**foo**@a1' staying a
+    // mention.
+    const prev = tokens[tokens.length - 1];
+    if (prev && prev.type === 'text' && !/[\s(>]$/.test(prev.raw)) return undefined;
     return { type: 'mention', raw: m[0], slug: m[1] };
   },
   renderer(token: { slug: string }): string {
