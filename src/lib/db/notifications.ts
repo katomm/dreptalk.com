@@ -3,8 +3,6 @@
 // only; broadcast gov events are merged from the activity table at read time).
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 
-import { sqlPlaceholders } from './sql.js';
-
 export interface NotificationInsert {
   recipientId: string;
   type: 'reply' | 'mention';
