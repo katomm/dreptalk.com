@@ -1,0 +1,182 @@
+---
+// Personal notifications inbox: merges the recipient's personal rows (reply,
+// mention) with the broadcast governance activity (gov_created, gov_status),
+// newest first, capped at 50 rows. Session-gated, no pagination in Phase 1.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import { runtimeEnv } from '@/lib/api/response';
+import { getNotificationsPage, getNotifSeenAt } from '@/lib/db/notifications';
+import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
+import { getTopicsByIds } from '@/lib/db/forum.js';
+import { loadAuthorIdentities, type AuthorDescriptor } from '@/lib/forum/author.js';
+import { formatRelativeTime } from '@/lib/forum/view';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+const db = runtimeEnv(Astro.locals).DB as D1Database | undefined;
+
+interface InboxRow {
+  kind: 'reply' | 'mention' | 'gov_created' | 'gov_status';
+  createdAt: number;
+  unread: boolean;
+  actor: AuthorDescriptor | null;
+  title: string;
+  href: string;
+  statusTransition: { from: string; to: string } | null;
+}
+
+let rows: InboxRow[] = [];
+if (db) {
+  // Read the cursor BEFORE anything else so unread highlighting reflects the
+  // state the user is coming from, not the state after this page marks it seen.
+  const [seenAt, personal, gov] = await Promise.all([
+    getNotifSeenAt(db, user.id),
+    getNotificationsPage(db, user.id, 30),
+    loadActivityFeed(db, { filter: 'governance', limit: 30 }),
+  ]);
+
+  const topicIds = [...new Set(personal.map((n) => n.topic_id).filter((id): id is string => !!id))];
+  const [topicsById, identities] = await Promise.all([
+    getTopicsByIds(db, topicIds),
+    loadAuthorIdentities(db, personal.map((n) => n.actor_id)),
+  ]);
+
+  const personalRows: InboxRow[] = personal.flatMap((n) => {
+    const topic = n.topic_id ? topicsById.get(n.topic_id) : undefined;
+    if (!topic || topic.deleted) return [];
+    const discussionTab = topic.source === 'governance' ? '?tab=discussion' : '';
+    const anchor = n.post_id ? `#post-${n.post_id}` : '';
+    return [
+      {
+        kind: n.type as 'reply' | 'mention',
+        createdAt: n.created_at,
+        unread: n.read_at === null,
+        actor: n.actor_id ? identities.describe(n.actor_id) : null,
+        title: topic.title,
+        href: `/t/${topic.slug}/${discussionTab}${anchor}`,
+        statusTransition: null,
+      },
+    ];
+  });
+
+  const govRows: InboxRow[] = gov.events.map((e) => ({
+    kind: e.kind as 'gov_created' | 'gov_status',
+    createdAt: e.createdAt,
+    unread: e.createdAt > seenAt,
+    actor: null,
+    title: e.topic.title,
+    href: `/t/${e.topic.slug}/`,
+    statusTransition: e.statusTransition,
+  }));
+
+  rows = [...personalRows, ...govRows].sort((a, b) => b.createdAt - a.createdAt).slice(0, 50);
+}
+
+const now = Date.now();
+const unreadCount = rows.filter((r) => r.unread).length;
+---
+<Layout title="Notifications" noindex>
+  <div class="notif-head">
+    <h1>Notifications</h1>
+    {unreadCount > 0 && (
+      <form method="post" action="/api/notifications/read">
+        <button class="notif-markread" type="submit">Mark all read</button>
+      </form>
+    )}
+  </div>
+
+  {rows.length === 0 ? (
+    <p class="notif-empty">Nothing here yet. Replies, mentions and governance events will show up in this inbox.</p>
+  ) : (
+    <ul class="notif-list">
+      {rows.map((row) => (
+        <li class:list={['notif-row', { 'notif-row--unread': row.unread }]}>
+          {row.unread && <span class="notif-dot" aria-label="Unread"></span>}
+          <span class="notif-body">
+            {row.kind === 'reply' && row.actor && (
+              <><AuthorIdentity author={row.actor} size={24} /> replied in </>
+            )}
+            {row.kind === 'mention' && row.actor && (
+              <><AuthorIdentity author={row.actor} size={24} /> mentioned you in </>
+            )}
+            {row.kind === 'gov_created' && <>New governance action: </>}
+            {row.kind === 'gov_status' && (
+              <>Governance action {row.statusTransition ? `is now ${row.statusTransition.to}` : 'changed status'}: </>
+            )}
+            <a href={row.href}>{row.title}</a>
+          </span>
+          <span class="notif-time">{formatRelativeTime(row.createdAt, now)}</span>
+        </li>
+      ))}
+    </ul>
+  )}
+</Layout>
+
+<style>
+  .notif-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .notif-head h1 { margin: 0; }
+  .notif-markread {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    cursor: pointer;
+  }
+  .notif-markread:hover { background: var(--surface); }
+  .notif-empty {
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+  .notif-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .notif-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.875rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+  .notif-row--unread { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .notif-dot {
+    flex-shrink: 0;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-top: 0.5rem;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .notif-body {
+    flex: 1;
+    min-width: 0;
+    color: var(--fg);
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  .notif-time {
+    flex-shrink: 0;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    padding-top: 0.1rem;
+  }
+</style>
