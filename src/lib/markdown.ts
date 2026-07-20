@@ -11,16 +11,17 @@
  * render time (it also covers content stored before that behavior existed), not
  * baked into the stored HTML here.
  *
- * Link href policy: ONLY http:// and https:// are accepted. data:, javascript:,
- * vbscript:, protocol-relative (//), bare relative paths, and all other schemes
- * are neutralized to an empty href. This prevents the safeAttrValue data:image/
- * bypass that would allow clickable data: URIs on <a> elements.
+ * Link href policy: http://, https://, and internal paths (a single leading
+ * slash, not protocol-relative) are accepted. data:, javascript:, vbscript:,
+ * protocol-relative (//), and all other schemes are neutralized to an empty
+ * href. This prevents the safeAttrValue data:image/ bypass that would allow
+ * clickable data: URIs on <a> elements.
  *
  * This module runs at write time on the server, so the sanitized HTML is the only
  * form ever stored or served.
  */
 
-import { parse as markedParse } from 'marked';
+import { Marked } from 'marked';
 // xss is CommonJS and does `exports = module.exports = filterXSS` before attaching
 // its named exports, so the CJS-to-ESM lexer in the Workers test pool's esbuild does
 // not hoist them and a named `{ FilterXSS }` import resolves to undefined. The default
@@ -28,6 +29,37 @@ import { parse as markedParse } from 'marked';
 import xssModule from 'xss';
 
 const { FilterXSS } = xssModule as unknown as typeof import('xss');
+
+// Per-call mention map (slug -> internal profile href). Set only for the
+// duration of a renderMarkdown call; rendering is synchronous, so this cannot
+// interleave. When null, the tokenizer never matches and '@' stays plain text.
+let mentionHrefs: ReadonlyMap<string, string> | null = null;
+
+// @slug mentions. Syntax contract shared with extractMentionSlugs
+// (src/lib/forum/mentions.ts): '@' preceded by start / whitespace / '(' / '>',
+// slug = [a-z0-9][a-z0-9-]{1,63}. Only slugs present in the per-call map are
+// linkified; everything else falls through as plain text. Runs as a marked
+// inline extension, so code spans and fences are never touched.
+const mentionExtension = {
+  name: 'mention',
+  level: 'inline' as const,
+  start(src: string): number | undefined {
+    const m = /(^|[\s(>])@[a-z0-9]/.exec(src);
+    return m ? m.index + m[1].length : undefined;
+  },
+  tokenizer(src: string): { type: 'mention'; raw: string; slug: string } | undefined {
+    if (!mentionHrefs) return undefined;
+    const m = /^@([a-z0-9][a-z0-9-]{1,63})/.exec(src);
+    if (!m || !mentionHrefs.has(m[1])) return undefined;
+    return { type: 'mention', raw: m[0], slug: m[1] };
+  },
+  renderer(token: { slug: string }): string {
+    // Sanitizer-safe output: <a href> with an internal path (allowed below).
+    return `<a href="${mentionHrefs?.get(token.slug) ?? ''}">@${token.slug}</a>`;
+  },
+};
+
+const marked = new Marked({ extensions: [mentionExtension] });
 
 // Strict allowlist: structural/text tags only, no presentational attributes.
 // Attributes not listed are stripped automatically by the sanitizer.
@@ -78,13 +110,20 @@ const sanitizer = new FilterXSS({
     if (tag === 'a' && name === 'href') {
       // Strict scheme allowlist: strip ASCII control chars and whitespace first
       // (these are used to obfuscate schemes like "java\tscript:"), then check
-      // that the normalized value starts with http:// or https:// only.
-      // Everything else (data:, javascript:, vbscript:, //, relative paths, ...) is
-      // neutralized to an empty href. This closes the data:image/ bypass where
-      // safeAttrValue would have passed data:image/svg+xml links through unchanged.
+      // that the normalized value starts with http://, https://, or a single
+      // leading slash (internal path, not protocol-relative).
+      // Everything else (data:, javascript:, vbscript:, //, ...) is neutralized
+      // to an empty href. This closes the data:image/ bypass where safeAttrValue
+      // would have passed data:image/svg+xml links through unchanged.
       // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional, strips ASCII control chars used to obfuscate schemes (e.g. "java\tscript:")
       const normalized = value.replace(/[\x00-\x20\x7F]+/g, '').toLowerCase();
-      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+      // WHATWG URL parsing treats '\' the same as '/' for http(s) pages, so any
+      // two leading slash-or-backslash characters (in any combination, e.g.
+      // "/\", "\/", "\\") make a browser parse the rest as a host, not a path.
+      // A single leading '/' followed by anything else stays a same-origin path.
+      const secondChar = normalized[1];
+      const isInternalPath = normalized.startsWith('/') && secondChar !== '/' && secondChar !== '\\';
+      if (normalized.startsWith('http://') || normalized.startsWith('https://') || isInternalPath) {
         return `href="${value}"`;
       }
       // Neutralize: emit an inert empty href so the <a> element is preserved for
@@ -133,15 +172,23 @@ export function ensureLinkTarget(html: string): string {
  * Render a Markdown string to sanitized HTML safe for storage and display.
  *
  * @param md - Raw Markdown input from an untrusted user.
+ * @param opts.mentionHrefs - Slug to internal profile href map. When given,
+ *   @slug mentions matching a key are rendered as internal profile links;
+ *   otherwise @slug stays plain text.
  * @returns Sanitized HTML string. Never contains executable content.
  */
-export function renderMarkdown(md: string): string {
-  // Step 1: parse Markdown to HTML.
-  const raw = markedParse(md, { async: false, gfm: true, breaks: true }) as string;
+export function renderMarkdown(md: string, opts?: { mentionHrefs?: ReadonlyMap<string, string> }): string {
+  mentionHrefs = opts?.mentionHrefs ?? null;
+  try {
+    // Step 1: parse Markdown to HTML.
+    const raw = marked.parse(md, { async: false, gfm: true, breaks: true }) as string;
 
-  // Step 2: sanitize with strict allowlist.
-  const sanitized = sanitizer.process(raw);
+    // Step 2: sanitize with strict allowlist.
+    const sanitized = sanitizer.process(raw);
 
-  // Step 3: force rel on all surviving links.
-  return injectRel(sanitized);
+    // Step 3: force rel on all surviving links.
+    return injectRel(sanitized);
+  } finally {
+    mentionHrefs = null;
+  }
 }

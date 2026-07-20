@@ -138,10 +138,11 @@ describe('renderMarkdown - security (negative cases)', () => {
     assertInert(out, 'protocol-relative link');
   });
 
-  it('neutralizes bare relative path link href', () => {
+  it('allows a single-leading-slash internal relative path link href', () => {
     const out = renderMarkdown('[x](/relative/path)');
-    // Relative paths are not navigable to safe external resources and are blocked.
-    expect(out, 'no relative href').not.toMatch(/href\s*=\s*["']?\/relative/i);
+    // Single-leading-slash paths are internal navigation and are now allowed;
+    // protocol-relative (//) paths are still blocked, see below.
+    expect(out).toContain('href="/relative/path"');
     assertInert(out, 'relative path link');
   });
 });
@@ -297,5 +298,58 @@ describe('ensureLinkTarget', () => {
 
   it('does not touch content without links', () => {
     expect(ensureLinkTarget('<p>Hello world</p>')).toBe('<p>Hello world</p>');
+  });
+});
+
+describe('mentions', () => {
+  const hrefs = new Map([['alice-drep', '/dreps/alice-drep/']]);
+
+  it('renders a resolved mention as an internal profile link', () => {
+    const html = renderMarkdown('hi @alice-drep!', { mentionHrefs: hrefs });
+    expect(html).toContain('<a href="/dreps/alice-drep/"');
+    expect(html).toContain('>@alice-drep</a>');
+  });
+
+  it('leaves unresolved mentions, emails and code untouched', () => {
+    expect(renderMarkdown('hi @nobody', { mentionHrefs: hrefs })).not.toContain('<a');
+    // 'foo@alice-drep.com' is not a mention (the '@' is not at a segment start,
+    // per the shared syntax contract), so it never resolves to a profile link.
+    // GFM's own bare-email autolinking is a separate, pre-existing marked
+    // feature: it still wraps this in an <a>, but the mailto: href is
+    // neutralized to "" by the unrelated scheme allowlist below, so the point
+    // under test here (no mention link) holds regardless.
+    expect(renderMarkdown('foo@alice-drep.com', { mentionHrefs: hrefs })).not.toContain('href="/dreps/alice-drep/"');
+    expect(renderMarkdown('`@alice-drep`', { mentionHrefs: hrefs })).not.toContain('<a');
+  });
+
+  it('does not linkify mentions without the opt-in map', () => {
+    expect(renderMarkdown('hi @alice-drep')).not.toContain('<a');
+  });
+
+  it('linkifies a mention right after a bold span, matching extractMentionSlugs segment boundary', () => {
+    // Consistency with extractMentionSlugs (src/lib/forum/mentions.ts): marked
+    // splits inline content into a new text token after **foo**, so '@alice-drep'
+    // starts its own segment there and matches the same as at document start.
+    const html = renderMarkdown('**foo**@alice-drep', { mentionHrefs: hrefs });
+    expect(html).toContain('<a href="/dreps/alice-drep/"');
+    expect(html).toContain('>@alice-drep</a>');
+  });
+});
+
+describe('internal hrefs', () => {
+  it('keeps single-slash internal links and still strips protocol-relative ones', () => {
+    expect(renderMarkdown('[t](/t/some-topic/)')).toContain('href="/t/some-topic/"');
+    expect(renderMarkdown('[x](//evil.example)')).toContain('href=""');
+    expect(renderMarkdown('[x](javascript:alert(1))')).toContain('href=""');
+  });
+
+  it('neutralizes a leading-backslash internal path (WHATWG URL treats /\\ as protocol-relative)', () => {
+    // Browsers normalize backslash to slash when resolving a URL against an
+    // http(s) page, so a raw <a href="/\evil.example"> (only reachable via
+    // raw HTML input, markdown link syntax percent-encodes the backslash)
+    // resolves to https://evil.example/, not a same-origin path. Any two
+    // leading slash-or-backslash characters must be rejected, not just "//".
+    const out = renderMarkdown('<a href="/\\evil.example">x</a>');
+    expect(out).toContain('href=""');
   });
 });
