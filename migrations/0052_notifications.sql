@@ -20,3 +20,7 @@ CREATE INDEX idx_notifications_recipient ON notifications(recipient_id, created_
 
 -- Read cursor for broadcast (gov) events merged from activity.
 ALTER TABLE users ADD COLUMN notif_seen_at INTEGER NOT NULL DEFAULT 0;
+
+-- Existing accounts start with the backlog marked seen: the badge should signal
+-- what happens after rollout, not decades of prior governance history.
+UPDATE users SET notif_seen_at = CAST(strftime('%s','now') AS INTEGER) * 1000;

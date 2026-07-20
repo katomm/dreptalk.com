@@ -27,6 +27,13 @@ describe('upsertUserFromAuth (drep)', () => {
     expect(user.status).toBe('active');
     expect(user.created_at).toBe(NOW);
     expect(user.last_verified_at).toBe(NOW);
+
+    // A new account starts with the gov backlog marked seen.
+    const row = await db()
+      .prepare('SELECT notif_seen_at FROM users WHERE id = ?')
+      .bind(drepId)
+      .first<{ notif_seen_at: number }>();
+    expect(row?.notif_seen_at).toBe(NOW);
   });
 
   it('re-auth updates last_verified_at but keeps created_at', async () => {

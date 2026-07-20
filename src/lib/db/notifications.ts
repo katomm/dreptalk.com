@@ -80,15 +80,19 @@ export async function getNotificationsPage(
 }
 
 /**
- * Unread badge count: unread personal rows plus broadcast gov events newer
- * than the user's notif_seen_at cursor. One statement, evaluated per page
- * render for signed-in writers only. Counting activity rows here (instead of
- * going through db/activity.ts) is a deliberate exception: it keeps the badge
- * to a single query on a per-page-render path. A missing users row yields a
- * NULL cursor, and SQLite's `created_at > NULL` comparison evaluates to NULL
- * (falsy), so the gov term contributes 0; this relies on intentional SQL NULL
- * semantics, not on an explicit COALESCE. Accepts an undefined db (like
- * loadAuthorIdentity) so layout callers need no guard of their own.
+ * Unread badge count: unread personal rows plus distinct live governance
+ * threads with an unseen event, newer than the user's notif_seen_at cursor.
+ * The gov term counts DISTINCT topic_id (not raw event rows) and joins
+ * topics to exclude deleted ones, matching loadActivityFeed's one-row-per-thread
+ * collapse in getActivityPage (src/lib/db/activity.ts) so the badge and the
+ * inbox agree. One statement, evaluated per page render for signed-in writers
+ * only. Counting activity rows here (instead of going through db/activity.ts)
+ * is a deliberate exception: it keeps the badge to a single query on a
+ * per-page-render path. A missing users row yields a NULL cursor, and
+ * SQLite's `created_at > NULL` comparison evaluates to NULL (falsy), so the
+ * gov term contributes 0; this relies on intentional SQL NULL semantics, not
+ * on an explicit COALESCE. Accepts an undefined db (like loadAuthorIdentity)
+ * so layout callers need no guard of their own.
  */
 export async function getUnreadCount(db: D1Database | undefined, userId: string): Promise<number> {
   if (!db) return 0;
@@ -97,9 +101,11 @@ export async function getUnreadCount(db: D1Database | undefined, userId: string)
       `SELECT
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND read_at IS NULL)
          +
-         (SELECT COUNT(*) FROM activity
-            WHERE type IN ('gov_created', 'gov_status')
-              AND created_at > (SELECT notif_seen_at FROM users WHERE id = ?1)) AS n`,
+         (SELECT COUNT(DISTINCT a.topic_id) FROM activity a
+            JOIN topics t ON t.id = a.topic_id
+            WHERE a.type IN ('gov_created', 'gov_status')
+              AND t.deleted = 0
+              AND a.created_at > (SELECT notif_seen_at FROM users WHERE id = ?1)) AS n`,
     )
     .bind(userId)
     .first<{ n: number }>();

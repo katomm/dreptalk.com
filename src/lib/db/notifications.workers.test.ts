@@ -20,6 +20,18 @@ async function seedUser(id: string) {
     .run();
 }
 
+// The gov term in getUnreadCount joins activity to topics (live threads only),
+// mirroring getActivityPage's collapse, so referenced topics must exist.
+async function seedTopic(id: string, opts?: { deleted?: boolean }) {
+  await db()
+    .prepare(
+      `INSERT INTO topics (id, category_slug, author_id, source, title, slug, deleted, last_post_at, created_at)
+       VALUES (?, 'governance', 'gov-sync', 'governance', 't', ?, ?, 0, 0)`,
+    )
+    .bind(id, `${id}-slug`, opts?.deleted ? 1 : 0)
+    .run();
+}
+
 function insert(recipientId: string, createdAt: number, type: 'reply' | 'mention' = 'reply') {
   return {
     recipientId,
@@ -53,6 +65,7 @@ describe('insertNotifications + getNotificationsPage', () => {
 describe('getUnreadCount + markAllRead + getNotifSeenAt', () => {
   it('counts unread personal rows plus gov activity newer than notif_seen_at', async () => {
     await seedUser('alice');
+    await seedTopic('g1');
     await insertNotifications(db(), [insert('alice', 100), insert('alice', 200)]);
     await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 300 }).run();
     await activityInsert(db(), { type: 'reply_created', topicId: 'g1', actorId: 'x', refPostId: 'p', createdAt: 400 }).run();
@@ -71,5 +84,32 @@ describe('getUnreadCount + markAllRead + getNotifSeenAt', () => {
 
   it('returns 0 for a user without a users row (defensive)', async () => {
     expect(await getUnreadCount(db(), 'ghost')).toBe(0);
+  });
+
+  it('collapses two gov events on the same thread to one, matching the inbox', async () => {
+    await seedUser('dave');
+    await seedTopic('g2');
+    await activityInsert(db(), { type: 'gov_created', topicId: 'g2', actorId: null, createdAt: 100 }).run();
+    await activityInsert(db(), { type: 'gov_status', topicId: 'g2', actorId: null, payload: { from: 'active', to: 'ratified' }, createdAt: 200 }).run();
+
+    // Two events, one thread: counts as 1 (DISTINCT topic_id), same as the collapsed inbox row.
+    expect(await getUnreadCount(db(), 'dave')).toBe(1);
+  });
+
+  it('does not count gov events on a deleted topic', async () => {
+    await seedUser('erin');
+    await seedTopic('g3', { deleted: true });
+    await activityInsert(db(), { type: 'gov_created', topicId: 'g3', actorId: null, createdAt: 100 }).run();
+
+    expect(await getUnreadCount(db(), 'erin')).toBe(0);
+  });
+
+  it('still counts events newer than a zero notif_seen_at (unchanged SQL semantics)', async () => {
+    await seedUser('frank');
+    await seedTopic('g4');
+    await activityInsert(db(), { type: 'gov_created', topicId: 'g4', actorId: null, createdAt: 1 }).run();
+
+    // frank's notif_seen_at defaults to 0 (seedUser does not set it); any created_at > 0 counts.
+    expect(await getUnreadCount(db(), 'frank')).toBe(1);
   });
 });
