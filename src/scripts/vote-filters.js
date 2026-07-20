@@ -12,9 +12,18 @@
 
     const rows = Array.from(list.querySelectorAll('[data-vote-row]'));
     const empty = document.querySelector('[data-vote-empty]');
-    const seg = controls.querySelectorAll('[data-status]');
+    const done = document.querySelector('[data-vote-done]');
+    const seg = Array.from(controls.querySelectorAll('[data-status]'));
 
-    let status = 'all';
+    // The status filter is remembered across visits; new visitors start on the
+    // work that is left, not on everything.
+    const STATUS_KEY = 'dreptalk:vote-status';
+    const STATUSES = ['all', 'notvoted', 'voted'];
+    let stored = null;
+    try {
+      stored = localStorage.getItem(STATUS_KEY);
+    } catch {}
+    let status = STATUSES.indexOf(stored) !== -1 ? stored : 'notvoted';
     // Type/sort now come from the custom <details> dropdowns (native <select>
     // cannot render the per-type glyph); the click handlers below keep these
     // in sync with the selected option.
@@ -58,9 +67,14 @@
         r.hidden = !show;
         if (show) visible++;
       }
+      // Every open action voted on: celebrate instead of reporting an empty
+      // list. The card only exists when nothing is left, so a type filter that
+      // happens to match nothing still falls through to the plain line.
+      const celebrate = Boolean(done) && status === 'notvoted' && visible === 0;
+      if (done) done.hidden = !celebrate;
       if (empty) {
-        empty.hidden = visible !== 0;
-        if (visible === 0) {
+        empty.hidden = visible !== 0 || celebrate;
+        if (visible === 0 && !celebrate) {
           empty.textContent =
             status === 'notvoted'
               ? "You're all caught up, nothing open awaits your vote."
@@ -71,17 +85,31 @@
       }
     }
 
+    // Mark the active segment. Split from select() so restoring the default on
+    // load does not pin it in storage before the reader has chosen anything.
+    function reflect() {
+      for (const b of seg) {
+        const on = b.getAttribute('data-status') === status;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+    }
+
+    function select(next) {
+      status = next;
+      reflect();
+      try {
+        localStorage.setItem(STATUS_KEY, next);
+      } catch {}
+      apply();
+    }
+
     seg.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        status = btn.getAttribute('data-status');
-        seg.forEach((b) => {
-          const on = b === btn;
-          b.classList.toggle('is-active', on);
-          b.setAttribute('aria-pressed', on ? 'true' : 'false');
-        });
-        apply();
-      });
+      btn.addEventListener('click', () => select(btn.getAttribute('data-status')));
     });
+
+    const doneLink = document.querySelector('[data-vote-done-link]');
+    if (doneLink) doneLink.addEventListener('click', () => select('voted'));
 
     // Wire a <details> dropdown: on option click, store the value, mirror the
     // option's glyph+label into the summary, mark it current, close the menu,
@@ -107,12 +135,11 @@
     wireDropdown('data-type-opt', '[data-type-value]', (v) => (typeFilter = v), apply);
     wireDropdown('data-sort-opt', '[data-sort-value]', (v) => (sortMode = v), sortRows);
 
+    reflect();
     apply();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  // Runs inline right after the list, so the restored filter takes effect before
+  // the browser paints the rows it hides.
+  init();
 })();
