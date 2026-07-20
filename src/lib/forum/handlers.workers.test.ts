@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, getTopicBySlug } from '../db/forum.js';
 import { handleCreateTopic, handleCreatePost } from './handlers.js';
+import { getNotificationsPage } from '../db/notifications.js';
 
 // Stable fake user with a real on-chain writer role (drep). 'writer' is not a
 // real role; posting is gated by isWriter() which only accepts drep/spo/cc/proposer.
@@ -530,5 +531,44 @@ describe('handleCreatePost: rate limiting', () => {
     // 21st denied.
     const denied = await makeReq(21);
     expect(denied.status).toBe(429);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reply notifications
+// ---------------------------------------------------------------------------
+
+describe('reply notifications', () => {
+  it('createPost notifies the topic author', async () => {
+    const author = { id: 'author-1', roles: ['drep'] };
+    const replier = { id: 'replier-1', roles: ['spo'] };
+
+    const topicRes = await handleCreateTopic({
+      user: author,
+      body: { categorySlug: 'general', title: 'Notify me', bodyMd: 'original post' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(topicRes.status).toBe(201);
+    const { slug } = topicRes.json as { slug: string };
+    const topicRow = await db().prepare('SELECT id FROM topics WHERE slug = ?').bind(slug).first<{ id: string }>();
+
+    const replyRes = await handleCreatePost({
+      user: replier,
+      topicId: topicRow!.id,
+      body: { bodyMd: 'a reply' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW + 1,
+    });
+    expect(replyRes.status).toBe(201);
+
+    const rows = await getNotificationsPage(db(), 'author-1', 10);
+    expect(rows.length).toBe(1);
+    expect(rows[0].type).toBe('reply');
+    expect(rows[0].actor_id).toBe('replier-1');
+    // The replier never self-notifies.
+    expect((await getNotificationsPage(db(), 'replier-1', 10)).length).toBe(0);
   });
 });

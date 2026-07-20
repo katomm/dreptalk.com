@@ -1,0 +1,68 @@
+/// <reference types="@cloudflare/workers-types" />
+// Write-time notification fan-out. Called from the forum handlers after a
+// post exists; failures here must never fail the post, so callers wrap these
+// in try/catch. Broadcast gov events are intentionally absent: the inbox
+// merges those from the activity table at read time.
+
+import { insertNotifications } from '../db/notifications.js';
+import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
+
+/**
+ * Notifies everyone participating in a thread about a new reply: the topic
+ * author plus every prior poster, deduplicated. Excluded: the actor, the
+ * gov-sync system author, crossposted vote-rationale authors (their rationale
+ * does not make them a participant), and excludeUserIds (mention recipients,
+ * who already get the more specific mention notification).
+ */
+export async function notifyReply(
+  db: D1Database,
+  args: { topicId: string; postId: string; actorId: string; now: number; excludeUserIds?: string[] },
+): Promise<void> {
+  const { topicId, postId, actorId, now, excludeUserIds = [] } = args;
+
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT author_id AS id FROM posts
+         WHERE topic_id = ?1 AND deleted = 0 AND hidden = 0
+           AND (source IS NULL OR source != 'vote_rationale')
+       UNION
+       SELECT author_id AS id FROM topics WHERE id = ?1`,
+    )
+    .bind(topicId)
+    .all<{ id: string }>();
+
+  const exclude = new Set([actorId, GOV_SYNC_AUTHOR, 'system', ...excludeUserIds]);
+  const recipients = results.map((r) => r.id).filter((id) => !exclude.has(id));
+
+  await insertNotifications(
+    db,
+    recipients.map((recipientId) => ({
+      recipientId,
+      type: 'reply' as const,
+      actorId,
+      topicId,
+      postId,
+      createdAt: now,
+    })),
+  );
+}
+
+/** Writes one mention notification per mentioned user, excluding the actor. */
+export async function notifyMentions(
+  db: D1Database,
+  args: { mentionUserIds: string[]; topicId: string; postId: string | null; actorId: string; now: number },
+): Promise<void> {
+  const { mentionUserIds, topicId, postId, actorId, now } = args;
+  const recipients = [...new Set(mentionUserIds)].filter((id) => id !== actorId);
+  await insertNotifications(
+    db,
+    recipients.map((recipientId) => ({
+      recipientId,
+      type: 'mention' as const,
+      actorId,
+      topicId,
+      postId,
+      createdAt: now,
+    })),
+  );
+}

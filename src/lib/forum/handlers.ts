@@ -12,6 +12,7 @@ import type { RateLimiter } from '../rateLimiterDO.js';
 import { isWriter } from '../auth/roles.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { toBase64Url } from '../crypto/base64url.js';
+import { notifyReply } from '../notifications/notify.js';
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -173,6 +174,13 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
 
     // 5. Persist. createPost throws domain errors for locked/missing targets.
     const post = await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now, parentPostId });
+
+    // 6. Notify thread participants. Never fail the post over a notification.
+    try {
+      await notifyReply(db, { topicId, postId: post.id, actorId: user.id, now });
+    } catch {
+      // Post exists; a missed notification is acceptable.
+    }
 
     // The id lets the client land on the new post after the reload.
     return { status: 201, json: { ok: true, postId: post.id } };
