@@ -16,6 +16,14 @@ const SESSION_COOKIE_NAME = 'dreptalk_session';
 export interface SessionRecord {
   userId: string;
   roles: string[];
+  /**
+   * The user's own drep_id, cached on the session so callers can resolve the
+   * logged-in DRep without a per-request D1 read. It is immutable for the
+   * session lifetime (drep_id is written once via COALESCE). null means the
+   * user has no drep_id; undefined means a legacy session minted before this
+   * field existed (callers fall back to a DB read for those).
+   */
+  drepId?: string | null;
   createdAt: number;
   lastSeen: number;
 }
@@ -69,7 +77,7 @@ async function readHashIndex(kv: KVNamespace, userId: string): Promise<string[]>
  */
 export async function createSession(
   kv: KVNamespace,
-  user: { id: string; roles: string[] },
+  user: { id: string; roles: string[]; drepId?: string | null },
   opts?: { now?: number },
 ): Promise<string> {
   const now = Math.floor(opts?.now ?? Date.now() / 1000);
@@ -81,6 +89,9 @@ export async function createSession(
   const record: SessionRecord = {
     userId: user.id,
     roles: user.roles,
+    // Store the field explicitly (null when absent) so getSelfDrepId can tell a
+    // known "no drep_id" from a legacy session that predates this field.
+    drepId: user.drepId ?? null,
     createdAt: now,
     lastSeen: now,
   };

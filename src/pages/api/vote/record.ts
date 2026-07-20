@@ -8,7 +8,7 @@
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
-import { getUserById } from '@/lib/db/users';
+import { getSelfDrepId } from '@/lib/db/users';
 import { recordLocalVote } from '@/lib/db/drepVotes';
 import { upsertVoteRationalePost, removeVoteRationalePost } from '@/lib/db/voteRationalePost';
 import { upsertActionRationale } from '@/lib/db/actionRationale';
@@ -72,8 +72,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   // Derive drep_id from the session user: never trust a client-supplied value.
-  const dbUser = await getUserById(db, user.id);
-  const drepId = dbUser?.drep_id ?? null;
+  const drepId = await getSelfDrepId(db, user);
   if (!drepId) return jsonResponse({ error: 'not a drep' }, 403);
 
   // Two clocks, two conventions: drep_votes.block_time is Unix seconds (matches

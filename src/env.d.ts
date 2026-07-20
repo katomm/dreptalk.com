@@ -3,8 +3,12 @@
 
 declare namespace App {
   interface Locals {
-    /** Authenticated user from the session cookie, or null if unauthenticated. */
-    user: { id: string; roles: string[] } | null;
+    /**
+     * Authenticated user from the session cookie, or null if unauthenticated.
+     * drepId is the user's own drep_id cached on the session (null = no drep_id;
+     * undefined = legacy session predating the field, resolve via getSelfDrepId).
+     */
+    user: { id: string; roles: string[]; drepId?: string | null } | null;
   }
 }
 

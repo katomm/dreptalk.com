@@ -381,7 +381,9 @@ async function finishLogin(
   if (modRole) roles.push(modRole);
   if (roles.length === 0) roles.push('member');
 
-  const token = await createSession(sessionKv, { id: user.id, roles }, { now });
+  // Cache the user's drep_id on the session so consumers resolve the logged-in
+  // DRep without a per-request D1 read (drep_id is immutable for the session).
+  const token = await createSession(sessionKv, { id: user.id, roles, drepId: user.drep_id }, { now });
   const setCookie = buildSessionCookie(token, { secure });
 
   return {

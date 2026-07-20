@@ -10,7 +10,7 @@ import { getCategories } from '../../config/categories.js';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { getLatestGovernanceAction, getLatestActionWithVotes } from '@/lib/db/governance.js';
 import { getActionVoters, getDrepVotingHistory, type ActionVoterRow } from '@/lib/db/drepVotes.js';
-import { getUserById } from '@/lib/db/users.js';
+import { getSelfDrepId } from '@/lib/db/users.js';
 import { orderVoteCandidates, buildPersonalizedRing } from '@/lib/hero/personalize.js';
 import { getDrepsByIds } from '@/lib/db/dreps.js';
 import { voterDescriptor, authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author.js';
@@ -86,7 +86,7 @@ type PersonalizedHero = {
 };
 let personalized: PersonalizedHero | null = null;
 if (db && user?.roles.includes('drep')) {
-  const viewerDrepId = (await getUserById(db, user.id))?.drep_id ?? null;
+  const viewerDrepId = await getSelfDrepId(db, user);
   if (viewerDrepId) {
     const history = await getDrepVotingHistory(db, viewerDrepId, { limit: 12 });
     for (const c of orderVoteCandidates(history).slice(0, 3)) {

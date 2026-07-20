@@ -33,7 +33,7 @@ import {
 } from '@/lib/db/actionRationale.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
 import { getPoolsByIds, type Pool } from '@/lib/db/pools.js';
-import { getUserById } from '@/lib/db/users.js';
+import { getSelfDrepId } from '@/lib/db/users.js';
 import VotePanel from '@/components/VotePanel.js';
 import MultisigVotePanel from '@/components/MultisigVotePanel.js';
 import { parseDrepId } from '@/lib/cardano/identity.js';
@@ -230,8 +230,7 @@ const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new 
 // Gate on ga.status === 'active'; deriveStatus already accounts for expiry boundary.
 const isDrep = user?.roles?.includes('drep') ?? false;
 const isVotable = govAction?.status === 'active';
-const dbUser = isDrep && isGovernanceTopic && db ? await getUserById(db, user!.id) : null;
-const viewerDrepId = isDrep ? (dbUser?.drep_id ?? null) : null;
+const viewerDrepId = isDrep && isGovernanceTopic && db ? await getSelfDrepId(db, user) : null;
 const viewerVote =
   isDrep && isVotable && viewerDrepId && db && govAction
     ? await getViewerVote(db, govAction.id, viewerDrepId)
