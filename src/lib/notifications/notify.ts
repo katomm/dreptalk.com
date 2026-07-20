@@ -5,14 +5,16 @@
 // merges those from the activity table at read time.
 
 import { insertNotifications } from '../db/notifications.js';
+import { getThreadParticipantIds } from '../db/forum.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 
 /**
  * Notifies everyone participating in a thread about a new reply: the topic
- * author plus every prior poster, deduplicated. Excluded: the actor, the
- * gov-sync system author, crossposted vote-rationale authors (their rationale
- * does not make them a participant), and excludeUserIds (mention recipients,
- * who already get the more specific mention notification).
+ * author plus every prior poster, deduplicated (getThreadParticipantIds).
+ * Excluded: the actor, the two system authors (the gov-sync author owns
+ * governance topics; 'system' is the seeded DRepTalk account from migration
+ * 0001), and excludeUserIds (mention recipients, who already get the more
+ * specific mention notification).
  */
 export async function notifyReply(
   db: D1Database,
@@ -20,19 +22,9 @@ export async function notifyReply(
 ): Promise<void> {
   const { topicId, postId, actorId, now, excludeUserIds = [] } = args;
 
-  const { results } = await db
-    .prepare(
-      `SELECT DISTINCT author_id AS id FROM posts
-         WHERE topic_id = ?1 AND deleted = 0 AND hidden = 0
-           AND (source IS NULL OR source != 'vote_rationale')
-       UNION
-       SELECT author_id AS id FROM topics WHERE id = ?1`,
-    )
-    .bind(topicId)
-    .all<{ id: string }>();
-
+  const participants = await getThreadParticipantIds(db, topicId);
   const exclude = new Set([actorId, GOV_SYNC_AUTHOR, 'system', ...excludeUserIds]);
-  const recipients = results.map((r) => r.id).filter((id) => !exclude.has(id));
+  const recipients = participants.filter((id) => !exclude.has(id));
 
   await insertNotifications(
     db,

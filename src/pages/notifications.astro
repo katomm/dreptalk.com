@@ -12,6 +12,7 @@ import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { getTopicsByIds } from '@/lib/db/forum.js';
 import { loadAuthorIdentities, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { formatRelativeTime } from '@/lib/forum/view';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -24,10 +25,19 @@ interface InboxRow {
   createdAt: number;
   unread: boolean;
   actor: AuthorDescriptor | null;
+  /** Lead-in phrase between the actor and the topic link, e.g. "replied in". */
+  verb: string | null;
   title: string;
   href: string;
   statusTransition: { from: string; to: string } | null;
 }
+
+// One verb per personal kind; a future 'message' or 'delegation' kind only
+// needs a new entry here, not another template branch.
+const PERSONAL_VERBS: Record<string, string> = {
+  reply: 'replied in',
+  mention: 'mentioned you in',
+};
 
 let rows: InboxRow[] = [];
 if (db) {
@@ -56,6 +66,7 @@ if (db) {
         createdAt: n.created_at,
         unread: n.read_at === null,
         actor: n.actor_id ? identities.describe(n.actor_id) : null,
+        verb: PERSONAL_VERBS[n.type] ?? null,
         title: topic.title,
         href: `/t/${topic.slug}/${discussionTab}${anchor}`,
         statusTransition: null,
@@ -68,6 +79,7 @@ if (db) {
     createdAt: e.createdAt,
     unread: e.createdAt > seenAt,
     actor: null,
+    verb: null,
     title: e.topic.title,
     href: `/t/${e.topic.slug}/`,
     statusTransition: e.statusTransition,
@@ -97,11 +109,8 @@ const unreadCount = rows.filter((r) => r.unread).length;
         <li class:list={['notif-row', { 'notif-row--unread': row.unread }]}>
           {row.unread && <span class="notif-dot" aria-label="Unread"></span>}
           <span class="notif-body">
-            {row.kind === 'reply' && row.actor && (
-              <><AuthorIdentity author={row.actor} size={24} /> replied in </>
-            )}
-            {row.kind === 'mention' && row.actor && (
-              <><AuthorIdentity author={row.actor} size={24} /> mentioned you in </>
+            {row.actor && row.verb && (
+              <><AuthorIdentity author={row.actor} size={AVATAR_SIZE.compact} /> {row.verb} </>
             )}
             {row.kind === 'gov_created' && <>New governance action: </>}
             {row.kind === 'gov_status' && (

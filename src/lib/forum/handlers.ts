@@ -115,7 +115,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
 
     // 6. Render and sanitize markdown, linkifying resolved @mentions.
     const { mentionHrefs, mentionUserIds } = await resolveBodyMentions(db, bodyMd);
-    const bodyHtml = renderMarkdown(bodyMd, mentionHrefs.size ? { mentionHrefs } : undefined);
+    const bodyHtml = renderMarkdown(bodyMd, { mentionHrefs });
 
     // 7. Generate a short CSPRNG-based suffix for the slug (~5 lowercase base64url chars, no underscores).
     const rand = toBase64Url(crypto.getRandomValues(new Uint8Array(4))).replace(/_/g, '').toLowerCase().slice(0, 8);
@@ -207,17 +207,20 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
 
     // 4. Render and sanitize markdown, linkifying resolved @mentions.
     const { mentionHrefs, mentionUserIds } = await resolveBodyMentions(db, bodyMd);
-    const bodyHtml = renderMarkdown(bodyMd, mentionHrefs.size ? { mentionHrefs } : undefined);
+    const bodyHtml = renderMarkdown(bodyMd, { mentionHrefs });
 
     // 5. Persist. createPost throws domain errors for locked/missing targets.
     const post = await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now, parentPostId });
 
-    // 6. Notify: mentions first (more specific), then thread participants,
-    // excluding mention recipients so nobody is notified twice for one post.
-    // Never fail the post over a notification.
+    // 6. Notify: mention rows for the mentioned users, reply rows for the
+    // other thread participants (mention recipients excluded so nobody is
+    // notified twice for one post). The two writes are independent, so they
+    // run concurrently. Never fail the post over a notification.
     try {
-      await notifyMentions(db, { mentionUserIds, topicId, postId: post.id, actorId: user.id, now });
-      await notifyReply(db, { topicId, postId: post.id, actorId: user.id, now, excludeUserIds: mentionUserIds });
+      await Promise.all([
+        notifyMentions(db, { mentionUserIds, topicId, postId: post.id, actorId: user.id, now }),
+        notifyReply(db, { topicId, postId: post.id, actorId: user.id, now, excludeUserIds: mentionUserIds }),
+      ]);
     } catch {
       // Post exists; a missed notification is acceptable.
     }
@@ -448,7 +451,7 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
     // Render with mention links, but edits never create notifications: a
     // mention added after the fact stays silent by design (Phase 1).
     const { mentionHrefs } = await resolveBodyMentions(db, bodyMd);
-    const bodyHtml = renderMarkdown(bodyMd, mentionHrefs.size ? { mentionHrefs } : undefined);
+    const bodyHtml = renderMarkdown(bodyMd, { mentionHrefs });
 
     try {
       const { edited } = await editPost(db, { postId, authorId: user.id, bodyMd, bodyHtml, now });

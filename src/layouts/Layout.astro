@@ -68,7 +68,7 @@ const env = runtimeEnv(Astro.locals);
 const [account, unreadCount]: [AuthorDescriptor | null, number] = sessionUser
   ? await Promise.all([
       loadAuthorIdentity(env.DB, sessionUser.id),
-      env.DB ? getUnreadCount(env.DB, sessionUser.id) : Promise.resolve(0),
+      getUnreadCount(env.DB, sessionUser.id),
     ])
   : [null, 0];
 

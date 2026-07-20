@@ -30,53 +30,53 @@ import xssModule from 'xss';
 
 const { FilterXSS } = xssModule as unknown as typeof import('xss');
 
-// Per-call mention map (slug -> internal profile href). Set only for the
-// duration of a renderMarkdown call; rendering is synchronous, so this cannot
-// interleave. When null, the tokenizer never matches and '@' stays plain text.
-let mentionHrefs: ReadonlyMap<string, string> | null = null;
-
 // @slug mentions. Syntax contract shared with extractMentionSlugs
 // (src/lib/forum/mentions.ts): '@' preceded by start / whitespace / '(' / '>',
 // slug = [a-z0-9][a-z0-9-]{1,63}. Only slugs present in the per-call map are
 // linkified; everything else falls through as plain text. Runs as a marked
-// inline extension, so code spans and fences are never touched.
-const mentionExtension = {
-  name: 'mention',
-  level: 'inline' as const,
-  start(src: string): number | undefined {
-    const m = /(^|[\s(>])@[a-z0-9]/.exec(src);
-    return m ? m.index + m[1].length : undefined;
-  },
-  tokenizer(
-    src: string,
-    // biome-ignore lint/suspicious/noExplicitAny: marked's accumulated inline token union is unwieldy for a structural check
-    tokens: any[],
-  ): { type: 'mention'; raw: string; slug: string } | undefined {
-    if (!mentionHrefs) return undefined;
-    const m = /^@([a-z0-9][a-z0-9-]{1,63})/.exec(src);
-    if (!m || !mentionHrefs.has(m[1])) return undefined;
-    // GFM's inline text tokenizer halts before '@' to attempt an email
-    // autolink, so this tokenizer can be invoked at mid-word positions too
-    // (e.g. 'foo@alice-drep'), not only at a genuine segment boundary. Restore
-    // the segment-boundary contract shared with extractMentionSlugs
-    // (src/lib/forum/mentions.ts): reject only when the previous token is
-    // plain text whose last character is not whitespace / '(' / '>'. No
-    // previous token means start of input (accept); a previous inline
-    // element (strong, em, codespan, link, del, escape, html, ...) means
-    // marked already split a new text token here, which is a segment
-    // boundary by construction (accept), matching '**foo**@a1' staying a
-    // mention.
-    const prev = tokens[tokens.length - 1];
-    if (prev && prev.type === 'text' && !/[\s(>]$/.test(prev.raw)) return undefined;
-    return { type: 'mention', raw: m[0], slug: m[1] };
-  },
-  renderer(token: { slug: string }): string {
-    // Sanitizer-safe output: <a href> with an internal path (allowed below).
-    return `<a href="${mentionHrefs?.get(token.slug) ?? ''}">@${token.slug}</a>`;
-  },
-};
+// inline extension, so code spans and fences are never touched. The extension
+// closes over the caller's map, so each renderMarkdown call builds its own
+// Marked instance: no shared mutable state between calls.
+function mentionExtension(mentionHrefs: ReadonlyMap<string, string>) {
+  return {
+    name: 'mention',
+    level: 'inline' as const,
+    start(src: string): number | undefined {
+      const m = /(^|[\s(>])@[a-z0-9]/.exec(src);
+      return m ? m.index + m[1].length : undefined;
+    },
+    tokenizer(
+      src: string,
+      // biome-ignore lint/suspicious/noExplicitAny: marked's accumulated inline token union is unwieldy for a structural check
+      tokens: any[],
+    ): { type: 'mention'; raw: string; slug: string } | undefined {
+      const m = /^@([a-z0-9][a-z0-9-]{1,63})/.exec(src);
+      if (!m || !mentionHrefs.has(m[1])) return undefined;
+      // GFM's inline text tokenizer halts before '@' to attempt an email
+      // autolink, so this tokenizer can be invoked at mid-word positions too
+      // (e.g. 'foo@alice-drep'), not only at a genuine segment boundary. Restore
+      // the segment-boundary contract shared with extractMentionSlugs
+      // (src/lib/forum/mentions.ts): reject only when the previous token is
+      // plain text whose last character is not whitespace / '(' / '>'. No
+      // previous token means start of input (accept); a previous inline
+      // element (strong, em, codespan, link, del, escape, html, ...) means
+      // marked already split a new text token here, which is a segment
+      // boundary by construction (accept), matching '**foo**@a1' staying a
+      // mention.
+      const prev = tokens[tokens.length - 1];
+      if (prev && prev.type === 'text' && !/[\s(>]$/.test(prev.raw)) return undefined;
+      return { type: 'mention', raw: m[0], slug: m[1] };
+    },
+    renderer(token: { slug: string }): string {
+      // Sanitizer-safe output: <a href> with an internal path (allowed below).
+      return `<a href="${mentionHrefs.get(token.slug) ?? ''}">@${token.slug}</a>`;
+    },
+  };
+}
 
-const marked = new Marked({ extensions: [mentionExtension] });
+// Shared instance for the common no-mentions path; mention-aware calls build
+// their own instance in renderMarkdown with the extension closed over the map.
+const plainMarked = new Marked();
 
 // Strict allowlist: structural/text tags only, no presentational attributes.
 // Attributes not listed are stripped automatically by the sanitizer.
@@ -195,17 +195,17 @@ export function ensureLinkTarget(html: string): string {
  * @returns Sanitized HTML string. Never contains executable content.
  */
 export function renderMarkdown(md: string, opts?: { mentionHrefs?: ReadonlyMap<string, string> }): string {
-  mentionHrefs = opts?.mentionHrefs ?? null;
-  try {
-    // Step 1: parse Markdown to HTML.
-    const raw = marked.parse(md, { async: false, gfm: true, breaks: true }) as string;
+  const mentionHrefs = opts?.mentionHrefs;
+  const marked = mentionHrefs?.size
+    ? new Marked({ extensions: [mentionExtension(mentionHrefs)] })
+    : plainMarked;
 
-    // Step 2: sanitize with strict allowlist.
-    const sanitized = sanitizer.process(raw);
+  // Step 1: parse Markdown to HTML.
+  const raw = marked.parse(md, { async: false, gfm: true, breaks: true }) as string;
 
-    // Step 3: force rel on all surviving links.
-    return injectRel(sanitized);
-  } finally {
-    mentionHrefs = null;
-  }
+  // Step 2: sanitize with strict allowlist.
+  const sanitized = sanitizer.process(raw);
+
+  // Step 3: force rel on all surviving links.
+  return injectRel(sanitized);
 }

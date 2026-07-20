@@ -28,29 +28,36 @@ export interface NotificationRow {
 // (miniflare does not enforce the limit, so tests alone would not catch this).
 const INSERT_CHUNK = 14;
 
-/** Inserts personal notification rows, chunked under the bind-param limit. */
+/**
+ * Inserts personal notification rows, chunked under the bind-param limit.
+ * All chunks go through one db.batch call, so a big fan-out costs a single
+ * round trip instead of one per chunk.
+ */
 export async function insertNotifications(db: D1Database, rows: NotificationInsert[]): Promise<void> {
+  const statements: D1PreparedStatement[] = [];
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     const chunk = rows.slice(i, i + INSERT_CHUNK);
     const values = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
-    await db
-      .prepare(
-        `INSERT INTO notifications (id, recipient_id, type, actor_id, topic_id, post_id, created_at)
-         VALUES ${values}`,
-      )
-      .bind(
-        ...chunk.flatMap((r) => [
-          crypto.randomUUID(),
-          r.recipientId,
-          r.type,
-          r.actorId,
-          r.topicId,
-          r.postId,
-          r.createdAt,
-        ]),
-      )
-      .run();
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO notifications (id, recipient_id, type, actor_id, topic_id, post_id, created_at)
+           VALUES ${values}`,
+        )
+        .bind(
+          ...chunk.flatMap((r) => [
+            crypto.randomUUID(),
+            r.recipientId,
+            r.type,
+            r.actorId,
+            r.topicId,
+            r.postId,
+            r.createdAt,
+          ]),
+        ),
+    );
   }
+  if (statements.length > 0) await db.batch(statements);
 }
 
 /** The recipient's personal notifications, newest first. */
@@ -75,10 +82,16 @@ export async function getNotificationsPage(
 /**
  * Unread badge count: unread personal rows plus broadcast gov events newer
  * than the user's notif_seen_at cursor. One statement, evaluated per page
- * render for signed-in writers only. A missing users row yields a NULL cursor,
- * which the comparison treats as "no gov events", so the result stays 0.
+ * render for signed-in writers only. Counting activity rows here (instead of
+ * going through db/activity.ts) is a deliberate exception: it keeps the badge
+ * to a single query on a per-page-render path. A missing users row yields a
+ * NULL cursor, and SQLite's `created_at > NULL` comparison evaluates to NULL
+ * (falsy), so the gov term contributes 0; this relies on intentional SQL NULL
+ * semantics, not on an explicit COALESCE. Accepts an undefined db (like
+ * loadAuthorIdentity) so layout callers need no guard of their own.
  */
-export async function getUnreadCount(db: D1Database, userId: string): Promise<number> {
+export async function getUnreadCount(db: D1Database | undefined, userId: string): Promise<number> {
+  if (!db) return 0;
   const row = await db
     .prepare(
       `SELECT
