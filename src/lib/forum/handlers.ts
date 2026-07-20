@@ -12,7 +12,8 @@ import type { RateLimiter } from '../rateLimiterDO.js';
 import { isWriter } from '../auth/roles.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { toBase64Url } from '../crypto/base64url.js';
-import { notifyReply } from '../notifications/notify.js';
+import { notifyReply, notifyMentions } from '../notifications/notify.js';
+import { extractMentionSlugs, resolveMentions } from './mentions.js';
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -24,6 +25,26 @@ export interface HandlerResult {
 }
 
 type User = { id: string; roles: string[] };
+
+/**
+ * Resolves @slug mentions in a markdown body: returns the href map for the
+ * renderer and the linked user ids for the mention notifications. Empty maps
+ * when the body contains no mention candidates.
+ */
+async function resolveBodyMentions(
+  db: D1Database,
+  bodyMd: string,
+): Promise<{ mentionHrefs: Map<string, string>; mentionUserIds: string[] }> {
+  const slugs = extractMentionSlugs(bodyMd);
+  if (slugs.length === 0) return { mentionHrefs: new Map(), mentionUserIds: [] };
+  const resolved = await resolveMentions(db, slugs);
+  return {
+    mentionHrefs: new Map([...resolved.values()].map((m) => [m.slug, m.href])),
+    mentionUserIds: [...resolved.values()]
+      .map((m) => m.userId)
+      .filter((id): id is string => id !== null),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // handleCreateTopic
@@ -92,8 +113,9 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
       return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
     }
 
-    // 6. Render and sanitize markdown.
-    const bodyHtml = renderMarkdown(bodyMd);
+    // 6. Render and sanitize markdown, linkifying resolved @mentions.
+    const { mentionHrefs, mentionUserIds } = await resolveBodyMentions(db, bodyMd);
+    const bodyHtml = renderMarkdown(bodyMd, mentionHrefs.size ? { mentionHrefs } : undefined);
 
     // 7. Generate a short CSPRNG-based suffix for the slug (~5 lowercase base64url chars, no underscores).
     const rand = toBase64Url(crypto.getRandomValues(new Uint8Array(4))).replace(/_/g, '').toLowerCase().slice(0, 8);
@@ -109,6 +131,20 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
       now,
       rand,
     });
+
+    // 9. Mention notifications for the opening post. Never fail the topic over
+    // a notification.
+    try {
+      await notifyMentions(db, {
+        mentionUserIds,
+        topicId: topic.id,
+        postId: null,
+        actorId: user.id,
+        now,
+      });
+    } catch {
+      // Topic exists; a missed notification is acceptable.
+    }
 
     return { status: 201, json: { ok: true, slug: topic.slug } };
   } catch {
@@ -169,15 +205,19 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
       return { status: 400, json: { ok: false, error: 'invalid parent post id' } };
     }
 
-    // 4. Render and sanitize markdown.
-    const bodyHtml = renderMarkdown(bodyMd);
+    // 4. Render and sanitize markdown, linkifying resolved @mentions.
+    const { mentionHrefs, mentionUserIds } = await resolveBodyMentions(db, bodyMd);
+    const bodyHtml = renderMarkdown(bodyMd, mentionHrefs.size ? { mentionHrefs } : undefined);
 
     // 5. Persist. createPost throws domain errors for locked/missing targets.
     const post = await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now, parentPostId });
 
-    // 6. Notify thread participants. Never fail the post over a notification.
+    // 6. Notify: mentions first (more specific), then thread participants,
+    // excluding mention recipients so nobody is notified twice for one post.
+    // Never fail the post over a notification.
     try {
-      await notifyReply(db, { topicId, postId: post.id, actorId: user.id, now });
+      await notifyMentions(db, { mentionUserIds, topicId, postId: post.id, actorId: user.id, now });
+      await notifyReply(db, { topicId, postId: post.id, actorId: user.id, now, excludeUserIds: mentionUserIds });
     } catch {
       // Post exists; a missed notification is acceptable.
     }
@@ -405,7 +445,10 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
     if (bodyMd.length === 0 || bodyMd.length > 20000) {
       return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
     }
-    const bodyHtml = renderMarkdown(bodyMd);
+    // Render with mention links, but edits never create notifications: a
+    // mention added after the fact stays silent by design (Phase 1).
+    const { mentionHrefs } = await resolveBodyMentions(db, bodyMd);
+    const bodyHtml = renderMarkdown(bodyMd, mentionHrefs.size ? { mentionHrefs } : undefined);
 
     try {
       const { edited } = await editPost(db, { postId, authorId: user.id, bodyMd, bodyHtml, now });

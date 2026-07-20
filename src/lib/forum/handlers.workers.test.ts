@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, getTopicBySlug } from '../db/forum.js';
-import { handleCreateTopic, handleCreatePost } from './handlers.js';
+import { handleCreateTopic, handleCreatePost, handleEditPost } from './handlers.js';
 import { getNotificationsPage } from '../db/notifications.js';
 
 // Stable fake user with a real on-chain writer role (drep). 'writer' is not a
@@ -570,5 +570,111 @@ describe('reply notifications', () => {
     expect(rows[0].actor_id).toBe('replier-1');
     // The replier never self-notifies.
     expect((await getNotificationsPage(db(), 'replier-1', 10)).length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mentions in handlers
+// ---------------------------------------------------------------------------
+
+describe('mentions in handlers', () => {
+  // DRep 'drep1abc' with slug 'alice-drep', linked to forum user 'user-alice'.
+  async function seedMentionTarget() {
+    await db()
+      .prepare(
+        `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at, slug)
+         VALUES ('drep1abc', 'registered', 1, 0, 0, 'alice-drep')`,
+      )
+      .run();
+    await db()
+      .prepare(
+        `INSERT INTO users (id, drep_id, created_at, last_verified_at)
+         VALUES ('user-alice', 'drep1abc', 0, 0)`,
+      )
+      .run();
+  }
+
+  // Creates a topic as `user` and returns its id.
+  async function makeTopic(user: { id: string; roles: string[] }, title: string) {
+    const res = await handleCreateTopic({
+      user,
+      body: { categorySlug: 'general', title, bodyMd: 'opening' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(201);
+    const { slug } = res.json as { slug: string };
+    const row = await db().prepare('SELECT id FROM topics WHERE slug = ?').bind(slug).first<{ id: string }>();
+    return row!.id;
+  }
+
+  it('createPost linkifies a resolved mention and writes a single mention notification', async () => {
+    await seedMentionTarget();
+    const topicId = await makeTopic({ id: 'user-alice', roles: ['drep'] }, 'Mention thread');
+
+    const res = await handleCreatePost({
+      user: WRITER,
+      topicId,
+      body: { bodyMd: 'ping @alice-drep' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW + 1,
+    });
+    expect(res.status).toBe(201);
+    const { postId } = res.json as { postId: string };
+
+    const post = await db().prepare('SELECT body_html FROM posts WHERE id = ?').bind(postId).first<{ body_html: string }>();
+    expect(post!.body_html).toContain('href="/dreps/alice-drep/"');
+
+    // Exactly one row: the mention wins, no additional reply row for the same post.
+    const rows = await getNotificationsPage(db(), 'user-alice', 10);
+    expect(rows.length).toBe(1);
+    expect(rows[0].type).toBe('mention');
+    expect(rows[0].post_id).toBe(postId);
+  });
+
+  it('createTopic writes mention notifications for the opening post', async () => {
+    await seedMentionTarget();
+    const res = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'general', title: 'Hello', bodyMd: '@alice-drep look' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(201);
+    const rows = await getNotificationsPage(db(), 'user-alice', 10);
+    expect(rows.length).toBe(1);
+    expect(rows[0].type).toBe('mention');
+    expect(rows[0].post_id).toBeNull();
+  });
+
+  it('editPost re-renders mention links but writes no new notifications', async () => {
+    await seedMentionTarget();
+    const topicId = await makeTopic(WRITER, 'Edit thread');
+    const postRes = await handleCreatePost({
+      user: WRITER,
+      topicId,
+      body: { bodyMd: 'no mention yet' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW + 1,
+    });
+    const { postId } = postRes.json as { postId: string };
+
+    const editRes = await handleEditPost({
+      user: WRITER,
+      postId,
+      body: { bodyMd: 'now @alice-drep' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW + 2,
+    });
+    expect(editRes.status).toBe(200);
+
+    const post = await db().prepare('SELECT body_html FROM posts WHERE id = ?').bind(postId).first<{ body_html: string }>();
+    expect(post!.body_html).toContain('href="/dreps/alice-drep/"');
+    expect((await getNotificationsPage(db(), 'user-alice', 10)).length).toBe(0);
   });
 });
