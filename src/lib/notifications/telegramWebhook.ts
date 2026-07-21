@@ -17,7 +17,11 @@ export interface TelegramWebhookDeps {
   now: number;
 }
 
-/** Extracts text + chat id from an arbitrary update payload; null when either is missing. */
+/**
+ * Extracts text + chat id from an arbitrary update payload; null when either is missing
+ * or the chat is not a private one to one chat with the bot. A missing type is treated
+ * as not private, so group and channel updates never reach the linking logic below.
+ */
 function readMessage(update: unknown): { text: string; chatId: string } | null {
   if (typeof update !== 'object' || update === null) return null;
   const message = (update as { message?: unknown }).message;
@@ -27,6 +31,8 @@ function readMessage(update: unknown): { text: string; chatId: string } | null {
   if (typeof text !== 'string' || typeof chat !== 'object' || chat === null) return null;
   const id = (chat as { id?: unknown }).id;
   if (typeof id !== 'number' && typeof id !== 'string') return null;
+  const type = (chat as { type?: unknown }).type;
+  if (type !== 'private') return null;
   return { text, chatId: String(id) };
 }
 

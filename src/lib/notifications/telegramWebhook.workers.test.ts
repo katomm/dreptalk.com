@@ -22,7 +22,7 @@ const deps = (reply: TelegramWebhookDeps['reply']): TelegramWebhookDeps => ({
 });
 
 const startUpdate = (code: string, chatId = 777) => ({
-  message: { text: `/start ${code}`, chat: { id: chatId } },
+  message: { text: `/start ${code}`, chat: { id: chatId, type: 'private' } },
 });
 
 describe('handleTelegramUpdate', () => {
@@ -38,6 +38,21 @@ describe('handleTelegramUpdate', () => {
     expect(rows[0].target).toBe('777');
     expect(r.calls[0].chatId).toBe('777');
     expect(r.calls[0].text).toContain('Connected');
+  });
+
+  it('a /start with a valid code from a group chat is ignored and does not burn the code', async () => {
+    const code = await issueLinkCode(kv(), 'user-l4');
+    const r = fakeReply();
+    const groupUpdate = { message: { text: `/start ${code}`, chat: { id: 123, type: 'group' } } };
+    const outcome = await handleTelegramUpdate(db(), kv(), groupUpdate, deps(r.reply));
+    expect(outcome).toBe('ignored');
+    expect(await listChannels(db(), 'user-l4')).toHaveLength(0);
+    expect(r.calls).toHaveLength(0);
+
+    // The code must still be valid for a follow-up private /start.
+    const followUp = await handleTelegramUpdate(db(), kv(), startUpdate(code, 456), deps(r.reply));
+    expect(followUp).toBe('linked');
+    expect(await listChannels(db(), 'user-l4')).toHaveLength(1);
   });
 
   it('repeat /start with a fresh code for the same chat stays one row', async () => {
@@ -61,7 +76,7 @@ describe('handleTelegramUpdate', () => {
     await addChannel(db(), { userId: 'user-l3', channel: 'telegram', target: '555', endpoint: 'telegram:555', now: 1 });
     const r = fakeReply();
     const outcome = await handleTelegramUpdate(
-      db(), kv(), { message: { text: '/stop', chat: { id: 555 } } }, deps(r.reply),
+      db(), kv(), { message: { text: '/stop', chat: { id: 555, type: 'private' } } }, deps(r.reply),
     );
     expect(outcome).toBe('stopped');
     expect(await listChannels(db(), 'user-l3')).toHaveLength(0);
@@ -71,7 +86,7 @@ describe('handleTelegramUpdate', () => {
   it('any other text gets the help reply with the settings link', async () => {
     const r = fakeReply();
     const outcome = await handleTelegramUpdate(
-      db(), kv(), { message: { text: 'hello?', chat: { id: 42 } } }, deps(r.reply),
+      db(), kv(), { message: { text: 'hello?', chat: { id: 42, type: 'private' } } }, deps(r.reply),
     );
     expect(outcome).toBe('help');
     expect(r.calls[0].text).toContain('https://dreptalk.com/notifications/');
