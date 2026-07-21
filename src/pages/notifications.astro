@@ -2,19 +2,21 @@
 // Personal notifications inbox: merges the recipient's personal rows (reply,
 // mention) with the broadcast governance activity (gov_created, gov_status),
 // newest first, capped at 50 rows. Session-gated, no pagination in Phase 1.
+// The filterable, time-grouped list itself renders in the NotificationsInbox
+// island; this page only assembles the serializable items.
 export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
-import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import NotificationSettings from '@/components/NotificationSettings.tsx';
+import NotificationsInbox from '@/components/NotificationsInbox.tsx';
 import { runtimeEnv } from '@/lib/api/response';
 import { getNotificationsPage, getNotifSeenAt } from '@/lib/db/notifications';
 import { listChannels, getPrefs } from '@/lib/db/notificationChannels';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { getTopicsByIds } from '@/lib/db/forum.js';
-import { loadAuthorIdentities, type AuthorDescriptor } from '@/lib/forum/author.js';
-import { formatRelativeTime } from '@/lib/forum/view';
-import { AVATAR_SIZE } from '@/lib/forum/avatarSizes';
+import { loadAuthorIdentities, authorProfileHref } from '@/lib/forum/author.js';
+import { statusBadge, isTerminalStatus } from '@/lib/governance/view.js';
+import type { InboxItem } from '@/lib/notifications/inboxView.js';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -24,18 +26,6 @@ const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 const vapidPublicKey = env.VAPID_PUBLIC_KEY ?? '';
 
-interface InboxRow {
-  kind: 'reply' | 'mention' | 'gov_created' | 'gov_status';
-  createdAt: number;
-  unread: boolean;
-  actor: AuthorDescriptor | null;
-  /** Lead-in phrase between the actor and the topic link, e.g. "replied in". */
-  verb: string | null;
-  title: string;
-  href: string;
-  statusTransition: { from: string; to: string } | null;
-}
-
 // One verb per personal kind; a future 'message' or 'delegation' kind only
 // needs a new entry here, not another template branch.
 const PERSONAL_VERBS: Record<string, string> = {
@@ -43,7 +33,7 @@ const PERSONAL_VERBS: Record<string, string> = {
   mention: 'mentioned you in',
 };
 
-let rows: InboxRow[] = [];
+let items: InboxItem[] = [];
 let notificationChannels: { id: string; createdAt: number }[] = [];
 let notificationPrefs = { reply: true, mention: true, governance: true };
 if (db) {
@@ -67,56 +57,81 @@ if (db) {
     loadAuthorIdentities(db, personal.map((n) => n.actor_id)),
   ]);
 
-  const personalRows: InboxRow[] = personal.flatMap((n) => {
+  const personalItems: InboxItem[] = personal.flatMap((n) => {
     const topic = n.topic_id ? topicsById.get(n.topic_id) : undefined;
     if (!topic || topic.deleted) return [];
     const discussionTab = topic.source === 'governance' ? '?tab=discussion' : '';
     const anchor = n.post_id ? `#post-${n.post_id}` : '';
+    const actor = n.actor_id ? identities.describe(n.actor_id) : null;
     return [
       {
         kind: n.type as 'reply' | 'mention',
         createdAt: n.created_at,
         unread: n.read_at === null,
-        actor: n.actor_id ? identities.describe(n.actor_id) : null,
+        actorName: actor?.displayName ?? null,
+        actorHref: actor ? authorProfileHref(actor) : null,
         verb: PERSONAL_VERBS[n.type] ?? null,
         title: topic.title,
         href: `/t/${topic.slug}/${discussionTab}${anchor}`,
-        statusTransition: null,
+        pill: null,
       },
     ];
   });
 
-  const govRows: InboxRow[] = gov.events.map((e) => ({
-    kind: e.kind as 'gov_created' | 'gov_status',
-    createdAt: e.createdAt,
-    unread: e.createdAt > seenAt,
-    actor: null,
-    verb: null,
-    title: e.topic.title,
-    href: `/t/${e.topic.slug}/`,
-    statusTransition: e.statusTransition,
-  }));
+  const govItems: InboxItem[] = gov.events.map((e) => {
+    // gov_created rows get a "New" pill; status changes reuse the shared
+    // status badge (same labels and tones as the governance pages).
+    const pill =
+      e.kind === 'gov_status' && e.statusTransition
+        ? { ...statusBadge(e.statusTransition.to), outline: isTerminalStatus(e.statusTransition.to) }
+        : { label: 'New', tone: 'active' as const, outline: false };
+    return {
+      kind: e.kind as 'gov_created' | 'gov_status',
+      createdAt: e.createdAt,
+      unread: e.createdAt > seenAt,
+      actorName: null,
+      actorHref: null,
+      verb: null,
+      title: e.topic.title,
+      href: `/t/${e.topic.slug}/`,
+      pill,
+    };
+  });
 
-  rows = [...personalRows, ...govRows].sort((a, b) => b.createdAt - a.createdAt).slice(0, 50);
+  items = [...personalItems, ...govItems].sort((a, b) => b.createdAt - a.createdAt).slice(0, 50);
 }
 
 const now = Date.now();
-const unreadCount = rows.filter((r) => r.unread).length;
+const unreadCount = items.filter((r) => r.unread).length;
 ---
-<Layout title="Notifications" noindex>
+<Layout title="Notifications" noindex wide>
   <div class="notif-head">
-    <h1>Notifications</h1>
-    {unreadCount > 0 && (
+    <div>
+      <h1>Notifications</h1>
+      <p class="notif-sub">Stay up to date with what matters to you.</p>
+    </div>
+    <div class="notif-head__actions">
+      {/* Always rendered so the mechanism stays discoverable; disabled when
+          there is nothing unread. */}
       <form method="post" action="/api/notifications/read">
-        <button class="notif-markread" type="submit">Mark all read</button>
+        <button class="notif-markread" type="submit" disabled={unreadCount === 0}>
+          Mark all as read
+        </button>
       </form>
-    )}
+      <a class="notif-settingslink" href="#notification-settings">Notification settings</a>
+    </div>
   </div>
+
+  <NotificationsInbox items={items} now={now} client:load />
 
   {/* Push settings live with the inbox they configure; collapsed so the page
       stays a reading surface. Open by default only while nothing is connected
       AND push is available, nudging first-time setup. */}
-  <details class="notif-settings" open={notificationChannels.length === 0 && vapidPublicKey !== ''}>
+  <details
+    id="notification-settings"
+    class="notif-settings"
+    open={notificationChannels.length === 0 && vapidPublicKey !== ''}
+  >
     <summary>Push notification settings</summary>
     <div class="notif-settings__body">
       <NotificationSettings
@@ -128,39 +143,32 @@ const unreadCount = rows.filter((r) => r.unread).length;
     </div>
   </details>
 
-  {rows.length === 0 ? (
-    <p class="notif-empty">Nothing here yet. Replies, mentions and governance events will show up in this inbox.</p>
-  ) : (
-    <ul class="notif-list">
-      {rows.map((row) => (
-        <li class:list={['notif-row', { 'notif-row--unread': row.unread }]}>
-          {row.unread && <span class="notif-dot" aria-label="Unread"></span>}
-          <span class="notif-body">
-            {row.actor && row.verb && (
-              <><AuthorIdentity author={row.actor} size={AVATAR_SIZE.compact} /> {row.verb} </>
-            )}
-            {row.kind === 'gov_created' && <>New governance action: </>}
-            {row.kind === 'gov_status' && (
-              <>Governance action {row.statusTransition ? `is now ${row.statusTransition.to}` : 'changed status'}: </>
-            )}
-            <a href={row.href}>{row.title}</a>
-          </span>
-          <span class="notif-time">{formatRelativeTime(row.createdAt, now)}</span>
-        </li>
-      ))}
-    </ul>
-  )}
+  <p class="notif-foot">
+    Notifications follow your settings. You can <a href="#notification-settings">update them</a> anytime.
+  </p>
 </Layout>
 
 <style>
   .notif-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 1rem;
-    margin-bottom: 1.25rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
   }
   .notif-head h1 { margin: 0; }
+  .notif-sub {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+  .notif-head__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
   .notif-markread {
     font-size: 0.8125rem;
     font-weight: 600;
@@ -171,13 +179,24 @@ const unreadCount = rows.filter((r) => r.unread).length;
     padding: 0.4rem 0.75rem;
     cursor: pointer;
   }
-  .notif-markread:hover { background: var(--surface); }
-  .notif-empty {
+  .notif-markread:hover:not(:disabled) { background: var(--surface); }
+  .notif-markread:disabled {
     color: var(--muted);
-    font-size: 0.9375rem;
+    cursor: default;
+    opacity: 0.7;
   }
+  .notif-settingslink {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--fg);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    padding: 0.4rem 0.75rem;
+  }
+  .notif-settingslink:hover { background: var(--surface); }
   .notif-settings {
-    margin-bottom: 1.25rem;
+    margin-top: 1.5rem;
     border: 1px solid var(--border);
     border-radius: 0.5rem;
     background: var(--surface);
@@ -192,43 +211,11 @@ const unreadCount = rows.filter((r) => r.unread).length;
   .notif-settings__body {
     padding: 0.25rem 0.9rem 0.9rem;
   }
-  .notif-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .notif-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.6rem;
-    padding: 0.875rem 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.9rem;
-    line-height: 1.55;
-  }
-  .notif-row--unread { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-  .notif-dot {
-    flex-shrink: 0;
-    width: 0.5rem;
-    height: 0.5rem;
-    margin-top: 0.5rem;
-    border-radius: 999px;
-    background: var(--accent);
-  }
-  .notif-body {
-    flex: 1;
-    min-width: 0;
-    color: var(--fg);
-    display: inline-flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-  }
-  .notif-time {
-    flex-shrink: 0;
+  .notif-foot {
+    margin: 1rem 0 0;
     color: var(--muted);
     font-size: 0.8125rem;
-    white-space: nowrap;
-    padding-top: 0.1rem;
+    text-align: center;
   }
+  .notif-foot a { color: var(--accent); }
 </style>

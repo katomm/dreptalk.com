@@ -75,7 +75,9 @@ export default function SearchTrigger({ helpEntries }: TriggerProps) {
           <circle cx="11" cy="11" r="7" />
           <line x1="21" y1="21" x2="16.5" y2="16.5" />
         </svg>
-        <span aria-hidden="true">Search</span>
+        {/* Hidden below 480px (global.css) so the header row fits with the
+            notification bell; the icon plus aria-label keep it usable. */}
+        <span aria-hidden="true" className="search-trigger__label">Search</span>
       </button>
       {loaded && (
         <Suspense fallback={null}>
