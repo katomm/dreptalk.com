@@ -27,13 +27,32 @@ describe('archiveSupersededVotes', () => {
     expect(rows[0].body_html).toBe('<p>old why</p>');
   });
 
-  it('archives when only the anchor changed (same vote, new rationale)', async () => {
+  it('archives when only the anchor changed and clears the stale rationale', async () => {
     const ga = `${'c'.repeat(64)}#0`;
     await seedVote(ga, 'drep1b', 'No', 'ipfs://v1', 100);
+    await upsertActionRationale(env.DB, { gaId: ga, voterId: 'drep1b', bodyHtml: '<p>v1 why</p>', source: 'onchain', anchorUrl: 'ipfs://v1', status: 'ok', createdAt: 100000, now: 100000 });
     const n = await archiveSupersededVotes(env.DB, ga, [
       { voterRole: 'DRep', voterId: 'drep1b', voterHex: null, vote: 'No', metaUrl: 'ipfs://v2', metaHash: 'ee'.repeat(32), blockTime: 200 },
     ], 5000);
     expect(n).toBe(1);
+    // The stale rationale (anchored to v1) is gone; the cron re-fetches v2 via
+    // its normal "no row yet" path. The old body survives on the history row.
+    const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM action_rationale WHERE ga_id = ?`).bind(ga).first<{ n: number }>();
+    expect(left?.n).toBe(0);
+    const hist = await getVoterVoteHistory(env.DB, 'drep1b');
+    expect(hist.get(ga)?.[0].body_html).toBe('<p>v1 why</p>');
+  });
+
+  it('keeps the rationale when the vote changed but the anchor stayed the same', async () => {
+    const ga = `${'a'.repeat(63)}b#0`;
+    await seedVote(ga, 'drep1keep', 'Yes', 'ipfs://same', 100);
+    await upsertActionRationale(env.DB, { gaId: ga, voterId: 'drep1keep', bodyHtml: '<p>still valid</p>', source: 'onchain', anchorUrl: 'ipfs://same', status: 'ok', createdAt: 100000, now: 100000 });
+    const n = await archiveSupersededVotes(env.DB, ga, [
+      { voterRole: 'DRep', voterId: 'drep1keep', voterHex: null, vote: 'No', metaUrl: 'ipfs://same', metaHash: 'cc'.repeat(32), blockTime: 200 },
+    ], 5000);
+    expect(n).toBe(1);
+    const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM action_rationale WHERE ga_id = ?`).bind(ga).first<{ n: number }>();
+    expect(left?.n).toBe(1);
   });
 
   it('is a no-op when nothing changed, when the voter is new, or when block_time is not newer', async () => {

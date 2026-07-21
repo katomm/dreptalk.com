@@ -1,0 +1,31 @@
+---
+// The superseded votes of one voter on one action, shown inside an expandable
+// row (profile voting history and the action's Positions tab share this).
+// Each entry: vote badge, when it was cast, a "Superseded" tag, and the (dimmed)
+// rationale that belonged to that vote. Styles live in global.css (.evotes__*)
+// because two components render this markup.
+import VoteBadge from '@/components/VoteBadge.astro';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import { ensureLinkTarget } from '@/lib/markdown.js';
+import type { SupersededVote } from '@/lib/db/voteHistory.js';
+
+interface Props {
+  earlier: SupersededVote[];
+  now: number;
+}
+const { earlier, now } = Astro.props;
+---
+
+<div class="evotes">
+  <p class="evotes__label">Earlier votes</p>
+  {earlier.map((e) => (
+    <div class="evotes__item">
+      <p class="evotes__head">
+        <VoteBadge vote={e.vote} compact />
+        <span class="evotes__when">{formatRelativeTime(e.block_time * 1000, now)}</span>
+        <span class="evotes__tag">Superseded</span>
+      </p>
+      {e.body_html && <div class="evotes__body" set:html={ensureLinkTarget(e.body_html)} />}
+    </div>
+  ))}
+</div>

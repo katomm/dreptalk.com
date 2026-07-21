@@ -8,6 +8,7 @@
 // superseded votes (with their rationales) under "Earlier votes". Styles live in
 // global.css (.vhist__*) so this row and the page's header row share one grid
 // definition.
+import EarlierVotes from '@/components/EarlierVotes.astro';
 import type { DrepVoteHistoryRow } from '@/lib/db/drepVotes.js';
 import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import { statusBadge } from '@/lib/governance/view.js';
@@ -22,8 +23,7 @@ interface Props {
 }
 const { row, now, earlier = [] } = Astro.props;
 
-const voteKind = (vote: string) => (vote === 'Yes' ? 'yes' : vote === 'No' ? 'no' : 'abstain');
-const kind = voteKind(row.vote);
+const kind = row.vote === 'Yes' ? 'yes' : row.vote === 'No' ? 'no' : 'abstain';
 const badge = statusBadge(row.status);
 const when = row.block_time != null ? formatRelativeTime(row.block_time * 1000, now) : null;
 const label = row.title ?? row.ga_id;
@@ -44,21 +44,7 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
       <details class="vhist__details">
         <summary class="vhist__row vhist__row--expandable">{cells}</summary>
         {rationaleHtml && <div class="vhist__rationale" set:html={ensureLinkTarget(rationaleHtml)} />}
-        {earlier.length > 0 && (
-          <div class="vhist__earlier">
-            <p class="vhist__earlier-label">Earlier votes</p>
-            {earlier.map((e) => (
-              <div class="vhist__earlier-item">
-                <p class="vhist__earlier-head">
-                  <span class={`vhist__vote vhist__vote--${voteKind(e.vote)}`}>{e.vote}</span>
-                  <span class="vhist__earlier-when">{formatRelativeTime(e.block_time * 1000, now)}</span>
-                  <span class="vhist__earlier-tag">Superseded</span>
-                </p>
-                {e.body_html && <div class="vhist__rationale vhist__rationale--superseded" set:html={ensureLinkTarget(e.body_html)} />}
-              </div>
-            ))}
-          </div>
-        )}
+        {earlier.length > 0 && <EarlierVotes earlier={earlier} now={now} />}
       </details>
     ) : (
       <div class="vhist__row">{cells}</div>

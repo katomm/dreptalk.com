@@ -286,15 +286,11 @@ const spoVoters = tab === 'positions' && govAction && db
 const poolIds = [...new Set(spoVoters.map((v) => v.voter_id))];
 const poolsMap = db && poolIds.length > 0 ? await getPoolsByIds(db, poolIds) : new Map<string, Pool>();
 
-// Rationales for the positions tab: keyed by voter_id, loaded only when needed.
-const rationales = tab === 'positions' && db && govAction
-  ? await getActionRationales(db, govAction.id)
-  : new Map<string, { bodyHtml: string | null; source: string }>();
-
-// Superseded votes on this action (voters who changed their vote), keyed by voter_id.
-const voteHistory = tab === 'positions' && db && govAction
-  ? await getActionVoteHistory(db, govAction.id)
-  : new Map<string, SupersededVote[]>();
+// Rationales plus superseded votes (voters who changed their vote) for the
+// positions tab, both keyed by voter_id and loaded together only when needed.
+const [rationales, voteHistory] = tab === 'positions' && db && govAction
+  ? await Promise.all([getActionRationales(db, govAction.id), getActionVoteHistory(db, govAction.id)])
+  : [new Map<string, { bodyHtml: string | null; source: string }>(), new Map<string, SupersededVote[]>()];
 
 // Votes cast too late to count in the frozen tally (on/after the ratification
 // epoch). Shown distinctly on the Positions tab so they don't read as counted.

@@ -838,9 +838,9 @@ main.container {
 .vhist__rationale p { margin: 0 0 0.75rem; }
 .vhist__rationale p:last-child { margin-bottom: 0; }
 
-/* Vote-change marker: a "changed from X" chip on the collapsed row, and the
-   "Earlier votes" block inside the expansion listing each superseded vote with
-   its (dimmed) rationale. */
+/* Vote-change marker on a profile history row: a "changed from X" chip on the
+   collapsed row. The expansion's superseded-vote list is the shared EarlierVotes
+   component (.evotes__*, below). */
 .vhist__changed {
   align-self: flex-start;
   padding: 0.05rem 0.35rem;
@@ -851,9 +851,13 @@ main.container {
   font-weight: 600;
   white-space: nowrap;
 }
-.vhist__earlier { border-top: 1px dashed var(--border); margin-top: 0.6rem; padding-top: 0.5rem; }
-.vhist__rationale + .vhist__earlier { border-top: none; margin-top: 0.35rem; }
-.vhist__earlier-label {
+
+/* EarlierVotes: the superseded votes of one voter on one action, rendered inside
+   an expandable row. Shared by the profile voting history (DrepVoteRow) and the
+   action's Positions tab (GaPositions), so the rules live here, not scoped. */
+.evotes { border-top: 1px dashed var(--border); padding: 0.5rem 0 0.3rem; }
+.vhist__rationale + .evotes { border-top: none; margin-top: 0.35rem; }
+.evotes__label {
   margin: 0 0 0.4rem;
   font-size: 0.7rem;
   font-weight: 600;
@@ -861,11 +865,11 @@ main.container {
   letter-spacing: 0.03em;
   color: var(--muted);
 }
-.vhist__earlier-item { margin-bottom: 0.75rem; }
-.vhist__earlier-item:last-child { margin-bottom: 0; }
-.vhist__earlier-head { margin: 0 0 0.25rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; }
-.vhist__earlier-when { color: var(--muted); font-weight: 400; }
-.vhist__earlier-tag {
+.evotes__item { margin-bottom: 0.75rem; }
+.evotes__item:last-child { margin-bottom: 0; }
+.evotes__head { margin: 0 0 0.25rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; }
+.evotes__when { color: var(--muted); font-weight: 400; }
+.evotes__tag {
   padding: 0.05rem 0.35rem;
   border: 1px solid var(--border);
   border-radius: 0.25rem;
@@ -875,7 +879,10 @@ main.container {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.vhist__rationale--superseded { opacity: 0.65; border-top: none; padding-top: 0; }
+/* Superseded rationale body: same prose styling as a current rationale, dimmed. */
+.evotes__body { opacity: 0.65; color: var(--fg); font-size: 0.875rem; line-height: 1.6; }
+.evotes__body p { margin: 0 0 0.75rem; }
+.evotes__body p:last-child { margin-bottom: 0; }
 
 .vhist__more-toggle {
   list-style: none;

@@ -4,6 +4,7 @@
 // Rows with a rationale become expandable via native <details> (no inline script, CSP-safe).
 // A role segment (DReps / SPOs) toggles which voter list is shown.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import EarlierVotes from '@/components/EarlierVotes.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
@@ -13,7 +14,6 @@ import type { Pool } from '@/lib/db/pools.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { ensureLinkTarget } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
-import { formatRelativeTime } from '@/lib/forum/view.js';
 
 interface Props {
   voters: ActionVoterRow[];
@@ -133,12 +133,12 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
             <div class="ga-positions__identity">
               <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate kind={role === 'spo' ? 'pool' : undefined} />
               {late && (
-                <span class="ga-positions__late" title="Cast after ratification; not counted in the tally">Not counted</span>
+                <span class="ga-positions__tag" title="Cast after ratification; not counted in the tally">Not counted</span>
               )}
             </div>
             <VoteBadge vote={v.vote} compact />
             {history.length > 0 && (
-              <span class="ga-positions__changed" title={`Earlier vote: ${history[0].vote}`}>changed</span>
+              <span class="ga-positions__tag" title={`Earlier vote: ${history[0].vote}`}>Changed</span>
             )}
             <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
           </>
@@ -157,23 +157,7 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
                   </span>
                 </summary>
                 {bodyHtml && <div class="ga-positions__rationale-body" set:html={ensureLinkTarget(bodyHtml)} />}
-                {history.length > 0 && (
-                  <div class="ga-positions__earlier">
-                    <p class="ga-positions__earlier-label">Earlier votes</p>
-                    {history.map((e) => (
-                      <div class="ga-positions__earlier-item">
-                        <p class="ga-positions__earlier-head">
-                          <VoteBadge vote={e.vote} compact />
-                          <span class="ga-positions__earlier-when">{formatRelativeTime(e.block_time * 1000, now)}</span>
-                          <span class="ga-positions__earlier-tag">Superseded</span>
-                        </p>
-                        {e.body_html && (
-                          <div class="ga-positions__rationale-body ga-positions__rationale-body--superseded" set:html={ensureLinkTarget(e.body_html)} />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {history.length > 0 && <EarlierVotes earlier={history} now={now} />}
               </details>
             ) : (
               <div class="ga-positions__summary ga-positions__summary--static">
@@ -276,10 +260,10 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
     opacity: 0.55;
   }
 
-  /* Tag on a vote cast after ratification: valid on-chain, but not in the tally. */
-  .ga-positions__late {
-    display: inline-block;
-    margin-left: 0.4rem;
+  /* Small bordered voter tag, shared by "Not counted" (cast after ratification)
+     and "Changed" (the voter re-voted; earlier votes sit in the expansion). */
+  .ga-positions__tag {
+    flex-shrink: 0;
     padding: 0.05rem 0.35rem;
     border: 1px solid var(--border);
     border-radius: 0.25rem;
@@ -288,8 +272,14 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    vertical-align: middle;
     white-space: nowrap;
+  }
+
+  /* Inside the identity cell (the "Not counted" case) the tag flows inline. */
+  .ga-positions__identity .ga-positions__tag {
+    display: inline-block;
+    margin-left: 0.4rem;
+    vertical-align: middle;
   }
 
   /* Expand affordance column. Mobile: just the chevron (compact). Desktop: a
@@ -340,70 +330,6 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
     color: var(--text);
     padding: 0.5rem 0 0.75rem;
     border-top: 1px dashed var(--border);
-  }
-
-  /* Vote-change marker: "changed" chip on the collapsed row, "Earlier votes"
-     block (superseded votes + dimmed rationales) inside the expansion. */
-  .ga-positions__changed {
-    flex-shrink: 0;
-    padding: 0.05rem 0.35rem;
-    border: 1px solid var(--border);
-    border-radius: 0.25rem;
-    color: var(--muted);
-    font-size: 0.65rem;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-  .ga-positions__earlier {
-    border-top: 1px dashed var(--border);
-    padding: 0.5rem 0 0.75rem;
-  }
-
-  .ga-positions__earlier-label {
-    margin: 0 0 0.4rem;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: var(--muted);
-  }
-
-  .ga-positions__earlier-item {
-    margin-bottom: 0.75rem;
-  }
-
-  .ga-positions__earlier-item:last-child {
-    margin-bottom: 0;
-  }
-
-  .ga-positions__earlier-head {
-    margin: 0 0 0.25rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-  }
-
-  .ga-positions__earlier-when {
-    color: var(--muted);
-  }
-
-  .ga-positions__earlier-tag {
-    padding: 0.05rem 0.35rem;
-    border: 1px solid var(--border);
-    border-radius: 0.25rem;
-    color: var(--muted);
-    font-size: 0.65rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-
-  .ga-positions__rationale-body--superseded {
-    opacity: 0.65;
-    border-top: none;
-    padding-top: 0;
   }
 
   .ga-positions__rationale-body :global(p) {

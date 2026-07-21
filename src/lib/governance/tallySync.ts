@@ -28,7 +28,6 @@ import {
   type GovernanceTally,
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, type VoteInput } from '../db/drepVotes.js';
-import { archiveSupersededVotes } from '../db/voteHistory.js';
 import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
@@ -96,16 +95,6 @@ const VOTES_PAGE = 1000;
 // (25k votes) sits far above any realistic on-chain action; only a pathological
 // list is truncated, and that is logged.
 const MAX_VOTE_PAGES = 25;
-
-/**
- * Writes an action's authoritative vote list: archives any rows a re-vote is
- * about to replace (so drep_vote_history keeps the superseded vote), then
- * upserts. Used by every vote-writing path in this module.
- */
-async function writeVotes(db: D1Database, gaId: string, votes: VoteInput[], now: number): Promise<number> {
-  await archiveSupersededVotes(db, gaId, votes, now);
-  return upsertVotes(db, gaId, votes, now);
-}
 
 /**
  * Fetches a proposal's per-voter votes, bounded to maxPages pages. Returns the
@@ -445,7 +434,7 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
     actions++;
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
-      votes += await writeVotes(db, ga.id, collected, now);
+      votes += await upsertVotes(db, ga.id, collected, now);
       await markVotesSynced(db, ga.id, now);
       if (capped) {
         console.warn(`[gov-votes] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; synced a capped prefix`);
@@ -492,7 +481,7 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     actions++;
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
-      votes += await writeVotes(db, ga.id, collected, now);
+      votes += await upsertVotes(db, ga.id, collected, now);
       // Mark synced even when capped: the prefix is stored and the action drops
       // out of the candidate set, so a pathological list cannot stall the backfill
       // on the same action every run.
@@ -527,7 +516,7 @@ export async function backfillVoteMetaHashes(deps: VoteSyncDeps): Promise<VoteBa
     actions++;
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
-      votes += await writeVotes(db, ga.id, collected, now);
+      votes += await upsertVotes(db, ga.id, collected, now);
       if (capped) {
         console.warn(`[gov-rationale-hash-backfill] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; refreshed a capped prefix`);
       }
