@@ -838,6 +838,45 @@ main.container {
 .vhist__rationale p { margin: 0 0 0.75rem; }
 .vhist__rationale p:last-child { margin-bottom: 0; }
 
+/* Vote-change marker: a "changed from X" chip on the collapsed row, and the
+   "Earlier votes" block inside the expansion listing each superseded vote with
+   its (dimmed) rationale. */
+.vhist__changed {
+  align-self: flex-start;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vhist__earlier { border-top: 1px dashed var(--border); margin-top: 0.6rem; padding-top: 0.5rem; }
+.vhist__rationale + .vhist__earlier { border-top: none; margin-top: 0.35rem; }
+.vhist__earlier-label {
+  margin: 0 0 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+.vhist__earlier-item { margin-bottom: 0.75rem; }
+.vhist__earlier-item:last-child { margin-bottom: 0; }
+.vhist__earlier-head { margin: 0 0 0.25rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; }
+.vhist__earlier-when { color: var(--muted); font-weight: 400; }
+.vhist__earlier-tag {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.vhist__rationale--superseded { opacity: 0.65; border-top: none; padding-top: 0; }
+
 .vhist__more-toggle {
   list-style: none;
   cursor: pointer;

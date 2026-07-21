@@ -3,9 +3,13 @@
 // link + epoch), the outcome badge, and how long ago the vote was cast. When the
 // vote carries a rendered rationale, the row becomes an expandable <details>
 // (native, no inline script, CSP-safe) that reveals the rationale text, matching
-// the pattern used on the action's Positions tab. Styles live in global.css
-// (.vhist__*) so this row and the page's header row share one grid definition.
+// the pattern used on the action's Positions tab. When the voter changed their
+// vote, a "changed from X" chip marks the row and the expansion lists the
+// superseded votes (with their rationales) under "Earlier votes". Styles live in
+// global.css (.vhist__*) so this row and the page's header row share one grid
+// definition.
 import type { DrepVoteHistoryRow } from '@/lib/db/drepVotes.js';
+import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import { statusBadge } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import { ensureLinkTarget } from '@/lib/markdown.js';
@@ -13,14 +17,20 @@ import { ensureLinkTarget } from '@/lib/markdown.js';
 interface Props {
   row: DrepVoteHistoryRow;
   now: number;
+  /** Superseded votes on this action (newest first); empty when the vote never changed. */
+  earlier?: SupersededVote[];
 }
-const { row, now } = Astro.props;
+const { row, now, earlier = [] } = Astro.props;
 
-const kind = row.vote === 'Yes' ? 'yes' : row.vote === 'No' ? 'no' : 'abstain';
+const voteKind = (vote: string) => (vote === 'Yes' ? 'yes' : vote === 'No' ? 'no' : 'abstain');
+const kind = voteKind(row.vote);
 const badge = statusBadge(row.status);
 const when = row.block_time != null ? formatRelativeTime(row.block_time * 1000, now) : null;
 const label = row.title ?? row.ga_id;
 const rationaleHtml = row.rationale_html || null;
+const expandable = Boolean(rationaleHtml) || earlier.length > 0;
+// Chip names the most recently superseded vote; the expansion carries the rest.
+const changedFrom = earlier.length > 0 ? earlier[0].vote : null;
 
 // Link the action to its DRepTalk discussion thread (the on-site page for a
 // governance action). Every synced action has one; on the rare row without a
@@ -30,10 +40,25 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
 
 {
   ((cells) =>
-    rationaleHtml ? (
+    expandable ? (
       <details class="vhist__details">
         <summary class="vhist__row vhist__row--expandable">{cells}</summary>
-        <div class="vhist__rationale" set:html={ensureLinkTarget(rationaleHtml)} />
+        {rationaleHtml && <div class="vhist__rationale" set:html={ensureLinkTarget(rationaleHtml)} />}
+        {earlier.length > 0 && (
+          <div class="vhist__earlier">
+            <p class="vhist__earlier-label">Earlier votes</p>
+            {earlier.map((e) => (
+              <div class="vhist__earlier-item">
+                <p class="vhist__earlier-head">
+                  <span class={`vhist__vote vhist__vote--${voteKind(e.vote)}`}>{e.vote}</span>
+                  <span class="vhist__earlier-when">{formatRelativeTime(e.block_time * 1000, now)}</span>
+                  <span class="vhist__earlier-tag">Superseded</span>
+                </p>
+                {e.body_html && <div class="vhist__rationale vhist__rationale--superseded" set:html={ensureLinkTarget(e.body_html)} />}
+              </div>
+            ))}
+          </div>
+        )}
       </details>
     ) : (
       <div class="vhist__row">{cells}</div>
@@ -59,9 +84,10 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
           ? <a class="vhist__title" href={href}>{label}</a>
           : <span class="vhist__title">{label}</span>}
         {row.decided_epoch != null && <span class="vhist__epoch">Epoch {row.decided_epoch}</span>}
-        {rationaleHtml && (
+        {changedFrom && <span class="vhist__changed" title={`Earlier vote: ${changedFrom}`}>changed from {changedFrom}</span>}
+        {expandable && (
           <span class="vhist__rationale-cta">
-            <span>Rationale</span>
+            <span>{rationaleHtml ? 'Rationale' : 'History'}</span>
             <svg class="vhist__chev" viewBox="0 0 16 16" aria-hidden="true">
               <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
