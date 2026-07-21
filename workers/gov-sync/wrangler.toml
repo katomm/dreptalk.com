@@ -42,6 +42,12 @@ crons = ["*/15 * * * *", "*/20 * * * *", "0 */6 * * *"]
 # (gitignored) or pass --var CARDANO_NETWORK:preprod. KOIOS_API_KEY is an
 # optional secret for higher rate limits.
 
+# Web push dispatch (empty public key = missing keys, so dispatch fails soft
+# until the rollout sets it). VAPID_PRIVATE_KEY is NOT listed here: it is a
+# secret, set with `wrangler secret put VAPID_PRIVATE_KEY` at rollout time.
+[vars]
+VAPID_PUBLIC_KEY = ""
+
 # ---------------------------------------------------------------------------
 # Preprod cron worker (dreptalk-gov-sync-preprod): mirrors the mainnet sync but
 # polls preprod Koios and writes to the preprod D1, feeding preprod.dreptalk.com.
@@ -52,8 +58,11 @@ crons = ["*/15 * * * *", "*/20 * * * *", "0 */6 * * *"]
 [env.preprod]
 name = "dreptalk-gov-sync-preprod"
 
+# VAPID_PRIVATE_KEY is a secret, set separately with
+# `wrangler secret put VAPID_PRIVATE_KEY --env preprod`.
 [env.preprod.vars]
 CARDANO_NETWORK = "preprod"
+VAPID_PUBLIC_KEY = ""
 
 [[env.preprod.d1_databases]]
 binding = "DB"
