@@ -31,6 +31,7 @@ import {
   getRationaleHighlights,
   type RationaleHighlight,
 } from '@/lib/db/actionRationale.js';
+import { getActionVoteHistory, type SupersededVote } from '@/lib/db/voteHistory.js';
 import { getDrepsByIds, type Drep } from '@/lib/db/dreps.js';
 import { getPoolsByIds, type Pool } from '@/lib/db/pools.js';
 import { getSelfDrepId } from '@/lib/db/users.js';
@@ -285,10 +286,11 @@ const spoVoters = tab === 'positions' && govAction && db
 const poolIds = [...new Set(spoVoters.map((v) => v.voter_id))];
 const poolsMap = db && poolIds.length > 0 ? await getPoolsByIds(db, poolIds) : new Map<string, Pool>();
 
-// Rationales for the positions tab: keyed by voter_id, loaded only when needed.
-const rationales = tab === 'positions' && db && govAction
-  ? await getActionRationales(db, govAction.id)
-  : new Map<string, { bodyHtml: string | null; source: string }>();
+// Rationales plus superseded votes (voters who changed their vote) for the
+// positions tab, both keyed by voter_id and loaded together only when needed.
+const [rationales, voteHistory] = tab === 'positions' && db && govAction
+  ? await Promise.all([getActionRationales(db, govAction.id), getActionVoteHistory(db, govAction.id)])
+  : [new Map<string, { bodyHtml: string | null; source: string }>(), new Map<string, SupersededVote[]>()];
 
 // Votes cast too late to count in the frozen tally (on/after the ratification
 // epoch). Shown distinctly on the Positions tab so they don't read as counted.
@@ -526,6 +528,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 slug={topic.slug}
                 rationales={rationales}
                 notCounted={notCountedVoters}
+                voteHistory={voteHistory}
+                now={now}
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />

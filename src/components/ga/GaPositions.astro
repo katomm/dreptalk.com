@@ -4,9 +4,11 @@
 // Rows with a rationale become expandable via native <details> (no inline script, CSP-safe).
 // A role segment (DReps / SPOs) toggles which voter list is shown.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import EarlierVotes from '@/components/EarlierVotes.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
+import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import type { Pool } from '@/lib/db/pools.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
@@ -26,9 +28,12 @@ interface Props {
   rationales: Map<string, { bodyHtml: string | null; source: string }>;
   /** Voter ids whose vote was cast after ratification and did not count in the tally. */
   notCounted: Set<string>;
+  /** Superseded votes on this action keyed by voter id (newest first); marks changed votes. */
+  voteHistory: Map<string, SupersededVote[]>;
+  now: number;
 }
 
-const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted, voteHistory, now } = Astro.props;
 
 // Determine active role from the query string; default to DReps.
 const role = (Astro.url.searchParams.get('role') === 'spo' ? 'spo' : 'drep') as 'drep' | 'spo';
@@ -36,6 +41,13 @@ const activeVoters = role === 'spo' ? spoVoters : voters;
 
 // Action-wide rationale count (the map covers the whole action, not just this page).
 const withRationale = rationales.size;
+
+// Action-wide count of voters who changed their vote, per role (the history map
+// covers the whole action too; each voter's entries all carry the same role).
+const changedByRole = (r: 'DRep' | 'SPO') =>
+  [...voteHistory.values()].filter((list) => list[0]?.voter_role === r).length;
+const drepChanged = changedByRole('DRep');
+const spoChanged = changedByRole('SPO');
 
 // Late votes among the rows shown on this page (cast after ratification).
 const lateOnPage = activeVoters.filter((v) => notCounted.has(v.voter_id)).length;
@@ -78,6 +90,9 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
       {withRationale > 0 && (
         <span class="ga-positions__count-rationale">{` · ${withRationale} with a rationale`}</span>
       )}
+      {drepChanged > 0 && (
+        <span class="ga-positions__count-changed">{` · ${drepChanged} changed their vote`}</span>
+      )}
     </p>
   )}
 
@@ -86,6 +101,9 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
       {spoTotal === 0
         ? 'No SPO votes recorded for this action.'
         : `${spoTotal} SPO${spoTotal === 1 ? '' : 's'} voted`}
+      {spoChanged > 0 && (
+        <span class="ga-positions__count-changed">{` · ${spoChanged} changed their vote`}</span>
+      )}
     </p>
   )}
 
@@ -104,6 +122,8 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
         const ada = formatAdaCompact(v.voting_power);
         const bodyHtml = rationales.get(descriptor.authorId)?.bodyHtml ?? null;
         const late = notCounted.has(v.voter_id);
+        const history = voteHistory.get(v.voter_id) ?? [];
+        const expandable = Boolean(bodyHtml) || history.length > 0;
         // Identity, vote, and power render identically whether or not the row
         // expands; the power slot is always present (empty when unknown) so the
         // amount column lines up across every row. A late vote (cast after
@@ -113,27 +133,33 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
             <div class="ga-positions__identity">
               <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate kind={role === 'spo' ? 'pool' : undefined} />
               {late && (
-                <span class="ga-positions__late" title="Cast after ratification; not counted in the tally">Not counted</span>
+                <span class="ga-positions__tag" title="Cast after ratification; not counted in the tally">Not counted</span>
               )}
             </div>
             <VoteBadge vote={v.vote} compact />
+            {history.length > 0 && (
+              <span class="ga-positions__tag" title={`Earlier vote: ${history[0].vote}`}>
+                {history[0].vote === v.vote ? 'Revoted' : 'Changed'}
+              </span>
+            )}
             <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
           </>
         );
         return (
           <li class="ga-positions__row" id={`voter-${v.voter_id}`} style="scroll-margin-top:5rem">
-            {bodyHtml ? (
+            {expandable ? (
               <details class="ga-positions__details">
                 <summary class="ga-positions__summary">
                   {lead}
                   <span class="ga-positions__cta">
-                    <span class="ga-positions__cta-label">Rationale</span>
+                    <span class="ga-positions__cta-label">{bodyHtml ? 'Rationale' : 'History'}</span>
                     <svg class="ga-positions__chev" viewBox="0 0 16 16" aria-hidden="true">
                       <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
                     </svg>
                   </span>
                 </summary>
-                <div class="ga-positions__rationale-body" set:html={ensureLinkTarget(bodyHtml)} />
+                {bodyHtml && <div class="ga-positions__rationale-body" set:html={ensureLinkTarget(bodyHtml)} />}
+                {history.length > 0 && <EarlierVotes earlier={history} now={now} />}
               </details>
             ) : (
               <div class="ga-positions__summary ga-positions__summary--static">
@@ -166,6 +192,10 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
 
   .ga-positions__count-rationale {
     color: var(--accent);
+  }
+
+  .ga-positions__count-changed {
+    color: var(--muted);
   }
 
   .ga-positions__hint {
@@ -232,10 +262,10 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
     opacity: 0.55;
   }
 
-  /* Tag on a vote cast after ratification: valid on-chain, but not in the tally. */
-  .ga-positions__late {
-    display: inline-block;
-    margin-left: 0.4rem;
+  /* Small bordered voter tag, shared by "Not counted" (cast after ratification)
+     and "Changed" (the voter re-voted; earlier votes sit in the expansion). */
+  .ga-positions__tag {
+    flex-shrink: 0;
     padding: 0.05rem 0.35rem;
     border: 1px solid var(--border);
     border-radius: 0.25rem;
@@ -244,8 +274,14 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    vertical-align: middle;
     white-space: nowrap;
+  }
+
+  /* Inside the identity cell (the "Not counted" case) the tag flows inline. */
+  .ga-positions__identity .ga-positions__tag {
+    display: inline-block;
+    margin-left: 0.4rem;
+    vertical-align: middle;
   }
 
   /* Expand affordance column. Mobile: just the chevron (compact). Desktop: a

@@ -11,6 +11,7 @@ import DrepVoteRow from '@/components/DrepVoteRow.astro';
 import DrepForumRow from '@/components/DrepForumRow.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import { getPoolByIdOrSlug } from '@/lib/db/pools.js';
+import { getVoterVoteHistory } from '@/lib/db/voteHistory.js';
 import { getUserByPoolId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import {
@@ -39,7 +40,7 @@ if (!pool) {
 }
 
 const poolUser = pool && db ? await getUserByPoolId(db, pool.poolId) : null;
-const [posts, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts] =
+const [posts, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, voteHistoryMap] =
   await Promise.all([
     poolUser && db ? getPostsByAuthor(db, poolUser.id, { limit: 20 }) : Promise.resolve([]),
     pool && db ? getPoolVotingHistory(db, pool.poolId, { limit: 500 }) : Promise.resolve([]),
@@ -49,6 +50,7 @@ const [posts, votingHistory, votesCast, voteBreakdown, rationaleStats, participa
     pool && db ? getPoolParticipation(db, pool.poolId) : Promise.resolve({ eligible: 0, voted: 0 }),
     pool && db ? loadEarnedBadges(db, { role: 'spo', id: pool.poolId, userId: poolUser?.id ?? null }) : Promise.resolve([]),
     pool && db ? getBadgeHolderCounts(db) : Promise.resolve(new Map<string, number>()),
+    pool && db ? getVoterVoteHistory(db, pool.poolId) : Promise.resolve(new Map()),
   ]);
 
 const showcase = pickShowcase(earnedBadges, holderCounts, 3);
@@ -157,14 +159,14 @@ const metaDescription = pool
             <span>Outcome</span>
             <span class="vhist__when-h">Voted</span>
           </div>
-          {historyHead.map((h) => <DrepVoteRow row={h} now={now} />)}
+          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} />)}
           {historyTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {historyTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {historyTail.map((h) => <DrepVoteRow row={h} now={now} />)}
+              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} />)}
               {votesCast > votingHistory.length && (
                 <p class="vhist__truncated">Showing the {votingHistory.length} most recent votes.</p>
               )}

@@ -361,6 +361,28 @@ describe('syncGovernanceVotes', () => {
     expect(sizes.filter((m) => m.size > 0).length).toBe(2);
   });
 
+  it('archives the old vote when a re-vote arrives via the sync', async () => {
+    const a = await insertActive(400);
+    await upsertVotes(db(), a.id, [
+      { voterRole: 'DRep', voterId: 'drep1re', voterHex: null, vote: 'Abstain', metaUrl: 'ipfs://old', metaHash: 'aa'.repeat(32), blockTime: 100 },
+    ], NOW - 1000);
+    const koios = {
+      async proposalVotes(pid: string, _limit?: number, offset?: number): Promise<ProposalVoteRow[]> {
+        return (offset ?? 0) === 0 && pid === a.proposalId
+          ? [{ voter_role: 'DRep', voter_id: 'drep1re', voter_hex: null, vote: 'No', meta_url: 'ipfs://new', meta_hash: 'bb'.repeat(32), block_time: 200 }]
+          : [];
+      },
+    };
+
+    await syncGovernanceVotes({ koios, db: db(), now: NOW });
+
+    const hist = (
+      await db().prepare(`SELECT vote, block_time FROM drep_vote_history WHERE ga_id = ? AND voter_id = 'drep1re'`).bind(a.id).all<{ vote: string; block_time: number }>()
+    ).results;
+    expect(hist).toEqual([{ vote: 'Abstain', block_time: 100 }]);
+    expect((await getVotesByGaId(db(), a.id)).get('drep1re')!.vote).toBe('No');
+  });
+
   it('caps an endless vote list at maxPages instead of fetching forever', async () => {
     const a = await insertActive(400);
     let calls = 0;

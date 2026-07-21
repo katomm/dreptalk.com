@@ -130,8 +130,13 @@ const RETRY_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Above-threshold DRep votes that have an anchor (url + hash) and no successful
- * rationale row yet (or a failed one that is due for a retry). Ordered by power
- * desc so the most significant voters render first. `minPower` is lovelace.
+ * rationale row yet (or a failed one that is due for a retry). A row whose stored
+ * anchor no longer matches the vote's current anchor is re-fetched too; the vote
+ * write path already deletes such rows when it syncs a re-vote (see
+ * archiveSupersededVotes), so this branch is a self-healing net for rows that
+ * went stale some other way. A failed re-fetch updates anchor_url, so it then
+ * falls under the bounded failed-retry branch instead of looping. Ordered by
+ * power desc so the most significant voters render first. `minPower` is lovelace.
  */
 export async function getRationaleFetchQueue(
   db: D1Database,
@@ -153,6 +158,7 @@ export async function getRationaleFetchQueue(
            AND (
              r.ga_id IS NULL
              OR (r.status = 'failed' AND r.attempts < ?2 AND r.fetched_at < ?3)
+             OR IFNULL(r.anchor_url, '') <> v.meta_url
            )
          ORDER BY CAST(d.voting_power AS INTEGER) DESC, v.voter_id
          LIMIT ?4`,

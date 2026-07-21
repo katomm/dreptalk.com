@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 // Parameterized D1 access for drep_votes (on-chain votes that drive per-post badges).
 // All queries use .prepare().bind(); never string-concatenated SQL.
+import { archiveSupersededVotes } from './voteHistory.js';
 
 export interface VoteInput {
   voterRole: string;
@@ -22,7 +23,9 @@ const UPSERT_CHUNK = 11;
 
 /**
  * Upserts on-chain votes for one governance action (INSERT OR REPLACE on the
- * (ga_id, voter_id) primary key), chunked. Returns the number of rows written.
+ * (ga_id, voter_id) primary key), chunked. Rows a re-vote is about to replace
+ * are archived into drep_vote_history first, so history preservation holds on
+ * every vote-writing path. Returns the number of rows written.
  */
 export async function upsertVotes(
   db: D1Database,
@@ -31,6 +34,7 @@ export async function upsertVotes(
   now: number,
 ): Promise<number> {
   if (votes.length === 0) return 0;
+  await archiveSupersededVotes(db, gaId, votes, now);
 
   for (let i = 0; i < votes.length; i += UPSERT_CHUNK) {
     const chunk = votes.slice(i, i + UPSERT_CHUNK);
