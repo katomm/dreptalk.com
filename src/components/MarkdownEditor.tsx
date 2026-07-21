@@ -7,7 +7,13 @@ import type { MentionCandidate } from '@/lib/db/mentionCandidates.js';
 let candidatesPromise: Promise<MentionCandidate[]> | null = null;
 function loadCandidates(): Promise<MentionCandidate[]> {
   candidatesPromise ??= fetch('/api/mention-candidates')
-    .then((res) => (res.ok ? (res.json() as Promise<{ candidates: MentionCandidate[] }>) : { candidates: [] }))
+    .then((res) => {
+      // An HTTP error (e.g. a 503 while the DB is briefly unavailable) throws
+      // into the catch below, so it is retried like a network failure instead
+      // of pinning an empty candidate list for the rest of the page session.
+      if (!res.ok) throw new Error(`mention candidates ${res.status}`);
+      return res.json() as Promise<{ candidates: MentionCandidate[] }>;
+    })
     .then((data) => data.candidates)
     .catch(() => {
       // Allow a retry on the next '@' instead of caching a transient failure.
