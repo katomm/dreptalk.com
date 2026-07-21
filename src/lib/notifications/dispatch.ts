@@ -13,6 +13,7 @@ import {
   deleteChannelById,
   type PendingCounts,
 } from '../db/notificationChannels.js';
+import { isSubscriptionDead } from '../push/webPush.js';
 import type { sendWebPush, VapidConfig, PushSubscriptionTarget } from '../push/webPush.js';
 
 export interface DispatchDeps {
@@ -97,7 +98,7 @@ export async function dispatchWebPush(
       if (result.ok) {
         await advanceCursor(db, row.id, deps.now);
         sent++;
-      } else if (result.status === 404 || result.status === 410) {
+      } else if (isSubscriptionDead(result.status)) {
         await deleteChannelById(db, row.id);
         pruned++;
       }

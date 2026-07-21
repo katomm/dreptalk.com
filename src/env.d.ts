@@ -24,6 +24,8 @@ declare namespace Cloudflare {
     IMAGES?: import('./lib/dreps/avatarStore.js').ImagesLike;
     CARDANO_NETWORK?: string;
     VAPID_PUBLIC_KEY?: string;
+    /** Secret on the app worker (test pushes) and gov-sync (dispatcher). */
+    VAPID_PRIVATE_KEY?: string;
     [key: string]: unknown;
   }
 }

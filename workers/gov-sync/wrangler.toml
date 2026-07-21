@@ -46,7 +46,7 @@ crons = ["*/15 * * * *", "*/20 * * * *", "0 */6 * * *"]
 # matching VAPID_PRIVATE_KEY is NOT listed here: it is a secret, set with
 # `wrangler secret put VAPID_PRIVATE_KEY`.
 [vars]
-VAPID_PUBLIC_KEY = "BCtOGMEGeu1nxMyFz-fDnN_IenXPWCuqrVWPCYZXezT9zaLW7uh4xvCuTuB9GnhXejRR-m0l3lqFThX9v-dRQWU"
+VAPID_PUBLIC_KEY = "BNDdHbTHnKPFLX9oqH-EeZfQJvzppkj1SRK1-dqnRGOGJWkiazQcjw2_AeKzBJdW5F6s3LYxFby8MqTPCKsEbQ4"
 
 # ---------------------------------------------------------------------------
 # Preprod cron worker (dreptalk-gov-sync-preprod): mirrors the mainnet sync but
@@ -62,7 +62,7 @@ name = "dreptalk-gov-sync-preprod"
 # `wrangler secret put VAPID_PRIVATE_KEY --env preprod`.
 [env.preprod.vars]
 CARDANO_NETWORK = "preprod"
-VAPID_PUBLIC_KEY = "BLNmU_KgPFZKMDABrqLDXGD_CKPb7YVSSbeUFA6cNTWWwbCLoVSbLiQbJxlZqsOvErS-NidM0mPSg_K2V23n4fY"
+VAPID_PUBLIC_KEY = "BP8lsNXkOYQipYvkb5iBFeXOlDdkcDrlC7Dqbgw3e1bNd9UhgF3KdbpjHCwEMyhtExwc06YlzwzaUo_pCK8VXJ0"
 
 [[env.preprod.d1_databases]]
 binding = "DB"

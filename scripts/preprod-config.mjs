@@ -24,7 +24,7 @@ cfg.name = 'dreptalk-com-preprod';
 cfg.vars = {
   ...(cfg.vars ?? {}),
   CARDANO_NETWORK: 'preprod',
-  VAPID_PUBLIC_KEY: 'BLNmU_KgPFZKMDABrqLDXGD_CKPb7YVSSbeUFA6cNTWWwbCLoVSbLiQbJxlZqsOvErS-NidM0mPSg_K2V23n4fY',
+  VAPID_PUBLIC_KEY: 'BP8lsNXkOYQipYvkb5iBFeXOlDdkcDrlC7Dqbgw3e1bNd9UhgF3KdbpjHCwEMyhtExwc06YlzwzaUo_pCK8VXJ0',
 };
 cfg.routes = [{ pattern: 'preprod.dreptalk.com', custom_domain: true }];
 cfg.d1_databases = [
