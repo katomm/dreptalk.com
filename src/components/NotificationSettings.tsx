@@ -20,10 +20,10 @@ export interface NotificationSettingsProps {
   vapidPublicKey: string;
 }
 
-const EVENT_LABELS: Record<NotificationEventType, string> = {
-  reply: 'Replies',
-  mention: 'Mentions',
-  governance: 'Governance',
+const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string }> = {
+  reply: { label: 'Replies', hint: 'someone replies in a thread you posted in' },
+  mention: { label: 'Mentions', hint: 'someone mentions you in a post' },
+  governance: { label: 'Governance actions', hint: 'new actions and status changes' },
 };
 
 type ConnectPhase =
@@ -212,7 +212,10 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
                 checked={prefState[eventType]}
                 onChange={(e) => void handlePrefToggle(eventType, e.target.checked)}
               />
-              <span>{EVENT_LABELS[eventType]}</span>
+              <span>
+                {EVENT_LABELS[eventType].label}{' '}
+                <span style={{ color: 'var(--muted)' }}>({EVENT_LABELS[eventType].hint})</span>
+              </span>
             </label>
           ))}
           {prefError && (

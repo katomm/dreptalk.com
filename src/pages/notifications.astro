@@ -117,7 +117,7 @@ const unreadCount = rows.filter((r) => r.unread).length;
       stays a reading surface. Open by default only while nothing is connected
       AND push is available, nudging first-time setup. */}
   <details class="notif-settings" open={notificationChannels.length === 0 && vapidPublicKey !== ''}>
-    <summary>Push notifications</summary>
+    <summary>Push notification settings</summary>
     <div class="notif-settings__body">
       <NotificationSettings
         channels={notificationChannels}
