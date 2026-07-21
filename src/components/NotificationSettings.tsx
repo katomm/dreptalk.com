@@ -81,9 +81,29 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         return;
       }
 
-      const sub = await reg.pushManager.subscribe({
+      // A leftover subscription bound to a DIFFERENT VAPID key (e.g. after a
+      // key rotation) makes subscribe() throw InvalidStateError. Reuse a
+      // matching subscription as is; unsubscribe a mismatched one first so the
+      // fresh subscribe below cannot fail on it.
+      const appServerKey = fromBase64Url(vapidPublicKey);
+      const existing = await reg.pushManager.getSubscription();
+      let sub = existing;
+      if (existing) {
+        const existingKey = existing.options.applicationServerKey
+          ? new Uint8Array(existing.options.applicationServerKey as ArrayBuffer)
+          : null;
+        const sameKey =
+          existingKey !== null &&
+          existingKey.length === appServerKey.length &&
+          existingKey.every((b, i) => b === appServerKey[i]);
+        if (!sameKey) {
+          await existing.unsubscribe();
+          sub = null;
+        }
+      }
+      sub ??= await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: fromBase64Url(vapidPublicKey),
+        applicationServerKey: appServerKey,
       });
       const subJson = sub.toJSON();
 
