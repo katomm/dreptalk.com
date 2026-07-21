@@ -302,24 +302,32 @@ describe('ensureLinkTarget', () => {
 });
 
 describe('mentions', () => {
-  const hrefs = new Map([['alice-drep', '/dreps/alice-drep/']]);
+  const hrefs = new Map([['alice-drep', { href: '/dreps/alice-drep/', label: 'Alice' }]]);
 
-  it('renders a resolved mention as an internal profile link', () => {
-    const html = renderMarkdown('hi @alice-drep!', { mentionHrefs: hrefs });
+  it('renders a resolved mention as an internal profile link with the display name', () => {
+    const html = renderMarkdown('hi @alice-drep!', { mentions: hrefs });
     expect(html).toContain('<a href="/dreps/alice-drep/"');
-    expect(html).toContain('>@alice-drep</a>');
+    expect(html).toContain('>@Alice</a>');
+    expect(html).not.toContain('@alice-drep</a>');
+  });
+
+  it('HTML-escapes the display name (on-chain names are untrusted)', () => {
+    const evil = new Map([['alice-drep', { href: '/dreps/alice-drep/', label: 'A<b>&"x"</b>' }]]);
+    const html = renderMarkdown('hi @alice-drep', { mentions: evil });
+    expect(html).toContain('>@A&lt;b&gt;&amp;&quot;x&quot;&lt;/b&gt;</a>');
+    expect(html).not.toContain('<b>');
   });
 
   it('leaves unresolved mentions, emails and code untouched', () => {
-    expect(renderMarkdown('hi @nobody', { mentionHrefs: hrefs })).not.toContain('<a');
+    expect(renderMarkdown('hi @nobody', { mentions: hrefs })).not.toContain('<a');
     // 'foo@alice-drep.com' is not a mention (the '@' is not at a segment start,
     // per the shared syntax contract), so it never resolves to a profile link.
     // GFM's own bare-email autolinking is a separate, pre-existing marked
     // feature: it still wraps this in an <a>, but the mailto: href is
     // neutralized to "" by the unrelated scheme allowlist below, so the point
     // under test here (no mention link) holds regardless.
-    expect(renderMarkdown('foo@alice-drep.com', { mentionHrefs: hrefs })).not.toContain('href="/dreps/alice-drep/"');
-    expect(renderMarkdown('`@alice-drep`', { mentionHrefs: hrefs })).not.toContain('<a');
+    expect(renderMarkdown('foo@alice-drep.com', { mentions: hrefs })).not.toContain('href="/dreps/alice-drep/"');
+    expect(renderMarkdown('`@alice-drep`', { mentions: hrefs })).not.toContain('<a');
   });
 
   it('does not linkify mentions without the opt-in map', () => {
@@ -330,9 +338,9 @@ describe('mentions', () => {
     // Consistency with extractMentionSlugs (src/lib/forum/mentions.ts): marked
     // splits inline content into a new text token after **foo**, so '@alice-drep'
     // starts its own segment there and matches the same as at document start.
-    const html = renderMarkdown('**foo**@alice-drep', { mentionHrefs: hrefs });
+    const html = renderMarkdown('**foo**@alice-drep', { mentions: hrefs });
     expect(html).toContain('<a href="/dreps/alice-drep/"');
-    expect(html).toContain('>@alice-drep</a>');
+    expect(html).toContain('>@Alice</a>');
   });
 
   it('does not linkify a mid-word "@" (GFM email autolink boundary bypass)', () => {
@@ -340,11 +348,11 @@ describe('mentions', () => {
     // autolink, so marked can invoke the mention tokenizer at a mid-word
     // position even though extractMentionSlugs never matches there (the '@'
     // is not preceded by start / whitespace / '(' / '>').
-    expect(renderMarkdown('foo@alice-drep', { mentionHrefs: hrefs })).not.toContain('<a');
+    expect(renderMarkdown('foo@alice-drep', { mentions: hrefs })).not.toContain('<a');
   });
 
   it('does not linkify a mention preceded by punctuation other than "(" or ">"', () => {
-    expect(renderMarkdown('.@alice-drep', { mentionHrefs: hrefs })).not.toContain('<a');
+    expect(renderMarkdown('.@alice-drep', { mentions: hrefs })).not.toContain('<a');
   });
 });
 

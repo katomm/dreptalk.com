@@ -5,7 +5,7 @@
 import { createTopic, createPost, getPostById, editPost, editTitle } from '../db/forum.js';
 import { flagPost, unflagPost, type FlagState } from '../db/postFlags.js';
 import { setReaction, clearReaction, isReaction, type ReactionState, type Reaction } from '../db/postReactions.js';
-import { renderMarkdown } from '../markdown.js';
+import { renderMarkdown, type MentionLink } from '../markdown.js';
 import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
@@ -27,19 +27,21 @@ export interface HandlerResult {
 type User = { id: string; roles: string[] };
 
 /**
- * Resolves @slug mentions in a markdown body: returns the href map for the
- * renderer and the linked user ids for the mention notifications. Empty maps
- * when the body contains no mention candidates.
+ * Resolves @slug mentions in a markdown body: returns the link map (href +
+ * display label) for the renderer and the linked user ids for the mention
+ * notifications. Empty maps when the body contains no mention candidates.
+ * Exported for the preview route, so previews render mentions exactly like
+ * the stored post.
  */
-async function resolveBodyMentions(
+export async function resolveBodyMentions(
   db: D1Database,
   bodyMd: string,
-): Promise<{ mentionHrefs: Map<string, string>; mentionUserIds: string[] }> {
+): Promise<{ mentions: Map<string, MentionLink>; mentionUserIds: string[] }> {
   const slugs = extractMentionSlugs(bodyMd);
-  if (slugs.length === 0) return { mentionHrefs: new Map(), mentionUserIds: [] };
+  if (slugs.length === 0) return { mentions: new Map(), mentionUserIds: [] };
   const resolved = await resolveMentions(db, slugs);
   return {
-    mentionHrefs: new Map([...resolved.values()].map((m) => [m.slug, m.href])),
+    mentions: new Map([...resolved.values()].map((m) => [m.slug, { href: m.href, label: m.label }])),
     mentionUserIds: [...resolved.values()]
       .map((m) => m.userId)
       .filter((id): id is string => id !== null),
@@ -114,8 +116,8 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
     }
 
     // 6. Render and sanitize markdown, linkifying resolved @mentions.
-    const { mentionHrefs, mentionUserIds } = await resolveBodyMentions(db, bodyMd);
-    const bodyHtml = renderMarkdown(bodyMd, { mentionHrefs });
+    const { mentions, mentionUserIds } = await resolveBodyMentions(db, bodyMd);
+    const bodyHtml = renderMarkdown(bodyMd, { mentions });
 
     // 7. Generate a short CSPRNG-based suffix for the slug (~5 lowercase base64url chars, no underscores).
     const rand = toBase64Url(crypto.getRandomValues(new Uint8Array(4))).replace(/_/g, '').toLowerCase().slice(0, 8);
@@ -206,8 +208,8 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     }
 
     // 4. Render and sanitize markdown, linkifying resolved @mentions.
-    const { mentionHrefs, mentionUserIds } = await resolveBodyMentions(db, bodyMd);
-    const bodyHtml = renderMarkdown(bodyMd, { mentionHrefs });
+    const { mentions, mentionUserIds } = await resolveBodyMentions(db, bodyMd);
+    const bodyHtml = renderMarkdown(bodyMd, { mentions });
 
     // 5. Persist. createPost throws domain errors for locked/missing targets.
     const post = await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now, parentPostId });
@@ -450,8 +452,8 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
     }
     // Render with mention links, but edits never create notifications: a
     // mention added after the fact stays silent by design (Phase 1).
-    const { mentionHrefs } = await resolveBodyMentions(db, bodyMd);
-    const bodyHtml = renderMarkdown(bodyMd, { mentionHrefs });
+    const { mentions } = await resolveBodyMentions(db, bodyMd);
+    const bodyHtml = renderMarkdown(bodyMd, { mentions });
 
     try {
       const { edited } = await editPost(db, { postId, authorId: user.id, bodyMd, bodyHtml, now });
