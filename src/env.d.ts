@@ -26,6 +26,12 @@ declare namespace Cloudflare {
     VAPID_PUBLIC_KEY?: string;
     /** Secret on the app worker (test pushes) and gov-sync (dispatcher). */
     VAPID_PRIVATE_KEY?: string;
+    /** Secret on the app worker (link route) and gov-sync (dispatcher). */
+    TELEGRAM_BOT_TOKEN?: string;
+    /** Verifies inbound webhook requests actually come from Telegram. */
+    TELEGRAM_WEBHOOK_SECRET?: string;
+    /** Bot username used to build the t.me deep link, e.g. "DRepTalkBot". */
+    TELEGRAM_BOT_USERNAME?: string;
     [key: string]: unknown;
   }
 }
