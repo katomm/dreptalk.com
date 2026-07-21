@@ -578,12 +578,12 @@ describe('reply notifications', () => {
 // ---------------------------------------------------------------------------
 
 describe('mentions in handlers', () => {
-  // DRep 'drep1abc' with slug 'alice-drep', linked to forum user 'user-alice'.
+  // DRep 'drep1abc' named Alice with slug 'alice-drep', linked to forum user 'user-alice'.
   async function seedMentionTarget() {
     await db()
       .prepare(
-        `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at, slug)
-         VALUES ('drep1abc', 'registered', 1, 0, 0, 'alice-drep')`,
+        `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at, slug, name)
+         VALUES ('drep1abc', 'registered', 1, 0, 0, 'alice-drep', 'Alice')`,
       )
       .run();
     await db()
@@ -626,6 +626,8 @@ describe('mentions in handlers', () => {
 
     const post = await db().prepare('SELECT body_html FROM posts WHERE id = ?').bind(postId).first<{ body_html: string }>();
     expect(post!.body_html).toContain('href="/dreps/alice-drep/"');
+    // The link text shows the display name, not the suffixed slug.
+    expect(post!.body_html).toContain('>@Alice</a>');
 
     // Exactly one row: the mention wins, no additional reply row for the same post.
     const rows = await getNotificationsPage(db(), 'user-alice', 10);

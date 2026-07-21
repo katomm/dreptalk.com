@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { renderMarkdown } from '@/lib/markdown.js';
+import { resolveBodyMentions } from '@/lib/forum/handlers.js';
 import { checkRate } from '@/lib/rate.js';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 
@@ -43,7 +44,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return jsonResponse({ ok: false, error: 'body too long' }, 400);
   }
 
-  const html = renderMarkdown(rawMd);
+  // Resolve @mentions so the preview matches the stored rendering (display
+  // name as link text). Skipped when the DB binding is absent; the preview
+  // then simply shows plain @slug text.
+  const db = env.DB as D1Database | undefined;
+  const { mentions } = db
+    ? await resolveBodyMentions(db, rawMd)
+    : { mentions: new Map<string, never>() };
+  const html = renderMarkdown(rawMd, { mentions });
 
   return jsonResponse({ html });
 };

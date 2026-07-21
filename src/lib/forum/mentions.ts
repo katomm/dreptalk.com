@@ -61,6 +61,8 @@ export interface ResolvedMention {
   slug: string;
   /** Internal profile path, e.g. /dreps/alice-drep/. */
   href: string;
+  /** Display name for the rendered link text; falls back to the slug. */
+  label: string;
   /** The forum user linked to this profile, or null when none has signed up. */
   userId: string | null;
 }
@@ -82,13 +84,13 @@ export async function resolveMentions(
   const ph = sqlPlaceholders(unique);
   const [dreps, pools] = await Promise.all([
     db
-      .prepare(`SELECT slug, drep_id FROM dreps WHERE slug IN (${ph})`)
+      .prepare(`SELECT slug, drep_id, name FROM dreps WHERE slug IN (${ph})`)
       .bind(...unique)
-      .all<{ slug: string; drep_id: string }>(),
+      .all<{ slug: string; drep_id: string; name: string | null }>(),
     db
-      .prepare(`SELECT slug, pool_id FROM pools WHERE slug IN (${ph})`)
+      .prepare(`SELECT slug, pool_id, name, ticker FROM pools WHERE slug IN (${ph})`)
       .bind(...unique)
-      .all<{ slug: string; pool_id: string }>(),
+      .all<{ slug: string; pool_id: string; name: string | null; ticker: string | null }>(),
   ]);
 
   const drepIds = dreps.results.map((r) => r.drep_id);
@@ -115,6 +117,7 @@ export async function resolveMentions(
     out.set(r.slug, {
       slug: r.slug,
       href: poolPath({ poolId: r.pool_id, slug: r.slug }),
+      label: r.name ?? r.ticker ?? r.slug,
       userId: userByPool.get(r.pool_id) ?? null,
     });
   }
@@ -122,6 +125,7 @@ export async function resolveMentions(
     out.set(r.slug, {
       slug: r.slug,
       href: drepPath({ drepId: r.drep_id, slug: r.slug }),
+      label: r.name ?? r.slug,
       userId: userByDrep.get(r.drep_id) ?? null,
     });
   }

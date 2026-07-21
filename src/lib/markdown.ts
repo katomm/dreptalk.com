@@ -30,14 +30,36 @@ import xssModule from 'xss';
 
 const { FilterXSS } = xssModule as unknown as typeof import('xss');
 
+/** Rendering info for one resolved mention slug. */
+export interface MentionLink {
+  /** Internal profile path, e.g. /dreps/alice-drep/. */
+  href: string;
+  /** Display name shown as the link text (rendered as @label). */
+  label: string;
+}
+
+// Minimal HTML entity escape for text interpolated into renderer output. The
+// mention label is an on-chain display name, i.e. untrusted: without this a
+// name containing markup could break out of the <a> element (the sanitizer
+// strips dangerous tags afterwards, but broken nesting would remain).
+function escapeHtml(s: string): string {
+  return s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 // @slug mentions. Syntax contract shared with extractMentionSlugs
 // (src/lib/forum/mentions.ts): '@' preceded by start / whitespace / '(' / '>',
 // slug = [a-z0-9][a-z0-9-]{1,63}. Only slugs present in the per-call map are
-// linkified; everything else falls through as plain text. Runs as a marked
-// inline extension, so code spans and fences are never touched. The extension
-// closes over the caller's map, so each renderMarkdown call builds its own
-// Marked instance: no shared mutable state between calls.
-function mentionExtension(mentionHrefs: ReadonlyMap<string, string>) {
+// linkified (shown as @display-name, linked to the profile); everything else
+// falls through as plain text. Runs as a marked inline extension, so code
+// spans and fences are never touched. The extension closes over the caller's
+// map, so each renderMarkdown call builds its own Marked instance: no shared
+// mutable state between calls.
+function mentionExtension(mentions: ReadonlyMap<string, MentionLink>) {
   return {
     name: 'mention',
     level: 'inline' as const,
@@ -51,7 +73,7 @@ function mentionExtension(mentionHrefs: ReadonlyMap<string, string>) {
       tokens: any[],
     ): { type: 'mention'; raw: string; slug: string } | undefined {
       const m = /^@([a-z0-9][a-z0-9-]{1,63})/.exec(src);
-      if (!m || !mentionHrefs.has(m[1])) return undefined;
+      if (!m || !mentions.has(m[1])) return undefined;
       // GFM's inline text tokenizer halts before '@' to attempt an email
       // autolink, so this tokenizer can be invoked at mid-word positions too
       // (e.g. 'foo@alice-drep'), not only at a genuine segment boundary. Restore
@@ -69,7 +91,11 @@ function mentionExtension(mentionHrefs: ReadonlyMap<string, string>) {
     },
     renderer(token: { slug: string }): string {
       // Sanitizer-safe output: <a href> with an internal path (allowed below).
-      return `<a href="${mentionHrefs.get(token.slug) ?? ''}">@${token.slug}</a>`;
+      // The link text shows the display name, escaped: on-chain names are
+      // untrusted input. The slug stays only in the href (and the source md).
+      const link = mentions.get(token.slug);
+      if (!link) return `@${token.slug}`;
+      return `<a href="${link.href}">@${escapeHtml(link.label)}</a>`;
     },
   };
 }
@@ -189,15 +215,15 @@ export function ensureLinkTarget(html: string): string {
  * Render a Markdown string to sanitized HTML safe for storage and display.
  *
  * @param md - Raw Markdown input from an untrusted user.
- * @param opts.mentionHrefs - Slug to internal profile href map. When given,
- *   @slug mentions matching a key are rendered as internal profile links;
- *   otherwise @slug stays plain text.
+ * @param opts.mentions - Slug to { href, label } map. When given, @slug
+ *   mentions matching a key render as internal profile links showing
+ *   @display-name; otherwise @slug stays plain text.
  * @returns Sanitized HTML string. Never contains executable content.
  */
-export function renderMarkdown(md: string, opts?: { mentionHrefs?: ReadonlyMap<string, string> }): string {
-  const mentionHrefs = opts?.mentionHrefs;
-  const marked = mentionHrefs?.size
-    ? new Marked({ extensions: [mentionExtension(mentionHrefs)] })
+export function renderMarkdown(md: string, opts?: { mentions?: ReadonlyMap<string, MentionLink> }): string {
+  const mentions = opts?.mentions;
+  const marked = mentions?.size
+    ? new Marked({ extensions: [mentionExtension(mentions)] })
     : plainMarked;
 
   // Step 1: parse Markdown to HTML.

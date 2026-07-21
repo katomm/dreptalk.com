@@ -1,5 +1,27 @@
 import { forwardRef, useImperativeHandle, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { applyMarkdown, type MarkdownAction } from '@/lib/forum/markdownToolbar.js';
+import { detectMentionQuery, filterCandidates, insertMention, type ActiveMention } from '@/lib/forum/mentionAutocomplete.js';
+import type { MentionCandidate } from '@/lib/db/mentionCandidates.js';
+
+// Fetched once per page; the candidate set is small and edge-cached.
+let candidatesPromise: Promise<MentionCandidate[]> | null = null;
+function loadCandidates(): Promise<MentionCandidate[]> {
+  candidatesPromise ??= fetch('/api/mention-candidates')
+    .then((res) => {
+      // An HTTP error (e.g. a 503 while the DB is briefly unavailable) throws
+      // into the catch below, so it is retried like a network failure instead
+      // of pinning an empty candidate list for the rest of the page session.
+      if (!res.ok) throw new Error(`mention candidates ${res.status}`);
+      return res.json() as Promise<{ candidates: MentionCandidate[] }>;
+    })
+    .then((data) => data.candidates)
+    .catch(() => {
+      // Allow a retry on the next '@' instead of caching a transient failure.
+      candidatesPromise = null;
+      return [];
+    });
+  return candidatesPromise;
+}
 
 // Toolbar buttons: label is what shows in the button, title is the tooltip.
 const TOOLBAR: { action: MarkdownAction; label: string; title: string }[] = [
@@ -52,6 +74,12 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const pendingSelRef = useRef<{ start: number; end: number } | null>(null);
   const bodyId = `${idPrefix}-body`;
 
+  // @mention autocomplete: candidates load lazily on the first '@', the panel
+  // sits below the textarea (not caret-anchored).
+  const [candidates, setCandidates] = useState<MentionCandidate[] | null>(null);
+  const [active, setActive] = useState<ActiveMention | null>(null);
+  const [highlight, setHighlight] = useState(0);
+
   useImperativeHandle(ref, () => ({
     focus() {
       setShowPreview(false);
@@ -80,6 +108,30 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     textareaRef.current.focus();
     textareaRef.current.setSelectionRange(sel.start, sel.end);
   }, [value]);
+
+  // Recomputes the active @mention from the caret position; called after any
+  // change to the textarea value or caret so the panel tracks typing and
+  // caret movement. Candidates are fetched lazily on the first '@'.
+  const syncActive = (el: HTMLTextAreaElement) => {
+    const next = detectMentionQuery(el.value, el.selectionStart);
+    if (next?.start !== active?.start || next?.query !== active?.query) setHighlight(0);
+    setActive(next);
+    if (next && candidates === null) void loadCandidates().then(setCandidates);
+  };
+
+  const suggestions = active && candidates ? filterCandidates(candidates, active.query) : [];
+  const panelOpen = active !== null && suggestions.length > 0;
+
+  // Replaces the active mention with the chosen slug and restores the caret
+  // afterward, reusing the same pendingSelRef mechanism the toolbar actions use.
+  const acceptSuggestion = (cand: MentionCandidate) => {
+    const el = textareaRef.current;
+    if (!el || !active) return;
+    const next = insertMention(value, active, el.selectionStart, cand.slug);
+    pendingSelRef.current = { start: next.caret, end: next.caret };
+    setActive(null);
+    onChange(next.text);
+  };
 
   const fetchPreview = useCallback(async (md: string) => {
     // Supersede any in-flight preview so an older, slower response cannot land
@@ -180,7 +232,38 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             ref={textareaRef}
             id={bodyId}
             value={value}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => {
+              onChange(e.target.value);
+              syncActive(e.target);
+            }}
+            onKeyDown={(e) => {
+              if (!panelOpen) return;
+              // An Enter that confirms an IME composition (e.g. picking a Japanese/Chinese
+              // candidate) must not also accept a mention suggestion.
+              if (e.nativeEvent.isComposing) return;
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setHighlight((h) => (h + 1) % suggestions.length);
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setHighlight((h) => (h - 1 + suggestions.length) % suggestions.length);
+              } else if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                acceptSuggestion(suggestions[highlight]);
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setActive(null);
+              }
+            }}
+            onKeyUp={(e) => {
+              // Escape/Enter/Tab already changed `active` directly in onKeyDown; the value
+              // and caret are unchanged, so an unguarded syncActive here would re-detect the
+              // same mention and immediately reopen the panel (or undo the just-made accept).
+              if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') return;
+              syncActive(e.currentTarget);
+            }}
+            onClick={(e) => syncActive(e.currentTarget)}
+            onBlur={() => setActive(null)}
             placeholder={placeholder}
             maxLength={maxLength}
             required={required}
@@ -188,6 +271,30 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             rows={minRows}
             style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg)', color: 'var(--fg)', fontSize: '0.9375rem', lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
           />
+          {active !== null && suggestions.length > 0 && (
+            <div
+              role="listbox"
+              aria-label="Mention suggestions"
+              style={{ margin: '0.25rem 0 0', padding: '0.25rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg)', maxHeight: '14rem', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }}
+            >
+              {suggestions.map((cand, i) => (
+                <button
+                  key={cand.slug}
+                  type="button"
+                  role="option"
+                  aria-selected={i === highlight}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => acceptSuggestion(cand)}
+                  onMouseEnter={() => setHighlight(i)}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', width: '100%', padding: '0.35rem 0.5rem', border: 'none', borderRadius: '0.25rem', background: i === highlight ? 'var(--surface)' : 'transparent', color: 'var(--fg)', cursor: 'pointer', textAlign: 'left', fontSize: '0.875rem' }}
+                >
+                  <span style={{ fontWeight: 600 }}>{cand.name}</span>
+                  <span style={{ color: 'var(--muted)', fontSize: '0.8125rem' }}>@{cand.slug}</span>
+                  <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: '0.6875rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{cand.kind === 'drep' ? 'DRep' : 'SPO'}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {showCounter && (
             <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: value.length > maxLength * 0.9 ? 'var(--accent)' : 'var(--muted)', textAlign: 'right' }}>
               {value.length} / {maxLength}
