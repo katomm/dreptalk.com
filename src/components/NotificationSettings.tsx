@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { fromBase64Url } from '@/lib/crypto/base64url.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
+import NotificationPrefsMatrix from './NotificationPrefsMatrix.tsx';
 
 export interface NotificationDevice {
   id: string;
@@ -19,12 +20,6 @@ export interface NotificationSettingsProps {
   prefs: Record<NotificationEventType, boolean>;
   vapidPublicKey: string;
 }
-
-const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string }> = {
-  reply: { label: 'Replies', hint: 'someone replies in a thread you posted in' },
-  mention: { label: 'Mentions', hint: 'someone mentions you in a post' },
-  governance: { label: 'Governance actions', hint: 'new actions and status changes' },
-};
 
 type ConnectPhase =
   | { status: 'idle' }
@@ -39,8 +34,6 @@ function pushSupported(): boolean {
 export default function NotificationSettings({ channels, prefs, vapidPublicKey }: NotificationSettingsProps) {
   const [devices, setDevices] = useState<NotificationDevice[]>(channels);
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
-  const [prefState, setPrefState] = useState<Record<NotificationEventType, boolean>>(prefs);
-  const [prefError, setPrefError] = useState<string | null>(null);
   // Per-device test-push state, keyed by channel id.
   const [testState, setTestState] = useState<
     Record<string, { status: 'sending' } | { status: 'scheduled'; delaySeconds: number } | { status: 'error'; message: string }>
@@ -190,26 +183,6 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
     }
   }
 
-  async function handlePrefToggle(eventType: NotificationEventType, enabled: boolean) {
-    setPrefError(null);
-    const prevPrefs = prefState;
-    setPrefState((prev) => ({ ...prev, [eventType]: enabled }));
-    try {
-      const res = await fetchWithTimeout('/api/notifications/prefs', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ channel: 'webpush', eventType, enabled }),
-      });
-      if (!res.ok) {
-        setPrefState(prevPrefs);
-        setPrefError('Could not save that setting. Please try again.');
-      }
-    } catch {
-      setPrefState(prevPrefs);
-      setPrefError('Could not save that setting. Please try again.');
-    }
-  }
-
   const connecting = phase.status === 'connecting';
 
   return (
@@ -294,30 +267,7 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         </div>
       )}
 
-      {devices.length > 0 && (
-        <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <h3 style={{ margin: 0, fontSize: '0.9375rem' }}>Notify me about</h3>
-          {(Object.keys(EVENT_LABELS) as NotificationEventType[]).map((eventType) => (
-            <label
-              key={eventType}
-              style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}
-            >
-              <input
-                type="checkbox"
-                checked={prefState[eventType]}
-                onChange={(e) => void handlePrefToggle(eventType, e.target.checked)}
-              />
-              <span>
-                {EVENT_LABELS[eventType].label}{' '}
-                <span style={{ color: 'var(--muted)' }}>({EVENT_LABELS[eventType].hint})</span>
-              </span>
-            </label>
-          ))}
-          {prefError && (
-            <p style={{ margin: 0, color: 'var(--danger)', fontSize: '0.8125rem' }}>{prefError}</p>
-          )}
-        </div>
-      )}
+      {devices.length > 0 && <NotificationPrefsMatrix channel="webpush" prefs={prefs} />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import NotificationSettings from '@/components/NotificationSettings.tsx';
+import TelegramSettings from '@/components/TelegramSettings.tsx';
 import NotificationsInbox from '@/components/NotificationsInbox.tsx';
 import { runtimeEnv } from '@/lib/api/response';
 import { getNotificationsPage, getNotifSeenAt } from '@/lib/db/notifications';
@@ -25,6 +26,7 @@ if (!user) {
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 const vapidPublicKey = env.VAPID_PUBLIC_KEY ?? '';
+const telegramBotUsername = (env.TELEGRAM_BOT_USERNAME as string | undefined) ?? '';
 
 // One verb per personal kind; a future 'message' or 'delegation' kind only
 // needs a new entry here, not another template branch.
@@ -35,21 +37,32 @@ const PERSONAL_VERBS: Record<string, string> = {
 
 let items: InboxItem[] = [];
 let notificationChannels: { id: string; createdAt: number }[] = [];
-let notificationPrefs = { reply: true, mention: true, governance: true };
+let pushChannels: { id: string; createdAt: number }[] = [];
+let telegramChannels: { id: string; createdAt: number }[] = [];
+let pushPrefs = { reply: true, mention: true, governance: true };
+let telegramPrefs = { reply: true, mention: true, governance: true };
 if (db) {
   // Read the cursor BEFORE anything else so unread highlighting reflects the
   // state the user is coming from, not the state after this page marks it seen.
-  const [seenAt, personal, gov, channelRows, prefs] = await Promise.all([
+  const [seenAt, personal, gov, channelRows, pPrefs, tPrefs] = await Promise.all([
     getNotifSeenAt(db, user.id),
     getNotificationsPage(db, user.id, 30),
     loadActivityFeed(db, { filter: 'governance', limit: 30 }),
     listChannels(db, user.id),
     getPrefs(db, user.id, 'webpush'),
+    getPrefs(db, user.id, 'telegram'),
   ]);
   // Only id and date reach the page; the stored subscription (endpoint, keys)
   // stays server-side.
   notificationChannels = channelRows.map((row) => ({ id: row.id, createdAt: row.created_at }));
-  notificationPrefs = prefs;
+  pushChannels = channelRows
+    .filter((row) => row.channel === 'webpush')
+    .map((row) => ({ id: row.id, createdAt: row.created_at }));
+  telegramChannels = channelRows
+    .filter((row) => row.channel === 'telegram')
+    .map((row) => ({ id: row.id, createdAt: row.created_at }));
+  pushPrefs = pPrefs;
+  telegramPrefs = tPrefs;
 
   const topicIds = [...new Set(personal.map((n) => n.topic_id).filter((id): id is string => !!id))];
   const [topicsById, identities] = await Promise.all([
@@ -124,22 +137,35 @@ const unreadCount = items.filter((r) => r.unread).length;
 
   <NotificationsInbox items={items} now={now} client:load />
 
-  {/* Push settings live with the inbox they configure; collapsed so the page
-      stays a reading surface. Open by default only while nothing is connected
-      AND push is available, nudging first-time setup. */}
+  {/* Notification settings live with the inbox they configure; collapsed so
+      the page stays a reading surface. Open by default only while nothing is
+      connected AND at least one channel is available, nudging first-time
+      setup. */}
   <details
     id="notification-settings"
     class="notif-settings"
-    open={notificationChannels.length === 0 && vapidPublicKey !== ''}
+    open={notificationChannels.length === 0 && (vapidPublicKey !== '' || telegramBotUsername !== '')}
   >
-    <summary>Push notification settings</summary>
+    <summary>Notification settings</summary>
     <div class="notif-settings__body">
+      <h3 class="notif-settings__h">Push</h3>
       <NotificationSettings
-        channels={notificationChannels}
-        prefs={notificationPrefs}
+        channels={pushChannels}
+        prefs={pushPrefs}
         vapidPublicKey={vapidPublicKey}
         client:load
       />
+      {telegramBotUsername !== '' && (
+        <>
+          <h3 class="notif-settings__h">Telegram</h3>
+          <TelegramSettings
+            channels={telegramChannels}
+            prefs={telegramPrefs}
+            botUsername={telegramBotUsername}
+            client:load
+          />
+        </>
+      )}
     </div>
   </details>
 
@@ -210,6 +236,13 @@ const unreadCount = items.filter((r) => r.unread).length;
   }
   .notif-settings__body {
     padding: 0.25rem 0.9rem 0.9rem;
+  }
+  .notif-settings__h {
+    margin: 0.75rem 0 0.5rem;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
   }
   .notif-foot {
     margin: 1rem 0 0;
