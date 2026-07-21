@@ -74,12 +74,9 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         return;
       }
 
-      // Copy into a fresh ArrayBuffer-backed view: PushManager's
-      // applicationServerKey type rejects the SharedArrayBuffer-compatible
-      // Uint8Array<ArrayBufferLike> that fromBase64Url returns.
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: new Uint8Array(fromBase64Url(vapidPublicKey)),
+        applicationServerKey: fromBase64Url(vapidPublicKey),
       });
       const subJson = sub.toJSON();
 

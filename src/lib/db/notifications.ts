@@ -80,6 +80,23 @@ export async function getNotificationsPage(
 }
 
 /**
+ * Shared SQL term: distinct live governance threads with activity newer than
+ * the given cursor expression. The single definition of what counts as a
+ * governance notification (event types, live-topic join, per-thread collapse),
+ * used by the header badge (getUnreadCount, seen cursor) and the push
+ * dispatcher (getPendingCounts, delivery cursor) so the two can never
+ * silently diverge. cursorExpr must be a bind placeholder or a subquery over
+ * bound values, never user data.
+ */
+export function govThreadsSinceSql(cursorExpr: string): string {
+  return `(SELECT COUNT(DISTINCT a.topic_id) FROM activity a
+            JOIN topics t ON t.id = a.topic_id
+            WHERE a.type IN ('gov_created', 'gov_status')
+              AND t.deleted = 0
+              AND a.created_at > ${cursorExpr})`;
+}
+
+/**
  * Unread badge count: unread personal rows plus distinct live governance
  * threads with an unseen event, newer than the user's notif_seen_at cursor.
  * The gov term counts DISTINCT topic_id (not raw event rows) and joins
@@ -101,11 +118,7 @@ export async function getUnreadCount(db: D1Database | undefined, userId: string)
       `SELECT
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND read_at IS NULL)
          +
-         (SELECT COUNT(DISTINCT a.topic_id) FROM activity a
-            JOIN topics t ON t.id = a.topic_id
-            WHERE a.type IN ('gov_created', 'gov_status')
-              AND t.deleted = 0
-              AND a.created_at > (SELECT notif_seen_at FROM users WHERE id = ?1)) AS n`,
+         ${govThreadsSinceSql('(SELECT notif_seen_at FROM users WHERE id = ?1)')} AS n`,
     )
     .bind(userId)
     .first<{ n: number }>();

@@ -3,6 +3,8 @@
 // (migration 0054). All queries use .prepare().bind() exclusively; never
 // string-concatenated SQL.
 
+import { govThreadsSinceSql } from './notifications.js';
+
 export const NOTIFICATION_EVENT_TYPES = ['reply', 'mention', 'governance'] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 export type NotificationChannelKind = 'webpush';
@@ -131,11 +133,11 @@ export interface PendingCounts {
 /**
  * Counts undelivered work for one channel row: personal reply/mention
  * notifications and distinct live governance threads with activity, all
- * newer than the row's delivered_until cursor. The gov term mirrors
- * getUnreadCount's DISTINCT topic_id collapse and live-topic join (see
- * src/lib/db/notifications.ts), but keys off the channel's delivery cursor
- * instead of the user's notif_seen_at. Each term is zeroed when its pref
- * is off, so a disabled event type never contributes to the total.
+ * newer than the row's delivered_until cursor. The gov term is the shared
+ * govThreadsSinceSql fragment (same definition the header badge uses), keyed
+ * off the channel's delivery cursor instead of the user's notif_seen_at.
+ * Each term is zeroed when its pref is off, so a disabled event type never
+ * contributes to the total.
  */
 export async function getPendingCounts(
   db: D1Database,
@@ -147,11 +149,7 @@ export async function getPendingCounts(
       `SELECT
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'reply' AND created_at > ?2) AS replies,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'mention' AND created_at > ?2) AS mentions,
-         (SELECT COUNT(DISTINCT a.topic_id) FROM activity a
-            JOIN topics t ON t.id = a.topic_id
-            WHERE a.type IN ('gov_created', 'gov_status')
-              AND t.deleted = 0
-              AND a.created_at > ?2) AS governance`,
+         ${govThreadsSinceSql('?2')} AS governance`,
     )
     .bind(row.user_id, row.delivered_until)
     .first<{ replies: number; mentions: number; governance: number }>();

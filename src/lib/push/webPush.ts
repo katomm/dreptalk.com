@@ -90,10 +90,8 @@ export async function encryptPayload(
   payload: string | Uint8Array,
   opts: EncryptOptions = {},
 ): Promise<Uint8Array<ArrayBuffer>> {
-  // Copy into fresh ArrayBuffer-backed views: WebCrypto's BufferSource type
-  // rejects the SharedArrayBuffer-compatible Uint8Array<ArrayBufferLike>.
-  const uaPublicRaw = new Uint8Array(fromBase64Url(p256dh));
-  const authSecret = new Uint8Array(fromBase64Url(auth));
+  const uaPublicRaw = fromBase64Url(p256dh);
+  const authSecret = fromBase64Url(auth);
   const recordSize = opts.recordSize ?? DEFAULT_RECORD_SIZE;
   const salt = new Uint8Array(opts.salt ?? crypto.getRandomValues(new Uint8Array(16)));
 

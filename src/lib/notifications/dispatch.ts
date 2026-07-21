@@ -63,10 +63,23 @@ export async function dispatchWebPush(
   let sent = 0;
   let pruned = 0;
   let skipped = 0;
+  // Prefs are per (user, channel kind), not per device: cache them for the
+  // duration of one pass so a user with several devices costs one query.
+  const prefsByUser = new Map<string, Awaited<ReturnType<typeof getPrefs>>>();
 
   for (const row of rows) {
     try {
-      const prefs = await getPrefs(db, row.user_id, row.channel);
+      let prefs = prefsByUser.get(row.user_id);
+      if (!prefs) {
+        prefs = await getPrefs(db, row.user_id, row.channel);
+        prefsByUser.set(row.user_id, prefs);
+      }
+      // A fully muted channel can never have pending work; skip the counts
+      // query entirely.
+      if (!prefs.reply && !prefs.mention && !prefs.governance) {
+        skipped++;
+        continue;
+      }
       const counts = await getPendingCounts(db, row, prefs);
       if (counts.total === 0) {
         skipped++;
