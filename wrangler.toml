@@ -30,7 +30,7 @@ binding = "ASSETS"
 # settings page and handed to PushManager.subscribe(). Empty disables push in
 # the settings UI. The real key pair is committed here at rollout; the matching
 # private key is a secret (VAPID_PRIVATE_KEY), never stored in this file.
-VAPID_PUBLIC_KEY = ""
+VAPID_PUBLIC_KEY = "BCtOGMEGeu1nxMyFz-fDnN_IenXPWCuqrVWPCYZXezT9zaLW7uh4xvCuTuB9GnhXejRR-m0l3lqFThX9v-dRQWU"
 
 # D1 database for application data.
 [[d1_databases]]
