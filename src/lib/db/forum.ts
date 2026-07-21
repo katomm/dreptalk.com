@@ -434,6 +434,26 @@ export async function getOpeningPostBody(db: D1Database, topicId: string): Promi
   return row?.body_html ?? null;
 }
 
+/**
+ * Distinct author ids participating in a thread: the topic author plus every
+ * visible poster. Crossposted vote-rationale posts do not make their author a
+ * participant (a frozen rationale is not a contribution to the discussion).
+ * Used by the reply-notification fan-out.
+ */
+export async function getThreadParticipantIds(db: D1Database, topicId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT author_id AS id FROM posts
+         WHERE topic_id = ?1 AND deleted = 0 AND hidden = 0
+           AND (source IS NULL OR source != 'vote_rationale')
+       UNION
+       SELECT author_id AS id FROM topics WHERE id = ?1`,
+    )
+    .bind(topicId)
+    .all<{ id: string }>();
+  return results.map((r) => r.id);
+}
+
 /** A post by one author, with its topic's title and slug for linking on a profile. */
 export interface AuthorPost {
   id: string;

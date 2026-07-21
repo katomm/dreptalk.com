@@ -148,9 +148,11 @@ export type AuthRole = 'drep' | 'proposer' | 'spo' | 'cc';
  * id = drepId ?? stakeAddr ?? poolId ?? ccCred (at least one must be provided);
  * each on-chain credential is its own account in v1 (no cross-credential merge).
  * On INSERT: sets all known fields, created_at and last_verified_at = now.
+ *   notif_seen_at also starts at now, so a new account's gov backlog is
+ *   marked seen and the badge only reflects activity after this signup.
  * On CONFLICT: updates last_verified_at, ORs in new role flags,
  *   sets the credential strings if not already set (COALESCE).
- *   created_at is never overwritten.
+ *   created_at and notif_seen_at are never overwritten.
  *
  * Returns the resulting row via getUserById.
  */
@@ -182,8 +184,8 @@ export async function upsertUserFromAuth(
   await db
     .prepare(
       `INSERT INTO users
-         (id, drep_id, stake_addr, pool_id, cc_cred, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?)
+         (id, drep_id, stake_addr, pool_id, cc_cred, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at, notif_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          last_verified_at = excluded.last_verified_at,
          is_drep          = is_drep | excluded.is_drep,
@@ -195,7 +197,7 @@ export async function upsertUserFromAuth(
          pool_id          = COALESCE(pool_id, excluded.pool_id),
          cc_cred          = COALESCE(cc_cred, excluded.cc_cred)`,
     )
-    .bind(id, drepId ?? null, stakeAddr ?? null, poolId ?? null, ccCred ?? null, isDrep, isProposer, isSpo, isCc, now, now)
+    .bind(id, drepId ?? null, stakeAddr ?? null, poolId ?? null, ccCred ?? null, isDrep, isProposer, isSpo, isCc, now, now, now)
     .run();
 
   const user = await getUserById(db, id);
