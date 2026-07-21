@@ -73,11 +73,6 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   const [candidates, setCandidates] = useState<MentionCandidate[] | null>(null);
   const [active, setActive] = useState<ActiveMention | null>(null);
   const [highlight, setHighlight] = useState(0);
-  // Escape/Enter/Tab change `active` directly; the keyup that follows the same
-  // physical keypress must not immediately re-run syncActive against the
-  // not-yet-rerendered textarea and undo that (e.g. reopen the panel right
-  // after Escape closed it).
-  const suppressKeyUpRef = useRef(false);
 
   useImperativeHandle(ref, () => ({
     focus() {
@@ -237,6 +232,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             }}
             onKeyDown={(e) => {
               if (!panelOpen) return;
+              // An Enter that confirms an IME composition (e.g. picking a Japanese/Chinese
+              // candidate) must not also accept a mention suggestion.
+              if (e.nativeEvent.isComposing) return;
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 setHighlight((h) => (h + 1) % suggestions.length);
@@ -245,19 +243,17 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
                 setHighlight((h) => (h - 1 + suggestions.length) % suggestions.length);
               } else if (e.key === 'Enter' || e.key === 'Tab') {
                 e.preventDefault();
-                suppressKeyUpRef.current = true;
                 acceptSuggestion(suggestions[highlight]);
               } else if (e.key === 'Escape') {
                 e.preventDefault();
-                suppressKeyUpRef.current = true;
                 setActive(null);
               }
             }}
             onKeyUp={(e) => {
-              if (suppressKeyUpRef.current) {
-                suppressKeyUpRef.current = false;
-                return;
-              }
+              // Escape/Enter/Tab already changed `active` directly in onKeyDown; the value
+              // and caret are unchanged, so an unguarded syncActive here would re-detect the
+              // same mention and immediately reopen the panel (or undo the just-made accept).
+              if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') return;
               syncActive(e.currentTarget);
             }}
             onClick={(e) => syncActive(e.currentTarget)}
