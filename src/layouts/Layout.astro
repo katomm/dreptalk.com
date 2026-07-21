@@ -514,6 +514,18 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
           display: block;
         }
       }
+
+      /* Very narrow screens: the action row (search, theme, bell, burger)
+         must fit beside the brand; tighter gaps, the search label is hidden
+         via global.css. */
+      @media (max-width: 480px) {
+        .header-actions {
+          gap: 0.35rem;
+        }
+        .site-header__inner {
+          gap: 0.5rem;
+        }
+      }
     </style>
   </body>
 </html>

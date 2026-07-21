@@ -4,7 +4,7 @@
 // connected) an event-type matrix for the webpush channel. Visible to every
 // signed-in writer; the page passes an empty vapidPublicKey when push is not
 // configured on this deployment yet.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { fromBase64Url } from '@/lib/crypto/base64url.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
@@ -45,6 +45,24 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
   const [testState, setTestState] = useState<
     Record<string, { status: 'sending' } | { status: 'scheduled'; delaySeconds: number } | { status: 'error'; message: string }>
   >({});
+
+  // The island lives inside the collapsed <details id="notification-settings">
+  // on /notifications. Anchor links alone only scroll there; this opens the
+  // section too, on every click of such a link and on a deep link with the
+  // hash already set.
+  useEffect(() => {
+    const openSection = () => {
+      const details = document.getElementById('notification-settings');
+      if (details instanceof HTMLDetailsElement) details.open = true;
+    };
+    if (window.location.hash === '#notification-settings') openSection();
+    const onClick = (e: MouseEvent) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (target?.closest('a[href="#notification-settings"]')) openSection();
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
 
   if (!vapidPublicKey) {
     return (
@@ -123,7 +141,9 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         return;
       }
       const { id } = (await res.json()) as { id: string };
-      setDevices((prev) => [...prev, { id, createdAt: Date.now() }]);
+      // A repeat enable on an already-connected device returns the existing
+      // row's id (server dedupes by endpoint); do not append a duplicate row.
+      setDevices((prev) => (prev.some((d) => d.id === id) ? prev : [...prev, { id, createdAt: Date.now() }]));
       setPhase({ status: 'idle' });
     } catch {
       setPhase({ status: 'error', message: 'Could not enable push notifications. Please try again.' });
