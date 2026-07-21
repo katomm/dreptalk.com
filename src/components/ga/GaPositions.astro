@@ -42,6 +42,13 @@ const activeVoters = role === 'spo' ? spoVoters : voters;
 // Action-wide rationale count (the map covers the whole action, not just this page).
 const withRationale = rationales.size;
 
+// Action-wide count of voters who changed their vote, per role (the history map
+// covers the whole action too; each voter's entries all carry the same role).
+const changedByRole = (r: 'DRep' | 'SPO') =>
+  [...voteHistory.values()].filter((list) => list[0]?.voter_role === r).length;
+const drepChanged = changedByRole('DRep');
+const spoChanged = changedByRole('SPO');
+
 // Late votes among the rows shown on this page (cast after ratification).
 const lateOnPage = activeVoters.filter((v) => notCounted.has(v.voter_id)).length;
 
@@ -83,6 +90,9 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
       {withRationale > 0 && (
         <span class="ga-positions__count-rationale">{` · ${withRationale} with a rationale`}</span>
       )}
+      {drepChanged > 0 && (
+        <span class="ga-positions__count-changed">{` · ${drepChanged} changed their vote`}</span>
+      )}
     </p>
   )}
 
@@ -91,6 +101,9 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
       {spoTotal === 0
         ? 'No SPO votes recorded for this action.'
         : `${spoTotal} SPO${spoTotal === 1 ? '' : 's'} voted`}
+      {spoChanged > 0 && (
+        <span class="ga-positions__count-changed">{` · ${spoChanged} changed their vote`}</span>
+      )}
     </p>
   )}
 
@@ -193,6 +206,10 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
 
   .ga-positions__count-rationale {
     color: var(--accent);
+  }
+
+  .ga-positions__count-changed {
+    color: var(--muted);
   }
 
   .ga-positions__hint {
