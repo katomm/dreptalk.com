@@ -92,6 +92,9 @@ describe('addChannel + listChannels + removeChannel', () => {
     const rows = await listChannels(db(), 'alice');
     expect(rows).toHaveLength(1);
     expect(rows[0].target).toBe('sub-v2');
+    // The re-subscribe must not reset the delivery cursor: only the target
+    // may change on conflict.
+    expect(rows[0].delivered_until).toBe(1);
   });
 
   it('same user, different endpoints, creates two rows', async () => {
