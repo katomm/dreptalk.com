@@ -6,8 +6,10 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import NotificationSettings from '@/components/NotificationSettings.tsx';
 import { runtimeEnv } from '@/lib/api/response';
 import { getNotificationsPage, getNotifSeenAt } from '@/lib/db/notifications';
+import { listChannels, getPrefs } from '@/lib/db/notificationChannels';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { getTopicsByIds } from '@/lib/db/forum.js';
 import { loadAuthorIdentities, type AuthorDescriptor } from '@/lib/forum/author.js';
@@ -18,7 +20,9 @@ const user = Astro.locals.user;
 if (!user) {
   return Astro.redirect('/login/');
 }
-const db = runtimeEnv(Astro.locals).DB as D1Database | undefined;
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+const vapidPublicKey = env.VAPID_PUBLIC_KEY ?? '';
 
 interface InboxRow {
   kind: 'reply' | 'mention' | 'gov_created' | 'gov_status';
@@ -40,14 +44,22 @@ const PERSONAL_VERBS: Record<string, string> = {
 };
 
 let rows: InboxRow[] = [];
+let notificationChannels: { id: string; createdAt: number }[] = [];
+let notificationPrefs = { reply: true, mention: true, governance: true };
 if (db) {
   // Read the cursor BEFORE anything else so unread highlighting reflects the
   // state the user is coming from, not the state after this page marks it seen.
-  const [seenAt, personal, gov] = await Promise.all([
+  const [seenAt, personal, gov, channelRows, prefs] = await Promise.all([
     getNotifSeenAt(db, user.id),
     getNotificationsPage(db, user.id, 30),
     loadActivityFeed(db, { filter: 'governance', limit: 30 }),
+    listChannels(db, user.id),
+    getPrefs(db, user.id, 'webpush'),
   ]);
+  // Only id and date reach the page; the stored subscription (endpoint, keys)
+  // stays server-side.
+  notificationChannels = channelRows.map((row) => ({ id: row.id, createdAt: row.created_at }));
+  notificationPrefs = prefs;
 
   const topicIds = [...new Set(personal.map((n) => n.topic_id).filter((id): id is string => !!id))];
   const [topicsById, identities] = await Promise.all([
@@ -101,6 +113,21 @@ const unreadCount = rows.filter((r) => r.unread).length;
     )}
   </div>
 
+  {/* Push settings live with the inbox they configure; collapsed so the page
+      stays a reading surface. Open by default only while nothing is connected
+      AND push is available, nudging first-time setup. */}
+  <details class="notif-settings" open={notificationChannels.length === 0 && vapidPublicKey !== ''}>
+    <summary>Push notifications</summary>
+    <div class="notif-settings__body">
+      <NotificationSettings
+        channels={notificationChannels}
+        prefs={notificationPrefs}
+        vapidPublicKey={vapidPublicKey}
+        client:load
+      />
+    </div>
+  </details>
+
   {rows.length === 0 ? (
     <p class="notif-empty">Nothing here yet. Replies, mentions and governance events will show up in this inbox.</p>
   ) : (
@@ -148,6 +175,22 @@ const unreadCount = rows.filter((r) => r.unread).length;
   .notif-empty {
     color: var(--muted);
     font-size: 0.9375rem;
+  }
+  .notif-settings {
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+  }
+  .notif-settings summary {
+    padding: 0.65rem 0.9rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--fg);
+  }
+  .notif-settings__body {
+    padding: 0.25rem 0.9rem 0.9rem;
   }
   .notif-list {
     list-style: none;

@@ -7,13 +7,11 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import DrepSettings from '@/components/DrepSettings.tsx';
-import NotificationSettings from '@/components/NotificationSettings.tsx';
-import { roleLabels, isWriter } from '@/lib/auth/roles';
+import { roleLabels } from '@/lib/auth/roles';
 import { truncateId } from '@/lib/forum/view';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { getSelfDrepId } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
-import { listChannels, getPrefs, NOTIFICATION_EVENT_TYPES, type NotificationEventType } from '@/lib/db/notificationChannels';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -23,29 +21,11 @@ if (!user) {
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 const network = currentNetwork().network;
-const vapidPublicKey = env.VAPID_PUBLIC_KEY ?? '';
 
-// Push notification settings, shown to every signed-in writer (the only users
-// who can receive replies or mentions).
-const showNotifications = isWriter(user.roles);
-
-// The DRep chain (id then row) is the only sequential dependency; the
-// notification reads are independent, so the three groups run concurrently.
-const [{ drepId, drep }, channelRows, notificationPrefs] = await Promise.all([
-  (async () => {
-    const id = db && user.roles.includes('drep') ? await getSelfDrepId(db, user) : null;
-    return { drepId: id, drep: id && db ? await getDrepById(db, id) : null };
-  })(),
-  db && showNotifications ? listChannels(db, user.id) : Promise.resolve([]),
-  db && showNotifications
-    ? getPrefs(db, user.id, 'webpush')
-    // Same default-on policy getPrefs encodes; derived from the vocabulary so
-    // a new event type cannot silently fall out of sync here.
-    : Promise.resolve(
-        Object.fromEntries(NOTIFICATION_EVENT_TYPES.map((t) => [t, true])) as Record<NotificationEventType, boolean>,
-      ),
-]);
-const notificationChannels = channelRows.map((row) => ({ id: row.id, createdAt: row.created_at }));
+// Notification settings live on /notifications (next to the inbox they
+// configure), not here.
+const drepId = db && user.roles.includes('drep') ? await getSelfDrepId(db, user) : null;
+const drep = drepId && db ? await getDrepById(db, drepId) : null;
 
 // Prefill: synced on-chain metadata when available, empty form otherwise
 // (covers DReps without any metadata yet).
@@ -77,18 +57,6 @@ const initialDoNotList = drep?.doNotList ?? false;
       ? 'Manage your DRep profile metadata stored on-chain (CIP-119).'
       : 'Manage your DRepTalk account.'}
   </p>
-
-  {showNotifications && (
-    <section style="margin-top:1.75rem;">
-      <h2 style="margin:0 0 0.75rem;font-size:1.0625rem;">Notifications</h2>
-      <NotificationSettings
-        channels={notificationChannels}
-        prefs={notificationPrefs}
-        vapidPublicKey={vapidPublicKey}
-        client:load
-      />
-    </section>
-  )}
 
   {drepId ? (
     <section style="margin-top:1.75rem;">
