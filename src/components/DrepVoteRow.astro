@@ -30,7 +30,10 @@ const label = row.title ?? row.ga_id;
 const rationaleHtml = row.rationale_html || null;
 const expandable = Boolean(rationaleHtml) || earlier.length > 0;
 // Chip names the most recently superseded vote; the expansion carries the rest.
+// A re-vote that kept the same choice (new rationale) says "revoted", since
+// "changed from Yes" on a Yes row would read wrong.
 const changedFrom = earlier.length > 0 ? earlier[0].vote : null;
+const changedLabel = changedFrom == null ? null : changedFrom === row.vote ? 'revoted' : `changed from ${changedFrom}`;
 
 // Link the action to its DRepTalk discussion thread (the on-site page for a
 // governance action). Every synced action has one; on the rare row without a
@@ -70,7 +73,7 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
           ? <a class="vhist__title" href={href}>{label}</a>
           : <span class="vhist__title">{label}</span>}
         {row.decided_epoch != null && <span class="vhist__epoch">Epoch {row.decided_epoch}</span>}
-        {changedFrom && <span class="vhist__changed" title={`Earlier vote: ${changedFrom}`}>changed from {changedFrom}</span>}
+        {changedLabel && <span class="vhist__changed" title={`Earlier vote: ${changedFrom}`}>{changedLabel}</span>}
         {expandable && (
           <span class="vhist__rationale-cta">
             <span>{rationaleHtml ? 'Rationale' : 'History'}</span>

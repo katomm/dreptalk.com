@@ -138,7 +138,9 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
             </div>
             <VoteBadge vote={v.vote} compact />
             {history.length > 0 && (
-              <span class="ga-positions__tag" title={`Earlier vote: ${history[0].vote}`}>Changed</span>
+              <span class="ga-positions__tag" title={`Earlier vote: ${history[0].vote}`}>
+                {history[0].vote === v.vote ? 'Revoted' : 'Changed'}
+              </span>
             )}
             <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
           </>
