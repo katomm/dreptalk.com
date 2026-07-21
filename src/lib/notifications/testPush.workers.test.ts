@@ -3,9 +3,10 @@
 // pruning. The push transport and the delay are injected.
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
-import { sendTestPush, TEST_PUSH_DELAY_MS } from './testPush.js';
+import { sendTestPush, TEST_PUSH_DELAY_MS, sendTestTelegram } from './testPush.js';
 import { addChannel, listChannels } from '../db/notificationChannels.js';
 import type { VapidConfig } from '../push/webPush.js';
+import type { TelegramSendResult } from '../push/telegram.js';
 
 const db = () => env.DB;
 
@@ -66,5 +67,38 @@ describe('sendTestPush', () => {
 
     expect(outcome).toBe('failed');
     expect(await listChannels(db(), 'alice')).toHaveLength(1);
+  });
+});
+
+function fakeTgSend(result: TelegramSendResult) {
+  const calls: Array<{ chatId: string; text: string }> = [];
+  const send: typeof import('../push/telegram.js').sendTelegramMessage = async (_token, chatId, text) => {
+    calls.push({ chatId, text });
+    return result;
+  };
+  return { send, calls };
+}
+
+describe('sendTestTelegram', () => {
+  it('sends immediately to an owned telegram channel', async () => {
+    const id = await addChannel(db(), { userId: 'tt-1', channel: 'telegram', target: '900', endpoint: 'telegram:900', now: 1 });
+    const { send, calls } = fakeTgSend({ ok: true, status: 200, description: '' });
+    const outcome = await sendTestTelegram(db(), 'TOKEN', { userId: 'tt-1', channelId: id }, { send });
+    expect(outcome).toBe('sent');
+    expect(calls[0].chatId).toBe('900');
+    expect(calls[0].text).toContain('test');
+  });
+
+  it("rejects a channel the user does not own or that is not telegram", async () => {
+    const otherId = await addChannel(db(), { userId: 'tt-2', channel: 'telegram', target: '901', endpoint: 'telegram:901', now: 1 });
+    const { send } = fakeTgSend({ ok: true, status: 200, description: '' });
+    expect(await sendTestTelegram(db(), 'TOKEN', { userId: 'someone-else', channelId: otherId }, { send })).toBe('not_found');
+  });
+
+  it('prunes a dead chat', async () => {
+    const id = await addChannel(db(), { userId: 'tt-3', channel: 'telegram', target: '902', endpoint: 'telegram:902', now: 1 });
+    const { send } = fakeTgSend({ ok: false, status: 403, description: 'Forbidden: bot was blocked by the user' });
+    expect(await sendTestTelegram(db(), 'TOKEN', { userId: 'tt-3', channelId: id }, { send })).toBe('pruned');
+    expect(await listChannels(db(), 'tt-3')).toHaveLength(0);
   });
 });
