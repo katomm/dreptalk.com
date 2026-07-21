@@ -54,8 +54,11 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
   if (!supported) {
     return (
       <p style={{ margin: 0, color: 'var(--muted)', maxWidth: '32rem' }}>
-        Push is not supported in this browser. On iPhone and iPad it only works after
-        adding DRepTalk to the home screen.
+        Push is not supported in this browser. On iPhone and iPad it only works after{' '}
+        <a href="/help/add-to-home-screen/" style={{ color: 'var(--accent)' }}>
+          adding DRepTalk to the home screen
+        </a>
+        .
       </p>
     );
   }
@@ -149,7 +152,11 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
           {connecting ? 'Connecting...' : 'Enable push notifications on this device'}
         </button>
         <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          On iPhone and iPad, push only works after adding DRepTalk to the home screen.
+          On iPhone and iPad, push only works after{' '}
+          <a href="/help/add-to-home-screen/" style={{ color: 'var(--accent)' }}>
+            adding DRepTalk to the home screen
+          </a>
+          .
         </p>
       </div>
 
