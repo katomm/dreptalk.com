@@ -1,0 +1,15 @@
+{
+  "name": "DRepTalk",
+  "short_name": "DRepTalk",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0a12",
+  "theme_color": "#0c0a12",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ]
+}
