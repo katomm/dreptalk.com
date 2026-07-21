@@ -11,6 +11,7 @@ self.addEventListener('push', (event) => {
     body: data.body,
     icon: '/favicon.png',
     data: { url: data.url },
+    tag: 'dreptalk', // successive summaries replace the previous one instead of piling up
   }));
 });
 self.addEventListener('notificationclick', (event) => {

@@ -14,27 +14,33 @@ export interface NotificationChannelRow {
   user_id: string;
   channel: string;
   target: string;
+  endpoint: string;
   created_at: number;
   delivered_until: number;
 }
 
 /**
- * Connects a new channel and seeds all-enabled prefs rows for the channel
- * kind (INSERT OR IGNORE, so an already-customized pref for another channel
- * row of the same kind is left untouched). Returns the new channel's id.
+ * Connects a channel and seeds all-enabled prefs rows for the channel kind
+ * (INSERT OR IGNORE, so an already-customized pref for another channel row
+ * of the same kind is left untouched). Deduped on (user_id, endpoint): a
+ * repeat subscribe from an already-connected device updates the stored
+ * target (keys may rotate) and returns the existing row's id instead of
+ * creating a duplicate.
  */
 export async function addChannel(
   db: D1Database,
-  args: { userId: string; channel: NotificationChannelKind; target: string; now: number },
+  args: { userId: string; channel: NotificationChannelKind; target: string; endpoint: string; now: number },
 ): Promise<string> {
   const id = crypto.randomUUID();
   const statements: D1PreparedStatement[] = [
     db
       .prepare(
-        `INSERT INTO notification_channels (id, user_id, channel, target, created_at, delivered_until)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO notification_channels (id, user_id, channel, target, endpoint, created_at, delivered_until)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, endpoint) DO UPDATE SET target = excluded.target
+         RETURNING id`,
       )
-      .bind(id, args.userId, args.channel, args.target, args.now, args.now),
+      .bind(id, args.userId, args.channel, args.target, args.endpoint, args.now, args.now),
     ...NOTIFICATION_EVENT_TYPES.map((eventType) =>
       db
         .prepare(
@@ -44,8 +50,8 @@ export async function addChannel(
         .bind(args.userId, args.channel, eventType),
     ),
   ];
-  await db.batch(statements);
-  return id;
+  const [insertResult] = await db.batch<{ id: string }>(statements);
+  return insertResult.results[0].id;
 }
 
 /** Removes a channel, scoped to its owning user. */
@@ -57,7 +63,7 @@ export async function removeChannel(db: D1Database, userId: string, id: string):
 export async function listChannels(db: D1Database, userId: string): Promise<NotificationChannelRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, user_id, channel, target, created_at, delivered_until
+      `SELECT id, user_id, channel, target, endpoint, created_at, delivered_until
        FROM notification_channels
        WHERE user_id = ?`,
     )
@@ -73,7 +79,7 @@ export async function listChannelsByKind(
 ): Promise<NotificationChannelRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, user_id, channel, target, created_at, delivered_until
+      `SELECT id, user_id, channel, target, endpoint, created_at, delivered_until
        FROM notification_channels
        WHERE channel = ?`,
     )

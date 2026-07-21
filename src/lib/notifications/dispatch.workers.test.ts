@@ -37,7 +37,13 @@ function fakeSend(result: PushSendResult) {
 }
 
 async function addWebpushChannel(userId: string, now: number) {
-  return addChannel(db(), { userId, channel: 'webpush', target: JSON.stringify(TARGET), now });
+  return addChannel(db(), {
+    userId,
+    channel: 'webpush',
+    target: JSON.stringify(TARGET),
+    endpoint: TARGET.endpoint,
+    now,
+  });
 }
 
 describe('dispatchWebPush', () => {

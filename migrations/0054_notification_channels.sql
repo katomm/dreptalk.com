@@ -12,12 +12,17 @@ CREATE TABLE notification_channels (
   user_id         TEXT NOT NULL,        -- users.id
   channel         TEXT NOT NULL,        -- 'webpush' (later: 'telegram')
   target          TEXT NOT NULL,        -- webpush: PushSubscription JSON {endpoint, keys:{p256dh, auth}}
+  endpoint        TEXT NOT NULL,        -- the subscription endpoint, the stable per-device identity, deduped per user
   created_at      INTEGER NOT NULL,
   delivered_until INTEGER NOT NULL      -- unix ms cursor; starts at creation time
 );
 CREATE INDEX idx_notification_channels_user ON notification_channels(user_id);
 -- The dispatcher scans all channels of one kind each run.
 CREATE INDEX idx_notification_channels_channel ON notification_channels(channel);
+-- Re-enabling push on an already-connected device must update the existing
+-- row instead of creating a duplicate, since subscribe() returns the same
+-- endpoint on repeat.
+CREATE UNIQUE INDEX idx_notification_channels_endpoint ON notification_channels(user_id, endpoint);
 
 -- The channel x event-type matrix. Rows are created all-enabled when a channel
 -- kind is first connected; a missing row counts as enabled (default-on), so

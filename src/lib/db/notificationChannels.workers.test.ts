@@ -35,7 +35,13 @@ const allEnabled = { reply: true, mention: true, governance: true };
 
 describe('addChannel + listChannels + removeChannel', () => {
   it('seeds all-enabled prefs and returns a listable row', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-json', now: 100 });
+    const id = await addChannel(db(), {
+      userId: 'alice',
+      channel: 'webpush',
+      target: 'sub-json',
+      endpoint: 'https://push.example/alice',
+      now: 100,
+    });
     expect(typeof id).toBe('string');
 
     const rows = await listChannels(db(), 'alice');
@@ -45,6 +51,7 @@ describe('addChannel + listChannels + removeChannel', () => {
       user_id: 'alice',
       channel: 'webpush',
       target: 'sub-json',
+      endpoint: 'https://push.example/alice',
       created_at: 100,
       delivered_until: 100,
     });
@@ -53,15 +60,15 @@ describe('addChannel + listChannels + removeChannel', () => {
   });
 
   it('lists channels by kind across users', async () => {
-    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', now: 1 });
-    await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', now: 2 });
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
+    await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b', now: 2 });
 
     const rows = await listChannelsByKind(db(), 'webpush');
     expect(rows.map((r) => r.user_id).sort()).toEqual(['alice', 'bob']);
   });
 
   it('removeChannel is scoped to the owning user; another user is a no-op', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', now: 1 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
 
     await removeChannel(db(), 'bob', id);
     expect(await listChannels(db(), 'alice')).toHaveLength(1);
@@ -71,16 +78,41 @@ describe('addChannel + listChannels + removeChannel', () => {
   });
 
   it('deleteChannelById removes regardless of owner (dispatcher prune)', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', now: 1 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
 
     await deleteChannelById(db(), id);
     expect(await listChannels(db(), 'alice')).toHaveLength(0);
+  });
+
+  it('a second addChannel for the same user and endpoint updates the existing row instead of duplicating it', async () => {
+    const firstId = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-v1', endpoint: 'https://push.example/a', now: 1 });
+    const secondId = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-v2', endpoint: 'https://push.example/a', now: 2 });
+
+    expect(secondId).toBe(firstId);
+    const rows = await listChannels(db(), 'alice');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].target).toBe('sub-v2');
+  });
+
+  it('same user, different endpoints, creates two rows', async () => {
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b', now: 2 });
+
+    expect(await listChannels(db(), 'alice')).toHaveLength(2);
+  });
+
+  it('different users, same endpoint, creates two rows', async () => {
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/shared', now: 1 });
+    await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/shared', now: 2 });
+
+    expect(await listChannels(db(), 'alice')).toHaveLength(1);
+    expect(await listChannels(db(), 'bob')).toHaveLength(1);
   });
 });
 
 describe('advanceCursor', () => {
   it('moves the delivered_until cursor forward', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', now: 100 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 100 });
 
     await advanceCursor(db(), id, 500);
 
@@ -91,7 +123,7 @@ describe('advanceCursor', () => {
 
 describe('getPrefs + setPref', () => {
   it('defaults missing rows to true and reflects an explicit opt-out', async () => {
-    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', now: 1 });
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
 
     expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(allEnabled);
 
@@ -115,6 +147,7 @@ describe('getPendingCounts', () => {
       user_id: 'alice',
       channel: 'webpush',
       target: 'sub-a',
+      endpoint: 'https://push.example/a',
       created_at: 0,
       delivered_until: 100,
       ...overrides,
