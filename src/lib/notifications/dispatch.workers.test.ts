@@ -107,6 +107,19 @@ describe('dispatchWebPush', () => {
     expect(rows.find((r) => r.id === id)).toBeUndefined();
   });
 
+  it('prunes the channel row on a 403 response (subscription bound to another VAPID key)', async () => {
+    await addWebpushChannel('alice', 100);
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+    ]);
+    const { send } = fakeSend({ ok: false, status: 403 });
+
+    const result = await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    expect(result).toEqual({ sent: 0, pruned: 1, skipped: 0 });
+    expect(await listChannelsByKind(db(), 'webpush')).toHaveLength(0);
+  });
+
   it('prunes the channel row on a 404 response too', async () => {
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [

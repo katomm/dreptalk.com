@@ -238,3 +238,13 @@ export async function sendWebPush(
 
   return { ok: response.ok, status: response.status };
 }
+
+/**
+ * True when a push service response means this subscription can never be
+ * delivered to again and its channel row should be pruned: 404/410 are the
+ * spec's gone-states, and 403 means the subscription is bound to a different
+ * VAPID key (e.g. after a key rotation), which no retry can fix.
+ */
+export function isSubscriptionDead(status: number): boolean {
+  return status === 403 || status === 404 || status === 410;
+}

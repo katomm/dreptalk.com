@@ -41,6 +41,10 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
   const [prefState, setPrefState] = useState<Record<NotificationEventType, boolean>>(prefs);
   const [prefError, setPrefError] = useState<string | null>(null);
+  // Per-device test-push state, keyed by channel id.
+  const [testState, setTestState] = useState<
+    Record<string, { status: 'sending' } | { status: 'scheduled'; delaySeconds: number } | { status: 'error'; message: string }>
+  >({});
 
   if (!vapidPublicKey) {
     return (
@@ -123,6 +127,29 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
     }
   }
 
+  async function handleTest(id: string) {
+    setTestState((prev) => ({ ...prev, [id]: { status: 'sending' } }));
+    try {
+      const res = await fetchWithTimeout('/api/notifications/test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (res.status === 429) {
+        setTestState((prev) => ({ ...prev, [id]: { status: 'error', message: 'Too many test notifications. Please wait a bit.' } }));
+        return;
+      }
+      if (!res.ok) {
+        setTestState((prev) => ({ ...prev, [id]: { status: 'error', message: 'Could not send a test. Please try again.' } }));
+        return;
+      }
+      const { delayMs } = (await res.json()) as { delayMs: number };
+      setTestState((prev) => ({ ...prev, [id]: { status: 'scheduled', delaySeconds: Math.round(delayMs / 1000) } }));
+    } catch {
+      setTestState((prev) => ({ ...prev, [id]: { status: 'error', message: 'Could not send a test. Please try again.' } }));
+    }
+  }
+
   async function handlePrefToggle(eventType: NotificationEventType, enabled: boolean) {
     setPrefError(null);
     const prevPrefs = prefState;
@@ -175,25 +202,53 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
             <div
               key={device.id}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '0.75rem',
                 padding: '0.5rem 0.75rem',
                 border: '1px solid var(--border)',
                 borderRadius: 'var(--radius)',
                 fontSize: '0.875rem',
               }}
             >
-              <span>Device added {new Date(device.createdAt).toLocaleDateString()}</span>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => void handleRemove(device.id)}
-                style={{ padding: '0.3rem 0.75rem', fontSize: '0.8125rem' }}
-              >
-                Remove
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+                <span>Device added {new Date(device.createdAt).toLocaleDateString()}</span>
+                <span style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={testState[device.id]?.status === 'sending'}
+                    onClick={() => void handleTest(device.id)}
+                    style={{ padding: '0.3rem 0.75rem', fontSize: '0.8125rem' }}
+                  >
+                    Send test
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => void handleRemove(device.id)}
+                    style={{ padding: '0.3rem 0.75rem', fontSize: '0.8125rem' }}
+                  >
+                    Remove
+                  </button>
+                </span>
+              </div>
+              {(() => {
+                const state = testState[device.id];
+                if (state?.status !== 'scheduled') return null;
+                return (
+                  <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                    Test notification on its way: it arrives in about {state.delaySeconds} seconds, you can
+                    lock your screen or switch away now.
+                  </p>
+                );
+              })()}
+              {(() => {
+                const state = testState[device.id];
+                if (state?.status !== 'error') return null;
+                return (
+                  <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', color: 'var(--danger)' }}>
+                    {state.message}
+                  </p>
+                );
+              })()}
             </div>
           ))}
         </div>
