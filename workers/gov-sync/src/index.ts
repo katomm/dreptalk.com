@@ -88,12 +88,11 @@ interface Env {
   TELEGRAM_BOT_TOKEN?: string;
 }
 
-const VAPID_SUBJECT = 'https://dreptalk.com';
-
 /** Both VAPID keys must be set (the private key is a secret) or push dispatch fails soft. */
 function buildVapid(env: Env): VapidConfig | null {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return null;
-  return { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: VAPID_SUBJECT };
+  const { siteOrigin } = resolveNetwork(env.CARDANO_NETWORK ?? null);
+  return { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: siteOrigin };
 }
 
 /** Short random hex for topic slug suffixes. */

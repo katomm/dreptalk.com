@@ -36,7 +36,6 @@ const PERSONAL_VERBS: Record<string, string> = {
 };
 
 let items: InboxItem[] = [];
-let notificationChannels: { id: string; createdAt: number }[] = [];
 let pushChannels: { id: string; createdAt: number }[] = [];
 let telegramChannels: { id: string; createdAt: number }[] = [];
 let pushPrefs = { reply: true, mention: true, governance: true };
@@ -54,7 +53,6 @@ if (db) {
   ]);
   // Only id and date reach the page; the stored subscription (endpoint, keys)
   // stays server-side.
-  notificationChannels = channelRows.map((row) => ({ id: row.id, createdAt: row.created_at }));
   pushChannels = channelRows
     .filter((row) => row.channel === 'webpush')
     .map((row) => ({ id: row.id, createdAt: row.created_at }));
@@ -144,7 +142,7 @@ const unreadCount = items.filter((r) => r.unread).length;
   <details
     id="notification-settings"
     class="notif-settings"
-    open={notificationChannels.length === 0 && (vapidPublicKey !== '' || telegramBotUsername !== '')}
+    open={pushChannels.length === 0 && telegramChannels.length === 0 && (vapidPublicKey !== '' || telegramBotUsername !== '')}
   >
     <summary>Notification settings</summary>
     <div class="notif-settings__body">

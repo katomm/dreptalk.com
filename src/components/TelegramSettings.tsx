@@ -53,7 +53,10 @@ export default function TelegramSettings({
 
   function pollForLink(attempt: number, knownIds: Set<string>) {
     if (attempt >= POLL_MAX_ATTEMPTS) {
+      // Give up quietly; also drop the fallback link so it does not suggest a
+      // still-active connect attempt.
       setPhase({ status: 'idle' });
+      setConnectUrl(null);
       return;
     }
     pollTimer.current = setTimeout(async () => {
