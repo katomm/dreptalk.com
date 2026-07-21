@@ -25,12 +25,18 @@ export default function TelegramSettings({
 }) {
   const [connected, setConnected] = useState<NotificationDevice[]>(channels);
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
+  // Fallback link shown when the browser blocked the popup (Safari drops user
+  // activation across the await before window.open). Cleared once the user
+  // finishes the link or presses connect again.
+  const [connectUrl, setConnectUrl] = useState<string | null>(null);
   const [testState, setTestState] = useState<
     Record<string, { status: 'sending' } | { status: 'done' } | { status: 'error'; message: string }>
   >({});
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disposed = useRef(false);
 
   useEffect(() => () => {
+    disposed.current = true;
     if (pollTimer.current) clearTimeout(pollTimer.current);
   }, []);
 
@@ -52,10 +58,15 @@ export default function TelegramSettings({
     }
     pollTimer.current = setTimeout(async () => {
       const fresh = await fetchTelegramChannels();
+      // The component may have unmounted while the fetch was in flight; the
+      // unmount cleanup only clears the pending timer, not an in-flight
+      // request, so bail out here instead of re-arming or touching state.
+      if (disposed.current) return;
       const added = fresh?.find((c) => !knownIds.has(c.id));
       if (fresh && added) {
         setConnected(fresh);
         setPhase({ status: 'idle' });
+        setConnectUrl(null);
         return;
       }
       pollForLink(attempt + 1, knownIds);
@@ -64,6 +75,7 @@ export default function TelegramSettings({
 
   async function handleConnect() {
     setPhase({ status: 'waiting' });
+    setConnectUrl(null);
     try {
       const res = await fetchWithTimeout('/api/notifications/telegram-link', { method: 'POST' });
       if (!res.ok) {
@@ -71,7 +83,12 @@ export default function TelegramSettings({
         return;
       }
       const { url } = (await res.json()) as { url: string };
-      window.open(url, '_blank', 'noopener');
+      // window.open runs after an await, so browsers (notably Safari) may
+      // have already dropped user activation and block the popup. Fall back
+      // to a visible link instead of erroring out, and poll either way since
+      // the user can still tap the fallback link manually.
+      const popup = window.open(url, '_blank', 'noopener');
+      if (!popup) setConnectUrl(url);
       pollForLink(0, new Set(connected.map((c) => c.id)));
     } catch {
       setPhase({ status: 'error', message: 'Could not create a Telegram link. Please try again.' });
@@ -129,6 +146,13 @@ export default function TelegramSettings({
         <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
           Opens a chat with @{botUsername}. Press Start there to connect this account.
         </p>
+        {connectUrl && (
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem' }}>
+            <a href={connectUrl} target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>
+              Open Telegram to finish connecting
+            </a>
+          </p>
+        )}
       </div>
 
       {phase.status === 'error' && (
