@@ -17,7 +17,15 @@ const OUT = 'dist/server/wrangler.preprod.json';
 const cfg = JSON.parse(readFileSync(GENERATED, 'utf8'));
 
 cfg.name = 'dreptalk-com-preprod';
-cfg.vars = { ...(cfg.vars ?? {}), CARDANO_NETWORK: 'preprod' };
+// Other [vars] from the base config carry through unchanged via the spread.
+// CARDANO_NETWORK selects the network, and VAPID_PUBLIC_KEY must be the
+// preprod keypair's public half (the base config carries the mainnet one);
+// keep it in sync with [env.preprod.vars] in workers/gov-sync/wrangler.toml.
+cfg.vars = {
+  ...(cfg.vars ?? {}),
+  CARDANO_NETWORK: 'preprod',
+  VAPID_PUBLIC_KEY: 'BLNmU_KgPFZKMDABrqLDXGD_CKPb7YVSSbeUFA6cNTWWwbCLoVSbLiQbJxlZqsOvErS-NidM0mPSg_K2V23n4fY',
+};
 cfg.routes = [{ pattern: 'preprod.dreptalk.com', custom_domain: true }];
 cfg.d1_databases = [
   {

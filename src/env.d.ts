@@ -23,6 +23,7 @@ declare namespace Cloudflare {
     AVATARS?: R2Bucket;
     IMAGES?: import('./lib/dreps/avatarStore.js').ImagesLike;
     CARDANO_NETWORK?: string;
+    VAPID_PUBLIC_KEY?: string;
     [key: string]: unknown;
   }
 }

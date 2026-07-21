@@ -73,6 +73,8 @@ import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/pro
 import { syncCurrentCommitteeMembership, recomputeCommitteePct } from '../../../src/lib/db/committee.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
+import { dispatchWebPush } from '../../../src/lib/notifications/dispatch.js';
+import { sendWebPush, type VapidConfig } from '../../../src/lib/push/webPush.js';
 
 interface Env {
   DB: D1Database;
@@ -80,6 +82,16 @@ interface Env {
   IMAGES?: ImagesLike;
   CARDANO_NETWORK?: string;
   KOIOS_API_KEY?: string;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+}
+
+const VAPID_SUBJECT = 'https://dreptalk.com';
+
+/** Both VAPID keys must be set (the private key is a secret) or push dispatch fails soft. */
+function buildVapid(env: Env): VapidConfig | null {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return null;
+  return { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: VAPID_SUBJECT };
 }
 
 /** Short random hex for topic slug suffixes. */
@@ -285,6 +297,17 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     }
     console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold} ccSize=${next.committeeSize} treasuryLovelace=${next.treasuryLovelace}`);
     return { items: written };
+  });
+
+  // Last: bundle each connected webpush channel's pending replies, mentions, and
+  // governance updates into one push. Runs after every other phase in this trigger
+  // so a governance thread discovered earlier in this same run is already counted.
+  // Fails soft (all-zero, one warning) when the VAPID secret pair is not yet set.
+  await phase('webpush', async () => {
+    const vapid = buildVapid(env);
+    const r = await dispatchWebPush(env.DB, vapid, { send: sendWebPush, now: Date.now() });
+    console.log(`[webpush-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
+    return { items: r.sent };
   });
 }
 
