@@ -17,6 +17,8 @@ const OUT = 'dist/server/wrangler.preprod.json';
 const cfg = JSON.parse(readFileSync(GENERATED, 'utf8'));
 
 cfg.name = 'dreptalk-com-preprod';
+// Other [vars] from the base config (e.g. VAPID_PUBLIC_KEY) carry through
+// unchanged via the spread; only CARDANO_NETWORK needs a preprod override.
 cfg.vars = { ...(cfg.vars ?? {}), CARDANO_NETWORK: 'preprod' };
 cfg.routes = [{ pattern: 'preprod.dreptalk.com', custom_domain: true }];
 cfg.d1_databases = [

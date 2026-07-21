@@ -24,6 +24,14 @@ custom_domain = true
 directory = "./dist/client"
 binding = "ASSETS"
 
+# Plain (non-secret) environment variables.
+[vars]
+# Web Push VAPID public key (base64url, uncompressed P-256 point), read by the
+# settings page and handed to PushManager.subscribe(). Empty disables push in
+# the settings UI. The real key pair is committed here at rollout; the matching
+# private key is a secret (VAPID_PRIVATE_KEY), never stored in this file.
+VAPID_PUBLIC_KEY = ""
+
 # D1 database for application data.
 [[d1_databases]]
 binding = "DB"
