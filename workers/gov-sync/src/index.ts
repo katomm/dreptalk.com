@@ -301,9 +301,10 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: written };
   });
 
-  // Last: bundle each connected webpush channel's pending replies, mentions, and
-  // governance updates into one push. Runs after every other phase in this trigger
-  // so a governance thread discovered earlier in this same run is already counted.
+  // After the sync phases: bundle each connected webpush channel's pending replies,
+  // mentions, and governance updates into one push. Runs after every other sync
+  // phase in this trigger so a governance thread discovered earlier in this same
+  // run is already counted.
   // Fails soft (all-zero, one warning) when the VAPID secret pair is not yet set.
   await phase('webpush', async () => {
     const vapid = buildVapid(env);
