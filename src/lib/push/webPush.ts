@@ -27,7 +27,12 @@ export interface VapidConfig {
   subject: string; // 'https://dreptalk.com'
 }
 
-/** Overrides for deterministic testing; production always uses random values. */
+/**
+ * Overrides for deterministic testing (the RFC 8291 appendix-A vector needs a
+ * fixed ephemeral key and salt). TEST-ONLY: never pass this in production
+ * code; a fixed salt or key pair defeats the encryption. sendWebPush never
+ * forwards options, so the production path is always freshly random.
+ */
 export interface EncryptOptions {
   asKeyPair?: CryptoKeyPair; // application-server ephemeral ECDH key
   salt?: Uint8Array; // 16-byte content-encoding salt
@@ -132,6 +137,12 @@ export async function encryptPayload(
 
   // Single record: plaintext || 0x02 delimiter (last-record marker), no padding.
   const plaintext = typeof payload === 'string' ? utf8.encode(payload) : payload;
+  // Single-record encoding: the record (plaintext + delimiter + 16-byte GCM
+  // tag) must fit the advertised rs, or the push service / UA rejects the
+  // message remotely. Fail fast and locally instead.
+  if (plaintext.length + 1 + 16 > recordSize) {
+    throw new Error(`web push payload too large: ${plaintext.length} bytes exceeds the single-record limit`);
+  }
   const record = concat(plaintext, new Uint8Array([0x02]));
 
   const cekKey = await crypto.subtle.importKey('raw', cek, { name: 'AES-GCM' }, false, [
