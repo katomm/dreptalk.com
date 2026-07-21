@@ -1,8 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
-// Cron dispatcher for web push: scans every webpush channel, bundles each
-// channel's pending replies, mentions, and governance updates into a single
-// push notification, then advances or prunes the channel's delivery cursor
-// based on the push result. Called from the gov-sync worker's 15-minute
+// Cron dispatcher: scans every channel of one kind, bundles each channel's
+// pending replies, mentions, and governance updates into a single message,
+// then advances or prunes the channel's delivery cursor based on the send
+// result. Two adapters share the loop: web push (encrypted push payload) and
+// telegram (plain bot message). Called from the gov-sync worker's 15-minute
 // governance trigger, after the rest of that run's sync work.
 
 import {
@@ -11,13 +12,28 @@ import {
   getPendingCounts,
   advanceCursor,
   deleteChannelById,
+  type NotificationChannelKind,
+  type NotificationChannelRow,
   type PendingCounts,
 } from '../db/notificationChannels.js';
 import { isSubscriptionDead } from '../push/webPush.js';
 import type { sendWebPush, VapidConfig, PushSubscriptionTarget } from '../push/webPush.js';
+import { isTelegramChatDead } from '../push/telegram.js';
+import type { sendTelegramMessage } from '../push/telegram.js';
 
 export interface DispatchDeps {
   send: typeof sendWebPush; // injected for tests
+  now: number;
+}
+
+export interface TelegramDispatchConfig {
+  botToken: string;
+  /** Site origin for the notifications link, e.g. https://dreptalk.com */
+  origin: string;
+}
+
+export interface TelegramDispatchDeps {
+  send: typeof sendTelegramMessage; // injected for tests
   now: number;
 }
 
@@ -42,25 +58,24 @@ function formatSummary(counts: PendingCounts): string {
   return parts.join(', ');
 }
 
-/**
- * Dispatches bundled web push notifications to every connected webpush
- * channel. Fails soft when the VAPID secret is unset (e.g. mid-rollout):
- * logs once and returns all-zero without touching any channel or sending
- * anything. Sends run sequentially (a handful of channels per run, no rate
- * concern); a failure on one channel is caught and logged so it never aborts
- * the rest of the scan.
- */
-export async function dispatchWebPush(
-  db: D1Database,
-  vapid: VapidConfig | null,
-  deps: DispatchDeps,
-): Promise<DispatchResult> {
-  if (!vapid) {
-    console.warn('[webpush-dispatch] VAPID keys not configured, skipping dispatch');
-    return { sent: 0, pruned: 0, skipped: 0 };
-  }
+/** What one adapter did with one channel's bundle. */
+type DeliveryOutcome = 'sent' | 'dead' | 'failed';
 
-  const rows = await listChannelsByKind(db, 'webpush');
+/**
+ * The shared per-kind loop: list channels, cache prefs per user, skip muted
+ * and empty channels, hand each pending bundle to the adapter, then advance
+ * the cursor (sent) or prune the row (dead). A failure on one channel is
+ * caught and logged so it never aborts the rest of the scan; other failure
+ * outcomes leave the cursor untouched, so the next run retries the same (or
+ * larger) bundle.
+ */
+async function dispatchChannels(
+  db: D1Database,
+  kind: NotificationChannelKind,
+  deliver: (row: NotificationChannelRow, counts: PendingCounts) => Promise<DeliveryOutcome>,
+  now: number,
+): Promise<DispatchResult> {
+  const rows = await listChannelsByKind(db, kind);
   let sent = 0;
   let pruned = 0;
   let skipped = 0;
@@ -87,27 +102,77 @@ export async function dispatchWebPush(
         continue;
       }
 
+      const outcome = await deliver(row, counts);
+      if (outcome === 'sent') {
+        await advanceCursor(db, row.id, now);
+        sent++;
+      } else if (outcome === 'dead') {
+        await deleteChannelById(db, row.id);
+        pruned++;
+      }
+    } catch (err) {
+      console.error(`[${kind}-dispatch] channel ${row.id} failed`, err);
+    }
+  }
+
+  return { sent, pruned, skipped };
+}
+
+/**
+ * Dispatches bundled web push notifications to every connected webpush
+ * channel. Fails soft when the VAPID secret is unset (e.g. mid-rollout):
+ * logs once and returns all-zero without touching any channel or sending
+ * anything.
+ */
+export async function dispatchWebPush(
+  db: D1Database,
+  vapid: VapidConfig | null,
+  deps: DispatchDeps,
+): Promise<DispatchResult> {
+  if (!vapid) {
+    console.warn('[webpush-dispatch] VAPID keys not configured, skipping dispatch');
+    return { sent: 0, pruned: 0, skipped: 0 };
+  }
+  return dispatchChannels(
+    db,
+    'webpush',
+    async (row, counts) => {
       const target = JSON.parse(row.target) as PushSubscriptionTarget;
       const payload = JSON.stringify({
         title: 'DRepTalk',
         body: formatSummary(counts),
         url: '/notifications/',
       });
-
       const result = await deps.send(target, payload, vapid);
-      if (result.ok) {
-        await advanceCursor(db, row.id, deps.now);
-        sent++;
-      } else if (isSubscriptionDead(result.status)) {
-        await deleteChannelById(db, row.id);
-        pruned++;
-      }
-      // Any other failure status leaves the cursor untouched: the next run
-      // recomputes the same (or larger) pending counts and retries.
-    } catch (err) {
-      console.error(`[webpush-dispatch] channel ${row.id} failed`, err);
-    }
-  }
+      if (result.ok) return 'sent';
+      return isSubscriptionDead(result.status) ? 'dead' : 'failed';
+    },
+    deps.now,
+  );
+}
 
-  return { sent, pruned, skipped };
+/**
+ * Dispatches the same bundles as bot messages to every connected telegram
+ * channel. Fails soft when the bot token is unset, mirroring the VAPID path.
+ */
+export async function dispatchTelegram(
+  db: D1Database,
+  cfg: TelegramDispatchConfig | null,
+  deps: TelegramDispatchDeps,
+): Promise<DispatchResult> {
+  if (!cfg) {
+    console.warn('[telegram-dispatch] bot token not configured, skipping dispatch');
+    return { sent: 0, pruned: 0, skipped: 0 };
+  }
+  return dispatchChannels(
+    db,
+    'telegram',
+    async (row, counts) => {
+      const text = `${formatSummary(counts)}\n${cfg.origin}/notifications/`;
+      const result = await deps.send(cfg.botToken, row.target, text);
+      if (result.ok) return 'sent';
+      return isTelegramChatDead(result) ? 'dead' : 'failed';
+    },
+    deps.now,
+  );
 }

@@ -73,8 +73,9 @@ import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/pro
 import { syncCurrentCommitteeMembership, recomputeCommitteePct } from '../../../src/lib/db/committee.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
-import { dispatchWebPush } from '../../../src/lib/notifications/dispatch.js';
+import { dispatchWebPush, dispatchTelegram } from '../../../src/lib/notifications/dispatch.js';
 import { sendWebPush, type VapidConfig } from '../../../src/lib/push/webPush.js';
+import { sendTelegramMessage } from '../../../src/lib/push/telegram.js';
 
 interface Env {
   DB: D1Database;
@@ -84,6 +85,7 @@ interface Env {
   KOIOS_API_KEY?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
+  TELEGRAM_BOT_TOKEN?: string;
 }
 
 const VAPID_SUBJECT = 'https://dreptalk.com';
@@ -307,6 +309,16 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     const vapid = buildVapid(env);
     const r = await dispatchWebPush(env.DB, vapid, { send: sendWebPush, now: Date.now() });
     console.log(`[webpush-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
+    return { items: r.sent };
+  });
+
+  // Same bundles as the webpush phase, delivered as Telegram bot messages.
+  // Fails soft (all-zero, one warning) until the bot token secret is set.
+  await phase('telegram', async () => {
+    const { siteOrigin } = resolveNetwork(env.CARDANO_NETWORK ?? null);
+    const cfg = env.TELEGRAM_BOT_TOKEN ? { botToken: env.TELEGRAM_BOT_TOKEN, origin: siteOrigin } : null;
+    const r = await dispatchTelegram(env.DB, cfg, { send: sendTelegramMessage, now: Date.now() });
+    console.log(`[telegram-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
     return { items: r.sent };
   });
 }
