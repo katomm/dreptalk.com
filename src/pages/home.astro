@@ -17,7 +17,8 @@ import { getDrepById } from '@/lib/db/dreps';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
 import { getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation } from '@/lib/db/drepVotes';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory';
-import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive';
+import { getMostRepliedRecentTopic } from '@/lib/db/forum';
+import { countRecentlyActiveAuthors, listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive';
 import { authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes';
 import { recentlyActiveLabel } from '@/lib/forum/view';
@@ -43,11 +44,18 @@ const drepId = db ? await getSelfDrepId(db, user) : null;
 // voting stats and power trend, and the recently-active ids for the
 // discussions card.
 const drep = drepId && db ? await getDrepById(db, drepId) : null;
-const [[account, unreadCount], votableRows, recentIds, voteBreakdown, rationaleStats, participation, powerSeries] =
+// Windows for the discussions tile: "recently active" counts the last month
+// (pairs with the top-10 face row), the hot-topic teaser looks at the last week.
+const nowMs = Date.now();
+const ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const HOT_TOPIC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const [[account, unreadCount], votableRows, recentIds, activeCount, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries] =
   await Promise.all([
     loadSessionHeader(Astro.locals, user.id),
     drepId && db ? getVotableActionsForViewer(db, drepId) : [],
     db ? listRecentlyActiveAuthorIds(db, 10) : [],
+    db ? countRecentlyActiveAuthors(db, nowMs - ACTIVE_WINDOW_MS) : 0,
+    db ? getMostRepliedRecentTopic(db, nowMs - HOT_TOPIC_WINDOW_MS) : null,
     drep && db ? getDrepVoteBreakdown(db, drep.drepId) : { yes: 0, no: 0, abstain: 0, total: 0 },
     drep && db ? getDrepRationaleStats(db, drep.drepId) : { total: 0, without: 0, withRationale: 0 },
     drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : null,
@@ -65,12 +73,17 @@ const activityLabel = recentlyActiveLabel(
   recentAuthors.filter((a) => a.badges?.includes('DRep')).length,
   recentAuthors.filter((a) => a.badges?.includes('SPO')).length,
 );
-// The clickable faces in the featured tile: capped so the row stays a glance,
-// and only people whose profile page actually resolves.
+// The clickable faces in the featured tile: the whole recently-active list
+// (already capped at 10 by the query, matching the label), minus anyone whose
+// profile page does not resolve.
 const recentFaces = recentAuthors
   .map((a) => ({ author: a, href: authorProfileHref(a) }))
-  .filter((f): f is typeof f & { href: string } => !!f.href)
-  .slice(0, 6);
+  .filter((f): f is typeof f & { href: string } => !!f.href);
+// "+N" tail of the face row: how many more DReps/SPOs were active in the last
+// month beyond the faces shown. A quiet month can undershoot the top-10 list
+// (which has no window), so this clamps to zero instead of going negative.
+const moreActiveCount = Math.max(0, activeCount - recentFaces.length);
+const hotTopicReplies = hotTopic ? Math.max(0, hotTopic.post_count - 1) : 0;
 
 const openCount = votableRows.length;
 const unvotedCount = votableRows.filter((r) => !r.viewerVote).length;
@@ -204,7 +217,22 @@ const cards: HomeCard[] = [
                   <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} size={AVATAR_SIZE.rowLead} />
                 </a>
               ))}
+              {moreActiveCount > 0 && (
+                <a
+                  class="home-card__face home-card__face--more"
+                  href="/discussions/"
+                  title={`${moreActiveCount} more active in the last month`}
+                  aria-label={`${moreActiveCount} more people active in the last month`}
+                >+{moreActiveCount}</a>
+              )}
             </span>
+          )}
+          {hotTopic && (
+            <a class="home-card__hot" href={`/t/${hotTopic.slug}/`}>
+              <span class="home-card__hot-label">Hot this week:</span>
+              <span class="home-card__hot-title">{hotTopic.title}</span>
+              <span class="home-card__hot-replies">({hotTopicReplies} {hotTopicReplies === 1 ? 'reply' : 'replies'})</span>
+            </a>
           )}
         </span>
         <svg class="home-card__chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -334,6 +362,47 @@ const cards: HomeCard[] = [
   .home-card__face:hover {
     z-index: 2;
     transform: translateY(-2px);
+  }
+  /* "+N more" tail chip: sized like a face, styled as an accent count. */
+  .home-card__face--more {
+    width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    color: var(--accent);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  a.home-card__face--more:hover {
+    background: color-mix(in srgb, var(--accent) 20%, var(--surface));
+  }
+  /* Hot-topic teaser: one truncated line, raised above the stretched link. */
+  .home-card__hot {
+    position: relative;
+    z-index: 1;
+    display: block;
+    max-width: 100%;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--fg);
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .home-card__hot-label,
+  .home-card__hot-replies {
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .home-card__hot-title {
+    margin: 0 0.35em;
+    font-weight: 600;
+  }
+  a.home-card__hot:hover .home-card__hot-title {
+    color: var(--accent);
   }
   @media (max-width: 800px) {
     .home-card__faces {
