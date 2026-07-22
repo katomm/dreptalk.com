@@ -1305,6 +1305,85 @@ a.ninbox__actor:hover { text-decoration: underline; }
   .ninbox__time { order: 3; }
 }
 
+/* Notification settings cards (islands on /notifications) */
+.nset__sub { margin: 0 0 1rem; color: var(--muted); font-size: 0.9375rem; }
+.nset__card {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.nset__head { display: flex; align-items: center; gap: 0.75rem; }
+.nset__icon {
+  flex: none;
+  width: 2.5rem; height: 2.5rem;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.nset__headtext { flex: 1 1 auto; min-width: 0; }
+.nset__title { margin: 0; font-size: 1rem; font-weight: 600; }
+.nset__cardsub { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.875rem; }
+.nset__switch {
+  flex: none;
+  width: 2.6rem; height: 1.45rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+.nset__switch::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 0.15rem;
+  transform: translateY(-50%);
+  width: 1.05rem; height: 1.05rem;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: left 0.15s ease, background 0.15s ease;
+}
+.nset__switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+.nset__switch[aria-checked="true"]::after { left: calc(100% - 1.2rem); background: #fff; }
+.nset__hint {
+  display: flex; gap: 0.5rem; align-items: flex-start;
+  margin: 0.875rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.nset__hint a { color: var(--accent); }
+.nset__row {
+  display: flex; align-items: center; gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  margin-top: 0.875rem;
+  font-size: 0.875rem;
+}
+.nset__rowicon { flex: none; color: var(--muted); display: flex; }
+.nset__rowtext { flex: 1 1 auto; min-width: 0; }
+.nset__rowtitle { margin: 0; font-weight: 600; font-size: 0.875rem; }
+.nset__rowmeta { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.8125rem; }
+.nset__rowactions { flex: none; display: flex; gap: 0.5rem; }
+.nset__off { margin: 0.875rem 0 0; color: var(--muted); font-size: 0.875rem; }
+.nset__matrix { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.nset__matrixhead { margin: 0; font-size: 0.9375rem; font-weight: 600; }
+.nset__opt { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.875rem; }
+.nset__opt input { margin-top: 0.2rem; accent-color: var(--accent); }
+.nset__optlabel { font-weight: 500; }
+.nset__optdesc { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.8125rem; }
+@media (max-width: 540px) {
+  .nset__row { flex-wrap: wrap; }
+  .nset__rowactions { width: 100%; justify-content: flex-end; }
+}
+
 /* Header search trigger: drop the text label on very narrow screens so the
    action row (search, theme, bell, burger) fits beside the brand. */
 @media (max-width: 480px) {

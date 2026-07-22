@@ -13,6 +13,8 @@ import NotificationsInbox from '@/components/NotificationsInbox.tsx';
 import { runtimeEnv } from '@/lib/api/response';
 import { getNotificationsPage, getNotifSeenAt } from '@/lib/db/notifications';
 import { listChannels, getPrefs } from '@/lib/db/notificationChannels';
+import { toClientChannels } from '@/lib/notifications/channelView';
+import type { ClientChannel } from '@/lib/notifications/channelView';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { getTopicsByIds } from '@/lib/db/forum.js';
 import { loadAuthorIdentities, authorProfileHref } from '@/lib/forum/author.js';
@@ -36,8 +38,8 @@ const PERSONAL_VERBS: Record<string, string> = {
 };
 
 let items: InboxItem[] = [];
-let pushChannels: { id: string; createdAt: number }[] = [];
-let telegramChannels: { id: string; createdAt: number }[] = [];
+let pushChannels: ClientChannel[] = [];
+let telegramChannels: ClientChannel[] = [];
 let pushPrefs = { reply: true, mention: true, governance: true };
 let telegramPrefs = { reply: true, mention: true, governance: true };
 if (db) {
@@ -51,14 +53,11 @@ if (db) {
     getPrefs(db, user.id, 'webpush'),
     getPrefs(db, user.id, 'telegram'),
   ]);
-  // Only id and date reach the page; the stored subscription (endpoint, keys)
-  // stays server-side.
-  pushChannels = channelRows
-    .filter((row) => row.channel === 'webpush')
-    .map((row) => ({ id: row.id, createdAt: row.created_at }));
-  telegramChannels = channelRows
-    .filter((row) => row.channel === 'telegram')
-    .map((row) => ({ id: row.id, createdAt: row.created_at }));
+  // Client-safe projection: id, dates, label and an endpoint fingerprint reach
+  // the islands; the stored subscription (endpoint, keys) stays server-side.
+  const clientChannels = await toClientChannels(channelRows);
+  pushChannels = clientChannels.filter((c) => c.channel === 'webpush');
+  telegramChannels = clientChannels.filter((c) => c.channel === 'telegram');
   pushPrefs = pPrefs;
   telegramPrefs = tPrefs;
 
@@ -146,7 +145,7 @@ const unreadCount = items.filter((r) => r.unread).length;
   >
     <summary>Notification settings</summary>
     <div class="notif-settings__body">
-      <h3 class="notif-settings__h">Push</h3>
+      <p class="nset__sub">Choose how you'd like to be notified and what you want to hear about.</p>
       <NotificationSettings
         channels={pushChannels}
         prefs={pushPrefs}
@@ -154,15 +153,12 @@ const unreadCount = items.filter((r) => r.unread).length;
         client:load
       />
       {telegramBotUsername !== '' && (
-        <>
-          <h3 class="notif-settings__h">Telegram</h3>
-          <TelegramSettings
-            channels={telegramChannels}
-            prefs={telegramPrefs}
-            botUsername={telegramBotUsername}
-            client:load
-          />
-        </>
+        <TelegramSettings
+          channels={telegramChannels}
+          prefs={telegramPrefs}
+          botUsername={telegramBotUsername}
+          client:load
+        />
       )}
     </div>
   </details>
@@ -234,13 +230,6 @@ const unreadCount = items.filter((r) => r.unread).length;
   }
   .notif-settings__body {
     padding: 0.25rem 0.9rem 0.9rem;
-  }
-  .notif-settings__h {
-    margin: 0.75rem 0 0.5rem;
-    font-size: 0.875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted);
   }
   .notif-foot {
     margin: 1rem 0 0;

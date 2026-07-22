@@ -1,63 +1,63 @@
-// React island: the "Notify me about" event-type matrix shared by the push
-// and Telegram settings blocks on /notifications. Optimistically toggles a
-// checkbox, posts the change, and reverts on failure.
-import { useState } from 'react';
+// React island helper: the "Notify me about" event-type matrix shared by the
+// push and Telegram settings cards on /notifications. Presentational and
+// controlled: the parent owns pref state, optimistic updates and reverts, and
+// passes the current prefs plus an onChange handler. setAllPrefs (exported) is
+// what the parents' master toggle uses to flip all three at once.
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
 
 const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string }> = {
-  reply: { label: 'Replies', hint: 'someone replies in a thread you posted in' },
-  mention: { label: 'Mentions', hint: 'someone mentions you in a post' },
-  governance: { label: 'Governance actions', hint: 'new actions and status changes' },
+  reply: { label: 'Replies', hint: 'When someone replies in a thread you posted in' },
+  mention: { label: 'Mentions', hint: 'When someone mentions you in a post' },
+  governance: { label: 'Governance actions', hint: 'New actions and status changes' },
 };
 
-export default function NotificationPrefsMatrix({
-  channel,
-  prefs,
-}: {
-  channel: 'webpush' | 'telegram';
-  prefs: Record<NotificationEventType, boolean>;
-}) {
-  const [prefState, setPrefState] = useState<Record<NotificationEventType, boolean>>(prefs);
-  const [prefError, setPrefError] = useState<string | null>(null);
-
-  async function handlePrefToggle(eventType: NotificationEventType, enabled: boolean) {
-    setPrefError(null);
-    const prevPrefs = prefState;
-    setPrefState((prev) => ({ ...prev, [eventType]: enabled }));
-    try {
-      const res = await fetchWithTimeout('/api/notifications/prefs', {
+/**
+ * Flips all three event prefs for a channel in parallel. Used by the master
+ * toggle in each settings card. Resolves true only when every POST succeeded,
+ * so the caller can revert its optimistic state on any failure.
+ */
+export async function setAllPrefs(channel: 'webpush' | 'telegram', enabled: boolean): Promise<boolean> {
+  const results = await Promise.all(
+    (Object.keys(EVENT_LABELS) as NotificationEventType[]).map((eventType) =>
+      fetchWithTimeout('/api/notifications/prefs', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ channel, eventType, enabled }),
-      });
-      if (!res.ok) {
-        setPrefState(prevPrefs);
-        setPrefError('Could not save that setting. Please try again.');
-      }
-    } catch {
-      setPrefState(prevPrefs);
-      setPrefError('Could not save that setting. Please try again.');
-    }
-  }
+      })
+        .then((r) => r.ok)
+        .catch(() => false),
+    ),
+  );
+  return results.every(Boolean);
+}
 
+export default function NotificationPrefsMatrix({
+  prefs,
+  onChange,
+  error,
+}: {
+  prefs: Record<NotificationEventType, boolean>;
+  onChange: (eventType: NotificationEventType, enabled: boolean) => void;
+  error?: string | null;
+}) {
   return (
-    <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      <h3 style={{ margin: 0, fontSize: '0.9375rem' }}>Notify me about</h3>
+    <div className="nset__matrix">
+      <h4 className="nset__matrixhead">Notify me about</h4>
       {(Object.keys(EVENT_LABELS) as NotificationEventType[]).map((eventType) => (
-        <label key={eventType} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
+        <label key={eventType} className="nset__opt">
           <input
             type="checkbox"
-            checked={prefState[eventType]}
-            onChange={(e) => void handlePrefToggle(eventType, e.target.checked)}
+            checked={prefs[eventType]}
+            onChange={(e) => onChange(eventType, e.target.checked)}
           />
-          <span>
-            {EVENT_LABELS[eventType].label}{' '}
-            <span style={{ color: 'var(--muted)' }}>({EVENT_LABELS[eventType].hint})</span>
-          </span>
+          <div>
+            <div className="nset__optlabel">{EVENT_LABELS[eventType].label}</div>
+            <p className="nset__optdesc">{EVENT_LABELS[eventType].hint}</p>
+          </div>
         </label>
       ))}
-      {prefError && <p style={{ margin: 0, color: 'var(--danger)', fontSize: '0.8125rem' }}>{prefError}</p>}
+      {error && <p style={{ margin: 0, color: 'var(--danger)', fontSize: '0.8125rem' }}>{error}</p>}
     </div>
   );
 }
