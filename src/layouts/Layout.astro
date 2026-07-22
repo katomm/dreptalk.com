@@ -6,10 +6,10 @@ import SearchTrigger from '@/components/search/SearchTrigger';
 import RoleEntry from '@/components/RoleEntry.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import LogoMark from '@/components/LogoMark.astro';
-import { currentNetwork, runtimeEnv } from '@/lib/api/response';
+import { currentNetwork } from '@/lib/api/response';
 import { NAV_LINKS } from '@/lib/config/nav.js';
-import { getUnreadCount } from '@/lib/db/notifications';
-import { loadAuthorIdentity, type AuthorDescriptor } from '@/lib/forum/author';
+import type { AuthorDescriptor } from '@/lib/forum/author';
+import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 import { getHelpEntries } from '@/lib/search/helpEntries.js';
 import type { HelpEntry } from '@/lib/search/staticEntries.js';
 
@@ -59,17 +59,14 @@ const organizationLd = {
 };
 
 // Resolve the signed-in identity (name, avatar, DRep profile link) and the
-// header bell's unread count together, in one Promise.all, so a signed-in
-// render does not pay for a second sequential DB round trip. Both RoleEntry
-// instances (desktop pill and mobile menu) receive the identity. Signed-out
-// and prerendered renders skip the lookup entirely.
+// header bell's unread count together, through the request-scoped memo, so a
+// page that already loaded the pair (e.g. /home/) shares the queries instead
+// of paying a second set. Both RoleEntry instances (desktop pill and mobile
+// menu) receive the identity. Signed-out and prerendered renders skip the
+// lookup entirely.
 const sessionUser = Astro.locals.user;
-const env = runtimeEnv(Astro.locals);
 const [account, unreadCount]: [AuthorDescriptor | null, number] = sessionUser
-  ? await Promise.all([
-      loadAuthorIdentity(env.DB, sessionUser.id),
-      getUnreadCount(env.DB, sessionUser.id),
-    ])
+  ? await loadSessionHeader(Astro.locals, sessionUser.id)
   : [null, 0];
 
 const pathname = Astro.url.pathname;
@@ -161,7 +158,12 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
               class="site-nav__link"
               href={link.href}
               aria-current={isActive(link.href) ? 'page' : undefined}
-            >{link.label}</a>
+            >{link.shortLabel ? (
+              <>
+                <span class="site-nav__label--full">{link.label}</span>
+                <span class="site-nav__label--short">{link.shortLabel}</span>
+              </>
+            ) : link.label}</a>
           ))}
         </nav>
 
@@ -347,7 +349,23 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         font-weight: 500;
         padding: 0.45rem 0.7rem;
         border-radius: var(--radius-sm);
+        /* A nav label never breaks into two lines; where space runs out the
+           compact label below takes over instead. */
+        white-space: nowrap;
         transition: color 0.15s ease, background-color 0.15s ease;
+      }
+      /* Compact-label swap: the full label yields to the short one in the zone
+         between the mobile menu cutoff (820px) and a comfortably wide header. */
+      .site-nav__label--short {
+        display: none;
+      }
+      @media (max-width: 1080px) {
+        .site-nav__label--full {
+          display: none;
+        }
+        .site-nav__label--short {
+          display: inline;
+        }
       }
       .site-nav__link:hover {
         color: var(--fg);

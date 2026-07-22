@@ -1,0 +1,431 @@
+---
+// Signed-in start page: where every login lands. A greeting head plus a
+// role-aware card grid linking the account surfaces (voting dashboard,
+// metadata settings, notifications, profile, discussions), each with a small
+// live status line so the page answers "anything waiting for me?" at a
+// glance. Session-gated; signed-out visitors are redirected to /login.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import Avatar from '@/components/Avatar.astro';
+import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
+import DrepVotingStats from '@/components/DrepVotingStats.astro';
+import { roleLabels } from '@/lib/auth/roles';
+import { runtimeEnv } from '@/lib/api/response';
+import { getSelfDrepId } from '@/lib/db/users';
+import { getDrepById } from '@/lib/db/dreps';
+import { getVotableActionsForViewer } from '@/lib/db/votableActions';
+import { getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation } from '@/lib/db/drepVotes';
+import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory';
+import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive';
+import { authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes';
+import { recentlyActiveLabel } from '@/lib/forum/view';
+import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, VOTE_PATH } from '@/lib/forum/icons';
+import { loadSessionHeader } from '@/lib/forum/sessionHeader';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+
+// The DRep-only cards (voting dashboard, on-chain metadata status) key off a
+// synced drep_id; getSelfDrepId itself returns null for non-DRep sessions.
+const drepId = db ? await getSelfDrepId(db, user) : null;
+
+// The dreps row first (participation needs registeredEpoch, mirroring the
+// /vote/ pattern), then one parallel round trip: the header pair (identity +
+// unread count, shared with the Layout via the request-scoped memo), for
+// DReps the open-actions list (same query /vote/ runs) plus the profile's
+// voting stats and power trend, and the recently-active ids for the
+// discussions card.
+const drep = drepId && db ? await getDrepById(db, drepId) : null;
+const [[account, unreadCount], votableRows, recentIds, voteBreakdown, rationaleStats, participation, powerSeries] =
+  await Promise.all([
+    loadSessionHeader(Astro.locals, user.id),
+    drepId && db ? getVotableActionsForViewer(db, drepId) : [],
+    db ? listRecentlyActiveAuthorIds(db, 10) : [],
+    drep && db ? getDrepVoteBreakdown(db, drep.drepId) : { yes: 0, no: 0, abstain: 0, total: 0 },
+    drep && db ? getDrepRationaleStats(db, drep.drepId) : { total: 0, without: 0, withRationale: 0 },
+    drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : null,
+    drep && db ? getDrepVotingPowerSeries(db, drep.drepId) : [],
+  ]);
+
+// Same "N DReps and M SPOs active recently" line the discussions page shows,
+// hydrated to full identities exactly like there, so the featured tile can
+// render the faces with their names and profile links.
+const recentAuthors =
+  db && recentIds.length
+    ? await loadAuthorIdentities(db, recentIds).then((r) => recentIds.map((id) => r.describe(id)))
+    : [];
+const activityLabel = recentlyActiveLabel(
+  recentAuthors.filter((a) => a.badges?.includes('DRep')).length,
+  recentAuthors.filter((a) => a.badges?.includes('SPO')).length,
+);
+// The clickable faces in the featured tile: capped so the row stays a glance,
+// and only people whose profile page actually resolves.
+const recentFaces = recentAuthors
+  .map((a) => ({ author: a, href: authorProfileHref(a) }))
+  .filter((f): f is typeof f & { href: string } => !!f.href)
+  .slice(0, 6);
+
+const openCount = votableRows.length;
+const unvotedCount = votableRows.filter((r) => !r.viewerVote).length;
+// The profile page 404s until the DRep's on-chain record is synced into the
+// dreps table (a fresh registration can lag a sync cycle), so the card needs
+// the synced row, not just a profile href derived from the session's drep_id.
+const profileHref = (account.drepId ? drep != null : true) ? authorProfileHref(account) : null;
+const rolesLabel = roleLabels(user.roles).join(', ');
+
+const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
+
+// Path data per card icon (24x24 stroke grid); the shared account-surface
+// icons come from the icons module, the page-only ones live here.
+const icons = {
+  vote: VOTE_PATH,
+  metadata: PENCIL_PATH,
+  settings: SETTINGS_PATH,
+  bell: 'M10.268 21a2 2 0 0 0 3.464 0 M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.74 7.326',
+  profile: PROFILE_PATH,
+  discussions:
+    'M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1',
+} as const;
+
+// Card status lines are uniformly muted; anything that wants action (unvoted
+// actions, unread notifications, missing metadata) is flagged by an accent
+// badge next to the title instead, so the highlight mechanism is consistent.
+interface HomeCard {
+  title: string;
+  href: string;
+  icon: string;
+  desc: string;
+  stat?: string;
+  badge?: string;
+}
+
+// Discussions is either the featured tile beside the power trend (DReps with
+// a trend to show) or a regular grid card (everyone else).
+const discussionsCard: HomeCard = {
+  title: 'Discussions',
+  href: '/discussions/',
+  icon: icons.discussions,
+  desc: 'Browse the forum and join the conversation.',
+  stat: activityLabel ?? undefined,
+};
+const featureDiscussions = Boolean(drep && powerSeries.length >= 2);
+
+const cards: HomeCard[] = [
+  ...(drepId
+    ? [
+        {
+          title: 'Voting Dashboard',
+          href: '/vote/',
+          icon: icons.vote,
+          desc: 'Open governance actions and your voting record.',
+          stat:
+            openCount === 0
+              ? 'No open governance actions right now'
+              : unvotedCount > 0
+                ? `${plural(unvotedCount, 'open action')} awaiting your vote`
+                : `All ${plural(openCount, 'open action')} voted`,
+          badge: unvotedCount > 0 ? String(unvotedCount) : undefined,
+        },
+        {
+          title: 'DRep metadata',
+          href: '/settings/',
+          icon: icons.metadata,
+          desc: 'Your on-chain profile: name, bio, links and image (CIP-119).',
+          stat: drep?.name ? `On-chain name: ${drep.name}` : 'No on-chain metadata yet',
+          badge: drep?.name ? undefined : '!',
+        },
+      ]
+    : [
+        {
+          title: 'Settings',
+          href: '/settings/',
+          icon: icons.settings,
+          desc: 'Manage your DRepTalk account.',
+        },
+      ]),
+  {
+    title: 'Notifications',
+    href: '/notifications/',
+    icon: icons.bell,
+    desc: 'Replies, mentions and governance updates.',
+    stat: unreadCount > 0 ? plural(unreadCount, 'unread notification') : 'You are all caught up',
+    badge: unreadCount > 0 ? String(unreadCount) : undefined,
+  },
+  ...(profileHref
+    ? [
+        {
+          title: 'Your profile',
+          href: profileHref,
+          icon: icons.profile,
+          desc: 'Your public page as others see it.',
+          stat: drep?.delegatorCount != null ? plural(drep.delegatorCount, 'delegator') : undefined,
+        },
+      ]
+    : []),
+  ...(featureDiscussions ? [] : [discussionsCard]),
+];
+---
+<Layout
+  title="Home - DRepTalk"
+  description="Your DRepTalk start page: everything you can do, at a glance."
+  noindex={true}
+>
+  <header class="home-head">
+    <Avatar seed={account.identiconSeed ?? account.authorId} imageHash={account.imageHash ?? null} size={64} />
+    <div class="home-head__text">
+      <h1 class="home-head__title">Welcome back, {account.displayName}</h1>
+      <p class="home-head__sub">Signed in as {rolesLabel}. Here is everything you can do.</p>
+    </div>
+  </header>
+
+  {featureDiscussions && (
+    <div class="home-featured">
+      <DrepPowerSparkline series={powerSeries} />
+      {/* Not an <a> like the grid cards: the faces inside are their own
+          profile links, so the tile uses a stretched main link instead
+          (nested anchors are invalid HTML). */}
+      <div class="home-card home-card--featured">
+        <svg class="home-card__icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={discussionsCard.icon} /></svg>
+        <span class="home-card__body">
+          <a class="home-card__title home-card__stretch-link" href={discussionsCard.href}>{discussionsCard.title}</a>
+          <span class="home-card__text">{discussionsCard.desc}</span>
+          {discussionsCard.stat && <span class="home-card__stat">{discussionsCard.stat}</span>}
+          {recentFaces.length > 0 && (
+            <span class="home-card__faces">
+              {recentFaces.map((f) => (
+                <a class="home-card__face" href={f.href} title={f.author.displayName} aria-label={`Profile of ${f.author.displayName}`}>
+                  <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} size={AVATAR_SIZE.rowLead} />
+                </a>
+              ))}
+            </span>
+          )}
+        </span>
+        <svg class="home-card__chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </div>
+    </div>
+  )}
+
+  <div class="home-grid">
+    {cards.map((card) => (
+      <a class="home-card" href={card.href}>
+        <svg class="home-card__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={card.icon} /></svg>
+        <span class="home-card__body">
+          <span class="home-card__title">
+            {card.title}
+            {card.badge && <span class="home-card__badge">{card.badge}</span>}
+          </span>
+          <span class="home-card__text">{card.desc}</span>
+          {card.stat && <span class="home-card__stat">{card.stat}</span>}
+        </span>
+        <svg class="home-card__chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </a>
+    ))}
+  </div>
+
+  {drep && (
+    <section class="home-stats">
+      <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
+    </section>
+  )}
+</Layout>
+
+<style>
+  .home-head {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 0.5rem 0 1.75rem;
+  }
+  .home-head__title {
+    font-size: clamp(1.35rem, 3.5vw, 1.75rem);
+    margin: 0;
+  }
+  .home-head__sub {
+    margin: 0.3rem 0 0;
+    font-size: 0.9375rem;
+    color: var(--muted);
+  }
+
+  /* Featured row: the power-trend card on the left, the highlighted
+     Discussions tile on the right. Mirrors the grid's two columns exactly so
+     the card edges line up down the whole page. */
+  .home-featured {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem;
+    align-items: stretch;
+    margin: 0 0 0.9rem;
+  }
+  @media (max-width: 800px) {
+    .home-featured {
+      grid-template-columns: 1fr;
+    }
+  }
+  /* The embedded trend card dresses like the grid cards on this page (the
+     profile keeps its heavier framed look): same surface, radius, no shadow,
+     and it fills its grid column instead of its own 32rem cap. */
+  .home-featured :global(.vptrend) {
+    max-width: none;
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: none;
+  }
+  .home-card--featured {
+    align-items: center;
+    gap: 1rem;
+    padding: 1.5rem 1.75rem;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, var(--surface)), var(--surface) 70%);
+    border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+  }
+  .home-card--featured .home-card__body {
+    gap: 0.4rem;
+  }
+  .home-card--featured .home-card__title {
+    font-size: 1.25rem;
+  }
+  .home-card--featured .home-card__text {
+    font-size: 0.9375rem;
+  }
+  /* Stretched main link: the whole tile stays clickable while the faces sit
+     above it as their own links. */
+  .home-card--featured {
+    position: relative;
+  }
+  .home-card__stretch-link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .home-card__stretch-link::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+  /* Recently-active faces: an overlapping row, each a profile link raised
+     above the stretched link. Desktop garnish only; the label line already
+     carries the information on narrow screens. */
+  .home-card__faces {
+    display: flex;
+    margin-top: 0.4rem;
+  }
+  .home-card__face {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    border-radius: 50%;
+    /* Card-colored ring so the overlapping edges stay crisp. */
+    background: var(--surface);
+    box-shadow: 0 0 0 2px var(--surface);
+    transition: transform 0.15s ease;
+  }
+  .home-card__face + .home-card__face {
+    margin-left: -10px;
+  }
+  .home-card__face:hover {
+    z-index: 2;
+    transform: translateY(-2px);
+  }
+  @media (max-width: 800px) {
+    .home-card__faces {
+      display: none;
+    }
+  }
+  .home-stats {
+    margin-top: 1.75rem;
+  }
+
+  .home-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem;
+  }
+  @media (max-width: 800px) {
+    .home-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .home-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .home-card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .home-card__icon {
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+    color: var(--accent);
+  }
+  .home-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+  .home-card__title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .home-card__text {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .home-card__stat {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  /* Needs-action marker: a small count pill next to the title, matching the
+     category count pills, so the stat lines can stay uniformly muted. */
+  .home-card__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.35em;
+    margin-left: 0.45rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.4;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    vertical-align: text-bottom;
+  }
+  .home-card__chev {
+    flex-shrink: 0;
+    margin-left: auto;
+    align-self: center;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  .home-card:hover .home-card__chev {
+    transform: translateX(2px);
+    color: var(--accent);
+  }
+</style>

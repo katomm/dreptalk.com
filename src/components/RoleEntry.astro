@@ -30,7 +30,7 @@ const user = Astro.locals.user;
 // stroke paths, rendered via set:html). The first doubles as the primary
 // button: the split menu highlights it, the flat (mobile) disclosure skips it
 // because the primary button sits directly above the list there.
-const signinRoles = [
+const signinRoles: { label: string; href: string; icon: string; register?: boolean }[] = [
   {
     label: 'Enter as DRep',
     href: '/login/',
@@ -50,6 +50,15 @@ const signinRoles = [
     label: 'Enter as proposer',
     href: '/login/?role=proposer',
     icon: '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>',
+  },
+  // Not a sign-in: the on-chain registration flow, offered last for newcomers
+  // who have no governance identity to sign in with yet. The `register` flag
+  // sets it apart from the login rows with a spaced divider.
+  {
+    label: 'Register as DRep',
+    href: '/register-drep/',
+    icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/>',
+    register: true,
   },
 ];
 
@@ -114,7 +123,7 @@ const display = user && account
       </summary>
       <div class="role-entry__menu">
         {signinRoles.map((r, i) => (
-          <a class:list={['role-entry__item', { 'role-entry__item--active': i === 0 }]} href={r.href}>
+          <a class:list={['role-entry__item', { 'role-entry__item--active': i === 0, 'role-entry__item--register': r.register }]} href={r.href}>
             <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={r.icon} />
             {r.label}
           </a>
@@ -131,7 +140,7 @@ const display = user && account
       </summary>
       <div class="role-entry__list">
         {signinRoles.slice(1).map((r) => (
-          <a class="role-entry__item" href={r.href}>
+          <a class:list={['role-entry__item', { 'role-entry__item--register': r.register }]} href={r.href}>
             <svg class="role-entry__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={r.icon} />
             {r.label}
           </a>
@@ -260,6 +269,13 @@ const display = user && account
   }
   a.role-entry__item--active:hover {
     background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  /* Registration row: spaced divider sets it apart from the sign-in rows (in
+     the dropdown the hairline itself comes from the menu's sibling rule; the
+     explicit border covers the flat mobile list, which has none). */
+  .role-entry__item--register {
+    margin-top: 0.35rem;
+    border-top: 1px solid var(--border);
   }
 
   /* Flat layout for the mobile menu: stacked full-width rows, no disclosure. */

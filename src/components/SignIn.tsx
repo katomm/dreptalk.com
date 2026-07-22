@@ -11,6 +11,10 @@ import WalletConnection from '@/components/WalletConnection.js';
 import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 
+// Where a successful login lands, shared by the wallet and signer flows so the
+// two entry points can never drift onto different start pages.
+const POST_LOGIN_DEST = '/home/';
+
 // ---- Types ------------------------------------------------------------------
 
 type SignInMethod = 'wallet' | 'cardano-signer';
@@ -532,7 +536,7 @@ function WalletTab({ network, loginState, onLoginStateChange }: WalletTabProps) 
     if (result.ok && result.user) {
       rememberWallet(selectedWallet);
       onLoginStateChange({ status: 'success', userId: result.user.id, roles: result.user.roles });
-      window.location.assign('/discussions/');
+      window.location.assign(POST_LOGIN_DEST);
     } else {
       onLoginStateChange({ status: 'error', message: friendlyLoginError(result.error, signRole, network) });
     }
@@ -706,7 +710,7 @@ function SignerTab({ network, loginState, onLoginStateChange }: SignerTabProps) 
     });
 
     if (r.ok && r.user) {
-      window.location.assign('/discussions/');
+      window.location.assign(POST_LOGIN_DEST);
     } else {
       onLoginStateChange({ status: 'error', message: friendlyLoginError(r.error, role, network) });
       // Challenge is single-use; refresh so the user can retry without reloading.

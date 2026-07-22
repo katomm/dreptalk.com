@@ -6,6 +6,7 @@
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import { recentlyActiveLabel } from '@/lib/forum/view.js';
 
 interface Props {
   authors: AuthorDescriptor[];
@@ -16,13 +17,7 @@ const { authors } = Astro.props;
 // both), so the heading always matches the faces beneath it.
 const drepCount = authors.filter((a) => a.badges?.includes('DRep')).length;
 const spoCount = authors.filter((a) => a.badges?.includes('SPO')).length;
-const roleLabel = [
-  drepCount > 0 ? `${drepCount} ${drepCount === 1 ? 'DRep' : 'DReps'}` : null,
-  spoCount > 0 ? `${spoCount} ${spoCount === 1 ? 'SPO' : 'SPOs'}` : null,
-]
-  .filter(Boolean)
-  .join(' and ');
-const heading = `${roleLabel} active recently on DRepTalk`;
+const heading = recentlyActiveLabel(drepCount, spoCount);
 ---
 
 {authors.length > 0 && (
