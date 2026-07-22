@@ -51,6 +51,48 @@ export async function upsertVotes(
   return votes.length;
 }
 
+/** An anchored vote on a finalized action whose anchor hash is still missing. */
+export interface VoteNeedingMetaHash {
+  ga_id: string;
+  proposal_id: string;
+  voter_id: string;
+  meta_url: string;
+  /** Unix seconds of the vote tx as stored locally; null for pre-capture rows. */
+  block_time: number | null;
+}
+
+/**
+ * Votes on finalized actions that carry an anchor URL but no anchor hash
+ * (synced before meta_hash capture existed). The rationale queue skips them
+ * until the hash is backfilled. Bounded by `limit`.
+ */
+export async function getVotesNeedingMetaHash(db: D1Database, limit: number): Promise<VoteNeedingMetaHash[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT v.ga_id, g.proposal_id, v.voter_id, v.meta_url, v.block_time
+         FROM drep_votes v
+         JOIN governance_actions g ON g.id = v.ga_id
+         WHERE g.status NOT IN ('active', 'pending')
+           AND g.proposal_id IS NOT NULL
+           AND v.meta_url IS NOT NULL AND v.meta_url != ''
+           AND (v.meta_hash IS NULL OR v.meta_hash = '')
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<VoteNeedingMetaHash>()
+  ).results ?? [];
+  return rows;
+}
+
+/** Fills the anchor hash on one stored vote without touching the rest of the row. */
+export async function setVoteMetaHash(db: D1Database, gaId: string, voterId: string, metaHash: string): Promise<void> {
+  await db
+    .prepare('UPDATE drep_votes SET meta_hash = ? WHERE ga_id = ? AND voter_id = ?')
+    .bind(metaHash, gaId, voterId)
+    .run();
+}
+
 /** One row of a DRep's voting history: the vote plus its action's context. */
 export interface DrepVoteHistoryRow {
   ga_id: string;

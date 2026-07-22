@@ -6,9 +6,9 @@ import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSyn
 import { getVotesByGaId, recordLocalVote, getViewerVote, upsertVotes } from '../db/drepVotes.js';
 import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
-import { getActionsNeedingVoteBackfill, getActionsNeedingMetaHashBackfill } from '../db/governance.js';
-import { getDrepVotingHistory } from '../db/drepVotes.js';
-import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
+import { getActionsNeedingVoteBackfill } from '../db/governance.js';
+import { getDrepVotingHistory, getVotesNeedingMetaHash } from '../db/drepVotes.js';
+import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow } from '../koios/client.js';
 import { epochStartMs, resolveNetwork } from '../config/network.js';
 
 const db = () => env.DB;
@@ -693,7 +693,7 @@ describe('syncGovernanceTallies emits gov_status', () => {
 });
 
 describe('backfillVoteMetaHashes', () => {
-  it('refills meta_hash for a finalized action and drops it from the candidate set', async () => {
+  it('fills a missing hash from the voter vote list and drains the candidate', async () => {
     await env.DB.prepare(
       `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
        VALUES ('gaBF', 'TreasuryWithdrawals', 'BF', 'ratified', 'propBF', NULL, 0, 0)`,
@@ -701,74 +701,172 @@ describe('backfillVoteMetaHashes', () => {
     await upsertVotes(
       env.DB,
       'gaBF',
-      [{ voterRole: 'DRep', voterId: 'drepBF', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://doc', metaHash: null }],
+      [{ voterRole: 'DRep', voterId: 'drepBF', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://doc', metaHash: null, blockTime: 500 }],
       0,
     );
 
+    const asked: Array<[string, string]> = [];
     const koios = {
-      proposalVotes: async (_p: string, _l?: number, offset = 0): Promise<ProposalVoteRow[]> =>
-        offset === 0
-          ? [
-              {
-                voter_role: 'DRep',
-                voter_id: 'drepBF',
-                voter_hex: null,
-                vote: 'Yes',
-                meta_url: 'ipfs://doc',
-                meta_hash: 'abc123',
-              },
-            ]
-          : [],
+      voterProposalVoteList: async (voterId: string, proposalId: string): Promise<VoteListRow[]> => {
+        asked.push([voterId, proposalId]);
+        return [{ meta_url: 'ipfs://doc', meta_hash: 'abc123', block_time: 500 }];
+      },
     };
 
-    const r = await backfillVoteMetaHashes({ koios, db: env.DB, now: 999, limit: 10 });
-    expect(r.actions).toBe(1);
-    expect(r.votes).toBe(1);
+    const r = await backfillVoteMetaHashes({ koios, db: env.DB, limit: 10 });
+    expect(asked).toEqual([['drepBF', 'propBF']]);
+    expect(r).toEqual({ votes: 1, failed: 0 });
 
     const row = await env.DB
       .prepare("SELECT meta_hash FROM drep_votes WHERE ga_id='gaBF' AND voter_id='drepBF'")
       .first<{ meta_hash: string | null }>();
     expect(row?.meta_hash).toBe('abc123');
 
-    const ids = (await getActionsNeedingMetaHashBackfill(env.DB, 10)).map((g) => g.id);
-    expect(ids).not.toContain('gaBF');
+    expect(await getVotesNeedingMetaHash(env.DB, 10)).toEqual([]);
   });
 
-  it('caps a pathological vote list without throwing', async () => {
+  it('prefers the history row matching the stored block_time over the newest', async () => {
     await env.DB.prepare(
       `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
-       VALUES ('gaBFcap', 'TreasuryWithdrawals', 'Huge', 'ratified', 'propBFcap', NULL, 0, 0)`,
+       VALUES ('gaBFrv', 'TreasuryWithdrawals', 'RV', 'expired', 'propBFrv', NULL, 0, 0)`,
     ).run();
     await upsertVotes(
       env.DB,
-      'gaBFcap',
-      [{ voterRole: 'DRep', voterId: 'seed', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://seed', metaHash: null }],
+      'gaBFrv',
+      [{ voterRole: 'DRep', voterId: 'drepRV', voterHex: null, vote: 'No', metaUrl: 'ipfs://same', metaHash: null, blockTime: 100 }],
       0,
     );
 
-    let calls = 0;
     const koios = {
-      proposalVotes: async (_p: string, limit = 1000, offset = 0): Promise<ProposalVoteRow[]> => {
-        calls++;
-        return Array.from({ length: limit }, (_, k) => ({
-          voter_role: 'DRep',
-          voter_id: `drep_${offset + k}`,
-          voter_hex: null,
-          vote: 'Yes',
-          meta_url: 'ipfs://d',
-          meta_hash: 'h',
-        }));
+      voterProposalVoteList: async (): Promise<VoteListRow[]> => [
+        { meta_url: 'ipfs://same', meta_hash: 'hashNew', block_time: 200 },
+        { meta_url: 'ipfs://same', meta_hash: 'hashOld', block_time: 100 },
+      ],
+    };
+
+    const r = await backfillVoteMetaHashes({ koios, db: env.DB, limit: 10 });
+    expect(r.failed).toBe(0);
+
+    const row = await env.DB
+      .prepare("SELECT meta_hash FROM drep_votes WHERE ga_id='gaBFrv' AND voter_id='drepRV'")
+      .first<{ meta_hash: string | null }>();
+    expect(row?.meta_hash).toBe('hashOld');
+  });
+
+  it('falls back to the newest row when the stored block_time is unknown', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaBFnb', 'TreasuryWithdrawals', 'NB', 'enacted', 'propBFnb', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaBFnb',
+      [{ voterRole: 'DRep', voterId: 'drepNB', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://doc', metaHash: null, blockTime: null }],
+      0,
+    );
+
+    const koios = {
+      voterProposalVoteList: async (): Promise<VoteListRow[]> => [
+        { meta_url: 'ipfs://doc', meta_hash: 'hashNewest', block_time: 900 },
+        { meta_url: 'ipfs://prev', meta_hash: 'hashPrev', block_time: 100 },
+      ],
+    };
+
+    await backfillVoteMetaHashes({ koios, db: env.DB, limit: 10 });
+
+    const row = await env.DB
+      .prepare("SELECT meta_hash FROM drep_votes WHERE ga_id='gaBFnb' AND voter_id='drepNB'")
+      .first<{ meta_hash: string | null }>();
+    expect(row?.meta_hash).toBe('hashNewest');
+  });
+
+  it('counts a vote with no resolvable hash as failed and leaves it untouched', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaBFmiss', 'TreasuryWithdrawals', 'Miss', 'expired', 'propBFmiss', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaBFmiss',
+      [{ voterRole: 'DRep', voterId: 'drepMiss', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://doc', metaHash: null, blockTime: 500 }],
+      0,
+    );
+
+    const koios = { voterProposalVoteList: async (): Promise<VoteListRow[]> => [] };
+
+    const r = await backfillVoteMetaHashes({ koios, db: env.DB, limit: 10 });
+    expect(r).toEqual({ votes: 0, failed: 1 });
+
+    const row = await env.DB
+      .prepare("SELECT meta_hash FROM drep_votes WHERE ga_id='gaBFmiss' AND voter_id='drepMiss'")
+      .first<{ meta_hash: string | null }>();
+    expect(row?.meta_hash).toBeNull();
+  });
+
+  it('refuses a hash whose anchor URL differs from the stored one', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaBFurl', 'TreasuryWithdrawals', 'Url', 'expired', 'propBFurl', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaBFurl',
+      [{ voterRole: 'DRep', voterId: 'drepUrl', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://doc', metaHash: null, blockTime: null }],
+      0,
+    );
+
+    const koios = {
+      voterProposalVoteList: async (): Promise<VoteListRow[]> => [
+        { meta_url: 'ipfs://other', meta_hash: 'hashOther', block_time: 500 },
+      ],
+    };
+
+    const r = await backfillVoteMetaHashes({ koios, db: env.DB, limit: 10 });
+    expect(r).toEqual({ votes: 0, failed: 1 });
+
+    const row = await env.DB
+      .prepare("SELECT meta_hash FROM drep_votes WHERE ga_id='gaBFurl' AND voter_id='drepUrl'")
+      .first<{ meta_hash: string | null }>();
+    expect(row?.meta_hash).toBeNull();
+  });
+
+  it('isolates a per-vote Koios failure and continues with the rest', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaBFerr', 'TreasuryWithdrawals', 'Err', 'expired', 'propBFerr', NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(
+      env.DB,
+      'gaBFerr',
+      [
+        { voterRole: 'DRep', voterId: 'drepA', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://a', metaHash: null, blockTime: 10 },
+        { voterRole: 'DRep', voterId: 'drepB', voterHex: null, vote: 'No', metaUrl: 'ipfs://b', metaHash: null, blockTime: 20 },
+      ],
+      0,
+    );
+
+    const koios = {
+      voterProposalVoteList: async (voterId: string): Promise<VoteListRow[]> => {
+        if (voterId === 'drepA') throw new Error('koios down');
+        return [{ meta_url: 'ipfs://b', meta_hash: 'hashB', block_time: 20 }];
       },
     };
 
-    const r = await backfillVoteMetaHashes({ koios, db: env.DB, now: 999, limit: 10, maxPages: 3 });
-    expect(calls).toBe(3); // bounded; did not run away
-    expect(r.votes).toBe(3000);
+    const r = await backfillVoteMetaHashes({ koios, db: env.DB, limit: 10 });
+    expect(r).toEqual({ votes: 1, failed: 1 });
+
+    const rows = await env.DB
+      .prepare("SELECT voter_id, meta_hash FROM drep_votes WHERE ga_id='gaBFerr' ORDER BY voter_id")
+      .all<{ voter_id: string; meta_hash: string | null }>();
+    expect(rows.results).toEqual([
+      { voter_id: 'drepA', meta_hash: null },
+      { voter_id: 'drepB', meta_hash: 'hashB' },
+    ]);
   });
 });
 
-describe('getActionsNeedingMetaHashBackfill', () => {
-  it('selects a finalized action with an anchored vote missing meta_hash', async () => {
+describe('getVotesNeedingMetaHash', () => {
+  it('selects an anchored vote on a finalized action missing its meta_hash', async () => {
     await env.DB.prepare(
       `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
        VALUES ('gaMH', 'TreasuryWithdrawals', 'Old', 'ratified', 'propMH', NULL, 0, 0)`,
@@ -777,15 +875,15 @@ describe('getActionsNeedingMetaHashBackfill', () => {
     await upsertVotes(
       env.DB,
       'gaMH',
-      [{ voterRole: 'DRep', voterId: 'drep1', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://x', metaHash: null }],
+      [{ voterRole: 'DRep', voterId: 'drep1', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://x', metaHash: null, blockTime: 42 }],
       0,
     );
 
-    const ids = (await getActionsNeedingMetaHashBackfill(env.DB, 10)).map((g) => g.id);
-    expect(ids).toContain('gaMH');
+    const rows = await getVotesNeedingMetaHash(env.DB, 10);
+    expect(rows).toContainEqual({ ga_id: 'gaMH', proposal_id: 'propMH', voter_id: 'drep1', meta_url: 'ipfs://x', block_time: 42 });
   });
 
-  it('excludes an action whose anchored votes all have a hash', async () => {
+  it('excludes votes that already carry a hash', async () => {
     await env.DB.prepare(
       `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
        VALUES ('gaMH2', 'TreasuryWithdrawals', 'Hashed', 'ratified', 'propMH2', NULL, 0, 0)`,
@@ -796,11 +894,11 @@ describe('getActionsNeedingMetaHashBackfill', () => {
       [{ voterRole: 'DRep', voterId: 'drep2', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://y', metaHash: 'deadbeef' }],
       0,
     );
-    const ids = (await getActionsNeedingMetaHashBackfill(env.DB, 10)).map((g) => g.id);
+    const ids = (await getVotesNeedingMetaHash(env.DB, 10)).map((v) => v.ga_id);
     expect(ids).not.toContain('gaMH2');
   });
 
-  it('excludes active actions and actions with no anchored votes', async () => {
+  it('excludes votes on active actions and votes with no anchor', async () => {
     await env.DB.prepare(
       `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
        VALUES ('gaActive', 'TreasuryWithdrawals', 'Active', 'active', 'propAct', NULL, 0, 0)`,
@@ -821,7 +919,7 @@ describe('getActionsNeedingMetaHashBackfill', () => {
       [{ voterRole: 'DRep', voterId: 'drep4', voterHex: null, vote: 'Yes', metaUrl: null, metaHash: null }],
       0,
     );
-    const ids = (await getActionsNeedingMetaHashBackfill(env.DB, 10)).map((g) => g.id);
+    const ids = (await getVotesNeedingMetaHash(env.DB, 10)).map((v) => v.ga_id);
     expect(ids).not.toContain('gaActive');
     expect(ids).not.toContain('gaNoAnchor');
   });

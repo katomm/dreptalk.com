@@ -222,6 +222,18 @@ const proposalVoteRowSchema = z
 
 export type ProposalVoteRow = z.infer<typeof proposalVoteRowSchema>;
 
+// One row of /vote_list filtered to a single voter and proposal: the full vote
+// history for that pair (re-votes included), used to recover anchor hashes.
+const voteListRowSchema = z
+  .object({
+    block_time: z.number().nullable().optional(),
+    meta_url: z.string().nullable().optional(),
+    meta_hash: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type VoteListRow = z.infer<typeof voteListRowSchema>;
+
 // One row of /pool_info. meta_json is the validated base off-chain metadata
 // (ticker/name/homepage/description); Koios omits the CIP-6 `extended` field, so
 // the logo URL is resolved separately from the raw meta_url document.
@@ -622,11 +634,25 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(votingSummarySchema).parse(data)[0] ?? null;
     },
 
-    // Individual on-chain votes on one governance action (paginated).
+    // Individual on-chain votes on one governance action (paginated). Caveat:
+    // Koios silently omits votes cast by DReps that have since deregistered, so
+    // the list can miss (or later lose) voters; /vote_list keeps the full record.
     async proposalVotes(proposalId: string, limit = 1000, offset = 0): Promise<ProposalVoteRow[]> {
       const path = `/proposal_votes?_proposal_id=${encodeURIComponent(proposalId)}&limit=${limit}&offset=${offset}`;
       const data = await request(path, { method: 'GET' });
       return z.array(proposalVoteRowSchema).parse(data);
+    },
+
+    // One voter's full vote history on one governance action, newest first.
+    // Unlike /proposal_votes, /vote_list keeps votes cast by since-deregistered
+    // DReps, so it can recover anchor hashes /proposal_votes no longer returns.
+    async voterProposalVoteList(voterId: string, proposalId: string): Promise<VoteListRow[]> {
+      const path =
+        `/vote_list?voter_id=eq.${encodeURIComponent(voterId)}` +
+        `&proposal_id=eq.${encodeURIComponent(proposalId)}` +
+        `&select=block_time,meta_url,meta_hash&order=block_time.desc`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(voteListRowSchema).parse(data);
     },
 
     // DRep registration/update history (paginated). Unfiltered: returns every
