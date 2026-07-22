@@ -4,6 +4,7 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
+import ProfileSyncing from '@/components/ProfileSyncing.astro';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import BadgeTile from '@/components/BadgeTile.astro';
@@ -12,7 +13,7 @@ import DrepForumRow from '@/components/DrepForumRow.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import { getPoolByIdOrSlug } from '@/lib/db/pools.js';
 import { getVoterVoteHistory } from '@/lib/db/voteHistory.js';
-import { getUserByPoolId } from '@/lib/db/users.js';
+import { getUserByPoolId, getUserById } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import {
   getPoolVotingHistory, countPoolVotes,
@@ -34,8 +35,17 @@ if (pool && poolId && !isCanonicalPoolParam(pool, poolId)) {
   return Astro.redirect(poolPath(pool), 301);
 }
 
+// Same courtesy as the DRep profile: a signed-in operator whose fresh pool
+// registration has not synced yet gets a "profile syncing" notice instead of
+// a bare 404. The pool id is not cached on the session, so this costs one
+// users read, and only on this miss path for signed-in SPOs.
+let ownProfileSyncing = false;
+if (!pool && db && poolId && Astro.locals.user?.roles.includes('spo')) {
+  ownProfileSyncing = (await getUserById(db, Astro.locals.user.id))?.pool_id === poolId;
+}
+
 if (!pool) {
-  Astro.response.status = 404;
+  if (!ownProfileSyncing) Astro.response.status = 404;
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
@@ -82,7 +92,7 @@ const metaDescription = pool
 ---
 
 {!pool ? (
-  <NotFound noun="stake pool" />
+  ownProfileSyncing ? <ProfileSyncing kind="pool" id={poolId ?? ''} /> : <NotFound noun="stake pool" />
 ) : (
   <Layout title={`${displayName} - SPO on DRepTalk`} description={metaDescription} noindex={!indexable}>
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">

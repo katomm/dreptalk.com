@@ -5,6 +5,7 @@ import { env, waitUntil } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
+import ProfileSyncing from '@/components/ProfileSyncing.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVoteRow from '@/components/DrepVoteRow.astro';
@@ -15,7 +16,7 @@ import { createKoiosClient } from '@/lib/koios/client.js';
 import { resolveNetwork } from '@/lib/config/network.js';
 import { maybeRefreshDelegatorCount } from '@/lib/dreps/delegatorCountRefresh.js';
 import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
-import { getUserByDrepId } from '@/lib/db/users.js';
+import { getUserByDrepId, getSelfDrepId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import {
@@ -48,8 +49,19 @@ if (drep && drepId && !isCanonicalDrepParam(drep, drepId)) {
   return Astro.redirect(drepPath(drep), 301);
 }
 
+// A signed-in DRep viewing their own not-yet-synced profile (fresh on-chain
+// registration waiting for the next DRep sync run): the account menu links
+// here before the row exists, so render a "profile syncing" notice instead of
+// a bare 404. getSelfDrepId reads the drep id cached on the session, so this
+// costs no query on regular renders (a legacy session pays one, on this miss
+// path only).
+let ownProfileSyncing = false;
+if (!drep && db && drepId && Astro.locals.user) {
+  ownProfileSyncing = (await getSelfDrepId(db, Astro.locals.user)) === drepId;
+}
+
 if (!drep) {
-  Astro.response.status = 404;
+  if (!ownProfileSyncing) Astro.response.status = 404;
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
@@ -190,7 +202,7 @@ const profileSummary = drep
 ---
 
 {!drep ? (
-  <NotFound noun="DRep" />
+  ownProfileSyncing ? <ProfileSyncing kind="drep" id={drepId ?? ''} /> : <NotFound noun="DRep" />
 ) : (
   <Layout
     title={`${displayName} - DRep on DRepTalk`}
