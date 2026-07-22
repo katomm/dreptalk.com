@@ -1,11 +1,12 @@
 ---
 // Body of the signed-in account menu: identity header (avatar, name, shortened
-// id with a copy button) above Settings, Profile (any account with one, DRep
-// or SPO) and Log out.
+// id with a copy button) above Home, Settings, Profile (any account with one,
+// DRep or SPO) and Log out.
 // Rendered by RoleEntry in both the desktop dropdown and the flat mobile list,
 // so the rows live here exactly once. The copy button is the only client JS,
 // shipped as a bundled script (the strict CSP forbids inline handlers).
 import { authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author';
+import { PROFILE_PATH, SETTINGS_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { truncateIdMiddle } from '@/lib/forum/view';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
@@ -24,14 +25,14 @@ const seed = account.identiconSeed ?? account.authorId;
 const imageHash = account.imageHash ?? null;
 const profileHref = authorProfileHref(account);
 
-// Inner SVG markup per menu icon (24x24 stroke icons, rendered via set:html).
+// Path data per menu icon (24x24 stroke grid); the shared account-surface
+// icons come from the icons module, the menu-only ones live here.
 const icons = {
-  settings:
-    '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
-  profile: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-  vote: '<path d="M9 12l2 2 4-4"/><path d="M5 7c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v12H5V7z"/><path d="M22 19H2"/>',
-  logout:
-    '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+  home: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8 M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  settings: SETTINGS_PATH,
+  profile: PROFILE_PATH,
+  vote: VOTE_PATH,
+  logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9',
 } as const;
 
 // Menu rows above Log out, most-used first: for a DRep that is the Voting
@@ -40,6 +41,7 @@ const icons = {
 // redirects everyone else to /login, so it is gated on a synced DRep id, not
 // profileHref.
 const items = [
+  { label: 'Home', href: '/home/', icon: icons.home },
   ...(account.drepId ? [{ label: 'Voting Dashboard', href: '/vote/', icon: icons.vote }] : []),
   ...(profileHref ? [{ label: 'Profile', href: profileHref, icon: icons.profile }] : []),
   { label: 'Settings', href: '/settings/', icon: icons.settings },
@@ -57,13 +59,13 @@ const items = [
   </div>
   {items.map((item) => (
     <a class="account-menu__item" href={item.href}>
-      <svg class="account-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={item.icon} />
+      <svg class="account-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={item.icon} /></svg>
       {item.label}
     </a>
   ))}
   <form method="POST" action="/api/auth/logout" class="account-menu__logout-form">
     <button type="submit" class="account-menu__item account-menu__logout-item">
-      <svg class="account-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.logout} />
+      <svg class="account-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.logout} /></svg>
       Log out
     </button>
   </form>

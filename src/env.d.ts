@@ -9,6 +9,11 @@ declare namespace App {
      * undefined = legacy session predating the field, resolve via getSelfDrepId).
      */
     user: { id: string; roles: string[]; drepId?: string | null } | null;
+    /**
+     * Request-scoped memo of the signed-in header data (identity + unread
+     * count); set and read via loadSessionHeader, never directly.
+     */
+    sessionHeader?: Promise<[import('./lib/forum/author.js').AuthorDescriptor, number]>;
   }
 }
 
