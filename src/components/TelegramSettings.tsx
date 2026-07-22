@@ -29,6 +29,10 @@ export default function TelegramSettings({
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
   const [prefState, setPrefState] = useState<Record<NotificationEventType, boolean>>(prefs);
   const [prefError, setPrefError] = useState<string | null>(null);
+  // True while a prefs request (master or single toggle) is in flight. Serializes
+  // pref updates so the snapshot-and-revert in handleMasterToggle/handlePrefToggle
+  // can never discard a change from an overlapping request.
+  const [prefsBusy, setPrefsBusy] = useState(false);
   // Fallback link shown when the browser blocked the popup (Safari drops user
   // activation across the await before window.open). Cleared once the user
   // finishes the link or presses connect again.
@@ -105,20 +109,28 @@ export default function TelegramSettings({
   }
 
   async function handleMasterToggle() {
+    if (prefsBusy) return;
     const next = !masterOn;
     const prev = prefState;
     setPrefError(null);
+    setPrefsBusy(true);
     setPrefState({ reply: next, mention: next, governance: next });
-    const ok = await setAllPrefs('telegram', next);
-    if (!ok) {
-      setPrefState(prev);
-      setPrefError('Could not save that setting. Please try again.');
+    try {
+      const ok = await setAllPrefs('telegram', next);
+      if (!ok) {
+        setPrefState(prev);
+        setPrefError('Could not save that setting. Please try again.');
+      }
+    } finally {
+      setPrefsBusy(false);
     }
   }
 
   async function handlePrefToggle(eventType: NotificationEventType, enabled: boolean) {
+    if (prefsBusy) return;
     setPrefError(null);
     const prev = prefState;
+    setPrefsBusy(true);
     setPrefState((p) => ({ ...p, [eventType]: enabled }));
     try {
       const res = await fetchWithTimeout('/api/notifications/prefs', {
@@ -133,6 +145,8 @@ export default function TelegramSettings({
     } catch {
       setPrefState(prev);
       setPrefError('Could not save that setting. Please try again.');
+    } finally {
+      setPrefsBusy(false);
     }
   }
 
@@ -197,9 +211,12 @@ export default function TelegramSettings({
           type="button"
           role="switch"
           aria-checked={masterOn}
+          aria-disabled={prefsBusy}
           aria-label="Telegram notifications"
           className="nset__switch"
-          onClick={() => void handleMasterToggle()}
+          onClick={() => {
+            if (!prefsBusy) void handleMasterToggle();
+          }}
         />
       </div>
 
@@ -285,7 +302,12 @@ export default function TelegramSettings({
           })}
 
           {connected.length > 0 && (
-            <NotificationPrefsMatrix prefs={prefState} onChange={(e, v) => void handlePrefToggle(e, v)} error={prefError} />
+            <NotificationPrefsMatrix
+              prefs={prefState}
+              onChange={(e, v) => void handlePrefToggle(e, v)}
+              error={prefError}
+              disabled={prefsBusy}
+            />
           )}
         </>
       )}

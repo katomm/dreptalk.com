@@ -36,10 +36,12 @@ export default function NotificationPrefsMatrix({
   prefs,
   onChange,
   error,
+  disabled = false,
 }: {
   prefs: Record<NotificationEventType, boolean>;
   onChange: (eventType: NotificationEventType, enabled: boolean) => void;
   error?: string | null;
+  disabled?: boolean;
 }) {
   return (
     <div className="nset__matrix">
@@ -49,6 +51,7 @@ export default function NotificationPrefsMatrix({
           <input
             type="checkbox"
             checked={prefs[eventType]}
+            disabled={disabled}
             onChange={(e) => onChange(eventType, e.target.checked)}
           />
           <div>
