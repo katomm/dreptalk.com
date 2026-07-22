@@ -36,6 +36,86 @@ const swatchGroups = [
   { title: 'Light theme', colors: lightColors },
   { title: 'Dark theme', colors: darkColors },
 ];
+
+// ---- Backlink badges ----
+// Self-contained snippets partners can paste to link back to DRepTalk. Design
+// constraints: a single <a> root (a plain dofollow link, so it passes link
+// equity; iframes and JS embeds would not), style="" attributes only (survives
+// any host CSS and most CSPs), inline SVG logo with a per-snippet gradient id
+// so two badges on one page never collide, and neutral colors that read on
+// light and dark host backgrounds. The footer badge is the one exception: its
+// hover reveal needs real CSS, so it ships a tiny <style> block with a unique
+// dtlk- class prefix.
+const badgeFont = "system-ui,-apple-system,'Segoe UI',sans-serif";
+const badgeBg = 'rgba(128,128,128,.08)';
+const badgeBorder = '1px solid rgba(128,128,128,.32)';
+const gradStops = ['#8b5cf6', '#3b82f6', '#2dd4bf'];
+
+// Inline copy of /logo.svg, minified, gradient id namespaced per snippet.
+const badgeLogo = (id: string, size: number) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" width="${size}" height="${size}" aria-hidden="true" style="flex:none;">` +
+  `<defs><linearGradient id="${id}" x1="8" y1="56" x2="66" y2="16" gradientUnits="userSpaceOnUse">` +
+  `<stop offset="0" stop-color="${gradStops[0]}"/><stop offset=".5" stop-color="${gradStops[1]}"/><stop offset="1" stop-color="${gradStops[2]}"/>` +
+  `</linearGradient></defs>` +
+  `<g stroke="url(#${id})" stroke-width="2.4" stroke-linecap="round">` +
+  `<line x1="36" y1="27.5" x2="36" y2="19.5"/><line x1="42" y1="30" x2="47.7" y2="24.3"/>` +
+  `<line x1="44.5" y1="36" x2="52.5" y2="36"/><line x1="42" y1="42" x2="47.7" y2="47.7"/>` +
+  `<line x1="36" y1="44.5" x2="36" y2="52.5"/><line x1="30" y1="42" x2="24.3" y2="47.7"/>` +
+  `<line x1="27.5" y1="36" x2="19.5" y2="36"/><line x1="30" y1="30" x2="24.3" y2="24.3"/></g>` +
+  `<g fill="url(#${id})">` +
+  `<circle cx="36" cy="15" r="4"/><circle cx="50.85" cy="21.15" r="4"/><circle cx="57" cy="36" r="4"/>` +
+  `<circle cx="50.85" cy="50.85" r="4"/><circle cx="36" cy="57" r="4"/><circle cx="21.15" cy="50.85" r="4"/>` +
+  `<circle cx="15" cy="36" r="4"/><circle cx="21.15" cy="21.15" r="4"/></g>` +
+  `<g fill="url(#${id})">` +
+  `<circle cx="47.1" cy="9.2" r="2"/><circle cx="62.8" cy="24.9" r="2"/><circle cx="62.8" cy="47.1" r="2"/>` +
+  `<circle cx="47.1" cy="62.8" r="2"/><circle cx="24.9" cy="62.8" r="2"/><circle cx="9.2" cy="47.1" r="2"/>` +
+  `<circle cx="9.2" cy="24.9" r="2"/><circle cx="24.9" cy="9.2" r="2"/></g>` +
+  `<circle cx="36" cy="36" r="7" fill="url(#${id})"/></svg>`;
+
+const footerBadgeSnippet =
+  `<style>` +
+  `.dtlk{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 5px 8px;border:${badgeBorder};border-radius:999px;background:${badgeBg};text-decoration:none;color:inherit;font:500 12px/1.2 ${badgeFont};}` +
+  `.dtlk-x{display:inline-block;vertical-align:bottom;max-width:0;overflow:hidden;white-space:nowrap;opacity:0;transition:max-width .35s ease,opacity .25s ease;}` +
+  `.dtlk:hover .dtlk-x,.dtlk:focus-visible .dtlk-x{max-width:220px;opacity:.85;}` +
+  `@media (prefers-reduced-motion:reduce){.dtlk-x{transition:none;}}` +
+  `</style>` +
+  `<a href="https://dreptalk.com/" class="dtlk" title="DRepTalk · Cardano Governance Forum">` +
+  badgeLogo('dtg-fb', 16) +
+  `<span style="opacity:.9;white-space:nowrap;">DRepTalk<span class="dtlk-x">&nbsp;· Cardano Governance Forum</span></span></a>`;
+
+const sidebarCardSnippet =
+  `<a href="https://dreptalk.com/" style="display:block;max-width:300px;box-sizing:border-box;padding:16px;border:${badgeBorder};border-radius:14px;background:${badgeBg};text-decoration:none;color:inherit;font-family:${badgeFont};">` +
+  `<span style="display:flex;align-items:center;gap:10px;">` +
+  badgeLogo('dtg-sc', 34) +
+  `<span style="font-size:17px;font-weight:700;letter-spacing:-.01em;">DRepTalk</span></span>` +
+  `<span style="display:block;margin-top:9px;font-size:13px;line-height:1.5;opacity:.75;">Follow Cardano governance votes and discuss them with DReps, SPOs and the community.</span>` +
+  `<span style="display:block;height:3px;width:44px;margin-top:12px;border-radius:2px;background:linear-gradient(90deg,${gradStops.join(',')});"></span></a>`;
+
+const bannerSnippet =
+  `<a href="https://dreptalk.com/" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;max-width:728px;box-sizing:border-box;padding:14px 18px;border:${badgeBorder};border-radius:14px;background:${badgeBg};text-decoration:none;color:inherit;font-family:${badgeFont};">` +
+  badgeLogo('dtg-bn', 36) +
+  `<span style="flex:1;min-width:200px;">` +
+  `<span style="display:block;font-size:15px;font-weight:700;">DRepTalk · Cardano Governance Forum</span>` +
+  `<span style="display:block;margin-top:3px;font-size:13px;line-height:1.45;opacity:.72;">Governance actions, voting power and discussions with DReps and SPOs.</span></span>` +
+  `<span style="font-size:12.5px;font-weight:600;color:#8b5cf6;white-space:nowrap;">dreptalk.com</span></a>`;
+
+const badgeSnippets = [
+  {
+    title: 'Footer badge',
+    note: 'Compact pill for footers. Collapsed it shows just the mark and name; the full name slides out on hover or keyboard focus.',
+    html: footerBadgeSnippet,
+  },
+  {
+    title: 'Sidebar card',
+    note: 'Card for sidebars or article footers, up to 300px wide.',
+    html: sidebarCardSnippet,
+  },
+  {
+    title: 'Banner',
+    note: 'Fluid banner up to 728px wide; wraps cleanly on small screens.',
+    html: bannerSnippet,
+  },
+];
 ---
 
 <Layout
@@ -123,6 +203,27 @@ const swatchGroups = [
           </span>
         </button>
       </div>
+    </section>
+
+    <section class="brand__section" aria-labelledby="linkback-heading">
+      <h2 id="linkback-heading">Link to DRepTalk</h2>
+      <p class="brand__note">
+        Ready-made badges for linking to DRepTalk from your site: no JavaScript, no external
+        requests, and neutral colors that work on light and dark pages alike. Copy a snippet and
+        paste it straight into your HTML.
+      </p>
+      {badgeSnippets.map((b) => (
+        <div class="embed">
+          <div class="embed__head">
+            <h3>{b.title}</h3>
+            <button class="btn btn-secondary embed__copy" type="button" data-copy={b.html}>
+              <span data-copy-label="Copy HTML">Copy HTML</span>
+            </button>
+          </div>
+          <p class="brand__note">{b.note}</p>
+          <div class="embed__preview" set:html={b.html} />
+        </div>
+      ))}
     </section>
 
     <section class="brand__section" aria-labelledby="type-heading">
@@ -331,6 +432,29 @@ const swatchGroups = [
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* ---- Backlink badges ---- */
+  .embed {
+    margin-top: 1.5rem;
+  }
+  .embed__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .embed__head h3 {
+    margin: 0;
+  }
+  .embed__copy {
+    flex-shrink: 0;
+  }
+  .embed__preview {
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
   }
 
   /* ---- Type ---- */
