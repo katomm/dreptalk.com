@@ -8,7 +8,8 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { relativeTime } from '@/lib/notifications/inboxView.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
-import NotificationPrefsMatrix, { setAllPrefs } from './NotificationPrefsMatrix.tsx';
+import { useChannelPrefs } from '@/lib/notifications/useChannelPrefs.js';
+import NotificationPrefsMatrix from './NotificationPrefsMatrix.tsx';
 import type { ClientChannelProps } from './NotificationSettings.tsx';
 
 const POLL_INTERVAL_MS = 3_000;
@@ -27,12 +28,7 @@ export default function TelegramSettings({
 }) {
   const [connected, setConnected] = useState<ClientChannelProps[]>(channels);
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
-  const [prefState, setPrefState] = useState<Record<NotificationEventType, boolean>>(prefs);
-  const [prefError, setPrefError] = useState<string | null>(null);
-  // True while a prefs request (master or single toggle) is in flight. Serializes
-  // pref updates so the snapshot-and-revert in handleMasterToggle/handlePrefToggle
-  // can never discard a change from an overlapping request.
-  const [prefsBusy, setPrefsBusy] = useState(false);
+  const { prefState, prefError, prefsBusy, masterOn, toggleAll, togglePref } = useChannelPrefs('telegram', prefs);
   // Fallback link shown when the browser blocked the popup (Safari drops user
   // activation across the await before window.open). Cleared once the user
   // finishes the link or presses connect again.
@@ -50,7 +46,9 @@ export default function TelegramSettings({
 
   async function fetchTelegramChannels(): Promise<ClientChannelProps[] | null> {
     try {
-      const res = await fetchWithTimeout('/api/notifications/channels');
+      // The server already filters to telegram rows; the client-side filter
+      // below is belt-and-braces against a stale or misconfigured backend.
+      const res = await fetchWithTimeout('/api/notifications/channels?channel=telegram');
       if (!res.ok) return null;
       const data = (await res.json()) as { channels: (ClientChannelProps & { channel: string })[] };
       return data.channels
@@ -108,48 +106,6 @@ export default function TelegramSettings({
     }
   }
 
-  async function handleMasterToggle() {
-    if (prefsBusy) return;
-    const next = !masterOn;
-    const prev = prefState;
-    setPrefError(null);
-    setPrefsBusy(true);
-    setPrefState({ reply: next, mention: next, governance: next });
-    try {
-      const ok = await setAllPrefs('telegram', next);
-      if (!ok) {
-        setPrefState(prev);
-        setPrefError('Could not save that setting. Please try again.');
-      }
-    } finally {
-      setPrefsBusy(false);
-    }
-  }
-
-  async function handlePrefToggle(eventType: NotificationEventType, enabled: boolean) {
-    if (prefsBusy) return;
-    setPrefError(null);
-    const prev = prefState;
-    setPrefsBusy(true);
-    setPrefState((p) => ({ ...p, [eventType]: enabled }));
-    try {
-      const res = await fetchWithTimeout('/api/notifications/prefs', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ channel: 'telegram', eventType, enabled }),
-      });
-      if (!res.ok) {
-        setPrefState(prev);
-        setPrefError('Could not save that setting. Please try again.');
-      }
-    } catch {
-      setPrefState(prev);
-      setPrefError('Could not save that setting. Please try again.');
-    } finally {
-      setPrefsBusy(false);
-    }
-  }
-
   async function handleRemove(id: string) {
     const prev = connected;
     setConnected((cur) => cur.filter((c) => c.id !== id));
@@ -187,7 +143,6 @@ export default function TelegramSettings({
     }
   }
 
-  const masterOn = Object.values(prefState).some(Boolean);
   const now = Date.now();
 
   const planeIcon = (
@@ -215,7 +170,7 @@ export default function TelegramSettings({
           aria-label="Telegram notifications"
           className="nset__switch"
           onClick={() => {
-            if (!prefsBusy) void handleMasterToggle();
+            if (!prefsBusy) void toggleAll();
           }}
         />
       </div>
@@ -304,7 +259,7 @@ export default function TelegramSettings({
           {connected.length > 0 && (
             <NotificationPrefsMatrix
               prefs={prefState}
-              onChange={(e, v) => void handlePrefToggle(e, v)}
+              onChange={(e, v) => void togglePref(e, v)}
               error={prefError}
               disabled={prefsBusy}
             />

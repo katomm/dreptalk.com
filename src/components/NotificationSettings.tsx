@@ -8,18 +8,15 @@ import { useEffect, useState } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { fromBase64Url } from '@/lib/crypto/base64url.js';
 import { relativeTime } from '@/lib/notifications/inboxView.js';
+import { endpointFingerprint } from '@/lib/notifications/channelView.js';
+import type { ClientChannel } from '@/lib/notifications/channelView.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
-import NotificationPrefsMatrix, { setAllPrefs } from './NotificationPrefsMatrix.tsx';
+import { useChannelPrefs } from '@/lib/notifications/useChannelPrefs.js';
+import NotificationPrefsMatrix from './NotificationPrefsMatrix.tsx';
 
 // Client-safe channel projection, mirrors ClientChannel from channelView but
 // without the server-only channel kind. Shared with TelegramSettings.
-export interface ClientChannelProps {
-  id: string;
-  createdAt: number;
-  deliveredUntil: number;
-  label: string | null;
-  fingerprint: string | null;
-}
+export type ClientChannelProps = Omit<ClientChannel, 'channel'>;
 
 export interface NotificationSettingsProps {
   channels: ClientChannelProps[];
@@ -37,25 +34,10 @@ function pushSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
 }
 
-const utf8 = new TextEncoder();
-
-// Same algorithm as endpointFingerprint on the server: first 12 lowercase hex
-// chars of SHA-256(endpoint). Lets this device recognize its own subscription
-// row among the connected channels.
-async function fingerprintEndpoint(endpoint: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', utf8.encode(endpoint));
-  return [...new Uint8Array(digest).slice(0, 6)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 export default function NotificationSettings({ channels, prefs, vapidPublicKey }: NotificationSettingsProps) {
   const [devices, setDevices] = useState<ClientChannelProps[]>(channels);
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
-  const [prefState, setPrefState] = useState<Record<NotificationEventType, boolean>>(prefs);
-  const [prefError, setPrefError] = useState<string | null>(null);
-  // True while a prefs request (master or single toggle) is in flight. Serializes
-  // pref updates so the snapshot-and-revert in handleMasterToggle/handlePrefToggle
-  // can never discard a change from an overlapping request.
-  const [prefsBusy, setPrefsBusy] = useState(false);
+  const { prefState, prefError, prefsBusy, masterOn, toggleAll, togglePref } = useChannelPrefs('webpush', prefs);
   // Fingerprint of this device's own push subscription, resolved on mount.
   const [deviceFingerprint, setDeviceFingerprint] = useState<string | null>(null);
   // Per-device test-push state, keyed by channel id.
@@ -91,7 +73,7 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         const reg = await navigator.serviceWorker.getRegistration('/push-sw.js');
         const sub = await reg?.pushManager.getSubscription();
         if (!sub) return;
-        const fp = await fingerprintEndpoint(sub.endpoint);
+        const fp = await endpointFingerprint(sub.endpoint);
         if (!cancelled) setDeviceFingerprint(fp);
       } catch {
         // No usable subscription; leave every row as a generic "Device".
@@ -120,48 +102,6 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         .
       </p>
     );
-  }
-
-  async function handleMasterToggle() {
-    if (prefsBusy) return;
-    const next = !masterOn;
-    const prev = prefState;
-    setPrefError(null);
-    setPrefsBusy(true);
-    setPrefState({ reply: next, mention: next, governance: next });
-    try {
-      const ok = await setAllPrefs('webpush', next);
-      if (!ok) {
-        setPrefState(prev);
-        setPrefError('Could not save that setting. Please try again.');
-      }
-    } finally {
-      setPrefsBusy(false);
-    }
-  }
-
-  async function handlePrefToggle(eventType: NotificationEventType, enabled: boolean) {
-    if (prefsBusy) return;
-    setPrefError(null);
-    const prev = prefState;
-    setPrefsBusy(true);
-    setPrefState((p) => ({ ...p, [eventType]: enabled }));
-    try {
-      const res = await fetchWithTimeout('/api/notifications/prefs', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ channel: 'webpush', eventType, enabled }),
-      });
-      if (!res.ok) {
-        setPrefState(prev);
-        setPrefError('Could not save that setting. Please try again.');
-      }
-    } catch {
-      setPrefState(prev);
-      setPrefError('Could not save that setting. Please try again.');
-    } finally {
-      setPrefsBusy(false);
-    }
   }
 
   async function handleEnable() {
@@ -203,6 +143,10 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         applicationServerKey: appServerKey,
       });
       const subJson = sub.toJSON();
+      // Only depends on sub.endpoint, not on the save response below; start it
+      // now so it resolves in parallel with the network round trip instead of
+      // adding its own latency after res.json().
+      const fingerprintPromise = endpointFingerprint(sub.endpoint);
 
       const res = await fetchWithTimeout('/api/notifications/channels', {
         method: 'POST',
@@ -220,7 +164,7 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         return;
       }
       const { id } = (await res.json()) as { id: string };
-      const fp = await fingerprintEndpoint(sub.endpoint);
+      const fp = await fingerprintPromise;
       setDeviceFingerprint(fp);
       const now = Date.now();
       // A repeat enable on an already-connected device returns the existing
@@ -276,7 +220,6 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
     }
   }
 
-  const masterOn = Object.values(prefState).some(Boolean);
   const connecting = phase.status === 'connecting';
   const thisDeviceConnected =
     deviceFingerprint !== null && devices.some((d) => d.fingerprint === deviceFingerprint);
@@ -303,7 +246,7 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
           aria-label="Push notifications"
           className="nset__switch"
           onClick={() => {
-            if (!prefsBusy) void handleMasterToggle();
+            if (!prefsBusy) void toggleAll();
           }}
         />
       </div>
@@ -397,10 +340,10 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
             );
           })}
 
-          {masterOn && devices.length > 0 && (
+          {devices.length > 0 && (
             <NotificationPrefsMatrix
               prefs={prefState}
-              onChange={(e, v) => void handlePrefToggle(e, v)}
+              onChange={(e, v) => void togglePref(e, v)}
               error={prefError}
               disabled={prefsBusy}
             />
