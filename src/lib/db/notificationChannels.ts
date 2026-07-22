@@ -7,7 +7,7 @@ import { govThreadsSinceSql } from './notifications.js';
 
 export const NOTIFICATION_EVENT_TYPES = ['reply', 'mention', 'governance'] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
-export type NotificationChannelKind = 'webpush';
+export type NotificationChannelKind = 'webpush' | 'telegram';
 
 export interface NotificationChannelRow {
   id: string;
@@ -91,6 +91,16 @@ export async function listChannelsByKind(
 /** Removes a channel by id regardless of owner; dispatcher prune on 404/410. */
 export async function deleteChannelById(db: D1Database, id: string): Promise<void> {
   await db.prepare('DELETE FROM notification_channels WHERE id = ?').bind(id).run();
+}
+
+/**
+ * Removes every channel row with the given endpoint, across users (a /stop in
+ * a Telegram chat must disconnect the chat no matter which account linked it).
+ * Returns the number of rows removed.
+ */
+export async function deleteChannelsByEndpoint(db: D1Database, endpoint: string): Promise<number> {
+  const result = await db.prepare('DELETE FROM notification_channels WHERE endpoint = ?').bind(endpoint).run();
+  return result.meta.changes ?? 0;
 }
 
 /** Advances the delivery cursor after a successful send. */

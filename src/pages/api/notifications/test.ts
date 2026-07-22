@@ -1,8 +1,9 @@
-// POST /api/notifications/test: sends a real, slightly delayed test push to
-// one of the signed-in user's own devices, through the full pipeline. The
-// route responds immediately (202) and the delayed send runs in waitUntil;
-// the delay gives the user time to lock the screen so the banner actually
-// shows. Rate limited so nobody floods the push services.
+// POST /api/notifications/test: sends a real test message to one of the
+// signed-in user's own channels, through the full pipeline. For webpush the
+// route responds immediately (202) and a slightly delayed send runs in
+// waitUntil, giving the user time to lock the screen so the banner actually
+// shows; for telegram the send happens immediately, no delay needed. Rate
+// limited so nobody floods the push services.
 import { waitUntil } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
@@ -10,7 +11,8 @@ import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { checkRate } from '@/lib/rate';
 import { listChannels } from '@/lib/db/notificationChannels';
 import { sendWebPush } from '@/lib/push/webPush';
-import { sendTestPush, TEST_PUSH_DELAY_MS } from '@/lib/notifications/testPush';
+import { sendTelegramMessage } from '@/lib/push/telegram';
+import { sendTestPush, sendTestTelegram, TEST_PUSH_DELAY_MS } from '@/lib/notifications/testPush';
 
 export const prerender = false;
 
@@ -28,9 +30,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const rateLimiter = env.RATE_LIMITER;
   if (!db || !rateLimiter) {
     return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
-  }
-  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
-    return jsonResponse({ ok: false, error: 'push not configured' }, 503);
   }
 
   // 5 test pushes per hour per user: enough to debug a setup, not a flood.
@@ -51,14 +50,27 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   // Ownership is checked before responding so the client gets an honest 404;
-  // sendTestPush re-checks it anyway.
-  const owned = (await listChannels(db, user.id)).some(
-    (row) => row.id === parsed.data.id && row.channel === 'webpush',
-  );
-  if (!owned) {
+  // the send functions re-check it anyway.
+  const channel = (await listChannels(db, user.id)).find((row) => row.id === parsed.data.id);
+  if (!channel) {
     return jsonResponse({ ok: false, error: 'not_found' }, 404);
   }
 
+  if (channel.channel === 'telegram') {
+    const botToken = env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      return jsonResponse({ ok: false, error: 'telegram not configured' }, 503);
+    }
+    const outcome = await sendTestTelegram(db, botToken, { userId: user.id, channelId: channel.id }, { send: sendTelegramMessage });
+    if (outcome === 'sent') {
+      return jsonResponse({ ok: true, delayMs: 0 }, 202);
+    }
+    return jsonResponse({ ok: false, error: 'send_failed' }, 502);
+  }
+
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
+    return jsonResponse({ ok: false, error: 'push not configured' }, 503);
+  }
   const vapid = {
     publicKey: env.VAPID_PUBLIC_KEY,
     privateKey: env.VAPID_PRIVATE_KEY,

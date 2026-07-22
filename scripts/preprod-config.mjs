@@ -25,6 +25,8 @@ cfg.vars = {
   ...(cfg.vars ?? {}),
   CARDANO_NETWORK: 'preprod',
   VAPID_PUBLIC_KEY: 'BP8lsNXkOYQipYvkb5iBFeXOlDdkcDrlC7Dqbgw3e1bNd9UhgF3KdbpjHCwEMyhtExwc06YlzwzaUo_pCK8VXJ0',
+  // Preprod bot username for the notification deep link (mainnet bot differs).
+  TELEGRAM_BOT_USERNAME: 'DRepTalkPreprodBot',
 };
 cfg.routes = [{ pattern: 'preprod.dreptalk.com', custom_domain: true }];
 cfg.d1_databases = [

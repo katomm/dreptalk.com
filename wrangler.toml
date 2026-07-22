@@ -32,6 +32,11 @@ binding = "ASSETS"
 # private key is a secret (VAPID_PRIVATE_KEY), never stored in this file.
 VAPID_PUBLIC_KEY = "BNDdHbTHnKPFLX9oqH-EeZfQJvzppkj1SRK1-dqnRGOGJWkiazQcjw2_AeKzBJdW5F6s3LYxFby8MqTPCKsEbQ4"
 
+# Telegram bot username for the notification deep link (mainnet bot). The bot
+# token is a secret (TELEGRAM_BOT_TOKEN), never stored in this file; the
+# webhook secret is TELEGRAM_WEBHOOK_SECRET, also a secret.
+TELEGRAM_BOT_USERNAME = "DRepTalkBot"
+
 # D1 database for application data.
 [[d1_databases]]
 binding = "DB"

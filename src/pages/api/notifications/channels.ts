@@ -1,10 +1,11 @@
-// POST /api/notifications/channels: connects a new push channel for the
-// signed-in user (currently only 'webpush' subscriptions). DELETE removes one,
-// scoped to its owner via addChannel/removeChannel.
+// GET /api/notifications/channels: lists the signed-in user's connected
+// channels. POST connects a new push channel (currently only 'webpush'
+// subscriptions; telegram rows are created by the webhook). DELETE removes
+// one, scoped to its owner via addChannel/removeChannel.
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
-import { addChannel, removeChannel } from '@/lib/db/notificationChannels';
+import { addChannel, removeChannel, listChannels } from '@/lib/db/notificationChannels';
 
 export const prerender = false;
 
@@ -36,6 +37,26 @@ async function readJson(request: Request): Promise<{ ok: true; data: unknown } |
     return { ok: false };
   }
 }
+
+// GET: the signed-in user's connected channels; the settings island polls this
+// while a Telegram link is pending. Returns only id, kind and date, never the
+// stored subscription or chat id.
+export const GET: APIRoute = async ({ locals }) => {
+  const user = (locals as App.Locals).user;
+  if (!user) {
+    return jsonResponse({ ok: false, error: 'unauthorized' }, 401);
+  }
+  const db = runtimeEnv(locals as App.Locals).DB as D1Database | undefined;
+  if (!db) {
+    return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
+  }
+  const channels = (await listChannels(db, user.id)).map((row) => ({
+    id: row.id,
+    channel: row.channel,
+    createdAt: row.created_at,
+  }));
+  return jsonResponse({ ok: true, channels });
+};
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = (locals as App.Locals).user;

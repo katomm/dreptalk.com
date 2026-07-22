@@ -10,6 +10,9 @@ export interface NetworkConfig {
   // (e.g. "voting ends on ..."). Cardano epochs are a fixed length, so one
   // verified anchor plus EPOCH_LENGTH_SECONDS pins every other boundary.
   epochAnchor: { epoch: number; unixSeconds: number };
+  // Public origin of the site for this network; used wherever an absolute
+  // link must be rendered outside the request context (e.g. bot messages).
+  siteOrigin: string;
 }
 
 // Both networks run 5-day epochs (same fact as EPOCH_DAYS in governance/view.ts,
@@ -25,6 +28,7 @@ const CONFIGS: Record<CardanoNetwork, NetworkConfig> = {
     networkId: 1,
     // Shelley start: epoch 208 began 2020-07-29T21:44:51Z.
     epochAnchor: { epoch: 208, unixSeconds: 1596059091 },
+    siteOrigin: 'https://dreptalk.com',
   },
   preprod: {
     network: 'preprod',
@@ -34,6 +38,7 @@ const CONFIGS: Record<CardanoNetwork, NetworkConfig> = {
     networkId: 0,
     // preprod system start: epoch 0 began 2022-06-21T00:00:00Z.
     epochAnchor: { epoch: 0, unixSeconds: 1655769600 },
+    siteOrigin: 'https://preprod.dreptalk.com',
   },
 };
 

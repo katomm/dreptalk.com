@@ -4,11 +4,12 @@
 // transport are covered separately by webPush.workers.test.ts.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { dispatchWebPush, type DispatchDeps } from './dispatch.js';
+import { dispatchWebPush, dispatchTelegram, type DispatchDeps, type TelegramDispatchConfig } from './dispatch.js';
 import { addChannel, setPref, listChannelsByKind } from '../db/notificationChannels.js';
 import { insertNotifications } from '../db/notifications.js';
 import { activityInsert } from '../db/activity.js';
 import type { PushSendResult, PushSubscriptionTarget, VapidConfig } from '../push/webPush.js';
+import type { TelegramSendResult } from '../push/telegram.js';
 
 const db = () => env.DB;
 
@@ -42,6 +43,28 @@ async function addWebpushChannel(userId: string, now: number) {
     channel: 'webpush',
     target: JSON.stringify(TARGET),
     endpoint: TARGET.endpoint,
+    now,
+  });
+}
+
+const TG_CFG: TelegramDispatchConfig = { botToken: 'TOKEN', origin: 'https://dreptalk.com' };
+
+/** A fake `send` that records every call and always returns the given result. */
+function fakeTelegramSend(result: TelegramSendResult) {
+  const calls: Array<{ botToken: string; chatId: string; text: string }> = [];
+  const send: typeof import('../push/telegram.js').sendTelegramMessage = async (botToken, chatId, text) => {
+    calls.push({ botToken, chatId, text });
+    return result;
+  };
+  return { send, calls };
+}
+
+async function addTelegramChannel(userId: string, chatId: string, now: number) {
+  return addChannel(db(), {
+    userId,
+    channel: 'telegram',
+    target: chatId,
+    endpoint: `telegram:${chatId}`,
     now,
   });
 }
@@ -178,5 +201,67 @@ describe('dispatchWebPush', () => {
     expect(calls).toHaveLength(0);
     const [row] = await listChannelsByKind(db(), 'webpush');
     expect(row.delivered_until).toBe(100);
+  });
+});
+
+describe('dispatchTelegram', () => {
+  it('sends one bundled message with summary and absolute link, then advances the cursor', async () => {
+    const userId = 'tg-user-1';
+    await addTelegramChannel(userId, '111', 0);
+    await insertNotifications(db(), [
+      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null, createdAt: 10 },
+    ]);
+    const { send, calls } = fakeTelegramSend({ ok: true, status: 200, description: '' });
+    const r = await dispatchTelegram(db(), TG_CFG, { send, now: 50 });
+    expect(r).toEqual({ sent: 1, pruned: 0, skipped: 0 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].chatId).toBe('111');
+    expect(calls[0].text).toBe('1 new reply\nhttps://dreptalk.com/notifications/');
+    const [row] = await listChannelsByKind(db(), 'telegram');
+    expect(row.delivered_until).toBe(50);
+  });
+
+  it('prunes the channel when the user blocked the bot (403)', async () => {
+    const userId = 'tg-user-2';
+    await addTelegramChannel(userId, '222', 0);
+    await insertNotifications(db(), [
+      { recipientId: userId, type: 'mention', actorId: 'a', topicId: null, postId: null, createdAt: 10 },
+    ]);
+    const { send } = fakeTelegramSend({ ok: false, status: 403, description: 'Forbidden: bot was blocked by the user' });
+    const r = await dispatchTelegram(db(), TG_CFG, { send, now: 50 });
+    expect(r.pruned).toBe(1);
+    const remaining = await listChannelsByKind(db(), 'telegram');
+    expect(remaining.find((c) => c.target === '222')).toBeUndefined();
+  });
+
+  it('a transient failure leaves the cursor for a retry', async () => {
+    const userId = 'tg-user-3';
+    await addTelegramChannel(userId, '333', 0);
+    await insertNotifications(db(), [
+      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null, createdAt: 10 },
+    ]);
+    const { send } = fakeTelegramSend({ ok: false, status: 429, description: 'Too Many Requests' });
+    const r = await dispatchTelegram(db(), TG_CFG, { send, now: 50 });
+    expect(r).toEqual({ sent: 0, pruned: 0, skipped: 0 });
+    const row = (await listChannelsByKind(db(), 'telegram')).find((c) => c.target === '333');
+    expect(row?.delivered_until).toBe(0);
+  });
+
+  it('fails soft with a null config', async () => {
+    const { send, calls } = fakeTelegramSend({ ok: true, status: 200, description: '' });
+    const r = await dispatchTelegram(db(), null, { send, now: 50 });
+    expect(r).toEqual({ sent: 0, pruned: 0, skipped: 0 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('does not touch webpush channels', async () => {
+    const userId = 'tg-user-4';
+    await addWebpushChannel(userId, 0);
+    await insertNotifications(db(), [
+      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null, createdAt: 10 },
+    ]);
+    const { send, calls } = fakeTelegramSend({ ok: true, status: 200, description: '' });
+    await dispatchTelegram(db(), TG_CFG, { send, now: 50 });
+    expect(calls).toHaveLength(0);
   });
 });

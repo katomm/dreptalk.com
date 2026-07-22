@@ -8,7 +8,7 @@ import { setPref, NOTIFICATION_EVENT_TYPES } from '@/lib/db/notificationChannels
 export const prerender = false;
 
 const schema = z.object({
-  channel: z.literal('webpush'),
+  channel: z.enum(['webpush', 'telegram']),
   eventType: z.enum(NOTIFICATION_EVENT_TYPES),
   enabled: z.boolean(),
 });
