@@ -9,7 +9,7 @@
 // lightweight, status-only lifecycle re-check (no tally re-fetch) until it flips
 // to enacted. Per-action failures are isolated.
 
-import type { ProposalListRow, VotingSummary, ProposalVoteRow } from '../koios/client.js';
+import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow } from '../koios/client.js';
 import { spoTallyPct, spoEligiblePower } from '../koios/corrections.js';
 import {
   getStaleSyncableActions,
@@ -20,14 +20,13 @@ import {
   getActionsNeedingVotedPower,
   updateVotedPower,
   getActionsNeedingVoteBackfill,
-  getActionsNeedingMetaHashBackfill,
   markVotesSynced,
   getGovStatusEventsForTimeFix,
   updateActivityCreatedAt,
   type GovernanceAction,
   type GovernanceTally,
 } from '../db/governance.js';
-import { upsertVotes, markStalePendingVotesFailed, type VoteInput } from '../db/drepVotes.js';
+import { upsertVotes, markStalePendingVotesFailed, getVotesNeedingMetaHash, setVoteMetaHash, type VoteInput } from '../db/drepVotes.js';
 import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
@@ -497,33 +496,55 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
   return { actions, votes, failed };
 }
 
+export interface MetaHashBackfillDeps {
+  koios: { voterProposalVoteList(voterId: string, proposalId: string): Promise<VoteListRow[]> };
+  db: D1Database;
+  /** Max votes to backfill this run; each costs one Koios call. Defaults to DEFAULT_VOTE_LIMIT. */
+  limit?: number;
+  /** Delay between per-vote Koios calls (ms) so a run does not burst Koios. Default 0. */
+  paceMs?: number;
+}
+
+export interface MetaHashBackfillResult {
+  votes: number;
+  failed: number;
+}
+
 /**
  * One-time historical backfill: fills meta_hash on votes for finalized actions
  * synced before meta_hash capture existed, so the rationale queue can pick them
- * up. Re-fetches each candidate's votes (Koios returns the hash) and re-upserts.
- * Does NOT call markVotesSynced: these actions are already vote-synced, and the
- * candidate query self-drains once their anchored votes all carry a hash.
+ * up. Resolves each hash from /vote_list (per voter+action) rather than
+ * /proposal_votes: the remaining hash-less votes were all cast by DReps that
+ * later deregistered, and /proposal_votes silently omits deregistered voters,
+ * so refetching it can never fill them. /vote_list keeps the full history.
+ * The candidate query self-drains as hashes get filled.
  */
-export async function backfillVoteMetaHashes(deps: VoteSyncDeps): Promise<VoteBackfillResult> {
-  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES } = deps;
-  const candidates = await getActionsNeedingMetaHashBackfill(db, limit);
+export async function backfillVoteMetaHashes(deps: MetaHashBackfillDeps): Promise<MetaHashBackfillResult> {
+  const { koios, db, limit = DEFAULT_VOTE_LIMIT, paceMs = 0 } = deps;
+  const candidates = await getVotesNeedingMetaHash(db, limit);
   let votes = 0;
   let failed = 0;
-  let actions = 0;
-  for (const [i, ga] of candidates.entries()) {
-    if (!ga.proposalId) continue;
+  for (const [i, c] of candidates.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
-    actions++;
     try {
-      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
-      votes += await upsertVotes(db, ga.id, collected, now);
-      if (capped) {
-        console.warn(`[gov-rationale-hash-backfill] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; refreshed a capped prefix`);
+      const rows = await koios.voterProposalVoteList(c.voter_id, c.proposal_id);
+      // A voter can re-vote, so the pair may have several history rows. The hash
+      // must belong to the anchor URL we stored, so match on that; among re-votes
+      // to the same URL prefer the stored block_time, else the newest (rows come
+      // newest first). Never attach a hash from a different anchor.
+      const sameUrl = rows.filter((r) => r.meta_url === c.meta_url);
+      const match = (c.block_time != null && sameUrl.find((r) => r.block_time === c.block_time)) || sameUrl[0];
+      if (!match?.meta_hash) {
+        failed++;
+        console.warn(`[gov-rationale-hash-backfill] no hash on ${c.proposal_id} for ${c.voter_id}`);
+        continue;
       }
+      await setVoteMetaHash(db, c.ga_id, c.voter_id, match.meta_hash);
+      votes++;
     } catch (err) {
       failed++;
-      console.warn(`[gov-rationale-hash-backfill] action ${ga.id} failed:`, err);
+      console.warn(`[gov-rationale-hash-backfill] ${c.proposal_id} voter ${c.voter_id} failed:`, err);
     }
   }
-  return { actions, votes, failed };
+  return { votes, failed };
 }

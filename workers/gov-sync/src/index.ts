@@ -391,12 +391,13 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: r.updated };
   });
 
-  // One-time historical fill: votes synced before meta_hash capture have no hash,
-  // so the rationale queue skips them. Re-fetch a few finalized actions per run to
-  // fill the hash; self-draining, becomes a no-op once every action is filled.
+  // One-time historical fill: votes synced before meta_hash capture have no
+  // hash, so the rationale queue skips them. Hashes are resolved per vote via
+  // /vote_list (see backfillVoteMetaHashes for why not /proposal_votes);
+  // self-draining, becomes a no-op once every vote is filled.
   await phase('meta-hash-backfill', async () => {
-    const bf = await backfillVoteMetaHashes({ koios, db: env.DB, now, limit: 6, paceMs: VOTE_PACE_MS });
-    console.log(`[gov-rationale-hash-backfill] actions=${bf.actions} votes=${bf.votes} failed=${bf.failed}`);
+    const bf = await backfillVoteMetaHashes({ koios, db: env.DB, limit: 25, paceMs: VOTE_PACE_MS });
+    console.log(`[gov-rationale-hash-backfill] votes=${bf.votes} failed=${bf.failed}`);
     return { items: bf.votes, failed: bf.failed };
   });
 
