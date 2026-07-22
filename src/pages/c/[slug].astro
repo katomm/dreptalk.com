@@ -469,10 +469,6 @@ const breadcrumbLd = {
         <div class="cat-layout">
           <CategorySidebar categories={allCategories} stats={catStats} selectedSlug={category.slug} now={now} />
           <div class="cat-main">
-            {treasuryOverview && (
-              <TreasuryOverview data={treasuryOverview} detailHref="/treasury/" />
-            )}
-
             <nav class="cat-chips" aria-label="Categories">
               {allCategories.map((c) => (
                 <a class:list={['cat-chip', { 'cat-chip--on': c.slug === category.slug }]} href={`/c/${c.slug}/`}>
@@ -480,6 +476,10 @@ const breadcrumbLd = {
                 </a>
               ))}
             </nav>
+
+            {treasuryOverview && (
+              <TreasuryOverview data={treasuryOverview} detailHref="/treasury/" />
+            )}
 
             <div class="disc-controls">
               <div class="seg" role="tablist">
