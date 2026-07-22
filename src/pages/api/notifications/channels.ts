@@ -6,6 +6,7 @@ import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { addChannel, removeChannel, listChannels } from '@/lib/db/notificationChannels';
+import { toClientChannels } from '@/lib/notifications/channelView';
 
 export const prerender = false;
 
@@ -38,9 +39,10 @@ async function readJson(request: Request): Promise<{ ok: true; data: unknown } |
   }
 }
 
-// GET: the signed-in user's connected channels; the settings island polls this
-// while a Telegram link is pending. Returns only id, kind and date, never the
-// stored subscription or chat id.
+// GET: the signed-in user's connected channels; the settings islands use this
+// both for polling (e.g. while a Telegram link is pending) and for this-device
+// matching (webpush only, by endpoint fingerprint). Returns only safe fields,
+// never the stored subscription or chat id.
 export const GET: APIRoute = async ({ locals }) => {
   const user = (locals as App.Locals).user;
   if (!user) {
@@ -50,11 +52,7 @@ export const GET: APIRoute = async ({ locals }) => {
   if (!db) {
     return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
   }
-  const channels = (await listChannels(db, user.id)).map((row) => ({
-    id: row.id,
-    channel: row.channel,
-    createdAt: row.created_at,
-  }));
+  const channels = await toClientChannels(await listChannels(db, user.id));
   return jsonResponse({ ok: true, channels });
 };
 
