@@ -1,11 +1,13 @@
 // GET /api/notifications/channels: lists the signed-in user's connected
-// channels. POST connects a new push channel (currently only 'webpush'
-// subscriptions; telegram rows are created by the webhook). DELETE removes
-// one, scoped to its owner via addChannel/removeChannel.
+// channels, optionally filtered to one kind via ?channel=webpush|telegram.
+// POST connects a new push channel (currently only 'webpush' subscriptions;
+// telegram rows are created by the webhook). DELETE removes one, scoped to
+// its owner via addChannel/removeChannel.
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { addChannel, removeChannel, listChannels } from '@/lib/db/notificationChannels';
+import { toClientChannels } from '@/lib/notifications/channelView';
 
 export const prerender = false;
 
@@ -30,6 +32,8 @@ const deleteSchema = z.object({
   id: z.string().min(1).max(64),
 });
 
+const channelKindSchema = z.enum(['webpush', 'telegram']);
+
 async function readJson(request: Request): Promise<{ ok: true; data: unknown } | { ok: false }> {
   try {
     return { ok: true, data: await request.json() };
@@ -38,10 +42,14 @@ async function readJson(request: Request): Promise<{ ok: true; data: unknown } |
   }
 }
 
-// GET: the signed-in user's connected channels; the settings island polls this
-// while a Telegram link is pending. Returns only id, kind and date, never the
-// stored subscription or chat id.
-export const GET: APIRoute = async ({ locals }) => {
+// GET: the signed-in user's connected channels, optionally narrowed to one
+// kind via ?channel=webpush|telegram. The settings islands use this both for
+// polling (e.g. while a Telegram link is pending) and for this-device
+// matching (webpush only, by endpoint fingerprint); the Telegram card passes
+// the filter so a poll never pays webpush fingerprint hashing for rows it
+// will discard anyway. Returns only safe fields, never the stored
+// subscription or chat id.
+export const GET: APIRoute = async ({ locals, url }) => {
   const user = (locals as App.Locals).user;
   if (!user) {
     return jsonResponse({ ok: false, error: 'unauthorized' }, 401);
@@ -50,11 +58,14 @@ export const GET: APIRoute = async ({ locals }) => {
   if (!db) {
     return jsonResponse({ ok: false, error: 'service unavailable' }, 503);
   }
-  const channels = (await listChannels(db, user.id)).map((row) => ({
-    id: row.id,
-    channel: row.channel,
-    createdAt: row.created_at,
-  }));
+  const channelParam = url.searchParams.get('channel');
+  const kind = channelParam === null ? undefined : channelKindSchema.safeParse(channelParam);
+  if (kind && !kind.success) {
+    return jsonResponse({ ok: false, error: 'invalid input' }, 400);
+  }
+  let rows = await listChannels(db, user.id);
+  if (kind) rows = rows.filter((r) => r.channel === kind.data);
+  const channels = await toClientChannels(rows);
   return jsonResponse({ ok: true, channels });
 };
 

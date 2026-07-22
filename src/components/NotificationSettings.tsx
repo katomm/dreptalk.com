@@ -1,22 +1,25 @@
-// React island: push notification settings on the account settings page.
-// Two pieces: a connect flow that registers the service worker, asks for
-// permission, and subscribes this device, and (once at least one device is
-// connected) an event-type matrix for the webpush channel. Visible to every
-// signed-in writer; the page passes an empty vapidPublicKey when push is not
-// configured on this deployment yet.
+// React island: the push notifications card on /notifications. A connect flow
+// registers the service worker, asks for permission, and subscribes this
+// device; a master toggle turns all event prefs on or off; the event-type
+// matrix tunes them individually. Visible to every signed-in writer; the page
+// passes an empty vapidPublicKey when push is not configured on this
+// deployment yet.
 import { useEffect, useState } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { fromBase64Url } from '@/lib/crypto/base64url.js';
+import { relativeTime } from '@/lib/notifications/inboxView.js';
+import { endpointFingerprint } from '@/lib/notifications/channelView.js';
+import type { ClientChannel } from '@/lib/notifications/channelView.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
+import { useChannelPrefs } from '@/lib/notifications/useChannelPrefs.js';
 import NotificationPrefsMatrix from './NotificationPrefsMatrix.tsx';
 
-export interface NotificationDevice {
-  id: string;
-  createdAt: number;
-}
+// Client-safe channel projection, mirrors ClientChannel from channelView but
+// without the server-only channel kind. Shared with TelegramSettings.
+export type ClientChannelProps = Omit<ClientChannel, 'channel'>;
 
 export interface NotificationSettingsProps {
-  channels: NotificationDevice[];
+  channels: ClientChannelProps[];
   prefs: Record<NotificationEventType, boolean>;
   vapidPublicKey: string;
 }
@@ -32,8 +35,11 @@ function pushSupported(): boolean {
 }
 
 export default function NotificationSettings({ channels, prefs, vapidPublicKey }: NotificationSettingsProps) {
-  const [devices, setDevices] = useState<NotificationDevice[]>(channels);
+  const [devices, setDevices] = useState<ClientChannelProps[]>(channels);
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
+  const { prefState, prefError, prefsBusy, masterOn, toggleAll, togglePref } = useChannelPrefs('webpush', prefs);
+  // Fingerprint of this device's own push subscription, resolved on mount.
+  const [deviceFingerprint, setDeviceFingerprint] = useState<string | null>(null);
   // Per-device test-push state, keyed by channel id.
   const [testState, setTestState] = useState<
     Record<string, { status: 'sending' } | { status: 'scheduled'; delaySeconds: number } | { status: 'error'; message: string }>
@@ -57,6 +63,27 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
     return () => document.removeEventListener('click', onClick);
   }, []);
 
+  // Resolve this device's subscription fingerprint so its row reads "This
+  // device" and the enable button hides once connected.
+  useEffect(() => {
+    if (!pushSupported()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration('/push-sw.js');
+        const sub = await reg?.pushManager.getSubscription();
+        if (!sub) return;
+        const fp = await endpointFingerprint(sub.endpoint);
+        if (!cancelled) setDeviceFingerprint(fp);
+      } catch {
+        // No usable subscription; leave every row as a generic "Device".
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   if (!vapidPublicKey) {
     return (
       <p style={{ margin: 0, color: 'var(--muted)', maxWidth: '32rem' }}>
@@ -65,8 +92,7 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
     );
   }
 
-  const supported = pushSupported();
-  if (!supported) {
+  if (!pushSupported()) {
     return (
       <p style={{ margin: 0, color: 'var(--muted)', maxWidth: '32rem' }}>
         Push is not supported in this browser. On iPhone and iPad it only works after{' '}
@@ -117,6 +143,10 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         applicationServerKey: appServerKey,
       });
       const subJson = sub.toJSON();
+      // Only depends on sub.endpoint, not on the save response below; start it
+      // now so it resolves in parallel with the network round trip instead of
+      // adding its own latency after res.json().
+      const fingerprintPromise = endpointFingerprint(sub.endpoint);
 
       const res = await fetchWithTimeout('/api/notifications/channels', {
         method: 'POST',
@@ -134,9 +164,16 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
         return;
       }
       const { id } = (await res.json()) as { id: string };
+      const fp = await fingerprintPromise;
+      setDeviceFingerprint(fp);
+      const now = Date.now();
       // A repeat enable on an already-connected device returns the existing
       // row's id (server dedupes by endpoint); do not append a duplicate row.
-      setDevices((prev) => (prev.some((d) => d.id === id) ? prev : [...prev, { id, createdAt: Date.now() }]));
+      setDevices((prev) =>
+        prev.some((d) => d.id === id)
+          ? prev
+          : [...prev, { id, createdAt: now, deliveredUntil: now, label: null, fingerprint: fp }],
+      );
       setPhase({ status: 'idle' });
     } catch {
       setPhase({ status: 'error', message: 'Could not enable push notifications. Please try again.' });
@@ -184,90 +221,135 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
   }
 
   const connecting = phase.status === 'connecting';
+  const thisDeviceConnected =
+    deviceFingerprint !== null && devices.some((d) => d.fingerprint === deviceFingerprint);
+  const now = Date.now();
 
   return (
-    <div style={{ maxWidth: '32rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-      <div>
-        <button type="button" className="btn btn-primary" disabled={connecting} onClick={() => void handleEnable()}>
-          {connecting ? 'Connecting...' : 'Enable push notifications on this device'}
-        </button>
-        <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          On iPhone and iPad, push only works after{' '}
-          <a href="/help/add-to-home-screen/" style={{ color: 'var(--accent)' }}>
-            adding DRepTalk to the home screen
-          </a>
-          .
-        </p>
+    <div className="nset__card">
+      <div className="nset__head">
+        <span className="nset__icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+            <line x1="12" y1="18" x2="12.01" y2="18" />
+          </svg>
+        </span>
+        <div className="nset__headtext">
+          <h3 className="nset__title">Push notifications</h3>
+          <p className="nset__cardsub">Get notified on this device when important things happen.</p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={masterOn}
+          aria-disabled={prefsBusy}
+          aria-label="Push notifications"
+          className="nset__switch"
+          onClick={() => {
+            if (!prefsBusy) void toggleAll();
+          }}
+        />
       </div>
 
-      {phase.status === 'blocked' && (
-        <p style={{ margin: 0, color: 'var(--danger)', fontSize: '0.875rem' }}>
-          Notifications are blocked for this site in your browser settings.
-        </p>
-      )}
-      {phase.status === 'error' && (
-        <p style={{ margin: 0, color: 'var(--danger)', fontSize: '0.875rem' }}>{phase.message}</p>
-      )}
+      {!masterOn && <p className="nset__off">Push notifications are turned off.</p>}
 
-      {devices.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {devices.map((device) => (
-            <div
-              key={device.id}
-              style={{
-                padding: '0.5rem 0.75rem',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
-                fontSize: '0.875rem',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
-                <span>Device added {new Date(device.createdAt).toLocaleDateString()}</span>
-                <span style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={testState[device.id]?.status === 'sending'}
-                    onClick={() => void handleTest(device.id)}
-                    style={{ padding: '0.3rem 0.75rem', fontSize: '0.8125rem' }}
-                  >
-                    Send test
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => void handleRemove(device.id)}
-                    style={{ padding: '0.3rem 0.75rem', fontSize: '0.8125rem' }}
-                  >
-                    Remove
-                  </button>
-                </span>
-              </div>
-              {(() => {
-                const state = testState[device.id];
-                if (state?.status !== 'scheduled') return null;
-                return (
+      {masterOn && (
+        <>
+          <p className="nset__hint">
+            <span className="nset__rowicon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+            </span>
+            <span>
+              On iPhone and iPad, push only works after{' '}
+              <a href="/help/add-to-home-screen/">adding DRepTalk to the home screen</a>.
+            </span>
+          </p>
+
+          {!thisDeviceConnected && (
+            <div style={{ marginTop: '0.875rem' }}>
+              <button type="button" className="btn btn-primary" disabled={connecting} onClick={() => void handleEnable()}>
+                {connecting ? 'Connecting...' : 'Enable push notifications on this device'}
+              </button>
+            </div>
+          )}
+
+          {phase.status === 'blocked' && (
+            <p style={{ margin: '0.5rem 0 0', color: 'var(--danger)', fontSize: '0.875rem' }}>
+              Notifications are blocked for this site in your browser settings.
+            </p>
+          )}
+          {phase.status === 'error' && (
+            <p style={{ margin: '0.5rem 0 0', color: 'var(--danger)', fontSize: '0.875rem' }}>{phase.message}</p>
+          )}
+
+          {devices.map((device) => {
+            const isThisDevice = deviceFingerprint !== null && device.fingerprint === deviceFingerprint;
+            const state = testState[device.id];
+            return (
+              <div key={device.id}>
+                <div className="nset__row">
+                  <span className="nset__rowicon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2" y="3" width="20" height="14" rx="2" />
+                      <line x1="8" y1="21" x2="16" y2="21" />
+                      <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                  </span>
+                  <div className="nset__rowtext">
+                    <p className="nset__rowtitle">{isThisDevice ? 'This device' : 'Device'}</p>
+                    <p className="nset__rowmeta">
+                      Added on {new Date(device.createdAt).toLocaleDateString()}
+                      {device.deliveredUntil > device.createdAt &&
+                        ` · Last notified ${relativeTime(device.deliveredUntil, now)}`}
+                    </p>
+                  </div>
+                  <div className="nset__rowactions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={state?.status === 'sending'}
+                      onClick={() => void handleTest(device.id)}
+                      style={{ padding: '0.3rem 0.75rem', fontSize: '0.8125rem' }}
+                    >
+                      Send test
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => void handleRemove(device.id)}
+                      style={{ padding: '0.3rem 0.75rem', fontSize: '0.8125rem' }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+                {state?.status === 'scheduled' && (
                   <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
                     Test notification on its way: it arrives in about {state.delaySeconds} seconds, you can
                     lock your screen or switch away now.
                   </p>
-                );
-              })()}
-              {(() => {
-                const state = testState[device.id];
-                if (state?.status !== 'error') return null;
-                return (
-                  <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', color: 'var(--danger)' }}>
-                    {state.message}
-                  </p>
-                );
-              })()}
-            </div>
-          ))}
-        </div>
-      )}
+                )}
+                {state?.status === 'error' && (
+                  <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', color: 'var(--danger)' }}>{state.message}</p>
+                )}
+              </div>
+            );
+          })}
 
-      {devices.length > 0 && <NotificationPrefsMatrix channel="webpush" prefs={prefs} />}
+          {devices.length > 0 && (
+            <NotificationPrefsMatrix
+              prefs={prefState}
+              onChange={(e, v) => void togglePref(e, v)}
+              error={prefError}
+              disabled={prefsBusy}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
