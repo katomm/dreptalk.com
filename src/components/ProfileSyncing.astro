@@ -1,0 +1,104 @@
+---
+// Shown in place of a profile 404 when the signed-in owner follows a link to
+// their own not-yet-synced profile: a fresh on-chain registration the periodic
+// sync has not picked up yet. Mirrors NotFound's layout but reassures the
+// owner that the page appears on its own, no action needed.
+import Layout from '@/layouts/Layout.astro';
+import { truncateIdMiddle } from '@/lib/forum/view.js';
+
+interface Props {
+  /** Which profile kind is pending; picks the copy. */
+  kind: 'drep' | 'pool';
+  /** The on-chain id the owner signed in with. */
+  id: string;
+}
+const { kind, id } = Astro.props;
+
+const lead =
+  kind === 'drep'
+    ? "You're signed in as this DRep, but its on-chain data hasn't reached DRepTalk yet. New registrations are picked up automatically; your profile page usually appears within a few hours."
+    : "You're signed in as this stake pool's operator, but its on-chain data hasn't reached DRepTalk yet. New registrations are picked up automatically; your profile page usually appears within a few hours.";
+---
+<Layout title="Profile syncing - DRepTalk" description="This profile is still syncing from the chain." noindex={true}>
+  <section class="syncing">
+    <span class="syncing__icon reveal" style="--reveal-delay:0ms" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+        <polyline points="21 3 21 9 15 9" />
+      </svg>
+    </span>
+    <h1 class="syncing__title reveal" style="--reveal-delay:60ms">Your profile is syncing</h1>
+    <p class="syncing__lead reveal" style="--reveal-delay:120ms">{lead}</p>
+    <p class="syncing__id reveal" style="--reveal-delay:120ms" title={id}>{truncateIdMiddle(id)}</p>
+    <div class="syncing__actions reveal" style="--reveal-delay:180ms">
+      <a class="btn btn-primary" href="/discussions/">Browse discussions</a>
+      <a class="btn btn-secondary" href="/">Back to home</a>
+    </div>
+  </section>
+
+  <style>
+    .syncing {
+      position: relative;
+      max-width: 40rem;
+      margin: 0 auto;
+      padding: 4rem 0 6rem;
+      text-align: center;
+    }
+    /* Soft brand-gradient glow behind the icon, echoing the 404 page. */
+    .syncing::before {
+      content: '';
+      position: absolute;
+      top: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(26rem, 80%);
+      height: 12rem;
+      background: var(--grad);
+      filter: blur(80px);
+      opacity: 0.16;
+      z-index: -1;
+      pointer-events: none;
+    }
+    .syncing__icon {
+      display: inline-grid;
+      place-items: center;
+      color: var(--accent);
+    }
+    .syncing__icon svg {
+      animation: syncing-spin 6s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .syncing__icon svg {
+        animation: none;
+      }
+    }
+    @keyframes syncing-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    .syncing__title {
+      font-size: clamp(1.5rem, 4vw, 2.25rem);
+      margin: 0.75rem 0 0;
+    }
+    .syncing__lead {
+      color: var(--muted);
+      font-size: 1.0625rem;
+      line-height: 1.6;
+      margin: 1rem auto 0.75rem;
+      max-width: 32rem;
+    }
+    .syncing__id {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      margin: 0 0 2rem;
+    }
+    .syncing__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+  </style>
+</Layout>

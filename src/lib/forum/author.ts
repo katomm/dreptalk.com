@@ -145,6 +145,11 @@ export async function loadAuthorIdentities(
  * canonical redirect. When an account is both, the DRep link takes
  * precedence. The single source of this rule for every component that links
  * an author (post headers, the account menu).
+ *
+ * A user's drep_id/pool_id can briefly predate the synced dreps/pools row
+ * (fresh on-chain registration), so a link may point at a profile that does
+ * not exist yet; the profile pages render a "profile syncing" notice to the
+ * signed-in owner in that window instead of a 404.
  */
 export function authorProfileHref(a: AuthorDescriptor): string | null {
   if (a.isSystem) return null;
