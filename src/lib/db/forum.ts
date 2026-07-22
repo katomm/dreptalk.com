@@ -387,6 +387,24 @@ export async function getLatestTopicsAcrossCategories(
 }
 
 /**
+ * The busiest recent thread: among topics with any activity since the given
+ * time (ms), the one with the most posts. Powers the /home/ discussions
+ * teaser; returns null when the window saw no activity at all.
+ */
+export async function getMostRepliedRecentTopic(db: D1Database, sinceMs: number): Promise<Topic | null> {
+  const row = await db
+    .prepare(
+      `SELECT * FROM topics
+       WHERE deleted = 0 AND last_post_at > ?
+       ORDER BY post_count DESC, last_post_at DESC
+       LIMIT 1`,
+    )
+    .bind(sinceMs)
+    .first<TopicRow>();
+  return row ? rowToTopic(row) : null;
+}
+
+/**
  * Returns per-category topic counts and last-activity time in one grouped query
  * (no per-category round-trips). Powers the overview's category column.
  */
