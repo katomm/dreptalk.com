@@ -15,6 +15,7 @@ export interface NotificationChannelRow {
   channel: string;
   target: string;
   endpoint: string;
+  label: string | null;
   created_at: number;
   delivered_until: number;
 }
@@ -29,18 +30,25 @@ export interface NotificationChannelRow {
  */
 export async function addChannel(
   db: D1Database,
-  args: { userId: string; channel: NotificationChannelKind; target: string; endpoint: string; now: number },
+  args: {
+    userId: string;
+    channel: NotificationChannelKind;
+    target: string;
+    endpoint: string;
+    label?: string | null;
+    now: number;
+  },
 ): Promise<string> {
   const id = crypto.randomUUID();
   const statements: D1PreparedStatement[] = [
     db
       .prepare(
-        `INSERT INTO notification_channels (id, user_id, channel, target, endpoint, created_at, delivered_until)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(user_id, endpoint) DO UPDATE SET target = excluded.target
+        `INSERT INTO notification_channels (id, user_id, channel, target, endpoint, label, created_at, delivered_until)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, endpoint) DO UPDATE SET target = excluded.target, label = excluded.label
          RETURNING id`,
       )
-      .bind(id, args.userId, args.channel, args.target, args.endpoint, args.now, args.now),
+      .bind(id, args.userId, args.channel, args.target, args.endpoint, args.label ?? null, args.now, args.now),
     ...NOTIFICATION_EVENT_TYPES.map((eventType) =>
       db
         .prepare(
@@ -63,7 +71,7 @@ export async function removeChannel(db: D1Database, userId: string, id: string):
 export async function listChannels(db: D1Database, userId: string): Promise<NotificationChannelRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, user_id, channel, target, endpoint, created_at, delivered_until
+      `SELECT id, user_id, channel, target, endpoint, label, created_at, delivered_until
        FROM notification_channels
        WHERE user_id = ?`,
     )
@@ -79,7 +87,7 @@ export async function listChannelsByKind(
 ): Promise<NotificationChannelRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, user_id, channel, target, endpoint, created_at, delivered_until
+      `SELECT id, user_id, channel, target, endpoint, label, created_at, delivered_until
        FROM notification_channels
        WHERE channel = ?`,
     )
