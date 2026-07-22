@@ -287,10 +287,12 @@ const cards: HomeCard[] = [
 
   /* Featured row: the power-trend card on the left, the highlighted
      Discussions tile on the right. Mirrors the grid's two columns exactly so
-     the card edges line up down the whole page. */
+     the card edges line up down the whole page. minmax(0, 1fr) keeps the
+     halves equal: with plain 1fr the discussions tile's wide content (faces
+     row, hot-topic line) would push its column wider than the trend card. */
   .home-featured {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.9rem;
     align-items: stretch;
     margin: 0 0 0.9rem;
@@ -344,6 +346,8 @@ const cards: HomeCard[] = [
      carries the information on narrow screens. */
   .home-card__faces {
     display: flex;
+    flex-wrap: wrap;
+    row-gap: 0.4rem;
     margin-top: 0.4rem;
   }
   .home-card__face {
@@ -378,19 +382,21 @@ const cards: HomeCard[] = [
   a.home-card__face--more:hover {
     background: color-mix(in srgb, var(--accent) 20%, var(--surface));
   }
-  /* Hot-topic teaser: one truncated line, raised above the stretched link. */
+  /* Hot-topic teaser, raised above the stretched link. Wraps freely so long
+     titles stay readable; clamped at two lines to keep the tile compact. */
   .home-card__hot {
     position: relative;
     z-index: 1;
-    display: block;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     max-width: 100%;
     margin-top: 0.5rem;
     font-size: 0.875rem;
     color: var(--fg);
     text-decoration: none;
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
   .home-card__hot-label,
   .home-card__hot-replies {
