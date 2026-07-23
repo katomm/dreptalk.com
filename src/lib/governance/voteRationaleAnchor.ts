@@ -7,7 +7,7 @@
 // the CIP-136 prose, so neither form renders blank. The doc is untrusted:
 // verified by hash in fetchAnchorDoc, then sanitized and rendered here before it
 // is ever stored.
-import { fetchAnchorDoc } from './metadata.js';
+import { fetchAnchorDoc, jsonLdValue } from './metadata.js';
 import { sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
 import { MAX_VOTE_RATIONALE } from './voteRationale.js';
@@ -21,9 +21,14 @@ function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 }
 
-/** A non-empty trimmed string, or null. */
+/**
+ * A non-empty trimmed string, or null. Unwraps the JSON-LD expanded value form
+ * ({"@value": "..."}) first; rationale documents are CIP-100 JSON-LD, and some
+ * real anchors write their prose fields in the expanded form.
+ */
 function textField(v: unknown): string | null {
-  return typeof v === 'string' && v.trim().length > 0 ? v : null;
+  const u = jsonLdValue(v);
+  return typeof u === 'string' && u.trim().length > 0 ? u : null;
 }
 
 /**

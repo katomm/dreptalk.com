@@ -116,7 +116,7 @@ function asRecord(v: unknown): Record<string, unknown> {
  * form ("givenName": {"@value": "Will Norris"}). Both are semantically identical
  * and several real mainnet DReps register with the expanded form.
  */
-function jsonLdValue(v: unknown): unknown {
+export function jsonLdValue(v: unknown): unknown {
   if (v && typeof v === 'object' && !Array.isArray(v) && '@value' in v) {
     return (v as Record<string, unknown>)['@value'];
   }
