@@ -27,12 +27,15 @@ function textField(v: unknown): string | null {
 }
 
 /**
- * Composes the prose of a CIP-136 structured rationale (used when there is no
- * CIP-100 comment): summary, then the full rationale statement, then the
- * conclusion, in reading order. Returns null when none are present.
+ * Composes the prose of a structured rationale (used when there is no CIP-100
+ * comment): summary, then the full rationale statement, then the conclusion, in
+ * reading order. Returns null when none are present. Self-authored documents in
+ * the wild carry the statement in a plain `rationale` field (CIP-108's name for
+ * it) instead of CIP-136's `rationaleStatement`, so that slot falls back to it.
  */
 function composeCip136(body: Record<string, unknown>): string | null {
-  const parts = [textField(body.summary), textField(body.rationaleStatement), textField(body.conclusion)].filter(
+  const statement = textField(body.rationaleStatement) ?? textField(body.rationale);
+  const parts = [textField(body.summary), statement, textField(body.conclusion)].filter(
     (s): s is string => s != null,
   );
   return parts.length > 0 ? parts.join('\n\n') : null;
