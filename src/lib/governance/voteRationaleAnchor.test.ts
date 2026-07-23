@@ -40,6 +40,19 @@ describe('extractVoteRationaleComment', () => {
   it('prefers comment over rationale when both exist', () => {
     expect(extractVoteRationaleComment({ body: { comment: 'short', rationale: 'long rationale' } })).toBe('short');
   });
+  it('unwraps a JSON-LD @value-wrapped comment', () => {
+    expect(extractVoteRationaleComment({ body: { comment: { '@value': 'We voted yes.' } } })).toBe('We voted yes.');
+  });
+  it('unwraps @value-wrapped CIP-136 fields', () => {
+    const text = extractVoteRationaleComment({
+      body: { summary: { '@value': 'Summary.' }, rationaleStatement: { '@value': 'Statement.' } },
+    });
+    expect(text).toContain('Summary.');
+    expect(text).toContain('Statement.');
+  });
+  it('ignores a non-string @value', () => {
+    expect(extractVoteRationaleComment({ body: { comment: { '@value': 7 } } })).toBeNull();
+  });
   it('returns null when the document carries no prose', () => {
     expect(extractVoteRationaleComment({ body: { other: 'x' } })).toBeNull();
     expect(extractVoteRationaleComment({ body: { internalVote: { constitutional: 4 } } })).toBeNull();
