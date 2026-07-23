@@ -502,29 +502,6 @@ export async function updateDrepDelegatorCounts(
 }
 
 /**
- * The DReps most in need of a delegator-count refresh: never-counted rows first
- * (NULL synced_at), then oldest count first. Excludes the predefined pseudo-DReps
- * (always-abstain / always-no-confidence), which have no delegators.
- */
-export async function listDrepsForDelegatorCountRefresh(
-  db: D1Database,
-  limit: number,
-): Promise<{ drepId: string }[]> {
-  const rows = (
-    await db
-      .prepare(
-        `SELECT drep_id FROM dreps
-         WHERE drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})
-         ORDER BY delegator_count_synced_at ASC NULLS FIRST, drep_id
-         LIMIT ?`,
-      )
-      .bind(...SPECIAL_DREP_IDS, limit)
-      .all<{ drep_id: string }>()
-  ).results ?? [];
-  return rows.map((r) => ({ drepId: r.drep_id }));
-}
-
-/**
  * Inserts or updates a drep row in place (upsert keyed on drep_id).
  * Deliberately NOT INSERT OR REPLACE: REPLACE is DELETE+INSERT, which would
  * reassign the rowid and fire the dreps FTS delete/insert triggers on every
@@ -544,6 +521,10 @@ export async function upsertDrep(
     deposit: string | null;
     votingPower: string | null;
     expiresEpochNo: number | null;
+    // Chain-sync-owned (from /drep_info's live_delegator_count); optional so the
+    // many callers that do not touch delegator data can omit them.
+    delegatorCount?: number | null;
+    delegatorCountSyncedAt?: number | null;
     name: string | null;
     bio: string | null;
     imageUrl: string | null;
@@ -569,12 +550,13 @@ export async function upsertDrep(
     .prepare(
       `INSERT INTO dreps
          (drep_id, hex, has_script, status, active, deposit, voting_power,
-          expires_epoch_no, name, bio, image_url, image_content_hash,
+          expires_epoch_no, delegator_count, delegator_count_synced_at,
+          name, bio, image_url, image_content_hash,
           image_stored_url, image_fetch_failed_at, links,
           motivations, qualifications, payment_address, do_not_list,
           anchor_url, anchor_hash, anchor_status, profile_extract_version,
           last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(drep_id) DO UPDATE SET
          hex = excluded.hex,
          has_script = excluded.has_script,
@@ -583,6 +565,8 @@ export async function upsertDrep(
          deposit = excluded.deposit,
          voting_power = excluded.voting_power,
          expires_epoch_no = excluded.expires_epoch_no,
+         delegator_count = excluded.delegator_count,
+         delegator_count_synced_at = excluded.delegator_count_synced_at,
          name = excluded.name,
          bio = excluded.bio,
          image_url = excluded.image_url,
@@ -610,6 +594,8 @@ export async function upsertDrep(
       args.deposit,
       args.votingPower,
       args.expiresEpochNo,
+      args.delegatorCount ?? null,
+      args.delegatorCountSyncedAt ?? null,
       args.name,
       args.bio,
       args.imageUrl,

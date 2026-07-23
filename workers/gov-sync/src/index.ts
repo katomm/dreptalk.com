@@ -63,7 +63,6 @@ import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js
 import { backfillRationaleText } from '../../../src/lib/db/rationaleTextBackfill.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
-import { syncDrepDelegatorCounts } from '../../../src/lib/dreps/delegatorCountSync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
 import { syncPools } from '../../../src/lib/pools/sync.js';
@@ -138,12 +137,6 @@ const VOTE_PACE_MS = 200;
 // over a few 6-hour runs (deferred anchors resume automatically). Steady-state
 // runs fetch only changed anchors and never come near the cap.
 const DREP_ANCHOR_LIMIT = 400;
-
-// Delegator counts are one cheap Koios request each and Koios has no bulk form,
-// so each run refreshes a bounded, stalest-first slice. The full set (~1,700
-// DReps) cycles in ~1-2 days; raise this to shorten the cycle. Self-healing: a
-// missed or failed DRep is simply picked up on a later run.
-const DREP_DELEGATOR_COUNT_LIMIT = 300;
 
 // Discover new actions, then refresh tallies + lifecycle for active actions.
 async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
@@ -477,22 +470,6 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
     const reg = await backfillRegisteredEpochs({ koios, db: env.DB, cfg });
     console.log(`[drep-reg-backfill] missing=${reg.missing} resolved=${reg.resolved} pages=${reg.pages}`);
     return { items: reg.resolved };
-  });
-
-  // Refresh delegator headcounts for the stalest DReps. Isolated phase: a Koios
-  // hiccup here must not fail the DRep sync that already succeeded. Only the two
-  // count columns change, so no FTS churn.
-  await phase('delegator-counts', async () => {
-    const r = await syncDrepDelegatorCounts({
-      koios,
-      db: env.DB,
-      now: Date.now(),
-      limit: DREP_DELEGATOR_COUNT_LIMIT,
-    });
-    console.log(
-      `[drep-delegators] scanned=${r.scanned} updated=${r.updated} failed=${r.failed}`,
-    );
-    return { items: r.updated, failed: r.failed };
   });
 
   // Mint profile slugs for newly named DReps (pure D1, no Koios). A profile
