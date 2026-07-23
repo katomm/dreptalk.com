@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { parseContentRangeTotal } from './contentRange.js';
 
 export interface KoiosClientOptions {
   baseUrl: string;
@@ -117,6 +116,9 @@ export type DrepListRow = z.infer<typeof drepListRowSchema>;
 // DrepInfoRow schema: full shape returned by POST /drep_info (batch).
 // Includes anchor fields (meta_url, meta_hash) for CIP-119 metadata resolution
 // and voting power amount. All nullable fields follow the live Koios response.
+// live_delegator_count is Koios's per-DRep delegator headcount ("delegators whose
+// last voting power delegation was to this DRep"); optional so a network that has
+// not yet exposed it parses cleanly, in which case the count is treated as unknown.
 const drepInfoRowSchema = z
   .object({
     drep_id: z.string(),
@@ -129,6 +131,10 @@ const drepInfoRowSchema = z
     amount: z.string().nullable(),
     meta_url: z.string().nullable(),
     meta_hash: z.string().nullable(),
+    // Shout out to the Koios team for adding live_delegator_count to /drep_info:
+    // it lets us drop a per-DRep count request and read the headcount straight off
+    // the row we already fetch.
+    live_delegator_count: z.number().nullable().optional(),
   })
   .passthrough();
 
@@ -454,39 +460,6 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     return withRetry(() => attempt(path, init));
   }
 
-  // Count-only transport: sends `Prefer: count=exact` and returns the total from
-  // the Content-Range header (Koios has no dedicated count endpoint), draining
-  // the 1-row body it does not need. Mirrors attempt()'s abort timeout and bearer
-  // token. Returns null when the header is absent or unparseable, so a missing
-  // count is "unknown", not a crash.
-  async function attemptCount(path: string): Promise<number | null> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const headers: Record<string, string> = {
-        accept: 'application/json',
-        Prefer: 'count=exact',
-      };
-      if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
-      const res = await fetchImpl(`${opts.baseUrl}${path}`, {
-        method: 'GET',
-        headers,
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        throw new KoiosHttpError(res.status, parseRetryAfter(res.headers.get('retry-after')));
-      }
-      await res.text();
-      return parseContentRangeTotal(res.headers.get('content-range'));
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  async function requestCount(path: string): Promise<number | null> {
-    return withRetry(() => attemptCount(path));
-  }
-
   async function postSingleRow<T>(
     path: string,
     bodyKey: string,
@@ -618,13 +591,14 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(drepListRowSchema).parse(data);
     },
 
-    // Delegator headcount for one DRep. /drep_delegators has no count-only variant
-    // and no bulk (all-DReps) form, so we ask for an exact count and read the total
-    // from the Content-Range header, fetching a single row we discard. Returns null
-    // when the total is unknown; the caller leaves the stored value and retries next
-    // cycle.
+    // Delegator headcount for one DRep, read from /drep_info's live_delegator_count
+    // (the bulk sync gets the same field for free on the row it already fetches; this
+    // single-id path serves the on-demand profile refresh). Returns null when the DRep
+    // is absent or Koios omits the field; the caller leaves the stored value and
+    // retries next cycle.
     async drepDelegatorCount(drepId: string): Promise<number | null> {
-      return requestCount(`/drep_delegators?_drep_id=${encodeURIComponent(drepId)}&limit=1`);
+      const row = (await drepInfoChunk([drepId]))[0];
+      return row?.live_delegator_count ?? null;
     },
 
     // Power-weighted tally summary for one governance action (bech32 proposal id).

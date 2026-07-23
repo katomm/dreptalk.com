@@ -600,3 +600,81 @@ describe('stored-avatar preservation', () => {
     expect(stored!.imageContentHash).toBeNull();
   });
 });
+
+// The delegator headcount now rides along on the same /drep_info row the chain
+// sync already fetches (Koios's live_delegator_count), so there is no separate
+// delegator-count phase: the count and its synced_at land with the profile write.
+describe('syncDreps delegator counts', () => {
+  const noFetch = (async () => jsonResponse('[]')) as typeof fetch;
+
+  it('stores live_delegator_count and stamps delegator_count_synced_at', async () => {
+    const id = 'drep1-delegators';
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { live_delegator_count: 42 })]]),
+    });
+
+    await syncDreps({ koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.delegatorCount).toBe(42);
+    expect(stored!.delegatorCountSyncedAt).toBe(NOW);
+  });
+
+  it('stores a zero count (0 is a real value, not "unknown")', async () => {
+    const id = 'drep1-zero-delegators';
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { live_delegator_count: 0 })]]),
+    });
+
+    await syncDreps({ koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.delegatorCount).toBe(0);
+    expect(stored!.delegatorCountSyncedAt).toBe(NOW);
+  });
+
+  it('leaves the stored count untouched when Koios omits the field', async () => {
+    const id = 'drep1-missing-count';
+    // First run: Koios reports a count.
+    const withCount = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { live_delegator_count: 7 })]]),
+    });
+    await syncDreps({ koios: withCount.koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    // Second run: the field is absent (undefined) -> count is unknown, keep the
+    // stored value and its earlier timestamp rather than clobbering with null.
+    const info = infoRow(id, { amount: '2000000000' });
+    delete (info as { live_delegator_count?: number | null }).live_delegator_count;
+    const without = fakeKoios({ pages: [[listRow(id)]], infoById: new Map([[id, info]]) });
+    await syncDreps({ koios: without.koios, db: env.DB, fetchImpl: noFetch, now: NOW + 60_000 });
+
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.delegatorCount).toBe(7);
+    expect(stored!.delegatorCountSyncedAt).toBe(NOW);
+    // The unrelated voting-power change still persisted.
+    expect(stored!.votingPower).toBe('2000000000');
+  });
+
+  it('rewrites a row when only the delegator count changed', async () => {
+    const id = 'drep1-count-change';
+    const first = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { live_delegator_count: 3 })]]),
+    });
+    await syncDreps({ koios: first.koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    const second = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { live_delegator_count: 5 })]]),
+    });
+    const r = await syncDreps({ koios: second.koios, db: env.DB, fetchImpl: noFetch, now: NOW + 60_000 });
+
+    expect(r).toMatchObject({ updated: 1, skipped: 0 });
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.delegatorCount).toBe(5);
+    expect(stored!.delegatorCountSyncedAt).toBe(NOW + 60_000);
+  });
+});

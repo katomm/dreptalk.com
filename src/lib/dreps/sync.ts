@@ -277,10 +277,13 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     votingPowerSnapshot: existing?.votingPowerSnapshot ?? null,
     votingPowerPrev: existing?.votingPowerPrev ?? null,
     votingPowerSnapshotEpoch: existing?.votingPowerSnapshotEpoch ?? null,
-    // Owned by the delegator-count sync, not the chain sync: carry them over so a
-    // profile upsert never wipes the stored count.
-    delegatorCount: existing?.delegatorCount ?? null,
-    delegatorCountSyncedAt: existing?.delegatorCountSyncedAt ?? null,
+    // Delegator headcount now rides along on the same /drep_info row this sync
+    // already fetches (Koios's live_delegator_count), so the chain sync owns it like
+    // voting power. When Koios omits it the count is unknown: keep the stored value
+    // and its timestamp, and retry next run.
+    delegatorCount: info.live_delegator_count ?? existing?.delegatorCount ?? null,
+    delegatorCountSyncedAt:
+      info.live_delegator_count != null ? now : (existing?.delegatorCountSyncedAt ?? null),
     expiresEpochNo: info.expires_epoch_no,
     // Owned by the registration-epoch backfill, not the chain sync: carry it over
     // so a profile upsert never wipes a resolved value.
@@ -323,6 +326,7 @@ function hasChanged(next: Drep, existing: Drep | undefined): boolean {
     next.active !== existing.active ||
     next.deposit !== existing.deposit ||
     next.votingPower !== existing.votingPower ||
+    next.delegatorCount !== existing.delegatorCount ||
     next.expiresEpochNo !== existing.expiresEpochNo ||
     next.name !== existing.name ||
     next.bio !== existing.bio ||

@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes, updateDrepDelegatorCounts, listDrepsForDelegatorCountRefresh } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes, updateDrepDelegatorCounts } from './dreps.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
 
@@ -387,15 +387,6 @@ describe('delegator count DB layer', () => {
 
   it('updateDrepDelegatorCounts is a no-op on an empty list', async () => {
     expect(await updateDrepDelegatorCounts(env.DB, [])).toBe(0);
-  });
-
-  it('listDrepsForDelegatorCountRefresh returns stalest-first, never-counted first', async () => {
-    await seedDrep('drep_new'); // never counted -> NULL synced_at, highest priority
-    await seedDrep('drep_old', { count: 5, syncedAt: 100 });
-    await seedDrep('drep_fresh', { count: 9, syncedAt: 9000 });
-
-    const ids = (await listDrepsForDelegatorCountRefresh(env.DB, 2)).map((r) => r.drepId);
-    expect(ids).toEqual(['drep_new', 'drep_old']);
   });
 });
 
