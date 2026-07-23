@@ -9,6 +9,7 @@ import {
   epochDaysLeft,
   tallyBar,
   voteTone,
+  voteChangedSince,
   fmtPct,
   fmtPctFine,
   formatEpochDate,
@@ -199,6 +200,22 @@ describe('voteTone', () => {
     expect(voteTone('Yes')).toBe('positive');
     expect(voteTone('no')).toBe('negative');
     expect(voteTone('Abstain')).toBe('neutral');
+  });
+});
+
+describe('voteChangedSince', () => {
+  it('detects a changed vote case-insensitively', () => {
+    expect(voteChangedSince('yes', 'No')).toBe(true);
+    expect(voteChangedSince('no', 'Abstain')).toBe(true);
+  });
+  it('treats the same vote in different casing as unchanged', () => {
+    expect(voteChangedSince('yes', 'Yes')).toBe(false);
+    expect(voteChangedSince('Abstain', 'abstain')).toBe(false);
+  });
+  it('reports no change when either side is missing', () => {
+    expect(voteChangedSince(null, 'Yes')).toBe(false);
+    expect(voteChangedSince('yes', undefined)).toBe(false);
+    expect(voteChangedSince(null, undefined)).toBe(false);
   });
 });
 

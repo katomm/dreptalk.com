@@ -157,6 +157,21 @@ function clampPct(n: number): number {
   return Math.min(100, Math.max(0, n));
 }
 
+/**
+ * Whether the author's current on-chain vote differs from the vote a frozen
+ * rationale post was cast with. posts.vote is stored lowercase while
+ * drep_votes.vote is Koios-cased ('Yes'/'No'/'Abstain'), so the comparison is
+ * case-insensitive. Missing either side reads as unchanged: no current vote row
+ * (or a post without a vote) is not evidence of a change.
+ */
+export function voteChangedSince(
+  postVote: string | null | undefined,
+  currentVote: string | null | undefined,
+): boolean {
+  if (!postVote || !currentVote) return false;
+  return postVote.toLowerCase() !== currentVote.toLowerCase();
+}
+
 /** Color tone for a vote badge. */
 export function voteTone(vote: string): StatusTone {
   const v = vote.toLowerCase();

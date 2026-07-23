@@ -8,7 +8,7 @@ import PostActions from '@/components/PostActions.astro';
 import { postViewerContext, type SessionUser } from '@/lib/forum/postVisibility.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import { ensureLinkTarget } from '@/lib/markdown.js';
-import { voteTone, TONE_COLORS } from '@/lib/governance/view.js';
+import { voteTone, voteChangedSince, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
@@ -51,6 +51,15 @@ const rationaleVoteColor = isVoteRationale && post.vote
 // unresolvable schemes drop the link rather than rendering a dead one).
 const anchorUrl =
   isVoteRationale && authorVote?.meta_url ? resolveAnchorUrl(authorVote.meta_url) : null;
+
+// A frozen rationale post keeps the vote it was cast with; when the author has
+// since re-voted (typically outside DRepTalk, so this post was never edited),
+// the current on-chain vote diverges and the post gets a pointer to the
+// author's current position instead of silently showing a stale stance.
+const currentVote = authorVote?.vote ?? null;
+const changedVote = isVoteRationale && voteChangedSince(post.vote, currentVote) ? currentVote : null;
+const changedVoteColor = changedVote ? TONE_COLORS[voteTone(changedVote)] : null;
+const changedVoteHref = author.drepId ? `?tab=positions#voter-${author.drepId}` : '?tab=positions';
 ---
 
 <article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
@@ -86,6 +95,13 @@ const anchorUrl =
       ) : (
         <>Frozen. On-chain rationale, submitted {formatRelativeTime(post.created_at, now)}.</>
       )}
+    </p>
+  )}
+  {changedVote && (
+    <p class="vr-changed-notice">
+      The author has since changed their vote to{' '}
+      <strong style={`color:${changedVoteColor};`}>{changedVote.toUpperCase()}</strong>; see their{' '}
+      <a href={changedVoteHref} class="vr-anchor-link">current position</a>.
     </p>
   )}
   {canSeeContent ? (
@@ -168,6 +184,14 @@ const anchorUrl =
   /* Frozen notice bar shown above the post body for vote_rationale posts. */
   .vr-frozen-notice {
     margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  /* Stale-stance pointer: the author re-voted since this frozen post. */
+  .vr-changed-notice {
+    margin: -0.25rem 0 0.75rem;
     font-size: 0.8125rem;
     color: var(--muted);
     font-style: italic;
