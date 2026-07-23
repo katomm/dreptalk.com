@@ -23,6 +23,23 @@ describe('extractVoteRationaleComment', () => {
   it('prefers comment over CIP-136 fields when both exist', () => {
     expect(extractVoteRationaleComment({ body: { comment: 'short', summary: 'long summary' } })).toBe('short');
   });
+  it('reads a bare body.rationale field', () => {
+    expect(extractVoteRationaleComment({ body: { rationale: 'I vote NO because of the NCL.' } })).toBe(
+      'I vote NO because of the NCL.',
+    );
+  });
+  it('composes summary with body.rationale when both exist', () => {
+    const text = extractVoteRationaleComment({ body: { summary: 'We vote YES.', rationale: 'Full reasoning here.' } });
+    expect(text).toContain('We vote YES.');
+    expect(text).toContain('Full reasoning here.');
+  });
+  it('prefers rationaleStatement over rationale when both exist', () => {
+    const text = extractVoteRationaleComment({ body: { rationaleStatement: 'canonical', rationale: 'duplicate' } });
+    expect(text).toBe('canonical');
+  });
+  it('prefers comment over rationale when both exist', () => {
+    expect(extractVoteRationaleComment({ body: { comment: 'short', rationale: 'long rationale' } })).toBe('short');
+  });
   it('returns null when the document carries no prose', () => {
     expect(extractVoteRationaleComment({ body: { other: 'x' } })).toBeNull();
     expect(extractVoteRationaleComment({ body: { internalVote: { constitutional: 4 } } })).toBeNull();
