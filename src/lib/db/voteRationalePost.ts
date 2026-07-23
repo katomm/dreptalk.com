@@ -14,6 +14,13 @@
 // post was removed (opt-out, or migration 0046) revives it and re-increments the
 // counter. removeVoteRationalePost undoes the count when a DRep re-votes with
 // cross-posting turned off.
+//
+// The same lifecycle drives a reply_created activity event, so an opted-in
+// cross-post shows in the "Latest activity" feed exactly like a normal reply:
+// emitted on the INSERT and on revive, deleted again on opt-out, and left
+// untouched on an in-place edit (so a re-vote does not churn the feed).
+
+import { activityInsert } from './activity.js';
 
 export async function upsertVoteRationalePost(
   db: D1Database,
@@ -36,6 +43,14 @@ export async function upsertVoteRationalePost(
         db
           .prepare(`UPDATE topics SET post_count = post_count + 1, last_post_at = ? WHERE id = ?`)
           .bind(rec.now, rec.topicId),
+        // The opt-out that removed it also deleted its feed event, so re-surface it.
+        activityInsert(db, {
+          type: 'reply_created',
+          topicId: rec.topicId,
+          actorId: rec.authorId,
+          refPostId: existing.id,
+          createdAt: rec.now,
+        }),
       ]);
       return;
     }
@@ -47,16 +62,25 @@ export async function upsertVoteRationalePost(
     return;
   }
 
+  const postId = crypto.randomUUID();
   await db.batch([
     db
       .prepare(
         `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at, source, vote)
          VALUES (?, ?, ?, ?, ?, ?, 'vote_rationale', ?)`,
       )
-      .bind(crypto.randomUUID(), rec.topicId, rec.authorId, rec.bodyMd, rec.bodyHtml, rec.now, rec.vote),
+      .bind(postId, rec.topicId, rec.authorId, rec.bodyMd, rec.bodyHtml, rec.now, rec.vote),
     db
       .prepare(`UPDATE topics SET post_count = post_count + 1, last_post_at = ? WHERE id = ?`)
       .bind(rec.now, rec.topicId),
+    // Surface the opted-in cross-post in the activity feed, like a normal reply.
+    activityInsert(db, {
+      type: 'reply_created',
+      topicId: rec.topicId,
+      actorId: rec.authorId,
+      refPostId: postId,
+      createdAt: rec.now,
+    }),
   ]);
 }
 
@@ -80,5 +104,7 @@ export async function removeVoteRationalePost(
   await db.batch([
     db.prepare(`UPDATE posts SET deleted = 1 WHERE id = ?`).bind(existing.id),
     db.prepare(`UPDATE topics SET post_count = MAX(post_count - 1, 0) WHERE id = ?`).bind(rec.topicId),
+    // Withdraw the feed event too; ref_post_id is unique to this cross-post.
+    db.prepare(`DELETE FROM activity WHERE type = 'reply_created' AND ref_post_id = ?`).bind(existing.id),
   ]);
 }

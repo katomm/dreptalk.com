@@ -1,8 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
-// Append only forum activity event log: an insert builder used by the four
-// emission sites (createTopic, createPost, gov sync discovery, gov tally sync)
-// and the single read query that powers the "Latest activity" feed. The feed's
-// hydration (titles, authors, governance) lives in src/lib/forum/activityFeed.ts.
+// Append only forum activity event log: an insert builder used by the emission
+// sites (createTopic, createPost, opted-in vote-rationale cross-posts, gov sync
+// discovery, gov tally sync) and the single read query that powers the "Latest
+// activity" feed. The feed's hydration (titles, authors, governance) lives in
+// src/lib/forum/activityFeed.ts.
 
 import { sqlPlaceholders } from './sql.js';
 
