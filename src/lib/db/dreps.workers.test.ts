@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes, updateDrepDelegatorCounts } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
 
@@ -352,41 +352,6 @@ describe('avatar store queries', () => {
     expect(set.has('2'.repeat(64))).toBe(true);
     // DISTINCT dedupes the shared hash and the null row contributes nothing.
     expect(set.size).toBe(1);
-  });
-});
-
-async function seedDrep(
-  drepId: string,
-  opts: { count?: number | null; syncedAt?: number | null } = {},
-): Promise<void> {
-  await env.DB.prepare(
-    `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at,
-                        delegator_count, delegator_count_synced_at)
-     VALUES (?, 'registered', 1, 0, 0, ?, ?)`,
-  )
-    .bind(drepId, opts.count ?? null, opts.syncedAt ?? null)
-    .run();
-}
-
-describe('delegator count DB layer', () => {
-  it('round-trips delegator_count via updateDrepDelegatorCounts', async () => {
-    await seedDrep('drep_rt');
-    const before = await getDrepById(env.DB, 'drep_rt');
-    expect(before?.delegatorCount).toBeNull();
-    expect(before?.delegatorCountSyncedAt).toBeNull();
-
-    const written = await updateDrepDelegatorCounts(env.DB, [
-      { drepId: 'drep_rt', delegatorCount: 42, syncedAt: 1000 },
-    ]);
-    expect(written).toBe(1);
-
-    const after = await getDrepById(env.DB, 'drep_rt');
-    expect(after?.delegatorCount).toBe(42);
-    expect(after?.delegatorCountSyncedAt).toBe(1000);
-  });
-
-  it('updateDrepDelegatorCounts is a no-op on an empty list', async () => {
-    expect(await updateDrepDelegatorCounts(env.DB, [])).toBe(0);
   });
 });
 

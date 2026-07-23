@@ -591,16 +591,6 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(drepListRowSchema).parse(data);
     },
 
-    // Delegator headcount for one DRep, read from /drep_info's live_delegator_count
-    // (the bulk sync gets the same field for free on the row it already fetches; this
-    // single-id path serves the on-demand profile refresh). Returns null when the DRep
-    // is absent or Koios omits the field; the caller leaves the stored value and
-    // retries next cycle.
-    async drepDelegatorCount(drepId: string): Promise<number | null> {
-      const row = (await drepInfoChunk([drepId]))[0];
-      return row?.live_delegator_count ?? null;
-    },
-
     // Power-weighted tally summary for one governance action (bech32 proposal id).
     async proposalVotingSummary(proposalId: string): Promise<VotingSummary | null> {
       const path = `/proposal_voting_summary?_proposal_id=${encodeURIComponent(proposalId)}`;
