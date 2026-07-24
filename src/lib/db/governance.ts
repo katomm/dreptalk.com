@@ -45,6 +45,8 @@ export interface NewGovernanceAction {
   title: string | null;
   abstract: string | null;
   rationaleHtml: string | null;
+  /** Self-declared author names from the anchor document, or null. */
+  authors: string[] | null;
   anchorUrl: string | null;
   anchorHash: string | null;
   anchorStatus: string;
@@ -75,9 +77,9 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       // sync sets the real status (active / enacted / expired / dropped). Showing a
       // freshly discovered action as 'active' before we have checked would mislead.
       `INSERT OR IGNORE INTO governance_actions
-         (id, proposal_id, type, title, abstract, rationale_html, anchor_url, anchor_hash, anchor_status,
+         (id, proposal_id, type, title, abstract, rationale_html, authors, anchor_url, anchor_hash, anchor_status,
           return_address, deposit, submitted_epoch, submitted_at, expiry_epoch, enacted_epoch, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       a.id,
@@ -86,6 +88,7 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       a.title,
       a.abstract,
       a.rationaleHtml,
+      a.authors ? JSON.stringify(a.authors) : null,
       a.anchorUrl,
       a.anchorHash,
       a.anchorStatus,
@@ -113,6 +116,8 @@ export interface GovernanceAction {
   title: string | null;
   abstract: string | null;
   rationaleHtml: string | null;
+  /** Self-declared author names from the anchor document, or null. */
+  authors: string[] | null;
   anchorUrl: string | null;
   anchorHash: string | null;
   anchorStatus: string;
@@ -172,6 +177,7 @@ interface GovernanceActionRow {
   title: string | null;
   abstract: string | null;
   rationale_html: string | null;
+  authors: string | null;
   anchor_url: string | null;
   anchor_hash: string | null;
   anchor_status: string;
@@ -216,6 +222,22 @@ interface GovernanceActionRow {
   trending_score: number | null;
 }
 
+/**
+ * Parses the stored authors JSON. Anything that is not a non-empty array of
+ * strings reads back as null, so a malformed row degrades to the address
+ * fallback instead of throwing during a list render.
+ */
+function parseAuthors(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!Array.isArray(v) || v.length === 0) return null;
+    return v.every((s) => typeof s === 'string') ? (v as string[]) : null;
+  } catch {
+    return null;
+  }
+}
+
 function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
   return {
     id: r.id,
@@ -224,6 +246,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     title: r.title,
     abstract: r.abstract,
     rationaleHtml: r.rationale_html,
+    authors: parseAuthors(r.authors),
     anchorUrl: r.anchor_url,
     anchorHash: r.anchor_hash,
     anchorStatus: r.anchor_status,
@@ -836,7 +859,13 @@ export async function getRelatedActions(
 export async function updateActionMetadata(
   db: D1Database,
   id: string,
-  m: { title: string | null; abstract: string | null; rationaleHtml: string | null; metaVersion: number },
+  m: {
+    title: string | null;
+    abstract: string | null;
+    rationaleHtml: string | null;
+    authors: string[] | null;
+    metaVersion: number;
+  },
 ): Promise<void> {
   // Only ever called after a successful, hash-verified extraction, so the row
   // settles as anchor_status 'ok'. This is essential for rows recovered from a
@@ -846,9 +875,9 @@ export async function updateActionMetadata(
   // fresh (a past dead spell must not count against it).
   await db
     .prepare(
-      "UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, anchor_status = 'ok', meta_version = ?, meta_attempts = 0 WHERE id = ?",
+      "UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, authors = ?, anchor_status = 'ok', meta_version = ?, meta_attempts = 0 WHERE id = ?",
     )
-    .bind(m.title, m.abstract, m.rationaleHtml, m.metaVersion, id)
+    .bind(m.title, m.abstract, m.rationaleHtml, m.authors ? JSON.stringify(m.authors) : null, m.metaVersion, id)
     .run();
 }
 
