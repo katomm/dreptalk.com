@@ -67,7 +67,7 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
 {variant === 'discussions' ? (
 <div class="act-row act-row--wide">
   {actor && !actor.isSystem ? (
-    <Avatar seed={seed} imageHash={actor.imageHash} size={AVATAR_SIZE.rowLead} />
+    <Avatar seed={seed} imageHash={actor.imageHash} size={AVATAR_SIZE.rowLead} href={profileHref} />
   ) : (
     <span class="act-tile" aria-hidden="true">
       <LogoMark style="width:22px;height:22px;color:var(--muted);" />
@@ -119,7 +119,7 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
 ) : (
 <div class="act-row">
   {actor && !actor.isSystem ? (
-    <Avatar seed={seed} imageHash={actor.imageHash} size={AVATAR_SIZE.rowLead} />
+    <Avatar seed={seed} imageHash={actor.imageHash} size={AVATAR_SIZE.rowLead} href={profileHref} />
   ) : (
     <span class="act-tile" aria-hidden="true">
       <LogoMark style="width:22px;height:22px;color:var(--muted);" />

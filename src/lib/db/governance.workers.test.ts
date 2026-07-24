@@ -700,6 +700,16 @@ describe('getGovernanceActionTopicIdsPage', () => {
     expect(topicIds).toEqual(['t-e501', 't-e500-late', 't-e500-early', 't-e500-nullat']);
   });
 
+  it('old: oldest submitted epoch first (reverse of new), NULL epochs last, all statuses', async () => {
+    await seedGovRow({ topicId: 't-300', actionId: 'a1', submittedEpoch: 300, status: 'enacted' });
+    await seedGovRow({ topicId: 't-320', actionId: 'a2', submittedEpoch: 320 });
+    await seedGovRow({ topicId: 't-310', actionId: 'a3', submittedEpoch: 310, status: 'expired' });
+    await seedGovRow({ topicId: 't-nil', actionId: 'a4', submittedEpoch: null });
+
+    const { topicIds } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'old', limit: 100, offset: 0 });
+    expect(topicIds).toEqual(['t-300', 't-310', 't-320', 't-nil']);
+  });
+
   it('closing: open first (soonest expiry), decided sink to the bottom, not hidden', async () => {
     await seedGovRow({ topicId: 't-far', actionId: 'a1', status: 'active', expiryEpoch: 400 });
     await seedGovRow({ topicId: 't-soon', actionId: 'a2', status: 'active', expiryEpoch: 360 });

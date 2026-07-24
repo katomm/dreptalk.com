@@ -20,16 +20,28 @@ interface Props {
   /** Entity kind for the identicon centre glyph. Only needed for a hex pool hash
       seed ("pool"); a hex seed otherwise reads as a DRep and bech32 auto-detects. */
   kind?: IdenticonKind;
+  /** When set, the avatar becomes a link to the profile. It stays out of the
+      a11y tree (aria-hidden + tabindex=-1): the adjacent name link already
+      carries the accessible name, so this is a mouse convenience, not a
+      duplicate stop for keyboard and screen-reader users. */
+  href?: string | null;
 }
-const { seed, imageHash = null, size = 28, ring = false, kind } = Astro.props;
+const { seed, imageHash = null, size = 28, ring = false, kind, href = null } = Astro.props;
+// Render as an anchor only when linked; otherwise the original inert span.
+const Tag = href ? 'a' : 'span';
 ---
 
-<span class:list={['avatar', { 'avatar--ring': ring }]} style={`--avatar-size:${size}px;`} aria-hidden="true">
+<Tag
+  class:list={['avatar', { 'avatar--ring': ring, 'avatar--link': href }]}
+  style={`--avatar-size:${size}px;`}
+  aria-hidden="true"
+  {...(href ? { href, tabindex: '-1' } : {})}
+>
   <span class="avatar__icon" set:html={identiconSvg(seed, size, kind)} />
   {imageHash && (
     <span class="avatar__img" style={`background-image:url(/api/avatar/${imageHash})`}></span>
   )}
-</span>
+</Tag>
 
 <style>
   .avatar {
@@ -47,6 +59,10 @@ const { seed, imageHash = null, size = 28, ring = false, kind } = Astro.props;
     border-color: transparent;
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-fg) 35%, transparent);
   }
+  /* Linked avatar: pointer affordance and a faint lift on hover, matching the
+     underline the neighboring name link shows. */
+  a.avatar--link { cursor: pointer; }
+  a.avatar--link:hover { opacity: 0.85; }
   .avatar__icon {
     position: absolute;
     inset: 0;

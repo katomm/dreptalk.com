@@ -214,6 +214,10 @@ const nextPage = isGovernanceCategory
 // row count); non-governance categories page by the "full page ⇒ maybe more"
 // heuristic, so the pager shows just the current page there.
 const totalPages = isGovernanceCategory ? Math.max(1, Math.ceil(govTotal / PAGE_SIZE)) : null;
+// First is always page 1 (known on every list); Last only when the total is
+// known (governance) and there is more than the current page to jump to.
+const firstPage = page > 1 ? 1 : null;
+const lastPage = totalPages && page < totalPages ? totalPages : null;
 
 // Shared query tail for governance links: keeps sort, status, and the type
 // filter when one is active (omitted for defaults "all"/"all types" so the
@@ -395,6 +399,21 @@ const breadcrumbLd = {
           )
         ) : (
           <>
+          {/* A second pager at the top of the list so paging (and the First/Last
+             jumps) is reachable without scrolling past every action first. Only on
+             mobile: on desktop the whole list is short enough that the bottom pager
+             alone suffices, so the top one is hidden there. */}
+          <div class="ga-toppager">
+            <Pager
+              prevHref={prevPage ? pageHref(prevPage) : null}
+              nextHref={nextPage ? pageHref(nextPage) : null}
+              firstHref={firstPage ? pageHref(firstPage) : null}
+              lastHref={lastPage ? pageHref(lastPage) : null}
+              page={page}
+              totalPages={totalPages}
+              label="Topic list pagination (top)"
+            />
+          </div>
           <div class="ga-wrap">
           <div class="ga-list">
             <div class="ga-list__head">
@@ -442,6 +461,8 @@ const breadcrumbLd = {
         <Pager
           prevHref={prevPage ? pageHref(prevPage) : null}
           nextHref={nextPage ? pageHref(nextPage) : null}
+          firstHref={firstPage ? pageHref(firstPage) : null}
+          lastHref={lastPage ? pageHref(lastPage) : null}
           page={page}
           totalPages={totalPages}
           label="Topic list pagination"
@@ -516,6 +537,8 @@ const breadcrumbLd = {
             <Pager
               prevHref={prevPage ? pageHref(prevPage) : null}
               nextHref={nextPage ? pageHref(nextPage) : null}
+              firstHref={firstPage ? pageHref(firstPage) : null}
+              lastHref={lastPage ? pageHref(lastPage) : null}
               page={page}
               totalPages={totalPages}
               label="Topic list pagination"
@@ -552,6 +575,13 @@ const breadcrumbLd = {
   }
   .ga-dashlink:hover {
     background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  /* Top-of-list pager: mobile only (desktop keeps just the bottom pager), with a
+     clear gap below it so it does not crowd the list's top border line. */
+  .ga-toppager { display: none; }
+  @media (max-width: 60rem) {
+    .ga-toppager { display: block; margin-bottom: 1.25rem; }
   }
 
   /* The Time Left header is a sort shortcut; it inherits the calm header look and

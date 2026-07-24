@@ -46,7 +46,7 @@ const hasSub = Astro.slots.has('sub');
       <LogoMark style={`width:${Math.round(size * 0.6)}px;height:${Math.round(size * 0.6)}px;color:var(--muted);`} />
     </span>
   ) : (
-    <Avatar seed={seed} imageHash={imageHash} size={size} kind={kind} />
+    <Avatar seed={seed} imageHash={imageHash} size={size} kind={kind} href={profileHref} />
   )}
 
   {hasSub ? (
