@@ -7,16 +7,19 @@ import CopyButton from '@/components/CopyButton.astro';
 interface Props {
   /** The action's return_address (reward address), or null. */
   returnAddress: string | null;
+  /** Self-declared author names from the anchor document, or null. */
+  authors?: string[] | null;
   /** Icon/identicon edge length in px. Default 20. */
   size?: number;
 }
 
-const { returnAddress, size = 20 } = Astro.props;
-const v = proposerView(returnAddress);
+const { returnAddress, authors = null, size = 20 } = Astro.props;
+const v = proposerView(returnAddress, authors);
 
-// Identicon for an unknown proposer, or a known org that has no logo yet. Seeded
-// by the raw reward address (a stake1... address decodes natively).
-const needsIdenticon = v.kind === 'unknown' || (v.kind === 'known' && !v.icon);
+// Identicon for an unknown proposer, a declared-but-uncurated proposer, or a
+// known org that has no logo yet. Seeded by the raw reward address (a stake1...
+// address decodes natively).
+const needsIdenticon = v.kind === 'unknown' || v.kind === 'declared' || (v.kind === 'known' && !v.icon);
 const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, size) : null;
 ---
 
@@ -32,6 +35,22 @@ const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, si
     </span>
     {/* The reward (stake) address stays visible and copyable even for a known
         proposer, so the on-chain identity behind the name is always verifiable. */}
+    {returnAddress && (
+      <span class="proposer__addrrow">
+        <code class="proposer__addr" title={returnAddress}>{truncateId(returnAddress, 18)}</code>
+        <CopyButton value={returnAddress} label="Copy proposer address" />
+      </span>
+    )}
+  </span>
+)}
+
+{v.kind === 'declared' && (
+  <span class="proposer proposer--stacked" style={`--s:${size}px`}>
+    <span class="proposer__idrow">
+      <span class="proposer__icon" set:html={iconSvg} />
+      <span class="proposer__name">{v.name}</span>
+    </span>
+    {(authors ?? []).slice(1).map((n) => <span class="proposer__name proposer__name--co">{n}</span>)}
     {returnAddress && (
       <span class="proposer__addrrow">
         <code class="proposer__addr" title={returnAddress}>{truncateId(returnAddress, 18)}</code>
@@ -67,6 +86,7 @@ const iconSvg = needsIdenticon && returnAddress ? identiconSvg(returnAddress, si
   }
   .proposer__icon :global(svg) { width: 100%; height: 100%; display: block; }
   .proposer__name { font-weight: 600; color: var(--fg); text-decoration: none; }
+  .proposer__name--co { padding-left: calc(var(--s) + 0.4rem); }
   a.proposer__name:hover { text-decoration: underline; }
   .proposer__addr { font-size: 0.8125rem; color: var(--muted); }
 </style>

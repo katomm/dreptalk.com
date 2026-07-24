@@ -42,7 +42,7 @@ const { action, params, drepStakeTotal, network, topVoters, dreps, related, slug
       action type. */}
   <slot name="after-status" />
   <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} />
-  <ProposerCard returnAddress={action.returnAddress} />
+  <ProposerCard returnAddress={action.returnAddress} authors={action.authors} />
   <RelatedActionsCard actions={related} />
   <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} rationaleCount={rationaleCount} />
 </aside>

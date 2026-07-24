@@ -5,15 +5,16 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 
 interface Props {
   returnAddress: string | null;
+  authors?: string[] | null;
 }
 
-const { returnAddress } = Astro.props;
+const { returnAddress, authors = null } = Astro.props;
 ---
 
 {returnAddress && (
   <div class="sidebar-card">
     <p class="sidebar-card__title">Proposer</p>
-    <ProposerIdentity returnAddress={returnAddress} size={AVATAR_SIZE.card} />
+    <ProposerIdentity returnAddress={returnAddress} authors={authors} size={AVATAR_SIZE.card} />
   </div>
 )}
 
