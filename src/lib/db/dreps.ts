@@ -479,29 +479,6 @@ export async function deactivateDreps(
 }
 
 /**
- * Writes delegator counts for the given DReps in one batch (one single-row
- * UPDATE per DRep, well under D1's 100-bound-param-per-query limit). Touches only
- * the two count columns, so the WHEN-guarded FTS triggers never fire. No-op on an
- * empty list. Returns the number of rows written.
- */
-export async function updateDrepDelegatorCounts(
-  db: D1Database,
-  rows: { drepId: string; delegatorCount: number; syncedAt: number }[],
-): Promise<number> {
-  if (rows.length === 0) return 0;
-  const stmts = rows.map((r) =>
-    db
-      .prepare(
-        `UPDATE dreps SET delegator_count = ?, delegator_count_synced_at = ?
-         WHERE drep_id = ?`,
-      )
-      .bind(r.delegatorCount, r.syncedAt, r.drepId),
-  );
-  await db.batch(stmts);
-  return rows.length;
-}
-
-/**
  * Inserts or updates a drep row in place (upsert keyed on drep_id).
  * Deliberately NOT INSERT OR REPLACE: REPLACE is DELETE+INSERT, which would
  * reassign the rowid and fire the dreps FTS delete/insert triggers on every
