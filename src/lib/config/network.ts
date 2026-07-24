@@ -61,6 +61,34 @@ export function epochFromUnix(unixSeconds: number, cfg: NetworkConfig): number {
   return cfg.epochAnchor.epoch + Math.floor((unixSeconds - cfg.epochAnchor.unixSeconds) / EPOCH_LENGTH_SECONDS);
 }
 
+export interface EpochProgress {
+  /** The currently running epoch (the one containing `nowMs`). */
+  epoch: number;
+  /** Start of the next epoch, in unix milliseconds: when this epoch ends. */
+  endsUnixMs: number;
+  /** Whole days until the boundary, rounded up. Always 1..5 for a live epoch. */
+  daysLeft: number;
+  /** Position within the epoch, 0 at its start to 1 at its end. */
+  fractionElapsed: number;
+}
+
+/**
+ * Where we are in the currently running epoch: its number, when it ends, how
+ * many whole days remain, and how far it has elapsed (0..1). Pure and
+ * deterministic from the network's epoch anchor and the fixed 5-day length, so
+ * it needs no chain query. Drives the movers page's epoch indicator; a stale
+ * edge cache only shifts fractionElapsed by minutes over a 5-day span.
+ */
+export function currentEpochProgress(nowMs: number, cfg: NetworkConfig): EpochProgress {
+  const nowSeconds = nowMs / 1000;
+  const epoch = epochFromUnix(nowSeconds, cfg);
+  const startMs = epochStartMs(epoch, cfg);
+  const endsUnixMs = epochStartMs(epoch + 1, cfg);
+  const fractionElapsed = Math.min(1, Math.max(0, (nowMs - startMs) / (endsUnixMs - startMs)));
+  const daysLeft = Math.max(1, Math.ceil((endsUnixMs - nowMs) / (24 * 60 * 60 * 1000)));
+  return { epoch, endsUnixMs, daysLeft, fractionElapsed };
+}
+
 // The Cardano Foundation explorer landing page lets each user pick their own
 // preferred explorer, so we link through it instead of hard-coding a single one
 // (more neutral). mainnet is the default and needs no parameter; other networks
