@@ -14,8 +14,13 @@ import { sanitizeExternalMultiline } from '@/lib/validation/input.js';
 
 const TEXT_ENCODER = new TextEncoder();
 
-// Matches the on-site composer limit and the spec's rationale cap.
-export const MAX_VOTE_RATIONALE = 20000;
+// Generous cap on the rationale text. It lives off-chain (the anchor holds only a
+// URL plus a 32-byte hash), so length never affects the transaction, and CIP-100
+// imposes no cap; this bound is ours, to keep storage, rendering and search sane.
+// The client editor, the server validation and the ingest clamp all derive from
+// this one constant. The Cardano Foundation voting tool leaves the main rationale
+// statement unbounded, so this is set high enough not to clip real-world rationales.
+export const MAX_VOTE_RATIONALE = 60000;
 
 export interface VoteRationaleResult {
   rationale: string;
