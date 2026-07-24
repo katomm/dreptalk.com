@@ -238,4 +238,46 @@ describe('fetchAnchorMetadata', () => {
     // Links to the resolved gateway URL of the anchor.
     expect(html).toContain('https://ipfs.io/ipfs/QmHugeCid/meta.json');
   });
+
+  it('extracts author names, compact and @value form, in document order', async () => {
+    const json = jsonOf({
+      '@context': {},
+      hashAlgorithm: 'blake2b-256',
+      body: { title: 'T', abstract: 'A', rationale: 'R' },
+      authors: [{ name: 'Lantr Engineering' }, { name: { '@value': 'FluidTokens' } }],
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.metadata?.authors).toEqual(['Lantr Engineering', 'FluidTokens']);
+  });
+
+  it('returns null authors for an empty array, a missing field, and nameless entries', async () => {
+    const cases = [
+      { '@context': {}, body: { title: 'T' }, authors: [] },
+      { '@context': {}, body: { title: 'T' } },
+      { '@context': {}, body: { title: 'T' }, authors: [{ witness: { signature: 'ab' } }] },
+      { '@context': {}, body: { title: 'T' }, authors: 'not-an-array' },
+    ];
+    for (const c of cases) {
+      const json = jsonOf(c);
+      const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+        fetchImpl: async () => resp(json),
+      });
+      expect(res.metadata?.authors).toBeNull();
+    }
+  });
+
+  it('caps name length and author count', async () => {
+    const json = jsonOf({
+      '@context': {},
+      body: { title: 'T' },
+      authors: Array.from({ length: 14 }, (_, i) => ({ name: `${'x'.repeat(200)}${i}` })),
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.metadata?.authors).toHaveLength(10);
+    for (const n of res.metadata?.authors ?? []) expect(n.length).toBeLessThanOrEqual(80);
+  });
 });

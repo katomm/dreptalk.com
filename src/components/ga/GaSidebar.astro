@@ -4,6 +4,7 @@
 import ActionStatusCard from './ActionStatusCard.astro';
 import VotingInfoCard from './VotingInfoCard.astro';
 import ProposerCard from './ProposerCard.astro';
+import AuthorsCard from './AuthorsCard.astro';
 import TopParticipantsCard from './TopParticipantsCard.astro';
 import RelatedActionsCard from './RelatedActionsCard.astro';
 import type { GovernanceAction, RelatedActionRow } from '@/lib/db/governance.js';
@@ -43,6 +44,7 @@ const { action, params, drepStakeTotal, network, topVoters, dreps, related, slug
   <slot name="after-status" />
   <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} />
   <ProposerCard returnAddress={action.returnAddress} />
+  <AuthorsCard authors={action.authors} />
   <RelatedActionsCard actions={related} />
   <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} rationaleCount={rationaleCount} />
 </aside>

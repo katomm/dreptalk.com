@@ -32,8 +32,9 @@ export const ANCHOR_FETCH_TIMEOUT_MS = 8_000;
  * their title backfilled. Bumped to 3 when the extractor started merging
  * motivation + rationale (instead of dropping motivation) and the abstract/rationale
  * caps were raised, so every existing row re-renders with the full body.
+ * Bumped to 4 when the extractor started reading the top-level authors array.
  */
-export const META_EXTRACT_VERSION = 3;
+export const META_EXTRACT_VERSION = 4;
 
 /**
  * How many times the metadata backfill may fail to fetch or verify an action's
@@ -53,6 +54,11 @@ const MAX_TITLE_LEN = 300;
 // is purely a page-weight guard against the rare multi-hundred-KB outlier.
 const MAX_ABSTRACT_LEN = 4_000;
 const MAX_RATIONALE_LEN = 100_000;
+// Author names are a self-declared label in an untrusted document, so they are
+// capped hard: 80 chars covers the longest real mainnet name (58) with headroom,
+// and 10 entries covers the largest real co-signed action (5).
+const MAX_AUTHOR_NAME_LEN = 80;
+const MAX_AUTHORS = 10;
 
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/';
 
@@ -60,6 +66,8 @@ export interface AnchorMetadata {
   title: string | null;
   abstract: string | null;
   rationaleHtml: string | null;
+  /** Self-declared author names from the document's top-level authors array. */
+  authors: string[] | null;
 }
 
 export type AnchorStatus =
@@ -140,13 +148,32 @@ function jsonLdString(v: unknown): string {
 }
 
 /**
+ * Reads the top-level CIP-100 authors array down to a list of display names.
+ * The names are self-reported and unverified: a witness signature proves only
+ * that some key signed the document, never that the key belongs to the claimed
+ * name, so nothing here is treated as an identity. Callers decide when a name is
+ * safe to show.
+ */
+function extractAuthorNames(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const names: string[] = [];
+  for (const entry of raw) {
+    const name = sanitizeExternalText(jsonLdString(asRecord(entry).name), MAX_AUTHOR_NAME_LEN);
+    if (name) names.push(name);
+    if (names.length === MAX_AUTHORS) break;
+  }
+  return names.length ? names : null;
+}
+
+/**
  * Extracts title/abstract/rationale from a parsed CIP-108 document.
  *
  * `anchorUrl` (the untrusted on-chain anchor) is only used to build the "read the
  * full document" link appended when the merged body is truncated at the cap.
  */
 function extractCip108(doc: unknown, anchorUrl?: string): AnchorMetadata {
-  const body = asRecord(asRecord(doc).body);
+  const root = asRecord(doc);
+  const body = asRecord(root.body);
   const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
   const title = sanitizeExternalText(str(body.title), MAX_TITLE_LEN);
@@ -179,6 +206,7 @@ function extractCip108(doc: unknown, anchorUrl?: string): AnchorMetadata {
     title: title || null,
     abstract: abstract || null,
     rationaleHtml: rationaleRaw ? renderMarkdown(rationaleRaw) : null,
+    authors: extractAuthorNames(root.authors),
   };
 }
 

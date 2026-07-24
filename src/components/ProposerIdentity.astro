@@ -11,6 +11,11 @@ interface Props {
   size?: number;
 }
 
+// This card shows the on-chain submitter (return address): a curated org name +
+// logo + link when we recognise the address, else the raw address + identicon.
+// The self-declared authors from the metadata document are a separate signal,
+// rendered by AuthorsCard, so a divergence between the two stays visible rather
+// than being collapsed into one name here.
 const { returnAddress, size = 20 } = Astro.props;
 const v = proposerView(returnAddress);
 

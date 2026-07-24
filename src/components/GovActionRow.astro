@@ -58,10 +58,18 @@ const {
 } = Astro.props;
 const isDashboard = variant === 'dashboard';
 // Resolve the proposer from the action's reward address: a known org name+logo,
-// else a truncated address. Derived here so callers just pass the action.
-const pv = proposerView(action.returnAddress);
-const proposer = pv.kind === 'known' ? pv.name : pv.kind === 'unknown' ? pv.short : undefined;
+// else the name the anchor document declares, else a truncated address. Derived
+// here so callers just pass the action.
+const pv = proposerView(action.returnAddress, action.authors);
+const proposer =
+  pv.kind === 'known' || pv.kind === 'declared' ? pv.name : pv.kind === 'unknown' ? pv.short : undefined;
 const proposerIcon = pv.kind === 'known' ? (pv.icon ?? undefined) : undefined;
+// Co-signed actions: name the first author and count the rest, so the row stays
+// one line whether it carries one name or five.
+const proposerExtra = pv.kind === 'declared' && pv.extra > 0 ? `+${pv.extra}` : null;
+// Whether the meta line carries a readable name rather than a bare address; drives
+// the mobile rule below.
+const hasProposerName = pv.kind === 'known' || pv.kind === 'declared';
 // No bundled logo: fall back to the identicon, seeded by the reward address
 // (decodes stake1... natively), so the list mirrors the detail page rather than
 // showing a bare name. Skipped when there is no address (renders as "Unknown").
@@ -129,7 +137,7 @@ const hasControls = isDashboard && Astro.slots.has('controls');
 const Root = hasControls ? 'div' : 'a';
 ---
 <Root
-  class:list={['garow', { 'garow--dashboard': isDashboard, 'garow--controls': hasControls }]}
+  class:list={['garow', { 'garow--dashboard': isDashboard, 'garow--controls': hasControls, 'garow--named': hasProposerName }]}
   href={hasControls ? undefined : href}
   {...rowAttrs}
 >
@@ -178,7 +186,10 @@ const Root = hasControls ? 'div' : 'a';
         </span>
       )}
       <span class="garow__prostack">
-        <span class="garow__proname">{proposer ?? 'Unknown'}</span>
+        <span class="garow__pronamerow">
+          <span class="garow__proname" title={proposer ?? undefined}>{proposer ?? 'Unknown'}</span>
+          {proposerExtra && <span class="garow__proextra">{proposerExtra}</span>}
+        </span>
         {(showEpoch || showDaysLeft) && (
           <span class="garow__prosub">
             {showEpoch && <>Epoch {action.submittedEpoch}</>}
@@ -335,7 +346,9 @@ const Root = hasControls ? 'div' : 'a';
   .garow__proicon { display:block; width:100%; height:100%; }
   .garow__proicon :global(svg) { width:100%; height:100%; display:block; }
   .garow__prostack { display:flex; flex-direction:column; min-width:0; line-height:1.3; }
-  .garow__proname { font-size:0.8rem; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .garow__proname { font-size:0.8rem; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .garow__pronamerow { display:flex; align-items:baseline; gap:0.3rem; min-width:0; }
+  .garow__proextra { flex:0 0 auto; font-size:0.72rem; color:var(--muted); }
   .garow__prosub { font-size:0.72rem; color:var(--muted); }
 
   /* Voting cell: a compact label + composition bar + Yes-of-eligible percentage per
@@ -401,9 +414,12 @@ const Root = hasControls ? 'div' : 'a';
     }
     .garow__main { grid-column:1 / -1; min-width:0; }
     .garow__voting { grid-column:1 / -1; min-width:0; }
-    /* Drop the proposer/epoch line on mobile: mostly a truncated stake address
-       on a small screen; the proposer stays on the detail page. */
+    /* Drop the proposer/epoch line on mobile only when it carries a bare stake
+       address, which reads as noise on a small screen. Rows that resolve to a
+       name (curated or declared in the anchor document) keep it, and the epoch
+       comes back with it. */
     .garow__meta { display:none; }
+    .garow--named .garow__meta { display:flex; }
     /* The dashboard card has no footer, so keep its meta line: it carries the
        time-left the dropped Time Left column would otherwise show. */
     .garow--dashboard .garow__meta { display:flex; }

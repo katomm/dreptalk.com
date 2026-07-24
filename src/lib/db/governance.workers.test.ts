@@ -100,6 +100,7 @@ async function insertAction(over: Partial<NewGovernanceAction> = {}): Promise<Ne
     title: `Action ${seq}`,
     abstract: 'abstract',
     rationaleHtml: '<p>why</p>',
+    authors: null,
     anchorUrl: 'https://example.com/a.json',
     anchorHash: 'hash',
     anchorStatus: 'ok',
@@ -562,6 +563,7 @@ describe('updateActionMetadata', () => {
       title: 'Updated Title',
       abstract: 'New abstract with newlines.',
       rationaleHtml: '<p>Rationale paragraph.</p>',
+      authors: null,
       metaVersion: 1,
     });
 
@@ -581,7 +583,7 @@ describe('updateActionMetadata', () => {
     // anchor_status != 'ok' retry predicate would re-fetch it on every run forever.
     const a = await insertAction({ anchorStatus: 'fetch-failed', metaVersion: 0, title: null });
     await updateActionMetadata(db(), a.id, {
-      title: 'Recovered', abstract: 'abs', rationaleHtml: '<p>r</p>', metaVersion: 1,
+      title: 'Recovered', abstract: 'abs', rationaleHtml: '<p>r</p>', authors: null, metaVersion: 1,
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.anchorStatus).toBe('ok');
@@ -594,6 +596,7 @@ describe('updateActionMetadata', () => {
       title: null,
       abstract: null,
       rationaleHtml: null,
+      authors: null,
       metaVersion: 1,
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
@@ -601,6 +604,52 @@ describe('updateActionMetadata', () => {
     expect(got!.abstract).toBeNull();
     expect(got!.rationaleHtml).toBeNull();
     expect(got!.metaVersion).toBe(1);
+  });
+
+  it('stores and reads back author names as a JSON array', async () => {
+    const a = await insertAction({ authors: null });
+    await updateActionMetadata(db(), a.id, {
+      title: 'T',
+      abstract: 'A',
+      rationaleHtml: null,
+      authors: ['Mike Hornan', 'HOSKY'],
+      metaVersion: 4,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.authors).toEqual(['Mike Hornan', 'HOSKY']);
+  });
+
+  it('reads authors back as null when none were stored', async () => {
+    const a = await insertAction({ authors: null });
+    await updateActionMetadata(db(), a.id, {
+      title: 'T',
+      abstract: null,
+      rationaleHtml: null,
+      authors: null,
+      metaVersion: 4,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.authors).toBeNull();
+  });
+
+  it('reads authors written by the insert path', async () => {
+    const a = await insertAction({ authors: ['Lantr Engineering', 'FluidTokens'] });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.authors).toEqual(['Lantr Engineering', 'FluidTokens']);
+  });
+
+  it('clamps a stored authors array to 10 on read, even if the row somehow has more', async () => {
+    const twelve = Array.from({ length: 12 }, (_, i) => `Author ${i}`);
+    const a = await insertAction({ authors: twelve });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.authors).toHaveLength(10);
+    expect(got!.authors).toEqual(twelve.slice(0, 10));
+  });
+
+  it('drops an empty string name on read and keeps the rest', async () => {
+    const a = await insertAction({ authors: ['', 'Real Name'] });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.authors).toEqual(['Real Name']);
   });
 });
 

@@ -329,6 +329,42 @@ describe('syncGovernanceActions', () => {
       .first<{ submitted_at: number | null }>();
     expect(stored!.submitted_at).toBe(1_700_000_900_000);
   });
+
+  it('stores author names discovered in the anchor document', async () => {
+    const authoredDoc = JSON.stringify({
+      body: { title: 'Community proposal', abstract: 'A', rationale: 'R' },
+      authors: [{ name: 'Mike Hornan' }, { name: 'HOSKY' }],
+    });
+    const authoredHash = bytesToHex(blake2b256(new TextEncoder().encode(authoredDoc)));
+    const proposal: ProposalListRow = {
+      proposal_id: 'gov_action1authored',
+      proposal_tx_hash: 'cc'.repeat(32),
+      proposal_index: 0,
+      proposal_type: 'InfoAction',
+      deposit: null,
+      return_address: 'stake_test1authored',
+      proposed_epoch: 202,
+      expiration: 232,
+      meta_url: 'https://example.com/authored.json',
+      meta_hash: authoredHash,
+    };
+
+    let n = 0;
+    await syncGovernanceActions({
+      koios: fakeKoios([proposal]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_000_000,
+      rand: () => `authored${n++}`,
+      fetchImpl: async () => new Response(authoredDoc, { headers: { 'content-type': 'application/json' } }),
+    });
+
+    const row = await env.DB.prepare('SELECT topic_id FROM governance_actions WHERE proposal_id = ?')
+      .bind('gov_action1authored')
+      .first<{ topic_id: string }>();
+    const got = await getGovernanceActionByTopicId(env.DB, row!.topic_id);
+    expect(got!.authors).toEqual(['Mike Hornan', 'HOSKY']);
+  });
 });
 
 // CIP-108 anchor doc with Markdown rationale for the backfill tests.
