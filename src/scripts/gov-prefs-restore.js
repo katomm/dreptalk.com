@@ -12,7 +12,7 @@
     const url = new URL(location.href);
 
     const SORT_KEY = 'dreptalk:gov-sort';
-    const SORTS = ['new', 'trending', 'closing', 'ratified'];
+    const SORTS = ['new', 'old', 'trending', 'closing', 'ratified'];
     const sortParam = url.searchParams.get('sort');
     if (sortParam) {
       if (SORTS.indexOf(sortParam) !== -1) localStorage.setItem(SORT_KEY, sortParam);

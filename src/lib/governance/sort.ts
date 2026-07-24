@@ -7,10 +7,11 @@ import type { Topic } from '../db/forum.js';
 import type { GovernanceAction } from '../db/governance.js';
 import { isTerminalStatus } from './view.js';
 
-export type GovSort = 'trending' | 'new' | 'closing' | 'ratified';
+export type GovSort = 'trending' | 'new' | 'old' | 'closing' | 'ratified';
 
 export const GOV_SORTS: readonly { mode: GovSort; label: string }[] = [
   { mode: 'new', label: 'Newest' },
+  { mode: 'old', label: 'Oldest' },
   { mode: 'trending', label: 'Trending' },
   { mode: 'closing', label: 'Closing soonest' },
   { mode: 'ratified', label: 'Recently decided' },
@@ -117,6 +118,7 @@ const ascKey = (e: number | null) => e ?? Number.MAX_SAFE_INTEGER;
  * Orders governance-action topics for the given sort mode:
  *  - trending: blended engagement + recency score, terminal actions penalised (default).
  *  - new: newest submission first.
+ *  - old: oldest submission first (the reverse of new), nulls last.
  *  - closing: open actions only (terminal ones have no time left), soonest expiry first, nulls last.
  *  - ratified: most recently decided first, nulls last.
  *
@@ -132,6 +134,15 @@ export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: 
         const byAt = descKey(b.action.submittedAt) - descKey(a.action.submittedAt);
         if (byAt !== 0) return byAt;
         const byEpoch = descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch);
+        if (byEpoch !== 0) return byEpoch;
+        return a.topic.id.localeCompare(b.topic.id);
+      });
+    case 'old':
+      // Reverse of 'new': oldest submission first, nulls last. Mirrors govPageOrderBy('old').
+      return [...rows].sort((a, b) => {
+        const byAt = ascKey(a.action.submittedAt) - ascKey(b.action.submittedAt);
+        if (byAt !== 0) return byAt;
+        const byEpoch = ascKey(a.action.submittedEpoch) - ascKey(b.action.submittedEpoch);
         if (byEpoch !== 0) return byEpoch;
         return a.topic.id.localeCompare(b.topic.id);
       });

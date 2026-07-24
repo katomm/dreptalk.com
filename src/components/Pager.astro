@@ -1,30 +1,43 @@
 ---
-// Shared Prev / position / Next pager for paged lists (DReps, category topics).
-// Prev and Next sit at opposite edges with the current position centered, so a
-// lone Next (page 1) still reads as pagination rather than a stray link. Renders
-// nothing when there is neither a previous nor a next page.
+// Shared First / Prev / position / Next / Last pager for paged lists (DReps,
+// category topics). Prev and Next sit at opposite edges with the current position
+// centered, so a lone Next (page 1) still reads as pagination rather than a stray
+// link. First/Last are optional jumps to the ends of a known-length list; they
+// only render when their href is passed (First once past page 1, Last when the
+// total page count is known and there are more pages). Renders nothing when there
+// is neither a previous nor a next page.
 interface Props {
   prevHref: string | null;
   nextHref: string | null;
   page: number;
   /** Total page count for a "Page X of Y" label; omitted shows just "Page X". */
   totalPages?: number | null;
+  /** Jump to the first page; null hides the control (e.g. already on page 1). */
+  firstHref?: string | null;
+  /** Jump to the last page; null hides it (unknown total or already on the last). */
+  lastHref?: string | null;
   /** Accessible name for the nav landmark. */
   label?: string;
 }
 
-const { prevHref, nextHref, page, totalPages = null, label = 'Pagination' } = Astro.props;
+const { prevHref, nextHref, page, totalPages = null, firstHref = null, lastHref = null, label = 'Pagination' } = Astro.props;
 ---
 
 {(prevHref || nextHref) && (
   <nav class="pager" aria-label={label}>
-    {prevHref
-      ? <a class="pager__link" href={prevHref} rel="prev">Previous</a>
-      : <span class="pager__link pager__link--disabled" aria-hidden="true">Previous</span>}
+    <span class="pager__end">
+      {firstHref && <a class="pager__link pager__link--edge" href={firstHref}>First</a>}
+      {prevHref
+        ? <a class="pager__link" href={prevHref} rel="prev">Previous</a>
+        : <span class="pager__link pager__link--disabled" aria-hidden="true">Previous</span>}
+    </span>
     <span class="pager__pos">Page {page}{totalPages ? ` of ${totalPages}` : ''}</span>
-    {nextHref
-      ? <a class="pager__link" href={nextHref} rel="next">Next</a>
-      : <span class="pager__link pager__link--disabled" aria-hidden="true">Next</span>}
+    <span class="pager__end pager__end--right">
+      {nextHref
+        ? <a class="pager__link" href={nextHref} rel="next">Next</a>
+        : <span class="pager__link pager__link--disabled" aria-hidden="true">Next</span>}
+      {lastHref && <a class="pager__link pager__link--edge" href={lastHref}>Last</a>}
+    </span>
   </nav>
 )}
 
@@ -37,8 +50,13 @@ const { prevHref, nextHref, page, totalPages = null, label = 'Pagination' } = As
     margin-top: 1.5rem;
     font-size: 0.875rem;
   }
+  .pager__end { display: inline-flex; align-items: center; gap: 1rem; }
+  .pager__end--right { justify-content: flex-end; }
   .pager__link { color: var(--accent); text-decoration: none; font-weight: 600; }
   .pager__link:hover { text-decoration: underline; }
   .pager__link--disabled { color: var(--muted); opacity: 0.5; }
+  /* First/Last are secondary to Prev/Next: quieter until hovered. */
+  .pager__link--edge { color: var(--muted); font-weight: 500; }
+  .pager__link--edge:hover { color: var(--accent); }
   .pager__pos { color: var(--muted); font-variant-numeric: tabular-nums; }
 </style>

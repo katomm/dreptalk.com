@@ -55,8 +55,8 @@ describe('parseGovSort', () => {
 });
 
 describe('GOV_SORTS order', () => {
-  it('leads with new, then trending', () => {
-    expect(GOV_SORTS.map((s) => s.mode)).toEqual(['new', 'trending', 'closing', 'ratified']);
+  it('leads with new, then old, then trending', () => {
+    expect(GOV_SORTS.map((s) => s.mode)).toEqual(['new', 'old', 'trending', 'closing', 'ratified']);
   });
 });
 
@@ -78,6 +78,25 @@ describe('sortGovActionTopics', () => {
       row({ id: 'e500-nullat', submittedEpoch: 500, submittedAt: null }),
     ];
     expect(ids(sortGovActionTopics(rows, 'new', NOW))).toEqual(['e501', 'e500-late', 'e500-early', 'e500-nullat']);
+  });
+
+  it('old: oldest submission first (reverse of new), includes every status', () => {
+    const rows = [
+      row({ id: 'old', submittedEpoch: 300, status: 'enacted' }),
+      row({ id: 'newest', submittedEpoch: 320, status: 'active' }),
+      row({ id: 'mid', submittedEpoch: 310, status: 'expired' }),
+    ];
+    expect(ids(sortGovActionTopics(rows, 'old', NOW))).toEqual(['old', 'mid', 'newest']);
+  });
+
+  it('old: same epoch breaks ties by exact submitted_at (oldest first), nulls last', () => {
+    const rows = [
+      row({ id: 'e500-late', submittedEpoch: 500, submittedAt: 2000 }),
+      row({ id: 'e500-early', submittedEpoch: 500, submittedAt: 1000 }),
+      row({ id: 'e501', submittedEpoch: 501, submittedAt: 3000 }),
+      row({ id: 'e500-nullat', submittedEpoch: 500, submittedAt: null }),
+    ];
+    expect(ids(sortGovActionTopics(rows, 'old', NOW))).toEqual(['e500-early', 'e500-late', 'e501', 'e500-nullat']);
   });
 
   it('closing: open actions only, soonest expiry first, nulls last (excludes terminal)', () => {
@@ -222,8 +241,9 @@ describe('GOV_STATUSES order', () => {
 });
 
 describe('GOV_SORTS labels', () => {
-  it('keeps the four values and uses the decided-neutral label', () => {
-    expect(GOV_SORTS.map((s) => s.mode)).toEqual(['new', 'trending', 'closing', 'ratified']);
+  it('keeps the five values and uses the decided-neutral label', () => {
+    expect(GOV_SORTS.map((s) => s.mode)).toEqual(['new', 'old', 'trending', 'closing', 'ratified']);
     expect(GOV_SORTS.find((s) => s.mode === 'ratified')?.label).toBe('Recently decided');
+    expect(GOV_SORTS.find((s) => s.mode === 'old')?.label).toBe('Oldest');
   });
 });
