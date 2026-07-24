@@ -66,4 +66,11 @@ describe('proposerView with declared authors', () => {
       expect(proposerView('stake1zzz', [p.name], () => null).kind).toBe('unknown');
     }
   });
+
+  it('catches a zero width space bypass that renders identically to a curated name', () => {
+    const registry = () => [known];
+    // U+200B zero width space sits inside the word; renders visually as "Intersect".
+    expect(proposerView('stake1zzz', ['Inter​sect'], () => null, registry).kind).toBe('unknown');
+    expect(proposerView('stake1zzz', ['Distinct Name'], () => null, registry).kind).toBe('declared');
+  });
 });

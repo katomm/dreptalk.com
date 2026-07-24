@@ -637,6 +637,20 @@ describe('updateActionMetadata', () => {
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.authors).toEqual(['Lantr Engineering', 'FluidTokens']);
   });
+
+  it('clamps a stored authors array to 10 on read, even if the row somehow has more', async () => {
+    const twelve = Array.from({ length: 12 }, (_, i) => `Author ${i}`);
+    const a = await insertAction({ authors: twelve });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.authors).toHaveLength(10);
+    expect(got!.authors).toEqual(twelve.slice(0, 10));
+  });
+
+  it('drops an empty string name on read and keeps the rest', async () => {
+    const a = await insertAction({ authors: ['', 'Real Name'] });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.authors).toEqual(['Real Name']);
+  });
 });
 
 describe('getGovernanceActionTopicIdsPage', () => {

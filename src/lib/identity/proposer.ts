@@ -10,9 +10,20 @@ export type ProposerView =
   | { kind: 'declared'; name: string; extra: number; seed: string }
   | { kind: 'unknown'; seed: string; short: string };
 
-/** Lowercases and collapses whitespace so cosmetic variants still collide. */
+/**
+ * Lowercases and collapses whitespace so cosmetic variants still collide.
+ * NFKC normalizes first and strips zero width and other invisible format
+ * characters, because an untrusted name can insert those to render visually
+ * identical to a curated org while comparing as a different string. The
+ * guard only works if a spoofed name normalizes the same as the real one.
+ */
 function normalizeName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, ' ');
+  return name
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }
 
 /**

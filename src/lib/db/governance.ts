@@ -232,7 +232,13 @@ function parseAuthors(raw: string | null): string[] | null {
   try {
     const v: unknown = JSON.parse(raw);
     if (!Array.isArray(v) || v.length === 0) return null;
-    return v.every((s) => typeof s === 'string') ? (v as string[]) : null;
+    if (!v.every((s) => typeof s === 'string')) return null;
+    // Defense in depth: a stored row that somehow bypassed the extractor's
+    // own cap (MAX_AUTHORS = 10 in src/lib/governance/metadata.ts) must not
+    // let the UI render an unbounded list, and an empty name must not
+    // resolve to a declared proposer with nothing to show.
+    const names = (v as string[]).filter((s) => s.length > 0).slice(0, 10);
+    return names.length > 0 ? names : null;
   } catch {
     return null;
   }
