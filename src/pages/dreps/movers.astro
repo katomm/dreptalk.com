@@ -12,8 +12,17 @@ import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/drep
 import { cacheControlForSynced, formatAdaCompact } from '@/lib/forum/view.js';
 import { drepDescriptor } from '@/lib/forum/author.js';
 import { ogCardVersion } from '@/lib/og/version.js';
+import { currentEpochProgress } from '@/lib/config/network.js';
+import { currentNetwork } from '@/lib/api/response.js';
 
 const db = env.DB as D1Database | undefined;
+
+// How far the currently running epoch has progressed, for the indicator under
+// the intro: the standings turn over at the next boundary. Deterministic epoch
+// math (no chain query); a stale edge cache only shifts the bar by minutes.
+const epochProgress = currentEpochProgress(Date.now(), currentNetwork());
+const epochPct = Math.round(epochProgress.fractionElapsed * 100);
+const daysLeftLabel = `~${epochProgress.daysLeft} ${epochProgress.daysLeft === 1 ? 'day' : 'days'} left`;
 
 // Top gainers and losers by per-epoch voting-power delta. The data (per-epoch
 // snapshots) is already maintained for the directory's delta chip; this is a new
@@ -81,6 +90,23 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
   <p class="movers-intro">
     The DReps whose voting power shifted the most in {epochLabel}, by delegation gained or lost versus the previous epoch.
   </p>
+
+  <div
+    class="epoch-meter"
+    role="progressbar"
+    aria-valuemin="0"
+    aria-valuemax="100"
+    aria-valuenow={epochPct}
+    aria-label={`Epoch ${epochProgress.epoch}, ${daysLeftLabel}`}
+  >
+    <div class="epoch-meter__head">
+      <span class="epoch-meter__label">Epoch {epochProgress.epoch}</span>
+      <span class="epoch-meter__left">{daysLeftLabel}</span>
+    </div>
+    <div class="epoch-meter__track">
+      <div class="epoch-meter__fill" style={`width:${epochPct}%`}></div>
+    </div>
+  </div>
 
   {selfDescriptor && selfStanding && (
     <DrepSelfCard descriptor={selfDescriptor} standing={selfStanding} eyebrow="Your movement">
@@ -165,7 +191,39 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
   .movers-intro {
     color: var(--muted);
     max-width: 60ch;
-    margin: 0.4rem 0 1.75rem;
+    margin: 0.4rem 0 1.5rem;
+  }
+
+  .epoch-meter {
+    max-width: 32rem;
+    margin: 0 0 2rem;
+  }
+  .epoch-meter__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.45rem;
+  }
+  .epoch-meter__label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .epoch-meter__left {
+    font-size: 0.875rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .epoch-meter__track {
+    height: 5px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .epoch-meter__fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
   }
   .movers-self-flat {
     color: var(--muted);

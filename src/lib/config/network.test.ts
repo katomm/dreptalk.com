@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { resolveNetwork, txExplorerUrl, governanceActionUrl, epochStartUnix, epochFromUnix } from './network';
+import {
+  resolveNetwork,
+  txExplorerUrl,
+  governanceActionUrl,
+  epochStartUnix,
+  epochFromUnix,
+  epochStartMs,
+  currentEpochProgress,
+} from './network';
 
 describe('explorer links (neutral cardano-foundation landing)', () => {
   it('links a governance action with no network param on mainnet', () => {
@@ -87,5 +95,33 @@ describe('epochFromUnix', () => {
     const cfg = resolveNetwork('preprod');
     const mid = epochStartUnix(12, cfg) + 3 * 24 * 60 * 60; // 3 days into epoch 12
     expect(epochFromUnix(mid, cfg)).toBe(12);
+  });
+});
+
+describe('currentEpochProgress', () => {
+  const cfg = resolveNetwork('mainnet');
+
+  it('reports epoch 0% elapsed with 5 days left at the boundary', () => {
+    const p = currentEpochProgress(epochStartMs(300, cfg), cfg);
+    expect(p.epoch).toBe(300);
+    expect(p.endsUnixMs).toBe(epochStartMs(301, cfg));
+    expect(p.fractionElapsed).toBe(0);
+    expect(p.daysLeft).toBe(5);
+  });
+
+  it('reports the epoch half elapsed at its midpoint', () => {
+    const now = epochStartMs(300, cfg) + 2.5 * 24 * 60 * 60 * 1000;
+    const p = currentEpochProgress(now, cfg);
+    expect(p.epoch).toBe(300);
+    expect(p.fractionElapsed).toBeCloseTo(0.5, 10);
+    expect(p.daysLeft).toBe(3); // 2.5 days remain, rounded up
+  });
+
+  it('never drops below one day left within a live epoch', () => {
+    const now = epochStartMs(301, cfg) - 60 * 1000; // one minute before the boundary
+    const p = currentEpochProgress(now, cfg);
+    expect(p.epoch).toBe(300);
+    expect(p.daysLeft).toBe(1);
+    expect(p.fractionElapsed).toBeGreaterThan(0.99);
   });
 });
