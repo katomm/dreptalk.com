@@ -4,7 +4,7 @@
 // counting, the window reset, and per-key isolation are exercised end to end.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { checkRate } from './rate.js';
+import { checkRate, peekRate } from './rate.js';
 
 const ns = () => env.RATE_LIMITER;
 
@@ -40,6 +40,18 @@ describe('checkRate (Durable Object backed)', () => {
     const b = uniqueKey('keyB');
     expect(await checkRate(ns(), a, opts)).toBe(true);
     expect(await checkRate(ns(), b, opts)).toBe(true); // a is at limit, b is fresh
+  });
+
+  it('peekRate reports the decision without counting a request', async () => {
+    const key = uniqueKey('peek');
+    const opts = { max: 2, windowSec: 60, now: 1000 };
+    // Peeking is free: any number of peeks must not consume the allowance.
+    for (let i = 0; i < 10; i++) expect(await peekRate(ns(), key, opts)).toBe(true);
+    expect(await checkRate(ns(), key, opts)).toBe(true);
+    expect(await checkRate(ns(), key, opts)).toBe(true);
+    // Now the window is full, and the peek must say so.
+    expect(await peekRate(ns(), key, opts)).toBe(false);
+    expect(await checkRate(ns(), key, opts)).toBe(false);
   });
 
   it('admits exactly max under a concurrent burst (atomic, no TOCTOU overshoot)', async () => {

@@ -9,7 +9,7 @@ import { rolesFromUser } from '@/lib/auth/roles';
 import { createSession, buildSessionCookie } from '@/lib/auth/session';
 import { getUserById } from '@/lib/db/users';
 import { insertNotifications } from '@/lib/db/notifications';
-import { checkRate } from '@/lib/rate';
+import { checkRate, peekRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
 import { isSameOriginRequest } from '@/lib/http/origin';
 import { parseModerators } from '../../../../../config/moderators.js';
@@ -49,6 +49,19 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     const clientIp = clientIpFrom(request.headers);
     const now = Date.now();
+    const failKey = `pairfail:${clientIp}`;
+    const failOpts = { max: FAIL_RATE_MAX, windowSec: RATE_WINDOW_SEC, now };
+
+    // Per-IP gate first, because it is the only key an unauthenticated caller
+    // cannot spread its load across: the per-pairing key below is derived from
+    // caller-supplied input, so varying it would mint a fresh limiter instance
+    // (and a fresh D1 read) every request. Read without counting, so a device
+    // polling one valid pairing for the whole TTL is never blocked; only the
+    // unresolvable-poll path below charges this key.
+    if (!(await peekRate(rateLimiter, failKey, failOpts))) {
+      return jsonResponse({ ok: false, error: 'rate_limited' }, 429);
+    }
+
     // Keyed on the pairing id so one device's polling cannot exhaust another's
     // allowance, which matters behind carrier-grade NAT where many users share an IP.
     const allowed = await checkRate(rateLimiter, `pairpoll:${parsed.pairingId}`, {
@@ -63,12 +76,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (outcome.status === 'pending') return jsonResponse({ ok: true, status: 'pending' });
 
     if (outcome.status === 'unknown') {
-      // Unresolvable polls are the attacker-shaped traffic, so they are capped per IP.
-      await checkRate(rateLimiter, `pairfail:${clientIp}`, {
-        max: FAIL_RATE_MAX,
-        windowSec: RATE_WINDOW_SEC,
-        now,
-      });
+      // Unresolvable polls are the attacker-shaped traffic, so they are the only
+      // ones charged to the per-IP key that gates the top of this handler.
+      await checkRate(rateLimiter, failKey, failOpts);
       return jsonResponse({ ok: false, error: 'unknown' }, 404);
     }
 
@@ -95,16 +105,25 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     // Security notice, dispatched only now that a device really is signed in. An
     // approval that is never redeemed did not pair anything.
-    await insertNotifications(db, [
-      {
-        recipientId: user.id,
-        type: 'device_paired',
-        actorId: null,
-        topicId: null,
-        postId: null,
-        createdAt: Math.floor(Date.now() / 1000),
-      },
-    ]);
+    try {
+      await insertNotifications(db, [
+        {
+          recipientId: user.id,
+          type: 'device_paired',
+          actorId: null,
+          topicId: null,
+          postId: null,
+          // Milliseconds, like every other writer of notifications.created_at:
+          // the delivery cursors and the inbox ordering are both in ms, and a
+          // seconds value would sort last and never reach push or Telegram.
+          createdAt: Date.now(),
+        },
+      ]);
+    } catch {
+      // The device is paired and its session is minted; a missed notification is
+      // acceptable, but failing here would drop the cookie for a pairing that has
+      // already been consumed and cannot be redeemed again.
+    }
 
     return jsonResponse(
       {

@@ -99,6 +99,35 @@ describe('POST /api/auth/pair/poll', () => {
     expect(((await second.json()) as { ok: boolean }).ok).toBe(false);
   });
 
+  it('blocks a caller that keeps polling pairings it cannot resolve', async () => {
+    const statuses: number[] = [];
+    // Each attempt uses a different pairing id, the way an attacker probing the
+    // endpoint would: the per-pairing limiter cannot see that pattern, so the
+    // per-IP failure limiter has to be the one that stops it.
+    for (let i = 0; i < 40; i++) {
+      const res = await POST(ctx({ pairingId: `no-such-pairing-${i}`, deviceSecret: 'nope' }));
+      statuses.push(res.status);
+      if (res.status === 429) {
+        expect(((await res.json()) as { error: string }).error).toBe('rate_limited');
+        break;
+      }
+      expect(res.status).toBe(404);
+    }
+    expect(statuses).toContain(429);
+  });
+
+  it('never charges the failure limit to a device polling a valid pairing', async () => {
+    await seedUser(0);
+    const p = await createPairing(env.DB, { userAgent: null });
+
+    // Comfortably more polls than the failure limit allows. A device waiting out
+    // the full pairing TTL polls this often, and must never be locked out for it.
+    for (let i = 0; i < 35; i++) {
+      const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+      expect(res.status).toBe(200);
+    }
+  });
+
   it('writes exactly one device_paired notification for the account', async () => {
     await seedUser(0);
     const p = await createApprovedPairing();
@@ -112,6 +141,35 @@ describe('POST /api/auth/pair/poll', () => {
       .bind(USER_ID)
       .first<{ n: number }>();
     expect(row!.n).toBe(1);
+  });
+
+  it('stamps the device_paired notification in epoch milliseconds', async () => {
+    await seedUser(0);
+    const p = await createApprovedPairing();
+
+    const before = Date.now();
+    const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+    expect(res.status).toBe(200);
+    const after = Date.now();
+
+    const row = await env.DB.prepare(
+      "SELECT created_at FROM notifications WHERE recipient_id = ?1 AND type = 'device_paired'",
+    )
+      .bind(USER_ID)
+      .first<{ created_at: number }>();
+
+    // Every other writer of notifications.created_at stores milliseconds, and
+    // both the inbox ordering and the per-channel delivered_until cursors read
+    // it as such. A seconds value (roughly 1.7e9 against a 1.7e12 cursor) would
+    // sort below everything and could never exceed a delivery cursor, so the
+    // security alert would silently never be delivered. Bounding the value by
+    // the wall clock around the request fails immediately if the division back
+    // to seconds is ever reintroduced.
+    expect(row!.created_at).toBeGreaterThanOrEqual(before);
+    expect(row!.created_at).toBeLessThanOrEqual(after);
+    // Explicit about the unit as well, so the intent survives a refactor of the
+    // bounds above: seconds since the epoch are four orders of magnitude smaller.
+    expect(row!.created_at).toBeGreaterThan(1_000_000_000_000);
   });
 
   it('never writes a notification when the poll does not mint a session', async () => {

@@ -25,4 +25,15 @@ export class RateLimiter extends DurableObject {
     }
     return allowed;
   }
+
+  /**
+   * Reports whether the next request against this key would be allowed, without
+   * counting one. For endpoints that only want to charge some of their traffic
+   * (e.g. failed lookups) but still want to reject a caller that is already over
+   * the limit before doing any expensive work.
+   */
+  async peek(opts: { max: number; windowSec: number; now: number }): Promise<boolean> {
+    const prev = (await this.ctx.storage.get<RateWindow>(STATE_KEY)) ?? null;
+    return decideRate(prev, opts).allowed;
+  }
 }
