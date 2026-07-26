@@ -145,6 +145,9 @@ const unreadCount = items.filter((r) => r.unread).length;
         </button>
       </form>
       <a class="notif-settingslink" href="#notification-settings">Notification settings</a>
+      {/* Push notifications are set up here but only work on a signed-in device,
+          so this is the natural place to find the pairing page from. */}
+      <a class="notif-settingslink" href="/devices/">Devices</a>
     </div>
   </div>
 
