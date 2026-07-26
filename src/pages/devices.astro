@@ -1,0 +1,73 @@
+---
+// Devices: the desktop half of device pairing (approve a phone showing a
+// pairing code) plus the lost-device escape hatch (sign out everywhere).
+// Session-gated. There is no device inventory yet, so the page does not
+// promise to list or revoke individual devices, only to pair new ones and to
+// nuke all sessions at once.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import ApproveDevice from '@/components/ApproveDevice.tsx';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+---
+<Layout
+  title="Devices - DRepTalk"
+  description="Pair a new device with your DRepTalk account, or sign out everywhere."
+  noindex={true}
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Devices</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.5rem;">Devices</h1>
+  <p style="margin:0 0 1.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+    Pair a device that has no Cardano wallet, such as a phone, by approving the code it shows.
+  </p>
+
+  <ApproveDevice client:load />
+
+  <section class="devices-danger">
+    <h2 class="devices-danger__title">Lost or stolen device</h2>
+    <p class="devices-danger__body">
+      If a device you signed in on is lost, stolen, or you no longer trust it, sign out everywhere. This ends
+      every session, including this one, and you will need to sign in again.
+    </p>
+    <form method="POST" action="/api/auth/logout-all">
+      <button type="submit" class="btn btn-secondary">Sign out everywhere, including this device</button>
+    </form>
+  </section>
+
+  <p class="devices-note">Managing individual devices is not available yet.</p>
+</Layout>
+
+<style>
+  .devices-danger {
+    margin-top: 2rem;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 14px);
+    background: var(--surface);
+  }
+  .devices-danger__title {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+  }
+  .devices-danger__body {
+    margin: 0 0 1rem;
+    max-width: 62ch;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .devices-note {
+    margin: 1.5rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+</style>
