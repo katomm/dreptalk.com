@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isWriter, isModerator, roleLabels } from './roles.js';
+import { isWriter, isModerator, roleLabels, rolesFromUser } from './roles.js';
 
 describe('isWriter', () => {
   it('is true for each on-chain writer role', () => {
@@ -55,5 +55,33 @@ describe('roleLabels', () => {
   it('falls back to [Member] when nothing known is present', () => {
     expect(roleLabels([])).toEqual(['Member']);
     expect(roleLabels(['something-unknown'])).toEqual(['Member']);
+  });
+});
+
+describe('rolesFromUser', () => {
+  const none = { is_drep: 0, is_proposer: 0, is_spo: 0, is_cc: 0 };
+
+  it('maps each on-chain flag to its role', () => {
+    expect(rolesFromUser({ ...none, is_drep: 1 }, null)).toEqual(['drep']);
+    expect(rolesFromUser({ ...none, is_proposer: 1 }, null)).toEqual(['proposer']);
+    expect(rolesFromUser({ ...none, is_spo: 1 }, null)).toEqual(['spo']);
+    expect(rolesFromUser({ ...none, is_cc: 1 }, null)).toEqual(['cc']);
+  });
+
+  it('preserves the drep, proposer, spo, cc order for multi-role accounts', () => {
+    expect(rolesFromUser({ is_drep: 1, is_proposer: 1, is_spo: 1, is_cc: 1 }, null)).toEqual([
+      'drep',
+      'proposer',
+      'spo',
+      'cc',
+    ]);
+  });
+
+  it('appends the moderator role when present', () => {
+    expect(rolesFromUser({ ...none, is_drep: 1 }, 'moderator')).toEqual(['drep', 'moderator']);
+  });
+
+  it('falls back to member when nothing else applies', () => {
+    expect(rolesFromUser(none, null)).toEqual(['member']);
   });
 });

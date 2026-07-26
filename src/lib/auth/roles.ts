@@ -46,3 +46,25 @@ export function roleLabels(roles: readonly string[]): string[] {
   const known = ROLE_PRIORITY.filter((r) => roles.includes(r)).map((r) => ROLE_DISPLAY[r]);
   return known.length > 0 ? known : [ROLE_DISPLAY.member];
 }
+
+/**
+ * Builds the session role list from a user row's on-chain flags plus the
+ * moderator role, which is re-evaluated from the allowlist per login and never
+ * persisted on the row.
+ *
+ * Shared by wallet/offline login and by device-pairing redemption so the two can
+ * never drift into granting different roles for the same account.
+ */
+export function rolesFromUser(
+  user: { is_drep: number; is_proposer: number; is_spo: number; is_cc: number },
+  modRole: string | null,
+): string[] {
+  const roles: string[] = [];
+  if (user.is_drep) roles.push('drep');
+  if (user.is_proposer) roles.push('proposer');
+  if (user.is_spo) roles.push('spo');
+  if (user.is_cc) roles.push('cc');
+  if (modRole) roles.push(modRole);
+  if (roles.length === 0) roles.push('member');
+  return roles;
+}
