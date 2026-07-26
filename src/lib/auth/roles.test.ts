@@ -59,17 +59,17 @@ describe('roleLabels', () => {
 });
 
 describe('rolesFromUser', () => {
-  const none = { is_drep: 0, is_proposer: 0, is_spo: 0, is_cc: 0 };
+  const none = { is_drep: false, is_proposer: false, is_spo: false, is_cc: false };
 
   it('maps each on-chain flag to its role', () => {
-    expect(rolesFromUser({ ...none, is_drep: 1 }, null)).toEqual(['drep']);
-    expect(rolesFromUser({ ...none, is_proposer: 1 }, null)).toEqual(['proposer']);
-    expect(rolesFromUser({ ...none, is_spo: 1 }, null)).toEqual(['spo']);
-    expect(rolesFromUser({ ...none, is_cc: 1 }, null)).toEqual(['cc']);
+    expect(rolesFromUser({ ...none, is_drep: true }, null)).toEqual(['drep']);
+    expect(rolesFromUser({ ...none, is_proposer: true }, null)).toEqual(['proposer']);
+    expect(rolesFromUser({ ...none, is_spo: true }, null)).toEqual(['spo']);
+    expect(rolesFromUser({ ...none, is_cc: true }, null)).toEqual(['cc']);
   });
 
   it('preserves the drep, proposer, spo, cc order for multi-role accounts', () => {
-    expect(rolesFromUser({ is_drep: 1, is_proposer: 1, is_spo: 1, is_cc: 1 }, null)).toEqual([
+    expect(rolesFromUser({ is_drep: true, is_proposer: true, is_spo: true, is_cc: true }, null)).toEqual([
       'drep',
       'proposer',
       'spo',
@@ -78,7 +78,7 @@ describe('rolesFromUser', () => {
   });
 
   it('appends the moderator role when present', () => {
-    expect(rolesFromUser({ ...none, is_drep: 1 }, 'moderator')).toEqual(['drep', 'moderator']);
+    expect(rolesFromUser({ ...none, is_drep: true }, 'moderator')).toEqual(['drep', 'moderator']);
   });
 
   it('falls back to member when nothing else applies', () => {

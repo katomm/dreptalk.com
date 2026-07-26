@@ -57,10 +57,10 @@ export function roleLabels(roles: readonly string[]): string[] {
  */
 export function rolesFromUser(
   user: {
-    is_drep: number | boolean;
-    is_proposer: number | boolean;
-    is_spo: number | boolean;
-    is_cc: number | boolean;
+    is_drep: boolean;
+    is_proposer: boolean;
+    is_spo: boolean;
+    is_cc: boolean;
   },
   modRole: string | null,
 ): string[] {
