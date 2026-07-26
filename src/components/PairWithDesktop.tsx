@@ -6,12 +6,21 @@
 // This one works everywhere: the phone shows a short code, a person already
 // signed in on a desktop enters it and approves, and this device polls until
 // that approval lands, then signs itself in.
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { formatPairingCode } from '@/lib/auth/pairingCode.js';
+import { truncateIdMiddle } from '@/lib/forum/view.js';
 import { cardStyle, stepHeadingStyle, linkBtnStyle, POST_LOGIN_DEST } from '@/components/signInStyles.js';
 
-// Shown in the interstitial when the approving account has no display name set.
-const FALLBACK_ACCOUNT_LABEL = 'your account';
+// Naming the approving account is the whole mitigation against being signed in
+// by an account other than the one the user meant, so it must never degrade to
+// an empty phrase. Display names are absent for SPO, CC and proposer logins and
+// for DReps without metadata, so those fall back to a truncated account id,
+// shortened the same way the account menu shortens it.
+export function accountLabel(displayName: string | null, userId: string): string {
+  const name = displayName?.trim();
+  if (name) return name;
+  return userId ? truncateIdMiddle(userId) : 'your account';
+}
 
 // ---- Persisted pairing state -------------------------------------------------
 
@@ -116,15 +125,16 @@ async function callPairStart(): Promise<StartOk | { ok: false; message: string }
 
 type PollTick =
   | { kind: 'pending' }
-  | { kind: 'signed-in'; displayName: string | null }
+  | { kind: 'signed-in'; label: string }
   | { kind: 'failed' }
   | { kind: 'retryable-error' };
 
-// Server error codes returned by /api/auth/pair/poll that mean the pairing
-// itself is dead: no amount of retrying can recover it, because the pairing
-// row is gone, expired, already claimed, or was consumed by a session that
-// then failed to mint. See src/pages/api/auth/pair/poll.ts.
-const TERMINAL_POLL_ERRORS = new Set(['unknown', 'pairing_failed']);
+// Server error codes returned by /api/auth/pair/poll that no retry can recover.
+// Either the pairing itself is dead (gone, expired, already claimed, or consumed
+// by a session that then failed to mint), or this client is asking wrongly
+// ('forbidden', 'invalid request'), which would repeat identically for the whole
+// TTL. See src/pages/api/auth/pair/poll.ts.
+const TERMINAL_POLL_ERRORS = new Set(['unknown', 'pairing_failed', 'forbidden', 'invalid request']);
 
 async function callPairPoll(pairingId: string, deviceSecret: string): Promise<PollTick> {
   try {
@@ -148,7 +158,7 @@ async function callPairPoll(pairingId: string, deviceSecret: string): Promise<Po
       return { kind: 'retryable-error' };
     }
     if (data.status === 'pending') return { kind: 'pending' };
-    return { kind: 'signed-in', displayName: data.user.displayName };
+    return { kind: 'signed-in', label: accountLabel(data.user.displayName, data.user.id) };
   } catch {
     // A dropped request while the phone is locked or out of signal is routine,
     // not a reason to give up on the pairing: retry on the next tick.
@@ -166,7 +176,7 @@ type PairState =
   // was relaunched: the code itself is never persisted (it is not needed to
   // redeem), so there is nothing to redisplay and the view shows a waiting state.
   | { phase: 'active'; pairingId: string; deviceSecret: string; expiresAt: number; code: string | null }
-  | { phase: 'signed-in'; displayName: string }
+  | { phase: 'signed-in'; label: string }
   | { phase: 'failed' };
 
 // ---- Styles ---------------------------------------------------------------
@@ -212,17 +222,18 @@ export default function PairWithDesktop() {
   }, []);
 
   async function handleStart() {
-    // Clear any previous pairing up front (this may be a "Get a new code" call
-    // that replaces one still technically valid), so storage always matches
-    // what is on screen: a failed retry never leaves a stale pairing behind
-    // that would silently resurface on the next reload.
-    clearPairing();
     setState({ phase: 'starting' });
     const result = await callPairStart();
     if (!result.ok) {
+      // The stored pairing is deliberately left alone. Starting is rate limited,
+      // so a "Get a new code" tap can fail while the current pairing is still
+      // valid; discarding its secret up front would leave the user with nothing
+      // for the rest of the window, and a reload can still resume it.
       setState({ phase: 'start-error', message: result.message });
       return;
     }
+    // Success replaces the stored pairing, so storage always matches the code
+    // on screen and no stale pairing can resurface on the next reload.
     savePairing({ pairingId: result.pairingId, deviceSecret: result.deviceSecret, expiresAt: result.expiresAt });
     setState({
       phase: 'active',
@@ -242,6 +253,15 @@ export default function PairWithDesktop() {
   const activeDeviceSecret = state.phase === 'active' ? state.deviceSecret : null;
   const activeExpiresAt = state.phase === 'active' ? state.expiresAt : null;
 
+  // A pairing that has already signed in must never be dragged back to a
+  // failure: once the session cookie is set, a late 404 (a duplicate poll
+  // losing the race for the single-winner claim) is not the truth about this
+  // device. Success wins unconditionally.
+  const failPairing = useCallback(() => {
+    clearPairing();
+    setState((prev) => (prev.phase === 'signed-in' ? prev : { phase: 'failed' }));
+  }, []);
+
   // Poll while a pairing is active. Reacts to the page becoming visible again
   // so a phone that was locked while its owner walked to the desktop reacts at
   // once, instead of waiting out a long backoff interval.
@@ -252,19 +272,30 @@ export default function PairWithDesktop() {
     const expiresAt = activeExpiresAt;
 
     let cancelled = false;
+    // Exactly one poll may be outstanding. Without this, a visibility change
+    // whose pending timeout had already fired would start a second chain (the
+    // clearTimeout being a no-op), each chain re-arming its own timer: the
+    // handles leak, the request volume multiplies, and the two chains race for
+    // the same single-winner claim.
+    let inFlight = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let delay = FIRST_DELAY_MS;
 
     async function tick() {
-      if (cancelled) return;
+      if (cancelled || inFlight) return;
       // The pairing's own TTL is known locally, so an already-expired pairing
       // resolves without a wasted request instead of waiting for the server's 404.
       if (Date.now() >= expiresAt * 1000) {
-        clearPairing();
-        if (!cancelled) setState({ phase: 'failed' });
+        failPairing();
         return;
       }
-      const outcome = await callPairPoll(pairingId, deviceSecret);
+      inFlight = true;
+      let outcome: PollTick;
+      try {
+        outcome = await callPairPoll(pairingId, deviceSecret);
+      } finally {
+        inFlight = false;
+      }
       if (cancelled) return;
       if (outcome.kind === 'pending' || outcome.kind === 'retryable-error') {
         delay = nextDelay(delay);
@@ -273,20 +304,22 @@ export default function PairWithDesktop() {
       }
       if (outcome.kind === 'signed-in') {
         clearPairing();
-        setState({ phase: 'signed-in', displayName: outcome.displayName ?? FALLBACK_ACCOUNT_LABEL });
+        setState({ phase: 'signed-in', label: outcome.label });
         return;
       }
       // outcome.kind === 'failed': the pairing is gone, expired, already claimed
       // by another redeem, or spent by a session that then failed to mint. All
       // of these are terminal; the only way forward is a fresh pairing.
-      clearPairing();
-      setState({ phase: 'failed' });
+      failPairing();
     }
 
     timer = setTimeout(() => void tick(), delay);
 
     function onVisibilityChange() {
       if (document.visibilityState !== 'visible') return;
+      // A poll already on the wire will re-arm the timer itself when it lands,
+      // so there is nothing to hurry along here.
+      if (inFlight) return;
       if (timer) clearTimeout(timer);
       void tick();
     }
@@ -297,7 +330,7 @@ export default function PairWithDesktop() {
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [activePairingId, activeDeviceSecret, activeExpiresAt]);
+  }, [activePairingId, activeDeviceSecret, activeExpiresAt, failPairing]);
 
   // ---- Signed-in interstitial: never auto-redirects. A passive toast would be
   // missed and a pairing approved by the wrong account would sign this device
@@ -307,7 +340,7 @@ export default function PairWithDesktop() {
       <div style={cardStyle}>
         <p style={{ margin: 0, fontWeight: 600 }}>Pairing complete</p>
         <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)' }}>
-          This device is now signed in as {state.displayName}.
+          This device is now signed in as {state.label}.
         </p>
         <button
           type="button"
@@ -315,7 +348,7 @@ export default function PairWithDesktop() {
           onClick={() => window.location.assign(POST_LOGIN_DEST)}
           style={{ width: '100%', padding: '0.65rem 1rem', fontSize: '0.9375rem' }}
         >
-          Continue as {state.displayName}
+          Continue as {state.label}
         </button>
       </div>
     );

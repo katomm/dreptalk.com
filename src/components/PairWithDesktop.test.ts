@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { nextDelay, loadPairing, savePairing, clearPairing, type StoredPairing } from './PairWithDesktop.js';
+import {
+  nextDelay,
+  loadPairing,
+  savePairing,
+  clearPairing,
+  accountLabel,
+  type StoredPairing,
+} from './PairWithDesktop.js';
 
 // The node test project has no DOM, so `localStorage` does not exist. Stub a
 // minimal in-memory implementation good enough for these helpers.
@@ -46,6 +53,31 @@ describe('nextDelay', () => {
     for (let i = 0; i < 20; i++) delay = nextDelay(delay);
     expect(delay).toBe(5000);
     expect(nextDelay(delay)).toBe(5000);
+  });
+});
+
+describe('accountLabel', () => {
+  const USER_ID = 'drep1abcdefghijklmnopqrstuvwxyz0123456789';
+
+  it('prefers the display name when the account has one', () => {
+    expect(accountLabel('Ada Lovelace', USER_ID)).toBe('Ada Lovelace');
+  });
+
+  it('falls back to a truncated id, never to a phrase that names nothing', () => {
+    // Routine for SPO, CC and proposer logins and for DReps without metadata.
+    for (const missing of [null, '', '   ']) {
+      const label = accountLabel(missing, USER_ID);
+      expect(label).not.toBe('your account');
+      // Recognisable: the interstitial is the only mitigation against being
+      // signed in by the wrong account, so the label has to identify one.
+      expect(label.startsWith(USER_ID.slice(0, 9))).toBe(true);
+      expect(label).toContain('...');
+      expect(label.length).toBeLessThan(USER_ID.length);
+    }
+  });
+
+  it('only degrades to a generic phrase when there is no identifier at all', () => {
+    expect(accountLabel(null, '')).toBe('your account');
   });
 });
 
