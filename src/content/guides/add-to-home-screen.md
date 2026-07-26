@@ -21,18 +21,31 @@ is an Apple platform rule, not a DRepTalk limitation.
 4. Confirm the name and tap **Add**.
 
 DRepTalk now appears on your home screen like an app and opens in its own
-window. To receive push notifications, open it from there, sign in, go to
-[Notifications](/notifications/), and enable push under **Push notifications**.
-iOS asks for notification permission once; after allowing it, DRepTalk
-notifications appear like any other app's, including on the lock screen.
+window. To receive push notifications, open it from there and sign in. On a
+phone there is no wallet extension to sign with, so use
+[Pair a phone or tablet](/help/pair-a-device/): the app shows a code that you
+approve from a computer where you are already signed in. Pair from inside the
+installed app, not from a browser tab, because the two do not share a sign-in.
+
+Once signed in, go to [Notifications](/notifications/) and enable push under
+**Push notifications**. iOS asks for notification permission once; after
+allowing it, DRepTalk notifications appear like any other app's, including on
+the lock screen.
 
 Requires iOS or iPadOS 16.4 or newer.
 
 ## Android
 
-Adding to the home screen is optional on Android: push notifications also work
-from the normal browser. If you prefer an app-like window, open the browser
-menu and choose **Add to home screen** (or **Install app**).
+Adding to the home screen is optional on Android: push notifications also
+work from the normal browser. If you prefer an app-like window, open the
+browser menu and choose **Add to home screen** (or **Install app**).
+
+Either way, there is no wallet extension on a phone to sign in with, so use
+[Pair a phone or tablet](/help/pair-a-device/) to sign in: it shows a code
+that you approve from a computer where you are already signed in. Pair from
+whichever one you will actually use, the installed app or the browser tab,
+since the two keep separate storage and signing in on one does not sign in
+the other.
 
 ## Desktop
 
