@@ -56,7 +56,12 @@ export function roleLabels(roles: readonly string[]): string[] {
  * never drift into granting different roles for the same account.
  */
 export function rolesFromUser(
-  user: { is_drep: number; is_proposer: number; is_spo: number; is_cc: number },
+  user: {
+    is_drep: number | boolean;
+    is_proposer: number | boolean;
+    is_spo: number | boolean;
+    is_cc: number | boolean;
+  },
   modRole: string | null,
 ): string[] {
   const roles: string[] = [];
