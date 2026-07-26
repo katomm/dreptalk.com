@@ -11,8 +11,10 @@ import { isSameOriginRequest } from '@/lib/http/origin';
 
 export const prerender = false;
 
-// This is the endpoint an attacker would guess against, so failures are capped
-// per user and per IP. Successful approvals are not counted.
+// This is the endpoint an attacker would guess against, so attempts are capped
+// per user and per IP. Every attempt is counted: the rate limit runs before the
+// database work, and that ordering is what protects the endpoint. The budget is
+// far above legitimate use, so counting successes costs nothing in practice.
 const USER_RATE_MAX = 10;
 const IP_RATE_MAX = 20;
 const RATE_WINDOW_SEC = 600;
