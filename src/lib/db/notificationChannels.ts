@@ -151,6 +151,8 @@ export interface PendingCounts {
   replies: number;
   mentions: number;
   governance: number;
+  /** Security notices; deliberately not prefs-filtered, unlike the others. */
+  devices: number;
   total: number;
 }
 
@@ -160,8 +162,8 @@ export interface PendingCounts {
  * newer than the row's delivered_until cursor. The gov term is the shared
  * govThreadsSinceSql fragment (same definition the header badge uses), keyed
  * off the channel's delivery cursor instead of the user's notif_seen_at.
- * Each term is zeroed when its pref is off, so a disabled event type never
- * contributes to the total.
+ * Each term is zeroed when its pref is off, except device_paired: a security
+ * alert that can be switched off is worthless, so it always contributes.
  */
 export async function getPendingCounts(
   db: D1Database,
@@ -173,13 +175,23 @@ export async function getPendingCounts(
       `SELECT
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'reply' AND created_at > ?2) AS replies,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'mention' AND created_at > ?2) AS mentions,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'device_paired' AND created_at > ?2) AS devices,
          ${govThreadsSinceSql('?2')} AS governance`,
     )
     .bind(row.user_id, row.delivered_until)
-    .first<{ replies: number; mentions: number; governance: number }>();
+    .first<{ replies: number; mentions: number; governance: number; devices: number }>();
 
   const replies = prefs.reply ? (result?.replies ?? 0) : 0;
   const mentions = prefs.mention ? (result?.mentions ?? 0) : 0;
   const governance = prefs.governance ? (result?.governance ?? 0) : 0;
-  return { replies, mentions, governance, total: replies + mentions + governance };
+  // Security notices are deliberately not gated on prefs: an alert that can be
+  // switched off is worthless, so a device pairing always contributes.
+  const devices = result?.devices ?? 0;
+  return {
+    replies,
+    mentions,
+    governance,
+    devices,
+    total: replies + mentions + governance + devices,
+  };
 }

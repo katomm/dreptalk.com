@@ -67,7 +67,23 @@ if (db) {
     loadAuthorIdentities(db, personal.map((n) => n.actor_id)),
   ]);
 
-  const personalItems: InboxItem[] = personal.flatMap((n) => {
+  const personalItems: InboxItem[] = personal.flatMap((n): InboxItem[] => {
+    if (n.type === 'device_paired') {
+      return [
+        {
+          kind: 'device_paired' as const,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title: 'A new device was paired',
+          // Links to the page where the pairing can be undone.
+          href: '/devices/',
+          pill: null,
+        },
+      ];
+    }
     const topic = n.topic_id ? topicsById.get(n.topic_id) : undefined;
     if (!topic || topic.deleted) return [];
     const discussionTab = topic.source === 'governance' ? '?tab=discussion' : '';

@@ -55,6 +55,9 @@ function formatSummary(counts: PendingCounts): string {
   if (counts.governance > 0) {
     parts.push(`${counts.governance} governance ${counts.governance === 1 ? 'update' : 'updates'}`);
   }
+  if (counts.devices > 0) {
+    parts.push(`${counts.devices} new ${counts.devices === 1 ? 'device' : 'devices'} paired`);
+  }
   return parts.join(', ');
 }
 
@@ -90,12 +93,9 @@ async function dispatchChannels(
         prefs = await getPrefs(db, row.user_id, row.channel);
         prefsByUser.set(row.user_id, prefs);
       }
-      // A fully muted channel can never have pending work; skip the counts
-      // query entirely.
-      if (!prefs.reply && !prefs.mention && !prefs.governance) {
-        skipped++;
-        continue;
-      }
+      // Note: a channel with reply/mention/governance all off can still have
+      // pending device_paired work, since that term is never prefs-gated, so
+      // there is no early-exit here before the counts query.
       const counts = await getPendingCounts(db, row, prefs);
       if (counts.total === 0) {
         skipped++;
