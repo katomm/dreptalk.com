@@ -56,6 +56,15 @@ function KindIcon({ kind }: { kind: InboxItem['kind'] }) {
       </svg>
     );
   }
+  if (kind === 'device_paired') {
+    // Security notice about a paired device: a phone.
+    return (
+      <svg {...common} aria-hidden="true">
+        <rect x="7" y="2" width="10" height="20" rx="2" />
+        <path d="M11 18h2" />
+      </svg>
+    );
+  }
   // Governance: a simple landmark.
   return (
     <svg {...common} aria-hidden="true">
@@ -86,6 +95,8 @@ function Row({ item, now }: { item: InboxItem; now: number }) {
               )}{' '}
               {item.verb}
             </>
+          ) : item.kind === 'device_paired' ? (
+            'Security'
           ) : item.kind === 'gov_created' ? (
             'New governance action'
           ) : (

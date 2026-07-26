@@ -5,7 +5,9 @@
 
 export interface NotificationInsert {
   recipientId: string;
-  type: 'reply' | 'mention';
+  // device_paired is a security notice: no actor, topic or post, and it is not
+  // subject to per-channel preferences.
+  type: 'reply' | 'mention' | 'device_paired';
   actorId: string | null;
   topicId: string | null;
   postId: string | null;

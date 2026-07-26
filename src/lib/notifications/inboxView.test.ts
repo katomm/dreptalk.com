@@ -72,6 +72,37 @@ describe('groupItems', () => {
   });
 });
 
+describe('device_paired inbox rows', () => {
+  const deviceItem = {
+    kind: 'device_paired' as const,
+    createdAt: 1_700_000_000,
+    unread: true,
+    actorName: null,
+    actorHref: null,
+    verb: null,
+    title: 'A new device was paired',
+    href: '/devices/',
+    pill: null,
+  };
+
+  it('counts toward all and unread but not mentions, governance or discussions', () => {
+    const counts = countItems([deviceItem]);
+    expect(counts.all).toBe(1);
+    expect(counts.unread).toBe(1);
+    expect(counts.mentions).toBe(0);
+    expect(counts.governance).toBe(0);
+    expect(counts.discussions).toBe(0);
+  });
+
+  it('survives every filter that should not exclude it', () => {
+    expect(filterItems([deviceItem], 'all')).toHaveLength(1);
+    expect(filterItems([deviceItem], 'unread')).toHaveLength(1);
+    expect(filterItems([deviceItem], 'mentions')).toHaveLength(0);
+    expect(filterItems([deviceItem], 'governance')).toHaveLength(0);
+    expect(filterItems([deviceItem], 'discussions')).toHaveLength(0);
+  });
+});
+
 describe('relativeTime', () => {
   it('formats the usual buckets', () => {
     expect(relativeTime(NOW - 30_000, NOW)).toBe('just now');

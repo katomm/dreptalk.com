@@ -1,23 +1,29 @@
 // React island: unified sign-in with two method tabs (wallet and cardano-signer).
 // Consolidates WalletLogin.tsx and OfflineLogin.tsx into one coherent, polished
 // component. Flow logic in walletLogin.ts and offlineLogin.ts is UNCHANGED.
-import { useState, useEffect, useCallback, type CSSProperties, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { requestChallenge, loginOffline } from '@/lib/auth/offlineLogin.js';
 import { bytesToHex } from '@/lib/crypto/hex.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import WalletConnection from '@/components/WalletConnection.js';
+import PairWithDesktop from '@/components/PairWithDesktop.js';
 import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
-
-// Where a successful login lands, shared by the wallet and signer flows so the
-// two entry points can never drift onto different start pages.
-const POST_LOGIN_DEST = '/home/';
+import {
+  cardStyle,
+  stepHeadingStyle,
+  fieldLabelStyle,
+  inputStyle,
+  codeBlockStyle,
+  linkBtnStyle,
+  POST_LOGIN_DEST,
+} from '@/components/signInStyles.js';
 
 // ---- Types ------------------------------------------------------------------
 
-type SignInMethod = 'wallet' | 'cardano-signer';
+type SignInMethod = 'wallet' | 'cardano-signer' | 'pair';
 
 // Wallet flow roles: DRep or Proposer.
 type WalletRole = 'drep' | 'proposer';
@@ -105,24 +111,33 @@ interface SegmentOption<T extends string> {
 
 // Two-or-more button toggle for role and method choices. Active state is a
 // subtle tint, not a solid fill, so it never competes with the primary button.
+//
+// `wrap` + `minButtonInlineSize` are opt-in: only the three-way sign-in method
+// control needs to stack on narrow screens, so the two-and-three-way role
+// controls (which already fit comfortably) keep their original single-row layout.
 function SegmentedControl<T extends string>({
   value,
   onChange,
   options,
   disabled,
   ariaLabel,
+  wrap = false,
+  minButtonInlineSize,
 }: {
   value: T;
   onChange: (v: T) => void;
   options: SegmentOption<T>[];
   disabled?: boolean;
   ariaLabel: string;
+  wrap?: boolean;
+  minButtonInlineSize?: string;
 }) {
   return (
     <fieldset
       aria-label={ariaLabel}
       style={{
         display: 'flex',
+        flexWrap: wrap ? 'wrap' : 'nowrap',
         gap: '0.25rem',
         margin: 0,
         minInlineSize: 0,
@@ -143,6 +158,7 @@ function SegmentedControl<T extends string>({
             aria-pressed={active}
             style={{
               flex: 1,
+              minInlineSize: minButtonInlineSize,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -225,6 +241,14 @@ const IconTerminal = (
   </svg>
 );
 
+// Mobile phone icon for the "Pair with desktop" tab.
+const IconPhone = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="7" y="2" width="10" height="20" rx="2" />
+    <line x1="11" y1="18" x2="13" y2="18" />
+  </svg>
+);
+
 // Shield-check for the primary sign-in button and trust note.
 const IconShieldCheck = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -257,73 +281,6 @@ const SIGNER_ROLE_META: Record<SignerRole, { keyFile: string }> = {
   drep: { keyFile: 'drep.skey' },
   spo: { keyFile: 'calidus.skey' },
   cc: { keyFile: 'cc-hot.skey' },
-};
-
-// ---- Shared style constants -------------------------------------------------
-
-const cardStyle: CSSProperties = {
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius, 14px)',
-  background: 'var(--bg)',
-  boxShadow: 'var(--shadow)',
-  padding: '1.5rem',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '1.25rem',
-};
-
-const stepHeadingStyle: CSSProperties = {
-  display: 'block',
-  fontSize: '0.9375rem',
-  fontWeight: 700,
-  color: 'var(--fg)',
-  marginBottom: '0.6rem',
-};
-
-const fieldLabelStyle: CSSProperties = {
-  display: 'block',
-  fontSize: '0.8125rem',
-  fontWeight: 600,
-  color: 'var(--muted)',
-  marginBottom: '0.4rem',
-};
-
-const inputStyle: CSSProperties = {
-  width: '100%',
-  padding: '0.6rem 0.75rem',
-  border: '1px solid var(--border)',
-  borderRadius: '0.5rem',
-  background: 'var(--bg)',
-  color: 'var(--fg)',
-  fontSize: '0.9375rem',
-  fontFamily: 'inherit',
-  boxSizing: 'border-box',
-};
-
-const codeBlockStyle: CSSProperties = {
-  display: 'block',
-  margin: 0,
-  padding: '0.75rem',
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm, 9px)',
-  fontSize: '0.75rem',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-all',
-  color: 'var(--fg)',
-  lineHeight: 1.55,
-};
-
-const linkBtnStyle: CSSProperties = {
-  background: 'none',
-  border: 'none',
-  color: 'var(--accent)',
-  cursor: 'pointer',
-  padding: 0,
-  font: 'inherit',
-  textDecoration: 'underline',
-  fontSize: '0.8125rem',
 };
 
 // ---- Trust note (reused in both tabs) ---------------------------------------
@@ -481,10 +438,13 @@ interface WalletTabProps {
   network: CardanoNetwork;
   loginState: LoginState;
   onLoginStateChange: (s: LoginState) => void;
+  // Scan owned by the SignIn island, which also needs it to decide the default
+  // method. Passing it down keeps one polling scan per page instead of two.
+  walletScan: ReturnType<typeof useCardanoWallets>;
 }
 
-function WalletTab({ network, loginState, onLoginStateChange }: WalletTabProps) {
-  const { wallets, selected: selectedWallet, setSelected: setSelectedWallet } = useCardanoWallets();
+function WalletTab({ network, loginState, onLoginStateChange, walletScan }: WalletTabProps) {
+  const { wallets, selected: selectedWallet, setSelected: setSelectedWallet, scanning } = walletScan;
   const [role, setRole] = useState<WalletRole>('drep');
   const [multisigEnabled, setMultisigEnabled] = useState(false);
   const [scriptId, setScriptId] = useState('');
@@ -543,10 +503,17 @@ function WalletTab({ network, loginState, onLoginStateChange }: WalletTabProps) 
   }
 
   if (wallets.length === 0) {
+    // While the scan is still running, no verdict has been reached yet: saying
+    // "no wallet detected" would be a false statement on a device that has one,
+    // and it is precisely the dead end the pairing method exists to route around.
+    // Show a neutral interim state instead and only claim absence once the scan
+    // has actually closed with nothing found.
     return (
       <div style={cardStyle}>
-        <p style={{ color: 'var(--muted)', margin: 0 }}>
-          No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
+        <p role="status" aria-live="polite" style={{ color: 'var(--muted)', margin: 0 }}>
+          {scanning
+            ? 'Looking for a wallet extension...'
+            : 'No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).'}
         </p>
       </div>
     );
@@ -867,18 +834,44 @@ interface SignInProps {
 export default function SignIn({ network = 'preprod' }: SignInProps) {
   const [method, setMethod] = useState<SignInMethod>('wallet');
   const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
+  // Set once the method is decided for good: by a role deep link or by the user
+  // picking a tab. After that nothing may move the method under them.
+  const [methodSettled, setMethodSettled] = useState(false);
+  const walletScan = useCardanoWallets();
+  const { wallets, scanning } = walletScan;
 
-  // SPO and CC sign offline only, so their entry links (?role=spo|cc) open the
-  // cardano-signer method directly; the tab then preselects the matching role.
-  // DRep and Proposer default to the wallet method.
+  // SPO and CC sign offline only, so their entry links open cardano-signer.
   useEffect(() => {
     const r = new URLSearchParams(window.location.search).get('role');
-    if (r === 'spo' || r === 'cc') setMethod('cardano-signer');
+    if (r === 'spo' || r === 'cc') {
+      setMethod('cardano-signer');
+      setMethodSettled(true);
+    }
   }, []);
+
+  // With no CIP-30 wallet injected (mobile browsers and the installed PWA) the
+  // wallet tab is a dead end, so pairing is preselected instead. Extensions
+  // inject window.cardano asynchronously, usually after this island mounts, so
+  // this waits for the scan window to close empty: a one-shot check at mount
+  // would send desktop users who do have a wallet to the pairing tab.
+  //
+  // Touch-only devices skip that wait. No mobile browser has a CIP-30 extension,
+  // so there is nothing for the scan to find and making a phone stare at a
+  // wallet card for the full scan window helps nobody. A device with any fine
+  // pointer or hover is treated as a desktop and still waits.
+  useEffect(() => {
+    if (methodSettled || wallets.length > 0) return;
+    const touchOnly =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(any-hover: none) and (any-pointer: coarse)').matches;
+    if (scanning && !touchOnly) return;
+    setMethod('pair');
+  }, [methodSettled, scanning, wallets.length]);
 
   // Reset transient login state when switching methods.
   function handleMethodChange(m: SignInMethod) {
     setMethod(m);
+    setMethodSettled(true);
     setLoginState({ status: 'idle' });
   }
 
@@ -899,14 +892,20 @@ export default function SignIn({ network = 'preprod' }: SignInProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      {/* Method tabs: styled as a segmented control */}
+      {/* Method tabs: styled as a segmented control. Three options no longer fit
+          one row on a phone, so this instance wraps to a stacked, one-per-row
+          layout below roughly 30rem; the role controls elsewhere keep their
+          original single-row behaviour. */}
       <SegmentedControl
         ariaLabel="Sign-in method"
         value={method}
         onChange={handleMethodChange}
+        wrap
+        minButtonInlineSize="10rem"
         options={[
           { value: 'wallet', label: 'Connect a wallet', icon: IconWallet },
           { value: 'cardano-signer', label: 'Sign with cardano-signer', icon: IconTerminal },
+          { value: 'pair', label: 'Pair with desktop', icon: IconPhone },
         ]}
       />
 
@@ -916,13 +915,16 @@ export default function SignIn({ network = 'preprod' }: SignInProps) {
           network={network}
           loginState={loginState}
           onLoginStateChange={setLoginState}
+          walletScan={walletScan}
         />
-      ) : (
+      ) : method === 'cardano-signer' ? (
         <SignerTab
           network={network}
           loginState={loginState}
           onLoginStateChange={setLoginState}
         />
+      ) : (
+        <PairWithDesktop />
       )}
     </div>
   );

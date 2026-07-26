@@ -166,7 +166,7 @@ describe('getPendingCounts', () => {
     ]);
 
     const counts = await getPendingCounts(db(), row(), allEnabled);
-    expect(counts).toEqual({ replies: 1, mentions: 1, governance: 0, total: 2 });
+    expect(counts).toEqual({ replies: 1, mentions: 1, governance: 0, devices: 0, total: 2 });
   });
 
   it('zeroes a term whose pref is off', async () => {
@@ -176,7 +176,7 @@ describe('getPendingCounts', () => {
     ]);
 
     const counts = await getPendingCounts(db(), row(), { reply: false, mention: true, governance: true });
-    expect(counts).toEqual({ replies: 0, mentions: 1, governance: 0, total: 1 });
+    expect(counts).toEqual({ replies: 0, mentions: 1, governance: 0, devices: 0, total: 1 });
   });
 
   it('collapses two gov events on one topic to 1 and excludes deleted topics', async () => {
@@ -187,7 +187,7 @@ describe('getPendingCounts', () => {
     await activityInsert(db(), { type: 'gov_created', topicId: 'g2', actorId: null, createdAt: 250 }).run();
 
     const counts = await getPendingCounts(db(), row(), allEnabled);
-    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 1, total: 1 });
+    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 1, devices: 0, total: 1 });
   });
 
   it('zeroes the governance term when its pref is off', async () => {
@@ -195,7 +195,7 @@ describe('getPendingCounts', () => {
     await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 200 }).run();
 
     const counts = await getPendingCounts(db(), row(), { reply: true, mention: true, governance: false });
-    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 0, total: 0 });
+    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 0, devices: 0, total: 0 });
   });
 
   it('respects the cursor for governance events too', async () => {
@@ -203,6 +203,15 @@ describe('getPendingCounts', () => {
     await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 50 }).run();
 
     const counts = await getPendingCounts(db(), row({ delivered_until: 100 }), allEnabled);
-    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 0, total: 0 });
+    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 0, devices: 0, total: 0 });
+  });
+
+  it('counts device_paired notifications regardless of prefs, unlike the other terms', async () => {
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'device_paired', actorId: null, topicId: null, postId: null, createdAt: 200 },
+    ]);
+
+    const counts = await getPendingCounts(db(), row(), { reply: false, mention: false, governance: false });
+    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 0, devices: 1, total: 1 });
   });
 });

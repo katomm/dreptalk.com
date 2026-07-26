@@ -188,6 +188,23 @@ describe('dispatchWebPush', () => {
     expect(JSON.parse(calls[0].payload).body).toBe('1 new reply');
   });
 
+  it('includes device pairings in the summary even when all prefs are off', async () => {
+    await addWebpushChannel('alice', 100);
+    await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'reply', enabled: false });
+    await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'mention', enabled: false });
+    await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'governance', enabled: false });
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'device_paired', actorId: null, topicId: null, postId: null, createdAt: 200 },
+    ]);
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    const result = await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    expect(result).toEqual({ sent: 1, pruned: 0, skipped: 0 });
+    const body = JSON.parse(calls[0].payload).body as string;
+    expect(body).toContain('device');
+  });
+
   it('returns all-zero without calling send when vapid is null (unset secret)', async () => {
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [

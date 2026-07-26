@@ -1,7 +1,7 @@
 ---
 // Body of the signed-in account menu: identity header (avatar, name, shortened
 // id with a copy button) above Home, Settings, Profile (any account with one,
-// DRep or SPO) and Log out.
+// DRep or SPO), Devices and Log out.
 // Rendered by RoleEntry in both the desktop dropdown and the flat mobile list,
 // so the rows live here exactly once. The copy button is the only client JS,
 // shipped as a bundled script (the strict CSP forbids inline handlers).
@@ -32,19 +32,21 @@ const icons = {
   settings: SETTINGS_PATH,
   profile: PROFILE_PATH,
   vote: VOTE_PATH,
+  devices: 'M5 4h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M8 20h8 M12 16v4',
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9',
 } as const;
 
 // Menu rows above Log out, most-used first: for a DRep that is the Voting
-// Dashboard, then Profile, then Settings. Profile shows for any account with a
-// profile link (DRep or SPO); the Voting Dashboard is DRep-only, since /vote
-// redirects everyone else to /login, so it is gated on a synced DRep id, not
-// profileHref.
+// Dashboard, then Profile, then Settings, then Devices. Profile shows for any
+// account with a profile link (DRep or SPO); the Voting Dashboard is DRep-only,
+// since /vote redirects everyone else to /login, so it is gated on a synced
+// DRep id, not profileHref.
 const items = [
   { label: 'Home', href: '/home/', icon: icons.home },
   ...(account.drepId ? [{ label: 'Voting Dashboard', href: '/vote/', icon: icons.vote }] : []),
   ...(profileHref ? [{ label: 'Profile', href: profileHref, icon: icons.profile }] : []),
   { label: 'Settings', href: '/settings/', icon: icons.settings },
+  { label: 'Devices', href: '/devices/', icon: icons.devices },
 ];
 ---
 

@@ -56,3 +56,20 @@ export async function checkRate(
   const stub = ns.get(ns.idFromName(`rate:${key}`));
   return stub.limit(opts);
 }
+
+/**
+ * Reads a rate-limit key without counting a request against it. Use when only
+ * part of an endpoint's traffic should be charged (so checkRate would punish
+ * legitimate callers), but a caller already over the limit should be rejected
+ * before any expensive work is done.
+ *
+ * @returns true if a request would currently be allowed, false if the key is over its limit.
+ */
+export async function peekRate(
+  ns: DurableObjectNamespace<RateLimiter>,
+  key: string,
+  opts: { max: number; windowSec: number; now: number },
+): Promise<boolean> {
+  const stub = ns.get(ns.idFromName(`rate:${key}`));
+  return stub.peek(opts);
+}

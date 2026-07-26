@@ -21,6 +21,7 @@ import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep 
 import type { KoiosClient } from './resolveRole.js';
 import { upsertUserFromAuth, type AuthRole } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
+import { rolesFromUser } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 
@@ -373,13 +374,7 @@ async function finishLogin(
     now: Math.floor(now ?? Date.now() / 1000),
   });
 
-  const roles: string[] = [];
-  if (user.is_drep) roles.push('drep');
-  if (user.is_proposer) roles.push('proposer');
-  if (user.is_spo) roles.push('spo');
-  if (user.is_cc) roles.push('cc');
-  if (modRole) roles.push(modRole);
-  if (roles.length === 0) roles.push('member');
+  const roles = rolesFromUser(user, modRole);
 
   // Cache the user's drep_id on the session so consumers resolve the logged-in
   // DRep without a per-request D1 read (drep_id is immutable for the session).

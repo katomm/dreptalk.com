@@ -46,6 +46,17 @@ Pick the **CC member** role. You sign with your committee
 on-chain that the key is a currently authorized committee hot credential. Script-based
 credentials are not supported yet.
 
+## On a phone or tablet
+
+Mobile browsers have no wallet extension, so there is nothing there to sign
+the challenge with. Instead, sign in on a computer first, then pair the
+phone: the phone shows a short code, and you approve that code on the
+computer. See [Pair a phone or tablet](/help/pair-a-device/).
+
+A paired device is a normal signed-in device: it can read, post and comment,
+and it can receive push notifications. Voting still needs a wallet
+signature, so votes are cast from a computer.
+
 ## What signing in does not do
 
 It never moves your funds, never submits a transaction, and never asks for a seed
@@ -57,3 +68,4 @@ payment to sign in, stop: that is not how DRepTalk works.
 - [Managing your DRep](/help/managing-your-drep/)
 - [Become a DRep](/help/become-a-drep/)
 - [Delegate to a DRep](/help/delegate-to-a-drep/)
+- [Pair a phone or tablet](/help/pair-a-device/)
