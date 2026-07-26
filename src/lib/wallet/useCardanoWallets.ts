@@ -99,15 +99,21 @@ export function chooseSelectedWallet(
  * extensions inject window.cardano asynchronously, often AFTER React mounts, so a
  * single check on mount frequently finds nothing. This re-scans on a short
  * interval (and on window load) until wallets appear, then keeps the list current
- * within a brief window. Returns the list, the selected key, and a setter.
+ * within a brief window. Returns the list, the selected key, a setter, and
+ * `scanning`, which stays true until a wallet is found or the scan window closes.
+ * Callers that must not act on "no wallet" too early (an empty list is the normal
+ * state for the first few hundred milliseconds) should wait for `scanning` to
+ * turn false.
  */
 export function useCardanoWallets(): {
   wallets: CardanoWalletInfo[];
   selected: string;
   setSelected: (key: string) => void;
+  scanning: boolean;
 } {
   const [wallets, setWallets] = useState<CardanoWalletInfo[]>([]);
   const [selected, setSelected] = useState<string>('');
+  const [scanning, setScanning] = useState(true);
 
   useEffect(() => {
     // Read once per mount: the remembered wallet is set on a successful action
@@ -119,6 +125,9 @@ export function useCardanoWallets(): {
       // Keep a valid selection: the user's pick, else the remembered wallet,
       // else the first one found.
       setSelected((cur) => chooseSelectedWallet(cur, remembered, found));
+      // The question "is there a wallet here" is answered as soon as one shows
+      // up; later scans only keep the list current.
+      if (found.length > 0) setScanning(false);
       return found.length;
     };
 
@@ -129,7 +138,11 @@ export function useCardanoWallets(): {
     const interval = setInterval(() => {
       tries++;
       scan();
-      if (tries >= 20) clearInterval(interval);
+      if (tries >= 20) {
+        clearInterval(interval);
+        // Window closed: an empty list now means there really is no wallet.
+        setScanning(false);
+      }
     }, 300);
     // Some extensions only finish injecting at window 'load'.
     const onLoad = () => scan();
@@ -141,5 +154,5 @@ export function useCardanoWallets(): {
     };
   }, []);
 
-  return { wallets, selected, setSelected };
+  return { wallets, selected, setSelected, scanning };
 }

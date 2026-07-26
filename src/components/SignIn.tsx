@@ -438,10 +438,13 @@ interface WalletTabProps {
   network: CardanoNetwork;
   loginState: LoginState;
   onLoginStateChange: (s: LoginState) => void;
+  // Scan owned by the SignIn island, which also needs it to decide the default
+  // method. Passing it down keeps one polling scan per page instead of two.
+  walletScan: ReturnType<typeof useCardanoWallets>;
 }
 
-function WalletTab({ network, loginState, onLoginStateChange }: WalletTabProps) {
-  const { wallets, selected: selectedWallet, setSelected: setSelectedWallet } = useCardanoWallets();
+function WalletTab({ network, loginState, onLoginStateChange, walletScan }: WalletTabProps) {
+  const { wallets, selected: selectedWallet, setSelected: setSelectedWallet } = walletScan;
   const [role, setRole] = useState<WalletRole>('drep');
   const [multisigEnabled, setMultisigEnabled] = useState(false);
   const [scriptId, setScriptId] = useState('');
@@ -824,26 +827,35 @@ interface SignInProps {
 export default function SignIn({ network = 'preprod' }: SignInProps) {
   const [method, setMethod] = useState<SignInMethod>('wallet');
   const [loginState, setLoginState] = useState<LoginState>({ status: 'idle' });
+  // Set once the method is decided for good: by a role deep link or by the user
+  // picking a tab. After that nothing may move the method under them.
+  const [methodSettled, setMethodSettled] = useState(false);
+  const walletScan = useCardanoWallets();
+  const { wallets, scanning } = walletScan;
 
   // SPO and CC sign offline only, so their entry links open cardano-signer.
-  // With no CIP-30 wallet injected (mobile browsers and the installed PWA) the
-  // wallet tab is a dead end, so pairing is preselected instead.
   useEffect(() => {
     const r = new URLSearchParams(window.location.search).get('role');
     if (r === 'spo' || r === 'cc') {
       setMethod('cardano-signer');
-      return;
+      setMethodSettled(true);
     }
-    const hasWallet =
-      typeof window !== 'undefined' &&
-      !!(window as { cardano?: Record<string, unknown> }).cardano &&
-      Object.keys((window as { cardano?: Record<string, unknown> }).cardano ?? {}).length > 0;
-    if (!hasWallet) setMethod('pair');
   }, []);
+
+  // With no CIP-30 wallet injected (mobile browsers and the installed PWA) the
+  // wallet tab is a dead end, so pairing is preselected instead. Extensions
+  // inject window.cardano asynchronously, usually after this island mounts, so
+  // this waits for the scan window to close empty: a one-shot check at mount
+  // would send desktop users who do have a wallet to the pairing tab.
+  useEffect(() => {
+    if (methodSettled || scanning || wallets.length > 0) return;
+    setMethod('pair');
+  }, [methodSettled, scanning, wallets.length]);
 
   // Reset transient login state when switching methods.
   function handleMethodChange(m: SignInMethod) {
     setMethod(m);
+    setMethodSettled(true);
     setLoginState({ status: 'idle' });
   }
 
@@ -887,6 +899,7 @@ export default function SignIn({ network = 'preprod' }: SignInProps) {
           network={network}
           loginState={loginState}
           onLoginStateChange={setLoginState}
+          walletScan={walletScan}
         />
       ) : method === 'cardano-signer' ? (
         <SignerTab
