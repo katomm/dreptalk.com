@@ -8,9 +8,7 @@
 // that approval lands, then signs itself in.
 import { useEffect, useState, type CSSProperties } from 'react';
 import { formatPairingCode } from '@/lib/auth/pairingCode.js';
-import { cardStyle, stepHeadingStyle, linkBtnStyle } from '@/components/signInStyles.js';
-
-const POST_LOGIN_DEST = '/home/';
+import { cardStyle, stepHeadingStyle, linkBtnStyle, POST_LOGIN_DEST } from '@/components/signInStyles.js';
 
 // Shown in the interstitial when the approving account has no display name set.
 const FALLBACK_ACCOUNT_LABEL = 'your account';
@@ -24,13 +22,16 @@ const FALLBACK_ACCOUNT_LABEL = 'your account';
 // at most ten minutes and is not a session by itself.
 const PAIRING_KEY = 'dreptalk_pairing';
 
-interface StoredPairing {
+export interface StoredPairing {
   pairingId: string;
   deviceSecret: string;
   expiresAt: number;
 }
 
-function loadPairing(): StoredPairing | null {
+// Exported for unit tests: `loadPairing`, `savePairing` and `clearPairing` are
+// pure storage helpers and are cheaper to verify directly against a stubbed
+// `localStorage` than through the component.
+export function loadPairing(): StoredPairing | null {
   try {
     const raw = localStorage.getItem(PAIRING_KEY);
     if (!raw) return null;
@@ -46,7 +47,7 @@ function loadPairing(): StoredPairing | null {
   }
 }
 
-function savePairing(stored: StoredPairing): void {
+export function savePairing(stored: StoredPairing): void {
   try {
     localStorage.setItem(PAIRING_KEY, JSON.stringify(stored));
   } catch {
@@ -55,7 +56,7 @@ function savePairing(stored: StoredPairing): void {
   }
 }
 
-function clearPairing(): void {
+export function clearPairing(): void {
   try {
     localStorage.removeItem(PAIRING_KEY);
   } catch {
@@ -68,7 +69,7 @@ function clearPairing(): void {
 // Starts at 2s and widens to 5s. A flat 2s interval would be up to 300 requests
 // per pairing, which a per-IP limiter would read as abuse for users behind
 // carrier-grade NAT, and 300 D1 reads per pairing is needless load.
-function nextDelay(current: number): number {
+export function nextDelay(current: number): number {
   return Math.min(current + 500, 5000);
 }
 
@@ -117,7 +118,13 @@ type PollTick =
   | { kind: 'pending' }
   | { kind: 'signed-in'; displayName: string | null }
   | { kind: 'failed' }
-  | { kind: 'network-error' };
+  | { kind: 'retryable-error' };
+
+// Server error codes returned by /api/auth/pair/poll that mean the pairing
+// itself is dead: no amount of retrying can recover it, because the pairing
+// row is gone, expired, already claimed, or was consumed by a session that
+// then failed to mint. See src/pages/api/auth/pair/poll.ts.
+const TERMINAL_POLL_ERRORS = new Set(['unknown', 'pairing_failed']);
 
 async function callPairPoll(pairingId: string, deviceSecret: string): Promise<PollTick> {
   try {
@@ -131,14 +138,21 @@ async function callPairPoll(pairingId: string, deviceSecret: string): Promise<Po
       | { ok: true; status: 'signed-in'; user: { id: string; roles: string[]; displayName: string | null } }
       | { ok: false; error?: string }
       | null;
-    if (!data) return { kind: 'network-error' };
-    if (!data.ok) return { kind: 'failed' };
+    if (!data) return { kind: 'retryable-error' };
+    if (!data.ok) {
+      if (data.error && TERMINAL_POLL_ERRORS.has(data.error)) return { kind: 'failed' };
+      // Everything else, rate_limited (429), service unavailable (503), and any
+      // error code this client does not recognize, leaves the pairing row
+      // untouched, so it is safer to retry than to discard a still-valid
+      // pairing. The stored expiresAt already bounds how long that can go on.
+      return { kind: 'retryable-error' };
+    }
     if (data.status === 'pending') return { kind: 'pending' };
     return { kind: 'signed-in', displayName: data.user.displayName };
   } catch {
     // A dropped request while the phone is locked or out of signal is routine,
     // not a reason to give up on the pairing: retry on the next tick.
-    return { kind: 'network-error' };
+    return { kind: 'retryable-error' };
   }
 }
 
@@ -252,7 +266,7 @@ export default function PairWithDesktop() {
       }
       const outcome = await callPairPoll(pairingId, deviceSecret);
       if (cancelled) return;
-      if (outcome.kind === 'pending' || outcome.kind === 'network-error') {
+      if (outcome.kind === 'pending' || outcome.kind === 'retryable-error') {
         delay = nextDelay(delay);
         timer = setTimeout(() => void tick(), delay);
         return;

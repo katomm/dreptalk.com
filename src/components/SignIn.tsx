@@ -11,11 +11,15 @@ import WalletConnection from '@/components/WalletConnection.js';
 import PairWithDesktop from '@/components/PairWithDesktop.js';
 import { networkMismatchMessage, WALLET_NETWORK_MISMATCH } from '@/lib/wallet/networkGuard.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
-import { cardStyle, stepHeadingStyle, fieldLabelStyle, inputStyle, codeBlockStyle, linkBtnStyle } from '@/components/signInStyles.js';
-
-// Where a successful login lands, shared by the wallet and signer flows so the
-// two entry points can never drift onto different start pages.
-const POST_LOGIN_DEST = '/home/';
+import {
+  cardStyle,
+  stepHeadingStyle,
+  fieldLabelStyle,
+  inputStyle,
+  codeBlockStyle,
+  linkBtnStyle,
+  POST_LOGIN_DEST,
+} from '@/components/signInStyles.js';
 
 // ---- Types ------------------------------------------------------------------
 

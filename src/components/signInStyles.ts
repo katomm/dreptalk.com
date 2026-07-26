@@ -4,6 +4,10 @@
 // component modules.
 import type { CSSProperties } from 'react';
 
+// Where a successful login lands, shared by the wallet, cardano-signer and
+// pairing flows so the entry points can never drift onto different start pages.
+export const POST_LOGIN_DEST = '/home/';
+
 export const cardStyle: CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 'var(--radius, 14px)',
