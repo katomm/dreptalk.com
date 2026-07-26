@@ -854,8 +854,17 @@ export default function SignIn({ network = 'preprod' }: SignInProps) {
   // inject window.cardano asynchronously, usually after this island mounts, so
   // this waits for the scan window to close empty: a one-shot check at mount
   // would send desktop users who do have a wallet to the pairing tab.
+  //
+  // Touch-only devices skip that wait. No mobile browser has a CIP-30 extension,
+  // so there is nothing for the scan to find and making a phone stare at a
+  // wallet card for the full scan window helps nobody. A device with any fine
+  // pointer or hover is treated as a desktop and still waits.
   useEffect(() => {
-    if (methodSettled || scanning || wallets.length > 0) return;
+    if (methodSettled || wallets.length > 0) return;
+    const touchOnly =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(any-hover: none) and (any-pointer: coarse)').matches;
+    if (scanning && !touchOnly) return;
     setMethod('pair');
   }, [methodSettled, scanning, wallets.length]);
 
