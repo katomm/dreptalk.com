@@ -25,7 +25,7 @@ interface LookupOk {
 
 // Shared between lookup and approve: both endpoints return the same negative
 // shapes (see src/pages/api/auth/pair/lookup.ts and approve.ts).
-function friendlyPairError(error: string | undefined): string {
+export function friendlyPairError(error: string | undefined): string {
   switch (error) {
     case 'unknown_code':
       return 'That code is not valid or has expired. Ask the device to show a new one.';
@@ -114,7 +114,7 @@ export default function ApproveDevice() {
     e.preventDefault();
     const code = normalizePairingCode(input);
     if (!code) {
-      setStep({ phase: 'entry', error: 'That code is not valid or has expired. Ask the device to show a new one.' });
+      setStep({ phase: 'entry', error: friendlyPairError('unknown_code') });
       return;
     }
     setStep({ phase: 'looking-up' });
