@@ -405,7 +405,11 @@ export default function PairWithDesktop() {
     );
   }
 
-  // idle, starting, start-error: no pairing has been minted yet.
+  // idle, starting: no pairing has been minted yet. start-error: a start
+  // attempt failed, but a still-valid pairing minted earlier may remain in
+  // localStorage (its stored state is deliberately left alone on a failed
+  // retry, see handleStart above), even though this branch has nothing new
+  // to show for it.
   return (
     <div style={cardStyle}>
       <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.9375rem', lineHeight: 1.5 }}>

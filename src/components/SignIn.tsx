@@ -444,7 +444,7 @@ interface WalletTabProps {
 }
 
 function WalletTab({ network, loginState, onLoginStateChange, walletScan }: WalletTabProps) {
-  const { wallets, selected: selectedWallet, setSelected: setSelectedWallet } = walletScan;
+  const { wallets, selected: selectedWallet, setSelected: setSelectedWallet, scanning } = walletScan;
   const [role, setRole] = useState<WalletRole>('drep');
   const [multisigEnabled, setMultisigEnabled] = useState(false);
   const [scriptId, setScriptId] = useState('');
@@ -503,10 +503,17 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
   }
 
   if (wallets.length === 0) {
+    // While the scan is still running, no verdict has been reached yet: saying
+    // "no wallet detected" would be a false statement on a device that has one,
+    // and it is precisely the dead end the pairing method exists to route around.
+    // Show a neutral interim state instead and only claim absence once the scan
+    // has actually closed with nothing found.
     return (
       <div style={cardStyle}>
-        <p style={{ color: 'var(--muted)', margin: 0 }}>
-          No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
+        <p role="status" aria-live="polite" style={{ color: 'var(--muted)', margin: 0 }}>
+          {scanning
+            ? 'Looking for a wallet extension...'
+            : 'No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).'}
         </p>
       </div>
     );
