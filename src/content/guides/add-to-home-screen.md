@@ -43,9 +43,8 @@ browser menu and choose **Add to home screen** (or **Install app**).
 Either way, there is no wallet extension on a phone to sign in with, so use
 [Pair a phone or tablet](/help/pair-a-device/) to sign in: it shows a code
 that you approve from a computer where you are already signed in. Pair from
-whichever one you will actually use, the installed app or the browser tab,
-since the two keep separate storage and signing in on one does not sign in
-the other.
+whichever surface you will actually use day to day, the installed app or the
+browser tab, since that is the one you need to be signed in on.
 
 ## Desktop
 

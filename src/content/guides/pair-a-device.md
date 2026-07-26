@@ -15,12 +15,12 @@ itself.
 
 ## Install to the home screen first
 
-Do this from inside the DRepTalk app on your home screen, not from a tab in
-your regular mobile browser. The installed app and a browser tab keep
-completely separate storage, so pairing inside a browser tab will not carry
-over: the app will still show you as signed out. If you have not installed
-DRepTalk yet, see [Add DRepTalk to your home screen](/help/add-to-home-screen/)
-first, then come back and open the app from there.
+Install DRepTalk to your home screen before you pair: see
+[Add DRepTalk to your home screen](/help/add-to-home-screen/) if you have not
+done that yet. Then pair from inside the installed app on your home screen,
+not from a tab in your regular mobile browser. The installed app and a
+browser tab keep completely separate storage, so pairing inside a browser tab
+will not carry over: the app will still show you as signed out.
 
 ## Steps
 
