@@ -74,6 +74,12 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     height: 180px;
     margin-top: -1rem;
   }
+  /* The violet line art is drawn for light ground. On dark, a partial invert
+     flips lightness (dark lines become light, pale fills calm down) while the
+     hue rotation brings the color back to violet. */
+  :global(html[data-theme='dark']) .help-head__illu {
+    filter: invert(0.84) hue-rotate(180deg) saturate(1.5);
+  }
   @media (max-width: 640px) {
     .help-head {
       flex-direction: column-reverse;
@@ -84,8 +90,8 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       align-self: stretch;
     }
     .help-head__illu {
-      width: 120px;
-      height: 120px;
+      width: 170px;
+      height: 170px;
       margin-top: 0;
     }
   }

@@ -154,6 +154,12 @@ const groups = CATEGORY_ORDER.map((cat) => ({
     width: 64px;
     height: 64px;
   }
+  /* The violet line art is drawn for light ground. On dark, a partial invert
+     flips lightness (dark lines become light, pale fills calm down) while the
+     hue rotation brings the color back to violet. */
+  :global(html[data-theme='dark']) .help-card__illu {
+    filter: invert(0.84) hue-rotate(180deg) saturate(1.5);
+  }
   .help-card--featured .help-card__illu {
     width: 96px;
     height: 96px;
@@ -178,20 +184,32 @@ const groups = CATEGORY_ORDER.map((cat) => ({
     padding: 0.25rem 0.65rem;
   }
   @media (max-width: 560px) {
+    /* Grid instead of flex: the illustration sits next to the title line
+       only, the description flows below at full card width. */
     .help-card {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
       padding: 0.95rem 1rem;
-      gap: 0.85rem;
+      gap: 0 0.85rem;
+    }
+    .help-card__body {
+      display: contents;
     }
     .help-card__chev {
       display: none;
     }
     .help-card__illu {
-      width: 48px;
-      height: 48px;
+      width: 80px;
+      height: 80px;
     }
     .help-card--featured .help-card__illu {
-      width: 64px;
-      height: 64px;
+      width: 96px;
+      height: 96px;
+    }
+    .help-card__text {
+      grid-column: 1 / -1;
+      margin-top: 0.6rem;
     }
   }
 
