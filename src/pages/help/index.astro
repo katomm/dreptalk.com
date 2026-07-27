@@ -36,6 +36,7 @@ const groups = CATEGORY_ORDER.map((cat) => ({
 
   {featured && (
     <a href={`/help/${featured.id}/`} class="help-card help-card--featured reveal" style="--reveal-delay:60ms">
+      <img class="help-card__illu" src={`/help/${featured.id}.webp`} width="96" height="96" loading="lazy" alt="" />
       <span class="help-card__body">
         <span class="help-card__head">
           <span class="help-card__title">{featured.data.cardLabel}</span>
@@ -53,6 +54,7 @@ const groups = CATEGORY_ORDER.map((cat) => ({
       <div class="help-list">
         {grp.items.map((g, i) => (
           <a href={`/help/${g.id}/`} class="help-card reveal" style={`--reveal-delay:${60 + i * 60}ms`}>
+            <img class="help-card__illu" src={`/help/${g.id}.webp`} width="64" height="64" loading="lazy" alt="" />
             <span class="help-card__body">
               <span class="help-card__head">
                 <span class="help-card__title">{g.data.cardLabel}</span>
@@ -147,6 +149,22 @@ const groups = CATEGORY_ORDER.map((cat) => ({
     transition: transform 0.15s ease, color 0.15s ease;
   }
 
+  .help-card__illu {
+    flex: 0 0 auto;
+    width: 96px;
+    height: 96px;
+  }
+  /* The violet line art is drawn for light ground. On dark, a partial invert
+     flips lightness (dark lines become light, pale fills calm down) while the
+     hue rotation brings the color back to violet. */
+  :global(html[data-theme='dark']) .help-card__illu {
+    filter: invert(0.84) hue-rotate(180deg) saturate(1.5);
+  }
+  .help-card--featured .help-card__illu {
+    width: 128px;
+    height: 128px;
+  }
+
   .help-card--featured {
     background: color-mix(in srgb, var(--accent) 6%, var(--bg));
     border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
@@ -166,12 +184,32 @@ const groups = CATEGORY_ORDER.map((cat) => ({
     padding: 0.25rem 0.65rem;
   }
   @media (max-width: 560px) {
+    /* Grid instead of flex: the illustration sits next to the title line
+       only, the description flows below at full card width. */
     .help-card {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
       padding: 0.95rem 1rem;
-      gap: 0.85rem;
+      gap: 0 0.85rem;
+    }
+    .help-card__body {
+      display: contents;
     }
     .help-card__chev {
       display: none;
+    }
+    .help-card__illu {
+      width: 80px;
+      height: 80px;
+    }
+    .help-card--featured .help-card__illu {
+      width: 96px;
+      height: 96px;
+    }
+    .help-card__text {
+      grid-column: 1 / -1;
+      margin-top: 0.6rem;
     }
   }
 

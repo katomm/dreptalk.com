@@ -22,9 +22,12 @@ interface Props {
   // Mark glossary terms in the prose with definition tooltips. Off on the
   // glossary's own pages, which are already densely cross-linked.
   glossaryTerms?: boolean;
+  // URL of a decorative header illustration; help guides pass it, the
+  // glossary does not.
+  illustration?: string;
 }
 
-const { title, description, crumb, heading = crumb, ogImage, parent = { href: '/help/', label: 'Help' }, updated, glossaryTerms = false } = Astro.props;
+const { title, description, crumb, heading = crumb, ogImage, parent = { href: '/help/', label: 'Help' }, updated, glossaryTerms = false, illustration } = Astro.props;
 
 // Public help pages: cache at the edge but keep them reasonably fresh.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
@@ -39,11 +42,17 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     <span>{crumb}</span>
   </nav>
 
-  <h1 style="margin:0 0 0.5rem;">{heading}</h1>
-
-  {updated && (
-    <p class="page-updated">Last updated {isoDate(updated)}</p>
-  )}
+  <div class="help-head">
+    <div class="help-head__text">
+      <h1 style="margin:0 0 0.5rem;">{heading}</h1>
+      {updated && (
+        <p class="page-updated">Last updated {isoDate(updated)}</p>
+      )}
+    </div>
+    {illustration && (
+      <img class="help-head__illu" src={illustration} width="640" height="640" loading="lazy" alt="" />
+    )}
+  </div>
 
   <article class="prose">
     <slot />
@@ -53,6 +62,48 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
 </Layout>
 
 <style>
+  /* Desktop: the illustration hangs absolutely in the top right so it does
+     not stretch the header row and push the body text down. The heading
+     reserves its width; the prose column (64ch) stays clear of it anyway. */
+  .help-head {
+    position: relative;
+  }
+  .help-head__text {
+    padding-right: 200px;
+  }
+  .help-head__illu {
+    position: absolute;
+    top: -1rem;
+    right: 0;
+    width: 180px;
+    height: 180px;
+  }
+  /* The violet line art is drawn for light ground. On dark, a partial invert
+     flips lightness (dark lines become light, pale fills calm down) while the
+     hue rotation brings the color back to violet. */
+  :global(html[data-theme='dark']) .help-head__illu {
+    filter: invert(0.84) hue-rotate(180deg) saturate(1.5);
+  }
+  /* Below this width the 64ch prose column would run under the absolutely
+     positioned illustration, so switch to the stacked, centered header. */
+  @media (max-width: 900px) {
+    .help-head {
+      display: flex;
+      flex-direction: column-reverse;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .help-head__text {
+      align-self: stretch;
+      padding-right: 0;
+    }
+    .help-head__illu {
+      position: static;
+      width: 170px;
+      height: 170px;
+    }
+  }
+
   .page-updated {
     margin: 0 0 1.25rem;
     font-size: 0.8125rem;
