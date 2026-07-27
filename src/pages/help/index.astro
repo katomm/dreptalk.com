@@ -36,6 +36,7 @@ const groups = CATEGORY_ORDER.map((cat) => ({
 
   {featured && (
     <a href={`/help/${featured.id}/`} class="help-card help-card--featured reveal" style="--reveal-delay:60ms">
+      <img class="help-card__illu" src={`/help/${featured.id}.webp`} width="96" height="96" loading="lazy" alt="" />
       <span class="help-card__body">
         <span class="help-card__head">
           <span class="help-card__title">{featured.data.cardLabel}</span>
@@ -53,6 +54,7 @@ const groups = CATEGORY_ORDER.map((cat) => ({
       <div class="help-list">
         {grp.items.map((g, i) => (
           <a href={`/help/${g.id}/`} class="help-card reveal" style={`--reveal-delay:${60 + i * 60}ms`}>
+            <img class="help-card__illu" src={`/help/${g.id}.webp`} width="64" height="64" loading="lazy" alt="" />
             <span class="help-card__body">
               <span class="help-card__head">
                 <span class="help-card__title">{g.data.cardLabel}</span>
@@ -147,6 +149,16 @@ const groups = CATEGORY_ORDER.map((cat) => ({
     transition: transform 0.15s ease, color 0.15s ease;
   }
 
+  .help-card__illu {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 64px;
+  }
+  .help-card--featured .help-card__illu {
+    width: 96px;
+    height: 96px;
+  }
+
   .help-card--featured {
     background: color-mix(in srgb, var(--accent) 6%, var(--bg));
     border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
@@ -172,6 +184,14 @@ const groups = CATEGORY_ORDER.map((cat) => ({
     }
     .help-card__chev {
       display: none;
+    }
+    .help-card__illu {
+      width: 48px;
+      height: 48px;
+    }
+    .help-card--featured .help-card__illu {
+      width: 64px;
+      height: 64px;
     }
   }
 
