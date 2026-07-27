@@ -15,6 +15,9 @@ interface PaletteProps {
   onClose: () => void;
   returnFocusRef?: React.RefObject<HTMLButtonElement | null>;
   helpEntries: HelpEntry[];
+  /** Scope pill preselected each time the palette opens (defaults to "all").
+      Help and glossary pages pass "help" so a search starts within them. */
+  initialScope?: Scope;
 }
 
 interface Row {
@@ -102,12 +105,12 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
   return rows;
 }
 
-export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries }: PaletteProps) {
+export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries, initialScope = 'all' }: PaletteProps) {
   const [q, setQ] = useState('');
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
   const [active, setActive] = useState(0);
-  const [scope, setScope] = useState<Scope>('all');
+  const [scope, setScope] = useState<Scope>(initialScope);
   const inputRef = useRef<HTMLInputElement>(null);
   const prevOpenRef = useRef(false);
 
@@ -126,13 +129,13 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
-    setScope('all');
+    setScope(initialScope);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [open]);
+  }, [open, initialScope]);
 
   // Scroll the active option into view when the selection changes.
   useEffect(() => {

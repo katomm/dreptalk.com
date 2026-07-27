@@ -198,7 +198,9 @@ export default function DelegateDialog({
           <>
             <p className="drep-dialog__note">
               Delegating your voting power is an on-chain transaction. Your wallet signs and submits a small
-              vote-delegation certificate (network fee only, no deposit). dreptalk.com never sees your keys.
+              vote-delegation certificate (network fee only, no deposit). dreptalk.com never sees your keys.{' '}
+              {/* New tab on purpose: in-place navigation would discard the dialog's wallet state mid-flow. */}
+              <a href="/help/delegate-to-a-drep/" target="_blank" rel="noopener">How delegating works</a>
             </p>
 
             {wallets.length === 0 ? (

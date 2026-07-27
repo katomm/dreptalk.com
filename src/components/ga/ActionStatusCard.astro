@@ -60,6 +60,8 @@ function decidedLabel(status: string): string {
       </>
     )}
   </dl>
+
+  <a class="quiet-link status-help" href="/help/governance-statuses/">What the statuses mean</a>
 </div>
 
 <style>
@@ -103,5 +105,10 @@ function decidedLabel(status: string): string {
   .status-dl dd {
     margin: 0;
     color: var(--fg);
+  }
+  .status-help {
+    display: inline-block;
+    margin-top: 0.625rem;
+    font-size: 0.75rem;
   }
 </style>

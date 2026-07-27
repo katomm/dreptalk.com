@@ -1,11 +1,14 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { HelpEntry } from '@/lib/search/staticEntries.js';
+import type { Scope } from '@/lib/search/scopes.js';
 
 // A failed chunk load (e.g. stale HTML after a deploy) must not crash the island.
 const SearchPalette = lazy(() => import('./SearchPalette').catch(() => ({ default: () => null })));
 
 interface TriggerProps {
   helpEntries: HelpEntry[];
+  /** Scope pill the palette opens with on this page (defaults to "all"). */
+  initialScope?: Scope;
 }
 
 /**
@@ -13,7 +16,7 @@ interface TriggerProps {
  * fields). The palette body is lazy-loaded on first open so the header island
  * stays tiny; `loaded` starts false, so SSR renders only the button.
  */
-export default function SearchTrigger({ helpEntries }: TriggerProps) {
+export default function SearchTrigger({ helpEntries, initialScope }: TriggerProps) {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -81,7 +84,7 @@ export default function SearchTrigger({ helpEntries }: TriggerProps) {
       </button>
       {loaded && (
         <Suspense fallback={null}>
-          <SearchPalette open={open} onClose={() => setOpen(false)} returnFocusRef={btnRef} helpEntries={helpEntries} />
+          <SearchPalette open={open} onClose={() => setOpen(false)} returnFocusRef={btnRef} helpEntries={helpEntries} initialScope={initialScope} />
         </Suspense>
       )}
     </>
