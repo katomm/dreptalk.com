@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest an idea or improvement for DRepTalk.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation or need, not just the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How do you imagine it working? Alternatives you considered are welcome too.
+    validations:
+      required: true
