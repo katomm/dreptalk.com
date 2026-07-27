@@ -52,7 +52,7 @@
     "@biomejs/biome": "^2.5.0",
     "@cloudflare/vitest-pool-workers": "^0.16.18",
     "@cloudflare/workers-types": "^4.20260621.1",
-    "@types/node": "^25.9.2",
+    "@types/node": "^26.0.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "patch-package": "^8.0.1",
