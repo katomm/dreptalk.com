@@ -62,17 +62,21 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
 </Layout>
 
 <style>
+  /* Desktop: the illustration hangs absolutely in the top right so it does
+     not stretch the header row and push the body text down. The heading
+     reserves its width; the prose column (64ch) stays clear of it anyway. */
   .help-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1.5rem;
+    position: relative;
+  }
+  .help-head__text {
+    padding-right: 200px;
   }
   .help-head__illu {
-    flex: 0 0 auto;
+    position: absolute;
+    top: -1rem;
+    right: 0;
     width: 180px;
     height: 180px;
-    margin-top: -1rem;
   }
   /* The violet line art is drawn for light ground. On dark, a partial invert
      flips lightness (dark lines become light, pale fills calm down) while the
@@ -80,19 +84,23 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
   :global(html[data-theme='dark']) .help-head__illu {
     filter: invert(0.84) hue-rotate(180deg) saturate(1.5);
   }
-  @media (max-width: 640px) {
+  /* Below this width the 64ch prose column would run under the absolutely
+     positioned illustration, so switch to the stacked, centered header. */
+  @media (max-width: 900px) {
     .help-head {
+      display: flex;
       flex-direction: column-reverse;
       align-items: center;
       gap: 0.5rem;
     }
     .help-head__text {
       align-self: stretch;
+      padding-right: 0;
     }
     .help-head__illu {
+      position: static;
       width: 170px;
       height: 170px;
-      margin-top: 0;
     }
   }
 
