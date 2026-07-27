@@ -30,7 +30,7 @@ const { title, description, crumb, heading = crumb, ogImage, parent = { href: '/
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 
-<Layout title={title} description={description} ogImage={ogImage}>
+<Layout title={title} description={description} ogImage={ogImage} searchScope="help">
   <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
     <a href="/">DRepTalk</a>
     <span style="margin:0 0.375rem;">/</span>

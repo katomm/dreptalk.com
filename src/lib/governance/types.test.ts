@@ -1,5 +1,6 @@
+import { readdirSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { GOV_ACTION_TYPES, parseGovType } from './types.js';
+import { GOV_ACTION_TYPES, parseGovType, govTypeGlossarySlug } from './types.js';
 
 describe('GOV_ACTION_TYPES', () => {
   it('lists the seven canonical Koios proposal types in display order', () => {
@@ -16,6 +17,20 @@ describe('GOV_ACTION_TYPES', () => {
 
   it('gives every type a non-empty label', () => {
     for (const t of GOV_ACTION_TYPES) expect(t.label.length).toBeGreaterThan(0);
+  });
+
+  it('points every type at an existing glossary entry', () => {
+    const slugs = new Set(readdirSync('src/content/glossary').map((f) => f.replace(/\.md$/, '')));
+    for (const t of GOV_ACTION_TYPES) {
+      expect(slugs.has(t.glossary), `no glossary entry for type "${t.value}"`).toBe(true);
+    }
+  });
+});
+
+describe('govTypeGlossarySlug', () => {
+  it('maps a raw type to its glossary id and unknown types to null', () => {
+    expect(govTypeGlossarySlug('TreasuryWithdrawals')).toBe('treasury-withdrawal');
+    expect(govTypeGlossarySlug('bogus')).toBeNull();
   });
 });
 

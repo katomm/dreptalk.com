@@ -227,6 +227,16 @@ a {
   text-underline-offset: 2px;
 }
 
+/* Muted helper link (e.g. "What the statuses mean" pointers into /help/):
+   quiet next to real content, accent only on hover. */
+.quiet-link {
+  color: var(--muted);
+  text-decoration: underline;
+}
+.quiet-link:hover {
+  color: var(--accent);
+}
+
 img {
   max-width: 100%;
   height: auto;

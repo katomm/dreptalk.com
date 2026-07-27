@@ -3,6 +3,7 @@
 // All nullable fields are skipped; never renders "null" or empty values.
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import { readableType, formatAda } from '@/lib/governance/view.js';
+import { govTypeGlossarySlug } from '@/lib/governance/types.js';
 import { resolveNetwork, epochStartUnix, governanceActionUrl, type CardanoNetwork } from '@/lib/config/network.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
@@ -15,6 +16,10 @@ interface Props {
 
 const { action, network } = Astro.props;
 const netCfg = resolveNetwork(network);
+
+// Each on-chain action type has a matching glossary entry; link the Type row
+// there so the raw value gets a plain-words definition one click away.
+const typeGlossarySlug = govTypeGlossarySlug(action.type);
 
 const explorerUrl = action.proposalId
   ? governanceActionUrl(network, action.proposalId)
@@ -55,7 +60,11 @@ const anchorHref = action.anchorUrl != null ? resolveAnchorUrl(action.anchorUrl)
     )}
 
     <dt>Type</dt>
-    <dd>{readableType(action.type)}</dd>
+    <dd>
+      {typeGlossarySlug
+        ? <a href={`/glossary/${typeGlossarySlug}/`}>{readableType(action.type)}</a>
+        : readableType(action.type)}
+    </dd>
 
     {deposit != null && (
       <>
