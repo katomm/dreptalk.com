@@ -22,9 +22,12 @@ interface Props {
   // Mark glossary terms in the prose with definition tooltips. Off on the
   // glossary's own pages, which are already densely cross-linked.
   glossaryTerms?: boolean;
+  // URL of a decorative header illustration; help guides pass it, the
+  // glossary does not.
+  illustration?: string;
 }
 
-const { title, description, crumb, heading = crumb, ogImage, parent = { href: '/help/', label: 'Help' }, updated, glossaryTerms = false } = Astro.props;
+const { title, description, crumb, heading = crumb, ogImage, parent = { href: '/help/', label: 'Help' }, updated, glossaryTerms = false, illustration } = Astro.props;
 
 // Public help pages: cache at the edge but keep them reasonably fresh.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
@@ -39,11 +42,17 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     <span>{crumb}</span>
   </nav>
 
-  <h1 style="margin:0 0 0.5rem;">{heading}</h1>
-
-  {updated && (
-    <p class="page-updated">Last updated {isoDate(updated)}</p>
-  )}
+  <div class="help-head">
+    <div class="help-head__text">
+      <h1 style="margin:0 0 0.5rem;">{heading}</h1>
+      {updated && (
+        <p class="page-updated">Last updated {isoDate(updated)}</p>
+      )}
+    </div>
+    {illustration && (
+      <img class="help-head__illu" src={illustration} width="640" height="640" loading="lazy" alt="" />
+    )}
+  </div>
 
   <article class="prose">
     <slot />
@@ -53,6 +62,34 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
 </Layout>
 
 <style>
+  .help-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.5rem;
+  }
+  .help-head__illu {
+    flex: 0 0 auto;
+    width: 180px;
+    height: 180px;
+    margin-top: -1rem;
+  }
+  @media (max-width: 640px) {
+    .help-head {
+      flex-direction: column-reverse;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .help-head__text {
+      align-self: stretch;
+    }
+    .help-head__illu {
+      width: 120px;
+      height: 120px;
+      margin-top: 0;
+    }
+  }
+
   .page-updated {
     margin: 0 0 1.25rem;
     font-size: 0.8125rem;
