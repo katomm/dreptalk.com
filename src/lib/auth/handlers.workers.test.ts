@@ -137,6 +137,52 @@ describe('handleVerify: happy path (proposer)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleVerify -- happy path: DELEGATOR
+// ---------------------------------------------------------------------------
+
+// Delegator login: same reward-address CIP-8 proof as proposer, but no proposer
+// status and no Koios lookup; grants only 'member'.
+describe('handleVerify: happy path (delegator)', () => {
+  it('mints a member session and reuses the account on repeat login', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+
+    // Each login gets its own single-use nonce override for the same fixture
+    // payload: the fixture only signs one payload, but in production each
+    // login attempt consumes a freshly issued challenge, so a fresh override
+    // per call simulates that without weakening replay protection within a
+    // single call (see the dedicated "reject replayed nonce" tests below).
+    async function login() {
+      return handleVerify(
+        {
+          body: {
+            payload: fixturePayload,
+            signatureHex: stakeVector.signatureHex,
+            keyHex: stakeVector.keyHex,
+            role: 'delegator',
+          },
+          sessionKv: env.SESSIONS,
+          db: env.DB,
+          koios: koiosRejectAll(), // never consulted on this path
+          network: 'preprod',
+          now: 1_700_000_000,
+        },
+        { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+      );
+    }
+
+    const first = await login();
+    expect(first.status).toBe(200);
+    const json = first.json as { ok: boolean; user: { id: string; roles: string[] } };
+    expect(json.ok).toBe(true);
+    expect(json.user.roles).toEqual(['member']);
+
+    const second = await login();
+    const json2 = second.json as { user: { id: string } };
+    expect(json2.user.id).toBe(json.user.id); // same account, no duplicate
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleVerify -- happy path: DREP
 // ---------------------------------------------------------------------------
 

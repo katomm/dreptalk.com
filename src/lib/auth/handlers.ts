@@ -24,6 +24,7 @@ import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, p
 import { rolesFromUser } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
+import { resolveDelegatorAccount } from './delegatorLogin.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -131,7 +132,7 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
   const role = body.role;
-  if (role !== 'drep' && role !== 'proposer' && role !== 'spo' && role !== 'cc') {
+  if (role !== 'drep' && role !== 'proposer' && role !== 'spo' && role !== 'cc' && role !== 'delegator') {
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
   if (body.payload.length > MAX_PAYLOAD_LEN) {
@@ -149,12 +150,17 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
     }
     return await verifyWalletCip8(role, input, deps);
   }
+  // Delegator proves wallet ownership only, the same reward-address CIP-8
+  // signature a proposer signs, but grants no on-chain role.
+  if (role === 'delegator') {
+    return await verifyWalletCip8(role, input, deps);
+  }
   return await verifyRawEd25519(role, input, deps);
 }
 
-/** DRep / Proposer login: CIP-8 COSE signature from a CIP-30 wallet. */
+/** DRep / Proposer / Delegator login: CIP-8 COSE signature from a CIP-30 wallet. */
 async function verifyWalletCip8(
-  role: 'drep' | 'proposer',
+  role: 'drep' | 'proposer' | 'delegator',
   input: VerifyInput,
   deps?: VerifyDeps,
 ): Promise<VerifyResult> {
@@ -214,7 +220,7 @@ async function verifyWalletCip8(
   // A correctly typed address for the OTHER network means the wallet is on the
   // wrong network; report that specifically instead of a role mismatch, so the
   // client can tell the user to switch networks.
-  if (role === 'proposer') {
+  if (role === 'proposer' || role === 'delegator') {
     const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
     const otherHeader = network === 'mainnet' ? REWARD_ADDR_PREPROD : REWARD_ADDR_MAINNET;
     if (addressBytes[0] === otherHeader) {
@@ -233,6 +239,23 @@ async function verifyWalletCip8(
     if (addressBytes.length === 29 && addressBytes[0] !== expectedHeader) {
       return { status: 401, json: { ok: false, error: WALLET_NETWORK_MISMATCH } };
     }
+  }
+
+  // Delegator proves wallet ownership only: no Koios lookup, no on-chain role,
+  // routed through the shared account resolver so a later delegator sign-in
+  // reuses an account that already owns this stake address (e.g. a writer who
+  // linked the same wallet) instead of minting a duplicate.
+  if (role === 'delegator') {
+    const { sessionKv, secure } = input;
+    const stakeAddr = stakeAddressFromPubKey(pubKey, network);
+    const user = await resolveDelegatorAccount(db, stakeAddr, Math.floor(now ?? Date.now() / 1000));
+    const roles = rolesFromUser(user, null);
+    const token = await createSession(sessionKv, { id: user.id, roles, drepId: user.drep_id }, { now });
+    return {
+      status: 200,
+      json: { ok: true, user: { id: user.id, roles } },
+      setCookie: buildSessionCookie(token, { secure }),
+    };
   }
 
   // Derive identity from the verified pubKey, then resolve authorization via
