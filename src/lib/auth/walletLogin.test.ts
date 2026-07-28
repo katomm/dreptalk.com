@@ -354,3 +354,28 @@ describe('loginWithWallet: wallet network guard', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe('loginWithWallet: delegator', () => {
+  it('signs with the reward address and posts role delegator', async () => {
+    const calls: Array<{ url: string; body: any }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : null;
+      calls.push({ url: String(url), body });
+      if (String(url).endsWith('/api/auth/challenge')) {
+        return new Response(JSON.stringify({ payload: 'dreptalk:host:nonce:1' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true, user: { id: 'stake_test1x', roles: ['member'] } }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const api: WalletApi = {
+      getRewardAddresses: async () => ['e0deadbeef'],
+      signData: async () => ({ signature: 'aa', key: 'bb' }),
+    };
+
+    const res = await loginWithWallet(api, 'delegator', 'preprod', { fetchImpl });
+    expect(res.ok).toBe(true);
+    const verify = calls.find((c) => c.url.endsWith('/api/auth/verify'));
+    expect(verify?.body.role).toBe('delegator');
+    expect(res.user?.roles).toEqual(['member']);
+  });
+});

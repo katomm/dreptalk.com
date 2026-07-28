@@ -59,7 +59,7 @@ interface Deps {
  */
 export async function loginWithWallet(
   api: WalletApi,
-  role: 'drep' | 'proposer',
+  role: 'drep' | 'proposer' | 'delegator',
   network: CardanoNetwork,
   deps?: Deps,
 ): Promise<LoginResult> {
@@ -93,7 +93,7 @@ export async function loginWithWallet(
     // Step 2: derive the signing address candidate(s) and select the signer.
     let addrCandidates: string[];
     let signData = api.signData.bind(api);
-    if (role === 'proposer' || deps?.multisig?.keyChoice === 'stake') {
+    if (role === 'proposer' || role === 'delegator' || deps?.multisig?.keyChoice === 'stake') {
       const addrs = await api.getRewardAddresses();
       addrCandidates = [addrs[0]];
     } else {
