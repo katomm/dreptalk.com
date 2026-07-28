@@ -47,7 +47,7 @@ describe('upsertUserFromAuth (drep)', () => {
     expect(updated.last_verified_at).toBe(laterNow);
   });
 
-  it('a proposer who later verifies as drep gains is_drep while keeping is_proposer', async () => {
+  it('a proposer and a later drep login are separate accounts (each credential is its own account)', async () => {
     const stakeAddr = `stake_test1-proposer-then-drep-${NOW}`;
     const drepId = `drep1-proposer-then-drep-${NOW}`;
 
@@ -58,20 +58,25 @@ describe('upsertUserFromAuth (drep)', () => {
     expect(afterProposer!.is_proposer).toBe(true);
     expect(afterProposer!.is_drep).toBe(false);
 
-    // Second auth on the same id as both drep and proposer.
-    const updated = await upsertUserFromAuth(db(), {
-      stakeAddr,
+    // Later, the same person logs in as a DRep the way the real DRep login path
+    // does: drepId only, no stakeAddr. This is a distinct on-chain credential,
+    // so it creates a separate account rather than merging into the proposer row.
+    const drepUser = await upsertUserFromAuth(db(), {
       drepId,
-      roles: ['drep', 'proposer'],
+      roles: ['drep'],
       now: NOW + 600,
     });
 
-    expect(updated.is_drep).toBe(true);
-    expect(updated.is_proposer).toBe(true);
-    // drep_id should now be set via COALESCE.
-    expect(updated.drep_id).toBe(drepId);
-    // stake_addr already set, kept.
-    expect(updated.stake_addr).toBe(stakeAddr);
+    expect(drepUser.id).toBe(drepId);
+    expect(drepUser.is_drep).toBe(true);
+    expect(drepUser.is_proposer).toBe(false);
+    expect(drepUser.stake_addr).toBeNull();
+
+    // The proposer account is untouched: still its own row, still proposer-only.
+    const proposerAfter = await getUserById(db(), stakeAddr);
+    expect(proposerAfter).not.toBeNull();
+    expect(proposerAfter!.is_proposer).toBe(true);
+    expect(proposerAfter!.is_drep).toBe(false);
   });
 });
 
