@@ -236,3 +236,25 @@ describe('getUserByDrepId', () => {
     expect(await getUserByDrepId(env.DB, 'drep1none')).toBeNull();
   });
 });
+
+async function insertUser(id: string, stakeAddr: string | null) {
+  await db()
+    .prepare(
+      `INSERT INTO users (id, stake_addr, role, status, created_at, last_verified_at, notif_seen_at)
+       VALUES (?, ?, 'member', 'active', 0, 0, 0)`,
+    )
+    .bind(id, stakeAddr)
+    .run();
+}
+
+describe('users.stake_addr uniqueness (migration 0061)', () => {
+  it('rejects a second account with the same stake address', async () => {
+    await insertUser('acct-a', 'stake_test1uniqueA');
+    await expect(insertUser('acct-b', 'stake_test1uniqueA')).rejects.toThrow();
+  });
+
+  it('allows multiple accounts with NULL stake address', async () => {
+    await insertUser('acct-null-1', null);
+    await expect(insertUser('acct-null-2', null)).resolves.toBeUndefined();
+  });
+});
