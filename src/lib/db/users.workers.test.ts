@@ -2,7 +2,7 @@
 // Exercises upsertUserFromAuth and getUserById against the real miniflare D1 binding.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId, getSelfDrepId } from './users.js';
+import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId, getSelfDrepId, getUserByStakeAddr } from './users.js';
 
 const db = () => env.DB;
 const NOW = 1_700_000_000;
@@ -261,5 +261,20 @@ describe('users.stake_addr uniqueness (migration 0061)', () => {
   it('allows multiple accounts with NULL stake address', async () => {
     await insertUser('acct-null-1', null);
     await expect(insertUser('acct-null-2', null)).resolves.toBeUndefined();
+  });
+});
+
+describe('getUserByStakeAddr', () => {
+  it('returns the account owning the stake address, else null', async () => {
+    await db()
+      .prepare(
+        `INSERT INTO users (id, stake_addr, role, status, created_at, last_verified_at, notif_seen_at)
+         VALUES ('acct-lookup', 'stake_test1lookup', 'member', 'active', 0, 0, 0)`,
+      )
+      .run();
+    const found = await getUserByStakeAddr(db(), 'stake_test1lookup');
+    expect(found?.id).toBe('acct-lookup');
+    const missing = await getUserByStakeAddr(db(), 'stake_test1absent');
+    expect(missing).toBeNull();
   });
 });
