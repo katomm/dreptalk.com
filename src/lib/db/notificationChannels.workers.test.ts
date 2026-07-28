@@ -141,6 +141,18 @@ describe('getPrefs + setPref', () => {
   it('returns all-enabled defaults for a user/channel with no rows at all', async () => {
     expect(await getPrefs(db(), 'nobody', 'webpush')).toEqual(allEnabled);
   });
+
+  // Authorization-review checkpoint (delegator login, Phase 1): a delegator's
+  // session carries only the fallback 'member' role, which the write-gated forum
+  // handlers reject (see handlers.workers.test.ts). Managing one's own
+  // notification prefs is a deliberate exception: this table has no role check
+  // at all, and the API route (/api/notifications/prefs) only requires a signed-in
+  // session, not a writer role. Proves a member can still set and read back a pref.
+  it('allows a member to set their own notification pref', async () => {
+    await setPref(db(), { userId: 'stake_test1deleg', channel: 'webpush', eventType: 'governance', enabled: false });
+    const prefs = await getPrefs(db(), 'stake_test1deleg', 'webpush');
+    expect(prefs.governance).toBe(false);
+  });
 });
 
 describe('getPendingCounts', () => {
