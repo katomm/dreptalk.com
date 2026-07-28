@@ -1,0 +1,39 @@
+name: Bug report
+description: Something on DRepTalk does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. For suspected security issues, please do **not** open a public issue; use the private reporting channel described in [SECURITY.md](https://github.com/katomm/dreptalk.com/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: Steps to reproduce, expected behavior, actual behavior.
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      description: Where did you see the problem?
+      options:
+        - Mainnet (dreptalk.com)
+        - Preprod (preprod.dreptalk.com)
+        - Local development
+    validations:
+      required: true
+  - type: input
+    id: wallet
+    attributes:
+      label: Wallet and role
+      description: If the bug involves signing in or posting, which wallet and on-chain role (DRep, SPO, CC, proposer) were you using?
+      placeholder: e.g. Eternl, DRep
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console or server output
+      description: Any relevant browser console errors or server output. This is automatically formatted as code.
+      render: text
