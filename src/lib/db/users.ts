@@ -125,6 +125,25 @@ export async function getUserByStakeAddr(db: D1Database, stakeAddr: string): Pro
 }
 
 /**
+ * Records a successful credential re-proof on an existing account: bumps
+ * last_verified_at only. Deliberately does not touch status (a repeat login must
+ * not resurrect a disabled account), mirroring upsertUserFromAuth's conflict path.
+ */
+export async function touchUserVerification(
+  db: D1Database,
+  userId: string,
+  now: number,
+): Promise<User> {
+  await db
+    .prepare('UPDATE users SET last_verified_at = ? WHERE id = ?')
+    .bind(now, userId)
+    .run();
+  const user = await getUserById(db, userId);
+  if (!user) throw new Error(`touchUserVerification: user not found for id=${userId}`);
+  return user;
+}
+
+/**
  * Fetches multiple users by id in a single query (no N+1).
  * Builds a parameterized IN clause from the id list.
  * Returns an empty Map for empty input without querying D1.
