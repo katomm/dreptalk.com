@@ -57,7 +57,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
       userId: user.id,
       body: body as Parameters<typeof handleLinkStake>[0]['body'],
       network,
-      now,
+      // consumeNonceForDomain (and issueNonce) work in unix seconds, not the
+      // ms epoch checkRate above needs -- see track.ts, which splits the same way.
+      now: Math.floor(now / 1000),
     });
 
     return jsonResponse(result.json, result.status);
