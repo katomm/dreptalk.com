@@ -98,3 +98,51 @@ export function buildTrendChart(series: TrendSeries[], opts: TrendChartOptions =
 
   return { width, height, plot, series: chartSeries, yTicks, xTicks };
 }
+
+export interface TrendVote {
+  blockTime: number;
+  /** Lovelace (DRep/SPO) or 1 (CC). */
+  weight: number;
+}
+
+export interface TrendBodyInput {
+  key: TrendBodyKey;
+  /** Final yes votes only, any order; weight already resolved per body. */
+  yesVotes: TrendVote[];
+  /** Stored ratification pct for this body (0..100), or null when unknown. */
+  finalPct: number | null;
+  thresholdPct: number | null;
+  finalLabel: string;
+}
+
+/**
+ * Turns per-body final yes votes into normalized step-series. Each vote adds its
+ * weight; the running total is scaled so the curve ends at exactly the stored
+ * final pct (per-voter weight enters only as a ratio, so power-drift never moves
+ * the endpoint). A body with no yes weight or an unknown final pct is dropped.
+ */
+export function computeVoteTrendSeries(
+  bodies: TrendBodyInput[],
+  window: { start: number; end: number },
+): TrendSeries[] {
+  const round2 = (n: number): number => Math.round(n * 100) / 100;
+  const out: TrendSeries[] = [];
+  for (const b of bodies) {
+    if (b.finalPct == null || b.yesVotes.length === 0) continue;
+    const total = b.yesVotes.reduce((sum, v) => sum + v.weight, 0);
+    if (total <= 0) continue;
+
+    const sorted = [...b.yesVotes].sort((a, c) => a.blockTime - c.blockTime);
+    const points: TrendPoint[] = [{ t: window.start, pct: 0 }];
+    let cum = 0;
+    for (const v of sorted) {
+      cum += v.weight;
+      // Clamp t into the window so a vote stamped a hair outside never escapes the plot.
+      const t = Math.min(Math.max(v.blockTime, window.start), window.end);
+      points.push({ t, pct: round2((b.finalPct * cum) / total) });
+    }
+    points.push({ t: window.end, pct: round2(b.finalPct) });
+    out.push({ key: b.key, points, thresholdPct: b.thresholdPct, finalLabel: b.finalLabel });
+  }
+  return out;
+}
