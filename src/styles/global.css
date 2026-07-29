@@ -409,32 +409,54 @@ main.container {
 .prose img {
   border-radius: var(--radius);
 }
-/* GFM tables in rendered markdown */
-.prose table {
-  display: block;
-  overflow-x: auto;
+/* GFM tables in rendered markdown. Applies to .prose (forum posts, proposal
+   rationale) and to the rationale wrappers that render CIP-100/136 body.comment
+   markdown without .prose: highlights cards, the positions-tab full rationale,
+   and vote-history rows. The table keeps the default auto layout at width:100%
+   and every cell may wrap anywhere, so long content (a paragraph or a bech32
+   gov_action1... id) breaks to fit and the table shrinks to its column instead
+   of overflowing the layout. Columns still size proportionally, so the widest
+   text column (the rationale) keeps the most room. */
+.prose table,
+.ga-highlights__body table,
+.ga-positions__rationale-body table,
+.vhist__rationale table,
+.evotes__body table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875em;
+  font-size: 0.8125em;
   margin: 0 0 1rem;
 }
 .prose th,
-.prose td {
+.prose td,
+.ga-highlights__body th,
+.ga-highlights__body td,
+.ga-positions__rationale-body th,
+.ga-positions__rationale-body td,
+.vhist__rationale th,
+.vhist__rationale td,
+.evotes__body th,
+.evotes__body td {
   border: 1px solid var(--border);
-  padding: 0.4rem 0.7rem;
+  padding: 0.4rem 0.6rem;
   text-align: left;
   vertical-align: top;
-  /* Override the .prose default (overflow-wrap: anywhere), which lets the auto
-     table layout shrink columns to a single character and break mid-word
-     (e.g. "TVL" into "TV" / "L"). break-word sizes columns to whole words and
-     only splits genuinely long tokens as a last resort. */
-  overflow-wrap: break-word;
+  /* Force long, unbreakable tokens (e.g. a gov_action1... id) to wrap so the
+     auto table layout can always shrink the table down to the column width. */
+  overflow-wrap: anywhere;
+  /* Floor for column width so a squeezed column never collapses to a sliver
+     that breaks after a single character. Small enough that 4 to 5 columns
+     still fit on a phone. */
+  min-width: 4rem;
 }
-.prose th {
+.prose th,
+.ga-highlights__body th,
+.ga-positions__rationale-body th,
+.vhist__rationale th,
+.evotes__body th {
   background: var(--surface);
   color: var(--muted);
   font-weight: 600;
-  white-space: nowrap;
 }
 
 /* ==========================================================================
