@@ -549,6 +549,11 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
             { value: 'delegator', label: 'Delegator', icon: IconPersonOutline },
           ]}
         />
+        {role === 'proposer' && (
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+            Sign in with the wallet that submitted your governance action. Proposers can post and join discussions.
+          </p>
+        )}
         {role === 'delegator' && (
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)', lineHeight: 1.5 }}>
             Sign in with your wallet to see how your DRep votes and get notified. Delegators cannot post or vote.
@@ -576,7 +581,7 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
         style={{ width: '100%', padding: '0.65rem 1rem', fontSize: '0.9375rem', opacity: signInDisabled ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
       >
         {IconShieldCheck}
-        {busy ? 'Signing in...' : role === 'delegator' ? 'Track my delegation' : 'Sign in with wallet'}
+        {busy ? 'Signing in...' : 'Sign in with wallet'}
       </button>
 
       <TrustNote />
