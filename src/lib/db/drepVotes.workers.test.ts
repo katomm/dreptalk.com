@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId } from './drepVotes.js';
+import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId, getVoteTrendRows } from './drepVotes.js';
 import { createTopic } from './forum.js';
 import { upsertActionRationale } from './actionRationale.js';
 import { upsertVoteRationalePost } from './voteRationalePost.js';
@@ -186,5 +186,19 @@ describe('upsertVotes voted_power', () => {
     await upsertVotes(env.DB, ga, [{ voterRole: 'SPO', voterId: 'pool1', voterHex: null, vote: 'Yes', blockTime: 100, votedPower: 20 }], 2);
     const row = await env.DB.prepare('SELECT voted_power FROM drep_votes WHERE ga_id = ? AND voter_id = ?').bind(ga, 'pool1').first<{ voted_power: number }>();
     expect(row?.voted_power).toBe(20);
+  });
+});
+
+describe('getVoteTrendRows', () => {
+  it('returns DRep+SPO rows with a block_time, oldest first, excluding CC', async () => {
+    const ga = 'gaid_trend_read';
+    await upsertVotes(env.DB, ga, [
+      { voterRole: 'DRep', voterId: 'd1', voterHex: null, vote: 'Yes', blockTime: 300, votedPower: 9 },
+      { voterRole: 'DRep', voterId: 'd2', voterHex: null, vote: 'No', blockTime: 100, votedPower: 4 },
+      { voterRole: 'SPO', voterId: 'p1', voterHex: null, vote: 'Yes', blockTime: 200, votedPower: 7 },
+      { voterRole: 'ConstitutionalCommittee', voterId: 'c1', voterHex: 'h1', vote: 'Yes', blockTime: 150, votedPower: null },
+    ], 1);
+    const rows = await getVoteTrendRows(env.DB, ga);
+    expect(rows.map((r) => r.voter_id)).toEqual(['d2', 'p1', 'd1']); // 100, 200, 300; CC excluded
   });
 });

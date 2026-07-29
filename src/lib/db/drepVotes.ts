@@ -589,3 +589,34 @@ export async function getPoolParticipation(db: D1Database, poolId: string): Prom
     .first<{ eligible: number; voted: number }>();
   return { eligible: row?.eligible ?? 0, voted: row?.voted ?? 0 };
 }
+
+/** One vote row for the trend chart: role, timing, decision, and decisive power. */
+export interface TrendVoteRow {
+  voter_role: string;
+  voter_id: string;
+  block_time: number;
+  vote: string;
+  voted_power: number | null;
+}
+
+/**
+ * DRep + SPO votes on one action for the trend chart: only rows with a block_time
+ * (the trend needs a timestamp) and not locally failed, ordered oldest first. CC is
+ * read separately via getCommitteeVotes (it needs the committee-timeline dedup).
+ */
+export async function getVoteTrendRows(db: D1Database, gaId: string): Promise<TrendVoteRow[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT voter_role, voter_id, block_time, vote, voted_power
+         FROM drep_votes
+         WHERE ga_id = ? AND voter_role IN ('DRep', 'SPO')
+           AND block_time IS NOT NULL
+           AND (local_status IS NULL OR local_status <> 'failed')
+         ORDER BY block_time ASC, voter_id`,
+      )
+      .bind(gaId)
+      .all<TrendVoteRow>()
+  ).results ?? [];
+  return rows;
+}

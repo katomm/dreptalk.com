@@ -30,6 +30,9 @@ import { upsertVotes, markStalePendingVotesFailed, getVotesNeedingMetaHash, setV
 import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
+import { getProtocolParams } from '../db/protocolParams.js';
+import { evaluateThresholds, serializeThresholdSnapshot } from './thresholds.js';
+import { parameterChangeScope } from './onchain.js';
 
 // Max actions a single tally/vote run processes when the caller does not specify
 // one. Koios is latency-limited under a large burst (proposal_voting_summary and
@@ -284,6 +287,10 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
     lifecycle.set(`${p.proposal_tx_hash}#${p.proposal_index}`, p);
   }
 
+  // Loaded once per run (not per action) for the threshold snapshot below; null
+  // until the params sync has run at least once.
+  const params = await getProtocolParams(db);
+
   let updated = 0;
   let frozen = 0;
   let failed = 0;
@@ -297,6 +304,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       const life = lifecycle.get(ga.id);
       const status = deriveStatus(life, ga, currentEpoch);
       const summary = ga.proposalId ? await koios.proposalVotingSummary(ga.proposalId) : null;
+      const tally = tallyFields(summary);
 
       // The epoch the action was decided: the terminal lifecycle epoch, falling
       // back to the expiry epoch when status was derived from the expiry check.
@@ -304,13 +312,28 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
         life?.enacted_epoch ?? life?.ratified_epoch ?? life?.expired_epoch ?? life?.dropped_epoch ??
         (status !== 'active' ? ga.expiryEpoch ?? life?.expiration ?? null : null);
 
+      // Freeze the per-body thresholds with the action so a historical line is never
+      // rebuilt from today's protocol params. Recomputed each tally sync while active;
+      // the last value before the status turns terminal is the frozen one.
+      const paramScope = ga.type === 'ParameterChange' ? parameterChangeScope(ga.onchainPayload ?? null) : null;
+      const thresholdResults = params
+        ? evaluateThresholds(
+            { type: ga.type, drepYesPct: tally.drepYesPct, spoYesPct: tally.spoYesPct, ccYesPct: tally.ccYesPct, paramScope },
+            params,
+          )
+        : [];
+      const thresholdsJson = thresholdResults.length ? serializeThresholdSnapshot(thresholdResults) : null;
+      const thresholdsEpoch = params?.epoch ?? null;
+
       await updateGovernanceTallyAndStatus(db, {
         id: ga.id,
         status,
-        ...tallyFields(summary),
+        ...tally,
         decidedEpoch,
         tallySyncedAt: now,
         now,
+        thresholdsJson,
+        thresholdsEpoch,
       });
 
       // Only a transition INTO a terminal outcome (enacted/expired/dropped/...) is

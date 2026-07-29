@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateThresholds } from './thresholds.js';
+import { evaluateThresholds, serializeThresholdSnapshot, readThresholdSnapshot } from './thresholds.js';
+import type { BodyResult } from './thresholds.js';
 import type { ProtocolParams } from '../db/protocolParams.js';
 
 const P: ProtocolParams = {
@@ -84,5 +85,21 @@ describe('evaluateThresholds', () => {
       expect(r.find((b) => b.body === 'DRep')!.thresholdPct).toBe(75); // max of all four
       expect(r.some((b) => b.body === 'SPO')).toBe(false);
     });
+  });
+});
+
+describe('threshold snapshot', () => {
+  it('serializes per-body threshold pct and reads it back', () => {
+    const results: BodyResult[] = [
+      { body: 'DRep', thresholdPct: 67, yesPct: 70, met: true },
+      { body: 'CC', thresholdPct: 66.67, yesPct: 80, met: true },
+    ];
+    const json = serializeThresholdSnapshot(results);
+    expect(readThresholdSnapshot(json)).toEqual({ drep: 67, spo: null, cc: 66.67 });
+  });
+
+  it('returns null for absent or malformed json', () => {
+    expect(readThresholdSnapshot(null)).toBeNull();
+    expect(readThresholdSnapshot('not json')).toBeNull();
   });
 });

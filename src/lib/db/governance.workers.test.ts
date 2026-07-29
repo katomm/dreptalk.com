@@ -147,6 +147,7 @@ describe('getStaleSyncableActions', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: null, tallySyncedAt, now: tallySyncedAt,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
   it('orders never-synced first, then least-recently-synced, capped by limit', async () => {
@@ -179,6 +180,7 @@ describe('getStaleSyncableActions', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
     const ids = (await getStaleSyncableActions(db(), 10)).map((r) => r.id);
     expect(ids).toContain(pending.id);
@@ -199,6 +201,7 @@ describe('getVoteStaleSyncableActions', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: null, tallySyncedAt, now: tallySyncedAt,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
   it('orders by vote recency, independent of tally recency', async () => {
@@ -227,6 +230,7 @@ describe('getVoteStaleSyncableActions', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
     const ids = (await getVoteStaleSyncableActions(db(), 10)).map((r) => r.id);
     expect(ids).toContain(active.id);
@@ -247,6 +251,7 @@ describe('updateGovernanceTallyAndStatus', () => {
       ccYesPct: 0, ccNoPct: 100,
       drepVotedPower: 3566193128637,
       tallyEpoch: 293, decidedEpoch: 291, tallySyncedAt: NOW + 5, now: NOW + 5,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
@@ -300,6 +305,7 @@ describe('getActionsNeedingVotedPower', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     // Active action: excluded (active/pending are handled by normal tally).
@@ -320,6 +326,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
       spoEligiblePower: 5_000_000_000,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     // Terminal with turnout+power but null eligible SPO stake (older row from before
@@ -337,6 +344,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
       spoEligiblePower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     const candidates = await getActionsNeedingVotedPower(db(), 10);
@@ -362,6 +370,7 @@ describe('getActionsNeedingVotedPower', () => {
         ccYesPct: null, ccNoPct: null,
         drepVotedPower: null,
         tallyEpoch: 296, decidedEpoch: 296, tallySyncedAt: NOW, now: NOW,
+        thresholdsJson: null, thresholdsEpoch: null,
       });
     }
     const one = await getActionsNeedingVotedPower(db(), 1);
@@ -380,6 +389,7 @@ describe('getActionsNeedingVotedPower', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 296, decidedEpoch: 296, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
     const candidates = await getActionsNeedingVotedPower(db(), 10);
     expect(candidates.map((c) => c.id)).not.toContain(noPid.id);
@@ -399,6 +409,7 @@ describe('updateVotedPower', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 297, decidedEpoch: 297, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     await updateVotedPower(db(), a.id, { votedPower: 5_000_000_000, drepYesPower: 5_000_000_000 });
@@ -557,6 +568,7 @@ describe('updateActionMetadata', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 300, decidedEpoch: null, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     await updateActionMetadata(db(), a.id, {
