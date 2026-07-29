@@ -40,6 +40,47 @@ const REWARD_ADDR_MAINNET = 0xe1;
 const ENTERPRISE_ADDR_PREPROD = 0x60;
 const ENTERPRISE_ADDR_MAINNET = 0x61;
 
+export interface RewardAddressCheckOk {
+  ok: true;
+  stakeAddr: string;
+}
+export interface RewardAddressCheckErr {
+  ok: false;
+  error: string;
+}
+
+/**
+ * Confirms `addressBytes` (the COSE-signed address recovered from an already
+ * verified CIP-8 signature) is a reward address for `network`, then derives
+ * the stake address from `pubKey`. Shared by the proposer/delegator
+ * wallet-login path below and the writer stake-link flow (linkStake.ts):
+ * both prove control of a stake wallet with the same reward-address CIP-8
+ * signature and must apply the identical network/type check before trusting
+ * the derived stake address.
+ *
+ * A correctly typed address for the OTHER network is reported as a network
+ * mismatch specifically (not a generic type mismatch), so the client can tell
+ * the user to switch networks instead of showing a confusing role error.
+ */
+export function checkRewardAddressHeader(
+  addressBytes: Uint8Array,
+  pubKey: Uint8Array,
+  network: CardanoNetwork,
+): RewardAddressCheckOk | RewardAddressCheckErr {
+  if (addressBytes.length === 0) {
+    return { ok: false, error: 'invalid address in signature' };
+  }
+  const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
+  const otherHeader = network === 'mainnet' ? REWARD_ADDR_PREPROD : REWARD_ADDR_MAINNET;
+  if (addressBytes[0] === otherHeader) {
+    return { ok: false, error: WALLET_NETWORK_MISMATCH };
+  }
+  if (addressBytes[0] !== expectedHeader) {
+    return { ok: false, error: 'address type mismatch for role' };
+  }
+  return { ok: true, stakeAddr: stakeAddressFromPubKey(pubKey, network) };
+}
+
 // ---------------------------------------------------------------------------
 // Challenge handler
 // ---------------------------------------------------------------------------
@@ -224,13 +265,9 @@ async function verifyWalletCip8(
   // wrong network; report that specifically instead of a role mismatch, so the
   // client can tell the user to switch networks.
   if (role === 'proposer' || role === 'delegator') {
-    const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
-    const otherHeader = network === 'mainnet' ? REWARD_ADDR_PREPROD : REWARD_ADDR_MAINNET;
-    if (addressBytes[0] === otherHeader) {
-      return { status: 401, json: { ok: false, error: WALLET_NETWORK_MISMATCH } };
-    }
-    if (addressBytes[0] !== expectedHeader) {
-      return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
+    const check = checkRewardAddressHeader(addressBytes, pubKey, network);
+    if (!check.ok) {
+      return { status: 401, json: { ok: false, error: check.error } };
     }
   } else {
     // role === 'drep'
