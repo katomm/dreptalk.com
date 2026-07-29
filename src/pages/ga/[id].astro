@@ -1,0 +1,23 @@
+---
+// Resolver for a governance action id. Rationale chips (see linkifyGovActionIds
+// in src/lib/markdown.ts) link here with the raw gov_action1... bech32 id so the
+// display-time transform stays free of any DB lookup. Resolution happens on
+// click: redirect to the action's /t/<slug>/ page, or fall back to search when
+// the action is not on DRepTalk.
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import { detectIdentifier } from '@/lib/search/identifiers';
+import { resolveIdentifier } from '@/lib/db/search';
+
+const { id = '' } = Astro.params;
+const db = env.DB as D1Database | undefined;
+
+const ident = db ? detectIdentifier(id) : null;
+const hit = db && ident ? await resolveIdentifier(db, ident) : null;
+
+// hit is read only in the return below; astro check misreports that as unused
+// (ts6133) for any top-level return in .astro frontmatter, as on other redirect
+// pages. It is a hint, not an error, and biome (the CI lint gate) skips .astro.
+return Astro.redirect(hit?.href ?? `/search/?q=${encodeURIComponent(id)}`, 302);
+---

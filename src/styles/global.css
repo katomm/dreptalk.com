@@ -459,6 +459,22 @@ main.container {
   font-weight: 600;
 }
 
+/* Inline chip for a gov action id inside rendered rationale/markdown: a
+   middle-truncated, monospace link to /ga/<id>/, immediately followed by a
+   .copy-btn carrying the full id (see linkifyGovActionIds in src/lib/markdown.ts).
+   overflow-wrap keeps it breakable so a narrow table cell can still wrap it. */
+.chainid {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+  overflow-wrap: anywhere;
+}
+.chainid:hover {
+  border-bottom-style: solid;
+}
+
 /* ==========================================================================
    Callout / admonition. Reusable box for inline messages (errors, warnings,
    info, success). Use the global classes from any component:

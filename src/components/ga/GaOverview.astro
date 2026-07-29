@@ -6,7 +6,7 @@
 import GaOnchainChanges from './GaOnchainChanges.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
-import { ensureLinkTarget, renderMarkdown } from '@/lib/markdown.js';
+import { enhanceStoredHtml, renderMarkdown } from '@/lib/markdown.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 
 interface Props {
@@ -63,7 +63,7 @@ if (!hasBody) {
   {abstractHtml && (
     <div class="ga-abstract">
       <p class="ga-abstract__label">Abstract</p>
-      <div class="prose ga-abstract__body" set:html={ensureLinkTarget(abstractHtml)} />
+      <div class="prose ga-abstract__body" set:html={enhanceStoredHtml(abstractHtml)} />
     </div>
   )}
 
@@ -77,10 +77,10 @@ if (!hasBody) {
               when the body is hidden. */}
           <input type="checkbox" id="ga-rationale-more" class="ga-rationale__cb" aria-hidden="true" tabindex="-1" />
           <label for="ga-rationale-more" class="ga-rationale__toggle"></label>
-          <div class="prose ga-rationale__body" set:html={ensureLinkTarget(action.rationaleHtml)} />
+          <div class="prose ga-rationale__body" set:html={enhanceStoredHtml(action.rationaleHtml)} />
         </>
       ) : (
-        <div class="prose" style="font-size:0.9375rem;" set:html={ensureLinkTarget(action.rationaleHtml)} />
+        <div class="prose" style="font-size:0.9375rem;" set:html={enhanceStoredHtml(action.rationaleHtml)} />
       )}
     </div>
   )}

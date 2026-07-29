@@ -12,7 +12,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
 import { excerptFromHtml, htmlToText } from '@/lib/forum/view.js';
-import { ensureLinkTarget } from '@/lib/markdown.js';
+import { enhanceStoredHtml } from '@/lib/markdown.js';
 import type { RationaleHighlight } from '@/lib/db/actionRationale.js';
 import type { Drep } from '@/lib/db/dreps.js';
 
@@ -41,7 +41,7 @@ const EXCERPT_LEN = 260;
       {highlights.map((h) => {
         const descriptor = voterDescriptor(h, dreps);
         const ada = formatAdaCompact(h.voting_power);
-        const fullHtml = ensureLinkTarget(h.body_html);
+        const fullHtml = enhanceStoredHtml(h.body_html);
         // Only expandable when the full text is longer than the preview; a short
         // rationale renders in full so there is nothing hidden behind a toggle.
         const expandable = htmlToText(h.body_html).length > EXCERPT_LEN;
