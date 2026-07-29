@@ -22,7 +22,7 @@ import { loadAuthorIdentities, authorProfileHref } from '@/lib/forum/author.js';
 import { statusBadge, isTerminalStatus } from '@/lib/governance/view.js';
 import type { InboxItem } from '@/lib/notifications/inboxView.js';
 import { delegationLabel } from '@/lib/delegation/format.js';
-import type { DelegationState } from '@/lib/delegation/resolve.js';
+import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -70,13 +70,9 @@ if (db) {
   // itself is dropped where it is actually parsed, below.
   const delegationDrepIds = new Set<string>();
   for (const n of personal) {
-    if (n.type !== 'delegation_changed' || !n.payload) continue;
-    try {
-      const p = JSON.parse(n.payload) as { from: DelegationState | null; to: DelegationState };
-      if (p.to?.type === 'drep') delegationDrepIds.add(p.to.drepId);
-    } catch {
-      // Dropped later where the row is parsed for real.
-    }
+    if (n.type !== 'delegation_changed') continue;
+    const p = parseDelegationChangePayload(n.payload);
+    if (p?.to.type === 'drep') delegationDrepIds.add(p.to.drepId);
   }
   const [topicsById, identities, delegationDreps] = await Promise.all([
     getTopicsByIds(db, topicIds),
@@ -102,14 +98,7 @@ if (db) {
       ];
     }
     if (n.type === 'delegation_changed') {
-      let p: { from: DelegationState | null; to: DelegationState } | null = null;
-      if (n.payload) {
-        try {
-          p = JSON.parse(n.payload) as { from: DelegationState | null; to: DelegationState };
-        } catch {
-          p = null;
-        }
-      }
+      const p = parseDelegationChangePayload(n.payload);
       if (!p) return [];
       const toName = p.to.type === 'drep' ? (delegationDreps.get(p.to.drepId)?.name ?? null) : null;
       return [
