@@ -125,10 +125,12 @@ export function computeVoteTrendSeries(
   bodies: TrendBodyInput[],
   window: { start: number; end: number },
 ): TrendSeries[] {
-  const round2 = (n: number): number => Math.round(n * 100) / 100;
   const out: TrendSeries[] = [];
   for (const b of bodies) {
     if (b.finalPct == null || b.yesVotes.length === 0) continue;
+    // Lovelace is summed as a plain Number here deliberately: power only ever enters
+    // as the ratio finalPct * cum / total, and the endpoint is separately pinned to
+    // the stored finalPct, so float precision on the running sum never matters.
     const total = b.yesVotes.reduce((sum, v) => sum + v.weight, 0);
     if (total <= 0) continue;
 

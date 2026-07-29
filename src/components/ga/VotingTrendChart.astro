@@ -6,14 +6,13 @@
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
-import type { CcVote, CcMemberFinalVote } from '@/lib/koios/corrections.js';
+import type { CcVote } from '@/lib/koios/corrections.js';
 import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
-import { ccFinalVotesByMember } from '@/lib/koios/corrections.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendBodyInput } from '@/lib/governance/voteTrend.js';
+import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
 import { readThresholdSnapshot, evaluateThresholds } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope } from '@/lib/governance/onchain.js';
-import { activeCommitteeSizeAt } from '@/lib/koios/committeeTimeline.js';
-import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
+import { resolveNetwork, type CardanoNetwork } from '@/lib/config/network.js';
 
 interface Props {
   action: GovernanceAction;
@@ -27,14 +26,8 @@ interface Props {
 const { action, trendRows, ccVotes, committee, params, network } = Astro.props;
 const cfg = resolveNetwork(network);
 
-// Voting window in unix seconds: from the submit epoch start to the decision (or
-// expiry) epoch start. Falls back to the span of observed votes when epochs are absent.
-const decidedEpoch = action.decidedEpoch ?? action.expiryEpoch;
-const windowStart = action.submittedEpoch != null ? epochStartUnix(action.submittedEpoch, cfg) : null;
-const windowEnd = decidedEpoch != null ? epochStartUnix(decidedEpoch, cfg) : null;
-const voteTimes = [...trendRows.map((r) => r.block_time), ...ccVotes.map((v) => v.blockTime ?? 0)].filter((t) => t > 0);
-const start = windowStart ?? (voteTimes.length ? Math.min(...voteTimes) : 0);
-const end = windowEnd && windowEnd > start ? windowEnd : (voteTimes.length ? Math.max(...voteTimes) : start + 1);
+const assembled = assembleTrendInputs({ action, trendRows, ccVotes, committee, cfg });
+const { start, end } = assembled.window;
 
 // Thresholds: prefer the frozen snapshot; fall back to live params for active
 // actions that have not been snapshotted yet. Never a today's line on an old action.
@@ -56,24 +49,14 @@ const thrDrep = snapshot ? snapshot.drep : liveThresholds?.find((t) => t.body ==
 const thrSpo = snapshot ? snapshot.spo : liveThresholds?.find((t) => t.body === 'SPO')?.thresholdPct ?? null;
 const thrCc = snapshot ? snapshot.cc : liveThresholds?.find((t) => t.body === 'CC')?.thresholdPct ?? null;
 
-// DRep + SPO yes votes weighted by voted_power.
-const yesByRole = (role: string) =>
-  trendRows.filter((r) => r.voter_role === role && r.vote === 'Yes' && r.voted_power != null)
-    .map((r) => ({ blockTime: r.block_time, weight: r.voted_power as number }));
-
-// CC yes votes: dedup to one final vote per active member, weight 1 each.
-const ratifiedEpoch = decidedEpoch ?? 0;
-const ccFinal: CcMemberFinalVote[] = decidedEpoch != null
-  ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, ratifiedEpoch)
-  : [];
-const ccYes = ccFinal.filter((m) => m.vote === 'Yes').map((m) => ({ blockTime: m.blockTime, weight: 1 }));
-const ccSize = decidedEpoch != null ? activeCommitteeSizeAt(committee.members, ratifiedEpoch) : 0;
-
+// Layer this chart's threshold lines and percent/"N of M" labels on top of the
+// shared assembly's bare inputs.
 const fmtPctLabel = (n: number | null): string => (n == null ? '' : `${Math.round(n)}%`);
+const [drepBase, spoBase, ccBase] = assembled.inputs;
 const inputs: TrendBodyInput[] = [
-  { key: 'DRep', yesVotes: yesByRole('DRep'), finalPct: action.drepYesPct, thresholdPct: thrDrep, finalLabel: fmtPctLabel(action.drepYesPct) },
-  { key: 'SPO', yesVotes: yesByRole('SPO'), finalPct: action.spoYesPct, thresholdPct: thrSpo, finalLabel: fmtPctLabel(action.spoYesPct) },
-  { key: 'CC', yesVotes: ccYes, finalPct: action.ccYesPct, thresholdPct: thrCc, finalLabel: ccSize > 0 ? `${ccYes.length} of ${ccSize}` : fmtPctLabel(action.ccYesPct) },
+  { ...drepBase, thresholdPct: thrDrep, finalLabel: fmtPctLabel(action.drepYesPct) },
+  { ...spoBase, thresholdPct: thrSpo, finalLabel: fmtPctLabel(action.spoYesPct) },
+  { ...ccBase, thresholdPct: thrCc, finalLabel: assembled.ccSize > 0 ? `${assembled.ccYesCount} of ${assembled.ccSize}` : fmtPctLabel(action.ccYesPct) },
 ];
 
 const series = computeVoteTrendSeries(inputs, { start, end });
