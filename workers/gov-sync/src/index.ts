@@ -182,7 +182,7 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
   });
 
   await phase('threshold-backfill', async () => {
-    const bf = await backfillThresholdSnapshots({ koios, db: env.DB, now: Date.now(), limit: 15, paceMs: 100 });
+    const bf = await backfillThresholdSnapshots({ koios, db: env.DB, limit: 15, paceMs: 100 });
     console.log(`[gov-threshold-backfill] actions=${bf.actions} failed=${bf.failed}`);
     return { items: bf.actions, failed: bf.failed };
   });

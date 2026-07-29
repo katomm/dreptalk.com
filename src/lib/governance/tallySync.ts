@@ -493,7 +493,6 @@ export interface ThresholdBackfillResult {
 export interface ThresholdBackfillDeps {
   koios: { epochParams(epochNo?: number): Promise<EpochParamsRow | null> };
   db: D1Database;
-  now: number;
   limit?: number;
   paceMs?: number;
 }
@@ -508,7 +507,7 @@ export interface ThresholdBackfillDeps {
  * the current params. Bounded by `limit`; drains over several runs.
  */
 export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): Promise<ThresholdBackfillResult> {
-  const { koios, db, now: _now, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
+  const { koios, db, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
   const candidates = await getActionsNeedingThresholdSnapshot(db, THRESHOLD_SNAPSHOT_VERSION, limit);
   if (candidates.length === 0) return { actions: 0, failed: 0 };
 
