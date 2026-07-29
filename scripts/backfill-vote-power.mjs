@@ -24,7 +24,15 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
 function parseArgs(argv) {
-  const args = { d1: null, out: 'backfill-vote-power.sql', limitActions: null, drySample: null, plan: false };
+  const args = {
+    d1: null,
+    out: 'backfill-vote-power.sql',
+    limitActions: null,
+    drySample: null,
+    plan: false,
+    chunkSize: 5000,
+    epochOffset: 0,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--d1') args.d1 = argv[++i];
@@ -32,8 +40,11 @@ function parseArgs(argv) {
     else if (a === '--limit-actions') args.limitActions = Number(argv[++i]);
     else if (a === '--dry-sample') args.drySample = Number(argv[++i]);
     else if (a === '--plan') args.plan = true;
+    else if (a === '--chunk-size') args.chunkSize = Number(argv[++i]);
+    else if (a === '--epoch-offset') args.epochOffset = Number(argv[++i]);
     else throw new Error(`Unknown argument: ${a}`);
   }
+  if (!Number.isFinite(args.chunkSize) || args.chunkSize < 1) throw new Error('--chunk-size must be a positive integer');
   if (!args.d1) throw new Error('Missing --d1 <path to local prod-D1 sqlite snapshot>');
   return args;
 }
@@ -201,17 +212,20 @@ function main() {
   }
 
   const cfg = dbEnv();
+  const off = args.epochOffset;
+  // Power keyed by the vote's own epoch; the db-sync lookup uses epoch + offset
+  // (offset is an escape hatch, default 0, in case validation shows a snapshot shift).
   const power = new Map(); // `${epoch}:${hex}` -> lovelace string
   for (const [epoch, sets] of [...byEpoch.entries()].sort((a, b) => a[0] - b[0])) {
     if (sets.drep.size) {
-      const m = drepPowerAtEpoch(cfg, epoch, [...sets.drep]);
+      const m = drepPowerAtEpoch(cfg, epoch + off, [...sets.drep]);
       for (const [hex, amt] of m) power.set(`${epoch}:${hex}`, amt);
     }
     if (sets.spo.size) {
-      const m = poolStakeAtEpoch(cfg, epoch, [...sets.spo]);
+      const m = poolStakeAtEpoch(cfg, epoch + off, [...sets.spo]);
       for (const [hex, amt] of m) power.set(`${epoch}:${hex}`, amt);
     }
-    console.log(`epoch ${epoch}: dreps=${sets.drep.size} spos=${sets.spo.size} resolved`);
+    console.log(`epoch ${epoch}${off ? ` (lookup ${epoch + off})` : ''}: dreps=${sets.drep.size} spos=${sets.spo.size} resolved`);
   }
 
   // Build the UPDATEs. voted_power is INTEGER (SQLite 64-bit) and lovelace fits.
@@ -241,12 +255,30 @@ function main() {
     return;
   }
 
-  const header =
-    '-- Historical voted_power backfill for the voting-trend chart. Generated, review before applying.\n' +
-    `-- ${updates.length} UPDATEs across ${byEpoch.size} decision epoch(s). Idempotent (voted_power IS NULL).\n`;
-  writeFileSync(args.out, header + updates.join('\n') + '\n');
-  console.log(`\nWrote ${updates.length} UPDATEs to ${args.out}`);
-  console.log('Review it, then apply with: wrangler d1 execute DB --remote --file ' + args.out);
+  if (updates.length === 0) {
+    console.log('No UPDATEs to write (every needed voter was unmatched in db-sync). Nothing emitted.');
+    return;
+  }
+
+  // Split into chunk files so each stays small enough to apply (and review) on its
+  // own; the voted_power IS NULL guard keeps every chunk independently re-runnable.
+  const parts = chunk(updates, args.chunkSize);
+  const base = args.out.replace(/\.sql$/i, '');
+  const single = parts.length === 1;
+  const files = [];
+  parts.forEach((part, i) => {
+    const file = single ? `${base}.sql` : `${base}.${String(i + 1).padStart(3, '0')}.sql`;
+    const header =
+      '-- Historical voted_power backfill for the voting-trend chart. Generated, review before applying.\n' +
+      `-- Part ${i + 1}/${parts.length}, ${part.length} UPDATEs. Idempotent (voted_power IS NULL). Apply parts in order.\n`;
+    writeFileSync(file, header + part.join('\n') + '\n');
+    files.push(file);
+  });
+
+  console.log(`\nWrote ${updates.length} UPDATEs across ${files.length} file(s):`);
+  for (const f of files) console.log(`  ${f}`);
+  console.log('\nReview, then apply each in order:');
+  for (const f of files) console.log(`  wrangler d1 execute DB --remote --file ${f}`);
 }
 
 main();
