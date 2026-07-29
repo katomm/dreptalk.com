@@ -7,11 +7,13 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import DrepSettings from '@/components/DrepSettings.tsx';
-import { roleLabels } from '@/lib/auth/roles';
+import LinkStakeWallet from '@/components/LinkStakeWallet.tsx';
+import { roleLabels, isWriter } from '@/lib/auth/roles';
 import { truncateId } from '@/lib/forum/view';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
-import { getSelfDrepId } from '@/lib/db/users';
+import { getSelfDrepId, getUserById } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
+import { getFollow } from '@/lib/db/delegatorFollows';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -26,6 +28,25 @@ const network = currentNetwork().network;
 // configure), not here.
 const drepId = db && user.roles.includes('drep') ? await getSelfDrepId(db, user) : null;
 const drep = drepId && db ? await getDrepById(db, drepId) : null;
+
+// "Link your stake wallet" (Phase 3, Task 8) is writer-only: it lets a DRep,
+// SPO, CC member or proposer prove ownership of their own stake wallet to
+// track their delegation on the home page. Prefetch any existing link/track
+// state so the island opens straight into the right view instead of always
+// starting from the wallet picker.
+const canLinkStake = isWriter(user.roles);
+const selfRow = canLinkStake && db ? await getUserById(db, user.id) : null;
+const stakeAddr = selfRow?.stake_addr ?? null;
+const follow = stakeAddr && db ? await getFollow(db, user.id) : null;
+const followDrep = follow?.delegation_type === 'drep' && follow.drep_id && db ? await getDrepById(db, follow.drep_id) : null;
+const initialTracking = follow
+  ? {
+      resolutionStatus: follow.resolution_status,
+      delegationType: follow.delegation_type,
+      drepId: follow.drep_id,
+      drepName: followDrep?.name ?? null,
+    }
+  : null;
 
 // Prefill: synced on-chain metadata when available, empty form otherwise
 // (covers DReps without any metadata yet).
@@ -88,6 +109,17 @@ const initialDoNotList = drep?.doNotList ?? false;
         Settings specific to your role are not available yet. They will appear
         here as they are added.
       </p>
+    </section>
+  )}
+
+  {canLinkStake && (
+    <section id="link-stake-wallet" style="margin-top:1.75rem;max-width:32rem;">
+      <LinkStakeWallet
+        network={network}
+        initialStakeAddr={stakeAddr}
+        initialTracking={initialTracking}
+        client:load
+      />
     </section>
   )}
 </Layout>
