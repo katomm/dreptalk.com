@@ -72,7 +72,15 @@ const rows = bodies.map((b) => {
   const thr = thresholdPctFor(b.body);
   const t = liveThresholds?.find((x) => x.body === b.body) ?? null;
   const yes = b.composition?.yes ?? null;
-  const met = t ? t.met : thr == null || yes == null ? null : yes >= thr;
+  // From a frozen snapshot, the CC "Met" also honors the committee quorum gate
+  // (committee below its minimum size cannot ratify, regardless of the yes share).
+  const met = t
+    ? t.met
+    : thr == null || yes == null
+      ? null
+      : b.body === 'CC' && snapshot?.ccBelowMinSize
+        ? false
+        : yes >= thr;
   return {
     body: b.body,
     label: b.label,

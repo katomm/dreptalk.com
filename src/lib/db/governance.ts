@@ -797,6 +797,44 @@ export async function markVotesSynced(db: D1Database, id: string, now: number): 
   await db.prepare('UPDATE governance_actions SET votes_synced_at = ? WHERE id = ?').bind(now, id).run();
 }
 
+/**
+ * Terminal actions (Info actions excluded, they have no on-chain threshold) whose
+ * frozen threshold snapshot is missing or predates `version`. Drives the one-time
+ * backfill that fills the CC quorum gate for pre-existing actions. Bounded by `limit`.
+ */
+export async function getActionsNeedingThresholdSnapshot(
+  db: D1Database,
+  version: number,
+  limit: number,
+): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT * FROM governance_actions
+         WHERE status NOT IN ('active', 'pending')
+           AND type != 'InfoAction'
+           AND (thresholds_json IS NULL
+                OR json_extract(thresholds_json, '$.v') IS NULL
+                OR json_extract(thresholds_json, '$.v') < ?)
+         LIMIT ?`,
+      )
+      .bind(version, limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/** Writes an action's frozen threshold snapshot (json + the epoch it was evaluated for). */
+export async function updateThresholdSnapshot(
+  db: D1Database,
+  u: { id: string; thresholdsJson: string | null; thresholdsEpoch: number | null },
+): Promise<void> {
+  await db
+    .prepare('UPDATE governance_actions SET thresholds_json = ?, thresholds_epoch = ? WHERE id = ?')
+    .bind(u.thresholdsJson, u.thresholdsEpoch, u.id)
+    .run();
+}
+
 /** A gov_status feed event whose time can be re-derived from its action's epoch. */
 export interface GovStatusEventTime {
   id: string;

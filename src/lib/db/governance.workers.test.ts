@@ -14,6 +14,8 @@ import {
   updateGovernanceTallyAndStatus,
   getActionsNeedingVotedPower,
   updateVotedPower,
+  getActionsNeedingThresholdSnapshot,
+  updateThresholdSnapshot,
   getActionsNeedingMetaReextract,
   countGivenUpMetaActions,
   updateActionMetadata,
@@ -27,6 +29,7 @@ import {
 } from './governance.js';
 import { getAllTopicsByCategory } from './forum.js';
 import { sortGovActionTopics, trendingOrderKey, type GovActionTopic } from '../governance/sort.js';
+import { THRESHOLD_SNAPSHOT_VERSION } from '../governance/thresholds.js';
 
 const GOV = 'governance-actions';
 
@@ -994,5 +997,47 @@ describe('getLatestActionWithVotes', () => {
 
     const res = await getLatestActionWithVotes(db(), { minVoters: 6 });
     expect(res).toBeNull();
+  });
+});
+
+describe('threshold snapshot backfill queries', () => {
+  async function ins(id: string, type: string, status: string, thresholdsJson: string | null): Promise<void> {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, anchor_status, status, trending_score, thresholds_json, topic_id, created_at, last_synced_at)
+       VALUES (?, ?, 'no-anchor', ?, 0, ?, ?, 0, 0)`,
+    )
+      .bind(id, type, status, thresholdsJson, `t-${id}`)
+      .run();
+  }
+
+  it('selects terminal non-Info actions whose snapshot is missing or predates the version', async () => {
+    await ins('tsq-null', 'TreasuryWithdrawals', 'enacted', null);
+    await ins('tsq-v1', 'HardForkInitiation', 'expired', '{"drep":67,"cc":66.67}');
+    await ins('tsq-v2', 'TreasuryWithdrawals', 'enacted', `{"drep":67,"v":${THRESHOLD_SNAPSHOT_VERSION}}`);
+    await ins('tsq-active', 'TreasuryWithdrawals', 'active', null);
+    await ins('tsq-info', 'InfoAction', 'closed', null);
+
+    const ids = (await getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50)).map((r) => r.id);
+    expect(ids).toContain('tsq-null');
+    expect(ids).toContain('tsq-v1');
+    expect(ids).not.toContain('tsq-v2');
+    expect(ids).not.toContain('tsq-active');
+    expect(ids).not.toContain('tsq-info');
+  });
+
+  it('updateThresholdSnapshot writes the json + epoch and clears it from the candidate set', async () => {
+    await ins('tsq-upd', 'TreasuryWithdrawals', 'enacted', null);
+    await updateThresholdSnapshot(env.DB, {
+      id: 'tsq-upd',
+      thresholdsJson: `{"drep":67,"spo":null,"cc":66.67,"ccBelowMinSize":true,"v":${THRESHOLD_SNAPSHOT_VERSION}}`,
+      thresholdsEpoch: 555,
+    });
+    const row = await env.DB.prepare('SELECT thresholds_json, thresholds_epoch FROM governance_actions WHERE id = ?')
+      .bind('tsq-upd')
+      .first<{ thresholds_json: string; thresholds_epoch: number }>();
+    expect(JSON.parse(row!.thresholds_json).ccBelowMinSize).toBe(true);
+    expect(row!.thresholds_epoch).toBe(555);
+    const ids = (await getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50)).map((r) => r.id);
+    expect(ids).not.toContain('tsq-upd');
   });
 });
