@@ -1,0 +1,129 @@
+---
+// History-tab chart: cumulative yes-support per voting body over the voting window,
+// each rising to the exact stored final pct, with a dashed threshold line. Pure SSR
+// SVG, no client JS. DRep/SPO are power-weighted (voted_power); CC is count-weighted
+// via the committee-timeline dedup. Renders nothing when no body has usable support.
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { ProtocolParams } from '@/lib/db/protocolParams.js';
+import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
+import type { CcVote, CcMemberFinalVote } from '@/lib/koios/corrections.js';
+import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
+import { ccFinalVotesByMember } from '@/lib/koios/corrections.js';
+import { computeVoteTrendSeries, buildTrendChart, type TrendBodyInput } from '@/lib/governance/voteTrend.js';
+import { readThresholdSnapshot, evaluateThresholds } from '@/lib/governance/thresholds.js';
+import { parameterChangeScope } from '@/lib/governance/onchain.js';
+import { activeCommitteeSizeAt } from '@/lib/koios/committeeTimeline.js';
+import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
+
+interface Props {
+  action: GovernanceAction;
+  trendRows: TrendVoteRow[];
+  ccVotes: CcVote[];
+  committee: { members: CommitteeMemberTerm[]; hotToCold: Map<string, string> };
+  params: ProtocolParams | null;
+  network: CardanoNetwork;
+}
+
+const { action, trendRows, ccVotes, committee, params, network } = Astro.props;
+const cfg = resolveNetwork(network);
+
+// Voting window in unix seconds: from the submit epoch start to the decision (or
+// expiry) epoch start. Falls back to the span of observed votes when epochs are absent.
+const decidedEpoch = action.decidedEpoch ?? action.expiryEpoch;
+const windowStart = action.submittedEpoch != null ? epochStartUnix(action.submittedEpoch, cfg) : null;
+const windowEnd = decidedEpoch != null ? epochStartUnix(decidedEpoch, cfg) : null;
+const voteTimes = [...trendRows.map((r) => r.block_time), ...ccVotes.map((v) => v.blockTime ?? 0)].filter((t) => t > 0);
+const start = windowStart ?? (voteTimes.length ? Math.min(...voteTimes) : 0);
+const end = windowEnd && windowEnd > start ? windowEnd : (voteTimes.length ? Math.max(...voteTimes) : start + 1);
+
+// Thresholds: prefer the frozen snapshot; fall back to live params for active
+// actions that have not been snapshotted yet. Never a today's line on an old action.
+const snapshot = readThresholdSnapshot(action.thresholdsJson);
+const liveThresholds =
+  !snapshot && params
+    ? evaluateThresholds(
+        {
+          type: action.type,
+          drepYesPct: action.drepYesPct,
+          spoYesPct: action.spoYesPct,
+          ccYesPct: action.ccYesPct,
+          paramScope: action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload) : null,
+        },
+        params,
+      )
+    : null;
+const thrDrep = snapshot ? snapshot.drep : liveThresholds?.find((t) => t.body === 'DRep')?.thresholdPct ?? null;
+const thrSpo = snapshot ? snapshot.spo : liveThresholds?.find((t) => t.body === 'SPO')?.thresholdPct ?? null;
+const thrCc = snapshot ? snapshot.cc : liveThresholds?.find((t) => t.body === 'CC')?.thresholdPct ?? null;
+
+// DRep + SPO yes votes weighted by voted_power.
+const yesByRole = (role: string) =>
+  trendRows.filter((r) => r.voter_role === role && r.vote === 'Yes' && r.voted_power != null)
+    .map((r) => ({ blockTime: r.block_time, weight: r.voted_power as number }));
+
+// CC yes votes: dedup to one final vote per active member, weight 1 each.
+const ratifiedEpoch = decidedEpoch ?? 0;
+const ccFinal: CcMemberFinalVote[] = decidedEpoch != null
+  ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, ratifiedEpoch)
+  : [];
+const ccYes = ccFinal.filter((m) => m.vote === 'Yes').map((m) => ({ blockTime: m.blockTime, weight: 1 }));
+const ccSize = decidedEpoch != null ? activeCommitteeSizeAt(committee.members, ratifiedEpoch) : 0;
+
+const fmtPctLabel = (n: number | null): string => (n == null ? '' : `${Math.round(n)}%`);
+const inputs: TrendBodyInput[] = [
+  { key: 'DRep', yesVotes: yesByRole('DRep'), finalPct: action.drepYesPct, thresholdPct: thrDrep, finalLabel: fmtPctLabel(action.drepYesPct) },
+  { key: 'SPO', yesVotes: yesByRole('SPO'), finalPct: action.spoYesPct, thresholdPct: thrSpo, finalLabel: fmtPctLabel(action.spoYesPct) },
+  { key: 'CC', yesVotes: ccYes, finalPct: action.ccYesPct, thresholdPct: thrCc, finalLabel: ccSize > 0 ? `${ccYes.length} of ${ccSize}` : fmtPctLabel(action.ccYesPct) },
+];
+
+const series = computeVoteTrendSeries(inputs, { start, end });
+const chart = buildTrendChart(series, { width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain: [start, end] });
+
+const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-warn, #a06bd6)' };
+const dateLabel = (t: number): string =>
+  new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+---
+
+{chart && (
+  <section class="vtrend" aria-label="Voting trend over time">
+    <h3 class="vtrend__title">Voting trend</h3>
+    <svg class="vtrend__chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="Cumulative yes support per body over the voting window">
+      {chart.yTicks.map((t) => (
+        <>
+          <line class="vtrend__grid" x1={chart.plot.x} y1={t.y} x2={chart.plot.x + chart.plot.w} y2={t.y} />
+          <text class="vtrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{t.value}%</text>
+        </>
+      ))}
+      {chart.series.map((s) => (
+        <>
+          {s.thresholdY != null && (
+            <line class="vtrend__thr" style={`color:${COLORS[s.key]}`} x1={chart.plot.x} y1={s.thresholdY} x2={chart.plot.x + chart.plot.w} y2={s.thresholdY} />
+          )}
+          <path class="vtrend__line" style={`color:${COLORS[s.key]}`} d={s.stepPath} vector-effect="non-scaling-stroke" />
+        </>
+      ))}
+      {chart.xTicks.map((t) => (
+        <text class="vtrend__xlabel" x={t.x} y={chart.height - 10} text-anchor={t.x <= chart.plot.x + 1 ? 'start' : 'end'}>{dateLabel(t.t)}</text>
+      ))}
+    </svg>
+    <ul class="vtrend__legend">
+      {chart.series.map((s) => (
+        <li class="vtrend__leg"><span class="vtrend__swatch" style={`background:${COLORS[s.key]}`}></span>{s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}</li>
+      ))}
+    </ul>
+  </section>
+)}
+
+<style>
+  .vtrend { margin-top: 1.5rem; }
+  .vtrend__title { font-size: 0.95rem; font-weight: 700; color: var(--fg); margin: 0 0 0.5rem; }
+  .vtrend__chart { display: block; width: 100%; height: auto; }
+  .vtrend__grid { stroke: var(--border); stroke-dasharray: 4 5; }
+  .vtrend__ylabel, .vtrend__xlabel { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .vtrend__line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .vtrend__thr { stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 5 4; opacity: 0.55; }
+  .vtrend__legend { list-style: none; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0.5rem 0 0; padding: 0; font-size: 0.8125rem; color: var(--muted); }
+  .vtrend__leg { display: inline-flex; align-items: center; gap: 0.4rem; font-variant-numeric: tabular-nums; }
+  .vtrend__swatch { width: 0.7rem; height: 0.2rem; border-radius: 999px; display: inline-block; }
+  @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel { display: none; } }
+</style>

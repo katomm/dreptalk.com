@@ -24,7 +24,8 @@ import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPos
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { isSpoLedType } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getVoteTrendRows, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getCommitteeVotes, getCommitteeTimeline } from '@/lib/db/committee.js';
 import {
   getActionRationales,
   countActionRationales,
@@ -317,6 +318,14 @@ const [params, activeDrepStake] = isGovernanceTopic && govAction && db
 const drepStakeTotal =
   activeDrepStake && activeDrepStake.total > 0 ? activeDrepStake.total : null;
 
+// Voting-trend data for the History tab (DRep/SPO power rows + CC votes/timeline).
+const trend = tab === 'history' && govAction && db
+  ? await Promise.all([getVoteTrendRows(db, govAction.id), getCommitteeVotes(db, govAction.id), getCommitteeTimeline(db)])
+  : null;
+const trendRows = trend?.[0] ?? [];
+const ccVotes = trend?.[1] ?? [];
+const committee = trend?.[2] ?? { members: [], hotToCold: new Map() };
+
 // Decode the on-chain payload for the Overview's "On-chain changes" block. Old→new
 // reads the cached epoch_params blob; both are null-safe and render nothing if absent.
 const onchainChanges = govAction
@@ -534,7 +543,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />
             ) : tab === 'history' ? (
-              <GaHistory action={govAction} network={network} />
+              <GaHistory action={govAction} network={network} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} />
             ) : (
               <>
                 <div class="ga-overview-block">
