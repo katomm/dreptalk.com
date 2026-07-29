@@ -10,7 +10,8 @@
 import CompositionBar from './CompositionBar.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
-import { evaluateThresholds, hasOnchainThreshold } from '@/lib/governance/thresholds.js';
+import type { TrendChart } from '@/lib/governance/voteTrend.js';
+import { evaluateThresholds, hasOnchainThreshold, readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope } from '@/lib/governance/onchain.js';
 import {
   fmtPct,
@@ -29,9 +30,13 @@ interface Props {
   drepStakeTotal: number | null;
   // Render instant, for the tally-freshness note ("Tallies as of ...").
   now: number;
+  /** Compact multi-body step sparkline for the History-tab teaser; null when empty. */
+  miniChart: TrendChart | null;
+  /** Href of the History tab, for the teaser link. */
+  trendHref: string;
 }
 
-const { action, params, drepStakeTotal, now } = Astro.props;
+const { action, params, drepStakeTotal, now, miniChart, trendHref } = Astro.props;
 
 // ParameterChange voting bodies depend on which parameters change: SPOs vote only on
 // security-relevant ones. Derive that from the payload; null for other types.
@@ -44,33 +49,38 @@ const hasThreshold = hasOnchainThreshold(action.type);
 
 // Threshold verdict + marker per body, for types that ratify (null for Info actions,
 // or before protocol params / tallies have synced).
-const thresholds =
-  hasThreshold && params
+// Prefer the frozen per-body snapshot; fall back to live params only when absent
+// (active actions not yet snapshotted). Never render an old action's threshold from
+// today's params.
+const snapshot = readThresholdSnapshot(action.thresholdsJson);
+const liveThresholds =
+  !snapshot && hasThreshold && params
     ? evaluateThresholds(
-        {
-          type: action.type,
-          drepYesPct: action.drepYesPct,
-          spoYesPct: action.spoYesPct,
-          ccYesPct: action.ccYesPct,
-          paramScope,
-        },
+        { type: action.type, drepYesPct: action.drepYesPct, spoYesPct: action.spoYesPct, ccYesPct: action.ccYesPct, paramScope },
         params,
       )
     : null;
+const thresholdPctFor = (body: 'DRep' | 'SPO' | 'CC'): number | null =>
+  snapshot
+    ? (body === 'DRep' ? snapshot.drep : body === 'SPO' ? snapshot.spo : snapshot.cc)
+    : liveThresholds?.find((x) => x.body === body)?.thresholdPct ?? null;
 
 // Eligible bodies for this action type (reuses the overview's per-type eligibility +
 // participation), enriched with the honest composition and its amounts.
 const { bodies } = overviewRowVoting(action, opts, { paramTouchesSecurity });
 const rows = bodies.map((b) => {
-  const t = thresholds?.find((x) => x.body === b.body) ?? null;
+  const thr = thresholdPctFor(b.body);
+  const t = liveThresholds?.find((x) => x.body === b.body) ?? null;
+  const yes = b.composition?.yes ?? null;
+  const met = t ? t.met : thr == null || yes == null ? null : yes >= thr;
   return {
     body: b.body,
     label: b.label,
     composition: b.composition,
     amounts: compositionAmounts(action, b.body, opts),
     participation: b.participation,
-    thresholdPct: t?.thresholdPct ?? null,
-    met: t?.met ?? null,
+    thresholdPct: thr,
+    met,
   };
 });
 
@@ -143,6 +153,17 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
         </div>
       ))}
     </div>
+  )}
+
+  {miniChart && (
+    <a class="vtrend-teaser" href={trendHref} aria-label="See the full voting trend">
+      <svg class="vtrend-teaser__svg" viewBox={`0 0 ${miniChart.width} ${miniChart.height}`} aria-hidden="true">
+        {miniChart.series.map((s) => (
+          <path class="vtrend-teaser__line" style={`color:${s.key === 'DRep' ? 'var(--accent)' : s.key === 'SPO' ? 'var(--c-pos)' : 'var(--c-cc)'}`} d={s.stepPath} vector-effect="non-scaling-stroke" />
+        ))}
+      </svg>
+      <span class="vtrend-teaser__label">Voting trend over time</span>
+    </a>
   )}
 
   {!hasThreshold && rows.length > 0 && (
@@ -272,4 +293,10 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     color: var(--muted);
     font-style: italic;
   }
+
+  .vtrend-teaser { display: block; margin-top: 0.75rem; text-decoration: none; color: var(--muted); }
+  .vtrend-teaser__svg { display: block; width: 100%; height: auto; }
+  .vtrend-teaser__line { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+  .vtrend-teaser__label { display: inline-block; margin-top: 0.25rem; font-size: 0.75rem; }
+  .vtrend-teaser:hover .vtrend-teaser__label { color: var(--fg); text-decoration: underline; }
 </style>

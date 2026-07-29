@@ -9,7 +9,7 @@
 // lightweight, status-only lifecycle re-check (no tally re-fetch) until it flips
 // to enacted. Per-action failures are isolated.
 
-import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow } from '../koios/client.js';
+import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow, PoolInfoRow } from '../koios/client.js';
 import { spoTallyPct, spoEligiblePower } from '../koios/corrections.js';
 import {
   getStaleSyncableActions,
@@ -30,6 +30,9 @@ import { upsertVotes, markStalePendingVotesFailed, getVotesNeedingMetaHash, setV
 import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
+import { getProtocolParams } from '../db/protocolParams.js';
+import { evaluateThresholds, serializeThresholdSnapshot } from './thresholds.js';
+import { parameterChangeScope } from './onchain.js';
 
 // Max actions a single tally/vote run processes when the caller does not specify
 // one. Koios is latency-limited under a large burst (proposal_voting_summary and
@@ -72,7 +75,10 @@ export interface TallySyncDeps {
 }
 
 export interface VoteSyncDeps {
-  koios: { proposalVotes(proposalId: string, limit?: number, offset?: number): Promise<ProposalVoteRow[]> };
+  koios: {
+    proposalVotes(proposalId: string, limit?: number, offset?: number): Promise<ProposalVoteRow[]>;
+    poolInfoBatch(poolIds: string[]): Promise<PoolInfoRow[]>;
+  };
   db: D1Database;
   now: number;
   /** Max actions to vote-sync this run. Bounds the Koios burst; defaults to DEFAULT_VOTE_LIMIT. */
@@ -126,6 +132,44 @@ async function collectProposalVotes(
     }
   }
   return { votes, capped };
+}
+
+/**
+ * Attaches decisive voting power to DRep and SPO votes in place: DRep from the
+ * local dreps.voting_power snapshot (kept fresh by the drep sync), SPO from Koios
+ * active_stake. CC is left null (count-weighted via the committee timeline). Any
+ * lookup miss leaves votedPower null, which the COALESCE upsert never overwrites a
+ * good value with. Bounded so the DRep id IN-list stays under the D1 100-bind cap.
+ */
+export async function enrichVotedPower(
+  deps: { db: D1Database; koios: { poolInfoBatch(ids: string[]): Promise<PoolInfoRow[]> } },
+  votes: VoteInput[],
+): Promise<void> {
+  const drepIds = [...new Set(votes.filter((v) => v.voterRole === 'DRep').map((v) => v.voterId))];
+  const spoIds = [...new Set(votes.filter((v) => v.voterRole === 'SPO').map((v) => v.voterId))];
+
+  const drepPower = new Map<string, number>();
+  for (let i = 0; i < drepIds.length; i += 90) {
+    const batch = drepIds.slice(i, i + 90);
+    const rows = (
+      await deps.db
+        .prepare(`SELECT drep_id, voting_power FROM dreps WHERE drep_id IN (${batch.map(() => '?').join(',')})`)
+        .bind(...batch)
+        .all<{ drep_id: string; voting_power: string | null }>()
+    ).results ?? [];
+    for (const r of rows) if (r.voting_power != null) drepPower.set(r.drep_id, Number(r.voting_power));
+  }
+
+  const spoPower = new Map<string, number>();
+  if (spoIds.length > 0) {
+    const rows = await deps.koios.poolInfoBatch(spoIds);
+    for (const r of rows) if (r.active_stake != null) spoPower.set(r.pool_id_bech32, Number(r.active_stake));
+  }
+
+  for (const v of votes) {
+    if (v.voterRole === 'DRep') v.votedPower = drepPower.get(v.voterId) ?? v.votedPower ?? null;
+    else if (v.voterRole === 'SPO') v.votedPower = spoPower.get(v.voterId) ?? v.votedPower ?? null;
+  }
 }
 
 /**
@@ -243,6 +287,10 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
     lifecycle.set(`${p.proposal_tx_hash}#${p.proposal_index}`, p);
   }
 
+  // Loaded once per run (not per action) for the threshold snapshot below; null
+  // until the params sync has run at least once.
+  const params = await getProtocolParams(db);
+
   let updated = 0;
   let frozen = 0;
   let failed = 0;
@@ -256,6 +304,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       const life = lifecycle.get(ga.id);
       const status = deriveStatus(life, ga, currentEpoch);
       const summary = ga.proposalId ? await koios.proposalVotingSummary(ga.proposalId) : null;
+      const tally = tallyFields(summary);
 
       // The epoch the action was decided: the terminal lifecycle epoch, falling
       // back to the expiry epoch when status was derived from the expiry check.
@@ -263,13 +312,28 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
         life?.enacted_epoch ?? life?.ratified_epoch ?? life?.expired_epoch ?? life?.dropped_epoch ??
         (status !== 'active' ? ga.expiryEpoch ?? life?.expiration ?? null : null);
 
+      // Freeze the per-body thresholds with the action so a historical line is never
+      // rebuilt from today's protocol params. Recomputed each tally sync while active;
+      // the last value before the status turns terminal is the frozen one.
+      const paramScope = ga.type === 'ParameterChange' ? parameterChangeScope(ga.onchainPayload ?? null) : null;
+      const thresholdResults = params
+        ? evaluateThresholds(
+            { type: ga.type, drepYesPct: tally.drepYesPct, spoYesPct: tally.spoYesPct, ccYesPct: tally.ccYesPct, paramScope },
+            params,
+          )
+        : [];
+      const thresholdsJson = thresholdResults.length ? serializeThresholdSnapshot(thresholdResults) : null;
+      const thresholdsEpoch = params?.epoch ?? null;
+
       await updateGovernanceTallyAndStatus(db, {
         id: ga.id,
         status,
-        ...tallyFields(summary),
+        ...tally,
         decidedEpoch,
         tallySyncedAt: now,
         now,
+        thresholdsJson,
+        thresholdsEpoch,
       });
 
       // Only a transition INTO a terminal outcome (enacted/expired/dropped/...) is
@@ -433,6 +497,7 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
     actions++;
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
+      await enrichVotedPower({ db, koios }, collected);
       votes += await upsertVotes(db, ga.id, collected, now);
       await markVotesSynced(db, ga.id, now);
       if (capped) {
@@ -480,6 +545,7 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     actions++;
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
+      await enrichVotedPower({ db, koios }, collected);
       votes += await upsertVotes(db, ga.id, collected, now);
       // Mark synced even when capped: the prefix is stored and the action drops
       // out of the candidate set, so a pathological list cannot stall the backfill

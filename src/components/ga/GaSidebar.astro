@@ -12,6 +12,7 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { Drep } from '@/lib/db/dreps.js';
+import type { TrendChart } from '@/lib/governance/voteTrend.js';
 
 interface Props {
   action: GovernanceAction;
@@ -27,10 +28,27 @@ interface Props {
   rationaleCount: number;
   // Render instant, forwarded to the Voting Information card's tally-freshness note.
   now: number;
+  // Compact voting-trend teaser for the Voting Information card; null when empty.
+  miniChart: TrendChart | null;
+  // Href of the History tab, for the teaser link.
+  trendHref: string;
 }
 
-const { action, params, drepStakeTotal, network, topVoters, dreps, related, slug, positionsTotal, rationaleCount, now } =
-  Astro.props;
+const {
+  action,
+  params,
+  drepStakeTotal,
+  network,
+  topVoters,
+  dreps,
+  related,
+  slug,
+  positionsTotal,
+  rationaleCount,
+  now,
+  miniChart,
+  trendHref,
+} = Astro.props;
 ---
 
 <aside class="ga-sidebar">
@@ -42,7 +60,7 @@ const { action, params, drepStakeTotal, network, topVoters, dreps, related, slug
       NCL mini card on TreasuryWithdrawals action pages. Empty for every other
       action type. */}
   <slot name="after-status" />
-  <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} />
+  <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} miniChart={miniChart} trendHref={trendHref} />
   <ProposerCard returnAddress={action.returnAddress} />
   <AuthorsCard authors={action.authors} />
   <RelatedActionsCard actions={related} />

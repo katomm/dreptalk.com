@@ -119,3 +119,36 @@ export function evaluateThresholds(input: ThresholdInput, p: ProtocolParams): Bo
   }
   return out;
 }
+
+/** Per-body threshold percentages (0..100), frozen with an action at its decision. */
+export interface ThresholdSnapshot {
+  drep: number | null;
+  spo: number | null;
+  cc: number | null;
+}
+
+/** Serializes evaluated per-body thresholds to the stored thresholds_json string. */
+export function serializeThresholdSnapshot(results: BodyResult[]): string {
+  const snap: ThresholdSnapshot = { drep: null, spo: null, cc: null };
+  for (const r of results) {
+    if (r.body === 'DRep') snap.drep = r.thresholdPct;
+    else if (r.body === 'SPO') snap.spo = r.thresholdPct;
+    else if (r.body === 'CC') snap.cc = r.thresholdPct;
+  }
+  return JSON.stringify(snap);
+}
+
+/** Parses a stored thresholds_json string; null when absent or malformed. */
+export function readThresholdSnapshot(json: string | null): ThresholdSnapshot | null {
+  if (!json) return null;
+  try {
+    const o = JSON.parse(json) as Partial<ThresholdSnapshot>;
+    return {
+      drep: typeof o.drep === 'number' ? o.drep : null,
+      spo: typeof o.spo === 'number' ? o.spo : null,
+      cc: typeof o.cc === 'number' ? o.cc : null,
+    };
+  } catch {
+    return null;
+  }
+}

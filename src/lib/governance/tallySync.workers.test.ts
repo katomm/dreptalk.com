@@ -326,6 +326,7 @@ describe('syncGovernanceVotes', () => {
       async proposalVotes(pid: string, _limit?: number, offset?: number): Promise<ProposalVoteRow[]> {
         return (offset ?? 0) === 0 && pid === a.proposalId ? votes : [];
       },
+      poolInfoBatch: async () => [],
     };
 
     const r1 = await syncGovernanceVotes({ koios, db: db(), now: NOW });
@@ -351,6 +352,7 @@ describe('syncGovernanceVotes', () => {
           ? [{ voter_role: 'DRep', voter_id: `drep_${pid}`, voter_hex: 'aa', vote: 'Yes' }]
           : [];
       },
+      poolInfoBatch: async () => [],
     };
 
     const r = await syncGovernanceVotes({ koios, db: db(), now: NOW, limit: 2 });
@@ -372,6 +374,7 @@ describe('syncGovernanceVotes', () => {
           ? [{ voter_role: 'DRep', voter_id: 'drep1re', voter_hex: null, vote: 'No', meta_url: 'ipfs://new', meta_hash: 'bb'.repeat(32), block_time: 200 }]
           : [];
       },
+      poolInfoBatch: async () => [],
     };
 
     await syncGovernanceVotes({ koios, db: db(), now: NOW });
@@ -397,6 +400,7 @@ describe('syncGovernanceVotes', () => {
           vote: 'Yes',
         }));
       },
+      poolInfoBatch: async () => [],
     };
 
     await syncGovernanceVotes({ koios, db: db(), now: NOW, maxPages: 3 });
@@ -516,6 +520,7 @@ describe('backfillFinalizedVotes', () => {
     const koios = {
       proposalVotes: async (_p: string, _l?: number, offset = 0) =>
         offset === 0 ? [{ voter_role: 'DRep', voter_id: 'drepH', voter_hex: null, vote: 'Yes' }] : [],
+      poolInfoBatch: async () => [],
     };
 
     const r = await backfillFinalizedVotes({ koios, db: env.DB, now: 999, limit: 10 });
@@ -544,6 +549,7 @@ describe('backfillFinalizedVotes', () => {
           vote: 'Yes',
         }));
       },
+      poolInfoBatch: async () => [],
     };
 
     const r = await backfillFinalizedVotes({ koios, db: env.DB, now: 999, limit: 10, maxPages: 3 });

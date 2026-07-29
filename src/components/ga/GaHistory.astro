@@ -5,13 +5,22 @@
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import { statusBadge, formatEpochDate, isTerminalStatus, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
+import VotingTrendChart from './VotingTrendChart.astro';
+import type { ProtocolParams } from '@/lib/db/protocolParams.js';
+import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
+import type { CcVote } from '@/lib/koios/corrections.js';
+import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
 
 interface Props {
   action: GovernanceAction;
   network: CardanoNetwork;
+  trendRows: TrendVoteRow[];
+  ccVotes: CcVote[];
+  committee: { members: CommitteeMemberTerm[]; hotToCold: Map<string, string> };
+  params: ProtocolParams | null;
 }
 
-const { action, network } = Astro.props;
+const { action, network, trendRows, ccVotes, committee, params } = Astro.props;
 
 const noData = action.submittedEpoch == null;
 
@@ -103,6 +112,8 @@ if (!noData) {
     </ol>
   )}
 </div>
+
+<VotingTrendChart action={action} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} network={network} />
 
 <style>
   .history-wrap {

@@ -247,6 +247,9 @@ const poolInfoRowSchema = z
   .object({
     pool_id_bech32: z.string(),
     pool_id_hex: z.string().nullable().optional(),
+    // Active (delegated) stake in lovelace at the current epoch; the SPO voting
+    // weight. String because it exceeds JS safe-integer range. Nullable pre-first-epoch.
+    active_stake: z.string().nullable().optional(),
     meta_url: z.string().nullable().optional(),
     meta_hash: z.string().nullable().optional(),
     meta_json: z

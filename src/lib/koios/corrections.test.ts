@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { VotingSummary } from './client.js';
 import type { CommitteeMemberTerm } from './committeeTimeline.js';
-import { ccTallyPct, spoEligiblePower, spoTallyPct, type CcVote } from './corrections.js';
+import { ccFinalVotesByMember, ccTallyPct, spoEligiblePower, spoTallyPct, type CcVote } from './corrections.js';
 
 describe('spoTallyPct', () => {
   it('passes Koios percentages through unchanged for non-hard-fork actions', () => {
@@ -143,5 +143,43 @@ describe('ccTallyPct', () => {
 
   it('is null when no committee is active at the epoch', () => {
     expect(ccTallyPct([], v3, new Map(), 700)).toEqual({ yesPct: null, noPct: null, yes: 0, no: 0, abstain: 0 });
+  });
+});
+
+describe('ccFinalVotesByMember', () => {
+  const member = (cold: string): CommitteeMemberTerm => ({
+    coldKeyHex: cold, versionFrom: 1, versionTo: null, termExpiration: 999, authorizedFrom: 1, resignedAt: null,
+  });
+
+  it('keeps the latest vote per cold-key member across a hot-key rotation', () => {
+    const members = [member('coldA'), member('coldB')];
+    const hotToCold = new Map([['hotA1', 'coldA'], ['hotA2', 'coldA'], ['hotB', 'coldB']]);
+    const res = ccFinalVotesByMember(
+      [
+        { hotKeyHex: 'hotA1', vote: 'No', blockTime: 100 },
+        { hotKeyHex: 'hotA2', vote: 'Yes', blockTime: 200 }, // rotated key, later, wins
+        { hotKeyHex: 'hotB', vote: 'Yes', blockTime: 150 },
+      ],
+      members, hotToCold, 5,
+    );
+    const byCold = Object.fromEntries(res.map((r) => [r.coldKeyHex, r]));
+    expect(byCold.coldA.vote).toBe('Yes');
+    expect(byCold.coldA.blockTime).toBe(200);
+    expect(byCold.coldB.vote).toBe('Yes');
+    expect(res).toHaveLength(2);
+  });
+
+  it('ignores votes from members not active at the epoch or with an unknown hot key', () => {
+    const members = [member('coldB')];
+    const hotToCold = new Map([['hotB', 'coldB']]);
+    const res = ccFinalVotesByMember(
+      [
+        { hotKeyHex: 'hotB', vote: 'Yes', blockTime: 150 },
+        { hotKeyHex: 'unknownHot', vote: 'Yes', blockTime: 300 },
+      ],
+      members, hotToCold, 5,
+    );
+    expect(res).toHaveLength(1);
+    expect(res[0].coldKeyHex).toBe('coldB');
   });
 });

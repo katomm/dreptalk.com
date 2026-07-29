@@ -161,6 +161,10 @@ export interface GovernanceAction {
   tallyEpoch: number | null;
   tallySyncedAt: number | null;
   decidedEpoch: number | null;
+  /** Frozen per-body threshold snapshot JSON (see thresholds.ts), or null before the first tally. */
+  thresholdsJson: string | null;
+  /** Epoch the threshold snapshot was evaluated for; null before the first tally. */
+  thresholdsEpoch: number | null;
   /** Metadata-extraction version stored with this row's title/abstract/rationale_html. */
   metaVersion: number;
   topicId: string | null;
@@ -215,6 +219,8 @@ interface GovernanceActionRow {
   tally_epoch: number | null;
   tally_synced_at: number | null;
   decided_epoch: number | null;
+  thresholds_json: string | null;
+  thresholds_epoch: number | null;
   meta_version: number;
   topic_id: string | null;
   created_at: number;
@@ -290,6 +296,8 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     tallyEpoch: r.tally_epoch,
     tallySyncedAt: r.tally_synced_at,
     decidedEpoch: r.decided_epoch,
+    thresholdsJson: r.thresholds_json,
+    thresholdsEpoch: r.thresholds_epoch,
     metaVersion: r.meta_version,
     topicId: r.topic_id,
     createdAt: r.created_at,
@@ -921,6 +929,9 @@ export type GovernanceTallyUpdate = GovernanceTally & {
   decidedEpoch: number | null;
   tallySyncedAt: number;
   now: number;
+  /** Frozen per-body threshold snapshot JSON + the epoch it was evaluated for. */
+  thresholdsJson: string | null;
+  thresholdsEpoch: number | null;
 };
 
 /**
@@ -966,6 +977,7 @@ export async function updateGovernanceTallyAndStatus(
              cc_yes_pct = ?, cc_no_pct = ?,
              drep_voted_power = ?,
              tally_epoch = ?, decided_epoch = ?, tally_synced_at = ?, last_synced_at = ?,
+             thresholds_json = ?, thresholds_epoch = ?,
              votes_synced_at = CASE WHEN ? = 'active' THEN votes_synced_at ELSE NULL END
        WHERE id = ?`,
     )
@@ -998,6 +1010,8 @@ export async function updateGovernanceTallyAndStatus(
       u.decidedEpoch,
       u.tallySyncedAt,
       u.now,
+      u.thresholdsJson,
+      u.thresholdsEpoch,
       u.status,
       u.id,
     )
