@@ -6,6 +6,7 @@ import {
   lookupPairing,
   approvePairing,
   pollPairing,
+  parseApproverRoles,
 } from './pairing.js';
 import { formatPairingCode, normalizePairingCode } from './pairingCode.js';
 
@@ -130,10 +131,32 @@ describe('pollPairing', () => {
     await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW });
 
     const first = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
-    expect(first).toEqual({ status: 'consumed', userId: 'user-1' });
+    expect(first).toEqual({ status: 'consumed', userId: 'user-1', approverRoles: JSON.stringify(['drep']) });
 
     const second = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
     expect(second).toEqual({ status: 'unknown' });
+  });
+
+  it('carries the stored approver role cap alongside the claimed user id', async () => {
+    const p = await createPairing(db(), { userAgent: null, now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['member'], { now: NOW });
+
+    const outcome = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
+    expect(outcome).toEqual({
+      status: 'consumed',
+      userId: 'user-1',
+      approverRoles: JSON.stringify(['member']),
+    });
+  });
+
+  it('carries a null approver role cap for a legacy pre-migration row', async () => {
+    const p = await createPairing(db(), { userAgent: null, now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW });
+    // Simulate a row written before the approver_roles column existed.
+    await db().prepare('UPDATE device_pairings SET approver_roles = NULL WHERE pairing_id = ?1').bind(p.pairingId).run();
+
+    const outcome = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
+    expect(outcome).toEqual({ status: 'consumed', userId: 'user-1', approverRoles: null });
   });
 
   it('refuses a wrong secret', async () => {
@@ -169,5 +192,27 @@ describe('pollPairing', () => {
     expect(await pollPairing(db(), p.pairingId, p.deviceSecret, { now: later })).toEqual({
       status: 'unknown',
     });
+  });
+});
+
+describe('parseApproverRoles', () => {
+  it('returns null only for a DB NULL, meaning unbounded (legacy)', () => {
+    expect(parseApproverRoles(null)).toBeNull();
+  });
+
+  it('parses and normalizes a well-formed cap', () => {
+    expect(parseApproverRoles(JSON.stringify(['member', 'drep']))).toEqual(['drep', 'member']);
+  });
+
+  it('drops non-string elements before normalizing', () => {
+    expect(parseApproverRoles(JSON.stringify(['drep', 42, null, {}]))).toEqual(['drep']);
+  });
+
+  it('fails closed to [] (never to null) for invalid JSON', () => {
+    expect(parseApproverRoles('{bad json')).toEqual([]);
+  });
+
+  it('fails closed to [] (never to null) for valid JSON that is not an array', () => {
+    expect(parseApproverRoles(JSON.stringify({ roles: ['drep'] }))).toEqual([]);
   });
 });

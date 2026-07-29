@@ -4,7 +4,7 @@
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
-import { pollPairing } from '@/lib/auth/pairing';
+import { pollPairing, parseApproverRoles } from '@/lib/auth/pairing';
 import { rolesFromUser } from '@/lib/auth/roles';
 import { createSession, buildSessionCookie } from '@/lib/auth/session';
 import { getUserById } from '@/lib/db/users';
@@ -89,12 +89,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     const moderators = parseModerators(env.MODERATORS as string | undefined);
     const modRole = user.stake_addr ? (moderators.get(user.stake_addr) ?? null) : null;
-    const roles = rolesFromUser(user, modRole);
+
+    // The paired device is granted at most the CURRENT account roles
+    // intersected with the approving session's role cap, so a member-capped
+    // session (e.g. the delegator door) can never pair a full-writer device
+    // even for an account that does hold writer roles.
+    const currentRoles = rolesFromUser(user, modRole);
+    const cap = parseApproverRoles(outcome.approverRoles);
+    const pairedRoles = cap === null ? currentRoles : currentRoles.filter((r) => cap.includes(r));
+    const roles = pairedRoles.length > 0 ? pairedRoles : ['member'];
+    const drepId = roles.includes('drep') ? user.drep_id : null;
 
     const secure = new URL(request.url).protocol === 'https:';
     let token: string;
     try {
-      token = await createSession(sessionKv, { id: user.id, roles, drepId: user.drep_id });
+      token = await createSession(sessionKv, { id: user.id, roles, drepId });
     } catch {
       // The pairing was already consumed by the atomic claim above and cannot be
       // handed out twice, so the only safe recovery is to start over. Losing a

@@ -27,8 +27,29 @@ export interface PairingStart {
 
 export type PollOutcome =
   | { status: 'pending' }
-  | { status: 'consumed'; userId: string }
+  | { status: 'consumed'; userId: string; approverRoles: string | null }
   | { status: 'unknown' };
+
+/**
+ * Parses the raw `device_pairings.approver_roles` column value into the
+ * approving session's role cap.
+ *
+ * `null` is returned ONLY for a genuine DB NULL: a legacy pairing approved
+ * before this column existed, which is treated as unbounded (no cap applied).
+ * Any non-null value that cannot be read as a role array (invalid JSON, or
+ * JSON that parses but is not an array) fails closed to `[]` instead, which
+ * the caller maps to the plain 'member' role, never to the unbounded case.
+ */
+export function parseApproverRoles(raw: string | null): string[] | null {
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return normalizeSessionRoles(parsed.filter((x): x is string => typeof x === 'string'));
+  } catch {
+    return [];
+  }
+}
 
 /** SHA-256 of a UTF-8 string as lowercase hex, same helper shape as session.ts. */
 async function sha256Hex(input: string): Promise<string> {
@@ -174,11 +195,11 @@ export async function pollPairing(
     .prepare(
       `UPDATE device_pairings SET status = 'consumed'
         WHERE pairing_id = ?1 AND status = 'approved'
-        RETURNING user_id`,
+        RETURNING user_id, approver_roles`,
     )
     .bind(pairingId)
-    .first<{ user_id: string | null }>();
+    .first<{ user_id: string | null; approver_roles: string | null }>();
 
   if (claimed === null || !claimed.user_id) return { status: 'unknown' };
-  return { status: 'consumed', userId: claimed.user_id };
+  return { status: 'consumed', userId: claimed.user_id, approverRoles: claimed.approver_roles };
 }
