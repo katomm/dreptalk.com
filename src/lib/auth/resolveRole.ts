@@ -1,4 +1,4 @@
-import type { DrepInfo, Proposal, PoolCalidusKeyRow, CommitteeMember, ScriptInfo } from '../koios/client';
+import type { DrepInfo, Proposal, PoolCalidusKeyRow, CommitteeMember, ScriptInfo, AccountInfo } from '../koios/client';
 import { parseDrepId } from '../cardano/identity.js';
 import { parseNativeScriptJson, collectSigKeyHashes, nativeScriptHash } from '../cardano/nativeScript.js';
 
@@ -10,6 +10,9 @@ export interface KoiosClient {
   poolCalidusKey(calidusPubKeyHex: string): Promise<PoolCalidusKeyRow | null>;
   committeeInfo(): Promise<CommitteeMember[]>;
   scriptInfo(scriptHash: string): Promise<ScriptInfo | null>;
+  // Used by the delegator login hook to resolve the follow row (src/lib/delegation/refresh.js).
+  accountInfo(stakeAddress: string): Promise<AccountInfo | null>;
+  accountInfoBatch(stakeAddresses: string[]): Promise<AccountInfo[]>;
 }
 
 export interface DRepResolution {

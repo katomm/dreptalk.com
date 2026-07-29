@@ -183,6 +183,83 @@ describe('handleVerify: happy path (delegator)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleVerify -- delegator login tracks and resolves the delegation
+// ---------------------------------------------------------------------------
+
+const VALID_DREP = 'drep1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7vlc9n';
+
+describe('handleVerify: delegator login tracks and resolves', () => {
+  it('creates and resolves a delegator_follows row on login', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koios = {
+      ...koiosRejectAll(),
+      accountInfo: async () => ({
+        stake_address: 's',
+        status: 'registered',
+        delegated_pool: null,
+        delegated_drep: VALID_DREP,
+        total_balance: '1',
+      }),
+      accountInfoBatch: async () => [],
+    };
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koios as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+    expect(result.status).toBe(200);
+    const userId = (result.json as { user: { id: string } }).user.id;
+    const row = await env.DB.prepare('SELECT resolution_status, drep_id FROM delegator_follows WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    expect(row?.resolution_status).toBe('resolved');
+    expect(row?.drep_id).toBe(VALID_DREP);
+  });
+
+  it('still returns 200 and a pending row when koios is down at login', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koios = {
+      ...koiosRejectAll(),
+      accountInfo: async () => {
+        throw new Error('down');
+      },
+      accountInfoBatch: async () => [],
+    };
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koios as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+    expect(result.status).toBe(200);
+    const userId = (result.json as { user: { id: string } }).user.id;
+    const row = await env.DB.prepare('SELECT resolution_status FROM delegator_follows WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    expect(row?.resolution_status).toBe('pending');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleVerify -- happy path: DREP
 // ---------------------------------------------------------------------------
 

@@ -25,6 +25,8 @@ import { rolesFromUser } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
+import { ensureFollow } from '../db/delegatorFollows.js';
+import { resolveFollow } from '../delegation/refresh.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -86,6 +88,10 @@ export interface VerifyInput {
   network: CardanoNetwork;
   now?: number;
   secure?: boolean;
+  // Cloudflare execution context, when the adapter exposes one. Lets the
+  // delegator login defer the delegation resolve past the response (zero
+  // added login latency) instead of resolving it inline.
+  ctx?: { waitUntil(p: Promise<unknown>): void };
 }
 
 /** Injected dependencies for handleVerify. All fields are optional; defaults are the real implementations. */
@@ -244,8 +250,19 @@ async function verifyWalletCip8(
   // linked the same wallet) instead of minting a duplicate.
   if (role === 'delegator') {
     const stakeAddr = stakeAddressFromPubKey(pubKey, network);
-    const user = await resolveDelegatorAccount(db, stakeAddr, Math.floor(now ?? Date.now() / 1000));
-    return mintSessionResult(input, user, null);
+    const verifiedAt = Math.floor(now ?? Date.now() / 1000);
+    const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
+    // The tracking row exists synchronously; a stake-addr mismatch throws here
+    // (internal inconsistency, surfaced as a 500), not fail-soft.
+    await ensureFollow(db, user.id, stakeAddr, verifiedAt);
+    const result = mintSessionResult(input, user, null);
+    // Resolve after minting: deferred via waitUntil when the runtime exposes it
+    // (zero added login latency), else inline with the short-bounded fail-soft
+    // resolver. Either way the login never fails on Koios.
+    const doResolve = () => resolveFollow(db, koios, user.id, stakeAddr, verifiedAt);
+    if (input.ctx?.waitUntil) input.ctx.waitUntil(doResolve());
+    else await doResolve();
+    return result;
   }
 
   // Derive identity from the verified pubKey, then resolve authorization via
