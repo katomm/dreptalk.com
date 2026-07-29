@@ -10,6 +10,7 @@ import type { CcVote } from '@/lib/koios/corrections.js';
 import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendBodyInput } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
+import { fmtPctFine } from '@/lib/governance/view.js';
 import { readThresholdSnapshot, evaluateThresholds } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope } from '@/lib/governance/onchain.js';
 import { resolveNetwork, type CardanoNetwork } from '@/lib/config/network.js';
@@ -21,13 +22,16 @@ interface Props {
   committee: { members: CommitteeMemberTerm[]; hotToCold: Map<string, string> };
   params: ProtocolParams | null;
   network: CardanoNetwork;
+  /** Render time in ms, so an active action's trend stops at now, not its future expiry. */
+  now: number;
 }
 
-const { action, trendRows, ccVotes, committee, params, network } = Astro.props;
+const { action, trendRows, ccVotes, committee, params, network, now } = Astro.props;
 const cfg = resolveNetwork(network);
 
-const assembled = assembleTrendInputs({ action, trendRows, ccVotes, committee, cfg });
+const assembled = assembleTrendInputs({ action, trendRows, ccVotes, committee, cfg, nowSec: Math.floor(now / 1000) });
 const { start, end } = assembled.window;
+const lineEnd = assembled.lineEnd;
 
 // Thresholds: prefer the frozen snapshot; fall back to live params for active
 // actions that have not been snapshotted yet. Never a today's line on an old action.
@@ -51,7 +55,9 @@ const thrCc = snapshot ? snapshot.cc : liveThresholds?.find((t) => t.body === 'C
 
 // Layer this chart's threshold lines and percent/"N of M" labels on top of the
 // shared assembly's bare inputs.
-const fmtPctLabel = (n: number | null): string => (n == null ? '' : `${Math.round(n)}%`);
+// Match the sidebar's percent precision (one decimal, two below 1%) so the legend
+// and the Voting Information card never disagree by a rounding step.
+const fmtPctLabel = (n: number | null): string => (n == null ? '' : fmtPctFine(n));
 const [drepBase, spoBase, ccBase] = assembled.inputs;
 const inputs: TrendBodyInput[] = [
   { ...drepBase, thresholdPct: thrDrep, finalLabel: fmtPctLabel(action.drepYesPct) },
@@ -59,7 +65,9 @@ const inputs: TrendBodyInput[] = [
   { ...ccBase, thresholdPct: thrCc, finalLabel: assembled.ccSize > 0 ? `${assembled.ccYesCount} of ${assembled.ccSize}` : fmtPctLabel(action.ccYesPct) },
 ];
 
-const series = computeVoteTrendSeries(inputs, { start, end });
+// The series stops at the current epoch (lineEnd); the axis domain spans the full
+// window (end), so the deadline stays on the right with empty space after "now".
+const series = computeVoteTrendSeries(inputs, { start, end: lineEnd });
 const chart = buildTrendChart(series, { width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain: [start, end] });
 
 const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-cc)' };

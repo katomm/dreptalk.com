@@ -19,10 +19,16 @@ export interface TrendAssemblyInputs {
   ccVotes: CcVote[];
   committee: { members: CommitteeMemberTerm[]; hotToCold: Map<string, string> };
   cfg: NetworkConfig;
+  /** Current time in unix seconds. When set, an action still in its voting window
+      stops at now instead of running flat to its future expiry epoch. Omit to not cap. */
+  nowSec?: number;
 }
 
 export interface TrendAssemblyResult {
+  /** Full voting window, for the chart x-axis domain (start to expiry/decision epoch). */
   window: { start: number; end: number };
+  /** Where the line stops: min(window.end, now). Equals window.end for terminal actions. */
+  lineEnd: number;
   /** Final CC yes-vote count, for a caller's own "N of M" label. */
   ccYesCount: number;
   ccSize: number;
@@ -45,7 +51,14 @@ export function assembleTrendInputs(a: TrendAssemblyInputs): TrendAssemblyResult
   const windowEnd = decidedEpoch != null ? epochStartUnix(decidedEpoch, cfg) : null;
   const voteTimes = [...trendRows.map((r) => r.block_time), ...ccVotes.map((v) => v.blockTime ?? 0)].filter((t) => t > 0);
   const start = windowStart ?? (voteTimes.length ? Math.min(...voteTimes) : 0);
+  // The x-axis spans the whole voting window (up to the expiry/decision epoch), so the
+  // deadline stays visible on the right.
   const end = windowEnd && windowEnd > start ? windowEnd : (voteTimes.length ? Math.max(...voteTimes) : start + 1);
+  // The line itself stops at "now": while an action is still in its voting window the
+  // end epoch is in the future, and running the line flat to that future edge reads as
+  // if voting were done. Capping the series (not the axis) leaves the remaining window
+  // empty on the right instead. Terminal actions are unaffected (end is already past).
+  const lineEnd = a.nowSec != null ? Math.max(start + 1, Math.min(end, a.nowSec)) : end;
 
   // DRep + SPO yes votes weighted by voted_power.
   const yesByRole = (role: string) =>
@@ -66,5 +79,5 @@ export function assembleTrendInputs(a: TrendAssemblyInputs): TrendAssemblyResult
     { key: 'CC', yesVotes: ccYes, finalPct: action.ccYesPct, thresholdPct: null, finalLabel: '' },
   ];
 
-  return { window: { start, end }, ccYesCount: ccYes.length, ccSize, inputs };
+  return { window: { start, end }, lineEnd, ccYesCount: ccYes.length, ccSize, inputs };
 }

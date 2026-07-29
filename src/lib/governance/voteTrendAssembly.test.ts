@@ -108,4 +108,35 @@ describe('assembleTrendInputs', () => {
     expect(cc.yesVotes).toHaveLength(1);
     expect(cc.yesVotes[0].weight).toBe(1);
   });
+
+  it('keeps the full window on the axis but stops the line at nowSec for an active action', () => {
+    const nowSec = epochStartUnix(15, cfg);
+    const result = assembleTrendInputs({
+      // Active: not decided, expiry epoch 20 is still in the future relative to now.
+      action: action({ decidedEpoch: null, expiryEpoch: 20 }),
+      trendRows: [voteRow()],
+      ccVotes: [],
+      committee: { members: [], hotToCold: new Map() },
+      cfg,
+      nowSec,
+    });
+    // Axis domain spans to the expiry epoch, the deadline stays visible on the right.
+    expect(result.window.end).toBe(epochStartUnix(20, cfg));
+    // The line stops at now, not the future expiry.
+    expect(result.lineEnd).toBe(nowSec);
+    expect(result.lineEnd).toBeLessThan(result.window.end);
+  });
+
+  it('has lineEnd equal to the window end for a terminal action even with nowSec set', () => {
+    const result = assembleTrendInputs({
+      action: action({ decidedEpoch: 15 }),
+      trendRows: [voteRow()],
+      ccVotes: [],
+      committee: { members: [], hotToCold: new Map() },
+      cfg,
+      nowSec: epochStartUnix(30, cfg), // well after the decision epoch
+    });
+    expect(result.window.end).toBe(epochStartUnix(15, cfg));
+    expect(result.lineEnd).toBe(epochStartUnix(15, cfg));
+  });
 });
