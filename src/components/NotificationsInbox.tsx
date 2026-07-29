@@ -65,6 +65,17 @@ function KindIcon({ kind }: { kind: InboxItem['kind'] }) {
       </svg>
     );
   }
+  if (kind === 'delegation_changed') {
+    // Delegation moved: a pair of swap arrows.
+    return (
+      <svg {...common} aria-hidden="true">
+        <path d="M17 3 21 7 17 11" />
+        <path d="M21 7H9" />
+        <path d="M7 21 3 17 7 13" />
+        <path d="M3 17h12" />
+      </svg>
+    );
+  }
   // Governance: a simple landmark.
   return (
     <svg {...common} aria-hidden="true">
@@ -97,6 +108,8 @@ function Row({ item, now }: { item: InboxItem; now: number }) {
             </>
           ) : item.kind === 'device_paired' ? (
             'Security'
+          ) : item.kind === 'delegation_changed' ? (
+            'Delegation'
           ) : item.kind === 'gov_created' ? (
             'New governance action'
           ) : (

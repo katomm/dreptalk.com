@@ -2,7 +2,7 @@
 // time-grouping and relative time. Kept free of DOM/React/DB so it is
 // unit-testable in node; the island only renders what these functions return.
 
-export type InboxKind = 'reply' | 'mention' | 'gov_created' | 'gov_status' | 'device_paired';
+export type InboxKind = 'reply' | 'mention' | 'gov_created' | 'gov_status' | 'device_paired' | 'delegation_changed';
 
 export interface InboxItem {
   kind: InboxKind;

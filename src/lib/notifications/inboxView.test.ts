@@ -103,6 +103,37 @@ describe('device_paired inbox rows', () => {
   });
 });
 
+describe('delegation_changed inbox rows', () => {
+  const delegationItem = {
+    kind: 'delegation_changed' as const,
+    createdAt: 1_700_000_000,
+    unread: true,
+    actorName: null,
+    actorHref: null,
+    verb: null,
+    title: 'Your delegation changed to Always Abstain',
+    href: '/home/',
+    pill: null,
+  };
+
+  it('counts toward all and unread but not mentions, governance or discussions', () => {
+    const counts = countItems([delegationItem]);
+    expect(counts.all).toBe(1);
+    expect(counts.unread).toBe(1);
+    expect(counts.mentions).toBe(0);
+    expect(counts.governance).toBe(0);
+    expect(counts.discussions).toBe(0);
+  });
+
+  it('survives every filter that should not exclude it', () => {
+    expect(filterItems([delegationItem], 'all')).toHaveLength(1);
+    expect(filterItems([delegationItem], 'unread')).toHaveLength(1);
+    expect(filterItems([delegationItem], 'mentions')).toHaveLength(0);
+    expect(filterItems([delegationItem], 'governance')).toHaveLength(0);
+    expect(filterItems([delegationItem], 'discussions')).toHaveLength(0);
+  });
+});
+
 describe('relativeTime', () => {
   it('formats the usual buckets', () => {
     expect(relativeTime(NOW - 30_000, NOW)).toBe('just now');

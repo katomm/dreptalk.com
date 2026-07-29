@@ -17,9 +17,12 @@ import { toClientChannels } from '@/lib/notifications/channelView';
 import type { ClientChannel } from '@/lib/notifications/channelView';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { getTopicsByIds } from '@/lib/db/forum.js';
+import { getDrepsByIds } from '@/lib/db/dreps.js';
 import { loadAuthorIdentities, authorProfileHref } from '@/lib/forum/author.js';
 import { statusBadge, isTerminalStatus } from '@/lib/governance/view.js';
 import type { InboxItem } from '@/lib/notifications/inboxView.js';
+import { delegationLabel } from '@/lib/delegation/format.js';
+import type { DelegationState } from '@/lib/delegation/resolve.js';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -62,9 +65,23 @@ if (db) {
   telegramPrefs = tPrefs;
 
   const topicIds = [...new Set(personal.map((n) => n.topic_id).filter((id): id is string => !!id))];
-  const [topicsById, identities] = await Promise.all([
+  // Collect the `to`-DRep ids from delegation_changed payloads for a single
+  // batch name lookup; a malformed payload is skipped here too, since the row
+  // itself is dropped where it is actually parsed, below.
+  const delegationDrepIds = new Set<string>();
+  for (const n of personal) {
+    if (n.type !== 'delegation_changed' || !n.payload) continue;
+    try {
+      const p = JSON.parse(n.payload) as { from: DelegationState | null; to: DelegationState };
+      if (p.to?.type === 'drep') delegationDrepIds.add(p.to.drepId);
+    } catch {
+      // Dropped later where the row is parsed for real.
+    }
+  }
+  const [topicsById, identities, delegationDreps] = await Promise.all([
     getTopicsByIds(db, topicIds),
     loadAuthorIdentities(db, personal.map((n) => n.actor_id)),
+    getDrepsByIds(db, [...delegationDrepIds]),
   ]);
 
   const personalItems: InboxItem[] = personal.flatMap((n): InboxItem[] => {
@@ -80,6 +97,31 @@ if (db) {
           title: 'A new device was paired',
           // Links to the page where the pairing can be undone.
           href: '/devices/',
+          pill: null,
+        },
+      ];
+    }
+    if (n.type === 'delegation_changed') {
+      let p: { from: DelegationState | null; to: DelegationState } | null = null;
+      if (n.payload) {
+        try {
+          p = JSON.parse(n.payload) as { from: DelegationState | null; to: DelegationState };
+        } catch {
+          p = null;
+        }
+      }
+      if (!p) return [];
+      const toName = p.to.type === 'drep' ? (delegationDreps.get(p.to.drepId)?.name ?? null) : null;
+      return [
+        {
+          kind: 'delegation_changed' as const,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title: `Your delegation changed to ${delegationLabel(p.to, toName)}`,
+          href: '/home/',
           pill: null,
         },
       ];
