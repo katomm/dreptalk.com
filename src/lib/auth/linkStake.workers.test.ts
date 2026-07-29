@@ -177,6 +177,75 @@ describe('handleLinkStake: stake addr owned by another account', () => {
   });
 });
 
+describe('handleLinkStake: concurrent linking of the same free stake address', () => {
+  it('lets exactly one of two racing linkers win; the loser gets a clean 409, not a 500', async () => {
+    // Two different accounts race to claim the same (currently free) stake
+    // address at once, e.g. two devices/tabs of an attacker trying to front-run
+    // the rightful owner, or a double-submit from the same account's UI. The
+    // partial unique index on users.stake_addr (migration 0061) is the actual
+    // guard; this test proves handleLinkStake's catch-and-confirm path turns
+    // the resulting D1 constraint violation into a clean 409 rather than a 500,
+    // and that only one row ends up owning the address.
+    const userA = 'writer-race-a';
+    const userB = 'writer-race-b';
+    await insertUser(userA, null);
+    await insertUser(userB, null);
+
+    const fixturePayload = stakeVector.payloadUtf8;
+
+    const [resA, resB] = await Promise.all([
+      handleLinkStake(
+        {
+          db: env.DB,
+          userId: userA,
+          body: {
+            payload: fixturePayload,
+            signatureHex: stakeVector.signatureHex,
+            keyHex: stakeVector.keyHex,
+          },
+          network: 'preprod',
+          now: 1_700_000_000,
+        },
+        { consumeNonceForDomain: makeDomainScopedNonceOverride(fixturePayload, `link_stake:${userA}`) },
+      ),
+      handleLinkStake(
+        {
+          db: env.DB,
+          userId: userB,
+          body: {
+            payload: fixturePayload,
+            signatureHex: stakeVector.signatureHex,
+            keyHex: stakeVector.keyHex,
+          },
+          network: 'preprod',
+          now: 1_700_000_000,
+        },
+        { consumeNonceForDomain: makeDomainScopedNonceOverride(fixturePayload, `link_stake:${userB}`) },
+      ),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort((a, b) => a - b);
+    expect(statuses).toEqual([200, 409]);
+    // Neither outcome is a 500: the constraint collision must be recognized
+    // and reported cleanly, never surfaced as an unexpected internal error.
+    expect(resA.status).not.toBe(500);
+    expect(resB.status).not.toBe(500);
+
+    const winnerId = resA.status === 200 ? userA : userB;
+    const loserId = resA.status === 200 ? userB : userA;
+    const winner = await getUserById(env.DB, winnerId);
+    const loser = await getUserById(env.DB, loserId);
+    expect(winner?.stake_addr).toBe(STAKE_ADDR);
+    expect(loser?.stake_addr).toBeNull();
+
+    // Exactly one account row ended up owning the address.
+    const rows = await env.DB.prepare('SELECT id FROM users WHERE stake_addr = ?1')
+      .bind(STAKE_ADDR)
+      .all<{ id: string }>();
+    expect(rows.results.length).toBe(1);
+  });
+});
+
 describe('handleLinkStake: wrong nonce domain', () => {
   it('returns 401 when the domain does not match the calling user id', async () => {
     const userId = 'writer-wrong-domain-1';
