@@ -41,7 +41,7 @@ function ctx(body: { pairingId: string; deviceSecret: string }) {
 // it would already read as expired by the time the route polls it.
 async function createApprovedPairing() {
   const p = await createPairing(env.DB, { userAgent: null });
-  await approvePairing(env.DB, p.code, USER_ID);
+  await approvePairing(env.DB, p.code, USER_ID, ['drep']);
   return p;
 }
 
@@ -85,7 +85,7 @@ describe('POST /api/auth/pair/poll', () => {
     expect(pending.status).toBe(200);
     expect(((await pending.json()) as { status: string }).status).toBe('pending');
 
-    await approvePairing(env.DB, p.code, USER_ID);
+    await approvePairing(env.DB, p.code, USER_ID, ['drep']);
 
     const first = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
     expect(first.status).toBe(200);

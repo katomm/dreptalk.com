@@ -14,6 +14,7 @@
 import { toBase64Url } from '../crypto/base64url.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { generatePairingCode, normalizePairingCode } from './pairingCode.js';
+import { normalizeSessionRoles } from './roles.js';
 
 export const PAIRING_TTL_SEC = 600;
 
@@ -106,28 +107,33 @@ export async function lookupPairing(
 }
 
 /**
- * Approves a pending pairing, stamping the approver's user id. Identity only:
- * roles are deliberately not snapshotted here, they are resolved at redemption.
- * Returns false for unknown, already approved and expired codes alike.
+ * Approves a pending pairing, stamping the approver's user id and their role
+ * cap. The cap is the CEILING the device can redeem, not the granted roles:
+ * revocation-aware resolution (re-checking the account row against the current
+ * allowlist) still happens at redemption, which then intersects that result
+ * against this snapshot. Returns false for unknown, already approved and
+ * expired codes alike.
  */
 export async function approvePairing(
   db: D1Database,
   rawCode: string,
   userId: string,
+  approverRoles: string[],
   opts?: { now?: number },
 ): Promise<boolean> {
   const code = normalizePairingCode(rawCode);
   if (!code) return false;
   const now = Math.floor(opts?.now ?? Date.now() / 1000);
   const codeHash = await sha256Hex(code);
+  const approverRolesJson = JSON.stringify(normalizeSessionRoles(approverRoles));
   const row = await db
     .prepare(
       `UPDATE device_pairings
-          SET status = 'approved', user_id = ?1
-        WHERE code_hash = ?2 AND status = 'pending' AND expires_at > ?3
+          SET status = 'approved', user_id = ?1, approver_roles = ?2
+        WHERE code_hash = ?3 AND status = 'pending' AND expires_at > ?4
         RETURNING pairing_id`,
     )
-    .bind(userId, codeHash, now)
+    .bind(userId, approverRolesJson, codeHash, now)
     .first<{ pairing_id: string }>();
   return row !== null;
 }
