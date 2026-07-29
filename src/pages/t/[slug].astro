@@ -446,6 +446,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     title={`${topic.title} - DRepTalk`}
     description={metaDescription}
     ogImage={ogImage}
+    wide={isGovernanceTopic}
     readingWidth={!isGovernanceTopic}
   >
     {discussionLd && <JsonLd data={discussionLd} />}
