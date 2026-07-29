@@ -26,6 +26,10 @@ import { isSpoLedType } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getVoteTrendRows, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline } from '@/lib/db/committee.js';
+import { computeVoteTrendSeries, buildTrendChart, type TrendBodyInput, type TrendChart } from '@/lib/governance/voteTrend.js';
+import { ccFinalVotesByMember } from '@/lib/koios/corrections.js';
+import { activeCommitteeSizeAt } from '@/lib/koios/committeeTimeline.js';
+import { resolveNetwork, epochStartUnix } from '@/lib/config/network.js';
 import {
   getActionRationales,
   countActionRationales,
@@ -318,13 +322,42 @@ const [params, activeDrepStake] = isGovernanceTopic && govAction && db
 const drepStakeTotal =
   activeDrepStake && activeDrepStake.total > 0 ? activeDrepStake.total : null;
 
-// Voting-trend data for the History tab (DRep/SPO power rows + CC votes/timeline).
-const trend = tab === 'history' && govAction && db
+// Voting-trend data (DRep/SPO power rows + CC votes/timeline): loaded once for any
+// governance topic, not just the History tab, because the sidebar's teaser
+// sparkline (built below) shows on every tab. The History tab's full chart reuses
+// these same rows, so this is the only load.
+const trend = isGovernanceTopic && govAction && db
   ? await Promise.all([getVoteTrendRows(db, govAction.id), getCommitteeVotes(db, govAction.id), getCommitteeTimeline(db)])
   : null;
 const trendRows = trend?.[0] ?? [];
 const ccVotes = trend?.[1] ?? [];
 const committee = trend?.[2] ?? { members: [], hotToCold: new Map() };
+
+// Compact multi-body step sparkline for the Voting Information card's teaser link
+// into the History tab. Built from the same trend rows loaded above, no second
+// read. Null when there is no vote data yet.
+let miniChart: TrendChart | null = null;
+if (govAction && (trendRows.length || ccVotes.length)) {
+  const cfg = resolveNetwork(network);
+  const decidedEpoch = govAction.decidedEpoch ?? govAction.expiryEpoch;
+  const start = govAction.submittedEpoch != null ? epochStartUnix(govAction.submittedEpoch, cfg) : 0;
+  const end = decidedEpoch != null ? epochStartUnix(decidedEpoch, cfg) : start + 1;
+  const yesByRole = (role: string) =>
+    trendRows
+      .filter((r) => r.voter_role === role && r.vote === 'Yes' && r.voted_power != null)
+      .map((r) => ({ blockTime: r.block_time, weight: r.voted_power as number }));
+  const ccFinal = decidedEpoch != null ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, decidedEpoch) : [];
+  const ccYes = ccFinal.filter((m) => m.vote === 'Yes').map((m) => ({ blockTime: m.blockTime, weight: 1 }));
+  const ccSize = decidedEpoch != null ? activeCommitteeSizeAt(committee.members, decidedEpoch) : 0;
+  const inputs: TrendBodyInput[] = [
+    { key: 'DRep', yesVotes: yesByRole('DRep'), finalPct: govAction.drepYesPct, thresholdPct: null, finalLabel: '' },
+    { key: 'SPO', yesVotes: yesByRole('SPO'), finalPct: govAction.spoYesPct, thresholdPct: null, finalLabel: '' },
+    { key: 'CC', yesVotes: ccYes, finalPct: govAction.ccYesPct, thresholdPct: null, finalLabel: ccSize > 0 ? `${ccYes.length} of ${ccSize}` : '' },
+  ];
+  const series = computeVoteTrendSeries(inputs, { start, end });
+  miniChart = buildTrendChart(series, { width: 260, height: 56, padLeft: 2, padRight: 2, padTop: 4, padBottom: 4, domain: [start, end] });
+}
+const trendHref = topic ? `/t/${topic.slug}/?tab=history` : '';
 
 // Decode the on-chain payload for the Overview's "On-chain changes" block. Old→new
 // reads the cached epoch_params blob; both are null-safe and render nothing if absent.
@@ -619,6 +652,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               positionsTotal={positionsTotal}
               rationaleCount={rationaleCount}
               now={now}
+              miniChart={miniChart}
+              trendHref={trendHref}
             >
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />

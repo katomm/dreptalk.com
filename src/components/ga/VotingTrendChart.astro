@@ -79,7 +79,7 @@ const inputs: TrendBodyInput[] = [
 const series = computeVoteTrendSeries(inputs, { start, end });
 const chart = buildTrendChart(series, { width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain: [start, end] });
 
-const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-warn, #a06bd6)' };
+const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-cc)' };
 const dateLabel = (t: number): string =>
   new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 ---
