@@ -92,3 +92,52 @@ export async function consumeNonce(
     return false;
   }
 }
+
+/**
+ * Like {@link consumeNonce}, but additionally requires the payload's domain to
+ * exactly equal `expectedDomain` before consuming. Used for intent-scoped
+ * nonces such as `link_stake:<userId>`, where the domain itself encodes which
+ * account and action the proof is bound to and must not be trusted from the
+ * caller-supplied payload alone.
+ *
+ * The domain segment may itself contain colons (e.g. `link_stake:user-1`), so
+ * it is parsed the same way `consumeNonce` parses the payload: the nonce and
+ * issuedAt are read from the end of the colon-separated payload, and
+ * everything between the `dreptalk` prefix and those two trailing segments is
+ * the domain. A naive `split(':')[1]` would truncate `link_stake:user-1` down
+ * to `link_stake`, letting any user's nonce satisfy any other user's expected
+ * domain.
+ *
+ * On mismatch, returns false WITHOUT consuming the nonce, so a caller probing
+ * with the wrong expected domain never burns a legitimate holder's nonce.
+ * Never throws; returns false on any failure.
+ *
+ * @param db - The D1 database.
+ * @param payload - The full payload string from the client (the signed message).
+ * @param expectedDomain - The exact domain the payload must carry (e.g. `link_stake:<userId>`).
+ * @param opts.now - Override for current time in seconds.
+ * @param opts.maxAgeSec - Maximum allowed age of the nonce in seconds (default 300).
+ */
+export async function consumeNonceForDomain(
+  db: D1Database,
+  payload: string,
+  expectedDomain: string,
+  opts?: { now?: number; maxAgeSec?: number },
+): Promise<boolean> {
+  try {
+    // Parse payload shape: "dreptalk:<domain>:<nonce>:<issuedAt>".
+    // Nonce is base64url (no colons); issuedAt is a decimal integer.
+    // Domain may contain colons, so extract nonce and issuedAt from the ends,
+    // exactly mirroring consumeNonce's parsing.
+    const [prefix, ...rest] = payload.split(':');
+    if (prefix !== PAYLOAD_PREFIX) return false;
+    if (rest.length < 3) return false;
+
+    const domain = rest.slice(0, rest.length - 2).join(':');
+    if (domain !== expectedDomain) return false;
+
+    return await consumeNonce(db, payload, opts);
+  } catch {
+    return false;
+  }
+}
