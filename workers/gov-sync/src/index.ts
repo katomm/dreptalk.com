@@ -72,6 +72,7 @@ import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/pro
 import { syncCurrentCommitteeMembership, recomputeCommitteePct } from '../../../src/lib/db/committee.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
+import { refreshBulk } from '../../../src/lib/delegation/refresh.js';
 import { dispatchWebPush, dispatchTelegram } from '../../../src/lib/notifications/dispatch.js';
 import { sendWebPush, type VapidConfig } from '../../../src/lib/push/webPush.js';
 import { sendTelegramMessage } from '../../../src/lib/push/telegram.js';
@@ -313,6 +314,18 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     const r = await dispatchTelegram(env.DB, cfg, { send: sendTelegramMessage, now: Date.now() });
     console.log(`[telegram-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
     return { items: r.sent };
+  });
+
+  // Re-resolve delegator follows whose last Koios check is a day or more stale
+  // (or never attempted). gov-sync works in unix milliseconds throughout this
+  // file; delegator_follows timestamps are unix seconds (like users.last_verified_at),
+  // so convert once here. The due window inside refreshBulk caps this to at most
+  // one Koios attempt per address per day even though this cron runs every 15 min.
+  await phase('delegation-refresh', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const res = await refreshBulk(env.DB, koios, nowSec);
+    console.log(`[delegation-refresh] attempted=${res.attempted} resolved=${res.resolved} changed=${res.changed} failed=${res.failed}`);
+    return { items: res.resolved, failed: res.failed };
   });
 }
 
