@@ -357,25 +357,19 @@ describe('loginWithWallet: wallet network guard', () => {
 
 describe('loginWithWallet: delegator', () => {
   it('signs with the reward address and posts role delegator', async () => {
-    const calls: Array<{ url: string; body: any }> = [];
-    const fetchImpl = (async (url: string, init?: RequestInit) => {
-      const body = init?.body ? JSON.parse(init.body as string) : null;
-      calls.push({ url: String(url), body });
-      if (String(url).endsWith('/api/auth/challenge')) {
-        return new Response(JSON.stringify({ payload: 'dreptalk:host:nonce:1' }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ ok: true, user: { id: 'stake_test1x', roles: ['member'] } }), { status: 200 });
-    }) as unknown as typeof fetch;
+    const fetchMock = makeFetch(FAKE_PAYLOAD, true);
+    const api = makeProposerApi();
 
-    const api: WalletApi = {
-      getRewardAddresses: async () => ['e0deadbeef'],
-      signData: async () => ({ signature: 'aa', key: 'bb' }),
-    };
+    const result = await loginWithWallet(api, 'delegator', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
 
-    const res = await loginWithWallet(api, 'delegator', 'preprod', { fetchImpl });
-    expect(res.ok).toBe(true);
-    const verify = calls.find((c) => c.url.endsWith('/api/auth/verify'));
-    expect(verify?.body.role).toBe('delegator');
-    expect(res.user?.roles).toEqual(['member']);
+    expect(result.ok).toBe(true);
+    // Delegator takes the proposer-style reward-address path, never the CIP-95 DRep key.
+    expect(api.getRewardAddresses).toHaveBeenCalled();
+
+    const verifyCall = fetchMock.mock.calls.find(([url]) => url.toString().includes('verify'));
+    expect(verifyCall).toBeDefined();
+    const body = JSON.parse(verifyCall![1]!.body as string) as Record<string, string>;
+    expect(body.role).toBe('delegator');
+    expect(body.payload).toBe(FAKE_PAYLOAD);
   });
 });

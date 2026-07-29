@@ -19,7 +19,7 @@ import type { ModeratorRole } from '../../../config/moderators.js';
 import { drepIdFromPubKey, stakeAddressFromPubKey, ccHotKeyHashHex, isDrepCredentialAddress } from '../cardano/identity.js';
 import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
-import { upsertUserFromAuth, type AuthRole } from '../db/users.js';
+import { upsertUserFromAuth, type AuthRole, type User } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import { rolesFromUser } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -141,18 +141,15 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
 
   // DRep and Proposer prove identity with a CIP-8 wallet signature; SPO (Calidus)
   // and CC members paste a raw Ed25519 signature produced by cardano-signer.
-  if (role === 'drep' || role === 'proposer') {
+  // Delegator proves wallet ownership only (no on-chain role), the same
+  // reward-address CIP-8 signature a proposer signs, so it takes the wallet path.
+  if (role === 'drep' || role === 'proposer' || role === 'delegator') {
     // A DRep signing offline pastes a raw Ed25519 sig (publicKeyHex), not a COSE
     // key (keyHex): route to the raw verifier. Covers a key-based CLI DRep (no
     // scriptDrepId) and a script-DRep member (with scriptDrepId).
     if (role === 'drep' && typeof body.keyHex !== 'string' && typeof body.publicKeyHex === 'string') {
       return await verifyRawEd25519(role, input, deps);
     }
-    return await verifyWalletCip8(role, input, deps);
-  }
-  // Delegator proves wallet ownership only, the same reward-address CIP-8
-  // signature a proposer signs, but grants no on-chain role.
-  if (role === 'delegator') {
     return await verifyWalletCip8(role, input, deps);
   }
   return await verifyRawEd25519(role, input, deps);
@@ -246,16 +243,9 @@ async function verifyWalletCip8(
   // reuses an account that already owns this stake address (e.g. a writer who
   // linked the same wallet) instead of minting a duplicate.
   if (role === 'delegator') {
-    const { sessionKv, secure } = input;
     const stakeAddr = stakeAddressFromPubKey(pubKey, network);
     const user = await resolveDelegatorAccount(db, stakeAddr, Math.floor(now ?? Date.now() / 1000));
-    const roles = rolesFromUser(user, null);
-    const token = await createSession(sessionKv, { id: user.id, roles, drepId: user.drep_id }, { now });
-    return {
-      status: 200,
-      json: { ok: true, user: { id: user.id, roles } },
-      setCookie: buildSessionCookie(token, { secure }),
-    };
+    return mintSessionResult(input, user, null);
   }
 
   // Derive identity from the verified pubKey, then resolve authorization via
@@ -385,7 +375,7 @@ async function finishLogin(
     modRole: ModeratorRole | null;
   },
 ): Promise<VerifyResult> {
-  const { db, sessionKv, now, secure } = input;
+  const { db, now } = input;
   const { drepId, stakeAddr, poolId, ccCred, grantedRoles, modRole } = args;
 
   const user = await upsertUserFromAuth(db, {
@@ -397,17 +387,29 @@ async function finishLogin(
     now: Math.floor(now ?? Date.now() / 1000),
   });
 
+  return mintSessionResult(input, user, modRole);
+}
+
+/**
+ * Shared session tail: derive the session roles from the resolved user row,
+ * mint the KV session (caching the user's drep_id so consumers resolve the
+ * logged-in DRep without a per-request D1 read; it is immutable for the
+ * session), and return the 200 result with the Set-Cookie. Used by both the
+ * writer flow (finishLogin, after upsert) and the delegator flow (after
+ * resolveDelegatorAccount), so the session/cookie shape never drifts.
+ */
+async function mintSessionResult(
+  input: VerifyInput,
+  user: User,
+  modRole: ModeratorRole | null,
+): Promise<VerifyResult> {
+  const { sessionKv, now, secure } = input;
   const roles = rolesFromUser(user, modRole);
-
-  // Cache the user's drep_id on the session so consumers resolve the logged-in
-  // DRep without a per-request D1 read (drep_id is immutable for the session).
   const token = await createSession(sessionKv, { id: user.id, roles, drepId: user.drep_id }, { now });
-  const setCookie = buildSessionCookie(token, { secure });
-
   return {
     status: 200,
     json: { ok: true, user: { id: user.id, roles } },
-    setCookie,
+    setCookie: buildSessionCookie(token, { secure }),
   };
 }
 

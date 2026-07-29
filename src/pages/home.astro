@@ -8,6 +8,7 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import Avatar from '@/components/Avatar.astro';
+import Callout from '@/components/Callout.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import { roleLabels, isWriter } from '@/lib/auth/roles';
@@ -204,15 +205,15 @@ const cards: HomeCard[] = [
   </header>
 
   {!canWrite && (
-    <aside class="home-note">
-      <p class="home-note__text">
+    <div class="home-note">
+      <Callout variant="info">
         Delegator features are still being built out. For now you can follow
         discussions and manage your notifications. Seeing how your DRep votes and
         getting notified when it does is on the way, follow along or share ideas on
         {' '}
-        <a class="home-note__link" href="https://github.com/katomm/dreptalk.com/issues/347" target="_blank" rel="noopener">GitHub</a>.
-      </p>
-    </aside>
+        <a href="https://github.com/katomm/dreptalk.com/issues/347" target="_blank" rel="noopener">GitHub</a>.
+      </Callout>
+    </div>
   )}
 
   {featureDiscussions && (
@@ -302,25 +303,11 @@ const cards: HomeCard[] = [
     color: var(--muted);
   }
 
-  /* Interim note for non-writers (delegators): the read-only surfaces work
-     today, the DRep-tracking surfaces are still being built. Removed once the
-     delegator dashboard lands. */
+  /* Interim note for non-writers (delegators), reusing the shared Callout look;
+     only the outer spacing is page-specific. Removed once the delegator
+     dashboard lands. */
   .home-note {
     margin: 0 0 1.25rem;
-    padding: 0.85rem 1.1rem;
-    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
-    border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
-    border-radius: var(--radius);
-  }
-  .home-note__text {
-    margin: 0;
-    font-size: 0.875rem;
-    line-height: 1.55;
-    color: var(--muted);
-  }
-  .home-note__link {
-    color: var(--accent);
-    font-weight: 600;
   }
 
   /* Featured row: the power-trend card on the left, the highlighted
