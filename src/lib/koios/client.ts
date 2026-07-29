@@ -267,6 +267,10 @@ export type PoolInfoRow = z.infer<typeof poolInfoRowSchema>;
 // Koios /pool_info POST body cap; pool_info rows are large, keep the sub-batch modest.
 const POOL_INFO_MAX = 50;
 
+// Koios caps the /account_info POST body. Mirrors DREP_INFO_MAX / POOL_INFO_MAX;
+// the client halves and retries on a 413, so even a lower cap still completes.
+const ACCOUNT_INFO_MAX = 100;
+
 // One row of /drep_updates: a DRep registration/deregistration/update event.
 // action is 'registered' | 'updated' | 'deregistered'; block_time is unix seconds.
 // Without a _drep_id filter the endpoint returns every DRep's updates, newest first.
@@ -516,6 +520,28 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     }
   }
 
+  // Fetches /account_info for a sub-batch, halving and retrying on a 413 (Koios
+  // body cap) down to a single address, matching the drepInfoChunk pattern. A
+  // requested address absent from the response has no account row (not registered).
+  async function accountInfoChunk(stakeAddresses: string[]): Promise<AccountInfo[]> {
+    try {
+      const data = await request('/account_info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _stake_addresses: stakeAddresses }),
+      });
+      return z.array(accountInfoSchema).parse(data);
+    } catch (err) {
+      if (err instanceof KoiosHttpError && err.status === 413 && stakeAddresses.length > 1) {
+        const mid = Math.floor(stakeAddresses.length / 2);
+        const head = await accountInfoChunk(stakeAddresses.slice(0, mid));
+        const tail = await accountInfoChunk(stakeAddresses.slice(mid));
+        return [...head, ...tail];
+      }
+      throw err;
+    }
+  }
+
   // One fetch+parse for /committee_info, shared by the member and summary views
   // below so the two cannot drift on schema or error handling.
   async function committeeRow() {
@@ -566,6 +592,24 @@ export function createKoiosClient(opts: KoiosClientOptions) {
 
     async accountInfo(stakeAddress: string): Promise<AccountInfo | null> {
       return postSingleRow('/account_info', '_stake_addresses', stakeAddress, accountInfoSchema);
+    },
+
+    // Batch lookup for the daily delegation refresh: returns account status
+    // (incl. delegated_drep) for every address, fetched in sub-batches that
+    // respect Koios's /account_info POST body cap (see ACCOUNT_INFO_MAX and
+    // accountInfoChunk's 413 fallback). A successfully returned array is
+    // authoritative: an address absent from it has no account row (never
+    // registered), it is not a silent partial failure. A chunk that errors
+    // (after exhausting the 413 halving) throws, failing the whole batch
+    // rather than returning a partial result. Empty input short-circuits the
+    // round-trip.
+    async accountInfoBatch(stakeAddresses: string[]): Promise<AccountInfo[]> {
+      if (stakeAddresses.length === 0) return [];
+      const out: AccountInfo[] = [];
+      for (let i = 0; i < stakeAddresses.length; i += ACCOUNT_INFO_MAX) {
+        out.push(...(await accountInfoChunk(stakeAddresses.slice(i, i + ACCOUNT_INFO_MAX))));
+      }
+      return out;
     },
 
     async proposalsByReturnAddress(stakeAddress: string): Promise<Proposal[]> {
