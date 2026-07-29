@@ -14,18 +14,22 @@ export interface VoteInput {
   metaHash?: string | null;
   /** Unix seconds of the vote tx (Koios proposal_votes.block_time); null when unknown. */
   blockTime?: number | null;
+  /** Decisive voting power in lovelace (DRep/SPO); null for CC or when unresolved. */
+  votedPower?: number | null;
 }
 
 // Max rows per db.batch() call in upsertVotes. D1 caps bound params at 100 per
-// query; each INSERT binds 9 params (ga_id, voter_role, voter_id, voter_hex,
-// vote, meta_url, meta_hash, block_time, synced_at), so floor(100/9) = 11.
-const UPSERT_CHUNK = 11;
+// query; each INSERT binds 10 params (ga_id, voter_role, voter_id, voter_hex,
+// vote, meta_url, meta_hash, block_time, synced_at, voted_power), so floor(100/10) = 10.
+const UPSERT_CHUNK = 10;
 
 /**
- * Upserts on-chain votes for one governance action (INSERT OR REPLACE on the
- * (ga_id, voter_id) primary key), chunked. Rows a re-vote is about to replace
- * are archived into drep_vote_history first, so history preservation holds on
- * every vote-writing path. Returns the number of rows written.
+ * Upserts on-chain votes for one governance action, chunked. Rows a re-vote is
+ * about to replace are archived into drep_vote_history first. Uses ON CONFLICT so
+ * a missing voted_power (e.g. a DRep/pool not yet resolved) never nulls an already
+ * stored value: voted_power = COALESCE(new, existing). local_status / tx_hash are
+ * reset to NULL on the on-chain path (an on-chain row supersedes any optimistic one).
+ * Returns the number of rows written.
  */
 export async function upsertVotes(
   db: D1Database,
@@ -41,10 +45,21 @@ export async function upsertVotes(
     const stmts = chunk.map((v) =>
       db
         .prepare(
-          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, local_status, tx_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+          `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, voted_power, local_status, tx_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+           ON CONFLICT(ga_id, voter_id) DO UPDATE SET
+             voter_role = excluded.voter_role,
+             voter_hex  = excluded.voter_hex,
+             vote       = excluded.vote,
+             meta_url   = excluded.meta_url,
+             meta_hash  = excluded.meta_hash,
+             block_time = excluded.block_time,
+             synced_at  = excluded.synced_at,
+             voted_power = COALESCE(excluded.voted_power, drep_votes.voted_power),
+             local_status = NULL,
+             tx_hash = NULL`,
         )
-        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now),
+        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now, v.votedPower ?? null),
     );
     await db.batch(stmts);
   }
