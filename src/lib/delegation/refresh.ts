@@ -28,7 +28,11 @@ function outcomeFor(info: AccountInfo | null): ResolutionOutcome {
 const LOGIN_TIMEOUT_MS = 3000;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<T>((_, rej) => {
+    timer = setTimeout(() => rej(new Error('timeout')), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -46,14 +50,19 @@ export async function resolveFollow(
   now: number,
   opts?: { timeoutMs?: number },
 ): Promise<void> {
-  let outcome: ResolutionOutcome;
   try {
-    const info = await withTimeout(koios.accountInfo(stakeAddr), opts?.timeoutMs ?? LOGIN_TIMEOUT_MS);
-    outcome = outcomeFor(info);
+    let outcome: ResolutionOutcome;
+    try {
+      const info = await withTimeout(koios.accountInfo(stakeAddr), opts?.timeoutMs ?? LOGIN_TIMEOUT_MS);
+      outcome = outcomeFor(info);
+    } catch {
+      outcome = { status: 'error' };
+    }
+    await applyResolution(db, userId, outcome, now);
   } catch {
-    outcome = { status: 'error' };
+    // Never throw: a D1 write failure here must not fail the login. The row
+    // stays as-is (pending or its prior baseline); the cron retries later.
   }
-  await applyResolution(db, userId, outcome, now);
 }
 
 const BULK_DEFAULT_LIMIT = 200;
@@ -99,9 +108,15 @@ export async function refreshBulk(
   let resolved = 0, failed = 0, changed = 0;
   for (const [stakeAddr, userId] of byAddr) {
     const outcome = outcomeFor(infoByAddr.get(stakeAddr) ?? null); // absent = could not resolve, stays pending
-    const r = await applyResolution(db, userId, outcome, now);
-    if (r === 'error') failed++;
-    else { resolved++; if (r === 'changed') changed++; }
+    try {
+      const r = await applyResolution(db, userId, outcome, now);
+      if (r === 'error') failed++;
+      else { resolved++; if (r === 'changed') changed++; }
+    } catch {
+      // A per-row DB error must not abort the batch; count it failed and keep going
+      // so the remaining rows still get resolved and the returned counts stay meaningful.
+      failed++;
+    }
   }
   return { attempted: byAddr.size, resolved, failed, changed };
 }

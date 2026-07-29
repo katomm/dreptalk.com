@@ -45,6 +45,12 @@ describe('resolveFollow (fail-soft)', () => {
     await resolveFollow(db(), koios as never, 'r3', 'stake_test1r3', 1000);
     expect((await getFollow(db(), 'r3'))?.drep_id).toBe(VALID_DREP_A);
   });
+
+  it('never throws even when the D1 write inside applyResolution fails', async () => {
+    const koios = { accountInfo: async () => acct('stake_test1r4', VALID_DREP_A), accountInfoBatch: async () => [] };
+    const brokenDb = { prepare: () => { throw new Error('D1 write failed'); } };
+    await expect(resolveFollow(brokenDb as never, koios as never, 'r4', 'stake_test1r4', 1000)).resolves.toBeUndefined();
+  });
 });
 
 describe('refreshBulk', () => {
