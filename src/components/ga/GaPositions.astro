@@ -12,7 +12,7 @@ import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import type { Pool } from '@/lib/db/pools.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
-import { ensureLinkTarget } from '@/lib/markdown.js';
+import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
 
 interface Props {
@@ -158,7 +158,7 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
                     </svg>
                   </span>
                 </summary>
-                {bodyHtml && <div class="ga-positions__rationale-body" set:html={ensureLinkTarget(bodyHtml)} />}
+                {bodyHtml && <div class="ga-positions__rationale-body" set:html={enhanceStoredHtml(bodyHtml)} />}
                 {history.length > 0 && <EarlierVotes earlier={history} now={now} />}
               </details>
             ) : (

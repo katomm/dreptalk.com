@@ -288,6 +288,30 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
       });
     </script>
 
+    <script>
+      // One delegated copy-to-clipboard listener for every .copy-btn[data-copy]
+      // on the page: the SSR CopyButton (src/components/CopyButton.astro) and the
+      // gov action id chips injected into rationale HTML at display time
+      // (linkifyGovActionIds in src/lib/markdown.ts). Global here so a chip works
+      // even on pages that render no CopyButton of their own. Bundled once; the
+      // strict CSP forbids inline handlers. React CopyButton islands set their own
+      // onClick and carry no data-copy, so they are ignored.
+      document.addEventListener('click', (event) => {
+        const btn = (event.target as Element | null)?.closest<HTMLButtonElement>('.copy-btn[data-copy]');
+        const value = btn?.dataset.copy;
+        if (!btn || value == null) return;
+        navigator.clipboard
+          .writeText(value)
+          .then(() => {
+            btn.classList.add('is-copied');
+            setTimeout(() => btn.classList.remove('is-copied'), 1500);
+          })
+          .catch(() => {
+            // Clipboard can be blocked (no permission / insecure context); ignore.
+          });
+      });
+    </script>
+
     <style>
       /* Preprod testnet flag: a fixed pill shown only on the preprod deployment
          so the test network is unmistakable. Hidden on mainnet. */

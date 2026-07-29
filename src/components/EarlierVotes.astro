@@ -6,7 +6,7 @@
 // because two components render this markup.
 import VoteBadge from '@/components/VoteBadge.astro';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { ensureLinkTarget } from '@/lib/markdown.js';
+import { enhanceStoredHtml } from '@/lib/markdown.js';
 import type { SupersededVote } from '@/lib/db/voteHistory.js';
 
 interface Props {
@@ -25,7 +25,7 @@ const { earlier, now } = Astro.props;
         <span class="evotes__when">{formatRelativeTime(e.block_time * 1000, now)}</span>
         <span class="evotes__tag">Superseded</span>
       </p>
-      {e.body_html && <div class="evotes__body" set:html={ensureLinkTarget(e.body_html)} />}
+      {e.body_html && <div class="evotes__body" set:html={enhanceStoredHtml(e.body_html)} />}
     </div>
   ))}
 </div>
