@@ -255,7 +255,10 @@ async function verifyWalletCip8(
     // The tracking row exists synchronously; a stake-addr mismatch throws here
     // (internal inconsistency, surfaced as a 500), not fail-soft.
     await ensureFollow(db, user.id, stakeAddr, verifiedAt);
-    const result = mintSessionResult(input, user, null);
+    // Decision A: the delegator door always mints a member-capped session and
+    // never a drepId, regardless of the routed account's roles. Writer rights
+    // require the writer door, which revalidates on-chain.
+    const result = mintSessionResult(input, user, null, { roles: ['member'], drepId: null });
     // Resolve after minting: deferred via waitUntil when the runtime exposes it
     // (zero added login latency), else inline with the short-bounded fail-soft
     // resolver. Either way the login never fails on Koios.
@@ -419,10 +422,12 @@ async function mintSessionResult(
   input: VerifyInput,
   user: User,
   modRole: ModeratorRole | null,
+  opts?: { roles?: string[]; drepId?: string | null },
 ): Promise<VerifyResult> {
   const { sessionKv, now, secure } = input;
-  const roles = rolesFromUser(user, modRole);
-  const token = await createSession(sessionKv, { id: user.id, roles, drepId: user.drep_id }, { now });
+  const roles = opts?.roles ?? rolesFromUser(user, modRole);
+  const drepId = opts?.roles ? (opts.drepId ?? null) : user.drep_id;
+  const token = await createSession(sessionKv, { id: user.id, roles, drepId }, { now });
   return {
     status: 200,
     json: { ok: true, user: { id: user.id, roles } },

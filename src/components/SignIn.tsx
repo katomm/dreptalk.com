@@ -74,9 +74,13 @@ function friendlyLoginError(
     return 'We could not verify your signature. Please try signing again.';
   }
   if (e.includes('address type mismatch')) {
-    return role === 'drep'
-      ? 'This wallet did not sign as a DRep. Pick a wallet/account that has a DRep key (CIP-95) and keep the DRep role selected, or register as a DRep first.'
-      : 'This wallet did not sign with a reward address. Use the wallet that submitted the governance action and select the Proposer role.';
+    if (role === 'drep') {
+      return 'This wallet did not sign as a DRep. Pick a wallet/account that has a DRep key (CIP-95) and keep the DRep role selected, or register as a DRep first.';
+    }
+    if (role === 'delegator') {
+      return 'This wallet did not sign with a stake address. Pick the account whose stake key you want to track.';
+    }
+    return 'This wallet did not sign with a reward address. Use the wallet that submitted the governance action and select the Proposer role.';
   }
   if (e.includes('not an active drep')) {
     return 'This key is not a registered, active DRep on this network. Register as a DRep to take part.';

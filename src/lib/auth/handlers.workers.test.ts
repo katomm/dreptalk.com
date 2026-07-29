@@ -260,6 +260,53 @@ describe('handleVerify: delegator login tracks and resolves', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleVerify -- delegator login is always capped to member
+// ---------------------------------------------------------------------------
+
+// The stake address stakeVector's signature derives to (preprod), asserted
+// against stakeAddressFromPubKey in identity.test.ts.
+const DELEGATOR_STAKE_ADDR = 'stake_test1uqpqhw7q2jcutnwteqnvdgqkjulnaa5ym8wh70kcu3yvkugckkcgj';
+
+describe('handleVerify: delegator login caps to member', () => {
+  it('caps a delegator login to member even when it routes to a writer account', async () => {
+    // Seed a DRep account whose stake_addr is the delegator's stake address.
+    await env.DB.prepare(
+      `INSERT INTO users (id, drep_id, stake_addr, is_drep, role, status, created_at, last_verified_at, notif_seen_at)
+       VALUES ('drep1writerX', 'drep1writerX', ?, 1, 'member', 'active', 0, 0, 0)`,
+    ).bind(DELEGATOR_STAKE_ADDR).run();
+
+    const fixturePayload = stakeVector.payloadUtf8;
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll() as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+    expect(result.status).toBe(200);
+    const json = result.json as { user: { id: string; roles: string[] } };
+    expect(json.user.id).toBe('drep1writerX'); // routed to the writer account
+    expect(json.user.roles).toEqual(['member']); // but capped to member
+
+    // The session itself must carry no drepId either, not just the roles list
+    // in the response body.
+    const cookie = result.setCookie!;
+    const token = /dreptalk_session=([^;]+)/.exec(cookie)![1];
+    const session = await getSession(env.SESSIONS, token);
+    expect(session?.roles).toEqual(['member']);
+    expect(session?.drepId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleVerify -- happy path: DREP
 // ---------------------------------------------------------------------------
 
