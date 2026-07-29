@@ -72,7 +72,15 @@ const rows = bodies.map((b) => {
   const thr = thresholdPctFor(b.body);
   const t = liveThresholds?.find((x) => x.body === b.body) ?? null;
   const yes = b.composition?.yes ?? null;
-  const met = t ? t.met : thr == null || yes == null ? null : yes >= thr;
+  // From a frozen snapshot, the CC "Met" also honors the committee quorum gate
+  // (committee below its minimum size cannot ratify, regardless of the yes share).
+  const met = t
+    ? t.met
+    : thr == null || yes == null
+      ? null
+      : b.body === 'CC' && snapshot?.ccBelowMinSize
+        ? false
+        : yes >= thr;
   return {
     body: b.body,
     label: b.label,
@@ -157,12 +165,12 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
 
   {miniChart && (
     <a class="vtrend-teaser" href={trendHref} aria-label="See the full voting trend">
+      <span class="vtrend-teaser__title">Voting trend over time</span>
       <svg class="vtrend-teaser__svg" viewBox={`0 0 ${miniChart.width} ${miniChart.height}`} aria-hidden="true">
         {miniChart.series.map((s) => (
           <path class="vtrend-teaser__line" style={`color:${s.key === 'DRep' ? 'var(--accent)' : s.key === 'SPO' ? 'var(--c-pos)' : 'var(--c-cc)'}`} d={s.stepPath} vector-effect="non-scaling-stroke" />
         ))}
       </svg>
-      <span class="vtrend-teaser__label">Voting trend over time</span>
     </a>
   )}
 
@@ -294,9 +302,28 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     font-style: italic;
   }
 
-  .vtrend-teaser { display: block; margin-top: 0.75rem; text-decoration: none; color: var(--muted); }
+  /* Box the trend teaser like the per-body rows above it, so it reads as part of
+     the same list instead of a loose sparkline under them. */
+  .vtrend-teaser {
+    display: block;
+    margin-top: 0.625rem;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+    text-decoration: none;
+    color: var(--muted);
+    transition: border-color 0.12s;
+  }
+  .vtrend-teaser__title {
+    display: block;
+    font-weight: 700;
+    color: var(--fg);
+    font-size: 0.8125rem;
+    margin-bottom: 0.375rem;
+  }
   .vtrend-teaser__svg { display: block; width: 100%; height: auto; }
   .vtrend-teaser__line { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
-  .vtrend-teaser__label { display: inline-block; margin-top: 0.25rem; font-size: 0.75rem; }
-  .vtrend-teaser:hover .vtrend-teaser__label { color: var(--fg); text-decoration: underline; }
+  .vtrend-teaser:hover { border-color: var(--accent); }
+  .vtrend-teaser:hover .vtrend-teaser__title { text-decoration: underline; }
 </style>

@@ -677,8 +677,9 @@ export function createKoiosClient(opts: KoiosClientOptions) {
 
     // Latest epoch's protocol params; carries the CIP-1694 voting thresholds
     // (dvt_*/pvt_*) and committee_min_size. One row (limit 1, newest first).
-    async epochParams(): Promise<EpochParamsRow | null> {
-      const data = await request('/epoch_params?limit=1', { method: 'GET' });
+    async epochParams(epochNo?: number): Promise<EpochParamsRow | null> {
+      const path = epochNo != null ? `/epoch_params?_epoch_no=${epochNo}&limit=1` : '/epoch_params?limit=1';
+      const data = await request(path, { method: 'GET' });
       return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
     },
 

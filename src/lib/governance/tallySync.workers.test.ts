@@ -4,11 +4,13 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId, recordLocalVote, getViewerVote, upsertVotes } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes, backfillThresholdSnapshots } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory, getVotesNeedingMetaHash } from '../db/drepVotes.js';
-import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow } from '../koios/client.js';
+import { upsertProtocolParams, type ProtocolParams } from '../db/protocolParams.js';
+import { readThresholdSnapshot } from './thresholds.js';
+import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow, EpochParamsRow } from '../koios/client.js';
 import { epochStartMs, resolveNetwork } from '../config/network.js';
 
 const db = () => env.DB;
@@ -928,5 +930,101 @@ describe('getVotesNeedingMetaHash', () => {
     const ids = (await getVotesNeedingMetaHash(env.DB, 10)).map((v) => v.ga_id);
     expect(ids).not.toContain('gaActive');
     expect(ids).not.toContain('gaNoAnchor');
+  });
+});
+
+describe('backfillThresholdSnapshots', () => {
+  const params: ProtocolParams = {
+    epoch: 640,
+    dvtMotionNoConfidence: null, dvtCommitteeNormal: null, dvtCommitteeNoConfidence: null,
+    dvtUpdateConstitution: null, dvtHardFork: null, dvtPpNetwork: null, dvtPpEconomic: null,
+    dvtPpTechnical: null, dvtPpGov: null, dvtTreasuryWithdrawal: 0.67,
+    pvtMotionNoConfidence: null, pvtCommitteeNormal: null, pvtCommitteeNoConfidence: null,
+    pvtHardFork: null, pvtSecurityGroup: null, ccThreshold: 0.667,
+    committeeMinSize: 5, committeeSize: 6, syncedAt: NOW, rawJson: null,
+    treasuryLovelace: null, reservesLovelace: null, treasuryEpoch: null,
+  };
+
+  // Seeds a committee of `n` members all active at any epoch >= 500.
+  async function seedCommittee(n: number) {
+    await db().prepare('DELETE FROM committee_member').run();
+    for (let i = 0; i < n; i++) {
+      await db()
+        .prepare(
+          `INSERT INTO committee_member (cold_key_hex, version_from, version_to, term_expiration, authorized_from, resigned_at)
+           VALUES (?, 500, NULL, 999, 500, NULL)`,
+        )
+        .bind(`cold${i}`)
+        .run();
+    }
+  }
+
+  // Freezes an inserted action to a terminal status with a decided epoch and a cc yes pct.
+  async function terminal(decidedEpoch: number | null, expiryEpoch: number | null) {
+    const ga = await insertActive(expiryEpoch);
+    await db()
+      .prepare(`UPDATE governance_actions SET status = 'enacted', decided_epoch = ?, expiry_epoch = ?, cc_yes_pct = 80, drep_yes_pct = 90, thresholds_json = NULL WHERE id = ?`)
+      .bind(decidedEpoch, expiryEpoch, ga.id)
+      .run();
+    return ga;
+  }
+
+  function fakeKoios() {
+    const calls: (number | undefined)[] = [];
+    return {
+      calls,
+      async epochParams(epochNo?: number): Promise<EpochParamsRow | null> {
+        calls.push(epochNo);
+        return { epoch_no: epochNo ?? null, committee_min_size: epochNo === 600 ? 7 : 5 };
+      },
+    };
+  }
+
+  async function snapOf(topicId: string) {
+    const row = await db().prepare('SELECT thresholds_json FROM governance_actions WHERE topic_id = ?').bind(topicId).first<{ thresholds_json: string | null }>();
+    return readThresholdSnapshot(row?.thresholds_json ?? null);
+  }
+
+  it('freezes the cc quorum gate from the decision-epoch min size and the committee timeline', async () => {
+    await upsertProtocolParams(db(), params);
+    await seedCommittee(6); // 6 active members
+    const a1 = await terminal(600, 605); // min size 7 at epoch 600 -> 6 < 7 -> below min
+    const a2 = await terminal(600, 606); // same epoch -> epoch_params cached
+
+    const koios = fakeKoios();
+    const res = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
+    expect(res.actions).toBe(2);
+    expect(res.failed).toBe(0);
+
+    const s1 = await snapOf(a1.topicId);
+    expect(s1?.ccBelowMinSize).toBe(true);
+    expect(s1?.v).toBe(2);
+    expect(s1?.cc).toBeCloseTo(66.7, 0); // ccThreshold 0.667 -> ~66.7%
+    expect((await snapOf(a2.topicId))?.ccBelowMinSize).toBe(true);
+
+    // epoch_params fetched once for the shared epoch 600 (cached across both actions).
+    expect(koios.calls.filter((e) => e === 600)).toHaveLength(1);
+
+    // Fully drained: a second run finds nothing.
+    const second = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), limit: 10 });
+    expect(second.actions).toBe(0);
+  });
+
+  it('drains an action with no decision epoch, leaving the gate null', async () => {
+    await upsertProtocolParams(db(), params);
+    await seedCommittee(6);
+    const a = await terminal(null, null);
+    const res = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), limit: 10 });
+    expect(res.actions).toBe(1);
+    const s = await snapOf(a.topicId);
+    expect(s?.ccBelowMinSize).toBeNull();
+    expect(s?.v).toBe(2);
+  });
+
+  it('skips the run (drains nothing) when protocol params are not synced', async () => {
+    await seedCommittee(6);
+    await terminal(600, 605); // no upsertProtocolParams
+    const res = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), limit: 10 });
+    expect(res.actions).toBe(0);
   });
 });

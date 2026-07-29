@@ -338,8 +338,9 @@ const committee = trend?.[2] ?? { members: [], hotToCold: new Map() };
 let miniChart: TrendChart | null = null;
 if (govAction && (trendRows.length || ccVotes.length)) {
   const cfg = resolveNetwork(network);
-  const { window, inputs } = assembleTrendInputs({ action: govAction, trendRows, ccVotes, committee, cfg });
-  const series = computeVoteTrendSeries(inputs, window);
+  const { window, lineEnd, inputs } = assembleTrendInputs({ action: govAction, trendRows, ccVotes, committee, cfg, nowSec: Math.floor(now / 1000) });
+  // Line stops at the current epoch; the axis spans the full window (see VotingTrendChart).
+  const series = computeVoteTrendSeries(inputs, { start: window.start, end: lineEnd });
   miniChart = buildTrendChart(series, { width: 260, height: 56, padLeft: 2, padRight: 2, padTop: 4, padBottom: 4, domain: [window.start, window.end] });
 }
 const trendHref = topic ? `/t/${topic.slug}/?tab=history` : '';
@@ -562,7 +563,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />
             ) : tab === 'history' ? (
-              <GaHistory action={govAction} network={network} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} />
+              <GaHistory action={govAction} network={network} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} now={now} />
             ) : (
               <>
                 <div class="ga-overview-block">

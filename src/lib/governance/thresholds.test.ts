@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateThresholds, serializeThresholdSnapshot, readThresholdSnapshot } from './thresholds.js';
+import {
+  evaluateThresholds,
+  serializeThresholdSnapshot,
+  readThresholdSnapshot,
+  committeeBelowMinSize,
+  THRESHOLD_SNAPSHOT_VERSION,
+} from './thresholds.js';
 import type { BodyResult } from './thresholds.js';
 import type { ProtocolParams } from '../db/protocolParams.js';
 
@@ -89,17 +95,54 @@ describe('evaluateThresholds', () => {
 });
 
 describe('threshold snapshot', () => {
-  it('serializes per-body threshold pct and reads it back', () => {
+  it('serializes per-body threshold pct plus the cc quorum gate and reads it back', () => {
     const results: BodyResult[] = [
       { body: 'DRep', thresholdPct: 67, yesPct: 70, met: true },
       { body: 'CC', thresholdPct: 66.67, yesPct: 80, met: true },
     ];
-    const json = serializeThresholdSnapshot(results);
-    expect(readThresholdSnapshot(json)).toEqual({ drep: 67, spo: null, cc: 66.67 });
+    const json = serializeThresholdSnapshot(results, false);
+    expect(readThresholdSnapshot(json)).toEqual({
+      drep: 67,
+      spo: null,
+      cc: 66.67,
+      ccBelowMinSize: false,
+      v: THRESHOLD_SNAPSHOT_VERSION,
+    });
+  });
+
+  it('carries a true cc quorum gate through the round-trip', () => {
+    const json = serializeThresholdSnapshot([{ body: 'CC', thresholdPct: 66.67, yesPct: 80, met: false }], true);
+    const snap = readThresholdSnapshot(json);
+    expect(snap?.ccBelowMinSize).toBe(true);
+    expect(snap?.v).toBe(THRESHOLD_SNAPSHOT_VERSION);
+  });
+
+  it('reads a legacy v1 snapshot (no version, no gate) as ccBelowMinSize null and v 0', () => {
+    expect(readThresholdSnapshot('{"drep":67,"spo":null,"cc":66.67}')).toEqual({
+      drep: 67,
+      spo: null,
+      cc: 66.67,
+      ccBelowMinSize: null,
+      v: 0,
+    });
   });
 
   it('returns null for absent or malformed json', () => {
     expect(readThresholdSnapshot(null)).toBeNull();
     expect(readThresholdSnapshot('not json')).toBeNull();
+  });
+});
+
+describe('committeeBelowMinSize', () => {
+  it('is true when the active committee is under the minimum size', () => {
+    expect(committeeBelowMinSize(6, 7)).toBe(true);
+  });
+  it('is false when the committee meets or exceeds the minimum size', () => {
+    expect(committeeBelowMinSize(7, 7)).toBe(false);
+    expect(committeeBelowMinSize(9, 5)).toBe(false);
+  });
+  it('is null when either value is unknown', () => {
+    expect(committeeBelowMinSize(null, 7)).toBeNull();
+    expect(committeeBelowMinSize(6, null)).toBeNull();
   });
 });

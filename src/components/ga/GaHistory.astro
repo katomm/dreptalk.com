@@ -18,9 +18,11 @@ interface Props {
   ccVotes: CcVote[];
   committee: { members: CommitteeMemberTerm[]; hotToCold: Map<string, string> };
   params: ProtocolParams | null;
+  /** Render time in ms, so an active action's trend stops at now, not its future expiry. */
+  now: number;
 }
 
-const { action, network, trendRows, ccVotes, committee, params } = Astro.props;
+const { action, network, trendRows, ccVotes, committee, params, now } = Astro.props;
 
 const noData = action.submittedEpoch == null;
 
@@ -113,7 +115,7 @@ if (!noData) {
   )}
 </div>
 
-<VotingTrendChart action={action} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} network={network} />
+<VotingTrendChart action={action} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} network={network} now={now} />
 
 <style>
   .history-wrap {

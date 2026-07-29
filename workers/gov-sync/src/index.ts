@@ -58,7 +58,7 @@ import {
   backfillGovTopicTitles,
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
-import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillThresholdSnapshots, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
 import { backfillRationaleText } from '../../../src/lib/db/rationaleTextBackfill.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
@@ -179,6 +179,12 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     const backfill = await backfillVotedPower({ koios, db: env.DB, limit: 25 });
     console.log(`[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`);
     return { items: backfill.updated, failed: backfill.failed };
+  });
+
+  await phase('threshold-backfill', async () => {
+    const bf = await backfillThresholdSnapshots({ koios, db: env.DB, limit: 15, paceMs: 100 });
+    console.log(`[gov-threshold-backfill] actions=${bf.actions} failed=${bf.failed}`);
+    return { items: bf.actions, failed: bf.failed };
   });
 
   await phase('metadata', async () => {
