@@ -77,11 +77,11 @@ const initialDoNotList = drep?.doNotList ?? false;
   ) : (
     <section style="margin-top:1.75rem;">
       <p style="margin:0 0 0.75rem;font-size:0.9375rem;color:var(--muted);">
-        Signed in as
+        Signed in as{' '}
         <span
           style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"
           title={user.id}
-        >{truncateId(user.id, 28)}</span>
+        >{truncateId(user.id, 28)}</span>{' '}
         ({roleLabels(user.roles).join(', ')})
       </p>
       <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">

@@ -10,7 +10,7 @@ import Layout from '@/layouts/Layout.astro';
 import Avatar from '@/components/Avatar.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
-import { roleLabels } from '@/lib/auth/roles';
+import { roleLabels, isWriter } from '@/lib/auth/roles';
 import { runtimeEnv } from '@/lib/api/response';
 import { getSelfDrepId } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
@@ -92,6 +92,9 @@ const unvotedCount = votableRows.filter((r) => !r.viewerVote).length;
 // the synced row, not just a profile href derived from the session's drep_id.
 const profileHref = (account.drepId ? drep != null : true) ? authorProfileHref(account) : null;
 const rolesLabel = roleLabels(user.roles).join(', ');
+// Non-writers (delegators sign in as 'member') cannot post, flag or vote, so the
+// read-only surfaces are framed for following rather than participating.
+const canWrite = isWriter(user.roles);
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
 
@@ -125,7 +128,9 @@ const discussionsCard: HomeCard = {
   title: 'Discussions',
   href: '/discussions/',
   icon: icons.discussions,
-  desc: 'Browse the forum and join the conversation.',
+  desc: canWrite
+    ? 'Browse the forum and join the conversation.'
+    : 'Browse the forum and follow the conversation.',
   stat: activityLabel ?? undefined,
 };
 const featureDiscussions = Boolean(drep && powerSeries.length >= 2);
@@ -193,10 +198,22 @@ const cards: HomeCard[] = [
   <header class="home-head">
     <Avatar seed={account.identiconSeed ?? account.authorId} imageHash={account.imageHash ?? null} size={64} />
     <div class="home-head__text">
-      <h1 class="home-head__title">Welcome back, {account.displayName}</h1>
+      <h1 class="home-head__title">Welcome, {account.displayName}</h1>
       <p class="home-head__sub">Signed in as {rolesLabel}. Here is everything you can do.</p>
     </div>
   </header>
+
+  {!canWrite && (
+    <aside class="home-note">
+      <p class="home-note__text">
+        Delegator features are still being built out. For now you can follow
+        discussions and manage your notifications. Seeing how your DRep votes and
+        getting notified when it does is on the way, follow along or share ideas on
+        {' '}
+        <a class="home-note__link" href="https://github.com/katomm/dreptalk.com/issues/347" target="_blank" rel="noopener">GitHub</a>.
+      </p>
+    </aside>
+  )}
 
   {featureDiscussions && (
     <div class="home-featured">
@@ -283,6 +300,27 @@ const cards: HomeCard[] = [
     margin: 0.3rem 0 0;
     font-size: 0.9375rem;
     color: var(--muted);
+  }
+
+  /* Interim note for non-writers (delegators): the read-only surfaces work
+     today, the DRep-tracking surfaces are still being built. Removed once the
+     delegator dashboard lands. */
+  .home-note {
+    margin: 0 0 1.25rem;
+    padding: 0.85rem 1.1rem;
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+    border-radius: var(--radius);
+  }
+  .home-note__text {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .home-note__link {
+    color: var(--accent);
+    font-weight: 600;
   }
 
   /* Featured row: the power-trend card on the left, the highlighted
