@@ -54,6 +54,7 @@ if (notFound) {
         title={`${period.label} - Treasury - DRepTalk`}
         description={`Net Change Limit status for ${period.label}: consumed, remaining, and enacted treasury withdrawals.`}
         ogImage={`/og/treasury/${period.id}.png?v=${ogCardVersion([period.id, status.consumedLovelace, period.ceilingLovelace])}`}
+        wide
       >
         <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
           <a href="/">DRepTalk</a>

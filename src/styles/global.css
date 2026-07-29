@@ -273,9 +273,21 @@ button {
 }
 
 /* Reading-column width for single-column text pages; applied to main only so
-   the nav and footer keep their normal width. */
+   the nav and footer keep their normal width. On very large screens it grows a
+   little so long content (e.g. tables in a discussion) gets more room without
+   hurting prose line length on ordinary displays. */
 .container--reading {
   max-width: 46rem;
+}
+@media (min-width: 96rem) {
+  .container--reading {
+    max-width: 52rem;
+  }
+}
+@media (min-width: 120rem) {
+  .container--reading {
+    max-width: 58rem;
+  }
 }
 
 main.container {
