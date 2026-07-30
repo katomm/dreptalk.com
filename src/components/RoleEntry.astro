@@ -1,8 +1,9 @@
 ---
 // Role-aware sign-in control. Signed out, the primary action is a generic Sign
 // in (the role-agnostic /login that offers both the wallet and the signer flow)
-// and the chevron reveals every writer role as a direct shortcut (the menu
-// repeats the DRep entry so the list is complete). Signed in (Astro.locals.user is set by the middleware,
+// and the chevron reveals each sign-in role as a direct shortcut: the writer
+// roles plus Delegator (a read-only follow login), and the menu repeats the DRep
+// entry so the list is complete. Signed in (Astro.locals.user is set by the middleware,
 // the resolved identity arrives via the account prop), the pill shows the
 // account's avatar, name and role and opens the AccountMenu. Reading the forum
 // is public, this only gates who can post. SPO (Calidus key) and CC-member
@@ -26,15 +27,23 @@ const { layout = 'split', account = null } = Astro.props;
 
 const user = Astro.locals.user;
 
-// Sign-in entries for the on-chain writer roles, with their menu icons (24x24
-// stroke paths, rendered via set:html). The first doubles as the primary
-// button: the split menu highlights it, the flat (mobile) disclosure skips it
-// because the primary button sits directly above the list there.
+// Sign-in entries for the on-chain governance roles plus Delegator, with their
+// menu icons (24x24 stroke paths, rendered via set:html). The first doubles as
+// the primary button: the split menu highlights it, the flat (mobile) disclosure
+// skips it because the primary button sits directly above the list there.
 const signinRoles: { label: string; href: string; icon: string; register?: boolean }[] = [
   {
     label: 'Enter as DRep',
     href: '/login/',
     icon: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  },
+  // Delegator is a read-only follow login (no posting or voting): sign in with a
+  // stake wallet to track how your DRep votes. The eye icon marks the watch-only
+  // nature and sets it apart from the writer person/shield/building glyphs.
+  {
+    label: 'Enter as delegator',
+    href: '/login/?role=delegator',
+    icon: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
   },
   {
     label: 'Enter as SPO',
