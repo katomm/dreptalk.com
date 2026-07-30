@@ -289,7 +289,8 @@ export interface VoteCardModel {
   name: string;
   idShort: string | null;
   avatarDataUrl: string;
-  voteLabel: string;
+  /** Reads as a sentence after the name, e.g. "voted No" or "abstained". */
+  votePhrase: string;
   voteColor: string;
   actionTitle: string;
   rationaleExcerpt: string;
@@ -299,13 +300,15 @@ export interface VoteCardModel {
 export function voteCardModel(v: VoteCardInput, opts: { avatarDataUrl: string }): VoteCardModel {
   const hasName = !!v.name?.trim();
   const idShort = truncateIdMiddle(v.voterId);
-  const { label, tone } = voteDisplay(v.vote);
+  const { tone } = voteDisplay(v.vote);
   const voteColor = tone === 'yes' ? TALLY.yes : tone === 'no' ? TALLY.no : MUTED;
+  // Phrased to follow the name as a sentence: "<Name> voted No".
+  const votePhrase = v.vote === 'Yes' ? 'voted Yes' : v.vote === 'No' ? 'voted No' : v.vote === 'Abstain' ? 'abstained' : 'voted';
   return {
     name: hasName ? clamp(v.name as string, 40) : idShort,
     idShort: hasName ? idShort : null,
     avatarDataUrl: opts.avatarDataUrl,
-    voteLabel: label,
+    votePhrase,
     voteColor,
     actionTitle: clamp(v.actionTitle, 90),
     rationaleExcerpt: clamp(v.rationaleText, 200),

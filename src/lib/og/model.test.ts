@@ -268,7 +268,7 @@ describe('voteCardModel', () => {
       { name: 'Maya Okafor', voterId: 'drep1abc', vote: 'No', rationaleText: 'x'.repeat(300), actionTitle: 'Fund Core Infra', role: 'DRep' },
       { avatarDataUrl: 'data:,' },
     );
-    expect(m.voteLabel).toBe('VOTED NO');
+    expect(m.votePhrase).toBe('voted No');
     expect(m.voteColor).toBe(TALLY.no);
     expect(m.rationaleExcerpt.endsWith('…')).toBe(true);
     expect(m.roleLabel).toBe('DRep');
