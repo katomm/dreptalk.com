@@ -1,0 +1,102 @@
+---
+// Shareable page for a single SPO's vote and rationale on one governance
+// action: /spos/<poolId>/vote/<action-slug>/. Mirrors the DRep vote route.
+export const prerender = false;
+
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import VoteStatement from '@/components/VoteStatement.astro';
+import { currentNetwork } from '@/lib/api/response';
+import { getPoolByIdOrSlug } from '@/lib/db/pools.js';
+import { getTopicBySlug } from '@/lib/db/forum.js';
+import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
+import { getVoteStatement } from '@/lib/db/voteRationale.js';
+import { getSupersededVotesFor } from '@/lib/db/voteHistory.js';
+import { getUserByPoolId } from '@/lib/db/users.js';
+import { poolPath, isCanonicalPoolParam, poolDisplayName } from '@/lib/pools/profile.js';
+import { isVoteStatementIndexable } from '@/lib/governance/voteStatement.js';
+import { describeAuthor } from '@/lib/forum/author.js';
+import { excerptFromHtml } from '@/lib/forum/view.js';
+
+const db = env.DB as D1Database | undefined;
+const { poolId, action } = Astro.params;
+
+const pool = poolId && db ? await getPoolByIdOrSlug(db, poolId) : null;
+
+// Same canonical-URL rule as the profile page: an id request redirects to the slug.
+if (pool && poolId && !isCanonicalPoolParam(pool, poolId)) {
+  return Astro.redirect(`${poolPath(pool)}vote/${action}/`, 301);
+}
+
+if (!pool) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+const topic = action && db ? await getTopicBySlug(db, action) : null;
+const govAction = topic && db ? await getGovernanceActionByTopicId(db, topic.id) : null;
+if (pool && (!topic || !govAction)) {
+  Astro.response.status = 404;
+}
+
+const vote = pool && govAction && db
+  ? await getVoteStatement(db, { gaId: govAction.id, voterId: pool.poolId, role: 'SPO' })
+  : null;
+
+// The voter and action both exist but there is no shareable vote here (no
+// on-chain rationale yet): send the visitor to the position row instead.
+if (pool && govAction && topic && !vote) {
+  return Astro.redirect(`/t/${topic.slug}/?tab=positions&role=spo#voter-${pool.poolId}`, 302);
+}
+
+const ready = !!(pool && db && topic && govAction && vote);
+const now = Date.now();
+const earlier = ready ? await getSupersededVotesFor(db!, pool!.poolId, govAction!.id) : [];
+const actionTitle = ready ? (govAction!.title ?? topic!.title) : '';
+const displayName = pool ? poolDisplayName(pool) : '';
+const hasMetadata = !!(pool?.name || pool?.ticker || pool?.description);
+const pending = vote?.localStatus === 'pending';
+// Pending votes are optimistic and not yet chain-confirmed, so they never get
+// indexed regardless of rationale quality.
+const indexable = ready && !pending && isVoteStatementIndexable({ hasMetadata, rationaleText: vote!.bodyText });
+const poolUser = ready && db ? await getUserByPoolId(db, pool!.poolId) : null;
+// describeAuthor is a pure lookup over its maps; keying them by poolId (rather
+// than the user id it is normally keyed by) still resolves correctly because
+// the resolver only ever looks up the id it was given.
+const author = ready
+  ? describeAuthor(
+      pool!.poolId,
+      new Map(poolUser ? [[pool!.poolId, poolUser]] : []),
+      new Map(),
+      new Map([[pool!.poolId, pool!]]),
+    )
+  : null;
+const ogImage = ready ? `/og/vote/spo/${pool!.slug ?? pool!.poolId}/${topic!.slug}.png` : '/og.jpg';
+---
+{ready ? (
+  <Layout
+    title={`How ${displayName} voted on ${actionTitle}`}
+    description={excerptFromHtml(vote!.rationaleHtml, 160)}
+    ogImage={ogImage}
+    noindex={!indexable}
+  >
+    <VoteStatement
+      author={author!}
+      roleLabel="SPO"
+      isPool={true}
+      pending={pending}
+      vote={vote!.vote}
+      votingPower={vote!.votingPower}
+      actionTitle={actionTitle}
+      actionHref={`/t/${topic!.slug}/`}
+      rationaleHtml={vote!.rationaleHtml}
+      earlier={earlier}
+      delegateTarget={null}
+      delegateNetwork={currentNetwork().network}
+      now={now}
+    />
+  </Layout>
+) : (
+  <NotFound noun={pool ? 'governance action' : 'stake pool'} />
+)}
