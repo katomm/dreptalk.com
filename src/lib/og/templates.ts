@@ -15,6 +15,7 @@ import type {
   MoverRow,
   MoversCardModel,
   TreasuryCardModel,
+  VoteCardModel,
 } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
@@ -264,4 +265,35 @@ export function discussionCardHtml(m: DiscussionCardModel): string {
     : '';
   const titleBlock = `<div style="display:flex;flex-direction:column;">${title(m.title)}${subtitle}</div>`;
   return cardShell(m.accent, m.category, `${titleBlock}${footer}`);
+}
+
+export function voteCardHtml(m: VoteCardModel): string {
+  const idLine = m.idShort
+    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${SUBTLE};margin-top:8px;">${esc(m.idShort)}</div>`
+    : '';
+  const rationale = m.rationaleExcerpt
+    ? `<div style="display:flex;align-items:flex-start;margin-top:24px;max-width:1010px;">
+        <div style="display:flex;font-size:110px;font-weight:800;color:${tint(BRAND_ACCENT)};line-height:0.8;margin-right:18px;">“</div>
+        <div style="display:flex;font-size:26px;font-weight:500;color:${MUTED};line-height:1.4;padding-top:14px;">${esc(m.rationaleExcerpt)}</div>
+      </div>`
+    : '';
+  // Same grammar as drepCardHtml (identity + avatar, then a bottom block), but the
+  // block is offset from the top and given generous internal gaps so the name sits
+  // lower and the action title has room to breathe. The headline reads as a
+  // sentence, "<Name> voted No", with the vote part coloured.
+  const body = `<div style="display:flex;flex-direction:column;flex:1;padding-top:104px;">
+      <div style="display:flex;align-items:center;">
+        <div style="display:flex;flex-direction:column;flex:1;padding-right:32px;">
+          <div style="display:flex;flex-wrap:wrap;align-items:baseline;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;">
+            <div style="display:flex;">${esc(m.name)}</div>
+            <div style="display:flex;color:${m.voteColor};margin-left:18px;">${esc(m.votePhrase)}</div>
+          </div>
+          ${idLine}
+          <div style="display:flex;font-size:40px;font-weight:800;line-height:1.2;margin-top:44px;">${esc(m.actionTitle)}</div>
+        </div>
+        <img src="${m.avatarDataUrl}" width="160" height="160" style="border-radius:80px;" />
+      </div>
+      ${rationale}
+    </div>`;
+  return cardShell(BRAND_ACCENT, m.roleLabel, body);
 }

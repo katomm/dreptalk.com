@@ -7,9 +7,10 @@ import {
   helpCardModel,
   type MoverInput,
   moversCardModel,
+  voteCardModel,
 } from './model.js';
 import { moversCardHtml } from './templates.js';
-import { accentForType, BRAND_ACCENT } from './theme.js';
+import { accentForType, BRAND_ACCENT, TALLY } from './theme.js';
 
 const baseAction: GovCardInput = {
   type: 'TreasuryWithdrawals',
@@ -258,5 +259,18 @@ describe('moversCardModel', () => {
     expect(html).toContain('NEDSCAVE.IO');
     // Every flex container satori needs is declared; no bare multi-child div slipped in.
     expect(html).not.toMatch(/<div (?![^>]*display:flex)[^>]*>\s*</);
+  });
+});
+
+describe('voteCardModel', () => {
+  it('maps vote to a coloured label and clamps the excerpt', () => {
+    const m = voteCardModel(
+      { name: 'Maya Okafor', voterId: 'drep1abc', vote: 'No', rationaleText: 'x'.repeat(300), actionTitle: 'Fund Core Infra', role: 'DRep' },
+      { avatarDataUrl: 'data:,' },
+    );
+    expect(m.votePhrase).toBe('voted No');
+    expect(m.voteColor).toBe(TALLY.no);
+    expect(m.rationaleExcerpt.endsWith('…')).toBe(true);
+    expect(m.roleLabel).toBe('DRep');
   });
 });

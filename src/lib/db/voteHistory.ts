@@ -218,3 +218,15 @@ export function getVoterVoteHistory(db: D1Database, voterId: string): Promise<Ma
 export function getActionVoteHistory(db: D1Database, gaId: string): Promise<Map<string, SupersededVote[]>> {
   return groupedHistory(db, 'ga_id', gaId, (r) => r.voter_id);
 }
+
+/** Superseded votes of one voter on one action, newest first. */
+export async function getSupersededVotesFor(db: D1Database, voterId: string, gaId: string): Promise<SupersededVote[]> {
+  const rows = await db
+    .prepare(
+      `SELECT ga_id, voter_id, voter_role, vote, block_time, body_html
+       FROM drep_vote_history WHERE voter_id = ? AND ga_id = ? ORDER BY block_time DESC`,
+    )
+    .bind(voterId, gaId)
+    .all<SupersededVote>();
+  return rows.results ?? [];
+}

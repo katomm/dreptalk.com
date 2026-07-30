@@ -9,6 +9,7 @@
 // global.css (.vhist__*) so this row and the page's header row share one grid
 // definition.
 import EarlierVotes from '@/components/EarlierVotes.astro';
+import ShareVoteButton from '@/components/ShareVoteButton.astro';
 import type { DrepVoteHistoryRow } from '@/lib/db/drepVotes.js';
 import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import { statusBadge } from '@/lib/governance/view.js';
@@ -20,14 +21,36 @@ interface Props {
   now: number;
   /** Superseded votes on this action (newest first); empty when the vote never changed. */
   earlier?: SupersededVote[];
+  /**
+   * Absolute canonical URL of the profile this row sits on. When given, the row
+   * gets a stable #vote-<gaId> anchor and a copy-link button, so a single vote
+   * can be shared and deep-linked. Omitted on shared read-only lists (index,
+   * vote page) where the id would not be unique to this profile.
+   */
+  permalinkBase?: string | null;
+  /** True when the signed-in viewer is the DRep/SPO this profile belongs to. */
+  isOwner?: boolean;
 }
-const { row, now, earlier = [] } = Astro.props;
+const { row, now, earlier = [], permalinkBase = null, isOwner = false } = Astro.props;
+
+// Deep-link anchor and share URL for this vote, only in a profile context. A
+// gov action id is "<txHash>#<index>"; the "#" would start a second URL fragment,
+// so it is swapped for "_" to keep the share link a single clean anchor.
+const anchorId = permalinkBase ? `vote-${row.ga_id.replace(/#/g, '_')}` : undefined;
 
 const kind = row.vote === 'Yes' ? 'yes' : row.vote === 'No' ? 'no' : 'abstain';
 const badge = statusBadge(row.status);
 const when = row.block_time != null ? formatRelativeTime(row.block_time * 1000, now) : null;
 const label = row.title ?? row.ga_id;
 const rationaleHtml = row.rationale_html || null;
+
+// When the vote carries a rationale, share the dedicated vote page instead of
+// the in-profile anchor, so the copied link stands alone off-site.
+const shareUrl = !permalinkBase
+  ? null
+  : rationaleHtml && row.topic_slug
+    ? `${permalinkBase}vote/${row.topic_slug}/`
+    : anchorId ? `${permalinkBase}#${anchorId}` : null;
 const expandable = Boolean(rationaleHtml) || earlier.length > 0;
 // Chip names the most recently superseded vote; the expansion carries the rest.
 // A re-vote that kept the same choice (new rationale) says "revoted", since
@@ -44,13 +67,21 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
 {
   ((cells) =>
     expandable ? (
-      <details class="vhist__details">
+      <details class="vhist__details" id={anchorId}>
         <summary class="vhist__row vhist__row--expandable">{cells}</summary>
+        {shareUrl && (
+          <div class="vote-share">
+            <ShareVoteButton
+              url={shareUrl}
+              label={isOwner && rationaleHtml && row.topic_slug ? 'Share your rationale' : 'Copy link to this vote'}
+            />
+          </div>
+        )}
         {rationaleHtml && <div class="vhist__rationale" set:html={enhanceStoredHtml(rationaleHtml)} />}
         {earlier.length > 0 && <EarlierVotes earlier={earlier} now={now} />}
       </details>
     ) : (
-      <div class="vhist__row">{cells}</div>
+      <div class="vhist__row" id={anchorId}>{cells}</div>
     ))(
     <>
       <span class={`vhist__vote vhist__vote--${kind}`}>

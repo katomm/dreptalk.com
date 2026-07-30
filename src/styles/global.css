@@ -861,6 +861,8 @@ main.container {
 
 .vhist__action { min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .vhist__title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Deep-linked vote rows scroll clear of the sticky header. */
+.vhist__details, .vhist__row { scroll-margin-top: 5rem; }
 .vhist__epoch { font-size: 0.8125rem; color: var(--muted); }
 .vhist__badge {
   display: inline-block;
@@ -1176,6 +1178,73 @@ main.container {
 @media (prefers-reduced-motion: reduce) {
   .copy-btn.is-copied,
   .copy-btn.is-copied .copy-btn__check {
+    animation: none;
+  }
+}
+
+/* Per-vote permalink control (ShareVoteButton), shown at the end of an expanded
+   rationale. A labelled pill (link icon + text) that is always visible once the
+   row is open, not a hover-only affordance. It reuses .copy-btn for the delegated
+   click and the copy/check icon swap, overriding the square-icon sizing to fit
+   the label. */
+.vote-share {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.35rem 0 0.55rem;
+}
+.copy-btn.share-vote {
+  width: auto;
+  height: auto;
+  gap: 0.3em;
+  margin: 0;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  vertical-align: baseline;
+}
+.copy-btn.share-vote:hover {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.share-vote__done {
+  display: none;
+}
+/* On a successful copy the label flips to "Copied" alongside the check icon; the
+   .copy-btn pulse (a scale bounce) is dropped here so the wider pill does not jump. */
+.copy-btn.share-vote.is-copied {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: none;
+}
+.copy-btn.share-vote.is-copied .share-vote__idle {
+  display: none;
+}
+.copy-btn.share-vote.is-copied .share-vote__done {
+  display: inline;
+}
+
+/* Highlight flash for a deep-linked row (reveal-hash-target in Layout.astro adds
+   .is-share-target). A brief accent wash fades out so the shared item is obvious
+   on arrival without leaving a permanent marker. */
+.is-share-target {
+  animation: share-target-flash 2.4s ease-out;
+  border-radius: 0.35rem;
+}
+@keyframes share-target-flash {
+  0%,
+  12% {
+    background-color: color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-share-target {
     animation: none;
   }
 }

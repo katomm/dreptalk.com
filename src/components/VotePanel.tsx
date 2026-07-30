@@ -29,13 +29,14 @@ type Phase =
   | { status: 'checking'; identity: DRepIdentity }
   | { status: 'form'; identity: DRepIdentity }
   | { status: 'submitting'; identity: DRepIdentity }
-  | { status: 'success'; txHash: string }
+  | { status: 'success'; txHash: string; recorded: boolean; drepId: string }
   | { status: 'error'; message: string; identity?: DRepIdentity };
 
 export interface VotePanelProps {
   gaId: string;
   network: CardanoNetwork;
   initialViewerVote: ViewerVoteRow | null;
+  topicSlug: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,7 @@ export interface VotePanelProps {
 export interface SubmitVoteDeps {
   hostRationale: (args: { gaId: string; drepId: string; rationale: string; origin: string }) => Promise<{ url: string; hash: string }>;
   castVote: (opts: CastDRepVoteOpts) => Promise<{ txHash: string }>;
-  recordVote: (args: { gaId: string; vote: VoteChoice; txHash: string; rationaleUrl?: string; rationaleText?: string; crossPost?: boolean }) => Promise<void>;
+  recordVote: (args: { gaId: string; vote: VoteChoice; txHash: string; rationaleUrl?: string; rationaleText?: string; crossPost?: boolean }) => Promise<boolean>;
   /** Called immediately after rationale is hosted, before the wallet sign prompt. */
   onRationaleHosted?: (anchor: { url: string; hash: string }) => void;
 }
@@ -67,7 +68,7 @@ export async function submitVote(
     origin: string;
     walletApi?: TxWalletApi;
   },
-): Promise<{ txHash: string }> {
+): Promise<{ txHash: string; recorded: boolean }> {
   const hasRationale = args.rationaleText.trim().length > 0;
   let anchor: { url: string; hash: string } | undefined;
   if (hasRationale) {
@@ -91,9 +92,12 @@ export async function submitVote(
   });
   // Recording is non-fatal BY CONTRACT: at this point the vote is already on
   // chain, so a failed optimistic record (HTTP error or thrown timeout) must
-  // never surface as a submit error; the periodic sync heals it.
+  // never surface as a submit error; the periodic sync heals it. `recorded`
+  // stays false when the record call throws, so the caller can gate
+  // follow-up UI (e.g. the share-rationale link) on it.
+  let recorded = false;
   try {
-    await deps.recordVote({
+    recorded = await deps.recordVote({
       gaId: args.gaId,
       vote: args.vote,
       txHash,
@@ -104,7 +108,7 @@ export async function submitVote(
   } catch (err) {
     console.warn('[VotePanel] recording the vote failed (the vote is on chain)', err);
   }
-  return { txHash };
+  return { txHash, recorded };
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +210,7 @@ function AnchorInfo({
   );
 }
 
-export default function VotePanel({ gaId, network, initialViewerVote }: VotePanelProps) {
+export default function VotePanel({ gaId, network, initialViewerVote, topicSlug }: VotePanelProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
 
@@ -312,12 +316,12 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
         return (await loadDrepTxModule()).castDRepVote(opts);
       },
       async recordVote(rec) {
-        await postVoteRecord(rec, 'VotePanel');
+        return postVoteRecord(rec, 'VotePanel');
       },
     };
 
     try {
-      const { txHash } = await submitVote(realDeps, {
+      const { txHash, recorded } = await submitVote(realDeps, {
         gaId,
         vote,
         rationaleText,
@@ -331,7 +335,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
       // The vote is on chain: drop the draft eagerly so a crash right after
       // success cannot resurrect the already-submitted rationale.
       writeDraft(draftKey, null);
-      setPhase({ status: 'success', txHash });
+      setPhase({ status: 'success', txHash, recorded, drepId: identity.drepId });
     } catch (err) {
       const msg = expiredActionMessage(err) ?? readableError(err);
       setPhase({ status: 'error', message: msg, identity });
@@ -372,6 +376,16 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
               Your vote will appear on-chain once the transaction is confirmed.
             </p>
+            {rationaleAnchor && phase.recorded && phase.drepId && (
+              <p style={{ margin: '0.5rem 0 0' }}>
+                <a href={`/dreps/${phase.drepId}/vote/${topicSlug}/`}>Share your rationale</a>
+              </p>
+            )}
+            {rationaleAnchor && !phase.recorded && (
+              <p style={{ margin: '0.5rem 0 0', color: 'var(--muted)' }}>
+                Your shareable rationale link will be available after the next sync.
+              </p>
+            )}
             {rationaleAnchor && (
               <AnchorInfo anchor={rationaleAnchor} copied={anchorCopied} onCopy={() => {
                 void navigator.clipboard.writeText(rationaleAnchor.url).then(() => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { upsertVotes } from './drepVotes.js';
 import { upsertActionRationale } from './actionRationale.js';
-import { archiveSupersededVotes, getVoterVoteHistory, getActionVoteHistory } from './voteHistory.js';
+import { archiveSupersededVotes, getVoterVoteHistory, getActionVoteHistory, getSupersededVotesFor } from './voteHistory.js';
 
 async function seedVote(gaId: string, voterId: string, vote: string, metaUrl: string | null, blockTime: number | null) {
   await upsertVotes(env.DB, gaId, [{ voterRole: 'DRep', voterId, voterHex: null, vote, metaUrl, metaHash: metaUrl ? 'cc'.repeat(32) : null, blockTime }], 1000);
@@ -117,5 +117,20 @@ describe('archiveSupersededVotes', () => {
     const rows = map.get('drep1f') ?? [];
     expect(rows.map((r) => r.block_time)).toEqual([200, 100]);
     expect(rows.map((r) => r.vote)).toEqual(['Abstain', 'No']);
+  });
+});
+
+describe('getSupersededVotesFor', () => {
+  it('returns only that voter+action, newest first', async () => {
+    for (const [ga, voter, vote, t] of [
+      ['ga1', 'drepA', 'No', 100], ['ga1', 'drepA', 'Yes', 200], ['ga1', 'drepB', 'No', 150], ['ga2', 'drepA', 'No', 50],
+    ] as const) {
+      await env.DB.prepare(
+        `INSERT INTO drep_vote_history (ga_id, voter_id, voter_role, vote, block_time, body_html, superseded_at)
+         VALUES (?, ?, 'DRep', ?, ?, NULL, 1000)`,
+      ).bind(ga, voter, vote, t).run();
+    }
+    const rows = await getSupersededVotesFor(env.DB, 'drepA', 'ga1');
+    expect(rows.map((r) => r.vote)).toEqual(['Yes', 'No']);
   });
 });

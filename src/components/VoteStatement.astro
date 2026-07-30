@@ -1,0 +1,95 @@
+---
+// Shared body for the shareable vote page: identity + vote, an optional pending
+// banner, the rationale, a delegate call-to-action (DReps), and a link back to
+// the governance action.
+import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import VoteBadge from '@/components/VoteBadge.astro';
+import EarlierVotes from '@/components/EarlierVotes.astro';
+import DelegateButton from '@/components/DelegateButton.tsx';
+import { enhanceStoredHtml } from '@/lib/markdown.js';
+import { formatAdaCompact } from '@/lib/forum/view.js';
+import type { CardanoNetwork } from '@/lib/config/network.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
+import type { SupersededVote } from '@/lib/db/voteHistory.js';
+import type { Target } from '@/components/DelegateDialog.js';
+
+interface Props {
+  author: AuthorDescriptor;
+  roleLabel: 'DRep' | 'SPO';
+  isPool: boolean;
+  pending: boolean;
+  vote: string;
+  votingPower: string | null;
+  actionTitle: string;
+  actionHref: string;
+  rationaleHtml: string;
+  earlier: SupersededVote[];
+  delegateTarget: Target | null;
+  delegateNetwork: CardanoNetwork;
+  now: number;
+}
+const p = Astro.props as Props;
+const power = p.votingPower ? formatAdaCompact(p.votingPower) : null;
+// Matches the 96px hero avatar size used on the DRep and SPO profile headers
+// (src/pages/dreps/[drepId].astro, src/pages/spos/[poolId].astro); there is no
+// AVATAR_SIZE bucket for it, so it stays hard-coded here too.
+const HERO_AVATAR_SIZE = 96;
+
+// The back link targets this voter's own position row on the action, so the
+// reveal-hash-target script auto-expands the rationale there: the reader lands
+// on the action and immediately sees this rationale exists in context.
+const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=spo' : ''}#voter-${p.author.authorId}`;
+---
+<article class="vstmt">
+  {p.pending && (
+    <p class="vstmt__pending" role="status">Awaiting on-chain confirmation. This vote is not final yet.</p>
+  )}
+  <header class="vstmt__head">
+    <AuthorIdentity author={p.author} size={HERO_AVATAR_SIZE} kind={p.isPool ? 'pool' : undefined} />
+    <p class="vstmt__role">{p.roleLabel}</p>
+    <div class="vstmt__vote">
+      <VoteBadge vote={p.vote} />
+      {power && <span class="vstmt__power">{power}</span>}
+    </div>
+  </header>
+
+  <h1 class="vstmt__title">How {p.author.displayName} voted on <a href={p.actionHref}>{p.actionTitle}</a></h1>
+
+  <div class="vstmt__quote">
+    <div class="vstmt__rationale" set:html={enhanceStoredHtml(p.rationaleHtml)} />
+  </div>
+  {p.earlier.length > 0 && <EarlierVotes earlier={p.earlier} now={p.now} />}
+
+  <div class="vstmt__actions">
+    {p.delegateTarget && (
+      <DelegateButton client:idle network={p.delegateNetwork} target={p.delegateTarget} />
+    )}
+    <a class="btn btn-secondary" href={backHref}>Back to action</a>
+  </div>
+</article>
+
+<style>
+  .vstmt { max-width: 44rem; margin: 0 auto; }
+  .vstmt__pending { border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.6rem 0.9rem; color: var(--muted); font-size: 0.875rem; margin: 0 0 1rem; }
+  .vstmt__head { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+  .vstmt__role { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0; }
+  .vstmt__vote { display: flex; align-items: center; gap: 0.75rem; }
+  .vstmt__power { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .vstmt__title { font-size: 1.6rem; line-height: 1.25; margin: 1.25rem 0 1rem; }
+  /* Pull-quote treatment: a large accent quotation mark hangs at the top left,
+     the rationale indented past it. Mirrors the vote preview card. */
+  .vstmt__quote { position: relative; padding-left: 2.75rem; }
+  .vstmt__quote::before {
+    content: "\201C";
+    position: absolute;
+    left: -0.25rem;
+    top: -0.85rem;
+    font-size: 4.5rem;
+    line-height: 1;
+    font-weight: 800;
+    color: color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  .vstmt__rationale { font-size: 1rem; line-height: 1.7; color: var(--text); }
+  .vstmt__rationale :global(p) { margin: 0 0 0.9rem; }
+  .vstmt__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1.75rem; }
+</style>

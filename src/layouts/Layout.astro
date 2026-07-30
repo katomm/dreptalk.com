@@ -312,6 +312,48 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
       });
     </script>
 
+    <script>
+      // Deep-link a single item (a shared vote+rationale link, #voter-<id> on the
+      // Positions tab or #vote-<gaId> on a profile). The browser's native hash
+      // scroll cannot open a collapsed <details> row, so on load and on hashchange
+      // we expand the target and every <details> around it (a row's own expansion
+      // plus any "show more" fold), scroll it into view, and flash a highlight.
+      function revealHashTarget() {
+        const raw = location.hash.slice(1);
+        if (!raw) return;
+        let id: string;
+        try {
+          id = decodeURIComponent(raw);
+        } catch {
+          id = raw;
+        }
+        const el = document.getElementById(id);
+        if (!el) return;
+        // Open the target if it is a <details>, plus every ancestor <details>.
+        for (let node: Element | null = el; node; node = node.parentElement) {
+          if (node instanceof HTMLDetailsElement) node.open = true;
+        }
+        // Open the row's own expansion when the anchor sits on a wrapper (the
+        // Positions tab puts the id on the <li>, the <details> is its child).
+        for (const d of el.querySelectorAll('details')) d.open = true;
+        // Expand first, then scroll, so the final position accounts for the row
+        // having opened. scroll-margin-top on the targets keeps it clear of the
+        // sticky header.
+        el.scrollIntoView({ block: 'start' });
+        el.classList.remove('is-share-target');
+        // Force a reflow so re-adding the class restarts the flash animation when
+        // the same link is followed twice in a row.
+        void (el as HTMLElement).offsetWidth;
+        el.classList.add('is-share-target');
+      }
+      addEventListener('hashchange', revealHashTarget);
+      if (document.readyState === 'loading') {
+        addEventListener('DOMContentLoaded', revealHashTarget);
+      } else {
+        revealHashTarget();
+      }
+    </script>
+
     <style>
       /* Preprod testnet flag: a fixed pill shown only on the preprod deployment
          so the test network is unmistakable. Hidden on mainnet. */
