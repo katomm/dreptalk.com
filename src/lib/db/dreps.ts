@@ -6,6 +6,73 @@
 import { sqlPlaceholders } from './sql.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { computeVotingPowerDelta } from '../dreps/votingPowerTrend.js';
+import { buildJobInsert } from './fanoutJobs.js';
+
+export type EffectiveDrepStatus = 'active' | 'inactive';
+
+/**
+ * Normalizes a DRep's on-chain state to the two effective states the delegator
+ * status-change notification is keyed on. Derived from the `active` boolean, not
+ * the raw Koios status string, so any active <-> inactive flip fires exactly one
+ * event regardless of how the raw status is spelled.
+ */
+export function effectiveDrepStatus(active: boolean): EffectiveDrepStatus {
+  return active ? 'active' : 'inactive';
+}
+
+export interface DrepStatusFanoutOptions {
+  /**
+   * When present, the set of DRep ids that have at least one follower to notify.
+   * Passing it turns on delegator fan-out: when a followed DRep's effective status
+   * (active/inactive) changes, a delegator_drep_status_changed job is inserted in
+   * the SAME batch as its status write, so job creation is atomic with the write.
+   * Omit it (most sync callers do) to write status without emitting any events.
+   */
+  followedDrepIds?: Set<string>;
+}
+
+// Max drep ids per old-state SELECT in deactivateDreps. D1 caps bound params at
+// 100 per query; the IN clause binds one id each, so 100 ids fit exactly.
+const OLD_STATE_CHUNK = 100;
+
+/**
+ * Builds the status-change fan-out job INSERT for a followed DRep whose effective
+ * state changed, or null when no job is due (same effective state). Never executes:
+ * the caller drops it into the same batch as the status write, so the outbox row
+ * commits atomically with the write it fans out from. lastSyncedAt is unix
+ * milliseconds; source_time / created_at are seconds.
+ */
+function buildDrepStatusJob(
+  db: D1Database,
+  args: {
+    drepId: string;
+    oldActive: boolean;
+    oldStatus: string;
+    newActive: boolean;
+    newStatus: string;
+    lastSyncedAt: number;
+  },
+): D1PreparedStatement | null {
+  const fromEff = effectiveDrepStatus(args.oldActive);
+  const toEff = effectiveDrepStatus(args.newActive);
+  if (fromEff === toEff) return null;
+
+  const sourceTime = Math.floor(args.lastSyncedAt / 1000);
+  const payload = JSON.stringify({
+    sourceTime,
+    drepId: args.drepId,
+    from: { effective: fromEff, status: args.oldStatus },
+    to: { effective: toEff, status: args.newStatus },
+  });
+  return buildJobInsert(db, {
+    eventKey: `drep-status:${args.drepId}:${fromEff}:${toEff}:${sourceTime}`,
+    eventType: 'delegator_drep_status_changed',
+    subjectId: args.drepId,
+    sourceTime,
+    payload,
+    createdAt: sourceTime,
+  });
+}
 
 export interface Drep {
   drepId: string;
@@ -463,9 +530,10 @@ export async function deactivateDreps(
     expiresEpochNo: number | null;
     lastSyncedAt: number;
   }[],
+  opts?: DrepStatusFanoutOptions,
 ): Promise<number> {
   if (rows.length === 0) return 0;
-  const stmts = rows.map((r) =>
+  const updateStmts = rows.map((r) =>
     db
       .prepare(
         `UPDATE dreps SET status = ?, active = 0, voting_power = ?, deposit = ?,
@@ -474,56 +542,85 @@ export async function deactivateDreps(
       )
       .bind(r.status, r.votingPower, r.deposit, r.expiresEpochNo, r.lastSyncedAt, r.drepId),
   );
-  await db.batch(stmts);
+
+  // Fan-out jobs for followed rows whose effective state actually changes. The new
+  // state is always inactive here, so a job is due only for a followed row that was
+  // active before. Old states are loaded for all followed rows in one batched SELECT
+  // per chunk (not one per DRep), and every job lands in the same batch as the
+  // UPDATEs so status and job commit atomically.
+  const jobStmts: D1PreparedStatement[] = [];
+  const followed = opts?.followedDrepIds;
+  if (followed && followed.size > 0) {
+    const followedRows = rows.filter((r) => followed.has(r.drepId));
+    if (followedRows.length > 0) {
+      const oldById = new Map<string, { active: number; status: string }>();
+      for (let i = 0; i < followedRows.length; i += OLD_STATE_CHUNK) {
+        const ids = followedRows.slice(i, i + OLD_STATE_CHUNK).map((r) => r.drepId);
+        const res = await db
+          .prepare(`SELECT drep_id, active, status FROM dreps WHERE drep_id IN (${sqlPlaceholders(ids)})`)
+          .bind(...ids)
+          .all<{ drep_id: string; active: number; status: string }>();
+        for (const row of res.results ?? []) oldById.set(row.drep_id, { active: row.active, status: row.status });
+      }
+      for (const r of followedRows) {
+        const old = oldById.get(r.drepId);
+        if (!old) continue; // No prior row: a first-seen id has no transition.
+        const jobStmt = buildDrepStatusJob(db, {
+          drepId: r.drepId,
+          oldActive: old.active === 1,
+          oldStatus: old.status,
+          newActive: false,
+          newStatus: r.status,
+          lastSyncedAt: r.lastSyncedAt,
+        });
+        if (jobStmt) jobStmts.push(jobStmt);
+      }
+    }
+  }
+
+  await db.batch([...updateStmts, ...jobStmts]);
   return rows.length;
 }
 
-/**
- * Inserts or updates a drep row in place (upsert keyed on drep_id).
- * Deliberately NOT INSERT OR REPLACE: REPLACE is DELETE+INSERT, which would
- * reassign the rowid and fire the dreps FTS delete/insert triggers on every
- * sync write. ON CONFLICT DO UPDATE keeps the row identity stable so the
- * WHEN-guarded FTS trigger only fires when name/bio actually change.
- * Booleans are stored as 0/1; links array is JSON-serialized or null.
- * created_at is pinned to the existing row on update: creation time is immutable at the DB layer.
- */
-export async function upsertDrep(
-  db: D1Database,
-  args: {
-    drepId: string;
-    hex: string | null;
-    hasScript: boolean;
-    status: string;
-    active: boolean;
-    deposit: string | null;
-    votingPower: string | null;
-    expiresEpochNo: number | null;
-    // Chain-sync-owned (from /drep_info's live_delegator_count); optional so the
-    // many callers that do not touch delegator data can omit them.
-    delegatorCount?: number | null;
-    delegatorCountSyncedAt?: number | null;
-    name: string | null;
-    bio: string | null;
-    imageUrl: string | null;
-    imageContentHash: string | null;
-    imageStoredUrl: string | null;
-    imageFetchFailedAt: number | null;
-    links: { label: string; uri: string }[] | null;
-    motivations: string | null;
-    qualifications: string | null;
-    paymentAddress: string | null;
-    doNotList: boolean;
-    anchorUrl: string | null;
-    anchorHash: string | null;
-    anchorStatus: string;
-    profileExtractVersion: number;
-    lastSyncedAt: number;
-    createdAt: number;
-  },
-): Promise<void> {
+/** Column values for a drep upsert (see upsertDrep for the write semantics). */
+export interface UpsertDrepArgs {
+  drepId: string;
+  hex: string | null;
+  hasScript: boolean;
+  status: string;
+  active: boolean;
+  deposit: string | null;
+  votingPower: string | null;
+  expiresEpochNo: number | null;
+  // Chain-sync-owned (from /drep_info's live_delegator_count); optional so the
+  // many callers that do not touch delegator data can omit them.
+  delegatorCount?: number | null;
+  delegatorCountSyncedAt?: number | null;
+  name: string | null;
+  bio: string | null;
+  imageUrl: string | null;
+  imageContentHash: string | null;
+  imageStoredUrl: string | null;
+  imageFetchFailedAt: number | null;
+  links: { label: string; uri: string }[] | null;
+  motivations: string | null;
+  qualifications: string | null;
+  paymentAddress: string | null;
+  doNotList: boolean;
+  anchorUrl: string | null;
+  anchorHash: string | null;
+  anchorStatus: string;
+  profileExtractVersion: number;
+  lastSyncedAt: number;
+  createdAt: number;
+}
+
+/** The single ON CONFLICT DO UPDATE upsert for one drep row, as a prepared (not
+ *  executed) statement so it can be run alone or dropped into a db.batch. */
+function buildDrepUpsertStatement(db: D1Database, args: UpsertDrepArgs): D1PreparedStatement {
   const linksJson = args.links != null ? JSON.stringify(args.links) : null;
 
-  await db
+  return db
     .prepare(
       `INSERT INTO dreps
          (drep_id, hex, has_script, status, active, deposit, voting_power,
@@ -590,8 +687,60 @@ export async function upsertDrep(
       args.profileExtractVersion,
       args.lastSyncedAt,
       args.createdAt,
-    )
-    .run();
+    );
+}
+
+/**
+ * Inserts or updates a drep row in place (upsert keyed on drep_id).
+ * Deliberately NOT INSERT OR REPLACE: REPLACE is DELETE+INSERT, which would
+ * reassign the rowid and fire the dreps FTS delete/insert triggers on every
+ * sync write. ON CONFLICT DO UPDATE keeps the row identity stable so the
+ * WHEN-guarded FTS trigger only fires when name/bio actually change.
+ * Booleans are stored as 0/1; links array is JSON-serialized or null.
+ * created_at is pinned to the existing row on update: creation time is immutable at the DB layer.
+ *
+ * When opts.followedDrepIds contains this drep and its effective status
+ * (active/inactive) changes from the stored row, a delegator_drep_status_changed
+ * fan-out job is committed in the SAME batch as the upsert. The old-state SELECT
+ * and the batch only happen for a followed drep; every other write keeps the
+ * single-statement fast path.
+ */
+export async function upsertDrep(
+  db: D1Database,
+  args: UpsertDrepArgs,
+  opts?: DrepStatusFanoutOptions,
+): Promise<void> {
+  const upsertStmt = buildDrepUpsertStatement(db, args);
+
+  // Fast path: no fan-out work for an unfollowed drep. One prepared statement,
+  // one round-trip, exactly as before this feature.
+  const followed = opts?.followedDrepIds;
+  if (followed?.has(args.drepId)) {
+    // Read the OLD row's effective state (only for a followed drep). A missing row
+    // is a first creation, which is not a transition, so it emits no job.
+    const old = await db
+      .prepare('SELECT active, status FROM dreps WHERE drep_id = ?')
+      .bind(args.drepId)
+      .first<{ active: number; status: string }>();
+    if (old) {
+      const jobStmt = buildDrepStatusJob(db, {
+        drepId: args.drepId,
+        oldActive: old.active === 1,
+        oldStatus: old.status,
+        newActive: args.active,
+        newStatus: args.status,
+        lastSyncedAt: args.lastSyncedAt,
+      });
+      if (jobStmt) {
+        // Effective state changed: commit the upsert and the job in one batch so
+        // the outbox row is atomic with the status write it fans out from.
+        await db.batch([upsertStmt, jobStmt]);
+        return;
+      }
+    }
+  }
+
+  await upsertStmt.run();
 }
 
 export interface DrepAvatarSourceRow {
