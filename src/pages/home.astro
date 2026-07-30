@@ -8,16 +8,18 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import Avatar from '@/components/Avatar.astro';
-import Callout from '@/components/Callout.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
+import MyDelegation from '@/components/MyDelegation.astro';
 import { roleLabels, isWriter } from '@/lib/auth/roles';
-import { runtimeEnv } from '@/lib/api/response';
+import { runtimeEnv, currentNetwork } from '@/lib/api/response';
+import { resolveNetwork } from '@/lib/config/network';
 import { getSelfDrepId } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
 import { getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation } from '@/lib/db/drepVotes';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory';
+import { loadDelegation } from '@/lib/db/loadDelegation';
 import { getMostRepliedRecentTopic } from '@/lib/db/forum';
 import { countRecentlyActiveAuthors, listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive';
 import { authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author';
@@ -33,6 +35,9 @@ if (!user) {
 
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
+// Resolved once for the delegation dashboard's open-actions countdown, same
+// pattern /vote/ uses.
+const network = resolveNetwork(currentNetwork().network);
 
 // The DRep-only cards (voting dashboard, on-chain metadata status) key off a
 // synced drep_id; getSelfDrepId itself returns null for non-DRep sessions.
@@ -50,7 +55,7 @@ const drep = drepId && db ? await getDrepById(db, drepId) : null;
 const nowMs = Date.now();
 const ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const HOT_TOPIC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const [[account, unreadCount], votableRows, recentIds, activeCount, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries] =
+const [[account, unreadCount], votableRows, recentIds, activeCount, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData] =
   await Promise.all([
     loadSessionHeader(Astro.locals, user.id),
     drepId && db ? getVotableActionsForViewer(db, drepId) : [],
@@ -61,6 +66,9 @@ const [[account, unreadCount], votableRows, recentIds, activeCount, hotTopic, vo
     drep && db ? getDrepRationaleStats(db, drep.drepId) : { total: 0, without: 0, withRationale: 0 },
     drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : null,
     drep && db ? getDrepVotingPowerSeries(db, drep.drepId) : [],
+    db
+      ? loadDelegation(db, user.id)
+      : { view: { kind: 'no-follow' as const }, drep: null, history: [], earlier: new Map(), openActions: [] },
   ]);
 
 // Same "N DReps and M SPOs active recently" line the discussions page shows,
@@ -204,15 +212,9 @@ const cards: HomeCard[] = [
     </div>
   </header>
 
-  {!canWrite && (
+  {(delegationData.view.kind !== 'no-follow' || !canWrite) && (
     <div class="home-note">
-      <Callout variant="info">
-        Delegator features are still being built out. For now you can follow
-        discussions and manage your notifications. Seeing how your DRep votes and
-        getting notified when it does is on the way, follow along or share ideas on
-        {' '}
-        <a href="https://github.com/katomm/dreptalk.com/issues/347" target="_blank" rel="noopener">GitHub</a>.
-      </Callout>
+      <MyDelegation data={delegationData} now={nowMs} network={network} />
     </div>
   )}
 
@@ -303,9 +305,8 @@ const cards: HomeCard[] = [
     color: var(--muted);
   }
 
-  /* Interim note for non-writers (delegators), reusing the shared Callout look;
-     only the outer spacing is page-specific. Removed once the delegator
-     dashboard lands. */
+  /* Wrapper spacing for the delegation dashboard block; MyDelegation owns its
+     own internal layout. */
   .home-note {
     margin: 0 0 1.25rem;
   }
