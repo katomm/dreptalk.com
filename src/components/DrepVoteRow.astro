@@ -46,7 +46,7 @@ const rationaleHtml = row.rationale_html || null;
 // the in-profile anchor, so the copied link stands alone off-site.
 const shareUrl = !permalinkBase
   ? null
-  : rationaleHtml
+  : rationaleHtml && row.topic_slug
     ? `${permalinkBase}vote/${row.topic_slug}/`
     : anchorId ? `${permalinkBase}#${anchorId}` : null;
 const expandable = Boolean(rationaleHtml) || earlier.length > 0;
