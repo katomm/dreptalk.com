@@ -35,13 +35,20 @@ const { row, now, earlier = [], permalinkBase = null } = Astro.props;
 // gov action id is "<txHash>#<index>"; the "#" would start a second URL fragment,
 // so it is swapped for "_" to keep the share link a single clean anchor.
 const anchorId = permalinkBase ? `vote-${row.ga_id.replace(/#/g, '_')}` : undefined;
-const shareUrl = anchorId ? `${permalinkBase}#${anchorId}` : null;
 
 const kind = row.vote === 'Yes' ? 'yes' : row.vote === 'No' ? 'no' : 'abstain';
 const badge = statusBadge(row.status);
 const when = row.block_time != null ? formatRelativeTime(row.block_time * 1000, now) : null;
 const label = row.title ?? row.ga_id;
 const rationaleHtml = row.rationale_html || null;
+
+// When the vote carries a rationale, share the dedicated vote page instead of
+// the in-profile anchor, so the copied link stands alone off-site.
+const shareUrl = !permalinkBase
+  ? null
+  : rationaleHtml
+    ? `${permalinkBase}vote/${row.topic_slug}/`
+    : anchorId ? `${permalinkBase}#${anchorId}` : null;
 const expandable = Boolean(rationaleHtml) || earlier.length > 0;
 // Chip names the most recently superseded vote; the expansion carries the rest.
 // A re-vote that kept the same choice (new rationale) says "revoted", since

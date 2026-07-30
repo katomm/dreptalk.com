@@ -15,6 +15,7 @@ import type { Pool } from '@/lib/db/pools.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
+import { voteStatementPath } from '@/lib/governance/voteStatement.js';
 
 interface Props {
   voters: ActionVoterRow[];
@@ -131,6 +132,15 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
         const late = notCounted.has(v.voter_id);
         const history = voteHistory.get(v.voter_id) ?? [];
         const expandable = Boolean(bodyHtml) || history.length > 0;
+        // When a rationale exists, share the dedicated vote page keyed by the
+        // canonical slug (falling back to the raw id when unassigned) instead
+        // of the in-page anchor, so the copied link stands alone off-site.
+        const voterKey = role === 'spo'
+          ? (pools.get(v.voter_id)?.slug ?? v.voter_id)
+          : (dreps.get(v.voter_id)?.slug ?? v.voter_id);
+        const voteShareUrl = bodyHtml
+          ? `${shareOrigin}${voteStatementPath(role, voterKey, slug)}`
+          : `${shareBase}#voter-${v.voter_id}`;
         // Identity, vote, and power render identically whether or not the row
         // expands; the power slot is always present (empty when unknown) so the
         // amount column lines up across every row. A late vote (cast after
@@ -165,7 +175,7 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
                     </svg>
                   </span>
                 </summary>
-                <div class="vote-share"><ShareVoteButton url={`${shareBase}#voter-${v.voter_id}`} /></div>
+                <div class="vote-share"><ShareVoteButton url={voteShareUrl} /></div>
                 {bodyHtml && <div class="ga-positions__rationale-body" set:html={enhanceStoredHtml(bodyHtml)} />}
                 {history.length > 0 && <EarlierVotes earlier={history} now={now} />}
               </details>
