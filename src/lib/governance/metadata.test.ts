@@ -52,6 +52,29 @@ describe('fetchAnchorMetadata', () => {
     expect(res.metadata).toBeNull();
   });
 
+  it('accepts a whitespace-only reserialization mismatch (tool hashed pretty, served minified)', async () => {
+    // cgov.io / Mesh hashDrepAnchor hash JSON.stringify(doc, null, 2) but the
+    // file served at the URL is minified. Same document, different bytes: the
+    // raw-byte hash misses, but re-serializing to the pretty form matches.
+    const servedMinified = jsonOf(doc);
+    const onchainHash = hashOf(JSON.stringify(doc, null, 2));
+    expect(hashOf(servedMinified)).not.toBe(onchainHash); // precondition: bytes differ
+    const res = await fetchAnchorMetadata('https://example.com/m.json', onchainHash, {
+      fetchImpl: async () => resp(servedMinified),
+    });
+    expect(res.status).toBe('ok');
+    expect(res.metadata?.title).toBe('Treasury Withdrawal');
+  });
+
+  it('still rejects a genuine content mismatch (no reserialization matches)', async () => {
+    // The served document is not the one that was hashed, in any formatting.
+    const res = await fetchAnchorMetadata('https://example.com/m.json', hashOf(jsonOf(mdDoc)), {
+      fetchImpl: async () => resp(jsonOf(doc)),
+    });
+    expect(res.status).toBe('hash-mismatch');
+    expect(res.metadata).toBeNull();
+  });
+
   it('rejects unsupported URL schemes without fetching', async () => {
     let called = false;
     const res = await fetchAnchorMetadata('file:///etc/passwd', 'aa', {

@@ -400,19 +400,41 @@ export async function fetchAnchorDoc(
   }
 
   // Mandatory integrity check: the document must hash to the on-chain anchor hash.
-  const actualHash = bytesToHex(blake2b256(bytes));
-  if (actualHash.toLowerCase() !== anchorHash.trim().toLowerCase()) {
-    return { status: 'hash-mismatch', doc: null };
-  }
+  const want = anchorHash.trim().toLowerCase();
+  const rawMatches = bytesToHex(blake2b256(bytes)).toLowerCase() === want;
 
   let doc: unknown;
   try {
     doc = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    return { status: 'parse-failed', doc: null };
+    // Non-JSON body: only the raw bytes can be verified.
+    return rawMatches ? { status: 'parse-failed', doc: null } : { status: 'hash-mismatch', doc: null };
   }
 
+  // Some anchoring tools (e.g. cgov.io) hash a pretty-printed serialization of the
+  // JSON but publish the minified bytes (or the reverse). The document is then
+  // byte-identical to the anchored one except for insignificant JSON whitespace,
+  // so the raw-byte hash misses while the content is genuinely the committed one.
+  // Re-serialize the parsed document in the common canonical forms and accept it
+  // only if one of them hashes to the on-chain anchor. This keeps the guarantee
+  // intact: we still require an exact blake2b-256 match against the authoritative
+  // hash, so a different document can never pass; we merely tolerate reformatting.
+  const verified = rawMatches || matchesReserialized(doc, want);
+  if (!verified) return { status: 'hash-mismatch', doc: null };
+
   return { status: 'ok', doc };
+}
+
+// Whether any canonical re-serialization of `doc` hashes to the wanted anchor
+// hash. Covers minified and 2-/4-space pretty printing, the forms real anchoring
+// tools emit; JSON.stringify preserves key insertion order from the parse, so a
+// whitespace-only reformat round-trips to the exact anchored bytes.
+function matchesReserialized(doc: unknown, want: string): boolean {
+  const enc = new TextEncoder();
+  for (const serialized of [JSON.stringify(doc), JSON.stringify(doc, null, 2), JSON.stringify(doc, null, 4)]) {
+    if (serialized && bytesToHex(blake2b256(enc.encode(serialized))).toLowerCase() === want) return true;
+  }
+  return false;
 }
 
 /**
