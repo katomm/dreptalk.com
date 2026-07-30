@@ -13,10 +13,9 @@ import { getTopicBySlug } from '@/lib/db/forum.js';
 import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
 import { getVoteStatement } from '@/lib/db/voteRationale.js';
 import { getSupersededVotesFor } from '@/lib/db/voteHistory.js';
-import { getUserByPoolId } from '@/lib/db/users.js';
 import { poolPath, isCanonicalPoolParam, poolDisplayName } from '@/lib/pools/profile.js';
 import { isVoteStatementIndexable } from '@/lib/governance/voteStatement.js';
-import { describeAuthor } from '@/lib/forum/author.js';
+import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import { excerptFromHtml } from '@/lib/forum/view.js';
 
 const db = env.DB as D1Database | undefined;
@@ -38,6 +37,7 @@ const topic = action && db ? await getTopicBySlug(db, action) : null;
 const govAction = topic && db ? await getGovernanceActionByTopicId(db, topic.id) : null;
 if (pool && (!topic || !govAction)) {
   Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
 const vote = pool && govAction && db
@@ -60,17 +60,23 @@ const pending = vote?.localStatus === 'pending';
 // Pending votes are optimistic and not yet chain-confirmed, so they never get
 // indexed regardless of rationale quality.
 const indexable = ready && !pending && isVoteStatementIndexable({ hasMetadata, rationaleText: vote!.bodyText });
-const poolUser = ready && db ? await getUserByPoolId(db, pool!.poolId) : null;
-// describeAuthor is a pure lookup over its maps; keying them by poolId (rather
-// than the user id it is normally keyed by) still resolves correctly because
-// the resolver only ever looks up the id it was given.
-const author = ready
-  ? describeAuthor(
-      pool!.poolId,
-      new Map(poolUser ? [[pool!.poolId, poolUser]] : []),
-      new Map(),
-      new Map([[pool!.poolId, pool!]]),
-    )
+// Built straight from the chain-synced pool row, not through a users-table
+// lookup: most operators never log into DRepTalk, so a users-row-dependent
+// resolver would show a truncated id and a generic identicon for the common
+// case even though the on-chain name/avatar are right there on `pool`. No
+// poolDescriptor helper exists (unlike drepDescriptor), so this mirrors the
+// pool branch of voterDescriptor in src/lib/forum/author.ts.
+const author: AuthorDescriptor | null = ready
+  ? {
+      authorId: pool!.poolId,
+      displayName,
+      poolId: pool!.poolId,
+      poolSlug: pool!.slug,
+      imageHash: pool!.imageContentHash,
+      identiconSeed: pool!.poolHash ?? pool!.poolId,
+      badges: [],
+      isSystem: false,
+    }
   : null;
 const ogImage = ready ? `/og/vote/spo/${pool!.slug ?? pool!.poolId}/${topic!.slug}.png` : '/og.jpg';
 ---
