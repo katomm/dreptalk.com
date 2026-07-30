@@ -19,7 +19,7 @@ import { getDrepById } from '@/lib/db/dreps';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
 import { getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation } from '@/lib/db/drepVotes';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory';
-import { loadDelegation } from '@/lib/db/loadDelegation';
+import { loadDelegation, NO_FOLLOW_DELEGATION } from '@/lib/db/loadDelegation';
 import { getMostRepliedRecentTopic } from '@/lib/db/forum';
 import { countRecentlyActiveAuthors, listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive';
 import { authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author';
@@ -68,7 +68,7 @@ const [[account, unreadCount], votableRows, recentIds, activeCount, hotTopic, vo
     drep && db ? getDrepVotingPowerSeries(db, drep.drepId) : [],
     db
       ? loadDelegation(db, user.id)
-      : { view: { kind: 'no-follow' as const }, drep: null, history: [], earlier: new Map(), openActions: [] },
+      : NO_FOLLOW_DELEGATION,
   ]);
 
 // Same "N DReps and M SPOs active recently" line the discussions page shows,

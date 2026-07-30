@@ -52,7 +52,7 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
           </div>
         </div>
       ) : (
-        <div class="mydel-card mydel-card--minimal">
+        <div class="mydel-card">
           <div class="mydel-card__main">
             <span class="mydel-card__name">{truncateId(view.drepId, 24)}</span>
             <p class="mydel-card__note">This DRep ID is not currently actively registered.</p>
@@ -104,10 +104,6 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
           </ul>
         </section>
       )}
-
-      <p class="mydel__notif">
-        You will be notified when your DRep votes. <a href="/notifications/">Manage notifications</a>
-      </p>
     </div>
   )
 }
@@ -131,18 +127,13 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
 }
 
 {
-  view.kind === 'none' && (
+  (view.kind === 'none' || view.kind === 'no-follow') && (
     <div class="mydel-onboarding">
-      <p>You are not delegated to a DRep yet.</p>
-      <a href="/dreps/">Discover DReps</a>
-    </div>
-  )
-}
-
-{
-  view.kind === 'no-follow' && (
-    <div class="mydel-onboarding">
-      <p>Delegation tracking has not been set up yet. Sign in again to retry.</p>
+      <p>
+        {view.kind === 'none'
+          ? 'You are not delegated to a DRep yet.'
+          : 'Delegation tracking has not been set up yet. Sign in again to retry.'}
+      </p>
       <a href="/dreps/">Discover DReps</a>
     </div>
   )
@@ -168,9 +159,6 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-  }
-  .mydel-card--minimal {
-    align-items: flex-start;
   }
   .mydel-card__main {
     display: flex;
@@ -271,12 +259,6 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
   }
   .mydel-open__countdown {
     flex-shrink: 0;
-    font-size: 0.8125rem;
-    color: var(--muted);
-  }
-
-  .mydel__notif {
-    margin-top: 1.25rem;
     font-size: 0.8125rem;
     color: var(--muted);
   }

@@ -18,7 +18,7 @@ const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 const network = currentNetwork().network;
 
-const drepId = db && user.roles.includes('drep') ? await getSelfDrepId(db, user) : null;
+const drepId = db ? await getSelfDrepId(db, user) : null;
 if (!drepId) {
   return Astro.redirect('/settings/account/');
 }

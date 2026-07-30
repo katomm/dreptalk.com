@@ -25,7 +25,7 @@ const db = env.DB as D1Database | undefined;
 const network = currentNetwork().network;
 
 // DRep status gates the Profile/Danger tabs in the shell.
-const drepId = db && user.roles.includes('drep') ? await getSelfDrepId(db, user) : null;
+const drepId = db ? await getSelfDrepId(db, user) : null;
 
 // "Link your stake wallet" is writer-only. Prefetch any existing link/track
 // state so the island opens straight into the right view.

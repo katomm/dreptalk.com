@@ -18,7 +18,7 @@ const db = env.DB as D1Database | undefined;
 // A DRep defaults to the Profile tab; everyone else to Account. The check lives
 // in an if-condition (not the redirect expression) so this template-less page
 // has no "unused variable" hint on the trailing return.
-const isDrep = !!(db && user.roles.includes('drep') && (await getSelfDrepId(db, user)));
+const isDrep = !!(db && (await getSelfDrepId(db, user)));
 if (isDrep) {
   return Astro.redirect('/settings/profile/');
 }

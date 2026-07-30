@@ -19,7 +19,7 @@ const tabs = isDrep
   ? ([
       { id: 'profile', label: 'Profile', href: '/settings/profile/' },
       { id: 'account', label: 'Account', href: '/settings/account/' },
-      { id: 'danger', label: 'Danger Zone', href: '/settings/danger/', danger: true },
+      { id: 'danger', label: 'Danger Zone', href: '/settings/danger/' },
     ] as const)
   : [];
 ---
@@ -40,7 +40,7 @@ const tabs = isDrep
     <nav class="settings-tabbar" aria-label="Settings sections">
       {tabs.map((tab) => (
         <a
-          class={`settings-tabbar__tab${active === tab.id ? ' settings-tabbar__tab--active' : ''}${'danger' in tab && tab.danger ? ' settings-tabbar__tab--danger' : ''}`}
+          class={`settings-tabbar__tab${active === tab.id ? ' settings-tabbar__tab--active' : ''}${tab.id === 'danger' ? ' settings-tabbar__tab--danger' : ''}`}
           href={tab.href}
           aria-current={active === tab.id ? 'page' : undefined}
         >

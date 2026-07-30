@@ -32,6 +32,9 @@ const EMPTY: Pick<DelegationData, 'drep' | 'history' | 'earlier' | 'openActions'
   openActions: [],
 };
 
+/** Default view when there is no DB handle (defensive fallback for callers like home.astro). */
+export const NO_FOLLOW_DELEGATION: DelegationData = { view: { kind: 'no-follow' }, ...EMPTY };
+
 /**
  * Resolves the follow, and for a drep-follow loads the steckbrief + history +
  * superseded map + open actions in parallel. Non-drep states (abstain,
