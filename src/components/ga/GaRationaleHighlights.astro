@@ -8,11 +8,13 @@
 // votes are already filtered out by getRationaleHighlights.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
+import ShareVoteButton from '@/components/ShareVoteButton.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
 import { excerptFromHtml, htmlToText } from '@/lib/forum/view.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
+import { voteStatementPath } from '@/lib/governance/voteStatement.js';
 import type { RationaleHighlight } from '@/lib/db/actionRationale.js';
 import type { Drep } from '@/lib/db/dreps.js';
 
@@ -27,6 +29,8 @@ interface Props {
 const { highlights, dreps, slug, totalRationales } = Astro.props;
 
 const positionsHref = `/t/${slug}/?tab=positions`;
+// Absolute base for the per-vote share link (the highlights are always DReps).
+const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
 // Long enough to convey the DRep's reasoning, short enough to stay a highlight.
 // A rationale whose plain text fits this shows in full without an expand toggle.
 const EXCERPT_LEN = 260;
@@ -46,6 +50,8 @@ const EXCERPT_LEN = 260;
         // rationale renders in full so there is nothing hidden behind a toggle.
         const expandable = htmlToText(h.body_html).length > EXCERPT_LEN;
         const excerpt = excerptFromHtml(h.body_html, EXCERPT_LEN);
+        const voterKey = dreps.get(h.voter_id)?.slug ?? h.voter_id;
+        const shareUrl = `${shareOrigin}${voteStatementPath('drep', voterKey, slug)}`;
         return (
           <li class="ga-highlights__item">
             <div class="ga-highlights__head">
@@ -53,6 +59,7 @@ const EXCERPT_LEN = 260;
                 <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate />
               </div>
               <VoteBadge vote={h.vote} compact />
+              <ShareVoteButton url={shareUrl} iconOnly />
               {ada && <span class="ga-highlights__power">{ada}</span>}
             </div>
             {expandable ? (
@@ -117,6 +124,14 @@ const EXCERPT_LEN = 260;
     flex: 1;
     min-width: 0;
     overflow: hidden;
+  }
+  /* The copy-link icon sizes in em; bump it here so it reads at the same weight as
+     the vote badge next to it instead of shrinking to caption size. The button is
+     rendered by a child component, so :global keeps the selector from being scoped
+     away (it would otherwise never match). */
+  .ga-highlights__head :global(.copy-btn) {
+    flex-shrink: 0;
+    font-size: 1.2rem;
   }
   .ga-highlights__power {
     flex-shrink: 0;

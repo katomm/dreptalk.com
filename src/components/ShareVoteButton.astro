@@ -12,11 +12,13 @@ interface Props {
   /** Absolute deep-link URL to this vote, including the #anchor. */
   url: string;
   label?: string;
+  /** Render just the link glyph (no pill, no text), for tight rows. */
+  iconOnly?: boolean;
 }
-const { url, label = 'Copy link to this vote' } = Astro.props;
+const { url, label = 'Copy link to this vote', iconOnly = false } = Astro.props;
 ---
 
-<button type="button" class="copy-btn share-vote" data-copy={url} aria-label={label} title={label}>
+<button type="button" class:list={['copy-btn', { 'share-vote': !iconOnly }]} data-copy={url} aria-label={label} title={label}>
   <svg class="copy-btn__copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
@@ -24,6 +26,10 @@ const { url, label = 'Copy link to this vote' } = Astro.props;
   <svg class="copy-btn__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M20 6 9 17l-5-5" />
   </svg>
-  <span class="share-vote__idle">{label === 'Share your rationale' ? 'Share your rationale' : 'Copy link'}</span>
-  <span class="share-vote__done">Copied</span>
+  {!iconOnly && (
+    <>
+      <span class="share-vote__idle">{label === 'Share your rationale' ? 'Share your rationale' : 'Copy link'}</span>
+      <span class="share-vote__done">Copied</span>
+    </>
+  )}
 </button>
