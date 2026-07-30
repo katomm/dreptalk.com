@@ -302,8 +302,11 @@ export function voteCardModel(v: VoteCardInput, opts: { avatarDataUrl: string })
   const idShort = truncateIdMiddle(v.voterId);
   const { tone } = voteDisplay(v.vote);
   const voteColor = tone === 'yes' ? TALLY.yes : tone === 'no' ? TALLY.no : MUTED;
-  // Phrased to follow the name as a sentence: "<Name> voted No".
-  const votePhrase = v.vote === 'Yes' ? 'voted Yes' : v.vote === 'No' ? 'voted No' : v.vote === 'Abstain' ? 'abstained' : 'voted';
+  // Phrased to follow the name as a sentence: "<Name> voted No". Case-insensitive
+  // because an optimistic just-cast vote is stored lowercase ("yes") while synced
+  // votes are capitalized ("Yes"); both must read the same on the card.
+  const vv = v.vote.trim().toLowerCase();
+  const votePhrase = vv === 'yes' ? 'voted Yes' : vv === 'no' ? 'voted No' : vv === 'abstain' ? 'abstained' : 'voted';
   return {
     name: hasName ? clamp(v.name as string, 40) : idShort,
     idShort: hasName ? idShort : null,

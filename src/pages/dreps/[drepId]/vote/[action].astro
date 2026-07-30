@@ -19,6 +19,7 @@ import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { isVoteStatementIndexable } from '@/lib/governance/voteStatement.js';
 import { drepDescriptor } from '@/lib/forum/author.js';
 import { excerptFromHtml } from '@/lib/forum/view.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 
 const db = env.DB as D1Database | undefined;
 const { drepId, action } = Astro.params;
@@ -70,7 +71,12 @@ const delegateHex = drep && !isRetired ? (drep.hex ?? drepCredentialHexFromId(dr
 // resolver would show a truncated id and a generic identicon for the common
 // case even though the on-chain name/avatar are right there on `drep`.
 const author = ready ? drepDescriptor(drep!) : null;
-const ogImage = ready ? `/og/vote/drep/${drep!.slug ?? drep!.drepId}/${topic!.slug}.png` : '/og.jpg';
+// Version the card URL by the fields it renders so the edge cache refreshes when
+// the vote changes: a just-cast vote flips from pending "yes" to synced "Yes",
+// and without a fresh URL the first (grey "voted") render would stick for a day.
+const ogImage = ready
+  ? `/og/vote/drep/${drep!.slug ?? drep!.drepId}/${topic!.slug}.png?v=${ogCardVersion([vote!.vote, vote!.localStatus ?? '', vote!.bodyText])}`
+  : '/og.jpg';
 ---
 {ready ? (
   <Layout

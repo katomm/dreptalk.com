@@ -17,6 +17,7 @@ import { poolPath, isCanonicalPoolParam, poolDisplayName } from '@/lib/pools/pro
 import { isVoteStatementIndexable } from '@/lib/governance/voteStatement.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import { excerptFromHtml } from '@/lib/forum/view.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 
 const db = env.DB as D1Database | undefined;
 const { poolId, action } = Astro.params;
@@ -78,7 +79,11 @@ const author: AuthorDescriptor | null = ready
       isSystem: false,
     }
   : null;
-const ogImage = ready ? `/og/vote/spo/${pool!.slug ?? pool!.poolId}/${topic!.slug}.png` : '/og.jpg';
+// Version the card URL by the fields it renders so the edge cache refreshes when
+// the vote changes (a just-cast vote flips from pending "yes" to synced "Yes").
+const ogImage = ready
+  ? `/og/vote/spo/${pool!.slug ?? pool!.poolId}/${topic!.slug}.png?v=${ogCardVersion([vote!.vote, vote!.localStatus ?? '', vote!.bodyText])}`
+  : '/og.jpg';
 ---
 {ready ? (
   <Layout
