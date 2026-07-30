@@ -247,6 +247,9 @@ const poolInfoRowSchema = z
   .object({
     pool_id_bech32: z.string(),
     pool_id_hex: z.string().nullable().optional(),
+    // Active (delegated) stake in lovelace at the current epoch; the SPO voting
+    // weight. String because it exceeds JS safe-integer range. Nullable pre-first-epoch.
+    active_stake: z.string().nullable().optional(),
     meta_url: z.string().nullable().optional(),
     meta_hash: z.string().nullable().optional(),
     meta_json: z
@@ -718,8 +721,9 @@ export function createKoiosClient(opts: KoiosClientOptions) {
 
     // Latest epoch's protocol params; carries the CIP-1694 voting thresholds
     // (dvt_*/pvt_*) and committee_min_size. One row (limit 1, newest first).
-    async epochParams(): Promise<EpochParamsRow | null> {
-      const data = await request('/epoch_params?limit=1', { method: 'GET' });
+    async epochParams(epochNo?: number): Promise<EpochParamsRow | null> {
+      const path = epochNo != null ? `/epoch_params?_epoch_no=${epochNo}&limit=1` : '/epoch_params?limit=1';
+      const data = await request(path, { method: 'GET' });
       return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
     },
 

@@ -160,9 +160,9 @@ async function verifyCip8Internal(input: {
       return { ok: false, reason: 'payload does not match expected payload' };
     }
   } else {
-    // TODO: verify hash variant with a hardware wallet; Blake2b-224 is used here but
-    // different wallets may use Blake2b-256. Our browser fixtures use hashed=false so
-    // this path is presently unexercised.
+    // Hardware wallets (e.g. Ledger) sign a Blake2b hash of the payload and set
+    // hashed=true; this path is production-proven by real hardware-wallet logins.
+    // Wallets differ in digest size, so both Blake2b-224 and Blake2b-256 are accepted.
     const hashedPayload224 = blake2b224(expectedPayloadBytes);
     const hashedPayload256 = blake2b256(expectedPayloadBytes);
     if (!bytesEqual(payloadBstr, hashedPayload224) && !bytesEqual(payloadBstr, hashedPayload256)) {

@@ -13,7 +13,7 @@ import type { DrepVoteHistoryRow } from '@/lib/db/drepVotes.js';
 import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import { statusBadge } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { ensureLinkTarget } from '@/lib/markdown.js';
+import { enhanceStoredHtml } from '@/lib/markdown.js';
 
 interface Props {
   row: DrepVoteHistoryRow;
@@ -46,7 +46,7 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
     expandable ? (
       <details class="vhist__details">
         <summary class="vhist__row vhist__row--expandable">{cells}</summary>
-        {rationaleHtml && <div class="vhist__rationale" set:html={ensureLinkTarget(rationaleHtml)} />}
+        {rationaleHtml && <div class="vhist__rationale" set:html={enhanceStoredHtml(rationaleHtml)} />}
         {earlier.length > 0 && <EarlierVotes earlier={earlier} now={now} />}
       </details>
     ) : (

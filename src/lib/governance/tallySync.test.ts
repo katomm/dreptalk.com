@@ -1,5 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { votePowers } from './tallySync.js';
+import { votePowers, enrichVotedPower } from './tallySync.js';
+import type { VoteInput } from '../db/drepVotes.js';
+
+function fakeDb(drepPower: Record<string, string>) {
+  return {
+    prepare() {
+      return {
+        bind(...ids: string[]) {
+          return {
+            async all() {
+              return { results: ids.filter((id) => id in drepPower).map((id) => ({ drep_id: id, voting_power: drepPower[id] })) };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+}
+
+describe('enrichVotedPower', () => {
+  it('sets DRep power from the db and SPO power from Koios, leaving CC null', async () => {
+    const votes: VoteInput[] = [
+      { voterRole: 'DRep', voterId: 'drep1', voterHex: null, vote: 'Yes' },
+      { voterRole: 'SPO', voterId: 'pool1', voterHex: null, vote: 'Yes' },
+      { voterRole: 'ConstitutionalCommittee', voterId: 'cc1', voterHex: 'hot1', vote: 'Yes' },
+    ];
+    const koios = { async poolInfoBatch() { return [{ pool_id_bech32: 'pool1', active_stake: '4200' }] as never; } };
+    await enrichVotedPower({ db: fakeDb({ drep1: '1500' }), koios }, votes);
+    expect(votes[0].votedPower).toBe(1500);
+    expect(votes[1].votedPower).toBe(4200);
+    expect(votes[2].votedPower ?? null).toBeNull();
+  });
+});
 
 describe('votePowers', () => {
   it('SPO no/abstain come from the ACTIVE buckets, not the default-polluted totals', () => {

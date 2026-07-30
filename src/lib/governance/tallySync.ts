@@ -9,7 +9,7 @@
 // lightweight, status-only lifecycle re-check (no tally re-fetch) until it flips
 // to enacted. Per-action failures are isolated.
 
-import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow } from '../koios/client.js';
+import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow, PoolInfoRow, EpochParamsRow } from '../koios/client.js';
 import { spoTallyPct, spoEligiblePower } from '../koios/corrections.js';
 import {
   getStaleSyncableActions,
@@ -20,6 +20,8 @@ import {
   getActionsNeedingVotedPower,
   updateVotedPower,
   getActionsNeedingVoteBackfill,
+  getActionsNeedingThresholdSnapshot,
+  updateThresholdSnapshot,
   markVotesSynced,
   getGovStatusEventsForTimeFix,
   updateActivityCreatedAt,
@@ -27,9 +29,14 @@ import {
   type GovernanceTally,
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, getVotesNeedingMetaHash, setVoteMetaHash, type VoteInput } from '../db/drepVotes.js';
+import { getCommitteeTimeline } from '../db/committee.js';
+import { activeCommitteeSizeAt } from '../koios/committeeTimeline.js';
 import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
+import { getProtocolParams } from '../db/protocolParams.js';
+import { evaluateThresholds, serializeThresholdSnapshot, committeeBelowMinSize, THRESHOLD_SNAPSHOT_VERSION } from './thresholds.js';
+import { parameterChangeScope } from './onchain.js';
 
 // Max actions a single tally/vote run processes when the caller does not specify
 // one. Koios is latency-limited under a large burst (proposal_voting_summary and
@@ -72,7 +79,10 @@ export interface TallySyncDeps {
 }
 
 export interface VoteSyncDeps {
-  koios: { proposalVotes(proposalId: string, limit?: number, offset?: number): Promise<ProposalVoteRow[]> };
+  koios: {
+    proposalVotes(proposalId: string, limit?: number, offset?: number): Promise<ProposalVoteRow[]>;
+    poolInfoBatch(poolIds: string[]): Promise<PoolInfoRow[]>;
+  };
   db: D1Database;
   now: number;
   /** Max actions to vote-sync this run. Bounds the Koios burst; defaults to DEFAULT_VOTE_LIMIT. */
@@ -134,6 +144,44 @@ async function collectProposalVotes(
     }
   }
   return { votes, capped };
+}
+
+/**
+ * Attaches decisive voting power to DRep and SPO votes in place: DRep from the
+ * local dreps.voting_power snapshot (kept fresh by the drep sync), SPO from Koios
+ * active_stake. CC is left null (count-weighted via the committee timeline). Any
+ * lookup miss leaves votedPower null, which the COALESCE upsert never overwrites a
+ * good value with. Bounded so the DRep id IN-list stays under the D1 100-bind cap.
+ */
+export async function enrichVotedPower(
+  deps: { db: D1Database; koios: { poolInfoBatch(ids: string[]): Promise<PoolInfoRow[]> } },
+  votes: VoteInput[],
+): Promise<void> {
+  const drepIds = [...new Set(votes.filter((v) => v.voterRole === 'DRep').map((v) => v.voterId))];
+  const spoIds = [...new Set(votes.filter((v) => v.voterRole === 'SPO').map((v) => v.voterId))];
+
+  const drepPower = new Map<string, number>();
+  for (let i = 0; i < drepIds.length; i += 90) {
+    const batch = drepIds.slice(i, i + 90);
+    const rows = (
+      await deps.db
+        .prepare(`SELECT drep_id, voting_power FROM dreps WHERE drep_id IN (${batch.map(() => '?').join(',')})`)
+        .bind(...batch)
+        .all<{ drep_id: string; voting_power: string | null }>()
+    ).results ?? [];
+    for (const r of rows) if (r.voting_power != null) drepPower.set(r.drep_id, Number(r.voting_power));
+  }
+
+  const spoPower = new Map<string, number>();
+  if (spoIds.length > 0) {
+    const rows = await deps.koios.poolInfoBatch(spoIds);
+    for (const r of rows) if (r.active_stake != null) spoPower.set(r.pool_id_bech32, Number(r.active_stake));
+  }
+
+  for (const v of votes) {
+    if (v.voterRole === 'DRep') v.votedPower = drepPower.get(v.voterId) ?? v.votedPower ?? null;
+    else if (v.voterRole === 'SPO') v.votedPower = spoPower.get(v.voterId) ?? v.votedPower ?? null;
+  }
 }
 
 /**
@@ -251,6 +299,10 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
     lifecycle.set(`${p.proposal_tx_hash}#${p.proposal_index}`, p);
   }
 
+  // Loaded once per run (not per action) for the threshold snapshot below; null
+  // until the params sync has run at least once.
+  const params = await getProtocolParams(db);
+
   let updated = 0;
   let frozen = 0;
   let failed = 0;
@@ -264,6 +316,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       const life = lifecycle.get(ga.id);
       const status = deriveStatus(life, ga, currentEpoch);
       const summary = ga.proposalId ? await koios.proposalVotingSummary(ga.proposalId) : null;
+      const tally = tallyFields(summary);
 
       // The epoch the action was decided: the terminal lifecycle epoch, falling
       // back to the expiry epoch when status was derived from the expiry check.
@@ -271,13 +324,31 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
         life?.enacted_epoch ?? life?.ratified_epoch ?? life?.expired_epoch ?? life?.dropped_epoch ??
         (status !== 'active' ? ga.expiryEpoch ?? life?.expiration ?? null : null);
 
+      // Freeze the per-body thresholds with the action so a historical line is never
+      // rebuilt from today's protocol params. Recomputed each tally sync while active;
+      // the last value before the status turns terminal is the frozen one.
+      const paramScope = ga.type === 'ParameterChange' ? parameterChangeScope(ga.onchainPayload ?? null) : null;
+      const thresholdResults = params
+        ? evaluateThresholds(
+            { type: ga.type, drepYesPct: tally.drepYesPct, spoYesPct: tally.spoYesPct, ccYesPct: tally.ccYesPct, paramScope },
+            params,
+          )
+        : [];
+      // Freeze the CC quorum gate too: for a just-concluding action the current
+      // committee size and min size are the ones in force at its decision epoch.
+      const ccBelowMinSize = committeeBelowMinSize(params?.committeeSize ?? null, params?.committeeMinSize ?? null);
+      const thresholdsJson = thresholdResults.length ? serializeThresholdSnapshot(thresholdResults, ccBelowMinSize) : null;
+      const thresholdsEpoch = params?.epoch ?? null;
+
       await updateGovernanceTallyAndStatus(db, {
         id: ga.id,
         status,
-        ...tallyFields(summary),
+        ...tally,
         decidedEpoch,
         tallySyncedAt: now,
         now,
+        thresholdsJson,
+        thresholdsEpoch,
       });
 
       // Only a transition INTO a terminal outcome (enacted/expired/dropped/...) is
@@ -422,6 +493,72 @@ export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<
   return { scanned: candidates.length, updated, failed };
 }
 
+export interface ThresholdBackfillResult {
+  actions: number;
+  failed: number;
+}
+
+export interface ThresholdBackfillDeps {
+  koios: { epochParams(epochNo?: number): Promise<EpochParamsRow | null> };
+  db: D1Database;
+  limit?: number;
+  paceMs?: number;
+}
+
+/**
+ * One-time, self-limiting backfill of the frozen CC quorum gate (ccBelowMinSize)
+ * onto terminal actions whose threshold snapshot predates the current version. The
+ * committee min size (Koios epoch_params at the decision epoch) and the active
+ * committee size (the local committee timeline at that epoch) are both historically
+ * volatile, so the gate must be reconstructed per action rather than read from
+ * today's params. Threshold percentages are stable since Conway, so they come from
+ * the current params. Bounded by `limit`; drains over several runs.
+ */
+export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): Promise<ThresholdBackfillResult> {
+  const { koios, db, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
+  const candidates = await getActionsNeedingThresholdSnapshot(db, THRESHOLD_SNAPSHOT_VERSION, limit);
+  if (candidates.length === 0) return { actions: 0, failed: 0 };
+
+  // Without current params we cannot evaluate thresholds; skip the run rather than
+  // drain candidates with an empty snapshot (retry next cron once params are synced).
+  const params = await getProtocolParams(db);
+  if (!params) return { actions: 0, failed: 0 };
+  const { members } = await getCommitteeTimeline(db);
+  const minSizeByEpoch = new Map<number, number | null>();
+
+  let actions = 0;
+  let failed = 0;
+  for (const [i, ga] of candidates.entries()) {
+    if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
+    try {
+      const decidedEpoch = ga.decidedEpoch ?? ga.expiryEpoch;
+      let minSize: number | null = null;
+      if (decidedEpoch != null) {
+        if (!minSizeByEpoch.has(decidedEpoch)) {
+          const ep = await koios.epochParams(decidedEpoch);
+          minSizeByEpoch.set(decidedEpoch, ep?.committee_min_size ?? null);
+        }
+        minSize = minSizeByEpoch.get(decidedEpoch) ?? null;
+      }
+      const size = decidedEpoch != null ? activeCommitteeSizeAt(members, decidedEpoch) : null;
+      const ccBelowMinSize = committeeBelowMinSize(size, minSize);
+
+      const paramScope = ga.type === 'ParameterChange' ? parameterChangeScope(ga.onchainPayload ?? null) : null;
+      const results = evaluateThresholds(
+        { type: ga.type, drepYesPct: ga.drepYesPct, spoYesPct: ga.spoYesPct, ccYesPct: ga.ccYesPct, paramScope },
+        params,
+      );
+      const thresholdsJson = serializeThresholdSnapshot(results, ccBelowMinSize);
+      await updateThresholdSnapshot(db, { id: ga.id, thresholdsJson, thresholdsEpoch: decidedEpoch });
+      actions++;
+    } catch (err) {
+      failed++;
+      console.warn(`[gov-threshold-backfill] action ${ga.id} failed:`, err);
+    }
+  }
+  return { actions, failed };
+}
+
 export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncResult> {
   const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES, followedDrepIds } = deps;
 
@@ -441,6 +578,7 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
     actions++;
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
+      await enrichVotedPower({ db, koios }, collected);
       votes += await upsertVotes(db, ga.id, collected, now, { followedDrepIds });
       await markVotesSynced(db, ga.id, now);
       if (capped) {
@@ -488,6 +626,7 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     actions++;
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
+      await enrichVotedPower({ db, koios }, collected);
       // Deliberately NO opts here (no followedDrepIds), even though deps carries
       // it: this backfill re-writes long-decided votes, and passing it through
       // would fan out notifications for old votes on every rollout / re-drain.

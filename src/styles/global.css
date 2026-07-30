@@ -57,6 +57,9 @@
      reach ~5.5:1 / ~5.2:1 (WCAG AA); the brighter old values fell below 4.5:1. */
   --c-pos: #15692e;
   --c-neg: #b1281c;
+  /* Constitutional Committee series color (voting-trend chart, sidebar teaser). Amber,
+     kept clearly distinct from the DRep accent (purple) and the SPO green. */
+  --c-cc: #c2410c;
 
   /* Governance action type pills. Each hue paints both the text and (at ~14%)
      the pill background, like the status badges. Mid-tone values chosen to stay
@@ -119,6 +122,8 @@ html[data-theme='dark'] {
      over their 14% tint on the dark bg they reach ~6.7:1 / ~5.8:1 (WCAG AA). */
   --c-pos: #5cb88a;
   --c-neg: #e07d75;
+  /* Constitutional Committee series color (amber), lifted for legibility on the dark bg. */
+  --c-cc: #f59e0b;
 
   /* See the --noise-opacity note in :root. */
   --noise-opacity: 0.22;
@@ -269,9 +274,21 @@ button {
 }
 
 /* Reading-column width for single-column text pages; applied to main only so
-   the nav and footer keep their normal width. */
+   the nav and footer keep their normal width. On very large screens it grows a
+   little so long content (e.g. tables in a discussion) gets more room without
+   hurting prose line length on ordinary displays. */
 .container--reading {
   max-width: 46rem;
+}
+@media (min-width: 96rem) {
+  .container--reading {
+    max-width: 52rem;
+  }
+}
+@media (min-width: 120rem) {
+  .container--reading {
+    max-width: 58rem;
+  }
 }
 
 main.container {
@@ -409,32 +426,70 @@ main.container {
 .prose img {
   border-radius: var(--radius);
 }
-/* GFM tables in rendered markdown */
-.prose table {
-  display: block;
-  overflow-x: auto;
+/* GFM tables in rendered markdown. Applies to .prose (forum posts, proposal
+   rationale) and to the rationale wrappers that render CIP-100/136 body.comment
+   markdown without .prose: highlights cards, the positions-tab full rationale,
+   and vote-history rows. The table keeps the default auto layout at width:100%
+   and every cell may wrap anywhere, so long content (a paragraph or a bech32
+   gov_action1... id) breaks to fit and the table shrinks to its column instead
+   of overflowing the layout. Columns still size proportionally, so the widest
+   text column (the rationale) keeps the most room. */
+.prose table,
+.ga-highlights__body table,
+.ga-positions__rationale-body table,
+.vhist__rationale table,
+.evotes__body table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875em;
+  font-size: 0.8125em;
   margin: 0 0 1rem;
 }
 .prose th,
-.prose td {
+.prose td,
+.ga-highlights__body th,
+.ga-highlights__body td,
+.ga-positions__rationale-body th,
+.ga-positions__rationale-body td,
+.vhist__rationale th,
+.vhist__rationale td,
+.evotes__body th,
+.evotes__body td {
   border: 1px solid var(--border);
-  padding: 0.4rem 0.7rem;
+  padding: 0.4rem 0.6rem;
   text-align: left;
   vertical-align: top;
-  /* Override the .prose default (overflow-wrap: anywhere), which lets the auto
-     table layout shrink columns to a single character and break mid-word
-     (e.g. "TVL" into "TV" / "L"). break-word sizes columns to whole words and
-     only splits genuinely long tokens as a last resort. */
-  overflow-wrap: break-word;
+  /* Force long, unbreakable tokens (e.g. a gov_action1... id) to wrap so the
+     auto table layout can always shrink the table down to the column width. */
+  overflow-wrap: anywhere;
+  /* Floor for column width so a squeezed column never collapses to a sliver
+     that breaks after a single character. Small enough that 4 to 5 columns
+     still fit on a phone. */
+  min-width: 4rem;
 }
-.prose th {
+.prose th,
+.ga-highlights__body th,
+.ga-positions__rationale-body th,
+.vhist__rationale th,
+.evotes__body th {
   background: var(--surface);
   color: var(--muted);
   font-weight: 600;
-  white-space: nowrap;
+}
+
+/* Inline chip for a gov action id inside rendered rationale/markdown: a
+   middle-truncated, monospace link to /ga/<id>/, immediately followed by a
+   .copy-btn carrying the full id (see linkifyGovActionIds in src/lib/markdown.ts).
+   overflow-wrap keeps it breakable so a narrow table cell can still wrap it. */
+.chainid {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+  overflow-wrap: anywhere;
+}
+.chainid:hover {
+  border-bottom-style: solid;
 }
 
 /* ==========================================================================

@@ -211,6 +211,60 @@ export function ensureLinkTarget(html: string): string {
   });
 }
 
+// Middle-truncate a gov action id for display: keep the readable prefix and a
+// short distinctive tail, e.g. "gov_action1fda...ccn9gc".
+function shortenGovActionId(id: string): string {
+  return `${id.slice(0, 14)}...${id.slice(-6)}`;
+}
+
+// Copy-to-clipboard button, identical markup to CopyButton.astro so the global
+// delegated listener (Layout.astro) handles it. The full id goes into data-copy;
+// the id charset is [0-9a-z], so it is safe to interpolate unescaped.
+function govActionCopyButton(id: string): string {
+  return (
+    `<button type="button" class="copy-btn" data-copy="${id}" aria-label="Copy governance action id" title="Copy governance action id">` +
+    '<svg class="copy-btn__copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>' +
+    '<svg class="copy-btn__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>' +
+    '</button>'
+  );
+}
+
+// A gov action id, or any tag. gov_action1 + 59 bech32 chars is a fixed 70-char
+// token (CIP-129: 32-byte tx hash + 1-byte index). The a/code/pre tags are
+// tracked separately so ids inside them (link text, code) are left untouched.
+const GOV_ACTION_TOKEN = /<\/?(?:a|code|pre)\b[^>]*>|<[^>]*>|gov_action1[0-9a-z]{59}/gi;
+
+/**
+ * Display-time pass: turn each gov_action1... id in already-sanitized stored
+ * HTML into a compact chip, i.e. a middle-truncated link to /ga/<id>/ plus a
+ * copy button carrying the full id. Ids inside a tag (its attributes) or inside
+ * <a>/<code>/<pre> are left as-is, so we never nest a link or corrupt an href.
+ * Idempotent per render; runs at display time so it also covers already-stored
+ * rationales without a re-render.
+ */
+export function linkifyGovActionIds(html: string): string {
+  let skipDepth = 0; // inside <a>/<code>/<pre>: leave ids untouched
+  return html.replace(GOV_ACTION_TOKEN, (token: string): string => {
+    if (token.charCodeAt(0) === 60 /* '<' */) {
+      const tag = /^<(\/?)(?:a|code|pre)\b/i.exec(token);
+      if (tag) skipDepth = tag[1] ? Math.max(0, skipDepth - 1) : skipDepth + 1;
+      return token;
+    }
+    if (skipDepth > 0) return token;
+    const id = token.toLowerCase();
+    return `<a class="chainid" href="/ga/${id}/" rel="noopener" title="${id}">${shortenGovActionId(id)}</a>${govActionCopyButton(id)}`;
+  });
+}
+
+/**
+ * Final display-time enhancement applied to stored rationale/post HTML before it
+ * is set as innerHTML: link gov action ids into copyable chips, then ensure all
+ * links open in a new tab.
+ */
+export function enhanceStoredHtml(html: string): string {
+  return ensureLinkTarget(linkifyGovActionIds(html));
+}
+
 /**
  * Render a Markdown string to sanitized HTML safe for storage and display.
  *

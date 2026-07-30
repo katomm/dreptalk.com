@@ -1,0 +1,120 @@
+---
+// History-tab chart: cumulative yes-support per voting body over the voting window,
+// each rising to the exact stored final pct, with a dashed threshold line. Pure SSR
+// SVG, no client JS. DRep/SPO are power-weighted (voted_power); CC is count-weighted
+// via the committee-timeline dedup. Renders nothing when no body has usable support.
+import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { ProtocolParams } from '@/lib/db/protocolParams.js';
+import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
+import type { CcVote } from '@/lib/koios/corrections.js';
+import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
+import { computeVoteTrendSeries, buildTrendChart, type TrendBodyInput } from '@/lib/governance/voteTrend.js';
+import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
+import { fmtPctFine } from '@/lib/governance/view.js';
+import { readThresholdSnapshot, evaluateThresholds } from '@/lib/governance/thresholds.js';
+import { parameterChangeScope } from '@/lib/governance/onchain.js';
+import { resolveNetwork, type CardanoNetwork } from '@/lib/config/network.js';
+
+interface Props {
+  action: GovernanceAction;
+  trendRows: TrendVoteRow[];
+  ccVotes: CcVote[];
+  committee: { members: CommitteeMemberTerm[]; hotToCold: Map<string, string> };
+  params: ProtocolParams | null;
+  network: CardanoNetwork;
+  /** Render time in ms, so an active action's trend stops at now, not its future expiry. */
+  now: number;
+}
+
+const { action, trendRows, ccVotes, committee, params, network, now } = Astro.props;
+const cfg = resolveNetwork(network);
+
+const assembled = assembleTrendInputs({ action, trendRows, ccVotes, committee, cfg, nowSec: Math.floor(now / 1000) });
+const { start, end } = assembled.window;
+const lineEnd = assembled.lineEnd;
+
+// Thresholds: prefer the frozen snapshot; fall back to live params for active
+// actions that have not been snapshotted yet. Never a today's line on an old action.
+const snapshot = readThresholdSnapshot(action.thresholdsJson);
+const liveThresholds =
+  !snapshot && params
+    ? evaluateThresholds(
+        {
+          type: action.type,
+          drepYesPct: action.drepYesPct,
+          spoYesPct: action.spoYesPct,
+          ccYesPct: action.ccYesPct,
+          paramScope: action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload) : null,
+        },
+        params,
+      )
+    : null;
+const thrDrep = snapshot ? snapshot.drep : liveThresholds?.find((t) => t.body === 'DRep')?.thresholdPct ?? null;
+const thrSpo = snapshot ? snapshot.spo : liveThresholds?.find((t) => t.body === 'SPO')?.thresholdPct ?? null;
+const thrCc = snapshot ? snapshot.cc : liveThresholds?.find((t) => t.body === 'CC')?.thresholdPct ?? null;
+
+// Layer this chart's threshold lines and percent/"N of M" labels on top of the
+// shared assembly's bare inputs.
+// Match the sidebar's percent precision (one decimal, two below 1%) so the legend
+// and the Voting Information card never disagree by a rounding step.
+const fmtPctLabel = (n: number | null): string => (n == null ? '' : fmtPctFine(n));
+const [drepBase, spoBase, ccBase] = assembled.inputs;
+const inputs: TrendBodyInput[] = [
+  { ...drepBase, thresholdPct: thrDrep, finalLabel: fmtPctLabel(action.drepYesPct) },
+  { ...spoBase, thresholdPct: thrSpo, finalLabel: fmtPctLabel(action.spoYesPct) },
+  { ...ccBase, thresholdPct: thrCc, finalLabel: assembled.ccSize > 0 ? `${assembled.ccYesCount} of ${assembled.ccSize}` : fmtPctLabel(action.ccYesPct) },
+];
+
+// The series stops at the current epoch (lineEnd); the axis domain spans the full
+// window (end), so the deadline stays on the right with empty space after "now".
+const series = computeVoteTrendSeries(inputs, { start, end: lineEnd });
+const chart = buildTrendChart(series, { width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain: [start, end] });
+
+const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-cc)' };
+const dateLabel = (t: number): string =>
+  new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+---
+
+{chart && (
+  <section class="vtrend" aria-label="Voting trend over time">
+    <h3 class="vtrend__title">Voting trend</h3>
+    <svg class="vtrend__chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="Cumulative yes support per body over the voting window">
+      {chart.yTicks.map((t) => (
+        <>
+          <line class="vtrend__grid" x1={chart.plot.x} y1={t.y} x2={chart.plot.x + chart.plot.w} y2={t.y} />
+          <text class="vtrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{t.value}%</text>
+        </>
+      ))}
+      {chart.series.map((s) => (
+        <>
+          {s.thresholdY != null && (
+            <line class="vtrend__thr" style={`color:${COLORS[s.key]}`} x1={chart.plot.x} y1={s.thresholdY} x2={chart.plot.x + chart.plot.w} y2={s.thresholdY} />
+          )}
+          <path class="vtrend__line" style={`color:${COLORS[s.key]}`} d={s.stepPath} vector-effect="non-scaling-stroke" />
+        </>
+      ))}
+      {chart.xTicks.map((t) => (
+        <text class="vtrend__xlabel" x={t.x} y={chart.height - 10} text-anchor={t.x <= chart.plot.x + 1 ? 'start' : 'end'}>{dateLabel(t.t)}</text>
+      ))}
+    </svg>
+    <ul class="vtrend__legend">
+      {chart.series.map((s) => (
+        <li class="vtrend__leg"><span class="vtrend__swatch" style={`background:${COLORS[s.key]}`}></span>{s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}</li>
+      ))}
+    </ul>
+  </section>
+)}
+
+<style>
+  .vtrend { margin-top: 1.5rem; }
+  .vtrend__title { font-size: 0.95rem; font-weight: 700; color: var(--fg); margin: 0 0 0.5rem; }
+  .vtrend__chart { display: block; width: 100%; height: auto; }
+  .vtrend__grid { stroke: var(--border); stroke-dasharray: 4 5; }
+  .vtrend__ylabel, .vtrend__xlabel { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .vtrend__line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .vtrend__thr { stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 5 4; opacity: 0.55; }
+  .vtrend__legend { list-style: none; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0.5rem 0 0; padding: 0; font-size: 0.8125rem; color: var(--muted); }
+  .vtrend__leg { display: inline-flex; align-items: center; gap: 0.4rem; font-variant-numeric: tabular-nums; }
+  .vtrend__swatch { width: 0.7rem; height: 0.2rem; border-radius: 999px; display: inline-block; }
+  @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel { display: none; } }
+</style>

@@ -209,6 +209,54 @@ describe('verifyCip8 (real DRep signatures, as a CIP-95 wallet produces)', () =>
   });
 });
 
+describe('verifyCip8 (hashed payload, as hardware wallets sign)', () => {
+  const PAYLOAD = 'dreptalk:dreptalk.com:hashed-nonce:1700000000';
+  const SEED = new Uint8Array(32).fill(9);
+
+  it('accepts hashed=true with a Blake2b-224 payload digest (Ledger-style)', async () => {
+    const keyHash = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: new Uint8Array(28) }).keyHash;
+    const cose = makeCoseSignature({
+      seed: SEED,
+      payload: PAYLOAD,
+      addressBytes: type6Address(keyHash, 'preprod'),
+      payloadHash: 'blake2b224',
+    });
+    const result = await verifyCip8({ signatureHex: cose.signatureHex, keyHex: cose.keyHex, expectedPayload: PAYLOAD });
+    if (!result.ok) throw new Error(`verifyCip8 failed: ${result.reason}`);
+    expect(bytesToHex(result.pubKey!)).toBe(bytesToHex(cose.pubKey));
+  });
+
+  it('accepts hashed=true with a Blake2b-256 payload digest', async () => {
+    const keyHash = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: new Uint8Array(28) }).keyHash;
+    const cose = makeCoseSignature({
+      seed: SEED,
+      payload: PAYLOAD,
+      addressBytes: type6Address(keyHash, 'preprod'),
+      payloadHash: 'blake2b256',
+    });
+    const result = await verifyCip8({ signatureHex: cose.signatureHex, keyHex: cose.keyHex, expectedPayload: PAYLOAD });
+    if (!result.ok) throw new Error(`verifyCip8 failed: ${result.reason}`);
+    expect(bytesToHex(result.pubKey!)).toBe(bytesToHex(cose.pubKey));
+  });
+
+  it('rejects hashed=true when the digest is of a different payload', async () => {
+    const keyHash = makeCoseSignature({ seed: SEED, payload: PAYLOAD, addressBytes: new Uint8Array(28) }).keyHash;
+    const cose = makeCoseSignature({
+      seed: SEED,
+      payload: PAYLOAD,
+      addressBytes: type6Address(keyHash, 'preprod'),
+      payloadHash: 'blake2b224',
+    });
+    const result = await verifyCip8({
+      signatureHex: cose.signatureHex,
+      keyHex: cose.keyHex,
+      expectedPayload: 'dreptalk:dreptalk.com:other-nonce:1700000001',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('hashed payload');
+  });
+});
+
 // Helpers for mutating COSE_Key / COSE_Sign1 via cborg round-trip.
 
 /** Re-encodes a COSE_Key map with one integer key set to a new value. */

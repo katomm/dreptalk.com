@@ -21,12 +21,14 @@ export interface VoteInput {
   metaHash?: string | null;
   /** Unix seconds of the vote tx (Koios proposal_votes.block_time); null when unknown. */
   blockTime?: number | null;
+  /** Decisive voting power in lovelace (DRep/SPO); null for CC or when unresolved. */
+  votedPower?: number | null;
 }
 
 // Max rows per db.batch() call in upsertVotes. D1 caps bound params at 100 per
-// query; each INSERT binds 9 params (ga_id, voter_role, voter_id, voter_hex,
-// vote, meta_url, meta_hash, block_time, synced_at), so floor(100/9) = 11.
-const UPSERT_CHUNK = 11;
+// query; each INSERT binds 10 params (ga_id, voter_role, voter_id, voter_hex,
+// vote, meta_url, meta_hash, block_time, synced_at, voted_power), so floor(100/10) = 10.
+const UPSERT_CHUNK = 10;
 
 export interface UpsertVotesOptions {
   /**
@@ -39,7 +41,13 @@ export interface UpsertVotesOptions {
   followedDrepIds?: Set<string>;
 }
 
-/** The INSERT OR REPLACE statements for a set of votes (one row each, 9 binds). */
+/**
+ * The vote upsert statements (one row each, 10 binds). Uses ON CONFLICT DO
+ * UPDATE (not INSERT OR REPLACE) so a re-sync with a missing voted_power never
+ * nulls an already stored value: voted_power = COALESCE(new, existing). The
+ * on-chain path resets local_status / tx_hash to NULL (it supersedes any
+ * optimistic row).
+ */
 export function buildVoteUpsertStatements(
   db: D1Database,
   gaId: string,
@@ -49,10 +57,21 @@ export function buildVoteUpsertStatements(
   return votes.map((v) =>
     db
       .prepare(
-        `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, local_status, tx_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, voted_power, local_status, tx_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+         ON CONFLICT(ga_id, voter_id) DO UPDATE SET
+           voter_role = excluded.voter_role,
+           voter_hex  = excluded.voter_hex,
+           vote       = excluded.vote,
+           meta_url   = excluded.meta_url,
+           meta_hash  = excluded.meta_hash,
+           block_time = excluded.block_time,
+           synced_at  = excluded.synced_at,
+           voted_power = COALESCE(excluded.voted_power, drep_votes.voted_power),
+           local_status = NULL,
+           tx_hash = NULL`,
       )
-      .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now),
+      .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now, v.votedPower ?? null),
   );
 }
 
@@ -119,12 +138,15 @@ async function lookupActionTitle(db: D1Database, gaId: string): Promise<string |
 }
 
 /**
- * Upserts on-chain votes for one governance action (INSERT OR REPLACE on the
+ * Upserts on-chain votes for one governance action (ON CONFLICT DO UPDATE on the
  * (ga_id, voter_id) primary key), chunked. For each chunk, the archive of any
  * rows the write supersedes, the vote upserts, and (when followedDrepIds is
  * passed) the delegator fan-out jobs all land in ONE db.batch, so history, vote
  * and job commit atomically together. The existing-rows SELECT and the changed
- * voters' rationale bodies are read once up front and shared across chunks.
+ * voters' rationale bodies are read once up front and shared across chunks. The
+ * upsert uses ON CONFLICT so a missing voted_power (a DRep/pool not yet resolved)
+ * never nulls an already stored value: voted_power = COALESCE(new, existing);
+ * local_status / tx_hash reset to NULL (an on-chain row supersedes any optimistic one).
  * Returns the number of rows written.
  */
 export async function upsertVotes(
@@ -685,4 +707,35 @@ export async function getPoolParticipation(db: D1Database, poolId: string): Prom
     .bind(poolId)
     .first<{ eligible: number; voted: number }>();
   return { eligible: row?.eligible ?? 0, voted: row?.voted ?? 0 };
+}
+
+/** One vote row for the trend chart: role, timing, decision, and decisive power. */
+export interface TrendVoteRow {
+  voter_role: string;
+  voter_id: string;
+  block_time: number;
+  vote: string;
+  voted_power: number | null;
+}
+
+/**
+ * DRep + SPO votes on one action for the trend chart: only rows with a block_time
+ * (the trend needs a timestamp) and not locally failed, ordered oldest first. CC is
+ * read separately via getCommitteeVotes (it needs the committee-timeline dedup).
+ */
+export async function getVoteTrendRows(db: D1Database, gaId: string): Promise<TrendVoteRow[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT voter_role, voter_id, block_time, vote, voted_power
+         FROM drep_votes
+         WHERE ga_id = ? AND voter_role IN ('DRep', 'SPO')
+           AND block_time IS NOT NULL
+           AND (local_status IS NULL OR local_status <> 'failed')
+         ORDER BY block_time ASC, voter_id`,
+      )
+      .bind(gaId)
+      .all<TrendVoteRow>()
+  ).results ?? [];
+  return rows;
 }

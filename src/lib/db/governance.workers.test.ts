@@ -14,6 +14,8 @@ import {
   updateGovernanceTallyAndStatus,
   getActionsNeedingVotedPower,
   updateVotedPower,
+  getActionsNeedingThresholdSnapshot,
+  updateThresholdSnapshot,
   getActionsNeedingMetaReextract,
   countGivenUpMetaActions,
   updateActionMetadata,
@@ -27,6 +29,7 @@ import {
 } from './governance.js';
 import { getAllTopicsByCategory } from './forum.js';
 import { sortGovActionTopics, trendingOrderKey, type GovActionTopic } from '../governance/sort.js';
+import { THRESHOLD_SNAPSHOT_VERSION } from '../governance/thresholds.js';
 
 const GOV = 'governance-actions';
 
@@ -147,6 +150,7 @@ describe('getStaleSyncableActions', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: null, tallySyncedAt, now: tallySyncedAt,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
   it('orders never-synced first, then least-recently-synced, capped by limit', async () => {
@@ -179,6 +183,7 @@ describe('getStaleSyncableActions', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
     const ids = (await getStaleSyncableActions(db(), 10)).map((r) => r.id);
     expect(ids).toContain(pending.id);
@@ -199,6 +204,7 @@ describe('getVoteStaleSyncableActions', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: null, tallySyncedAt, now: tallySyncedAt,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
   it('orders by vote recency, independent of tally recency', async () => {
@@ -227,6 +233,7 @@ describe('getVoteStaleSyncableActions', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
     const ids = (await getVoteStaleSyncableActions(db(), 10)).map((r) => r.id);
     expect(ids).toContain(active.id);
@@ -247,6 +254,7 @@ describe('updateGovernanceTallyAndStatus', () => {
       ccYesPct: 0, ccNoPct: 100,
       drepVotedPower: 3566193128637,
       tallyEpoch: 293, decidedEpoch: 291, tallySyncedAt: NOW + 5, now: NOW + 5,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
@@ -300,6 +308,7 @@ describe('getActionsNeedingVotedPower', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     // Active action: excluded (active/pending are handled by normal tally).
@@ -320,6 +329,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
       spoEligiblePower: 5_000_000_000,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     // Terminal with turnout+power but null eligible SPO stake (older row from before
@@ -337,6 +347,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
       spoEligiblePower: null,
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     const candidates = await getActionsNeedingVotedPower(db(), 10);
@@ -362,6 +373,7 @@ describe('getActionsNeedingVotedPower', () => {
         ccYesPct: null, ccNoPct: null,
         drepVotedPower: null,
         tallyEpoch: 296, decidedEpoch: 296, tallySyncedAt: NOW, now: NOW,
+        thresholdsJson: null, thresholdsEpoch: null,
       });
     }
     const one = await getActionsNeedingVotedPower(db(), 1);
@@ -380,6 +392,7 @@ describe('getActionsNeedingVotedPower', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 296, decidedEpoch: 296, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
     const candidates = await getActionsNeedingVotedPower(db(), 10);
     expect(candidates.map((c) => c.id)).not.toContain(noPid.id);
@@ -399,6 +412,7 @@ describe('updateVotedPower', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 297, decidedEpoch: 297, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     await updateVotedPower(db(), a.id, { votedPower: 5_000_000_000, drepYesPower: 5_000_000_000 });
@@ -557,6 +571,7 @@ describe('updateActionMetadata', () => {
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
       tallyEpoch: 300, decidedEpoch: null, tallySyncedAt: NOW, now: NOW,
+      thresholdsJson: null, thresholdsEpoch: null,
     });
 
     await updateActionMetadata(db(), a.id, {
@@ -982,5 +997,47 @@ describe('getLatestActionWithVotes', () => {
 
     const res = await getLatestActionWithVotes(db(), { minVoters: 6 });
     expect(res).toBeNull();
+  });
+});
+
+describe('threshold snapshot backfill queries', () => {
+  async function ins(id: string, type: string, status: string, thresholdsJson: string | null): Promise<void> {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, anchor_status, status, trending_score, thresholds_json, topic_id, created_at, last_synced_at)
+       VALUES (?, ?, 'no-anchor', ?, 0, ?, ?, 0, 0)`,
+    )
+      .bind(id, type, status, thresholdsJson, `t-${id}`)
+      .run();
+  }
+
+  it('selects terminal non-Info actions whose snapshot is missing or predates the version', async () => {
+    await ins('tsq-null', 'TreasuryWithdrawals', 'enacted', null);
+    await ins('tsq-v1', 'HardForkInitiation', 'expired', '{"drep":67,"cc":66.67}');
+    await ins('tsq-v2', 'TreasuryWithdrawals', 'enacted', `{"drep":67,"v":${THRESHOLD_SNAPSHOT_VERSION}}`);
+    await ins('tsq-active', 'TreasuryWithdrawals', 'active', null);
+    await ins('tsq-info', 'InfoAction', 'closed', null);
+
+    const ids = (await getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50)).map((r) => r.id);
+    expect(ids).toContain('tsq-null');
+    expect(ids).toContain('tsq-v1');
+    expect(ids).not.toContain('tsq-v2');
+    expect(ids).not.toContain('tsq-active');
+    expect(ids).not.toContain('tsq-info');
+  });
+
+  it('updateThresholdSnapshot writes the json + epoch and clears it from the candidate set', async () => {
+    await ins('tsq-upd', 'TreasuryWithdrawals', 'enacted', null);
+    await updateThresholdSnapshot(env.DB, {
+      id: 'tsq-upd',
+      thresholdsJson: `{"drep":67,"spo":null,"cc":66.67,"ccBelowMinSize":true,"v":${THRESHOLD_SNAPSHOT_VERSION}}`,
+      thresholdsEpoch: 555,
+    });
+    const row = await env.DB.prepare('SELECT thresholds_json, thresholds_epoch FROM governance_actions WHERE id = ?')
+      .bind('tsq-upd')
+      .first<{ thresholds_json: string; thresholds_epoch: number }>();
+    expect(JSON.parse(row!.thresholds_json).ccBelowMinSize).toBe(true);
+    expect(row!.thresholds_epoch).toBe(555);
+    const ids = (await getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50)).map((r) => r.id);
+    expect(ids).not.toContain('tsq-upd');
   });
 });

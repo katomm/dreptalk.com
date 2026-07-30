@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { ensureLinkTarget, renderMarkdown } from './markdown';
+import { enhanceStoredHtml, ensureLinkTarget, linkifyGovActionIds, renderMarkdown } from './markdown';
 
 // Helpers for negative assertions.
 function assertInert(html: string, label: string): void {
@@ -353,6 +353,67 @@ describe('mentions', () => {
 
   it('does not linkify a mention preceded by punctuation other than "(" or ">"', () => {
     expect(renderMarkdown('.@alice-drep', { mentions: hrefs })).not.toContain('<a');
+  });
+});
+
+describe('linkifyGovActionIds', () => {
+  const ID = 'gov_action1fdatlfcdnzzcw5x9pnt9r42v992nqw65zze57s8tyk0jll78eyusqccn9gc';
+
+  it('turns a bare gov action id into a linked, copyable chip', () => {
+    const out = linkifyGovActionIds(`<td>${ID}</td>`);
+    expect(out).toContain('class="chainid"');
+    expect(out).toContain(`href="/ga/${ID}/"`);
+    // Middle-truncated display text, full value only in href/title/data-copy.
+    expect(out).toContain('>gov_action1fda...ccn9gc</a>');
+    // The copy button carries the FULL id so it stays fully copyable.
+    expect(out).toContain(`data-copy="${ID}"`);
+  });
+
+  it('leaves an id inside a link href untouched (no corruption, no chip)', () => {
+    const out = linkifyGovActionIds(`<a href="https://gov.tools/x/${ID}">see</a>`);
+    expect(out).toBe(`<a href="https://gov.tools/x/${ID}">see</a>`);
+    expect(out).not.toContain('class="chainid"');
+  });
+
+  it('leaves an id that is a link text untouched (never nests a link)', () => {
+    const out = linkifyGovActionIds(`<a href="/t/x/">${ID}</a>`);
+    expect(out).not.toContain('class="chainid"');
+  });
+
+  it('leaves ids inside <code> and <pre> untouched', () => {
+    expect(linkifyGovActionIds(`<code>${ID}</code>`)).not.toContain('class="chainid"');
+    expect(linkifyGovActionIds(`<pre>${ID}</pre>`)).not.toContain('class="chainid"');
+  });
+
+  it('does not treat <article> as an <a> boundary', () => {
+    const out = linkifyGovActionIds(`<article>${ID}</article>`);
+    expect(out).toContain('class="chainid"');
+  });
+
+  it('chips every id in a paragraph with multiple ids', () => {
+    const out = linkifyGovActionIds(`<p>${ID} and ${ID}</p>`);
+    expect(out.match(/class="chainid"/g)).toHaveLength(2);
+  });
+
+  it('leaves content without an id unchanged', () => {
+    expect(linkifyGovActionIds('<p>no ids here</p>')).toBe('<p>no ids here</p>');
+  });
+});
+
+describe('enhanceStoredHtml', () => {
+  const ID = 'gov_action1fdatlfcdnzzcw5x9pnt9r42v992nqw65zze57s8tyk0jll78eyusqccn9gc';
+
+  it('chips gov action ids and opens links in a new tab', () => {
+    const out = enhanceStoredHtml(`<td>${ID}</td>`);
+    expect(out).toContain('class="chainid"');
+    expect(out).toContain('target="_blank"');
+    expect(out).toContain(`data-copy="${ID}"`);
+  });
+
+  it('still adds target to ordinary markdown links', () => {
+    const out = enhanceStoredHtml(renderMarkdown('[t](https://example.com)'));
+    expect(out).toContain('target="_blank"');
+    expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
   });
 });
 

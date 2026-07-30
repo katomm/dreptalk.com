@@ -24,7 +24,11 @@ import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPos
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
 import { isSpoLedType } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getVoteTrendRows, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getCommitteeVotes, getCommitteeTimeline } from '@/lib/db/committee.js';
+import { computeVoteTrendSeries, buildTrendChart, type TrendChart } from '@/lib/governance/voteTrend.js';
+import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
+import { resolveNetwork } from '@/lib/config/network.js';
 import {
   getActionRationales,
   countActionRationales,
@@ -317,6 +321,30 @@ const [params, activeDrepStake] = isGovernanceTopic && govAction && db
 const drepStakeTotal =
   activeDrepStake && activeDrepStake.total > 0 ? activeDrepStake.total : null;
 
+// Voting-trend data (DRep/SPO power rows + CC votes/timeline): loaded once for any
+// governance topic, not just the History tab, because the sidebar's teaser
+// sparkline (built below) shows on every tab. The History tab's full chart reuses
+// these same rows, so this is the only load.
+const trend = isGovernanceTopic && govAction && db
+  ? await Promise.all([getVoteTrendRows(db, govAction.id), getCommitteeVotes(db, govAction.id), getCommitteeTimeline(db)])
+  : null;
+const trendRows = trend?.[0] ?? [];
+const ccVotes = trend?.[1] ?? [];
+const committee = trend?.[2] ?? { members: [], hotToCold: new Map() };
+
+// Compact multi-body step sparkline for the Voting Information card's teaser link
+// into the History tab. Built from the same trend rows loaded above, no second
+// read. Null when there is no vote data yet.
+let miniChart: TrendChart | null = null;
+if (govAction && (trendRows.length || ccVotes.length)) {
+  const cfg = resolveNetwork(network);
+  const { window, lineEnd, inputs } = assembleTrendInputs({ action: govAction, trendRows, ccVotes, committee, cfg, nowSec: Math.floor(now / 1000) });
+  // Line stops at the current epoch; the axis spans the full window (see VotingTrendChart).
+  const series = computeVoteTrendSeries(inputs, { start: window.start, end: lineEnd });
+  miniChart = buildTrendChart(series, { width: 260, height: 56, padLeft: 2, padRight: 2, padTop: 4, padBottom: 4, domain: [window.start, window.end] });
+}
+const trendHref = topic ? `/t/${topic.slug}/?tab=history` : '';
+
 // Decode the on-chain payload for the Overview's "On-chain changes" block. Old→new
 // reads the cached epoch_params blob; both are null-safe and render nothing if absent.
 const onchainChanges = govAction
@@ -446,6 +474,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     title={`${topic.title} - DRepTalk`}
     description={metaDescription}
     ogImage={ogImage}
+    wide={isGovernanceTopic}
     readingWidth={!isGovernanceTopic}
   >
     {discussionLd && <JsonLd data={discussionLd} />}
@@ -534,7 +563,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />
             ) : tab === 'history' ? (
-              <GaHistory action={govAction} network={network} />
+              <GaHistory action={govAction} network={network} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} now={now} />
             ) : (
               <>
                 <div class="ga-overview-block">
@@ -610,6 +639,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               positionsTotal={positionsTotal}
               rationaleCount={rationaleCount}
               now={now}
+              miniChart={miniChart}
+              trendHref={trendHref}
             >
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />

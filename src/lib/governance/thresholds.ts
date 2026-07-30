@@ -119,3 +119,59 @@ export function evaluateThresholds(input: ThresholdInput, p: ProtocolParams): Bo
   }
   return out;
 }
+
+/** Per-body threshold percentages (0..100), frozen with an action at its decision. */
+// Snapshot schema version. v1 (no `v` field) stored only the per-body threshold
+// percentages. v2 adds ccBelowMinSize, the frozen constitutional-committee quorum
+// gate: whether the active committee was below its minimum size at the decision
+// epoch. That gate is historically volatile (committee_min_size changed 7 to 5, and
+// membership shifts), so it must be frozen rather than recomputed from today's values.
+export const THRESHOLD_SNAPSHOT_VERSION = 2;
+
+export interface ThresholdSnapshot {
+  drep: number | null;
+  spo: number | null;
+  cc: number | null;
+  /** The committee was too small to act (size < min size) at the decision epoch.
+      Null when unknown (a v1 snapshot, or committee size/min not resolvable). */
+  ccBelowMinSize: boolean | null;
+  /** Snapshot schema version; 0 for a legacy v1 snapshot with no version field. */
+  v: number;
+}
+
+/** Whether the active committee was below its minimum size (the CC quorum gate). */
+export function committeeBelowMinSize(size: number | null, minSize: number | null): boolean | null {
+  if (size == null || minSize == null) return null;
+  return size < minSize;
+}
+
+/**
+ * Serializes evaluated per-body thresholds plus the frozen CC quorum gate to the
+ * stored thresholds_json string.
+ */
+export function serializeThresholdSnapshot(results: BodyResult[], ccBelowMinSize: boolean | null): string {
+  const snap: ThresholdSnapshot = { drep: null, spo: null, cc: null, ccBelowMinSize, v: THRESHOLD_SNAPSHOT_VERSION };
+  for (const r of results) {
+    if (r.body === 'DRep') snap.drep = r.thresholdPct;
+    else if (r.body === 'SPO') snap.spo = r.thresholdPct;
+    else if (r.body === 'CC') snap.cc = r.thresholdPct;
+  }
+  return JSON.stringify(snap);
+}
+
+/** Parses a stored thresholds_json string; null when absent or malformed. */
+export function readThresholdSnapshot(json: string | null): ThresholdSnapshot | null {
+  if (!json) return null;
+  try {
+    const o = JSON.parse(json) as Partial<ThresholdSnapshot>;
+    return {
+      drep: typeof o.drep === 'number' ? o.drep : null,
+      spo: typeof o.spo === 'number' ? o.spo : null,
+      cc: typeof o.cc === 'number' ? o.cc : null,
+      ccBelowMinSize: typeof o.ccBelowMinSize === 'boolean' ? o.ccBelowMinSize : null,
+      v: typeof o.v === 'number' ? o.v : 0,
+    };
+  } catch {
+    return null;
+  }
+}

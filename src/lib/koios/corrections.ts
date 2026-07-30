@@ -123,3 +123,34 @@ export function ccTallyPct(
   const noPct = denom <= 0 ? null : round2(((denom - yes) / denom) * 100);
   return { yesPct, noPct, yes, no, abstain };
 }
+
+/** One counted committee member's final vote, with its on-chain timestamp. */
+export interface CcMemberFinalVote {
+  coldKeyHex: string;
+  vote: 'Yes' | 'No' | 'Abstain';
+  blockTime: number;
+}
+
+/**
+ * The final vote per active committee member, resolving hot-key rotations and
+ * re-votes to the latest-blockTime vote (same dedup as ccTallyPct), keyed by the
+ * stable cold key. Members not active at ratifiedEpoch, and votes with an unknown
+ * hot key, are dropped. Used by the voting-trend chart for the CC timeline.
+ */
+export function ccFinalVotesByMember(
+  votes: CcVote[],
+  members: CommitteeMemberTerm[],
+  hotToCold: Map<string, string>,
+  ratifiedEpoch: number,
+): CcMemberFinalVote[] {
+  const active = activeCommitteeMembersAt(members, ratifiedEpoch);
+  const finalByMember = new Map<string, CcMemberFinalVote>();
+  for (const v of votes) {
+    const cold = hotToCold.get(v.hotKeyHex);
+    if (cold == null || !active.has(cold)) continue;
+    const bt = v.blockTime ?? 0;
+    const prev = finalByMember.get(cold);
+    if (prev == null || bt >= prev.blockTime) finalByMember.set(cold, { coldKeyHex: cold, vote: v.vote, blockTime: bt });
+  }
+  return [...finalByMember.values()];
+}
