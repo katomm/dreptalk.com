@@ -75,6 +75,32 @@ describe('getDrepVotingHistory + countDrepVotes', () => {
       .bind('m1', 'drepM').first<{ meta_url: string | null }>();
     expect(row?.meta_url).toBe('ipfs://rationale');
   });
+
+  describe('confirmedOnly', () => {
+    it('excludes optimistic pending AND failed votes, keeping only on-chain confirmed rows', async () => {
+      await seedAction('gaConfirmed', 'Confirmed Action', 500);
+      await seedAction('gaPending', 'Pending Action', 501);
+      await seedAction('gaFailed', 'Failed Action', 502);
+
+      // Confirmed: an authoritative upsert (local_status NULL).
+      await upsertVotes(env.DB, 'gaConfirmed', [
+        { voterRole: 'DRep', voterId: 'drepConf', voterHex: null, vote: 'Yes', blockTime: 1000 },
+      ], 1);
+      // Optimistic self-cast never yet reconciled by the sync.
+      await recordLocalVote(env.DB, { gaId: 'gaPending', drepId: 'drepConf', voterHex: null, vote: 'yes', metaUrl: null, txHash: 'txp', now: 2000 });
+      // A self-cast reconciled as failed.
+      await env.DB.prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at, local_status)
+         VALUES ('gaFailed', 'DRep', 'drepConf', NULL, 'No', 3000, 1, 'failed')`,
+      ).run();
+
+      const confirmedOnly = await getDrepVotingHistory(env.DB, 'drepConf', { confirmedOnly: true });
+      expect(confirmedOnly.map((h) => h.ga_id)).toEqual(['gaConfirmed']);
+
+      const all = await getDrepVotingHistory(env.DB, 'drepConf');
+      expect(all.map((h) => h.ga_id).sort()).toEqual(['gaConfirmed', 'gaPending']);
+    });
+  });
 });
 
 it('lists only SPO voters for an action, newest first', async () => {

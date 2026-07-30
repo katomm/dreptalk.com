@@ -225,17 +225,20 @@ export interface DrepVoteHistoryRow {
  * decided epoch, so ordering by the vote's block_time (not the action's decided
  * epoch, which is NULL and would sink them) keeps the history a true activity
  * timeline. Rows with no block_time fall back to the action's decided epoch/id.
- * Uses idx_drep_votes_voter. Default limit 20, capped 500.
+ * Uses idx_drep_votes_voter. Default limit 20, capped 500. Pass `confirmedOnly`
+ * to additionally require `local_status IS NULL`, so a delegator viewing their
+ * DRep's history never sees a still-optimistic (unconfirmed) self-cast.
  */
 export async function getDrepVotingHistory(
   db: D1Database,
   voterId: string,
-  opts?: { limit?: number; offset?: number },
+  opts?: { limit?: number; offset?: number; confirmedOnly?: boolean },
 ): Promise<DrepVoteHistoryRow[]> {
   // The ceiling is a runaway guard, sized so a profile can render a DRep's
   // complete history (a vote per action; mainnet has ~150 actions so far).
   const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 500);
   const offset = Math.max(opts?.offset ?? 0, 0);
+  const confirmedClause = opts?.confirmedOnly ? 'AND v.local_status IS NULL' : '';
   const rows = (
     await db
       .prepare(
@@ -248,6 +251,7 @@ export async function getDrepVotingHistory(
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
          WHERE v.voter_id = ? AND v.voter_role = 'DRep'
            AND (v.local_status IS NULL OR v.local_status <> 'failed')
+           ${confirmedClause}
          ORDER BY (v.block_time IS NULL), v.block_time DESC, g.decided_epoch DESC, g.id DESC
          LIMIT ? OFFSET ?`,
       )
