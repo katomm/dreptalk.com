@@ -49,6 +49,12 @@ if (!pool) {
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
+// True when the signed-in viewer operates this pool: their vote rows prompt
+// them to share their own rationale instead of offering a generic copy-link action.
+const isOwner = !!pool && !!db && Astro.locals.user?.roles.includes('spo')
+  ? (await getUserById(db, Astro.locals.user.id))?.pool_id === pool.poolId
+  : false;
+
 const poolUser = pool && db ? await getUserByPoolId(db, pool.poolId) : null;
 const [posts, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, voteHistoryMap] =
   await Promise.all([
@@ -172,14 +178,14 @@ const metaDescription = pool
             <span>Outcome</span>
             <span class="vhist__when-h">Voted</span>
           </div>
-          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} />)}
+          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
           {historyTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {historyTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} />)}
+              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
               {votesCast > votingHistory.length && (
                 <p class="vhist__truncated">Showing the {votingHistory.length} most recent votes.</p>
               )}

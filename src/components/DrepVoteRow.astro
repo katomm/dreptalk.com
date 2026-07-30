@@ -28,8 +28,10 @@ interface Props {
    * vote page) where the id would not be unique to this profile.
    */
   permalinkBase?: string | null;
+  /** True when the signed-in viewer is the DRep/SPO this profile belongs to. */
+  isOwner?: boolean;
 }
-const { row, now, earlier = [], permalinkBase = null } = Astro.props;
+const { row, now, earlier = [], permalinkBase = null, isOwner = false } = Astro.props;
 
 // Deep-link anchor and share URL for this vote, only in a profile context. A
 // gov action id is "<txHash>#<index>"; the "#" would start a second URL fragment,
@@ -67,7 +69,14 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
     expandable ? (
       <details class="vhist__details" id={anchorId}>
         <summary class="vhist__row vhist__row--expandable">{cells}</summary>
-        {shareUrl && <div class="vote-share"><ShareVoteButton url={shareUrl} /></div>}
+        {shareUrl && (
+          <div class="vote-share">
+            <ShareVoteButton
+              url={shareUrl}
+              label={isOwner && rationaleHtml && row.topic_slug ? 'Share your rationale' : 'Copy link to this vote'}
+            />
+          </div>
+        )}
         {rationaleHtml && <div class="vhist__rationale" set:html={enhanceStoredHtml(rationaleHtml)} />}
         {earlier.length > 0 && <EarlierVotes earlier={earlier} now={now} />}
       </details>

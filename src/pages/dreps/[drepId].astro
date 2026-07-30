@@ -62,6 +62,11 @@ if (!drep) {
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
+// True when the signed-in viewer is this DRep: their vote rows prompt them to
+// share their own rationale instead of offering a generic copy-link action.
+const isOwner =
+  !!drep && !!db && !!Astro.locals.user && (await getSelfDrepId(db, Astro.locals.user)) === drep.drepId;
+
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
 const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap] =
@@ -391,14 +396,14 @@ const profileSummary = drep
             <span>Outcome</span>
             <span class="vhist__when-h">Voted</span>
           </div>
-          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} />)}
+          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
           {historyTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {historyTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} />)}
+              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
               {votesCast > votingHistory.length && (
                 <p class="vhist__truncated">Showing the {votingHistory.length} most recent votes.</p>
               )}
