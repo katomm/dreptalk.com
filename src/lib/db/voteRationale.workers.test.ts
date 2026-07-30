@@ -58,11 +58,17 @@ describe('getVoteStatement', () => {
     expect(await getVoteStatement(env.DB, { gaId: 'ga4', voterId: 'drepN', role: 'DRep' })).toBeNull();
   });
 
-  it('scopes by role', async () => {
+  it('scopes by role and returns voted_power from vote-time snapshot', async () => {
     await seedAction('ga5');
     await upsertVotes(env.DB, 'ga5', [{ voterRole: 'SPO', voterId: 'poolZ', voterHex: null, vote: 'Yes' }], 1);
     await seedRationale('ga5', 'poolZ', '<p>Pool view.</p>', { status: 'ok' });
     expect(await getVoteStatement(env.DB, { gaId: 'ga5', voterId: 'poolZ', role: 'DRep' })).toBeNull();
-    expect((await getVoteStatement(env.DB, { gaId: 'ga5', voterId: 'poolZ', role: 'SPO' }))?.vote).toBe('Yes');
+    const spoRow = await getVoteStatement(env.DB, { gaId: 'ga5', voterId: 'poolZ', role: 'SPO' });
+    expect(spoRow?.vote).toBe('Yes');
+    // Verify voted_power is returned correctly (SPO case ensures it works even when dreps row won't match)
+    await env.DB.prepare(`UPDATE drep_votes SET voted_power = ? WHERE ga_id = ? AND voter_id = ?`)
+      .bind('12500000', 'ga5', 'poolZ').run();
+    const spoRowWithPower = await getVoteStatement(env.DB, { gaId: 'ga5', voterId: 'poolZ', role: 'SPO' });
+    expect(spoRowWithPower?.votingPower).toBe('12500000');
   });
 });

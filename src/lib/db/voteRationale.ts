@@ -27,7 +27,8 @@ export async function getVoteRationaleBody(db: D1Database, hash: string): Promis
 // vote page and its preview-image route. Includes pending (just-voted, optimistic)
 // and confirmed votes, but not failed ones; requires a real rationale (status ok,
 // non-blank body_text), so callers redirect instead of rendering an empty page.
-// voted_power is read as TEXT: it is INTEGER lovelace that can exceed JS safe range.
+// votingPower is read as TEXT from voted_power: it is INTEGER lovelace that can
+// exceed JS safe range, and represents the power at vote time (not current power).
 export interface VoteStatementRow {
   vote: string;
   localStatus: 'pending' | null;
@@ -46,11 +47,10 @@ export async function getVoteStatement(
   const row = await db
     .prepare(
       `SELECT v.vote AS vote, v.local_status AS local_status, v.tx_hash AS tx_hash,
-              CAST(d.voting_power AS TEXT) AS voting_power, v.block_time AS block_time,
+              CAST(v.voted_power AS TEXT) AS voting_power, v.block_time AS block_time,
               r.body_html AS rationale_html, r.body_text AS body_text, r.source AS source
          FROM drep_votes v
          JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
-         LEFT JOIN dreps d ON d.drep_id = v.voter_id
         WHERE v.ga_id = ? AND v.voter_id = ? AND v.voter_role = ?
           AND (v.local_status IS NULL OR v.local_status = 'pending')
           AND r.status = 'ok' AND trim(r.body_text) <> ''`,
