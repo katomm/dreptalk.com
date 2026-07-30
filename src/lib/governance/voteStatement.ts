@@ -11,8 +11,12 @@ export function isVoteStatementIndexable(args: { hasMetadata: boolean; rationale
 }
 
 export function voteDisplay(vote: string): { label: string; tone: 'yes' | 'no' | 'abstain' | 'other' } {
-  if (vote === 'Yes') return { label: 'VOTED YES', tone: 'yes' };
-  if (vote === 'No') return { label: 'VOTED NO', tone: 'no' };
-  if (vote === 'Abstain') return { label: 'ABSTAINED', tone: 'abstain' };
+  // Case-insensitive: synced votes are stored capitalized ("Yes"), but an
+  // optimistic just-cast vote is stored lowercase ("yes"), and both must render
+  // the same on the preview card. Mirrors voteTone's lowercase normalization.
+  const v = vote.trim().toLowerCase();
+  if (v === 'yes') return { label: 'VOTED YES', tone: 'yes' };
+  if (v === 'no') return { label: 'VOTED NO', tone: 'no' };
+  if (v === 'abstain') return { label: 'ABSTAINED', tone: 'abstain' };
   return { label: 'VOTED', tone: 'other' };
 }

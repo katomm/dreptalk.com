@@ -273,4 +273,12 @@ describe('voteCardModel', () => {
     expect(m.rationaleExcerpt.endsWith('…')).toBe(true);
     expect(m.roleLabel).toBe('DRep');
   });
+  it('handles a lowercase (optimistic) vote value', () => {
+    const m = voteCardModel(
+      { name: 'Ada', voterId: 'drep1abc', vote: 'yes', rationaleText: 'short', actionTitle: 'X', role: 'DRep' },
+      { avatarDataUrl: 'data:,' },
+    );
+    expect(m.votePhrase).toBe('voted Yes');
+    expect(m.voteColor).toBe(TALLY.yes);
+  });
 });

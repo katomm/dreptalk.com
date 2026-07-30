@@ -26,4 +26,9 @@ describe('voteDisplay', () => {
   it('does not treat an unknown value as abstain', () => {
     expect(voteDisplay('Weird')).toEqual({ label: 'VOTED', tone: 'other' });
   });
+  it('is case-insensitive (optimistic votes are stored lowercase)', () => {
+    expect(voteDisplay('yes')).toEqual({ label: 'VOTED YES', tone: 'yes' });
+    expect(voteDisplay('no')).toEqual({ label: 'VOTED NO', tone: 'no' });
+    expect(voteDisplay('abstain')).toEqual({ label: 'ABSTAINED', tone: 'abstain' });
+  });
 });
