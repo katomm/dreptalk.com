@@ -48,6 +48,9 @@
 //   2026-07-30: pass followedDrepIds into the live vote sync and the drep sync so
 //               delegator fan-out jobs actually get emitted, and drain the fan-out
 //               outbox with a delegation-fanout phase before webpush/telegram.
+//   2026-07-30: pick up the whitespace-tolerant anchor verification so vote
+//               rationales whose on-chain hash was taken over a reformatted
+//               (pretty vs minified) copy of the same document verify and render.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
