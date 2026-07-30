@@ -1,7 +1,14 @@
 /// <reference types="@cloudflare/workers-types" />
 // Parameterized D1 access for drep_votes (on-chain votes that drive per-post badges).
 // All queries use .prepare().bind(); never string-concatenated SQL.
-import { archiveSupersededVotes } from './voteHistory.js';
+import {
+  buildArchiveStatements,
+  computeSupersededChanges,
+  loadExistingVotes,
+  readChangedRationaleBodies,
+  type ExistingVoteRow,
+} from './voteHistory.js';
+import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
 
 export interface VoteInput {
   voterRole: string;
@@ -21,32 +28,133 @@ export interface VoteInput {
 // vote, meta_url, meta_hash, block_time, synced_at), so floor(100/9) = 11.
 const UPSERT_CHUNK = 11;
 
+export interface UpsertVotesOptions {
+  /**
+   * When present, the set of DRep ids that have at least one follower to notify.
+   * Passing it turns on delegator fan-out: a qualifying DRep vote gets a
+   * notification_fanout_jobs row inserted in the SAME batch as its drep_votes
+   * upsert (so job creation is atomic with the vote). Omit it (the sync backfill
+   * does) to write votes without emitting any events.
+   */
+  followedDrepIds?: Set<string>;
+}
+
+/** The INSERT OR REPLACE statements for a set of votes (one row each, 9 binds). */
+export function buildVoteUpsertStatements(
+  db: D1Database,
+  gaId: string,
+  votes: VoteInput[],
+  now: number,
+): D1PreparedStatement[] {
+  return votes.map((v) =>
+    db
+      .prepare(
+        `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, local_status, tx_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+      )
+      .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now),
+  );
+}
+
+/**
+ * Classifies the incoming votes against the stored rows and builds a fan-out job
+ * INSERT for each qualifying followed-DRep vote (dropped into the caller's batch,
+ * so the job commits with the vote). Only role 'DRep' votes whose voterId is in
+ * followedDrepIds qualify:
+ *  - `voted`   : no stored row, OR the stored row was a pending self-cast now
+ *                confirmed on chain (local_status != null).
+ *  - `re_voted`: an authoritative row (local_status null) whose vote changed to a
+ *                strictly newer block_time.
+ *  - otherwise : no job (anchor-only change, or not actually newer).
+ * `now` is unix milliseconds; source_time / created_at are seconds. When a vote
+ * has no block_time, the observed second is used for both source_time and the
+ * event_key and payload.sourceTimeApprox is set. `title` is a best-effort action
+ * title for the payload.
+ */
+export function classifyVoteJobs(
+  db: D1Database,
+  gaId: string,
+  incoming: VoteInput[],
+  existing: Map<string, ExistingVoteRow>,
+  followedDrepIds: Set<string>,
+  now: number,
+  title: string | null,
+): D1PreparedStatement[] {
+  const observedAtSec = Math.floor(now / 1000);
+  const stmts: D1PreparedStatement[] = [];
+  for (const v of incoming) {
+    if (v.voterRole !== 'DRep' || !followedDrepIds.has(v.voterId)) continue;
+    const old = existing.get(v.voterId);
+
+    let kind: 'voted' | 're_voted' | null = null;
+    if (!old || old.local_status != null) kind = 'voted';
+    else if (old.vote !== v.vote && v.blockTime != null && old.block_time != null && v.blockTime > old.block_time) kind = 're_voted';
+    if (!kind) continue;
+
+    const approx = v.blockTime == null;
+    const sourceTime = v.blockTime ?? observedAtSec;
+    const prefix = kind === 'voted' ? 'drep-vote' : 'drep-revote';
+    const eventType: FanoutEventType = kind === 'voted' ? 'delegator_drep_voted' : 'delegator_drep_re_voted';
+    const payload: Record<string, unknown> = { sourceTime, gaId, title };
+    if (approx) payload.sourceTimeApprox = true;
+
+    stmts.push(
+      buildJobInsert(db, {
+        eventKey: `${prefix}:${v.voterId}:${gaId}:${sourceTime}`,
+        eventType,
+        subjectId: v.voterId,
+        sourceTime,
+        payload: JSON.stringify(payload),
+        createdAt: observedAtSec,
+      }),
+    );
+  }
+  return stmts;
+}
+
+/** Best-effort action title for a fan-out payload; null when unknown. */
+async function lookupActionTitle(db: D1Database, gaId: string): Promise<string | null> {
+  const row = await db.prepare('SELECT title FROM governance_actions WHERE id = ?').bind(gaId).first<{ title: string | null }>();
+  return row?.title ?? null;
+}
+
 /**
  * Upserts on-chain votes for one governance action (INSERT OR REPLACE on the
- * (ga_id, voter_id) primary key), chunked. Rows a re-vote is about to replace
- * are archived into drep_vote_history first, so history preservation holds on
- * every vote-writing path. Returns the number of rows written.
+ * (ga_id, voter_id) primary key), chunked. For each chunk, the archive of any
+ * rows the write supersedes, the vote upserts, and (when followedDrepIds is
+ * passed) the delegator fan-out jobs all land in ONE db.batch, so history, vote
+ * and job commit atomically together. The existing-rows SELECT and the changed
+ * voters' rationale bodies are read once up front and shared across chunks.
+ * Returns the number of rows written.
  */
 export async function upsertVotes(
   db: D1Database,
   gaId: string,
   votes: VoteInput[],
   now: number,
+  opts?: UpsertVotesOptions,
 ): Promise<number> {
   if (votes.length === 0) return 0;
-  await archiveSupersededVotes(db, gaId, votes, now);
+
+  const followedDrepIds = opts?.followedDrepIds;
+  const existing = await loadExistingVotes(db, gaId);
+
+  // Rationale bodies for archiving, read once for every superseded voter.
+  const changed = computeSupersededChanges(votes, existing);
+  const bodies = changed.length
+    ? await readChangedRationaleBodies(db, gaId, changed.map((c) => c.old.voter_id))
+    : new Map<string, string | null>();
+
+  // Title only when we might emit a job (best-effort, one SELECT).
+  const emitJobs = followedDrepIds != null && followedDrepIds.size > 0;
+  const title = emitJobs ? await lookupActionTitle(db, gaId) : null;
 
   for (let i = 0; i < votes.length; i += UPSERT_CHUNK) {
     const chunk = votes.slice(i, i + UPSERT_CHUNK);
-    const stmts = chunk.map((v) =>
-      db
-        .prepare(
-          `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, local_status, tx_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-        )
-        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now),
-    );
-    await db.batch(stmts);
+    const archiveStmts = buildArchiveStatements(db, gaId, chunk, existing, bodies, now);
+    const voteStmts = buildVoteUpsertStatements(db, gaId, chunk, now);
+    const jobStmts = emitJobs ? classifyVoteJobs(db, gaId, chunk, existing, followedDrepIds, now, title) : [];
+    await db.batch([...archiveStmts, ...voteStmts, ...jobStmts]);
   }
   return votes.length;
 }

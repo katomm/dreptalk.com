@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId } from './drepVotes.js';
+import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId, buildVoteUpsertStatements, classifyVoteJobs } from './drepVotes.js';
+import { loadExistingVotes } from './voteHistory.js';
 import { createTopic } from './forum.js';
 import { upsertActionRationale } from './actionRationale.js';
 import { upsertVoteRationalePost } from './voteRationalePost.js';
@@ -86,6 +87,145 @@ it('lists only SPO voters for an action, newest first', async () => {
   const voters = await getActionSpoVoters(env.DB, 'gaX');
   expect(voters.map((v) => v.voter_id)).toEqual(['pool1new', 'pool1old']);
   expect(await countActionSpoVoters(env.DB, 'gaX')).toBe(2);
+});
+
+describe('upsertVotes delegator fan-out jobs', () => {
+  // upsertVotes' `now` is unix milliseconds (drives synced_at); the job's
+  // source_time / created_at are seconds.
+  const NOW_MS = 1_700_000_000_000;
+
+  async function allJobs() {
+    return (
+      await env.DB.prepare('SELECT * FROM notification_fanout_jobs ORDER BY event_key').all<{
+        event_key: string; event_type: string; subject_id: string; source_time: number; payload: string;
+      }>()
+    ).results;
+  }
+  async function jobsFor(subjectId: string) {
+    return (
+      await env.DB
+        .prepare('SELECT * FROM notification_fanout_jobs WHERE subject_id = ? ORDER BY event_key')
+        .bind(subjectId)
+        .all<{ event_key: string; event_type: string; subject_id: string; source_time: number; payload: string }>()
+    ).results;
+  }
+
+  it('(a) a new followed-DRep vote emits a `voted` job with the exact event_key', async () => {
+    await seedAction('gaVote', 'Vote Action', 500);
+    await upsertVotes(
+      env.DB,
+      'gaVote',
+      [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', blockTime: 1_700_000_100 }],
+      NOW_MS,
+      { followedDrepIds: new Set(['drepF']) },
+    );
+    const jobs = await allJobs();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].event_key).toBe('drep-vote:drepF:gaVote:1700000100');
+    expect(jobs[0].event_type).toBe('delegator_drep_voted');
+    expect(jobs[0].subject_id).toBe('drepF');
+    expect(jobs[0].source_time).toBe(1_700_000_100);
+    const payload = JSON.parse(jobs[0].payload);
+    expect(payload).toMatchObject({ sourceTime: 1_700_000_100, gaId: 'gaVote', title: 'Vote Action' });
+    expect(payload.sourceTimeApprox).toBeUndefined();
+  });
+
+  it('(a2) a followed-DRep vote with no block_time falls back to the observed second and flags it approximate', async () => {
+    await seedAction('gaApprox', 'Approx Action', 500);
+    await upsertVotes(
+      env.DB,
+      'gaApprox',
+      [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes' }],
+      NOW_MS,
+      { followedDrepIds: new Set(['drepF']) },
+    );
+    const observedSec = Math.floor(NOW_MS / 1000);
+    const jobs = await jobsFor('drepF');
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].event_key).toBe(`drep-vote:drepF:gaApprox:${observedSec}`);
+    expect(jobs[0].source_time).toBe(observedSec);
+    expect(JSON.parse(jobs[0].payload).sourceTimeApprox).toBe(true);
+  });
+
+  it('(b) a pending self-cast confirmed by the authoritative vote emits a `voted` job', async () => {
+    await seedAction('gaB', 'B', 500);
+    await recordLocalVote(env.DB, { gaId: 'gaB', drepId: 'drepF', voterHex: null, vote: 'yes', metaUrl: null, txHash: 'tx', now: 1000 });
+    await upsertVotes(
+      env.DB,
+      'gaB',
+      [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'yes', blockTime: 2000 }],
+      NOW_MS,
+      { followedDrepIds: new Set(['drepF']) },
+    );
+    const jobs = await jobsFor('drepF');
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].event_type).toBe('delegator_drep_voted');
+    expect(jobs[0].event_key).toBe('drep-vote:drepF:gaB:2000');
+  });
+
+  it('(c) an authoritative vote change with a newer block_time emits a `re_voted` job', async () => {
+    await seedAction('gaC', 'C', 500);
+    // Establish the authoritative baseline row (no opts, so no job).
+    await upsertVotes(env.DB, 'gaC', [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'No', blockTime: 1000 }], NOW_MS);
+    await upsertVotes(
+      env.DB,
+      'gaC',
+      [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', blockTime: 2000 }],
+      NOW_MS + 1000,
+      { followedDrepIds: new Set(['drepF']) },
+    );
+    const jobs = await jobsFor('drepF');
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].event_type).toBe('delegator_drep_re_voted');
+    expect(jobs[0].event_key).toBe('drep-revote:drepF:gaC:2000');
+  });
+
+  it('(d) an anchor-only change (same vote) emits NO job', async () => {
+    await seedAction('gaD', 'D', 500);
+    await upsertVotes(env.DB, 'gaD', [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://a', blockTime: 1000 }], NOW_MS);
+    await upsertVotes(
+      env.DB,
+      'gaD',
+      [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', metaUrl: 'ipfs://b', blockTime: 2000 }],
+      NOW_MS + 1000,
+      { followedDrepIds: new Set(['drepF']) },
+    );
+    expect(await jobsFor('drepF')).toHaveLength(0);
+  });
+
+  it('(e) a DRep not in the follower set emits NO job', async () => {
+    await seedAction('gaE', 'E', 500);
+    await upsertVotes(
+      env.DB,
+      'gaE',
+      [{ voterRole: 'DRep', voterId: 'drepOut', voterHex: null, vote: 'Yes', blockTime: 1000 }],
+      NOW_MS,
+      { followedDrepIds: new Set(['drepF']) },
+    );
+    expect(await allJobs()).toHaveLength(0);
+  });
+
+  it('(f) without followedDrepIds opts, upsertVotes emits NO job (backward compatible)', async () => {
+    await seedAction('gaG', 'G', 500);
+    await upsertVotes(env.DB, 'gaG', [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', blockTime: 1000 }], NOW_MS);
+    expect(await allJobs()).toHaveLength(0);
+  });
+
+  it('atomicity: a failing statement in the combined batch leaves neither the vote row nor the job', async () => {
+    await seedAction('gaAtom', 'Atom', 500);
+    const votes = [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', blockTime: 1000 }];
+    const existing = await loadExistingVotes(env.DB, 'gaAtom');
+    const voteStmts = buildVoteUpsertStatements(env.DB, 'gaAtom', votes, NOW_MS);
+    const jobStmts = classifyVoteJobs(env.DB, 'gaAtom', votes, existing, new Set(['drepF']), NOW_MS, 'Atom');
+    expect(jobStmts).toHaveLength(1);
+    // A statement that violates a NOT NULL constraint aborts the whole batch transaction.
+    const failing = env.DB.prepare("INSERT INTO notification_fanout_jobs (event_key) VALUES ('boom')");
+    await expect(env.DB.batch([...voteStmts, ...jobStmts, failing])).rejects.toThrow();
+
+    const voteCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ?').bind('gaAtom').first<{ n: number }>();
+    expect(voteCount?.n).toBe(0);
+    expect(await allJobs()).toHaveLength(0);
+  });
 });
 
 describe('local vote record + reconcile', () => {
