@@ -51,9 +51,10 @@ export async function loadDrepTxModule(): Promise<typeof import('@/lib/governanc
 /**
  * Records the optimistic local vote(s) after a successful on-chain submit.
  * Non-fatal by design: the chain is the source of truth and the hourly sync
- * self-heals, so an HTTP failure only warns.
+ * self-heals, so an HTTP failure only warns. Returns whether the record was
+ * saved, so callers can gate follow-up UI (e.g. a share link) on it.
  */
-export async function postVoteRecord(body: unknown, logPrefix: string): Promise<void> {
+export async function postVoteRecord(body: unknown, logPrefix: string): Promise<boolean> {
   const res = await fetchWithTimeout('/api/vote/record', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -62,6 +63,7 @@ export async function postVoteRecord(body: unknown, logPrefix: string): Promise<
   if (!res.ok) {
     console.warn(`[${logPrefix}] /api/vote/record failed`, res.status);
   }
+  return res.ok;
 }
 
 /** Reads a draft from localStorage; best-effort (null when blocked/absent). */

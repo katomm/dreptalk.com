@@ -10,7 +10,7 @@ describe('submitVote orchestration', () => {
     const deps = {
       hostRationale: vi.fn(async () => { calls.push('host'); return { url: 'u', hash: 'h' }; }),
       castVote: vi.fn(async () => { calls.push('cast'); return { txHash: 'tx' }; }),
-      recordVote: vi.fn(async () => { calls.push('record'); }),
+      recordVote: vi.fn(async () => { calls.push('record'); return true; }),
     };
     const res = await submitVote(deps, {
       gaId: `${'a'.repeat(64)}#0`,
@@ -22,6 +22,7 @@ describe('submitVote orchestration', () => {
     });
     expect(calls).toEqual(['host', 'cast', 'record']);
     expect(res.txHash).toBe('tx');
+    expect(res.recorded).toBe(true);
     expect(deps.castVote).toHaveBeenCalledWith(expect.objectContaining({ anchorUrl: 'u', anchorHashHex: 'h' }));
   });
 
@@ -30,7 +31,7 @@ describe('submitVote orchestration', () => {
     const deps = {
       hostRationale: vi.fn(async () => ({ url: 'https://anchor.example/r.json', hash: 'abc123' })),
       castVote: vi.fn(async () => ({ txHash: 'tx2' })),
-      recordVote: vi.fn(async () => {}),
+      recordVote: vi.fn(async () => true),
       onRationaleHosted,
     };
     await submitVote(deps, {
@@ -49,7 +50,7 @@ describe('submitVote orchestration', () => {
     const deps = {
       hostRationale: vi.fn(),
       castVote: vi.fn(async () => ({ txHash: 'tx' })),
-      recordVote: vi.fn(async () => {}),
+      recordVote: vi.fn(async () => true),
     };
     await submitVote(deps, {
       gaId: `${'a'.repeat(64)}#0`,
@@ -67,7 +68,7 @@ describe('submitVote orchestration', () => {
     const deps = {
       hostRationale: vi.fn(),
       castVote: vi.fn(async () => ({ txHash: 'tx' })),
-      recordVote: vi.fn(async () => {}),
+      recordVote: vi.fn(async () => true),
       onRationaleHosted,
     };
     await submitVote(deps, {
@@ -82,7 +83,7 @@ describe('submitVote orchestration', () => {
   });
 
   it('passes crossPost through to recordVote', async () => {
-    const recordVote = vi.fn(async () => {});
+    const recordVote = vi.fn(async () => true);
     const deps = {
       hostRationale: vi.fn(async () => ({ url: 'u', hash: 'h' })),
       castVote: vi.fn(async () => ({ txHash: 'tx' })),
@@ -119,6 +120,7 @@ describe('submitVote orchestration', () => {
         origin: 'https://x',
       });
       expect(res.txHash).toBe('tx');
+      expect(res.recorded).toBe(false);
       expect(warn).toHaveBeenCalled();
     } finally {
       warn.mockRestore();
