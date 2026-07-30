@@ -93,6 +93,10 @@ const govParamsRawJson = overviewParams?.rawJson ?? null;
 const committeeSize = overviewParams?.committeeSize ?? null;
 const drepStakeTotal = stake.total > 0 ? stake.total : null;
 
+// Base for the shareable vote page of this DRep's own votes; each row appends its
+// action slug. Only votes with a stored rationale get a page (else it redirects).
+const voteShareBase = drep ? `/dreps/${drep.slug ?? drep.drepId}/vote/` : null;
+
 const participationPct =
   participation && participation.eligible > 0
     ? Math.round((participation.voted / participation.eligible) * 100)
@@ -328,6 +332,11 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
           <div class="history-list">
             {historyRows.map((row) => {
               const voteColor = TONE_COLORS[voteTone(row.vote)];
+              // On-site page for this vote+rationale, shareable off-site. Only when
+              // a rationale is stored and the action has a slug (else it redirects).
+              const shareHref = voteShareBase && row.rationale_html && row.topic_slug
+                ? `${voteShareBase}${row.topic_slug}/`
+                : null;
               return (
                 <div class="history-row">
                   <div class="history-row__main">
@@ -347,13 +356,19 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
                         (row.title ?? shortGovActionId(row.ga_id))
                       )}
                     </p>
-                    {(row.decided_epoch != null || row.meta_url) && (
+                    {(row.decided_epoch != null || row.meta_url || shareHref) && (
                       <p class="history-row__meta">
                         {row.decided_epoch != null && <>Decided epoch {row.decided_epoch}</>}
                         {row.meta_url && (
                           <>
                             {row.decided_epoch != null && <>{' '}</>}
                             <a href={row.meta_url} rel="nofollow noopener" target="_blank" class="rationale-link">Rationale</a>
+                          </>
+                        )}
+                        {shareHref && (
+                          <>
+                            {(row.decided_epoch != null || row.meta_url) && <>{' '}</>}
+                            <a href={shareHref} class="rationale-link">Share your rationale</a>
                           </>
                         )}
                       </p>
