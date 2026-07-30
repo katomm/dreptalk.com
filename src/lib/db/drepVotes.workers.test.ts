@@ -110,6 +110,28 @@ describe('upsertVotes delegator fan-out jobs', () => {
     ).results;
   }
 
+  // Proxies a D1Database so the delegator fan-out job INSERT is swapped for a
+  // statement that fails at execution (an unknown table). The failure is intrinsic
+  // to the job statement, so it aborts whichever batch upsertVotes places the job
+  // in: with the correct single-batch composition that is the same batch as the
+  // vote/archive, so all of them roll back. Everything else forwards to the real DB.
+  function poisonJobInsert(db: D1Database): D1Database {
+    return new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === 'prepare') {
+          return (sql: string) =>
+            sql.includes('INTO notification_fanout_jobs')
+              ? // 7 placeholders, matching buildJobInsert's bind arity, so bind
+                // succeeds and the failure surfaces at batch execution, not at bind.
+                target.prepare('INSERT INTO __no_such_fanout_table__ (a, b, c, d, e, f, g) VALUES (?, ?, ?, ?, ?, ?, ?)')
+              : target.prepare(sql);
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  }
+
   it('(a) a new followed-DRep vote emits a `voted` job with the exact event_key', async () => {
     await seedAction('gaVote', 'Vote Action', 500);
     await upsertVotes(
@@ -211,7 +233,10 @@ describe('upsertVotes delegator fan-out jobs', () => {
     expect(await allJobs()).toHaveLength(0);
   });
 
-  it('atomicity: a failing statement in the combined batch leaves neither the vote row nor the job', async () => {
+  // Builder-level check: the combined batch is atomic and the classifier does emit
+  // a job for a followed DRep. This proves the pieces compose; the two integration
+  // tests below prove upsertVotes ITSELF puts them in one batch (the real guard).
+  it('atomicity (builders): a failing statement in a hand-built combined batch leaves neither the vote row nor the job', async () => {
     await seedAction('gaAtom', 'Atom', 500);
     const votes = [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', blockTime: 1000 }];
     const existing = await loadExistingVotes(env.DB, 'gaAtom');
@@ -225,6 +250,71 @@ describe('upsertVotes delegator fan-out jobs', () => {
     const voteCount = await env.DB.prepare('SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ?').bind('gaAtom').first<{ n: number }>();
     expect(voteCount?.n).toBe(0);
     expect(await allJobs()).toHaveLength(0);
+  });
+
+  // Drives upsertVotes itself and forces a failure that travels with the JOB
+  // statement (the job INSERT is swapped for one that fails at execution). Because
+  // production folds vote + job into ONE batch, that batch rolls back both. If a
+  // regression split them into two batches, the vote's batch would commit before
+  // the job's batch failed, so the vote would persist and the vote-absent assertion
+  // below would FAIL. This is the actual regression guard.
+  it('(atomicity) upsertVotes composes a new vote and its job in one batch: a job failure rolls back the vote too', async () => {
+    await seedAction('gaAtomFn', 'AtomFn', 500);
+    await expect(
+      upsertVotes(
+        poisonJobInsert(env.DB),
+        'gaAtomFn',
+        [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', blockTime: 1000 }],
+        NOW_MS,
+        { followedDrepIds: new Set(['drepF']) },
+      ),
+    ).rejects.toThrow();
+
+    // Both the vote row and the job must be absent: the whole chunk rolled back.
+    const voteCount = await env.DB
+      .prepare('SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ?')
+      .bind('gaAtomFn')
+      .first<{ n: number }>();
+    expect(voteCount?.n).toBe(0);
+    expect(await jobsFor('drepF')).toHaveLength(0);
+  });
+
+  // Superseding path: a pre-existing authoritative vote is re-voted (newer block_time),
+  // which makes upsertVotes emit a history archive + the updated vote upsert + a
+  // `re_voted` job, all in one batch. Under the forced job failure, ALL of history,
+  // the vote update, and the job must roll back, and the pre-existing row must keep
+  // its old value. A two-batch regression would commit the archive + updated vote
+  // before the job batch failed, failing these assertions.
+  it('(atomicity) upsertVotes composes a re-vote archive, updated vote, and job in one batch: a job failure rolls back all three', async () => {
+    await seedAction('gaAtomRe', 'AtomRe', 500);
+    // Pre-existing older authoritative row (no opts, so no job) the re-vote supersedes.
+    await upsertVotes(env.DB, 'gaAtomRe', [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'No', blockTime: 1000 }], NOW_MS);
+
+    await expect(
+      upsertVotes(
+        poisonJobInsert(env.DB),
+        'gaAtomRe',
+        [{ voterRole: 'DRep', voterId: 'drepF', voterHex: null, vote: 'Yes', blockTime: 2000 }],
+        NOW_MS + 1000,
+        { followedDrepIds: new Set(['drepF']) },
+      ),
+    ).rejects.toThrow();
+
+    // No archive row was written.
+    const historyCount = await env.DB
+      .prepare('SELECT COUNT(*) AS n FROM drep_vote_history WHERE ga_id = ? AND voter_id = ?')
+      .bind('gaAtomRe', 'drepF')
+      .first<{ n: number }>();
+    expect(historyCount?.n).toBe(0);
+    // No job was written.
+    expect(await jobsFor('drepF')).toHaveLength(0);
+    // The pre-existing vote is untouched: still the old value at the old block_time.
+    const row = await env.DB
+      .prepare('SELECT vote, block_time FROM drep_votes WHERE ga_id = ? AND voter_id = ?')
+      .bind('gaAtomRe', 'drepF')
+      .first<{ vote: string; block_time: number }>();
+    expect(row?.vote).toBe('No');
+    expect(row?.block_time).toBe(1000);
   });
 });
 
