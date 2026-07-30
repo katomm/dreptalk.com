@@ -34,6 +34,11 @@ const power = p.votingPower ? formatAdaCompact(p.votingPower) : null;
 // (src/pages/dreps/[drepId].astro, src/pages/spos/[poolId].astro); there is no
 // AVATAR_SIZE bucket for it, so it stays hard-coded here too.
 const HERO_AVATAR_SIZE = 96;
+
+// The back link targets this voter's own position row on the action, so the
+// reveal-hash-target script auto-expands the rationale there: the reader lands
+// on the action and immediately sees this rationale exists in context.
+const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=spo' : ''}#voter-${p.author.authorId}`;
 ---
 <article class="vstmt">
   {p.pending && (
@@ -50,16 +55,17 @@ const HERO_AVATAR_SIZE = 96;
 
   <h1 class="vstmt__title">How {p.author.displayName} voted on <a href={p.actionHref}>{p.actionTitle}</a></h1>
 
-  <div class="vstmt__rationale" set:html={enhanceStoredHtml(p.rationaleHtml)} />
+  <div class="vstmt__quote">
+    <div class="vstmt__rationale" set:html={enhanceStoredHtml(p.rationaleHtml)} />
+  </div>
   {p.earlier.length > 0 && <EarlierVotes earlier={p.earlier} now={p.now} />}
 
-  {p.delegateTarget && (
-    <div class="vstmt__cta">
+  <div class="vstmt__actions">
+    {p.delegateTarget && (
       <DelegateButton client:idle network={p.delegateNetwork} target={p.delegateTarget} />
-    </div>
-  )}
-
-  <p class="vstmt__back"><a href={p.actionHref}>See the full discussion and all positions</a></p>
+    )}
+    <a class="btn btn-secondary" href={backHref}>Back to action</a>
+  </div>
 </article>
 
 <style>
@@ -70,8 +76,20 @@ const HERO_AVATAR_SIZE = 96;
   .vstmt__vote { display: flex; align-items: center; gap: 0.75rem; }
   .vstmt__power { color: var(--muted); font-variant-numeric: tabular-nums; }
   .vstmt__title { font-size: 1.6rem; line-height: 1.25; margin: 1.25rem 0 1rem; }
+  /* Pull-quote treatment: a large accent quotation mark hangs at the top left,
+     the rationale indented past it. Mirrors the vote preview card. */
+  .vstmt__quote { position: relative; padding-left: 2.75rem; }
+  .vstmt__quote::before {
+    content: "\201C";
+    position: absolute;
+    left: -0.25rem;
+    top: -0.85rem;
+    font-size: 4.5rem;
+    line-height: 1;
+    font-weight: 800;
+    color: color-mix(in srgb, var(--accent) 32%, transparent);
+  }
   .vstmt__rationale { font-size: 1rem; line-height: 1.7; color: var(--text); }
   .vstmt__rationale :global(p) { margin: 0 0 0.9rem; }
-  .vstmt__cta { margin: 1.5rem 0; }
-  .vstmt__back { margin-top: 1.5rem; font-size: 0.9375rem; }
+  .vstmt__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1.75rem; }
 </style>
