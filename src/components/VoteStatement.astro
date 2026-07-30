@@ -29,7 +29,7 @@ interface Props {
   now: number;
 }
 const p = Astro.props as Props;
-const power = formatAdaCompact(p.votingPower);
+const power = p.votingPower ? formatAdaCompact(p.votingPower) : null;
 // Matches the 96px hero avatar size used on the DRep and SPO profile headers
 // (src/pages/dreps/[drepId].astro, src/pages/spos/[poolId].astro); there is no
 // AVATAR_SIZE bucket for it, so it stays hard-coded here too.
