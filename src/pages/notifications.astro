@@ -19,11 +19,14 @@ import type { ClientChannel } from '@/lib/notifications/channelView';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import { getTopicsByIds } from '@/lib/db/forum.js';
 import { getDrepsByIds } from '@/lib/db/dreps.js';
+import { getGovernanceActionSlugsByIds } from '@/lib/db/governance.js';
 import { loadAuthorIdentities, authorProfileHref } from '@/lib/forum/author.js';
 import { statusBadge, isTerminalStatus } from '@/lib/governance/view.js';
 import type { InboxItem } from '@/lib/notifications/inboxView.js';
 import { delegationLabel } from '@/lib/delegation/format.js';
 import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
+import { parseDrepEventPayload } from '@/lib/delegation/notifyPayload.js';
+import { drepPath } from '@/lib/dreps/profile.js';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -82,10 +85,20 @@ if (db) {
     const p = parseDelegationChangePayload(n.payload);
     if (p?.to.type === 'drep') delegationDrepIds.add(p.to.drepId);
   }
-  const [topicsById, identities, delegationDreps] = await Promise.all([
+  // Collect every vote-event governance-action id up front for a single batch
+  // slug lookup, mirroring delegationDrepIds above; a malformed payload is
+  // skipped here too, since the row itself is dropped where it is parsed below.
+  const voteEventGaIds = new Set<string>();
+  for (const n of personal) {
+    if (n.type !== 'delegator_drep_voted' && n.type !== 'delegator_drep_re_voted') continue;
+    const p = parseDrepEventPayload(n.payload);
+    if (p?.gaId) voteEventGaIds.add(p.gaId);
+  }
+  const [topicsById, identities, delegationDreps, gaSlugs] = await Promise.all([
     getTopicsByIds(db, topicIds),
     loadAuthorIdentities(db, personal.map((n) => n.actor_id)),
     getDrepsByIds(db, [...delegationDrepIds]),
+    getGovernanceActionSlugsByIds(db, [...voteEventGaIds]),
   ]);
 
   const personalItems: InboxItem[] = personal.flatMap((n): InboxItem[] => {
@@ -119,6 +132,43 @@ if (db) {
           verb: null,
           title: `Your delegation changed to ${delegationLabel(p.to, toName)}`,
           href: '/home/',
+          pill: null,
+        },
+      ];
+    }
+    if (n.type === 'delegator_drep_voted' || n.type === 'delegator_drep_re_voted') {
+      const p = parseDrepEventPayload(n.payload);
+      if (!p) return [];
+      const actionTitle = p.title ?? 'a governance action';
+      const verbPhrase = n.type === 'delegator_drep_voted' ? 'voted on' : 'changed a vote on';
+      const slug = p.gaId ? gaSlugs.get(p.gaId) : null;
+      return [
+        {
+          kind: n.type as 'delegator_drep_voted' | 'delegator_drep_re_voted',
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title: `Your DRep ${verbPhrase} ${actionTitle}`,
+          href: slug ? `/t/${slug}/` : null,
+          pill: null,
+        },
+      ];
+    }
+    if (n.type === 'delegator_drep_status_changed') {
+      const p = parseDrepEventPayload(n.payload);
+      if (!p?.drepId || !p.to) return [];
+      return [
+        {
+          kind: 'delegator_drep_status_changed' as const,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title: `Your DRep is now ${p.to.effective}`,
+          href: drepPath({ drepId: p.drepId }),
           pill: null,
         },
       ];

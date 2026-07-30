@@ -134,6 +134,58 @@ describe('delegation_changed inbox rows', () => {
   });
 });
 
+describe('delegator DRep-event inbox rows', () => {
+  const voteItem = {
+    kind: 'delegator_drep_voted' as const,
+    createdAt: 1_700_000_000,
+    unread: true,
+    actorName: null,
+    actorHref: null,
+    verb: null,
+    title: 'Your DRep voted on Reduce fees',
+    href: '/t/reduce-fees/',
+    pill: null,
+  };
+
+  it('counts toward governance (and all/unread), not mentions or discussions', () => {
+    const counts = countItems([voteItem]);
+    expect(counts.all).toBe(1);
+    expect(counts.unread).toBe(1);
+    expect(counts.mentions).toBe(0);
+    expect(counts.governance).toBe(1);
+    expect(counts.discussions).toBe(0);
+  });
+
+  it('filterItems("governance") includes it', () => {
+    expect(filterItems([voteItem], 'governance')).toHaveLength(1);
+    expect(filterItems([voteItem], 'mentions')).toHaveLength(0);
+    expect(filterItems([voteItem], 'discussions')).toHaveLength(0);
+  });
+
+  it('a delegation_changed item is NOT counted or filtered under governance', () => {
+    const delegationItem = {
+      kind: 'delegation_changed' as const,
+      createdAt: 1_700_000_000,
+      unread: true,
+      actorName: null,
+      actorHref: null,
+      verb: null,
+      title: 'Your delegation changed to Always Abstain',
+      href: '/home/',
+      pill: null,
+    };
+    expect(countItems([delegationItem]).governance).toBe(0);
+    expect(filterItems([delegationItem], 'governance')).toHaveLength(0);
+  });
+
+  it('an item with href: null is still returned by filterItems("all") and counted', () => {
+    const noLinkItem = { ...voteItem, href: null };
+    expect(filterItems([noLinkItem], 'all')).toHaveLength(1);
+    expect(countItems([noLinkItem]).all).toBe(1);
+    expect(countItems([noLinkItem]).governance).toBe(1);
+  });
+});
+
 describe('relativeTime', () => {
   it('formats the usual buckets', () => {
     expect(relativeTime(NOW - 30_000, NOW)).toBe('just now');

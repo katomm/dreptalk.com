@@ -457,6 +457,39 @@ export async function getLatestActionWithVotes(
   return row ? { action: rowToGovernanceAction(row), slug: row.slug } : null;
 }
 
+// D1 caps bound params at 100 per query; each id binds one placeholder, so this
+// chunks even though a single notifications-page batch never realistically nears it.
+const SLUG_CHUNK = 100;
+
+/**
+ * Batch-resolves each governance-action id to its forum-topic slug (null when
+ * the action has no topic yet), for hydrating notification links in one pass
+ * (no N+1 per row). Used by the notifications inbox to link delegator DRep-vote
+ * events to their action's thread (there is no standalone /ga/<id> route).
+ */
+export async function getGovernanceActionSlugsByIds(
+  db: D1Database,
+  ids: readonly string[],
+): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>();
+  if (ids.length === 0) return map;
+  for (let i = 0; i < ids.length; i += SLUG_CHUNK) {
+    const chunk = ids.slice(i, i + SLUG_CHUNK);
+    const rows = (
+      await db
+        .prepare(
+          `SELECT g.id AS id, t.slug AS slug FROM governance_actions g
+           LEFT JOIN topics t ON t.id = g.topic_id
+           WHERE g.id IN (${sqlPlaceholders(chunk)})`,
+        )
+        .bind(...chunk)
+        .all<{ id: string; slug: string | null }>()
+    ).results ?? [];
+    for (const row of rows) map.set(row.id, row.slug);
+  }
+  return map;
+}
+
 /** Batch-loads governance actions by topic id (no N+1 when rendering a list). */
 export async function getGovernanceActionsByTopicIds(
   db: D1Database,
