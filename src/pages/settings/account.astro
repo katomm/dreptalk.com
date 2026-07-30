@@ -1,0 +1,72 @@
+---
+// Settings > Account tab. Shows the signed-in identity and, for writers, the
+// "Link your stake wallet" flow (prove ownership of a stake wallet to track
+// your delegation on the home page). A plain member sees only the identity and
+// a note that role settings are not available yet. The tab bar (via
+// SettingsShell) only appears for DReps, who also have Profile and Danger tabs.
+export const prerender = false;
+
+import SettingsShell from '@/components/SettingsShell.astro';
+import LinkStakeWallet from '@/components/LinkStakeWallet.tsx';
+import { roleLabels, isWriter } from '@/lib/auth/roles';
+import { truncateId } from '@/lib/forum/view';
+import { currentNetwork, runtimeEnv } from '@/lib/api/response';
+import { getSelfDrepId, getUserById } from '@/lib/db/users';
+import { getDrepById } from '@/lib/db/dreps';
+import { getFollow } from '@/lib/db/delegatorFollows';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+const network = currentNetwork().network;
+
+// DRep status gates the Profile/Danger tabs in the shell.
+const drepId = db ? await getSelfDrepId(db, user) : null;
+
+// "Link your stake wallet" is writer-only. Prefetch any existing link/track
+// state so the island opens straight into the right view.
+const canLinkStake = isWriter(user.roles);
+const selfRow = canLinkStake && db ? await getUserById(db, user.id) : null;
+const stakeAddr = selfRow?.stake_addr ?? null;
+const follow = stakeAddr && db ? await getFollow(db, user.id) : null;
+const followDrep =
+  follow?.delegation_type === 'drep' && follow.drep_id && db ? await getDrepById(db, follow.drep_id) : null;
+const initialTracking = follow
+  ? {
+      resolutionStatus: follow.resolution_status,
+      delegationType: follow.delegation_type,
+      drepId: follow.drep_id,
+      drepName: followDrep?.name ?? null,
+    }
+  : null;
+---
+<SettingsShell active="account" isDrep={drepId != null}>
+  <p style="margin:0 0 1.25rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+    Signed in as{' '}
+    <span
+      style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"
+      title={user.id}
+    >{truncateId(user.id, 28)}</span>{' '}
+    ({roleLabels(user.roles).join(', ')})
+  </p>
+
+  {canLinkStake ? (
+    <section id="link-stake-wallet" style="max-width:32rem;">
+      <LinkStakeWallet
+        network={network}
+        initialStakeAddr={stakeAddr}
+        initialTracking={initialTracking}
+        client:load
+      />
+    </section>
+  ) : (
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
+      Settings specific to your role are not available yet. They will appear
+      here as they are added.
+    </p>
+  )}
+</SettingsShell>

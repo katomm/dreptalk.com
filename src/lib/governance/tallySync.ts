@@ -91,6 +91,14 @@ export interface VoteSyncDeps {
   paceMs?: number;
   /** Max vote pages to fetch per action; defaults to MAX_VOTE_PAGES. Tests lower it. */
   maxPages?: number;
+  /**
+   * When present, the set of DRep ids that have at least one follower to notify.
+   * Threaded into upsertVotes by syncGovernanceVotes (the live sync) ONLY: a
+   * qualifying followed-DRep vote then gets a delegator fan-out job. Deliberately
+   * NOT threaded by backfillFinalizedVotes, which shares this same deps interface
+   * but re-writes long-decided votes and must never emit fan-out events.
+   */
+  followedDrepIds?: Set<string>;
 }
 
 // Koios pages proposal_votes at 1000 rows; loop while a full page comes back.
@@ -552,7 +560,7 @@ export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): P
 }
 
 export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncResult> {
-  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES } = deps;
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES, followedDrepIds } = deps;
 
   // Same bounded, stale-first strategy as the tally sync, but ordered by vote
   // recency (votes_synced_at): proposal_votes is even heavier (paginated per
@@ -571,7 +579,7 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
       await enrichVotedPower({ db, koios }, collected);
-      votes += await upsertVotes(db, ga.id, collected, now);
+      votes += await upsertVotes(db, ga.id, collected, now, { followedDrepIds });
       await markVotesSynced(db, ga.id, now);
       if (capped) {
         console.warn(`[gov-votes] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; synced a capped prefix`);
@@ -619,6 +627,9 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
       await enrichVotedPower({ db, koios }, collected);
+      // Deliberately NO opts here (no followedDrepIds), even though deps carries
+      // it: this backfill re-writes long-decided votes, and passing it through
+      // would fan out notifications for old votes on every rollout / re-drain.
       votes += await upsertVotes(db, ga.id, collected, now);
       // Mark synced even when capped: the prefix is stored and the action drops
       // out of the candidate set, so a pathological list cannot stall the backfill

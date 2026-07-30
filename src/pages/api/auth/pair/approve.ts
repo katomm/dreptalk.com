@@ -1,6 +1,7 @@
 // POST /api/auth/pair/approve: the signed-in half of device pairing. Marks a
-// pending pairing approved and stamps it with the approver's user id. Identity
-// only: roles are resolved when the device redeems, never snapshotted here.
+// pending pairing approved and stamps it with the approver's user id and role
+// cap. Roles are still re-resolved (revocation-aware) when the device
+// redeems; the snapshot here only bounds what that resolution can grant.
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
@@ -47,7 +48,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       return jsonResponse({ ok: false, error: 'invalid request' }, 400);
     }
 
-    const approved = await approvePairing(db, parsed.code, user.id);
+    const approved = await approvePairing(db, parsed.code, user.id, user.roles);
     // A clear failure, so a typo reads as a typo instead of stranding the user
     // watching a phone that never signs in. Expired and unknown stay merged.
     if (!approved) return jsonResponse({ ok: false, error: 'unknown_code' }, 404);

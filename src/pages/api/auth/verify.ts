@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { env } from 'cloudflare:workers';
+import { env, waitUntil } from 'cloudflare:workers';
 import { handleVerify } from '@/lib/auth/handlers';
 import { resolveNetwork } from '@/lib/config/network';
 import { createKoiosClient } from '@/lib/koios/client';
@@ -71,6 +71,12 @@ export const POST: APIRoute = async ({ request }) => {
         koios,
         network,
         secure,
+        // Defers the delegator login's post-login delegation resolve past the
+        // response (see handlers.ts): `Astro.locals.runtime.ctx` was removed by
+        // Adapter 13 / Astro 6 (see src/env.d.ts), this module export is its
+        // replacement and is already used the same way elsewhere in this app
+        // (e.g. src/pages/api/search.ts).
+        ctx: { waitUntil },
       },
       { getModeratorRole: (stakeAddr) => moderators.get(stakeAddr) ?? null },
     );

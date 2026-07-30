@@ -31,7 +31,14 @@ async function seedTopic(id: string, opts?: { deleted?: boolean }) {
     .run();
 }
 
-const allEnabled = { reply: true, mention: true, governance: true };
+const allEnabled = {
+  reply: true,
+  mention: true,
+  governance: true,
+  drep_activity: true,
+  drep_status: true,
+  my_delegation: true,
+};
 
 describe('addChannel + listChannels + removeChannel', () => {
   it('seeds all-enabled prefs and returns a listable row', async () => {
@@ -131,7 +138,7 @@ describe('getPrefs + setPref', () => {
     expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(allEnabled);
 
     await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'mention', enabled: false });
-    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual({ reply: true, mention: false, governance: true });
+    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual({ ...allEnabled, mention: false });
 
     // setPref is INSERT OR REPLACE: flipping back should stick too.
     await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'mention', enabled: true });
@@ -140,6 +147,18 @@ describe('getPrefs + setPref', () => {
 
   it('returns all-enabled defaults for a user/channel with no rows at all', async () => {
     expect(await getPrefs(db(), 'nobody', 'webpush')).toEqual(allEnabled);
+  });
+
+  // Authorization-review checkpoint (delegator login, Phase 1): a delegator's
+  // session carries only the fallback 'member' role, which the write-gated forum
+  // handlers reject (see handlers.workers.test.ts). Managing one's own
+  // notification prefs is a deliberate exception: this table has no role check
+  // at all, and the API route (/api/notifications/prefs) only requires a signed-in
+  // session, not a writer role. Proves a member can still set and read back a pref.
+  it('allows a member to set their own notification pref', async () => {
+    await setPref(db(), { userId: 'stake_test1deleg', channel: 'webpush', eventType: 'governance', enabled: false });
+    const prefs = await getPrefs(db(), 'stake_test1deleg', 'webpush');
+    expect(prefs.governance).toBe(false);
   });
 });
 
@@ -166,7 +185,16 @@ describe('getPendingCounts', () => {
     ]);
 
     const counts = await getPendingCounts(db(), row(), allEnabled);
-    expect(counts).toEqual({ replies: 1, mentions: 1, governance: 0, devices: 0, total: 2 });
+    expect(counts).toEqual({
+      replies: 1,
+      mentions: 1,
+      governance: 0,
+      drepActivity: 0,
+      drepStatus: 0,
+      myDelegation: 0,
+      devices: 0,
+      total: 2,
+    });
   });
 
   it('zeroes a term whose pref is off', async () => {
@@ -175,8 +203,17 @@ describe('getPendingCounts', () => {
       { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 300 },
     ]);
 
-    const counts = await getPendingCounts(db(), row(), { reply: false, mention: true, governance: true });
-    expect(counts).toEqual({ replies: 0, mentions: 1, governance: 0, devices: 0, total: 1 });
+    const counts = await getPendingCounts(db(), row(), { ...allEnabled, reply: false });
+    expect(counts).toEqual({
+      replies: 0,
+      mentions: 1,
+      governance: 0,
+      drepActivity: 0,
+      drepStatus: 0,
+      myDelegation: 0,
+      devices: 0,
+      total: 1,
+    });
   });
 
   it('collapses two gov events on one topic to 1 and excludes deleted topics', async () => {
@@ -187,15 +224,33 @@ describe('getPendingCounts', () => {
     await activityInsert(db(), { type: 'gov_created', topicId: 'g2', actorId: null, createdAt: 250 }).run();
 
     const counts = await getPendingCounts(db(), row(), allEnabled);
-    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 1, devices: 0, total: 1 });
+    expect(counts).toEqual({
+      replies: 0,
+      mentions: 0,
+      governance: 1,
+      drepActivity: 0,
+      drepStatus: 0,
+      myDelegation: 0,
+      devices: 0,
+      total: 1,
+    });
   });
 
   it('zeroes the governance term when its pref is off', async () => {
     await seedTopic('g1');
     await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 200 }).run();
 
-    const counts = await getPendingCounts(db(), row(), { reply: true, mention: true, governance: false });
-    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 0, devices: 0, total: 0 });
+    const counts = await getPendingCounts(db(), row(), { ...allEnabled, governance: false });
+    expect(counts).toEqual({
+      replies: 0,
+      mentions: 0,
+      governance: 0,
+      drepActivity: 0,
+      drepStatus: 0,
+      myDelegation: 0,
+      devices: 0,
+      total: 0,
+    });
   });
 
   it('respects the cursor for governance events too', async () => {
@@ -203,7 +258,16 @@ describe('getPendingCounts', () => {
     await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 50 }).run();
 
     const counts = await getPendingCounts(db(), row({ delivered_until: 100 }), allEnabled);
-    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 0, devices: 0, total: 0 });
+    expect(counts).toEqual({
+      replies: 0,
+      mentions: 0,
+      governance: 0,
+      drepActivity: 0,
+      drepStatus: 0,
+      myDelegation: 0,
+      devices: 0,
+      total: 0,
+    });
   });
 
   it('counts device_paired notifications regardless of prefs, unlike the other terms', async () => {
@@ -211,7 +275,69 @@ describe('getPendingCounts', () => {
       { recipientId: 'alice', type: 'device_paired', actorId: null, topicId: null, postId: null, createdAt: 200 },
     ]);
 
-    const counts = await getPendingCounts(db(), row(), { reply: false, mention: false, governance: false });
-    expect(counts).toEqual({ replies: 0, mentions: 0, governance: 0, devices: 1, total: 1 });
+    const counts = await getPendingCounts(db(), row(), {
+      reply: false,
+      mention: false,
+      governance: false,
+      drep_activity: false,
+      drep_status: false,
+      my_delegation: false,
+    });
+    expect(counts).toEqual({
+      replies: 0,
+      mentions: 0,
+      governance: 0,
+      drepActivity: 0,
+      drepStatus: 0,
+      myDelegation: 0,
+      devices: 1,
+      total: 1,
+    });
+  });
+
+  it('counts drep_activity for both delegator_drep_voted and delegator_drep_re_voted, gated by its pref', async () => {
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'delegator_drep_voted', actorId: null, topicId: null, postId: null, createdAt: 200 },
+      { recipientId: 'alice', type: 'delegator_drep_re_voted', actorId: null, topicId: null, postId: null, createdAt: 300 },
+      { recipientId: 'alice', type: 'delegator_drep_voted', actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
+    ]);
+
+    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
+    expect(enabledCounts.drepActivity).toBe(2);
+    expect(enabledCounts.total).toBe(2);
+
+    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, drep_activity: false });
+    expect(disabledCounts.drepActivity).toBe(0);
+    expect(disabledCounts.total).toBe(0);
+  });
+
+  it('counts drep_status for delegator_drep_status_changed, gated by its pref', async () => {
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'delegator_drep_status_changed', actorId: null, topicId: null, postId: null, createdAt: 200 },
+      { recipientId: 'alice', type: 'delegator_drep_status_changed', actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
+    ]);
+
+    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
+    expect(enabledCounts.drepStatus).toBe(1);
+    expect(enabledCounts.total).toBe(1);
+
+    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, drep_status: false });
+    expect(disabledCounts.drepStatus).toBe(0);
+    expect(disabledCounts.total).toBe(0);
+  });
+
+  it('counts my_delegation for delegation_changed, gated by its pref', async () => {
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'delegation_changed', actorId: null, topicId: null, postId: null, createdAt: 200 },
+      { recipientId: 'alice', type: 'delegation_changed', actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
+    ]);
+
+    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
+    expect(enabledCounts.myDelegation).toBe(1);
+    expect(enabledCounts.total).toBe(1);
+
+    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, my_delegation: false });
+    expect(disabledCounts.myDelegation).toBe(0);
+    expect(disabledCounts.total).toBe(0);
   });
 });

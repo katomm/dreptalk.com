@@ -342,6 +342,29 @@ describe('createKoiosClient.accountInfo', () => {
   });
 });
 
+describe('accountInfoBatch', () => {
+  it('POSTs the stake addresses and parses the rows', async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ path: new URL(url).pathname, body: init?.body ? JSON.parse(init.body as string) : null });
+      return new Response(JSON.stringify([
+        { stake_address: 'stake_test1a', status: 'registered', delegated_pool: null, delegated_drep: 'drep1x', total_balance: '1' },
+      ]), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const koios = createKoiosClient({ baseUrl: 'https://koios.test', fetchImpl });
+    const rows = await koios.accountInfoBatch(['stake_test1a', 'stake_test1b']);
+    expect(rows).toHaveLength(1); // b has no account row -> absent from response
+    expect(rows[0].stake_address).toBe('stake_test1a');
+    expect(calls[0].path).toBe('/account_info');
+    expect((calls[0].body as { _stake_addresses: string[] })._stake_addresses).toEqual(['stake_test1a', 'stake_test1b']);
+  });
+  it('returns [] for empty input without fetching', async () => {
+    const fetchImpl = (async () => { throw new Error('should not fetch'); }) as unknown as typeof fetch;
+    const koios = createKoiosClient({ baseUrl: 'https://koios.test', fetchImpl });
+    expect(await koios.accountInfoBatch([])).toEqual([]);
+  });
+});
+
 // --- proposalsByReturnAddress ---
 
 describe('createKoiosClient.proposalsByReturnAddress', () => {

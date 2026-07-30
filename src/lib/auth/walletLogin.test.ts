@@ -354,3 +354,22 @@ describe('loginWithWallet: wallet network guard', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe('loginWithWallet: delegator', () => {
+  it('signs with the reward address and posts role delegator', async () => {
+    const fetchMock = makeFetch(FAKE_PAYLOAD, true);
+    const api = makeProposerApi();
+
+    const result = await loginWithWallet(api, 'delegator', 'preprod', { fetchImpl: fetchMock as unknown as typeof fetch });
+
+    expect(result.ok).toBe(true);
+    // Delegator takes the proposer-style reward-address path, never the CIP-95 DRep key.
+    expect(api.getRewardAddresses).toHaveBeenCalled();
+
+    const verifyCall = fetchMock.mock.calls.find(([url]) => url.toString().includes('verify'));
+    expect(verifyCall).toBeDefined();
+    const body = JSON.parse(verifyCall![1]!.body as string) as Record<string, string>;
+    expect(body.role).toBe('delegator');
+    expect(body.payload).toBe(FAKE_PAYLOAD);
+  });
+});

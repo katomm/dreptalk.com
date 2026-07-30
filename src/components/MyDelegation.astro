@@ -1,0 +1,280 @@
+---
+// Delegator dashboard body: renders the resolved DelegationData (Task 2) per
+// its view.kind. A drep-follow gets the full steckbrief (avatar, status,
+// voting power, delegator count, profile link), recent confirmed votes, and
+// the open actions the DRep has not voted on yet. The other kinds
+// (abstain/no_confidence/none/no-follow/pending) are short explainer states
+// with no history or actions. Presentational only, no data access; loadDelegation
+// (src/lib/db/loadDelegation.ts) does all the fetching.
+import Avatar from '@/components/Avatar.astro';
+import Callout from '@/components/Callout.astro';
+import DrepVoteRow from '@/components/DrepVoteRow.astro';
+import type { DelegationData } from '@/lib/db/loadDelegation.js';
+import type { NetworkConfig } from '@/lib/config/network.js';
+import { drepStatusHint } from '@/lib/delegation/delegationView.js';
+import { drepPath } from '@/lib/dreps/profile.js';
+import { formatAda, truncateId } from '@/lib/forum/view.js';
+import { epochCountdown } from '@/lib/governance/view.js';
+import { epochStartMs } from '@/lib/config/network.js';
+
+interface Props {
+  data: DelegationData;
+  now: number;
+  network: NetworkConfig;
+}
+const { data, now, network } = Astro.props;
+const { view } = data;
+
+const displayName = data.drep?.name ?? (data.drep ? truncateId(data.drep.drepId, 18) : null);
+const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status) : null;
+---
+
+{
+  view.kind === 'drep' && (
+    <div class="mydel">
+      <h2 class="mydel__heading">Your DRep</h2>
+
+      {data.drep ? (
+        <div class="mydel-card">
+          <Avatar seed={data.drep.hex ?? data.drep.drepId} imageHash={data.drep.imageContentHash} size={64} href={drepPath(data.drep)} />
+          <div class="mydel-card__main">
+            <div class="mydel-card__titlerow">
+              <a class="mydel-card__name" href={drepPath(data.drep)}>{displayName}</a>
+              {!data.drep.active && <span class="mydel-card__pill mydel-card__pill--inactive">Inactive</span>}
+              {data.drep.active && <span class="mydel-card__pill mydel-card__pill--active">Active</span>}
+            </div>
+            <div class="mydel-card__stats">
+              <span>{formatAda(data.drep.votingPower)} voting power</span>
+              {data.drep.delegatorCount != null && (
+                <span>{data.drep.delegatorCount.toLocaleString('en-US')} on-chain delegators</span>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div class="mydel-card">
+          <div class="mydel-card__main">
+            <span class="mydel-card__name">{truncateId(view.drepId, 24)}</span>
+            <p class="mydel-card__note">This DRep ID is not currently actively registered.</p>
+          </div>
+        </div>
+      )}
+
+      {statusHint && (
+        <div class="mydel__notice">
+          <Callout variant="warning">{statusHint}</Callout>
+        </div>
+      )}
+
+      {view.staleError && (
+        <p class="mydel__stale">Last refresh failed. Showing the last confirmed state.</p>
+      )}
+
+      <section class="mydel-section">
+        <h3 class="mydel-section__title">Recent votes</h3>
+        {data.history.length > 0 ? (
+          <div class="vhist">
+            {data.history.map((h) => <DrepVoteRow row={h} now={now} earlier={data.earlier.get(h.ga_id) ?? []} />)}
+          </div>
+        ) : (
+          <p class="mydel-section__empty">No recorded votes yet.</p>
+        )}
+      </section>
+
+      {data.openActions.length > 0 && (
+        <section class="mydel-section">
+          <h3 class="mydel-section__title">Your DRep has not voted yet ({data.openActions.length})</h3>
+          <ul class="mydel-open">
+            {data.openActions.map((row) => {
+              const countdown = epochCountdown(
+                row.expiry_epoch,
+                row.expiry_epoch != null ? epochStartMs(row.expiry_epoch, network) : null,
+                row.status,
+                now,
+              );
+              return (
+                <li class="mydel-open__row">
+                  {row.slug
+                    ? <a class="mydel-open__title" href={`/t/${row.slug}/`}>{row.title ?? row.id}</a>
+                    : <span class="mydel-open__title">{row.title ?? row.id}</span>}
+                  {countdown && <span class="mydel-open__countdown">{countdown}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+    </div>
+  )
+}
+
+{
+  view.kind === 'abstain' && (
+    <Callout variant="info">
+      <strong>Your stake is set to always abstain.</strong>
+      <p>This delegation abstains on every governance action by design; there is no DRep to follow and nothing to vote on your behalf.</p>
+    </Callout>
+  )
+}
+
+{
+  view.kind === 'no_confidence' && (
+    <Callout variant="info">
+      <strong>Your stake is delegated to No Confidence.</strong>
+      <p>This delegation always votes No Confidence on every governance action; there is no DRep to follow.</p>
+    </Callout>
+  )
+}
+
+{
+  (view.kind === 'none' || view.kind === 'no-follow') && (
+    <div class="mydel-onboarding">
+      <p>
+        {view.kind === 'none'
+          ? 'You are not delegated to a DRep yet.'
+          : 'Delegation tracking has not been set up yet. Sign in again to retry.'}
+      </p>
+      <a href="/dreps/">Discover DReps</a>
+    </div>
+  )
+}
+
+{
+  view.kind === 'pending' && (
+    <Callout variant="info">We could not load your delegation just now. It will refresh shortly.</Callout>
+  )
+}
+
+<style>
+  .mydel__heading {
+    font-size: 1.125rem;
+    margin: 0 0 0.75rem;
+  }
+
+  .mydel-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.1rem 1.25rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .mydel-card__main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .mydel-card__titlerow {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .mydel-card__name {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    color: var(--fg);
+    text-decoration: none;
+  }
+  a.mydel-card__name:hover {
+    color: var(--accent);
+  }
+  .mydel-card__pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .mydel-card__pill--active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+  }
+  .mydel-card__pill--inactive {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    color: var(--danger);
+  }
+  .mydel-card__stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .mydel-card__note {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
+  .mydel__notice {
+    margin-top: 0.75rem;
+  }
+  .mydel__stale {
+    margin: 0.6rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  .mydel-section {
+    margin-top: 1.5rem;
+  }
+  .mydel-section__title {
+    font-size: 1rem;
+    margin: 0 0 0.6rem;
+  }
+  .mydel-section__empty {
+    margin: 0;
+    color: var(--muted);
+  }
+
+  .mydel-open {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .mydel-open__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 0.9rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .mydel-open__title {
+    color: var(--fg);
+    text-decoration: none;
+    min-width: 0;
+  }
+  a.mydel-open__title:hover {
+    color: var(--accent);
+  }
+  .mydel-open__countdown {
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  .mydel-onboarding {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1.1rem 1.25rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .mydel-onboarding p {
+    margin: 0;
+    color: var(--muted);
+  }
+</style>

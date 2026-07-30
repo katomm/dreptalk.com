@@ -1,0 +1,99 @@
+---
+// Shared chrome for the settings sub-pages: breadcrumb, heading and the tab
+// bar. Each settings route (profile, account, danger) renders its own content
+// into the slot. The tab bar is role-aware: only a DRep has more than the
+// Account tab, so non-DRep writers and members get no tab bar at all (a single
+// tab would be noise). The tabs are plain links to the sub-routes, so switching
+// is SSR and deep-linkable, no client JS. Tab styling mirrors GaTabs.
+import Layout from '@/layouts/Layout.astro';
+
+interface Props {
+  active: 'profile' | 'account' | 'danger';
+  /** Whether the signed-in user is a synced DRep; gates the Profile/Danger tabs. */
+  isDrep: boolean;
+}
+
+const { active, isDrep } = Astro.props;
+
+const tabs = isDrep
+  ? ([
+      { id: 'profile', label: 'Profile', href: '/settings/profile/' },
+      { id: 'account', label: 'Account', href: '/settings/account/' },
+      { id: 'danger', label: 'Danger Zone', href: '/settings/danger/' },
+    ] as const)
+  : [];
+---
+<Layout
+  title="Settings - DRepTalk"
+  description="Manage your DRepTalk account and, for DReps, your on-chain profile metadata."
+  noindex={true}
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Settings</span>
+  </nav>
+
+  <h1 style="margin:0 0 1.25rem;">Settings</h1>
+
+  {tabs.length > 0 && (
+    <nav class="settings-tabbar" aria-label="Settings sections">
+      {tabs.map((tab) => (
+        <a
+          class={`settings-tabbar__tab${active === tab.id ? ' settings-tabbar__tab--active' : ''}${tab.id === 'danger' ? ' settings-tabbar__tab--danger' : ''}`}
+          href={tab.href}
+          aria-current={active === tab.id ? 'page' : undefined}
+        >
+          {tab.label}
+        </a>
+      ))}
+    </nav>
+  )}
+
+  <slot />
+</Layout>
+
+<style>
+  .settings-tabbar {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 1.75rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .settings-tabbar::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-tabbar__tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.625rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .settings-tabbar__tab:hover {
+    color: var(--fg);
+  }
+  .settings-tabbar__tab--active {
+    color: var(--fg);
+    font-weight: 700;
+    border-bottom-color: var(--accent);
+  }
+  /* The destructive tab reads in the danger tone, and its active underline is
+     danger-colored too, so the section is recognizable before it is opened. */
+  .settings-tabbar__tab--danger:hover {
+    color: var(--danger);
+  }
+  .settings-tabbar__tab--danger.settings-tabbar__tab--active {
+    color: var(--danger);
+    border-bottom-color: var(--danger);
+  }
+</style>

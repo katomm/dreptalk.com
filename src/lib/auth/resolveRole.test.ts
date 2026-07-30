@@ -6,6 +6,7 @@ import type { DrepInfo, AccountInfo, PoolCalidusKeyRow, CommitteeMember, ScriptI
 type FakeKoios = {
   drepInfo: (id: string) => Promise<DrepInfo | null>;
   accountInfo: (addr: string) => Promise<AccountInfo | null>;
+  accountInfoBatch: (addrs: string[]) => Promise<AccountInfo[]>;
   proposalsByReturnAddress: (addr: string) => Promise<Array<{ proposal_id: string; return_address: string; proposal_type: string }>>;
   poolCalidusKey: (pubKeyHex: string) => Promise<PoolCalidusKeyRow | null>;
   committeeInfo: () => Promise<CommitteeMember[]>;
@@ -16,6 +17,7 @@ function makeKoios(overrides: Partial<FakeKoios> = {}): FakeKoios {
   return {
     drepInfo: () => Promise.resolve(null),
     accountInfo: () => Promise.resolve(null),
+    accountInfoBatch: () => Promise.resolve([]),
     proposalsByReturnAddress: () => Promise.resolve([]),
     poolCalidusKey: () => Promise.resolve(null),
     committeeInfo: () => Promise.resolve([]),

@@ -409,6 +409,26 @@ describe('syncGovernanceVotes', () => {
     expect(calls).toBe(3); // bounded; did not run away
     expect((await getVotesByGaId(db(), a.id)).size).toBe(3000);
   });
+
+  it('threads followedDrepIds into upsertVotes, emitting a fan-out job for a followed DRep vote', async () => {
+    const a = await insertActive(400);
+    const koios = {
+      async proposalVotes(pid: string, _limit?: number, offset?: number): Promise<ProposalVoteRow[]> {
+        return (offset ?? 0) === 0 && pid === a.proposalId
+          ? [{ voter_role: 'DRep', voter_id: 'drepFollowedLive', voter_hex: null, vote: 'Yes', block_time: 100 }]
+          : [];
+      },
+    };
+
+    await syncGovernanceVotes({ koios, db: db(), now: NOW, followedDrepIds: new Set(['drepFollowedLive']) });
+
+    const jobs = await db()
+      .prepare('SELECT event_type, subject_id FROM notification_fanout_jobs WHERE subject_id = ?')
+      .bind('drepFollowedLive')
+      .all<{ event_type: string; subject_id: string }>();
+    expect(jobs.results).toHaveLength(1);
+    expect(jobs.results[0].event_type).toBe('delegator_drep_voted');
+  });
 });
 
 describe('backfillVotedPower', () => {
@@ -559,6 +579,25 @@ describe('backfillFinalizedVotes', () => {
     expect(r.votes).toBe(3000);
     // Marked synced despite the cap, so it cannot stall the backfill every run.
     expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]);
+  });
+
+  it('never emits a fan-out job, even when followedDrepIds is present in deps', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaBackfillNoFanout', 'InfoAction', 'Old Action', 'enacted', 'propBackfillNoFanout', NULL, 0, 0)`,
+    ).run();
+
+    const koios = {
+      proposalVotes: async (_p: string, _l?: number, offset = 0) =>
+        offset === 0 ? [{ voter_role: 'DRep', voter_id: 'drepFollowedBackfill', voter_hex: null, vote: 'Yes', block_time: 100 }] : [],
+    };
+
+    // Even though the deps interface accepts followedDrepIds, backfillFinalizedVotes
+    // must not thread it through: re-writing historical votes must never fan out.
+    await backfillFinalizedVotes({ koios, db: env.DB, now: 999, limit: 10, followedDrepIds: new Set(['drepFollowedBackfill']) });
+
+    const jobs = await env.DB.prepare('SELECT * FROM notification_fanout_jobs WHERE subject_id = ?').bind('drepFollowedBackfill').all();
+    expect(jobs.results).toHaveLength(0);
   });
 });
 

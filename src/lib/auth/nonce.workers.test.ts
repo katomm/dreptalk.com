@@ -2,7 +2,7 @@
 // Nonces live in D1 (env.DB); the auth_nonces migration is applied by the pool.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { issueNonce, consumeNonce } from './nonce.js';
+import { issueNonce, consumeNonce, consumeNonceForDomain } from './nonce.js';
 
 const db = () => env.DB as D1Database;
 
@@ -111,5 +111,42 @@ describe('consumeNonce', () => {
     expect(await consumeNonce(db(), parts.join(':'))).toBe(false);
     // Original nonce must still be present (no deletion occurred).
     expect(await rowExists(nonce)).toBe(true);
+  });
+});
+
+describe('consumeNonceForDomain', () => {
+  it('consumes only when the payload domain exactly matches (colon-safe)', async () => {
+    const { payload } = await issueNonce(db(), { domain: 'link_stake:user-1', now: 100 });
+    // Wrong account: same prefix, different id. A naive split(':')[1] would read
+    // 'link_stake' as the domain and wrongly match both, so this must fail.
+    expect(await consumeNonceForDomain(db(), payload, 'link_stake:user-2', { now: 110 })).toBe(false);
+    expect(await consumeNonceForDomain(db(), payload, 'link_stake:user-1', { now: 110 })).toBe(true);
+    // Single-use: the row is gone after the first successful match.
+    expect(await consumeNonceForDomain(db(), payload, 'link_stake:user-1', { now: 120 })).toBe(false);
+  });
+
+  it('does not consume the row on a domain mismatch', async () => {
+    const { nonce, payload } = await issueNonce(db(), { domain: 'link_stake:user-1' });
+    expect(await consumeNonceForDomain(db(), payload, 'link_stake:user-2')).toBe(false);
+    expect(await rowExists(nonce)).toBe(true);
+  });
+
+  it('rejects a plain domain (no colons) the same way consumeNonce does', async () => {
+    const { payload } = await issueNonce(db(), { domain: 'example.com' });
+    expect(await consumeNonceForDomain(db(), payload, 'evil.com')).toBe(false);
+    expect(await consumeNonceForDomain(db(), payload, 'example.com')).toBe(true);
+  });
+
+  it('returns false for a malformed payload without throwing', async () => {
+    expect(await consumeNonceForDomain(db(), 'not-a-valid-payload', 'link_stake:user-1')).toBe(false);
+    expect(await consumeNonceForDomain(db(), '', 'link_stake:user-1')).toBe(false);
+  });
+
+  it('honors maxAgeSec / now overrides like consumeNonce', async () => {
+    const issuedAt = 1_700_000_000;
+    const { payload } = await issueNonce(db(), { domain: 'link_stake:user-1', now: issuedAt });
+    expect(
+      await consumeNonceForDomain(db(), payload, 'link_stake:user-1', { now: issuedAt + 301, maxAgeSec: 300 }),
+    ).toBe(false);
   });
 });

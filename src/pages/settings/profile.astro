@@ -1,0 +1,59 @@
+---
+// Settings > Profile tab: the DRep on-chain metadata form (CIP-119). DRep-only;
+// a non-DRep is redirected to the Account tab. Prefills from the synced dreps
+// row so a DRep can update stale metadata or set it up for the first time. All
+// on-chain actions live in the DrepSettings island and are non-custodial.
+export const prerender = false;
+
+import SettingsShell from '@/components/SettingsShell.astro';
+import DrepSettings from '@/components/DrepSettings.tsx';
+import { currentNetwork, runtimeEnv } from '@/lib/api/response';
+import { getSelfDrepId } from '@/lib/db/users';
+import { getDrepById } from '@/lib/db/dreps';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+const network = currentNetwork().network;
+
+const drepId = db ? await getSelfDrepId(db, user) : null;
+if (!drepId) {
+  return Astro.redirect('/settings/account/');
+}
+const drep = db ? await getDrepById(db, drepId) : null;
+
+// Prefill: synced on-chain metadata when available, empty form otherwise
+// (covers DReps without any metadata yet).
+const initialName = drep?.name ?? '';
+const initialBio = drep?.bio ?? '';
+const initialLinks = drep?.links ?? [];
+const initialImage = drep?.imageUrl
+  ? { url: drep.imageUrl, ...(drep.imageContentHash ? { sha256: drep.imageContentHash } : {}) }
+  : null;
+const initialMotivations = drep?.motivations ?? '';
+const initialQualifications = drep?.qualifications ?? '';
+const initialPaymentAddress = drep?.paymentAddress ?? '';
+const initialDoNotList = drep?.doNotList ?? false;
+---
+<SettingsShell active="profile" isDrep={true}>
+  <p style="margin:0 0 1.25rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+    Manage your DRep profile metadata stored on-chain (CIP-119).
+  </p>
+  <DrepSettings
+    network={network}
+    expectedDrepId={drepId}
+    initialName={initialName}
+    initialBio={initialBio}
+    initialLinks={initialLinks}
+    initialImage={initialImage}
+    initialMotivations={initialMotivations}
+    initialQualifications={initialQualifications}
+    initialPaymentAddress={initialPaymentAddress}
+    initialDoNotList={initialDoNotList}
+    client:load
+  />
+</SettingsShell>

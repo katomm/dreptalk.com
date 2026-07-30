@@ -180,6 +180,27 @@ describe('handleCreateTopic: authorization', () => {
     expect(json.ok).toBe(false);
     expect(json.error).toBe('unauthorized');
   });
+
+  // Authorization-review checkpoint (delegator login, Phase 1): a delegator's
+  // session carries only the fallback 'member' role, which must not pass the
+  // isWriter gate. Mirrors the "happy path" input above (same category, title,
+  // and body), changing only the user's roles to prove the gate, not the input
+  // validation, is what rejects them.
+  it('rejects a member (delegator) from creating a topic', async () => {
+    const result = await handleCreateTopic({
+      user: { id: 'stake_test1deleg', roles: ['member'] },
+      body: {
+        categorySlug: 'general',
+        title: 'My Test Topic',
+        bodyMd: '**hello world**',
+      },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(result.status).toBe(403);
+    expect((result.json as { error: string }).error).toBe('forbidden');
+  });
 });
 
 describe('handleCreateTopic: category rules', () => {

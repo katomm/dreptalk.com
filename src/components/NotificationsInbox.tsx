@@ -65,7 +65,26 @@ function KindIcon({ kind }: { kind: InboxItem['kind'] }) {
       </svg>
     );
   }
-  // Governance: a simple landmark.
+  if (kind === 'delegation_changed') {
+    // Delegation moved: a pair of swap arrows.
+    return (
+      <svg {...common} aria-hidden="true">
+        <path d="M17 3 21 7 17 11" />
+        <path d="M21 7H9" />
+        <path d="M7 21 3 17 7 13" />
+        <path d="M3 17h12" />
+      </svg>
+    );
+  }
+  if (kind === 'delegator_drep_status_changed') {
+    // A followed DRep's status changed: a status/pulse indicator.
+    return (
+      <svg {...common} aria-hidden="true">
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+      </svg>
+    );
+  }
+  // Governance (including delegator_drep_voted/re_voted): a simple landmark.
   return (
     <svg {...common} aria-hidden="true">
       <path d="M3 21h18" />
@@ -97,6 +116,12 @@ function Row({ item, now }: { item: InboxItem; now: number }) {
             </>
           ) : item.kind === 'device_paired' ? (
             'Security'
+          ) : item.kind === 'delegation_changed' ? (
+            'Delegation'
+          ) : item.kind === 'delegator_drep_voted' || item.kind === 'delegator_drep_re_voted' ? (
+            'Your DRep'
+          ) : item.kind === 'delegator_drep_status_changed' ? (
+            'Your DRep'
           ) : item.kind === 'gov_created' ? (
             'New governance action'
           ) : (
@@ -119,9 +144,13 @@ function Row({ item, now }: { item: InboxItem; now: number }) {
             </span>
           )}
         </span>
-        <a href={item.href} className="ninbox__title">
-          {item.title}
-        </a>
+        {item.href === null ? (
+          <span className="ninbox__title">{item.title}</span>
+        ) : (
+          <a href={item.href} className="ninbox__title">
+            {item.title}
+          </a>
+        )}
       </span>
       <span className="ninbox__time">{relativeTime(item.createdAt, now)}</span>
     </li>
@@ -166,7 +195,10 @@ export default function NotificationsInbox({ items, now }: { items: InboxItem[];
                 <h2 className="ninbox__group-label">{group.label}</h2>
                 <ul className="ninbox__list">
                   {visible.map((item) => (
-                    <Row key={`${item.kind}-${item.href}-${item.createdAt}`} item={item} now={now} />
+                    // href can be null (a row with nothing to link to yet); falling back to
+                    // the title keeps two null-href rows from the same createdAt distinct,
+                    // which a bare "nolink" placeholder would not.
+                    <Row key={`${item.kind}-${item.href ?? item.title}-${item.createdAt}`} item={item} now={now} />
                   ))}
                 </ul>
                 {hidden > 0 && (

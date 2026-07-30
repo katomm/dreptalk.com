@@ -2,7 +2,7 @@
 // Exercises upsertUserFromAuth and getUserById against the real miniflare D1 binding.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId, getSelfDrepId } from './users.js';
+import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId, getSelfDrepId, getUserByStakeAddr } from './users.js';
 
 const db = () => env.DB;
 const NOW = 1_700_000_000;
@@ -47,7 +47,7 @@ describe('upsertUserFromAuth (drep)', () => {
     expect(updated.last_verified_at).toBe(laterNow);
   });
 
-  it('a proposer who later verifies as drep gains is_drep while keeping is_proposer', async () => {
+  it('a proposer and a later drep login are separate accounts (each credential is its own account)', async () => {
     const stakeAddr = `stake_test1-proposer-then-drep-${NOW}`;
     const drepId = `drep1-proposer-then-drep-${NOW}`;
 
@@ -58,20 +58,25 @@ describe('upsertUserFromAuth (drep)', () => {
     expect(afterProposer!.is_proposer).toBe(true);
     expect(afterProposer!.is_drep).toBe(false);
 
-    // Second auth on the same id as both drep and proposer.
-    const updated = await upsertUserFromAuth(db(), {
-      stakeAddr,
+    // Later, the same person logs in as a DRep the way the real DRep login path
+    // does: drepId only, no stakeAddr. This is a distinct on-chain credential,
+    // so it creates a separate account rather than merging into the proposer row.
+    const drepUser = await upsertUserFromAuth(db(), {
       drepId,
-      roles: ['drep', 'proposer'],
+      roles: ['drep'],
       now: NOW + 600,
     });
 
-    expect(updated.is_drep).toBe(true);
-    expect(updated.is_proposer).toBe(true);
-    // drep_id should now be set via COALESCE.
-    expect(updated.drep_id).toBe(drepId);
-    // stake_addr already set, kept.
-    expect(updated.stake_addr).toBe(stakeAddr);
+    expect(drepUser.id).toBe(drepId);
+    expect(drepUser.is_drep).toBe(true);
+    expect(drepUser.is_proposer).toBe(false);
+    expect(drepUser.stake_addr).toBeNull();
+
+    // The proposer account is untouched: still its own row, still proposer-only.
+    const proposerAfter = await getUserById(db(), stakeAddr);
+    expect(proposerAfter).not.toBeNull();
+    expect(proposerAfter!.is_proposer).toBe(true);
+    expect(proposerAfter!.is_drep).toBe(false);
   });
 });
 
@@ -234,5 +239,42 @@ describe('getUserByDrepId', () => {
 
   it('returns null when no user has that drep_id', async () => {
     expect(await getUserByDrepId(env.DB, 'drep1none')).toBeNull();
+  });
+});
+
+async function insertUser(id: string, stakeAddr: string | null) {
+  await db()
+    .prepare(
+      `INSERT INTO users (id, stake_addr, role, status, created_at, last_verified_at, notif_seen_at)
+       VALUES (?, ?, 'member', 'active', 0, 0, 0)`,
+    )
+    .bind(id, stakeAddr)
+    .run();
+}
+
+describe('users.stake_addr uniqueness (migration 0061)', () => {
+  it('rejects a second account with the same stake address', async () => {
+    await insertUser('acct-a', 'stake_test1uniqueA');
+    await expect(insertUser('acct-b', 'stake_test1uniqueA')).rejects.toThrow();
+  });
+
+  it('allows multiple accounts with NULL stake address', async () => {
+    await insertUser('acct-null-1', null);
+    await expect(insertUser('acct-null-2', null)).resolves.toBeUndefined();
+  });
+});
+
+describe('getUserByStakeAddr', () => {
+  it('returns the account owning the stake address, else null', async () => {
+    await db()
+      .prepare(
+        `INSERT INTO users (id, stake_addr, role, status, created_at, last_verified_at, notif_seen_at)
+         VALUES ('acct-lookup', 'stake_test1lookup', 'member', 'active', 0, 0, 0)`,
+      )
+      .run();
+    const found = await getUserByStakeAddr(db(), 'stake_test1lookup');
+    expect(found?.id).toBe('acct-lookup');
+    const missing = await getUserByStakeAddr(db(), 'stake_test1absent');
+    expect(missing).toBeNull();
   });
 });

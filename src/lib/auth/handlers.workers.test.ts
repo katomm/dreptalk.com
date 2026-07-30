@@ -137,6 +137,176 @@ describe('handleVerify: happy path (proposer)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleVerify -- happy path: DELEGATOR
+// ---------------------------------------------------------------------------
+
+// Delegator login: same reward-address CIP-8 proof as proposer, but no proposer
+// status and no Koios lookup; grants only 'member'.
+describe('handleVerify: happy path (delegator)', () => {
+  it('mints a member session and reuses the account on repeat login', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+
+    // Each login gets its own single-use nonce override for the same fixture
+    // payload: the fixture only signs one payload, but in production each
+    // login attempt consumes a freshly issued challenge, so a fresh override
+    // per call simulates that without weakening replay protection within a
+    // single call (see the dedicated "reject replayed nonce" tests below).
+    async function login() {
+      return handleVerify(
+        {
+          body: {
+            payload: fixturePayload,
+            signatureHex: stakeVector.signatureHex,
+            keyHex: stakeVector.keyHex,
+            role: 'delegator',
+          },
+          sessionKv: env.SESSIONS,
+          db: env.DB,
+          koios: koiosRejectAll(), // never consulted on this path
+          network: 'preprod',
+          now: 1_700_000_000,
+        },
+        { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+      );
+    }
+
+    const first = await login();
+    expect(first.status).toBe(200);
+    const json = first.json as { ok: boolean; user: { id: string; roles: string[] } };
+    expect(json.ok).toBe(true);
+    expect(json.user.roles).toEqual(['member']);
+
+    const second = await login();
+    const json2 = second.json as { user: { id: string } };
+    expect(json2.user.id).toBe(json.user.id); // same account, no duplicate
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleVerify -- delegator login tracks and resolves the delegation
+// ---------------------------------------------------------------------------
+
+const VALID_DREP = 'drep1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7vlc9n';
+
+describe('handleVerify: delegator login tracks and resolves', () => {
+  it('creates and resolves a delegator_follows row on login', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koios = {
+      ...koiosRejectAll(),
+      accountInfo: async () => ({
+        stake_address: 's',
+        status: 'registered',
+        delegated_pool: null,
+        delegated_drep: VALID_DREP,
+        total_balance: '1',
+      }),
+      accountInfoBatch: async () => [],
+    };
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koios as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+    expect(result.status).toBe(200);
+    const userId = (result.json as { user: { id: string } }).user.id;
+    const row = await env.DB.prepare('SELECT resolution_status, drep_id FROM delegator_follows WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    expect(row?.resolution_status).toBe('resolved');
+    expect(row?.drep_id).toBe(VALID_DREP);
+  });
+
+  it('still returns 200 and a pending row when koios is down at login', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koios = {
+      ...koiosRejectAll(),
+      accountInfo: async () => {
+        throw new Error('down');
+      },
+      accountInfoBatch: async () => [],
+    };
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koios as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+    expect(result.status).toBe(200);
+    const userId = (result.json as { user: { id: string } }).user.id;
+    const row = await env.DB.prepare('SELECT resolution_status FROM delegator_follows WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    expect(row?.resolution_status).toBe('pending');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleVerify -- delegator login is always capped to member
+// ---------------------------------------------------------------------------
+
+// The stake address stakeVector's signature derives to (preprod), asserted
+// against stakeAddressFromPubKey in identity.test.ts.
+const DELEGATOR_STAKE_ADDR = 'stake_test1uqpqhw7q2jcutnwteqnvdgqkjulnaa5ym8wh70kcu3yvkugckkcgj';
+
+describe('handleVerify: delegator login caps to member', () => {
+  it('caps a delegator login to member even when it routes to a writer account', async () => {
+    // Seed a DRep account whose stake_addr is the delegator's stake address.
+    await env.DB.prepare(
+      `INSERT INTO users (id, drep_id, stake_addr, is_drep, role, status, created_at, last_verified_at, notif_seen_at)
+       VALUES ('drep1writerX', 'drep1writerX', ?, 1, 'member', 'active', 0, 0, 0)`,
+    ).bind(DELEGATOR_STAKE_ADDR).run();
+
+    const fixturePayload = stakeVector.payloadUtf8;
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll() as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+    expect(result.status).toBe(200);
+    const json = result.json as { user: { id: string; roles: string[] } };
+    expect(json.user.id).toBe('drep1writerX'); // routed to the writer account
+    expect(json.user.roles).toEqual(['member']); // but capped to member
+
+    // The session itself must carry no drepId either, not just the roles list
+    // in the response body.
+    const cookie = result.setCookie!;
+    const token = /dreptalk_session=([^;]+)/.exec(cookie)![1];
+    const session = await getSession(env.SESSIONS, token);
+    expect(session?.roles).toEqual(['member']);
+    expect(session?.drepId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleVerify -- happy path: DREP
 // ---------------------------------------------------------------------------
 

@@ -45,6 +45,9 @@
 //   2026-07-02: params phase also syncs the active committee size, so the CC
 //               quorum check runs on real membership instead of votes cast
 //               (fixes false "Not met" on the detail page).
+//   2026-07-30: pass followedDrepIds into the live vote sync and the drep sync so
+//               delegator fan-out jobs actually get emitted, and drain the fan-out
+//               outbox with a delegation-fanout phase before webpush/telegram.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -62,6 +65,8 @@ import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfil
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
 import { backfillRationaleText } from '../../../src/lib/db/rationaleTextBackfill.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
+import { getFollowedDrepIds } from '../../../src/lib/db/delegatorFollows.js';
+import { runFanout } from '../../../src/lib/notifications/fanout.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
@@ -72,6 +77,7 @@ import { upsertProtocolParams, getProtocolParams } from '../../../src/lib/db/pro
 import { syncCurrentCommitteeMembership, recomputeCommitteePct } from '../../../src/lib/db/committee.js';
 import { deleteExpiredPending } from '../../../src/lib/db/pendingMultisigTx.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
+import { refreshBulk } from '../../../src/lib/delegation/refresh.js';
 import { dispatchWebPush, dispatchTelegram } from '../../../src/lib/notifications/dispatch.js';
 import { sendWebPush, type VapidConfig } from '../../../src/lib/push/webPush.js';
 import { sendTelegramMessage } from '../../../src/lib/push/telegram.js';
@@ -299,6 +305,16 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: written };
   });
 
+  // Drain the delegator-notification outbox into per-recipient notification rows.
+  // Runs right before the webpush/telegram dispatch phases so a fan-out job
+  // materialized earlier in this same run (or by the vote/drep sync crons since
+  // the last run) delivers in this run instead of waiting for the next one.
+  await phase('delegation-fanout', async () => {
+    const r = await runFanout(env.DB, Math.floor(Date.now() / 1000));
+    console.log(`[delegation-fanout] jobs=${r.jobs} delivered=${r.delivered} completed=${r.completed}`);
+    return { items: r.delivered };
+  });
+
   // After the sync phases: bundle each connected webpush channel's pending replies,
   // mentions, and governance updates into one push. Runs after every other sync
   // phase in this trigger so a governance thread discovered earlier in this same
@@ -320,6 +336,18 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     console.log(`[telegram-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
     return { items: r.sent };
   });
+
+  // Re-resolve delegator follows whose last Koios check is a day or more stale
+  // (or never attempted). gov-sync works in unix milliseconds throughout this
+  // file; delegator_follows timestamps are unix seconds (like users.last_verified_at),
+  // so convert once here. The due window inside refreshBulk caps this to at most
+  // one Koios attempt per address per day even though this cron runs every 15 min.
+  await phase('delegation-refresh', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const res = await refreshBulk(env.DB, koios, nowSec);
+    console.log(`[delegation-refresh] attempted=${res.attempted} resolved=${res.resolved} changed=${res.changed} failed=${res.failed}`);
+    return { items: res.resolved, failed: res.failed };
+  });
 }
 
 // Refresh the per-post vote lists (active actions only). Every 20 min: vote lists
@@ -333,7 +361,12 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
   const now = Date.now();
 
   await phase('votes', async () => {
-    const r = await syncGovernanceVotes({ koios, db: env.DB, now, limit: VOTE_LIMIT, paceMs: VOTE_PACE_MS });
+    // Loaded once per run and threaded ONLY into the live sync below: a
+    // qualifying followed-DRep vote gets a delegator fan-out job atomically with
+    // its upsert. The finalized-backfill phase further down deliberately does
+    // NOT receive this set, since it re-writes historical votes.
+    const followedDrepIds = await getFollowedDrepIds(env.DB);
+    const r = await syncGovernanceVotes({ koios, db: env.DB, now, limit: VOTE_LIMIT, paceMs: VOTE_PACE_MS, followedDrepIds });
     console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
     return { items: r.votes, failed: r.failed };
   }, { primary: true });
@@ -440,12 +473,17 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   const { koios } = buildKoios(env);
 
   await phase('dreps', async () => {
+    // Loaded once per run and threaded into the writers below: an active/inactive
+    // flip for a followed DRep gets a delegator status-change fan-out job atomic
+    // with its status write.
+    const followedDrepIds = await getFollowedDrepIds(env.DB);
     const r = await syncDreps({
       koios, db: env.DB, fetchImpl: fetch, now: Date.now(), maxAnchorFetches: DREP_ANCHOR_LIMIT,
       // Inline base64 avatars are decoded and stored in R2 during the sync (they
       // are self-contained); linked images are handled by the avatars phase below.
       bucket: env.AVATARS,
       downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
+      followedDrepIds,
     });
     console.log(
       `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} ` +

@@ -2,7 +2,16 @@
 // time-grouping and relative time. Kept free of DOM/React/DB so it is
 // unit-testable in node; the island only renders what these functions return.
 
-export type InboxKind = 'reply' | 'mention' | 'gov_created' | 'gov_status' | 'device_paired';
+export type InboxKind =
+  | 'reply'
+  | 'mention'
+  | 'gov_created'
+  | 'gov_status'
+  | 'device_paired'
+  | 'delegation_changed'
+  | 'delegator_drep_voted'
+  | 'delegator_drep_re_voted'
+  | 'delegator_drep_status_changed';
 
 export interface InboxItem {
   kind: InboxKind;
@@ -15,7 +24,9 @@ export interface InboxItem {
   /** Lead-in phrase between actor and title, e.g. "replied in". */
   verb: string | null;
   title: string;
-  href: string;
+  /** Null when there is nowhere to link (e.g. a governance action with no
+      hydrated topic slug yet); the row still renders, just without an anchor. */
+  href: string | null;
   /** Status pill, precomputed server-side from the shared statusBadge helper. */
   pill: { label: string; tone: 'active' | 'positive' | 'negative' | 'neutral'; outline: boolean } | null;
 }
@@ -33,7 +44,15 @@ export interface InboxCounts {
 /** Rows shown per group before the rest collapses behind "View N more". */
 export const GROUP_VISIBLE = 5;
 
-const GOV_KINDS: ReadonlySet<InboxKind> = new Set(['gov_created', 'gov_status']);
+// delegation_changed is deliberately excluded: a personal delegation change is
+// not governance activity, so it stays all/unread only, never the governance tab.
+const GOV_KINDS: ReadonlySet<InboxKind> = new Set([
+  'gov_created',
+  'gov_status',
+  'delegator_drep_voted',
+  'delegator_drep_re_voted',
+  'delegator_drep_status_changed',
+]);
 
 export function countItems(items: InboxItem[]): InboxCounts {
   return {

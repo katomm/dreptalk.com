@@ -35,7 +35,7 @@ const ROLE_DISPLAY: Record<string, string> = {
 
 // Badge priority: the governance identity role comes first (it answers "who you
 // are"), then moderation privileges, then the plain member fallback.
-const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'admin', 'moderator', 'member'] as const;
+export const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'admin', 'moderator', 'member'] as const;
 
 /**
  * Display labels for the roles a session holds, in priority order. Unknown role
@@ -45,6 +45,14 @@ const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'admin', 'moderator', 'm
 export function roleLabels(roles: readonly string[]): string[] {
   const known = ROLE_PRIORITY.filter((r) => roles.includes(r)).map((r) => ROLE_DISPLAY[r]);
   return known.length > 0 ? known : [ROLE_DISPLAY.member];
+}
+
+/**
+ * Known session roles, deduplicated, in canonical ROLE_PRIORITY order.
+ */
+export function normalizeSessionRoles(roles: readonly string[]): string[] {
+  const set = new Set(roles);
+  return ROLE_PRIORITY.filter((r) => set.has(r));
 }
 
 /**

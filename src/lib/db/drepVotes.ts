@@ -1,7 +1,14 @@
 /// <reference types="@cloudflare/workers-types" />
 // Parameterized D1 access for drep_votes (on-chain votes that drive per-post badges).
 // All queries use .prepare().bind(); never string-concatenated SQL.
-import { archiveSupersededVotes } from './voteHistory.js';
+import {
+  buildArchiveStatements,
+  computeSupersededChanges,
+  loadExistingVotes,
+  readChangedRationaleBodies,
+  type ExistingVoteRow,
+} from './voteHistory.js';
+import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
 
 export interface VoteInput {
   voterRole: string;
@@ -23,12 +30,123 @@ export interface VoteInput {
 // vote, meta_url, meta_hash, block_time, synced_at, voted_power), so floor(100/10) = 10.
 const UPSERT_CHUNK = 10;
 
+export interface UpsertVotesOptions {
+  /**
+   * When present, the set of DRep ids that have at least one follower to notify.
+   * Passing it turns on delegator fan-out: a qualifying DRep vote gets a
+   * notification_fanout_jobs row inserted in the SAME batch as its drep_votes
+   * upsert (so job creation is atomic with the vote). Omit it (the sync backfill
+   * does) to write votes without emitting any events.
+   */
+  followedDrepIds?: Set<string>;
+}
+
 /**
- * Upserts on-chain votes for one governance action, chunked. Rows a re-vote is
- * about to replace are archived into drep_vote_history first. Uses ON CONFLICT so
- * a missing voted_power (e.g. a DRep/pool not yet resolved) never nulls an already
- * stored value: voted_power = COALESCE(new, existing). local_status / tx_hash are
- * reset to NULL on the on-chain path (an on-chain row supersedes any optimistic one).
+ * The vote upsert statements (one row each, 10 binds). Uses ON CONFLICT DO
+ * UPDATE (not INSERT OR REPLACE) so a re-sync with a missing voted_power never
+ * nulls an already stored value: voted_power = COALESCE(new, existing). The
+ * on-chain path resets local_status / tx_hash to NULL (it supersedes any
+ * optimistic row).
+ */
+export function buildVoteUpsertStatements(
+  db: D1Database,
+  gaId: string,
+  votes: VoteInput[],
+  now: number,
+): D1PreparedStatement[] {
+  return votes.map((v) =>
+    db
+      .prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, voted_power, local_status, tx_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+         ON CONFLICT(ga_id, voter_id) DO UPDATE SET
+           voter_role = excluded.voter_role,
+           voter_hex  = excluded.voter_hex,
+           vote       = excluded.vote,
+           meta_url   = excluded.meta_url,
+           meta_hash  = excluded.meta_hash,
+           block_time = excluded.block_time,
+           synced_at  = excluded.synced_at,
+           voted_power = COALESCE(excluded.voted_power, drep_votes.voted_power),
+           local_status = NULL,
+           tx_hash = NULL`,
+      )
+      .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now, v.votedPower ?? null),
+  );
+}
+
+/**
+ * Classifies the incoming votes against the stored rows and builds a fan-out job
+ * INSERT for each qualifying followed-DRep vote (dropped into the caller's batch,
+ * so the job commits with the vote). Only role 'DRep' votes whose voterId is in
+ * followedDrepIds qualify:
+ *  - `voted`   : no stored row, OR the stored row was a pending self-cast now
+ *                confirmed on chain (local_status != null).
+ *  - `re_voted`: an authoritative row (local_status null) whose vote changed to a
+ *                strictly newer block_time.
+ *  - otherwise : no job (anchor-only change, or not actually newer).
+ * `now` is unix milliseconds; source_time / created_at are seconds. When a vote
+ * has no block_time, the observed second is used for both source_time and the
+ * event_key and payload.sourceTimeApprox is set. `title` is a best-effort action
+ * title for the payload.
+ */
+export function classifyVoteJobs(
+  db: D1Database,
+  gaId: string,
+  incoming: VoteInput[],
+  existing: Map<string, ExistingVoteRow>,
+  followedDrepIds: Set<string>,
+  now: number,
+  title: string | null,
+): D1PreparedStatement[] {
+  const observedAtSec = Math.floor(now / 1000);
+  const stmts: D1PreparedStatement[] = [];
+  for (const v of incoming) {
+    if (v.voterRole !== 'DRep' || !followedDrepIds.has(v.voterId)) continue;
+    const old = existing.get(v.voterId);
+
+    let kind: 'voted' | 're_voted' | null = null;
+    if (!old || old.local_status != null) kind = 'voted';
+    else if (old.vote !== v.vote && v.blockTime != null && old.block_time != null && v.blockTime > old.block_time) kind = 're_voted';
+    if (!kind) continue;
+
+    const approx = v.blockTime == null;
+    const sourceTime = v.blockTime ?? observedAtSec;
+    const prefix = kind === 'voted' ? 'drep-vote' : 'drep-revote';
+    const eventType: FanoutEventType = kind === 'voted' ? 'delegator_drep_voted' : 'delegator_drep_re_voted';
+    const payload: Record<string, unknown> = { sourceTime, gaId, title };
+    if (approx) payload.sourceTimeApprox = true;
+
+    stmts.push(
+      buildJobInsert(db, {
+        eventKey: `${prefix}:${v.voterId}:${gaId}:${sourceTime}`,
+        eventType,
+        subjectId: v.voterId,
+        sourceTime,
+        payload: JSON.stringify(payload),
+        createdAt: observedAtSec,
+      }),
+    );
+  }
+  return stmts;
+}
+
+/** Best-effort action title for a fan-out payload; null when unknown. */
+async function lookupActionTitle(db: D1Database, gaId: string): Promise<string | null> {
+  const row = await db.prepare('SELECT title FROM governance_actions WHERE id = ?').bind(gaId).first<{ title: string | null }>();
+  return row?.title ?? null;
+}
+
+/**
+ * Upserts on-chain votes for one governance action (ON CONFLICT DO UPDATE on the
+ * (ga_id, voter_id) primary key), chunked. For each chunk, the archive of any
+ * rows the write supersedes, the vote upserts, and (when followedDrepIds is
+ * passed) the delegator fan-out jobs all land in ONE db.batch, so history, vote
+ * and job commit atomically together. The existing-rows SELECT and the changed
+ * voters' rationale bodies are read once up front and shared across chunks. The
+ * upsert uses ON CONFLICT so a missing voted_power (a DRep/pool not yet resolved)
+ * never nulls an already stored value: voted_power = COALESCE(new, existing);
+ * local_status / tx_hash reset to NULL (an on-chain row supersedes any optimistic one).
  * Returns the number of rows written.
  */
 export async function upsertVotes(
@@ -36,32 +154,29 @@ export async function upsertVotes(
   gaId: string,
   votes: VoteInput[],
   now: number,
+  opts?: UpsertVotesOptions,
 ): Promise<number> {
   if (votes.length === 0) return 0;
-  await archiveSupersededVotes(db, gaId, votes, now);
+
+  const followedDrepIds = opts?.followedDrepIds;
+  const existing = await loadExistingVotes(db, gaId);
+
+  // Rationale bodies for archiving, read once for every superseded voter.
+  const changed = computeSupersededChanges(votes, existing);
+  const bodies = changed.length
+    ? await readChangedRationaleBodies(db, gaId, changed.map((c) => c.old.voter_id))
+    : new Map<string, string | null>();
+
+  // Title only when we might emit a job (best-effort, one SELECT).
+  const emitJobs = followedDrepIds != null && followedDrepIds.size > 0;
+  const title = emitJobs ? await lookupActionTitle(db, gaId) : null;
 
   for (let i = 0; i < votes.length; i += UPSERT_CHUNK) {
     const chunk = votes.slice(i, i + UPSERT_CHUNK);
-    const stmts = chunk.map((v) =>
-      db
-        .prepare(
-          `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, voted_power, local_status, tx_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
-           ON CONFLICT(ga_id, voter_id) DO UPDATE SET
-             voter_role = excluded.voter_role,
-             voter_hex  = excluded.voter_hex,
-             vote       = excluded.vote,
-             meta_url   = excluded.meta_url,
-             meta_hash  = excluded.meta_hash,
-             block_time = excluded.block_time,
-             synced_at  = excluded.synced_at,
-             voted_power = COALESCE(excluded.voted_power, drep_votes.voted_power),
-             local_status = NULL,
-             tx_hash = NULL`,
-        )
-        .bind(gaId, v.voterRole, v.voterId, v.voterHex, v.vote, v.metaUrl ?? null, v.metaHash ?? null, v.blockTime ?? null, now, v.votedPower ?? null),
-    );
-    await db.batch(stmts);
+    const archiveStmts = buildArchiveStatements(db, gaId, chunk, existing, bodies, now);
+    const voteStmts = buildVoteUpsertStatements(db, gaId, chunk, now);
+    const jobStmts = emitJobs ? classifyVoteJobs(db, gaId, chunk, existing, followedDrepIds, now, title) : [];
+    await db.batch([...archiveStmts, ...voteStmts, ...jobStmts]);
   }
   return votes.length;
 }
@@ -132,17 +247,20 @@ export interface DrepVoteHistoryRow {
  * decided epoch, so ordering by the vote's block_time (not the action's decided
  * epoch, which is NULL and would sink them) keeps the history a true activity
  * timeline. Rows with no block_time fall back to the action's decided epoch/id.
- * Uses idx_drep_votes_voter. Default limit 20, capped 500.
+ * Uses idx_drep_votes_voter. Default limit 20, capped 500. Pass `confirmedOnly`
+ * to additionally require `local_status IS NULL`, so a delegator viewing their
+ * DRep's history never sees a still-optimistic (unconfirmed) self-cast.
  */
 export async function getDrepVotingHistory(
   db: D1Database,
   voterId: string,
-  opts?: { limit?: number; offset?: number },
+  opts?: { limit?: number; offset?: number; confirmedOnly?: boolean },
 ): Promise<DrepVoteHistoryRow[]> {
   // The ceiling is a runaway guard, sized so a profile can render a DRep's
   // complete history (a vote per action; mainnet has ~150 actions so far).
   const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 500);
   const offset = Math.max(opts?.offset ?? 0, 0);
+  const confirmedClause = opts?.confirmedOnly ? 'AND v.local_status IS NULL' : '';
   const rows = (
     await db
       .prepare(
@@ -155,6 +273,7 @@ export async function getDrepVotingHistory(
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
          WHERE v.voter_id = ? AND v.voter_role = 'DRep'
            AND (v.local_status IS NULL OR v.local_status <> 'failed')
+           ${confirmedClause}
          ORDER BY (v.block_time IS NULL), v.block_time DESC, g.decided_epoch DESC, g.id DESC
          LIMIT ? OFFSET ?`,
       )

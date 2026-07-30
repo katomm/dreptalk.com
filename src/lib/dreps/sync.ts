@@ -74,6 +74,12 @@ export interface DrepSyncDeps {
    * invocation and blow the Workers subrequest limit. Unlimited when omitted.
    */
   maxAnchorFetches?: number;
+  /**
+   * When present, the set of DRep ids that have at least one follower to notify.
+   * Passed through to upsertDrep and deactivateDreps so an active/inactive flip
+   * for a followed DRep gets a delegator status-change fan-out job.
+   */
+  followedDrepIds?: Set<string>;
 }
 
 // The profile + anchor fields resolved for one DRep before the change check.
@@ -349,7 +355,7 @@ function hasChanged(next: Drep, existing: Drep | undefined): boolean {
 }
 
 export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
-  const { db, koios, now } = deps;
+  const { db, koios, now, followedDrepIds } = deps;
 
   const ids = await enumerateRegistered(deps);
 
@@ -386,7 +392,7 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
         const row = buildRow(info, profile, prior, now);
 
         if (hasChanged(row, prior)) {
-          await upsertDrep(db, row);
+          await upsertDrep(db, row, { followedDrepIds });
           updated++;
         } else {
           // Nothing meaningful changed: skip the write entirely.
@@ -428,7 +434,7 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
           lastSyncedAt: now,
         }];
       });
-      deactivated = await deactivateDreps(db, rows);
+      deactivated = await deactivateDreps(db, rows, { followedDrepIds });
     }
   }
 

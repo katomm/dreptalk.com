@@ -7,19 +7,32 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createPairing, approvePairing } from '@/lib/auth/pairing';
+import { getSession, parseSessionToken } from '@/lib/auth/session';
 import { POST } from './poll';
 
 const NOW = 1_700_000_000;
 const USER_ID = 'user-pair-poll-1';
+const DREP_ID = 'drep1qtestpairpollintersect';
 
-// Insert a user row, is_drep flag controllable per test.
-async function seedUser(isDrep: 0 | 1) {
+// Insert a user row, is_drep flag controllable per test. drepId defaults to
+// null; tests that need to assert on drepId gating pass DREP_ID explicitly.
+async function seedUser(isDrep: 0 | 1, drepId: string | null = null) {
   await env.DB.prepare(
-    `INSERT INTO users (id, is_drep, is_spo, is_cc, is_proposer, role, status, created_at, last_verified_at)
-     VALUES (?, ?, 0, 0, 0, 'member', 'active', ?, ?)`,
+    `INSERT INTO users (id, drep_id, is_drep, is_spo, is_cc, is_proposer, role, status, created_at, last_verified_at)
+     VALUES (?, ?, ?, 0, 0, 0, 'member', 'active', ?, ?)`,
   )
-    .bind(USER_ID, isDrep, NOW, NOW)
+    .bind(USER_ID, drepId, isDrep, NOW, NOW)
     .run();
+}
+
+// Reads back the session record the route minted via the response's
+// set-cookie header, so tests can assert on drepId (not present in the JSON body).
+async function sessionFromResponse(res: Response) {
+  const token = parseSessionToken(res.headers.get('set-cookie'));
+  expect(token).toBeTruthy();
+  const session = await getSession(env.SESSIONS as KVNamespace, token!);
+  expect(session).not.toBeNull();
+  return session!;
 }
 
 // Builds a synthetic APIContext for POST /api/auth/pair/poll.
@@ -41,13 +54,13 @@ function ctx(body: { pairingId: string; deviceSecret: string }) {
 // it would already read as expired by the time the route polls it.
 async function createApprovedPairing() {
   const p = await createPairing(env.DB, { userAgent: null });
-  await approvePairing(env.DB, p.code, USER_ID);
+  await approvePairing(env.DB, p.code, USER_ID, ['drep']);
   return p;
 }
 
 describe('POST /api/auth/pair/poll', () => {
   it('mints a session cookie for the winning poll and reports the account and its roles', async () => {
-    await seedUser(1);
+    await seedUser(1, DREP_ID);
     const p = await createApprovedPairing();
 
     const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
@@ -60,9 +73,9 @@ describe('POST /api/auth/pair/poll', () => {
     expect(res.headers.get('set-cookie')).toContain('dreptalk_session=');
   });
 
-  it('resolves roles at redemption instead of at approval', async () => {
-    // Approve while the user still holds is_drep = 1 ...
-    await seedUser(1);
+  it('resolves roles at redemption instead of at approval, and caps them to member when the writer role is lost first (cap intersection with CURRENT roles)', async () => {
+    // Approve with a writer (drep) cap while the user still holds is_drep = 1 ...
+    await seedUser(1, DREP_ID);
     const p = await createApprovedPairing();
 
     // ... then the role is lost before the device ever redeems the pairing.
@@ -72,9 +85,86 @@ describe('POST /api/auth/pair/poll', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { user: { roles: string[] } };
     // A role snapshot taken at approval time would still carry 'drep' here;
-    // the session must reflect the CURRENT row, which has lost it.
+    // the session must reflect the CURRENT row, which has lost it. A cap-only
+    // check (intersecting against the recorded cap without re-reading the
+    // account) would wrongly still grant 'drep'.
     expect(body.user.roles).not.toContain('drep');
     expect(body.user.roles).toEqual(['member']);
+
+    const session = await sessionFromResponse(res);
+    expect(session.drepId).toBeNull();
+  });
+
+  it('caps a member-only approver so a drep account cannot inherit writer access', async () => {
+    await seedUser(1, DREP_ID);
+    const p = await createPairing(env.DB, { userAgent: null });
+    await approvePairing(env.DB, p.code, USER_ID, ['member']);
+
+    const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { user: { roles: string[] } };
+    // The account itself is a drep, but the approving session was capped to
+    // member (e.g. approved through the delegator/member door), so the paired
+    // device must never come out with writer access.
+    expect(body.user.roles).toEqual(['member']);
+
+    const session = await sessionFromResponse(res);
+    expect(session.drepId).toBeNull();
+  });
+
+  it('grants writer access when both the approver cap and the current account roles allow it', async () => {
+    await seedUser(1, DREP_ID);
+    const p = await createPairing(env.DB, { userAgent: null });
+    await approvePairing(env.DB, p.code, USER_ID, ['drep']);
+
+    const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { user: { roles: string[] } };
+    expect(body.user.roles).toEqual(['drep']);
+
+    const session = await sessionFromResponse(res);
+    expect(session.drepId).toBe(DREP_ID);
+  });
+
+  it('treats a legacy NULL approver_roles cap as unbounded, granting the current account roles', async () => {
+    await seedUser(1, DREP_ID);
+    const p = await createPairing(env.DB, { userAgent: null });
+    // Approve with a member-only cap, then overwrite it to NULL to simulate a
+    // row written before the approver_roles column existed (migration 0063).
+    await approvePairing(env.DB, p.code, USER_ID, ['member']);
+    await env.DB.prepare('UPDATE device_pairings SET approver_roles = NULL WHERE pairing_id = ?')
+      .bind(p.pairingId)
+      .run();
+
+    const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { user: { roles: string[] } };
+    // No cap recorded at all (legacy) means unbounded: the account's current
+    // roles pass through untouched, even though the member-only cap that was
+    // actually stamped before the overwrite would have blocked this.
+    expect(body.user.roles).toEqual(['drep']);
+
+    const session = await sessionFromResponse(res);
+    expect(session.drepId).toBe(DREP_ID);
+  });
+
+  it('fails closed to member (never unbounded) when the stored approver_roles cap is corrupt', async () => {
+    await seedUser(1, DREP_ID);
+    const p = await createPairing(env.DB, { userAgent: null });
+    await approvePairing(env.DB, p.code, USER_ID, ['drep']);
+    await env.DB.prepare("UPDATE device_pairings SET approver_roles = '{bad json' WHERE pairing_id = ?")
+      .bind(p.pairingId)
+      .run();
+
+    const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { user: { roles: string[] } };
+    // Unreadable is not the same as absent: a corrupt cap must fail closed to
+    // member, never be treated as an unbounded (NULL) cap.
+    expect(body.user.roles).toEqual(['member']);
+
+    const session = await sessionFromResponse(res);
+    expect(session.drepId).toBeNull();
   });
 
   it('returns pending before approval and unknown once the pairing has been claimed', async () => {
@@ -85,7 +175,7 @@ describe('POST /api/auth/pair/poll', () => {
     expect(pending.status).toBe(200);
     expect(((await pending.json()) as { status: string }).status).toBe('pending');
 
-    await approvePairing(env.DB, p.code, USER_ID);
+    await approvePairing(env.DB, p.code, USER_ID, ['drep']);
 
     const first = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
     expect(first.status).toBe(200);

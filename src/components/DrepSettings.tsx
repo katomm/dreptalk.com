@@ -1,15 +1,15 @@
 // React island: settings panel for a signed-in DRep.
 //
 // Inverse of DRepService: assumes an already-registered DRep (the session's
-// drep id arrives as expectedDrepId) and offers two non-custodial actions:
-// update the CIP-119 metadata anchor (update_drep, no deposit) and retire
-// (unreg_drep, deposit refund). The wallet signs and submits; the server only
-// hosts the metadata document and proxies Koios.
+// drep id arrives as expectedDrepId) and updates the CIP-119 metadata anchor
+// (update_drep, no deposit). The wallet signs and submits; the server only
+// hosts the metadata document and proxies Koios. The destructive retire action
+// lives in its own island (DrepRetire), rendered last on the settings page.
 import { useState, useRef } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
-import { updateDRepMetadata, retireDRep } from '@/lib/governance/drepTx.js';
+import { updateDRepMetadata } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
 import { blake2b224 } from '@/lib/crypto/blake.js';
@@ -29,14 +29,12 @@ type EnabledWalletApi = TxWalletApi & {
   cip95?: { getPubDRepKey(): Promise<string> };
 };
 
-type DrepAction = 'update' | 'retire';
-
 type Phase =
   | { status: 'idle' }
-  | { status: 'submitting'; action: DrepAction }
+  | { status: 'submitting' }
   // immediate: the optimistic profile write landed, so the new metadata is
   // already visible and the success copy can drop the "after next sync" wait.
-  | { status: 'success'; txHash: string; action: DrepAction; immediate?: boolean }
+  | { status: 'success'; txHash: string; immediate?: boolean }
   | { status: 'error'; message: string };
 
 export interface DrepSettingsProps {
@@ -89,7 +87,6 @@ export default function DrepSettings({
     paymentAddress: initialPaymentAddress,
     doNotList: initialDoNotList,
   });
-  const [confirmRetire, setConfirmRetire] = useState(false);
 
   // Connects the selected wallet, runs the network guard, derives the DRep
   // identity, and verifies it matches the signed-in DRep. Returns null after
@@ -157,7 +154,7 @@ export default function DrepSettings({
       return;
     }
 
-    setPhase({ status: 'submitting', action: 'update' });
+    setPhase({ status: 'submitting' });
 
     try {
       const connected = await connectAndVerify();
@@ -212,29 +209,7 @@ export default function DrepSettings({
         .then((j) => (j as { applied?: boolean } | null)?.applied === true)
         .catch(() => false);
 
-      setPhase({ status: 'success', txHash, action: 'update', immediate });
-    } catch (err) {
-      setPhase({ status: 'error', message: readableError(err) });
-    }
-  }
-
-  // Retire flow: unreg_drep certificate; checkbox-gated, wallet is the final
-  // confirmation. No metadata involved.
-  async function handleRetire() {
-    setPhase({ status: 'submitting', action: 'retire' });
-
-    try {
-      const connected = await connectAndVerify();
-      if (!connected) return;
-
-      const { txHash } = await retireDRep({
-        walletApi: connected.api,
-        network,
-        drepKeyHash: connected.drepKeyHash,
-        origin: window.location.origin,
-      });
-
-      setPhase({ status: 'success', txHash, action: 'retire' });
+      setPhase({ status: 'success', txHash, immediate });
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
     }
@@ -250,9 +225,7 @@ export default function DrepSettings({
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
           </svg>
           <div className="callout__body">
-            <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>
-              {phase.action === 'retire' ? 'Retirement submitted' : 'Profile update submitted'}
-            </p>
+            <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>Profile update submitted</p>
             <p style={{ margin: '0 0 0.5rem', overflowWrap: 'anywhere' }}>
               Transaction:{' '}
               <a
@@ -266,11 +239,9 @@ export default function DrepSettings({
               <CopyButton value={phase.txHash} label="Copy transaction hash" />
             </p>
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-              {phase.action === 'retire'
-                ? 'Your DRep deposit is refunded once the transaction is confirmed. Your forum account and posts are unaffected.'
-                : phase.immediate
-                  ? 'Your profile on DRepTalk is updated. Wallets and explorers show the change once the transaction confirms.'
-                  : 'Your profile shows the new metadata after the next sync (within about an hour).'}
+              {phase.immediate
+                ? 'Your profile on DRepTalk is updated. Wallets and explorers show the change once the transaction confirms.'
+                : 'Your profile shows the new metadata after the next sync (within about an hour).'}
             </p>
           </div>
         </div>
@@ -319,7 +290,7 @@ export default function DrepSettings({
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
           <button type="submit" className="btn btn-primary" disabled={busy}>
-            {phase.status === 'submitting' && phase.action === 'update' ? 'Awaiting wallet...' : 'Update on-chain'}
+            {busy ? 'Awaiting wallet...' : 'Update on-chain'}
           </button>
           {selectedWalletName && (
             <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
@@ -328,7 +299,7 @@ export default function DrepSettings({
           )}
         </div>
 
-        {phase.status === 'submitting' && phase.action === 'update' && (
+        {busy && (
           <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
             Please review and approve the transaction in your wallet.
           </p>
@@ -353,67 +324,6 @@ export default function DrepSettings({
           </div>
         </div>
       )}
-
-      <section style={{ marginTop: '1.5rem', maxWidth: '32rem', borderTop: '1px solid var(--border)', paddingTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>Retire as DRep</h3>
-
-        <div className="callout callout--error" role="note">
-          <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
-          <div className="callout__body">
-            <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>This is an on-chain action</p>
-            <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem' }}>
-              Retiring submits a deregistration certificate to the Cardano chain. Your
-              500 ADA deposit is refunded once it confirms, and everyone who delegated
-              their voting power to you loses that delegation. You can register again
-              later.
-            </p>
-            <p style={{ margin: 0, fontSize: '0.875rem' }}>
-              This does <strong>not</strong> delete anything on DRepTalk: your forum
-              account, posts, and profile page remain.
-            </p>
-          </div>
-        </div>
-
-        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
-          <input
-            type="checkbox"
-            checked={confirmRetire}
-            onChange={(e) => setConfirmRetire(e.target.checked)}
-            disabled={busy}
-            style={{ marginTop: '0.15rem' }}
-          />
-          <span>I understand this deregisters my DRep on-chain.</span>
-        </label>
-
-        <div>
-          <button
-            type="button"
-            disabled={busy || !confirmRetire}
-            onClick={() => void handleRetire()}
-            style={{
-              padding: '0.5rem 1rem',
-              background: 'transparent',
-              color: 'var(--danger)',
-              border: '1px solid var(--danger)',
-              borderRadius: '0.375rem',
-              fontSize: '0.9375rem',
-              fontWeight: 500,
-              cursor: busy || !confirmRetire ? 'not-allowed' : 'pointer',
-              opacity: busy || !confirmRetire ? 0.6 : 1,
-            }}
-          >
-            {phase.status === 'submitting' && phase.action === 'retire' ? 'Awaiting wallet...' : 'Retire DRep'}
-          </button>
-        </div>
-
-        {phase.status === 'submitting' && phase.action === 'retire' && (
-          <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-            Please review and approve the deregistration in your wallet.
-          </p>
-        )}
-      </section>
     </div>
   );
 }

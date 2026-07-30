@@ -6,8 +6,15 @@ import {
   lookupPairing,
   approvePairing,
   pollPairing,
+  parseApproverRoles,
 } from './pairing.js';
-import { formatPairingCode } from './pairingCode.js';
+import { formatPairingCode, normalizePairingCode } from './pairingCode.js';
+
+/** SHA-256 of a UTF-8 string as lowercase hex, mirrors the helper in pairing.ts. */
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 const db = () => env.DB as D1Database;
 const NOW = 1_700_000_000;
@@ -69,8 +76,8 @@ describe('lookupPairing', () => {
 describe('approvePairing', () => {
   it('approves a pending code once and refuses the second attempt', async () => {
     const p = await createPairing(db(), { userAgent: null, now: NOW });
-    expect(await approvePairing(db(), p.code, 'user-1', { now: NOW })).toBe(true);
-    expect(await approvePairing(db(), p.code, 'user-2', { now: NOW })).toBe(false);
+    expect(await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW })).toBe(true);
+    expect(await approvePairing(db(), p.code, 'user-2', ['drep'], { now: NOW })).toBe(false);
 
     const row = await db()
       .prepare('SELECT status, user_id FROM device_pairings WHERE pairing_id = ?1')
@@ -82,17 +89,32 @@ describe('approvePairing', () => {
 
   it('accepts the formatted code the phone displays', async () => {
     const p = await createPairing(db(), { userAgent: null, now: NOW });
-    expect(await approvePairing(db(), formatPairingCode(p.code), 'user-1', { now: NOW })).toBe(true);
+    expect(
+      await approvePairing(db(), formatPairingCode(p.code), 'user-1', ['drep'], { now: NOW }),
+    ).toBe(true);
   });
 
   it('refuses an expired code', async () => {
     const p = await createPairing(db(), { userAgent: null, now: NOW });
     const later = NOW + PAIRING_TTL_SEC + 1;
-    expect(await approvePairing(db(), p.code, 'user-1', { now: later })).toBe(false);
+    expect(await approvePairing(db(), p.code, 'user-1', ['drep'], { now: later })).toBe(false);
   });
 
   it('refuses a malformed code without touching the table', async () => {
-    expect(await approvePairing(db(), 'not-a-code', 'user-1', { now: NOW })).toBe(false);
+    expect(await approvePairing(db(), 'not-a-code', 'user-1', ['drep'], { now: NOW })).toBe(false);
+  });
+
+  it('stamps the normalized approver role cap on approval', async () => {
+    const p = await createPairing(db(), { userAgent: null, now: NOW });
+    const ok = await approvePairing(db(), p.code, 'user-1', ['member', 'drep', 'bogus', 'drep'], {
+      now: NOW,
+    });
+    expect(ok).toBe(true);
+    const row = await db()
+      .prepare('SELECT approver_roles FROM device_pairings WHERE code_hash = ?1')
+      .bind(await sha256Hex(normalizePairingCode(p.code)!))
+      .first<{ approver_roles: string }>();
+    expect(JSON.parse(row!.approver_roles)).toEqual(['drep', 'member']); // normalized
   });
 });
 
@@ -106,18 +128,40 @@ describe('pollPairing', () => {
 
   it('claims an approved pairing exactly once', async () => {
     const p = await createPairing(db(), { userAgent: null, now: NOW });
-    await approvePairing(db(), p.code, 'user-1', { now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW });
 
     const first = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
-    expect(first).toEqual({ status: 'consumed', userId: 'user-1' });
+    expect(first).toEqual({ status: 'consumed', userId: 'user-1', approverRoles: JSON.stringify(['drep']) });
 
     const second = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
     expect(second).toEqual({ status: 'unknown' });
   });
 
+  it('carries the stored approver role cap alongside the claimed user id', async () => {
+    const p = await createPairing(db(), { userAgent: null, now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['member'], { now: NOW });
+
+    const outcome = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
+    expect(outcome).toEqual({
+      status: 'consumed',
+      userId: 'user-1',
+      approverRoles: JSON.stringify(['member']),
+    });
+  });
+
+  it('carries a null approver role cap for a legacy pre-migration row', async () => {
+    const p = await createPairing(db(), { userAgent: null, now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW });
+    // Simulate a row written before the approver_roles column existed.
+    await db().prepare('UPDATE device_pairings SET approver_roles = NULL WHERE pairing_id = ?1').bind(p.pairingId).run();
+
+    const outcome = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
+    expect(outcome).toEqual({ status: 'consumed', userId: 'user-1', approverRoles: null });
+  });
+
   it('refuses a wrong secret', async () => {
     const p = await createPairing(db(), { userAgent: null, now: NOW });
-    await approvePairing(db(), p.code, 'user-1', { now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW });
     expect(await pollPairing(db(), p.pairingId, 'wrong-secret', { now: NOW })).toEqual({
       status: 'unknown',
     });
@@ -127,7 +171,7 @@ describe('pollPairing', () => {
     // This is the specific regression the corrected protocol exists to prevent:
     // the value in the database must never be accepted as the credential.
     const p = await createPairing(db(), { userAgent: null, now: NOW });
-    await approvePairing(db(), p.code, 'user-1', { now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW });
     const row = await db()
       .prepare('SELECT secret_hash FROM device_pairings WHERE pairing_id = ?1')
       .bind(p.pairingId)
@@ -140,7 +184,7 @@ describe('pollPairing', () => {
 
   it('refuses an unknown pairing id and an expired record alike', async () => {
     const p = await createPairing(db(), { userAgent: null, now: NOW });
-    await approvePairing(db(), p.code, 'user-1', { now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW });
     expect(await pollPairing(db(), 'no-such-id', p.deviceSecret, { now: NOW })).toEqual({
       status: 'unknown',
     });
@@ -148,5 +192,27 @@ describe('pollPairing', () => {
     expect(await pollPairing(db(), p.pairingId, p.deviceSecret, { now: later })).toEqual({
       status: 'unknown',
     });
+  });
+});
+
+describe('parseApproverRoles', () => {
+  it('returns null only for a DB NULL, meaning unbounded (legacy)', () => {
+    expect(parseApproverRoles(null)).toBeNull();
+  });
+
+  it('parses and normalizes a well-formed cap', () => {
+    expect(parseApproverRoles(JSON.stringify(['member', 'drep']))).toEqual(['drep', 'member']);
+  });
+
+  it('drops non-string elements before normalizing', () => {
+    expect(parseApproverRoles(JSON.stringify(['drep', 42, null, {}]))).toEqual(['drep']);
+  });
+
+  it('fails closed to [] (never to null) for invalid JSON', () => {
+    expect(parseApproverRoles('{bad json')).toEqual([]);
+  });
+
+  it('fails closed to [] (never to null) for valid JSON that is not an array', () => {
+    expect(parseApproverRoles(JSON.stringify({ roles: ['drep'] }))).toEqual([]);
   });
 });

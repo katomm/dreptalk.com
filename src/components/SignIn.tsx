@@ -25,8 +25,8 @@ import {
 
 type SignInMethod = 'wallet' | 'cardano-signer' | 'pair';
 
-// Wallet flow roles: DRep or Proposer.
-type WalletRole = 'drep' | 'proposer';
+// Wallet flow roles: DRep, Proposer, or Delegator.
+type WalletRole = 'drep' | 'proposer' | 'delegator';
 
 // Cardano-signer flow roles: DRep, SPO, or CC (Proposer is wallet-only).
 type SignerRole = 'drep' | 'spo' | 'cc';
@@ -74,9 +74,13 @@ function friendlyLoginError(
     return 'We could not verify your signature. Please try signing again.';
   }
   if (e.includes('address type mismatch')) {
-    return role === 'drep'
-      ? 'This wallet did not sign as a DRep. Pick a wallet/account that has a DRep key (CIP-95) and keep the DRep role selected, or register as a DRep first.'
-      : 'This wallet did not sign with a reward address. Use the wallet that submitted the governance action and select the Proposer role.';
+    if (role === 'drep') {
+      return 'This wallet did not sign as a DRep. Pick a wallet/account that has a DRep key (CIP-95) and keep the DRep role selected, or register as a DRep first.';
+    }
+    if (role === 'delegator') {
+      return 'This wallet did not sign with a stake address. Pick the account whose stake key you want to track.';
+    }
+    return 'This wallet did not sign with a reward address. Use the wallet that submitted the governance action and select the Proposer role.';
   }
   if (e.includes('not an active drep')) {
     return 'This key is not a registered, active DRep on this network. Register as a DRep to take part.';
@@ -452,7 +456,7 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
   // Preselect role from ?role= deep link.
   useEffect(() => {
     const r = new URLSearchParams(window.location.search).get('role');
-    if (r === 'drep' || r === 'proposer') setRole(r);
+    if (r === 'drep' || r === 'proposer' || r === 'delegator') setRole(r);
   }, []);
 
   // Reset multisig state when switching away from DRep.
@@ -478,7 +482,7 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
         ? { scriptDrepId: scriptId.trim(), keyChoice: 'drep' as const }
         : undefined;
 
-    const signRole: 'drep' | 'proposer' = multisig ? 'drep' : role;
+    const signRole: WalletRole = multisig ? 'drep' : role;
     let api: WalletApi;
     try {
       const enableOpts =
@@ -546,8 +550,19 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
           options={[
             { value: 'drep', label: 'DRep', icon: IconPersonFilled },
             { value: 'proposer', label: 'Proposer', icon: IconPersonOutline },
+            { value: 'delegator', label: 'Delegator', icon: IconPersonOutline },
           ]}
         />
+        {role === 'proposer' && (
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+            Sign in with the wallet that submitted your governance action. Proposers can post and join discussions.
+          </p>
+        )}
+        {role === 'delegator' && (
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+            Sign in with your wallet to see how your DRep votes and get notified. Delegators cannot post or vote.
+          </p>
+        )}
       </div>
 
       {/* Multisig toggle, DRep only */}

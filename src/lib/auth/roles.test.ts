@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isWriter, isModerator, roleLabels, rolesFromUser } from './roles.js';
+import { isWriter, isModerator, roleLabels, rolesFromUser, normalizeSessionRoles } from './roles.js';
 
 describe('isWriter', () => {
   it('is true for each on-chain writer role', () => {
@@ -83,5 +83,16 @@ describe('rolesFromUser', () => {
 
   it('falls back to member when nothing else applies', () => {
     expect(rolesFromUser(none, null)).toEqual(['member']);
+  });
+});
+
+describe('normalizeSessionRoles', () => {
+  it('drops unknown roles, dedups, and sorts by canonical order', () => {
+    expect(normalizeSessionRoles(['member', 'drep', 'drep', 'bogus', 'moderator']))
+      .toEqual(['drep', 'moderator', 'member']);
+  });
+  it('returns [] for all-unknown or empty input', () => {
+    expect(normalizeSessionRoles(['nope', 'x'])).toEqual([]);
+    expect(normalizeSessionRoles([])).toEqual([]);
   });
 });

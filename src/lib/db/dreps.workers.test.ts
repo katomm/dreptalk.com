@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, deactivateDreps, effectiveDrepStatus, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
 
@@ -352,6 +352,223 @@ describe('avatar store queries', () => {
     expect(set.has('2'.repeat(64))).toBe(true);
     // DISTINCT dedupes the shared hash and the null row contributes nothing.
     expect(set.size).toBe(1);
+  });
+});
+
+describe('delegator status-change fan-out jobs', () => {
+  // upsertDrep/deactivateDreps take lastSyncedAt in unix milliseconds; the job's
+  // source_time / created_at are seconds (Math.floor(lastSyncedAt / 1000)).
+  const T_MS = 1_700_000_000_000;
+  const T_SEC = 1_700_000_000;
+
+  async function jobsFor(subjectId: string) {
+    return (
+      await env.DB
+        .prepare('SELECT * FROM notification_fanout_jobs WHERE subject_id = ? ORDER BY source_time, event_key')
+        .bind(subjectId)
+        .all<{ event_key: string; event_type: string; subject_id: string; source_time: number; payload: string; created_at: number; updated_at: number }>()
+    ).results;
+  }
+
+  // Proxies a D1Database so the status fan-out job INSERT is swapped for a
+  // statement that fails at execution (an unknown table). The failure is intrinsic
+  // to the job statement, so it aborts whichever batch the production function
+  // places the job in. With the correct single-batch composition that is the same
+  // batch as the status write, so both roll back. Everything else forwards to the
+  // real DB. If a regression split the status write and the job into two separate
+  // db.batch/.run() calls, the status write would commit before the job failed and
+  // the "status unchanged" assertions below would fail.
+  function poisonJobInsert(db: D1Database): D1Database {
+    return new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === 'prepare') {
+          return (sql: string) =>
+            sql.includes('INTO notification_fanout_jobs')
+              ? // 7 placeholders, matching buildJobInsert's bind arity, so bind
+                // succeeds and the failure surfaces at batch execution, not at bind.
+                target.prepare('INSERT INTO __no_such_fanout_table__ (a, b, c, d, e, f, g) VALUES (?, ?, ?, ?, ?, ?, ?)')
+              : target.prepare(sql);
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  }
+
+  it('effectiveDrepStatus maps the active boolean to the two effective states', () => {
+    expect(effectiveDrepStatus(true)).toBe('active');
+    expect(effectiveDrepStatus(false)).toBe('inactive');
+  });
+
+  it('(a) upsertDrep on a followed active DRep going inactive emits an active->inactive job', async () => {
+    const drepId = 'drep-status-a';
+    // Seed the baseline active row without opts, so creation emits no job.
+    await upsertDrep(db(), { ...BASE_ARGS, drepId, active: true, status: 'active' });
+    await upsertDrep(
+      db(),
+      { ...BASE_ARGS, drepId, active: false, status: 'inactive', lastSyncedAt: T_MS },
+      { followedDrepIds: new Set([drepId]) },
+    );
+
+    const jobs = await jobsFor(drepId);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].event_key).toBe(`drep-status:${drepId}:active:inactive:${T_SEC}`);
+    expect(jobs[0].event_type).toBe('delegator_drep_status_changed');
+    expect(jobs[0].subject_id).toBe(drepId);
+    expect(jobs[0].source_time).toBe(T_SEC);
+    expect(jobs[0].created_at).toBe(T_SEC);
+    expect(jobs[0].updated_at).toBe(T_SEC);
+    expect(JSON.parse(jobs[0].payload)).toEqual({
+      sourceTime: T_SEC,
+      drepId,
+      from: { effective: 'active', status: 'active' },
+      to: { effective: 'inactive', status: 'inactive' },
+    });
+    // The status write landed too.
+    expect((await getDrepById(db(), drepId))!.active).toBe(false);
+  });
+
+  it('(b) upsertDrep reactivation (inactive->active) emits a job (both directions fire)', async () => {
+    const drepId = 'drep-status-b';
+    await upsertDrep(db(), { ...BASE_ARGS, drepId, active: false, status: 'inactive' });
+    await upsertDrep(
+      db(),
+      { ...BASE_ARGS, drepId, active: true, status: 'active', lastSyncedAt: T_MS },
+      { followedDrepIds: new Set([drepId]) },
+    );
+
+    const jobs = await jobsFor(drepId);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].event_key).toBe(`drep-status:${drepId}:inactive:active:${T_SEC}`);
+    expect(JSON.parse(jobs[0].payload)).toMatchObject({
+      from: { effective: 'inactive', status: 'inactive' },
+      to: { effective: 'active', status: 'active' },
+    });
+  });
+
+  it('(c) upsertDrep with an unchanged effective status emits NO job', async () => {
+    const drepId = 'drep-status-c';
+    await upsertDrep(db(), { ...BASE_ARGS, drepId, active: true, status: 'active' });
+    // Raw status shifts within the same effective state, voting power moves; still active.
+    await upsertDrep(
+      db(),
+      { ...BASE_ARGS, drepId, active: true, status: 'registered', votingPower: '42', lastSyncedAt: T_MS },
+      { followedDrepIds: new Set([drepId]) },
+    );
+    expect(await jobsFor(drepId)).toHaveLength(0);
+  });
+
+  it('(d) deactivateDreps on a followed active DRep emits a job in the same batch as the UPDATE', async () => {
+    const drepId = 'drep-status-d';
+    await upsertDrep(db(), { ...BASE_ARGS, drepId, active: true, status: 'active' });
+    const n = await deactivateDreps(
+      db(),
+      [{ drepId, status: 'deregistered', votingPower: '0', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
+      { followedDrepIds: new Set([drepId]) },
+    );
+    expect(n).toBe(1);
+
+    const jobs = await jobsFor(drepId);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].event_key).toBe(`drep-status:${drepId}:active:inactive:${T_SEC}`);
+    expect(JSON.parse(jobs[0].payload)).toEqual({
+      sourceTime: T_SEC,
+      drepId,
+      from: { effective: 'active', status: 'active' },
+      to: { effective: 'inactive', status: 'deregistered' },
+    });
+    // The deactivation UPDATE landed in the same batch.
+    expect((await getDrepById(db(), drepId))!.active).toBe(false);
+  });
+
+  it('(e) a non-followed DRep emits NO job (both paths)', async () => {
+    const drepId = 'drep-status-e';
+    await upsertDrep(db(), { ...BASE_ARGS, drepId, active: true, status: 'active' });
+    await upsertDrep(
+      db(),
+      { ...BASE_ARGS, drepId, active: false, status: 'inactive', lastSyncedAt: T_MS },
+      { followedDrepIds: new Set(['some-other-drep']) },
+    );
+    await deactivateDreps(
+      db(),
+      [{ drepId, status: 'deregistered', votingPower: '0', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
+      { followedDrepIds: new Set(['some-other-drep']) },
+    );
+    expect(await jobsFor(drepId)).toHaveLength(0);
+  });
+
+  it('(f) first creation of a followed DRep (no old row) emits NO job', async () => {
+    const drepId = 'drep-status-f';
+    await upsertDrep(
+      db(),
+      { ...BASE_ARGS, drepId, active: true, status: 'active', lastSyncedAt: T_MS },
+      { followedDrepIds: new Set([drepId]) },
+    );
+    expect(await jobsFor(drepId)).toHaveLength(0);
+    // deactivateDreps on a never-seen followed id likewise emits nothing (no prior row).
+    await deactivateDreps(
+      db(),
+      [{ drepId: 'drep-status-f-ghost', status: 'deregistered', votingPower: '0', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
+      { followedDrepIds: new Set(['drep-status-f-ghost']) },
+    );
+    expect(await jobsFor('drep-status-f-ghost')).toHaveLength(0);
+  });
+
+  it('(g) two opposite transitions the same day at different seconds emit two distinct jobs', async () => {
+    const drepId = 'drep-status-g';
+    await upsertDrep(db(), { ...BASE_ARGS, drepId, active: true, status: 'active' });
+    // active -> inactive at T.
+    await upsertDrep(
+      db(),
+      { ...BASE_ARGS, drepId, active: false, status: 'inactive', lastSyncedAt: T_MS },
+      { followedDrepIds: new Set([drepId]) },
+    );
+    // inactive -> active at T + 5000ms (still the same day, distinct second).
+    await upsertDrep(
+      db(),
+      { ...BASE_ARGS, drepId, active: true, status: 'active', lastSyncedAt: T_MS + 5000 },
+      { followedDrepIds: new Set([drepId]) },
+    );
+
+    const jobs = await jobsFor(drepId);
+    expect(jobs).toHaveLength(2);
+    expect(jobs.map((j) => j.event_key)).toEqual([
+      `drep-status:${drepId}:active:inactive:${T_SEC}`,
+      `drep-status:${drepId}:inactive:active:${T_SEC + 5}`,
+    ]);
+  });
+
+  it('(atomicity) upsertDrep folds the status write and its job into one batch: a job failure rolls back the status write too', async () => {
+    const drepId = 'drep-status-atom-upsert';
+    await upsertDrep(db(), { ...BASE_ARGS, drepId, active: true, status: 'active' });
+
+    await expect(
+      upsertDrep(
+        poisonJobInsert(env.DB),
+        { ...BASE_ARGS, drepId, active: false, status: 'inactive', lastSyncedAt: T_MS },
+        { followedDrepIds: new Set([drepId]) },
+      ),
+    ).rejects.toThrow();
+
+    // The status write must have rolled back with the failed job: still active.
+    expect((await getDrepById(db(), drepId))!.active).toBe(true);
+    expect(await jobsFor(drepId)).toHaveLength(0);
+  });
+
+  it('(atomicity) deactivateDreps folds the UPDATE and its job into one batch: a job failure rolls back the UPDATE too', async () => {
+    const drepId = 'drep-status-atom-deact';
+    await upsertDrep(db(), { ...BASE_ARGS, drepId, active: true, status: 'active' });
+
+    await expect(
+      deactivateDreps(
+        poisonJobInsert(env.DB),
+        [{ drepId, status: 'deregistered', votingPower: '0', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
+        { followedDrepIds: new Set([drepId]) },
+      ),
+    ).rejects.toThrow();
+
+    expect((await getDrepById(db(), drepId))!.active).toBe(true);
+    expect(await jobsFor(drepId)).toHaveLength(0);
   });
 });
 

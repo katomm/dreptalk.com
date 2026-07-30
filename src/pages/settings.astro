@@ -1,17 +1,11 @@
 ---
-// Account settings. Session-gated; the DRep section prefills from the synced
-// dreps row so a DRep can update stale on-chain metadata or set it up for the
-// first time. All on-chain actions live in the DrepSettings island and are
-// non-custodial.
+// Settings index: redirects to the default settings tab. A DRep lands on their
+// Profile tab (the on-chain metadata form); everyone else on Account. The tab
+// sub-pages live under /settings/ (profile, account, danger). Session-gated.
 export const prerender = false;
 
-import Layout from '@/layouts/Layout.astro';
-import DrepSettings from '@/components/DrepSettings.tsx';
-import { roleLabels } from '@/lib/auth/roles';
-import { truncateId } from '@/lib/forum/view';
-import { currentNetwork, runtimeEnv } from '@/lib/api/response';
+import { runtimeEnv } from '@/lib/api/response';
 import { getSelfDrepId } from '@/lib/db/users';
-import { getDrepById } from '@/lib/db/dreps';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -20,74 +14,13 @@ if (!user) {
 
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
-const network = currentNetwork().network;
 
-// Notification settings live on /notifications (next to the inbox they
-// configure), not here.
-const drepId = db && user.roles.includes('drep') ? await getSelfDrepId(db, user) : null;
-const drep = drepId && db ? await getDrepById(db, drepId) : null;
-
-// Prefill: synced on-chain metadata when available, empty form otherwise
-// (covers DReps without any metadata yet).
-const initialName = drep?.name ?? '';
-const initialBio = drep?.bio ?? '';
-const initialLinks = drep?.links ?? [];
-const initialImage = drep?.imageUrl
-  ? { url: drep.imageUrl, ...(drep.imageContentHash ? { sha256: drep.imageContentHash } : {}) }
-  : null;
-const initialMotivations = drep?.motivations ?? '';
-const initialQualifications = drep?.qualifications ?? '';
-const initialPaymentAddress = drep?.paymentAddress ?? '';
-const initialDoNotList = drep?.doNotList ?? false;
+// A DRep defaults to the Profile tab; everyone else to Account. The check lives
+// in an if-condition (not the redirect expression) so this template-less page
+// has no "unused variable" hint on the trailing return.
+const isDrep = !!(db && (await getSelfDrepId(db, user)));
+if (isDrep) {
+  return Astro.redirect('/settings/profile/');
+}
+return Astro.redirect('/settings/account/');
 ---
-<Layout
-  title="Settings - DRepTalk"
-  description="Manage your DRepTalk account and, for DReps, your on-chain profile metadata."
-  noindex={true}
->
-  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
-    <a href="/">DRepTalk</a>
-    <span style="margin:0 0.375rem;">/</span>
-    <span>Settings</span>
-  </nav>
-
-  <h1 style="margin:0 0 0.5rem;">Settings</h1>
-  <p style="margin:0;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
-    {drepId
-      ? 'Manage your DRep profile metadata stored on-chain (CIP-119).'
-      : 'Manage your DRepTalk account.'}
-  </p>
-
-  {drepId ? (
-    <section style="margin-top:1.75rem;">
-      <DrepSettings
-        network={network}
-        expectedDrepId={drepId}
-        initialName={initialName}
-        initialBio={initialBio}
-        initialLinks={initialLinks}
-        initialImage={initialImage}
-        initialMotivations={initialMotivations}
-        initialQualifications={initialQualifications}
-        initialPaymentAddress={initialPaymentAddress}
-        initialDoNotList={initialDoNotList}
-        client:load
-      />
-    </section>
-  ) : (
-    <section style="margin-top:1.75rem;">
-      <p style="margin:0 0 0.75rem;font-size:0.9375rem;color:var(--muted);">
-        Signed in as
-        <span
-          style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"
-          title={user.id}
-        >{truncateId(user.id, 28)}</span>
-        ({roleLabels(user.roles).join(', ')})
-      </p>
-      <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
-        Settings specific to your role are not available yet. They will appear
-        here as they are added.
-      </p>
-    </section>
-  )}
-</Layout>

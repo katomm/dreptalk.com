@@ -14,6 +14,7 @@
 import { toBase64Url } from '../crypto/base64url.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { generatePairingCode, normalizePairingCode } from './pairingCode.js';
+import { normalizeSessionRoles } from './roles.js';
 
 export const PAIRING_TTL_SEC = 600;
 
@@ -26,8 +27,29 @@ export interface PairingStart {
 
 export type PollOutcome =
   | { status: 'pending' }
-  | { status: 'consumed'; userId: string }
+  | { status: 'consumed'; userId: string; approverRoles: string | null }
   | { status: 'unknown' };
+
+/**
+ * Parses the raw `device_pairings.approver_roles` column value into the
+ * approving session's role cap.
+ *
+ * `null` is returned ONLY for a genuine DB NULL: a legacy pairing approved
+ * before this column existed, which is treated as unbounded (no cap applied).
+ * Any non-null value that cannot be read as a role array (invalid JSON, or
+ * JSON that parses but is not an array) fails closed to `[]` instead, which
+ * the caller maps to the plain 'member' role, never to the unbounded case.
+ */
+export function parseApproverRoles(raw: string | null): string[] | null {
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return normalizeSessionRoles(parsed.filter((x): x is string => typeof x === 'string'));
+  } catch {
+    return [];
+  }
+}
 
 /** SHA-256 of a UTF-8 string as lowercase hex, same helper shape as session.ts. */
 async function sha256Hex(input: string): Promise<string> {
@@ -106,28 +128,33 @@ export async function lookupPairing(
 }
 
 /**
- * Approves a pending pairing, stamping the approver's user id. Identity only:
- * roles are deliberately not snapshotted here, they are resolved at redemption.
- * Returns false for unknown, already approved and expired codes alike.
+ * Approves a pending pairing, stamping the approver's user id and their role
+ * cap. The cap is the CEILING the device can redeem, not the granted roles:
+ * revocation-aware resolution (re-checking the account row against the current
+ * allowlist) still happens at redemption, which then intersects that result
+ * against this snapshot. Returns false for unknown, already approved and
+ * expired codes alike.
  */
 export async function approvePairing(
   db: D1Database,
   rawCode: string,
   userId: string,
+  approverRoles: string[],
   opts?: { now?: number },
 ): Promise<boolean> {
   const code = normalizePairingCode(rawCode);
   if (!code) return false;
   const now = Math.floor(opts?.now ?? Date.now() / 1000);
   const codeHash = await sha256Hex(code);
+  const approverRolesJson = JSON.stringify(normalizeSessionRoles(approverRoles));
   const row = await db
     .prepare(
       `UPDATE device_pairings
-          SET status = 'approved', user_id = ?1
-        WHERE code_hash = ?2 AND status = 'pending' AND expires_at > ?3
+          SET status = 'approved', user_id = ?1, approver_roles = ?2
+        WHERE code_hash = ?3 AND status = 'pending' AND expires_at > ?4
         RETURNING pairing_id`,
     )
-    .bind(userId, codeHash, now)
+    .bind(userId, approverRolesJson, codeHash, now)
     .first<{ pairing_id: string }>();
   return row !== null;
 }
@@ -168,11 +195,11 @@ export async function pollPairing(
     .prepare(
       `UPDATE device_pairings SET status = 'consumed'
         WHERE pairing_id = ?1 AND status = 'approved'
-        RETURNING user_id`,
+        RETURNING user_id, approver_roles`,
     )
     .bind(pairingId)
-    .first<{ user_id: string | null }>();
+    .first<{ user_id: string | null; approver_roles: string | null }>();
 
   if (claimed === null || !claimed.user_id) return { status: 'unknown' };
-  return { status: 'consumed', userId: claimed.user_id };
+  return { status: 'consumed', userId: claimed.user_id, approverRoles: claimed.approver_roles };
 }

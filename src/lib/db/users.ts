@@ -115,6 +115,34 @@ export async function getUserByPoolId(db: D1Database, poolId: string): Promise<U
   return row ? rowToUser(row) : null;
 }
 
+/** Returns the user row whose stake_addr matches, or null. Uses idx_users_stake_addr_unique. */
+export async function getUserByStakeAddr(db: D1Database, stakeAddr: string): Promise<User | null> {
+  const row = await db
+    .prepare('SELECT * FROM users WHERE stake_addr = ? LIMIT 1')
+    .bind(stakeAddr)
+    .first<UserRow>();
+  return row ? rowToUser(row) : null;
+}
+
+/**
+ * Records a successful credential re-proof on an existing account: bumps
+ * last_verified_at only. Deliberately does not touch status (a repeat login must
+ * not resurrect a disabled account), mirroring upsertUserFromAuth's conflict path.
+ */
+export async function touchUserVerification(
+  db: D1Database,
+  userId: string,
+  now: number,
+): Promise<User> {
+  await db
+    .prepare('UPDATE users SET last_verified_at = ? WHERE id = ?')
+    .bind(now, userId)
+    .run();
+  const user = await getUserById(db, userId);
+  if (!user) throw new Error(`touchUserVerification: user not found for id=${userId}`);
+  return user;
+}
+
 /**
  * Fetches multiple users by id in a single query (no N+1).
  * Builds a parameterized IN clause from the id list.

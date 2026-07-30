@@ -19,11 +19,14 @@ import type { ModeratorRole } from '../../../config/moderators.js';
 import { drepIdFromPubKey, stakeAddressFromPubKey, ccHotKeyHashHex, isDrepCredentialAddress } from '../cardano/identity.js';
 import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
-import { upsertUserFromAuth, type AuthRole } from '../db/users.js';
+import { upsertUserFromAuth, type AuthRole, type User } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import { rolesFromUser } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
+import { resolveDelegatorAccount } from './delegatorLogin.js';
+import { ensureFollow } from '../db/delegatorFollows.js';
+import { resolveFollow } from '../delegation/refresh.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -36,6 +39,47 @@ const REWARD_ADDR_MAINNET = 0xe1;
 // CIP-19 type-6 (enterprise) address header: testnet (preprod) = 0x60, mainnet = 0x61.
 const ENTERPRISE_ADDR_PREPROD = 0x60;
 const ENTERPRISE_ADDR_MAINNET = 0x61;
+
+export interface RewardAddressCheckOk {
+  ok: true;
+  stakeAddr: string;
+}
+export interface RewardAddressCheckErr {
+  ok: false;
+  error: string;
+}
+
+/**
+ * Confirms `addressBytes` (the COSE-signed address recovered from an already
+ * verified CIP-8 signature) is a reward address for `network`, then derives
+ * the stake address from `pubKey`. Shared by the proposer/delegator
+ * wallet-login path below and the writer stake-link flow (linkStake.ts):
+ * both prove control of a stake wallet with the same reward-address CIP-8
+ * signature and must apply the identical network/type check before trusting
+ * the derived stake address.
+ *
+ * A correctly typed address for the OTHER network is reported as a network
+ * mismatch specifically (not a generic type mismatch), so the client can tell
+ * the user to switch networks instead of showing a confusing role error.
+ */
+export function checkRewardAddressHeader(
+  addressBytes: Uint8Array,
+  pubKey: Uint8Array,
+  network: CardanoNetwork,
+): RewardAddressCheckOk | RewardAddressCheckErr {
+  if (addressBytes.length === 0) {
+    return { ok: false, error: 'invalid address in signature' };
+  }
+  const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
+  const otherHeader = network === 'mainnet' ? REWARD_ADDR_PREPROD : REWARD_ADDR_MAINNET;
+  if (addressBytes[0] === otherHeader) {
+    return { ok: false, error: WALLET_NETWORK_MISMATCH };
+  }
+  if (addressBytes[0] !== expectedHeader) {
+    return { ok: false, error: 'address type mismatch for role' };
+  }
+  return { ok: true, stakeAddr: stakeAddressFromPubKey(pubKey, network) };
+}
 
 // ---------------------------------------------------------------------------
 // Challenge handler
@@ -85,6 +129,10 @@ export interface VerifyInput {
   network: CardanoNetwork;
   now?: number;
   secure?: boolean;
+  // Cloudflare execution context, when the adapter exposes one. Lets the
+  // delegator login defer the delegation resolve past the response (zero
+  // added login latency) instead of resolving it inline.
+  ctx?: { waitUntil(p: Promise<unknown>): void };
 }
 
 /** Injected dependencies for handleVerify. All fields are optional; defaults are the real implementations. */
@@ -131,7 +179,7 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
   const role = body.role;
-  if (role !== 'drep' && role !== 'proposer' && role !== 'spo' && role !== 'cc') {
+  if (role !== 'drep' && role !== 'proposer' && role !== 'spo' && role !== 'cc' && role !== 'delegator') {
     return { status: 400, json: { ok: false, error: 'invalid request' } };
   }
   if (body.payload.length > MAX_PAYLOAD_LEN) {
@@ -140,7 +188,9 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
 
   // DRep and Proposer prove identity with a CIP-8 wallet signature; SPO (Calidus)
   // and CC members paste a raw Ed25519 signature produced by cardano-signer.
-  if (role === 'drep' || role === 'proposer') {
+  // Delegator proves wallet ownership only (no on-chain role), the same
+  // reward-address CIP-8 signature a proposer signs, so it takes the wallet path.
+  if (role === 'drep' || role === 'proposer' || role === 'delegator') {
     // A DRep signing offline pastes a raw Ed25519 sig (publicKeyHex), not a COSE
     // key (keyHex): route to the raw verifier. Covers a key-based CLI DRep (no
     // scriptDrepId) and a script-DRep member (with scriptDrepId).
@@ -152,9 +202,9 @@ async function handleVerifyInternal(input: VerifyInput, deps?: VerifyDeps): Prom
   return await verifyRawEd25519(role, input, deps);
 }
 
-/** DRep / Proposer login: CIP-8 COSE signature from a CIP-30 wallet. */
+/** DRep / Proposer / Delegator login: CIP-8 COSE signature from a CIP-30 wallet. */
 async function verifyWalletCip8(
-  role: 'drep' | 'proposer',
+  role: 'drep' | 'proposer' | 'delegator',
   input: VerifyInput,
   deps?: VerifyDeps,
 ): Promise<VerifyResult> {
@@ -214,14 +264,10 @@ async function verifyWalletCip8(
   // A correctly typed address for the OTHER network means the wallet is on the
   // wrong network; report that specifically instead of a role mismatch, so the
   // client can tell the user to switch networks.
-  if (role === 'proposer') {
-    const expectedHeader = network === 'mainnet' ? REWARD_ADDR_MAINNET : REWARD_ADDR_PREPROD;
-    const otherHeader = network === 'mainnet' ? REWARD_ADDR_PREPROD : REWARD_ADDR_MAINNET;
-    if (addressBytes[0] === otherHeader) {
-      return { status: 401, json: { ok: false, error: WALLET_NETWORK_MISMATCH } };
-    }
-    if (addressBytes[0] !== expectedHeader) {
-      return { status: 401, json: { ok: false, error: 'address type mismatch for role' } };
+  if (role === 'proposer' || role === 'delegator') {
+    const check = checkRewardAddressHeader(addressBytes, pubKey, network);
+    if (!check.ok) {
+      return { status: 401, json: { ok: false, error: check.error } };
     }
   } else {
     // role === 'drep'
@@ -233,6 +279,30 @@ async function verifyWalletCip8(
     if (addressBytes.length === 29 && addressBytes[0] !== expectedHeader) {
       return { status: 401, json: { ok: false, error: WALLET_NETWORK_MISMATCH } };
     }
+  }
+
+  // Delegator proves wallet ownership only: no Koios lookup, no on-chain role,
+  // routed through the shared account resolver so a later delegator sign-in
+  // reuses an account that already owns this stake address (e.g. a writer who
+  // linked the same wallet) instead of minting a duplicate.
+  if (role === 'delegator') {
+    const stakeAddr = stakeAddressFromPubKey(pubKey, network);
+    const verifiedAt = Math.floor(now ?? Date.now() / 1000);
+    const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
+    // The tracking row exists synchronously; a stake-addr mismatch throws here
+    // (internal inconsistency, surfaced as a 500), not fail-soft.
+    await ensureFollow(db, user.id, stakeAddr, verifiedAt);
+    // Decision A: the delegator door always mints a member-capped session and
+    // never a drepId, regardless of the routed account's roles. Writer rights
+    // require the writer door, which revalidates on-chain.
+    const result = mintSessionResult(input, user, null, { roles: ['member'], drepId: null });
+    // Resolve after minting: deferred via waitUntil when the runtime exposes it
+    // (zero added login latency), else inline with the short-bounded fail-soft
+    // resolver. Either way the login never fails on Koios.
+    const doResolve = () => resolveFollow(db, koios, user.id, stakeAddr, verifiedAt);
+    if (input.ctx?.waitUntil) input.ctx.waitUntil(doResolve());
+    else await doResolve();
+    return result;
   }
 
   // Derive identity from the verified pubKey, then resolve authorization via
@@ -362,7 +432,7 @@ async function finishLogin(
     modRole: ModeratorRole | null;
   },
 ): Promise<VerifyResult> {
-  const { db, sessionKv, now, secure } = input;
+  const { db, now } = input;
   const { drepId, stakeAddr, poolId, ccCred, grantedRoles, modRole } = args;
 
   const user = await upsertUserFromAuth(db, {
@@ -374,17 +444,31 @@ async function finishLogin(
     now: Math.floor(now ?? Date.now() / 1000),
   });
 
-  const roles = rolesFromUser(user, modRole);
+  return mintSessionResult(input, user, modRole);
+}
 
-  // Cache the user's drep_id on the session so consumers resolve the logged-in
-  // DRep without a per-request D1 read (drep_id is immutable for the session).
-  const token = await createSession(sessionKv, { id: user.id, roles, drepId: user.drep_id }, { now });
-  const setCookie = buildSessionCookie(token, { secure });
-
+/**
+ * Shared session tail: derive the session roles from the resolved user row,
+ * mint the KV session (caching the user's drep_id so consumers resolve the
+ * logged-in DRep without a per-request D1 read; it is immutable for the
+ * session), and return the 200 result with the Set-Cookie. Used by both the
+ * writer flow (finishLogin, after upsert) and the delegator flow (after
+ * resolveDelegatorAccount), so the session/cookie shape never drifts.
+ */
+async function mintSessionResult(
+  input: VerifyInput,
+  user: User,
+  modRole: ModeratorRole | null,
+  opts?: { roles?: string[]; drepId?: string | null },
+): Promise<VerifyResult> {
+  const { sessionKv, now, secure } = input;
+  const roles = opts?.roles ?? rolesFromUser(user, modRole);
+  const drepId = opts?.roles ? (opts.drepId ?? null) : user.drep_id;
+  const token = await createSession(sessionKv, { id: user.id, roles, drepId }, { now });
   return {
     status: 200,
     json: { ok: true, user: { id: user.id, roles } },
-    setCookie,
+    setCookie: buildSessionCookie(token, { secure }),
   };
 }
 
