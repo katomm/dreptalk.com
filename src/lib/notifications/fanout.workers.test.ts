@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildJobInsert, listOpenJobs, type FanoutJobInput } from '../db/fanoutJobs.js';
 import { runFanout } from './fanout.js';
+import { addChannel, getPendingCounts, getPrefs, listChannels } from '../db/notificationChannels.js';
 
 const db = () => env.DB as D1Database;
 
@@ -82,10 +83,8 @@ describe('runFanout', () => {
   // (now * 1000, milliseconds), not the on-chain source_time. This is what
   // lets a push channel's delivered_until (advanced past source_time already,
   // e.g. from an earlier unrelated dispatch run) still see this notification
-  // as pending once it lands. The end-to-end regression through
-  // getPendingCounts is NOT exercised here: getPendingCounts does not count
-  // delegator_drep_voted/_re_voted/_status_changed until Task 6 adds those
-  // terms. Here we assert the raw created_at value directly instead.
+  // as pending once it lands. See the next test for the end-to-end regression
+  // through getPendingCounts; here we assert the raw created_at value directly.
   it('sets created_at to materialization time (now * 1000), not source_time', async () => {
     await db().batch([buildJobInsert(db(), job({ sourceTime: 100 }))]);
     await insertFollow('user-a', 'drep1', 50);
@@ -98,6 +97,35 @@ describe('runFanout', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].created_at).toBe(now * 1000);
     expect(rows[0].created_at).toBeGreaterThan(deliveredUntil);
+  });
+
+  // The end-to-end version of the property asserted above: a channel whose
+  // delivered_until cursor is already past the event's source_time (in ms)
+  // must still see the fan-out notification as pending, because
+  // getPendingCounts compares against created_at (materialization time), not
+  // source_time. This proves Task 6's drepActivity term wiring is correct on
+  // the actual data this worker produces, not just synthetic fixture rows.
+  it('is counted by getPendingCounts under drepActivity, even though delivered_until is already past source_time', async () => {
+    await db().batch([buildJobInsert(db(), job({ sourceTime: 100 }))]);
+    await insertFollow('user-a', 'drep1', 50);
+
+    const deliveredUntil = 100 * 1000 + 5000; // already past source_time in ms
+    await addChannel(db(), {
+      userId: 'user-a',
+      channel: 'webpush',
+      target: 'sub-a',
+      endpoint: 'https://push.example/user-a',
+      now: deliveredUntil,
+    });
+
+    const now = 900; // materialization happens well after source_time
+    await runFanout(db(), now);
+
+    const [row] = await listChannels(db(), 'user-a');
+    const prefs = await getPrefs(db(), 'user-a', 'webpush');
+    const counts = await getPendingCounts(db(), row, prefs);
+    expect(counts.drepActivity).toBe(1);
+    expect(counts.total).toBe(1);
   });
 
   it('does not notify a follower whose delegation was set after the event', async () => {

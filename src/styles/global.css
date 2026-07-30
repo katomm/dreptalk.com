@@ -1383,7 +1383,8 @@ a.ninbox__actor:hover { text-decoration: underline; }
 .nset__rowmeta { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.8125rem; }
 .nset__rowactions { flex: none; display: flex; gap: 0.5rem; }
 .nset__off { margin: 0.875rem 0 0; color: var(--muted); font-size: 0.875rem; }
-.nset__matrix { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.nset__matrix { margin-top: 1rem; display: flex; flex-direction: column; gap: 1.25rem; }
+.nset__matrixgroup { display: flex; flex-direction: column; gap: 0.75rem; }
 .nset__matrixhead { margin: 0; font-size: 0.9375rem; font-weight: 600; }
 .nset__opt { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.875rem; }
 .nset__opt input { margin-top: 0.2rem; accent-color: var(--accent); }

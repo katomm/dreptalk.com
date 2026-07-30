@@ -1,6 +1,6 @@
 // React hook: the event-type prefs state machine shared by the push and
 // Telegram settings cards on /notifications. Owns the optimistic pref state,
-// the master toggle (flips all three event prefs in parallel) and the single
+// the master toggle (flips all event prefs in parallel) and the single
 // pref toggle, both with snapshot-and-revert on failure and busy-serialization
 // so an in-flight request can never be clobbered by an overlapping one.
 import { useState } from 'react';
@@ -9,7 +9,7 @@ import { NOTIFICATION_EVENT_TYPES } from '@/lib/db/notificationChannels.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
 
 /**
- * Flips all three event prefs for a channel in parallel. Used by the master
+ * Flips all event prefs for a channel in parallel. Used by the master
  * toggle. Resolves true only when every POST succeeded, so the caller can
  * revert its optimistic state on any failure.
  */
@@ -61,7 +61,9 @@ export function useChannelPrefs(
     const prev = prefState;
     setPrefError(null);
     setPrefsBusy(true);
-    setPrefState({ reply: next, mention: next, governance: next });
+    setPrefState(
+      Object.fromEntries(NOTIFICATION_EVENT_TYPES.map((t) => [t, next])) as Record<NotificationEventType, boolean>,
+    );
     try {
       const ok = await setAllPrefs(channel, next);
       if (!ok) {

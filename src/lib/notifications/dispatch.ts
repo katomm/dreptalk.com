@@ -1,10 +1,11 @@
 /// <reference types="@cloudflare/workers-types" />
 // Cron dispatcher: scans every channel of one kind, bundles each channel's
-// pending replies, mentions, and governance updates into a single message,
-// then advances or prunes the channel's delivery cursor based on the send
-// result. Two adapters share the loop: web push (encrypted push payload) and
-// telegram (plain bot message). Called from the gov-sync worker's 15-minute
-// governance trigger, after the rest of that run's sync work.
+// pending replies, mentions, governance updates, and delegator events (DRep
+// vote activity, DRep status changes, delegation changes) into a single
+// message, then advances or prunes the channel's delivery cursor based on the
+// send result. Two adapters share the loop: web push (encrypted push payload)
+// and telegram (plain bot message). Called from the gov-sync worker's
+// 15-minute governance trigger, after the rest of that run's sync work.
 
 import {
   listChannelsByKind,
@@ -54,6 +55,15 @@ function formatSummary(counts: PendingCounts): string {
   }
   if (counts.governance > 0) {
     parts.push(`${counts.governance} governance ${counts.governance === 1 ? 'update' : 'updates'}`);
+  }
+  if (counts.drepActivity > 0) {
+    parts.push(`${counts.drepActivity} DRep vote ${counts.drepActivity === 1 ? 'update' : 'updates'}`);
+  }
+  if (counts.drepStatus > 0) {
+    parts.push(`${counts.drepStatus} DRep status ${counts.drepStatus === 1 ? 'change' : 'changes'}`);
+  }
+  if (counts.myDelegation > 0) {
+    parts.push(`${counts.myDelegation} delegation ${counts.myDelegation === 1 ? 'change' : 'changes'}`);
   }
   if (counts.devices > 0) {
     parts.push(`${counts.devices} new ${counts.devices === 1 ? 'device' : 'devices'} paired`);

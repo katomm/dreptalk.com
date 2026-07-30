@@ -205,6 +205,23 @@ describe('dispatchWebPush', () => {
     expect(body).toContain('device');
   });
 
+  it('renders a phrase for each non-zero delegator term (drep activity, drep status, delegation change)', async () => {
+    await addWebpushChannel('alice', 100);
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'delegator_drep_voted', actorId: null, topicId: null, postId: null, createdAt: 200 },
+      { recipientId: 'alice', type: 'delegator_drep_re_voted', actorId: null, topicId: null, postId: null, createdAt: 210 },
+      { recipientId: 'alice', type: 'delegator_drep_status_changed', actorId: null, topicId: null, postId: null, createdAt: 220 },
+      { recipientId: 'alice', type: 'delegation_changed', actorId: null, topicId: null, postId: null, createdAt: 230 },
+    ]);
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    const result = await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    expect(result).toEqual({ sent: 1, pruned: 0, skipped: 0 });
+    const body = JSON.parse(calls[0].payload).body as string;
+    expect(body).toBe('2 DRep vote updates, 1 DRep status change, 1 delegation change');
+  });
+
   it('returns all-zero without calling send when vapid is null (unset secret)', async () => {
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
