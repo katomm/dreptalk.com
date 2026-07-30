@@ -45,6 +45,9 @@
 //   2026-07-02: params phase also syncs the active committee size, so the CC
 //               quorum check runs on real membership instead of votes cast
 //               (fixes false "Not met" on the detail page).
+//   2026-07-30: pass followedDrepIds into the live vote sync and the drep sync so
+//               delegator fan-out jobs actually get emitted, and drain the fan-out
+//               outbox with a delegation-fanout phase before webpush/telegram.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -62,6 +65,8 @@ import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfil
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
 import { backfillRationaleText } from '../../../src/lib/db/rationaleTextBackfill.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
+import { getFollowedDrepIds } from '../../../src/lib/db/delegatorFollows.js';
+import { runFanout } from '../../../src/lib/notifications/fanout.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
@@ -294,6 +299,16 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: written };
   });
 
+  // Drain the delegator-notification outbox into per-recipient notification rows.
+  // Runs right before the webpush/telegram dispatch phases so a fan-out job
+  // materialized earlier in this same run (or by the vote/drep sync crons since
+  // the last run) delivers in this run instead of waiting for the next one.
+  await phase('delegation-fanout', async () => {
+    const r = await runFanout(env.DB, Math.floor(Date.now() / 1000));
+    console.log(`[delegation-fanout] jobs=${r.jobs} delivered=${r.delivered} completed=${r.completed}`);
+    return { items: r.delivered };
+  });
+
   // After the sync phases: bundle each connected webpush channel's pending replies,
   // mentions, and governance updates into one push. Runs after every other sync
   // phase in this trigger so a governance thread discovered earlier in this same
@@ -340,7 +355,12 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
   const now = Date.now();
 
   await phase('votes', async () => {
-    const r = await syncGovernanceVotes({ koios, db: env.DB, now, limit: VOTE_LIMIT, paceMs: VOTE_PACE_MS });
+    // Loaded once per run and threaded ONLY into the live sync below: a
+    // qualifying followed-DRep vote gets a delegator fan-out job atomically with
+    // its upsert. The finalized-backfill phase further down deliberately does
+    // NOT receive this set, since it re-writes historical votes.
+    const followedDrepIds = await getFollowedDrepIds(env.DB);
+    const r = await syncGovernanceVotes({ koios, db: env.DB, now, limit: VOTE_LIMIT, paceMs: VOTE_PACE_MS, followedDrepIds });
     console.log(`[gov-votes] actions=${r.actions} votes=${r.votes} failed=${r.failed}`);
     return { items: r.votes, failed: r.failed };
   }, { primary: true });
@@ -447,12 +467,17 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   const { koios } = buildKoios(env);
 
   await phase('dreps', async () => {
+    // Loaded once per run and threaded into the writers below: an active/inactive
+    // flip for a followed DRep gets a delegator status-change fan-out job atomic
+    // with its status write.
+    const followedDrepIds = await getFollowedDrepIds(env.DB);
     const r = await syncDreps({
       koios, db: env.DB, fetchImpl: fetch, now: Date.now(), maxAnchorFetches: DREP_ANCHOR_LIMIT,
       // Inline base64 avatars are decoded and stored in R2 during the sync (they
       // are self-contained); linked images are handled by the avatars phase below.
       bucket: env.AVATARS,
       downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
+      followedDrepIds,
     });
     console.log(
       `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} ` +

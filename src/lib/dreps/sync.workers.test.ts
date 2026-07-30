@@ -476,6 +476,42 @@ describe('deregistration', () => {
     expect((await getDrepById(env.DB, id))!.active).toBe(true);
   });
 
+  it('threads followedDrepIds through to emit a status-change job when a followed DRep deactivates', async () => {
+    const stay = 'drep1-dereg-fanout-stay';
+    const gone = 'drep1-dereg-fanout-gone';
+
+    // Run 1: both registered and active.
+    const r1 = fakeKoios({
+      pages: [[listRow(stay), listRow(gone)]],
+      infoById: new Map([[stay, anchored(stay)], [gone, anchored(gone)]]),
+    });
+    await syncDreps({ koios: r1.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+
+    // Run 2: `gone` deregistered, and it is in the followed set.
+    const r2k = fakeKoios({
+      pages: [[listRow(stay, true), listRow(gone, false)]],
+      infoById: new Map([
+        [stay, anchored(stay)],
+        [gone, infoRow(gone, { drep_status: 'deregistered', active: false, amount: '0', deposit: null, meta_url: null, meta_hash: null })],
+      ]),
+    });
+    const r2 = await syncDreps({
+      koios: r2k.koios,
+      db: env.DB,
+      fetchImpl: countingProfileFetch().fetchImpl,
+      now: NOW + 1,
+      followedDrepIds: new Set([gone]),
+    });
+    expect(r2.deactivated).toBe(1);
+
+    const jobs = await env.DB
+      .prepare('SELECT event_type, subject_id FROM notification_fanout_jobs WHERE subject_id = ?')
+      .bind(gone)
+      .all<{ event_type: string; subject_id: string }>();
+    expect(jobs.results).toHaveLength(1);
+    expect(jobs.results[0].event_type).toBe('delegator_drep_status_changed');
+  });
+
   it('leaves a DRep that re-registered between enumeration and lookup for the next sync', async () => {
     const a = 'drep1-dereg-race-a';
     const b = 'drep1-dereg-race-b';
