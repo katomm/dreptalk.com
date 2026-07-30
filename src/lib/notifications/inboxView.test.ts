@@ -162,6 +162,15 @@ describe('delegator DRep-event inbox rows', () => {
     expect(filterItems([voteItem], 'discussions')).toHaveLength(0);
   });
 
+  it('the re-voted and status-changed kinds also count and filter under governance', () => {
+    const reVoteItem = item('delegator_drep_re_voted', 1_700_000_000);
+    const statusItem = item('delegator_drep_status_changed', 1_700_000_000);
+    for (const inboxItem of [reVoteItem, statusItem]) {
+      expect(countItems([inboxItem]).governance).toBe(1);
+      expect(filterItems([inboxItem], 'governance')).toHaveLength(1);
+    }
+  });
+
   it('a delegation_changed item is NOT counted or filtered under governance', () => {
     const delegationItem = {
       kind: 'delegation_changed' as const,
