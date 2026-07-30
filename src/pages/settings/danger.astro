@@ -1,0 +1,28 @@
+---
+// Settings > Danger Zone tab: retire the DRep on-chain (unreg_drep, deposit
+// refund). DRep-only; a non-DRep is redirected to the Account tab. The retire
+// flow lives in the DrepRetire island and is non-custodial.
+export const prerender = false;
+
+import SettingsShell from '@/components/SettingsShell.astro';
+import DrepRetire from '@/components/DrepRetire.tsx';
+import { currentNetwork, runtimeEnv } from '@/lib/api/response';
+import { getSelfDrepId } from '@/lib/db/users';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+const network = currentNetwork().network;
+
+const drepId = db && user.roles.includes('drep') ? await getSelfDrepId(db, user) : null;
+if (!drepId) {
+  return Astro.redirect('/settings/account/');
+}
+---
+<SettingsShell active="danger" isDrep={true}>
+  <DrepRetire network={network} expectedDrepId={drepId} client:load />
+</SettingsShell>
