@@ -391,14 +391,14 @@ const profileSummary = drep
             <span>Outcome</span>
             <span class="vhist__when-h">Voted</span>
           </div>
-          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} />)}
+          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} />)}
           {historyTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {historyTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} />)}
+              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} />)}
               {votesCast > votingHistory.length && (
                 <p class="vhist__truncated">Showing the {votingHistory.length} most recent votes.</p>
               )}

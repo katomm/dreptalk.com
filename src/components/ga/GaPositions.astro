@@ -5,6 +5,7 @@
 // A role segment (DReps / SPOs) toggles which voter list is shown.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import EarlierVotes from '@/components/EarlierVotes.astro';
+import ShareVoteButton from '@/components/ShareVoteButton.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
@@ -64,6 +65,12 @@ function pageHref(p: number): string {
 // Role toggle hrefs: preserve tab=positions, reset page to avoid stale offsets.
 const drepHref = `/t/${slug}/?tab=positions&role=drep`;
 const spoHref = `/t/${slug}/?tab=positions&role=spo`;
+
+// Absolute base for per-vote share links. The link keeps role and page so the
+// targeted row is actually rendered (a voter on page 3 is not on page 1), and
+// the #voter-<id> anchor drives the scroll/expand/highlight on arrival.
+const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
+const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${page}`;
 ---
 
 <div class="ga-positions">
@@ -158,6 +165,7 @@ const spoHref = `/t/${slug}/?tab=positions&role=spo`;
                     </svg>
                   </span>
                 </summary>
+                <div class="vote-share"><ShareVoteButton url={`${shareBase}#voter-${v.voter_id}`} /></div>
                 {bodyHtml && <div class="ga-positions__rationale-body" set:html={enhanceStoredHtml(bodyHtml)} />}
                 {history.length > 0 && <EarlierVotes earlier={history} now={now} />}
               </details>

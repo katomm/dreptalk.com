@@ -23,7 +23,7 @@ import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import { poolPath, isCanonicalPoolParam, poolDisplayName } from '@/lib/pools/profile.js';
 import { isIndexableProfile } from '@/lib/dreps/profile.js';
-import { cacheControlForSynced, truncateIdMiddle } from '@/lib/forum/view.js';
+import { cacheControlForSynced, truncateIdMiddle, SITE_ORIGIN } from '@/lib/forum/view.js';
 
 const { poolId } = Astro.params;
 const db = env.DB as D1Database | undefined;
@@ -64,6 +64,9 @@ const [posts, votingHistory, votesCast, voteBreakdown, rationaleStats, participa
   ]);
 
 const showcase = pickShowcase(earnedBadges, holderCounts, 3);
+
+// Canonical profile URL, used as the base for per-vote share links.
+const canonical = pool ? `${Astro.site?.origin ?? SITE_ORIGIN}${poolPath(pool)}` : null;
 
 // Voting history: show the first few, fold the rest into a pure-HTML "Show more".
 const HISTORY_HEAD = 5;
@@ -169,14 +172,14 @@ const metaDescription = pool
             <span>Outcome</span>
             <span class="vhist__when-h">Voted</span>
           </div>
-          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} />)}
+          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} />)}
           {historyTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {historyTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} />)}
+              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} />)}
               {votesCast > votingHistory.length && (
                 <p class="vhist__truncated">Showing the {votingHistory.length} most recent votes.</p>
               )}
