@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getFollow, ensureFollow, applyResolution, markBatchError } from './delegatorFollows.js';
+import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds } from './delegatorFollows.js';
 import { getNotificationsPage } from './notifications.js';
 
 const db = () => env.DB as D1Database;
@@ -114,5 +114,17 @@ describe('delegatorFollows module', () => {
     await markBatchError(db(), ['m5', 'm6'], 5000);
     expect((await getFollow(db(), 'm5'))?.refresh_error_at).toBe(5000);
     expect((await getFollow(db(), 'm6'))?.refresh_attempted_at).toBe(5000);
+  });
+
+  it('getFollowedDrepIds returns only the distinct drep ids of resolved-drep follows', async () => {
+    await insertFollow('gf-drep-a', 'stake_test1gfa', { status: 'resolved', type: 'drep', drepId: 'drep1gfA' });
+    await insertFollow('gf-pending', 'stake_test1gfp');
+    await insertFollow('gf-abstain', 'stake_test1gfb', { status: 'resolved', type: 'abstain' });
+    await insertFollow('gf-drep-b', 'stake_test1gfc', { status: 'resolved', type: 'drep', drepId: 'drep1gfB' });
+
+    const ids = await getFollowedDrepIds(db());
+    expect(ids.size).toBe(2);
+    expect(ids.has('drep1gfA')).toBe(true);
+    expect(ids.has('drep1gfB')).toBe(true);
   });
 });

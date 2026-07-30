@@ -137,6 +137,21 @@ export async function applyResolution(
   return 'unchanged';
 }
 
+/**
+ * Returns the distinct set of DRep ids that have at least one resolved follower
+ * delegating to them. Used by the cron fan-out to skip DReps with no followers to
+ * notify.
+ */
+export async function getFollowedDrepIds(db: D1Database): Promise<Set<string>> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT drep_id FROM delegator_follows
+        WHERE resolution_status = 'resolved' AND delegation_type = 'drep' AND drep_id IS NOT NULL`,
+    )
+    .all<{ drep_id: string }>();
+  return new Set(results.map((row) => row.drep_id));
+}
+
 /** Marks a whole failed bulk batch: attempt + error, so rows wait the due window and errors are visible. */
 export async function markBatchError(db: D1Database, userIds: string[], now: number): Promise<void> {
   for (let i = 0; i < userIds.length; i += 40) {
