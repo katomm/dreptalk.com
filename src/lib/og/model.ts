@@ -11,7 +11,8 @@ import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
 import { getCategory } from '../../../config/categories.js';
 import type { NclStatus } from '../governance/ncl.js';
-import { accentForType, BRAND_ACCENT, statusColor, tint } from './theme.js';
+import { voteDisplay } from '../governance/voteStatement.js';
+import { accentForType, BRAND_ACCENT, statusColor, tint, TALLY, MUTED } from './theme.js';
 
 /** Hard character caps so a long title/name can never overflow the fixed canvas. */
 function clamp(text: string, max: number): string {
@@ -272,5 +273,42 @@ export function moversCardModel(input: {
         : 'The biggest DRep voting-power shifts this epoch',
     gainers: input.gainers.map(moverRow),
     losers: input.losers.map(moverRow),
+  };
+}
+
+export interface VoteCardInput {
+  name: string | null;
+  voterId: string;
+  vote: string;
+  rationaleText: string;
+  actionTitle: string;
+  role: 'DRep' | 'SPO';
+}
+
+export interface VoteCardModel {
+  name: string;
+  idShort: string | null;
+  avatarDataUrl: string;
+  voteLabel: string;
+  voteColor: string;
+  actionTitle: string;
+  rationaleExcerpt: string;
+  roleLabel: 'DRep' | 'SPO';
+}
+
+export function voteCardModel(v: VoteCardInput, opts: { avatarDataUrl: string }): VoteCardModel {
+  const hasName = !!v.name?.trim();
+  const idShort = truncateIdMiddle(v.voterId);
+  const { label, tone } = voteDisplay(v.vote);
+  const voteColor = tone === 'yes' ? TALLY.yes : tone === 'no' ? TALLY.no : MUTED;
+  return {
+    name: hasName ? clamp(v.name as string, 40) : idShort,
+    idShort: hasName ? idShort : null,
+    avatarDataUrl: opts.avatarDataUrl,
+    voteLabel: label,
+    voteColor,
+    actionTitle: clamp(v.actionTitle, 90),
+    rationaleExcerpt: clamp(v.rationaleText, 200),
+    roleLabel: v.role,
   };
 }

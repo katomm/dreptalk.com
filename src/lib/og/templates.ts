@@ -15,6 +15,7 @@ import type {
   MoverRow,
   MoversCardModel,
   TreasuryCardModel,
+  VoteCardModel,
 } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
@@ -264,4 +265,22 @@ export function discussionCardHtml(m: DiscussionCardModel): string {
     : '';
   const titleBlock = `<div style="display:flex;flex-direction:column;">${title(m.title)}${subtitle}</div>`;
   return cardShell(m.accent, m.category, `${titleBlock}${footer}`);
+}
+
+export function voteCardHtml(m: VoteCardModel): string {
+  const idLine = m.idShort
+    ? `<div style="display:flex;font-size:24px;color:${MUTED};margin-top:4px;">${esc(m.idShort)}</div>` : '';
+  const body = `<div style="display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:center;margin-bottom:28px;">
+      <img src="${m.avatarDataUrl}" width="120" height="120" style="border-radius:60px;margin-right:28px;" />
+      <div style="display:flex;flex-direction:column;">
+        <div style="display:flex;font-size:44px;font-weight:800;color:${INK};">${esc(m.name)}</div>
+        ${idLine}
+      </div>
+    </div>
+    <div style="display:flex;font-size:34px;font-weight:800;letter-spacing:0.5px;color:${m.voteColor};margin-bottom:20px;">${esc(m.voteLabel)}</div>
+    ${title(m.actionTitle)}
+    <div style="display:flex;font-size:28px;line-height:1.4;color:${MUTED};margin-top:24px;max-width:1010px;">${esc(m.rationaleExcerpt)}</div>
+  </div>`;
+  return cardShell(BRAND_ACCENT, m.roleLabel, body);
 }
