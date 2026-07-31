@@ -1,6 +1,6 @@
 // Shared Cardano wallet enumeration logic (CIP-30 + CIP-95 detection).
 // Pure function + React hook so both WalletLogin and DRepService can reuse.
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 
 // CIP-30 wallet object shape with optional CIP-95 extension marker.
@@ -78,17 +78,28 @@ function recallWallet(): string | null {
 }
 
 /**
- * Picks the selection for a freshly scanned wallet list: the user's current
- * pick when still present, else the remembered last-used wallet, else the
- * first one found. Pure; exported for unit tests.
+ * Picks the selection for a freshly scanned wallet list: a deliberate pick by
+ * the user when still present, else the remembered last-used wallet, else the
+ * current auto-filled selection, else the first one found.
+ *
+ * `currentIsUserPick` is what keeps the remembered wallet from being lost to a
+ * race. Extensions inject at different times, so an early scan can see only one
+ * of two installed wallets. The selection derived from that partial list is
+ * provisional and must yield as soon as the remembered wallet appears; without
+ * the distinction it would win every later scan simply for being set first, and
+ * whichever extension injected fastest would always take over. A selection the
+ * user actually clicked is never overruled. Pure; exported for unit tests.
  */
 export function chooseSelectedWallet(
   current: string,
   remembered: string | null,
   found: ReadonlyArray<{ key: string }>,
+  currentIsUserPick: boolean,
 ): string {
-  if (current && found.some((w) => w.key === current)) return current;
-  if (remembered && found.some((w) => w.key === remembered)) return remembered;
+  const available = (key: string) => found.some((w) => w.key === key);
+  if (currentIsUserPick && current && available(current)) return current;
+  if (remembered && available(remembered)) return remembered;
+  if (current && available(current)) return current;
   return found[0]?.key ?? '';
 }
 
@@ -99,7 +110,8 @@ export function chooseSelectedWallet(
  * extensions inject window.cardano asynchronously, often AFTER React mounts, so a
  * single check on mount frequently finds nothing. This re-scans on a short
  * interval (and on window load) until wallets appear, then keeps the list current
- * within a brief window. Returns the list, the selected key, a setter, and
+ * within a brief window. Returns the list, the selected key, a setter (calling it
+ * marks the selection as the user's own, so later scans leave it alone), and
  * `scanning`, which stays true until a wallet is found or the scan window closes.
  * Callers that must not act on "no wallet" too early (an empty list is the normal
  * state for the first few hundred milliseconds) should wait for `scanning` to
@@ -114,6 +126,14 @@ export function useCardanoWallets(): {
   const [wallets, setWallets] = useState<CardanoWalletInfo[]>([]);
   const [selected, setSelected] = useState<string>('');
   const [scanning, setScanning] = useState(true);
+  // Set once the user picks a wallet themselves, which freezes the selection
+  // against later scans. A ref, not state: the scan loop only reads it.
+  const userPickedRef = useRef(false);
+
+  const setSelectedByUser = useCallback((key: string) => {
+    userPickedRef.current = true;
+    setSelected(key);
+  }, []);
 
   useEffect(() => {
     // Read once per mount: the remembered wallet is set on a successful action
@@ -124,7 +144,7 @@ export function useCardanoWallets(): {
       setWallets(found);
       // Keep a valid selection: the user's pick, else the remembered wallet,
       // else the first one found.
-      setSelected((cur) => chooseSelectedWallet(cur, remembered, found));
+      setSelected((cur) => chooseSelectedWallet(cur, remembered, found, userPickedRef.current));
       // The question "is there a wallet here" is answered as soon as one shows
       // up; later scans only keep the list current.
       if (found.length > 0) setScanning(false);
@@ -154,5 +174,5 @@ export function useCardanoWallets(): {
     };
   }, []);
 
-  return { wallets, selected, setSelected, scanning };
+  return { wallets, selected, setSelected: setSelectedByUser, scanning };
 }
