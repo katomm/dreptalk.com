@@ -363,6 +363,9 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
           from: ga.status,
           to: status,
           createdAt: statusEventTime(decidedEpoch),
+          // Notification eligibility is dated at detection time, not the on-chain
+          // boundary, so a status change still counts as new against the cursors.
+          notifiedAt: now,
         });
       }
 
@@ -401,6 +404,8 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
           from: ga.status,
           to: status,
           createdAt: statusEventTime(decidedEpoch),
+          // Detection-time notification eligibility (see the active-loop call above).
+          notifiedAt: now,
         });
       }
       reSynced++;

@@ -82,6 +82,26 @@ describe('getUnreadCount + markAllRead + getNotifSeenAt', () => {
     expect(await getUnreadCount(db(), 'alice')).toBe(1);
   });
 
+  it('counts a back-dated gov action by its detection time, not its epoch boundary', async () => {
+    // Regression for migration 0067: a governance action is dated at its on-chain
+    // epoch boundary (created_at), which can be days before discovery. With a
+    // cursor between the submission and the discovery, the created_at comparison
+    // treated the freshly discovered action as already seen and it never counted.
+    await seedUser('grace');
+    await seedTopic('g5');
+    await db().prepare('UPDATE users SET notif_seen_at = 500 WHERE id = ?').bind('grace').run();
+    // Submitted at 300 (before the cursor) but only discovered at 600 (after it).
+    await activityInsert(db(), {
+      type: 'gov_created',
+      topicId: 'g5',
+      actorId: null,
+      createdAt: 300,
+      notifiedAt: 600,
+    }).run();
+
+    expect(await getUnreadCount(db(), 'grace')).toBe(1);
+  });
+
   it('returns 0 for a user without a users row (defensive)', async () => {
     expect(await getUnreadCount(db(), 'ghost')).toBe(0);
   });
