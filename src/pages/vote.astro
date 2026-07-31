@@ -11,6 +11,7 @@ import Layout from '@/layouts/Layout.astro';
 import GovTypePill from '@/components/GovTypePill.astro';
 import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
+import ShareVoteButton from '@/components/ShareVoteButton.astro';
 import MultiVoteBar from '@/components/MultiVoteBar';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { getSelfDrepId } from '@/lib/db/users';
@@ -397,19 +398,19 @@ const recordChips = [
                           (row.title ?? shortGovActionId(row.ga_id))
                         )}
                       </p>
-                      <p class="history-row__rationale">
-                        {shareHref ? (
-                          <a href={shareHref} class="rationale-link">View your rationale page</a>
-                        ) : (
-                          <span class="history-row__norationale">No rationale</span>
-                        )}
-                      </p>
                       {(when || row.decided_epoch != null) && (
                         <p class="history-row__meta">
                           {when}
                           {when && row.decided_epoch != null && <span class="record-dot" aria-hidden="true">·</span>}
                           {row.decided_epoch != null && <>Epoch {row.decided_epoch}</>}
                         </p>
+                      )}
+                    </div>
+                    <div class="history-row__aside">
+                      {shareHref ? (
+                        <ShareVoteButton url={new URL(shareHref, Astro.url).href} label="Share your rationale" />
+                      ) : (
+                        <span class="history-row__norationale">No rationale</span>
                       )}
                     </div>
                   </div>
@@ -507,7 +508,8 @@ const recordChips = [
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
     padding: 0.875rem 1rem;
     border-bottom: 1px solid var(--border);
   }
@@ -567,18 +569,10 @@ const recordChips = [
     margin: 0;
   }
 
-  .rationale-link {
-    color: var(--accent);
-    font-size: 0.8125rem;
-    text-decoration: none;
-  }
-  .rationale-link:hover {
-    text-decoration: underline;
-  }
-
-  /* Rationale line under the title: the on-site link, or a muted placeholder. */
-  .history-row__rationale {
-    margin: 0 0 0.2rem;
+  /* Rationale action in the row's right column: the share-link pill, or a muted
+     placeholder. Wraps under the main block on narrow screens (row flex-wrap). */
+  .history-row__aside {
+    flex-shrink: 0;
     font-size: 0.8125rem;
   }
   .history-row__norationale {
