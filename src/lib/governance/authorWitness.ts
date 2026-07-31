@@ -5,12 +5,23 @@
 // The witness payload is the exact 32-byte blake2b-256 canonical body hash from
 // `canonicalBodyHashFor` (src/lib/governance/cip108Canonical.ts), NOT the anchor
 // hash and NOT a UTF-8 string.
-import { decode } from 'cborg';
-import { verifyCoseSign1 } from '../auth/cose.js';
+import { decodeCoseKeyPubKey, verifyCoseSign1 } from '../auth/cose.js';
 import { hexToBytes, bytesToHex } from '../crypto/hex.js';
 
 // Shelley reward address header high nibble (CIP-19 Table 1): 0xe0/0xf0.
 const REWARD_ADDR_TYPES = new Set([14, 15]);
+
+/** Parses a 64-hex body hash to its 32 raw bytes. */
+function parseBodyHash(hex: string): { ok: true; bytes: Uint8Array } | { ok: false; reason: string } {
+  let bytes: Uint8Array;
+  try {
+    bytes = hexToBytes(hex);
+  } catch {
+    return { ok: false, reason: 'bodyHashHex is not valid hex' };
+  }
+  if (bytes.length !== 32) return { ok: false, reason: 'body hash must be 32 bytes' };
+  return { ok: true, bytes };
+}
 
 /**
  * Layer 1: verifies a raw-key CIP-0008 witness (COSE_Sign1) against a body
@@ -23,13 +34,8 @@ export async function verifyGenericCip0008(input: {
   signatureHex: string;
   bodyHashHex: string;
 }): Promise<{ ok: boolean; reason?: string }> {
-  let bodyHash: Uint8Array;
-  try {
-    bodyHash = hexToBytes(input.bodyHashHex);
-  } catch {
-    return { ok: false, reason: 'bodyHashHex is not valid hex' };
-  }
-  if (bodyHash.length !== 32) return { ok: false, reason: 'body hash must be 32 bytes' };
+  const parsed = parseBodyHash(input.bodyHashHex);
+  if (!parsed.ok) return { ok: false, reason: parsed.reason };
 
   let pub: Uint8Array;
   try {
@@ -42,7 +48,7 @@ export async function verifyGenericCip0008(input: {
   const res = await verifyCoseSign1({
     signatureHex: input.signatureHex,
     publicKey: pub,
-    expectedPayloadBytes: bodyHash,
+    expectedPayloadBytes: parsed.bytes,
     allowHashed: true,
   });
   return { ok: res.ok, reason: res.reason };
@@ -61,38 +67,19 @@ export async function verifyWalletAuthorWitness(input: {
   bodyHashHex: string;
   expectedNetworkId: number;
 }): Promise<{ ok: true; publicKeyHex: string } | { ok: false; reason: string }> {
-  let bodyHash: Uint8Array;
-  try {
-    bodyHash = hexToBytes(input.bodyHashHex);
-  } catch {
-    return { ok: false, reason: 'bodyHashHex is not valid hex' };
-  }
-  if (bodyHash.length !== 32) return { ok: false, reason: 'body hash must be 32 bytes' };
+  const parsed = parseBodyHash(input.bodyHashHex);
+  if (!parsed.ok) return { ok: false, reason: parsed.reason };
 
-  // Layer 2: decode COSE_Key -> raw ed25519 public key.
-  let keyBytes: Uint8Array;
-  try {
-    keyBytes = hexToBytes(input.keyHex);
-  } catch {
-    return { ok: false, reason: 'keyHex is not valid hex' };
-  }
-  let coseKey: unknown;
-  try {
-    coseKey = decode(keyBytes, { useMaps: true });
-  } catch {
-    return { ok: false, reason: 'invalid COSE_Key CBOR' };
-  }
-  if (!(coseKey instanceof Map)) return { ok: false, reason: 'COSE_Key must be a map' };
-  const pub = coseKey.get(-2);
-  if (!(pub instanceof Uint8Array) || pub.length !== 32) {
-    return { ok: false, reason: 'COSE_Key x (-2) must be a 32-byte key' };
-  }
+  // Layer 2: decode + validate the wallet COSE_Key -> raw ed25519 public key.
+  const decoded = decodeCoseKeyPubKey(input.keyHex);
+  if (!decoded.ok) return { ok: false, reason: decoded.reason };
+  const pub = decoded.pubKey;
 
   // Layer 3: strict verify (no hashed=true) + address policy.
   const res = await verifyCoseSign1({
     signatureHex: input.signatureHex,
     publicKey: pub,
-    expectedPayloadBytes: bodyHash,
+    expectedPayloadBytes: parsed.bytes,
     allowHashed: false,
   });
   if (!res.ok || !res.addressBytes) return { ok: false, reason: res.reason ?? 'invalid witness' };

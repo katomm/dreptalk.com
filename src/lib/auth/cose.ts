@@ -7,11 +7,8 @@ import { bytesEqual } from '../crypto/bytes.js';
 import { verifyEd25519 } from '../crypto/ed25519.js';
 import { keyHashMatchesAddress } from '../cardano/identity.js';
 
-export interface Cip8VerifyResult {
-  ok: boolean;
-  reason?: string; // why it failed (for logging, NOT leaked to clients)
+export interface Cip8VerifyResult extends CoseSign1VerifyResult {
   pubKey?: Uint8Array; // 32-byte Ed25519 pubkey (present when signature math validates)
-  addressBytes?: Uint8Array; // raw address bytes from the protected header
 }
 
 // COSE algorithm label for EdDSA (-8 in CBOR integer space).
@@ -172,28 +169,15 @@ async function verifyCoseSign1Internal(input: {
   return { ok: true, addressBytes };
 }
 
-/** Verifies a CIP-8 signData COSE_Sign1 structure against an expected payload. */
-export async function verifyCip8(input: {
-  signatureHex: string; // COSE_Sign1, hex
-  keyHex: string; // COSE_Key, hex
-  expectedPayload: string; // the exact server-issued payload string the user should have signed
-}): Promise<Cip8VerifyResult> {
-  try {
-    return await verifyCip8Internal(input);
-  } catch (err: unknown) {
-    const reason = err instanceof Error ? err.message : String(err);
-    return { ok: false, reason: `internal error: ${reason}` };
-  }
-}
-
-async function verifyCip8Internal(input: {
-  signatureHex: string;
-  keyHex: string;
-  expectedPayload: string;
-}): Promise<Cip8VerifyResult> {
-  const { signatureHex, keyHex, expectedPayload } = input;
-
-  // Step 1: Decode COSE_Key and extract pubkey.
+/**
+ * Decodes a wallet CIP-30 signData COSE_Key (hex CBOR) to its raw 32-byte
+ * Ed25519 public key, validating kty=OKP, alg=EdDSA, crv=Ed25519. Shared by the
+ * login path (`verifyCip8`) and the CIP-108 author-witness path so both enforce
+ * the same COSE_Key policy.
+ */
+export function decodeCoseKeyPubKey(
+  keyHex: string,
+): { ok: true; pubKey: Uint8Array } | { ok: false; reason: string } {
   let keyBytes: Uint8Array;
   try {
     keyBytes = hexToBytes(keyHex);
@@ -229,6 +213,37 @@ async function verifyCip8Internal(input: {
   if (!(pubKey instanceof Uint8Array) || pubKey.length !== 32) {
     return { ok: false, reason: `COSE_Key x (-2) must be a 32-byte bstr, got ${pubKey instanceof Uint8Array ? `${pubKey.length} bytes` : typeof pubKey}` };
   }
+
+  return { ok: true, pubKey };
+}
+
+/** Verifies a CIP-8 signData COSE_Sign1 structure against an expected payload. */
+export async function verifyCip8(input: {
+  signatureHex: string; // COSE_Sign1, hex
+  keyHex: string; // COSE_Key, hex
+  expectedPayload: string; // the exact server-issued payload string the user should have signed
+}): Promise<Cip8VerifyResult> {
+  try {
+    return await verifyCip8Internal(input);
+  } catch (err: unknown) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: `internal error: ${reason}` };
+  }
+}
+
+async function verifyCip8Internal(input: {
+  signatureHex: string;
+  keyHex: string;
+  expectedPayload: string;
+}): Promise<Cip8VerifyResult> {
+  const { signatureHex, keyHex, expectedPayload } = input;
+
+  // Step 1: Decode + validate the wallet COSE_Key, extracting the raw pubkey.
+  const decoded = decodeCoseKeyPubKey(keyHex);
+  if (!decoded.ok) {
+    return { ok: false, reason: decoded.reason };
+  }
+  const pubKey = decoded.pubKey;
 
   // Step 2: Verify the COSE_Sign1 math + payload via the shared Sign1 core.
   // allowHashed: true tolerates hardware-wallet Blake2b payload hashing, matched

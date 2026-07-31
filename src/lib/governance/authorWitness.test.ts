@@ -15,10 +15,13 @@ const vector = JSON.parse(
 );
 const w = vector.authors[0].witness; // { witnessAlgorithm:'CIP-0008', publicKey: raw32hex, signature: coseSign1hex }
 
+// URDNA2015 canonicalization is the most expensive step; compute the vector's
+// body hash once and reuse it across the cases that need it.
+const vectorBodyHashHex = await canonicalBodyHashFor(vector.body);
+
 describe('layer 1: generic CIP-0008 over a raw key (official vector)', () => {
   it('verifies the official vector against its canonical body hash', async () => {
-    const bodyHashHex = await canonicalBodyHashFor(vector.body);
-    const res = await verifyGenericCip0008({ publicKeyHex: w.publicKey, signatureHex: w.signature, bodyHashHex });
+    const res = await verifyGenericCip0008({ publicKeyHex: w.publicKey, signatureHex: w.signature, bodyHashHex: vectorBodyHashHex });
     expect(res.ok).toBe(true);
   });
 
@@ -38,9 +41,8 @@ describe('layer 3: production wallet policy', () => {
   });
 
   it('rejects the official vector (mainnet enterprise address)', async () => {
-    const bodyHashHex = await canonicalBodyHashFor(vector.body);
     // The vector has a raw key, not a COSE_Key, so the wallet-path decode fails OR the address policy rejects.
-    const res = await verifyWalletAuthorWitness({ keyHex: w.publicKey, signatureHex: w.signature, bodyHashHex, expectedNetworkId: 0 });
+    const res = await verifyWalletAuthorWitness({ keyHex: w.publicKey, signatureHex: w.signature, bodyHashHex: vectorBodyHashHex, expectedNetworkId: 0 });
     expect(res.ok).toBe(false);
   });
 

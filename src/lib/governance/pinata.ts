@@ -5,6 +5,8 @@
 // JSON upload method.
 export type FileUploader = (file: File, jwt: string) => Promise<{ cid: string; size: number }>;
 
+const TEXT_ENCODER = new TextEncoder();
+
 // Accepts both CIDv0 (Qm... base58, sha2-256) and CIDv1 (b... base32, e.g.
 // bafybei... for dag-pb/raw). Pinata's public gateway returns CIDv1 by default.
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{58,})$/;
@@ -44,7 +46,7 @@ export async function pinInfoActionMetadata(input: {
   jwt: string;
   upload?: FileUploader;
 }): Promise<{ cid: string }> {
-  const bytes = new TextEncoder().encode(input.body);
+  const bytes = TEXT_ENCODER.encode(input.body);
   const file = new File([bytes], `${input.anchorHash}.json`, { type: 'application/ld+json' });
   const upload = input.upload ?? defaultUpload;
   const { cid, size } = await upload(file, input.jwt);
