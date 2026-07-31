@@ -26,6 +26,8 @@ interface Props {
   earlier: SupersededVote[];
   delegateTarget: Target | null;
   delegateNetwork: CardanoNetwork;
+  /** On-chain rationale anchor (raw CIP doc) URL, or null when the vote had none. */
+  rawRationaleUrl: string | null;
   now: number;
 }
 const p = Astro.props as Props;
@@ -45,7 +47,12 @@ const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=
     <p class="vstmt__pending" role="status">Awaiting on-chain confirmation. This vote is not final yet.</p>
   )}
   <header class="vstmt__head">
-    <AuthorIdentity author={p.author} size={HERO_AVATAR_SIZE} kind={p.isPool ? 'pool' : undefined} />
+    <div class="vstmt__idrow">
+      <AuthorIdentity author={p.author} size={HERO_AVATAR_SIZE} kind={p.isPool ? 'pool' : undefined} />
+      {p.delegateTarget && (
+        <DelegateButton client:idle network={p.delegateNetwork} target={p.delegateTarget} />
+      )}
+    </div>
     <p class="vstmt__role">{p.roleLabel}</p>
     <div class="vstmt__vote">
       <VoteBadge vote={p.vote} />
@@ -61,8 +68,8 @@ const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=
   {p.earlier.length > 0 && <EarlierVotes earlier={p.earlier} now={p.now} />}
 
   <div class="vstmt__actions">
-    {p.delegateTarget && (
-      <DelegateButton client:idle network={p.delegateNetwork} target={p.delegateTarget} />
+    {p.rawRationaleUrl && (
+      <a class="btn btn-primary" href={p.rawRationaleUrl} rel="nofollow noopener" target="_blank">Raw rationale</a>
     )}
     <a class="btn btn-secondary" href={backHref}>Back to action</a>
   </div>
@@ -72,10 +79,13 @@ const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=
   .vstmt { max-width: 44rem; margin: 0 auto; }
   .vstmt__pending { border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.6rem 0.9rem; color: var(--muted); font-size: 0.875rem; margin: 0 0 1rem; }
   .vstmt__head { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+  /* Identity + delegate CTA on one line, the button snug next to the name like
+     the DRep profile header (not flung to the page edge); wraps on narrow screens. */
+  .vstmt__idrow { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
   .vstmt__role { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0; }
   .vstmt__vote { display: flex; align-items: center; gap: 0.75rem; }
   .vstmt__power { color: var(--muted); font-variant-numeric: tabular-nums; }
-  .vstmt__title { font-size: 1.6rem; line-height: 1.25; margin: 1.25rem 0 1rem; }
+  .vstmt__title { font-size: 1.6rem; line-height: 1.25; margin: 1.25rem 0 1.75rem; }
   /* Pull-quote treatment: a large accent quotation mark hangs at the top left,
      the rationale indented past it. Mirrors the vote preview card. */
   .vstmt__quote { position: relative; padding-left: 2.75rem; }
