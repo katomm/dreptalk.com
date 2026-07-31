@@ -38,6 +38,8 @@ export interface VoteStatementRow {
   rationaleHtml: string;
   bodyText: string;
   source: string;
+  /** On-chain rationale anchor URL (the raw CIP doc); null when the vote carried none. */
+  metaUrl: string | null;
 }
 
 export async function getVoteStatement(
@@ -48,6 +50,7 @@ export async function getVoteStatement(
     .prepare(
       `SELECT v.vote AS vote, v.local_status AS local_status, v.tx_hash AS tx_hash,
               CAST(v.voted_power AS TEXT) AS voting_power, v.block_time AS block_time,
+              v.meta_url AS meta_url,
               r.body_html AS rationale_html, r.body_text AS body_text, r.source AS source
          FROM drep_votes v
          JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
@@ -58,7 +61,7 @@ export async function getVoteStatement(
     .bind(args.gaId, args.voterId, args.role)
     .first<{
       vote: string; local_status: string | null; tx_hash: string | null;
-      voting_power: string | null; block_time: number | null;
+      voting_power: string | null; block_time: number | null; meta_url: string | null;
       rationale_html: string; body_text: string; source: string;
     }>();
   if (!row) return null;
@@ -71,5 +74,6 @@ export async function getVoteStatement(
     rationaleHtml: row.rationale_html,
     bodyText: row.body_text,
     source: row.source,
+    metaUrl: row.meta_url,
   };
 }

@@ -11,6 +11,7 @@ import Layout from '@/layouts/Layout.astro';
 import GovTypePill from '@/components/GovTypePill.astro';
 import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
+import ShareVoteButton from '@/components/ShareVoteButton.astro';
 import MultiVoteBar from '@/components/MultiVoteBar';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { getSelfDrepId } from '@/lib/db/users';
@@ -21,11 +22,13 @@ import { getTopicsByIds, type Topic } from '@/lib/db/forum';
 import { getGovernanceActionsByTopicIds, type GovernanceAction } from '@/lib/db/governance';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation';
-import { epochDaysLeft, voteTone, TONE_COLORS, govTypeTone, shortGovActionId } from '@/lib/governance/view';
+import { epochDaysLeft, voteTone, voteBucket, TONE_COLORS, govTypeTone, shortGovActionId } from '@/lib/governance/view';
 import { resolveNetwork, epochStartUnix } from '@/lib/config/network';
 import { deriveVoteStats, isClosingSoon } from '@/lib/governance/voteDashboard';
 import { GOV_ACTION_TYPES } from '@/lib/governance/types';
+import { formatRelativeTime } from '@/lib/forum/view';
 import voteFiltersJs from '@/scripts/vote-filters.js?raw';
+import voteRecordJs from '@/scripts/vote-record.js?raw';
 import '@/styles/list-controls.css';
 
 // --- resolve network + session ---
@@ -55,7 +58,9 @@ const now = Date.now();
 const [votableRows, historyRows, drep] = drepId && db
   ? await Promise.all([
       getVotableActionsForViewer(db, drepId),
-      getDrepVotingHistory(db, drepId, { limit: 50 }),
+      // The record only needs to know a rationale exists (to link its page), not
+      // the HTML body; presence-only keeps the 500-row pull lean.
+      getDrepVotingHistory(db, drepId, { limit: 500, rationalePresenceOnly: true }),
       getDrepByIdOrSlug(db, drepId),
     ])
   : [[], [], null];
@@ -122,6 +127,18 @@ const canMultiVote = Boolean(drepId && drep && !drep.hasScript);
 const stats = deriveVoteStats(actions.map((a) => ({ voted: !!a.row.viewerVote, daysLeft: a.daysLeft })));
 // Only offer type-filter options for types actually present in the list.
 const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.type === t.value));
+
+// Chip counts over the rendered (client-filterable) history, bucketed with the
+// shared voteBucket so the numbers match the vote badges and tally helpers.
+const recordCounts = { yes: 0, no: 0, abstain: 0 };
+for (const r of historyRows) recordCounts[voteBucket(r.vote)]++;
+// Filter chips, data-driven so the label lives in one place (only buckets with
+// at least one vote are offered).
+const recordChips = [
+  { key: 'yes', label: 'Voted yes' },
+  { key: 'no', label: 'Voted no' },
+  { key: 'abstain', label: 'Abstained' },
+] as const;
 ---
 <Layout
   title="Vote - DRepTalk"
@@ -323,66 +340,92 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
 
       <!-- Voting record -->
       <section>
-        <h2 style="margin:0 0 1rem;font-size:1.125rem;">Your voting record</h2>
+        <div class="record-head">
+          <h2 style="margin:0;font-size:1.125rem;">Your voting record</h2>
+          {historyRows.length > 0 && (
+            <a class="btn btn-secondary record-export" href="/vote/record.csv" download>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export CSV
+            </a>
+          )}
+        </div>
         {historyRows.length === 0 ? (
           <p style="color:var(--muted);font-size:0.9375rem;margin:0;">
             No recorded votes yet.
           </p>
         ) : (
-          <div class="history-list">
-            {historyRows.map((row) => {
-              const voteColor = TONE_COLORS[voteTone(row.vote)];
-              // On-site page for this vote+rationale, shareable off-site. Only when
-              // a rationale is stored and the action has a slug (else it redirects).
-              const shareHref = voteShareBase && row.rationale_html && row.topic_slug
-                ? `${voteShareBase}${row.topic_slug}/`
-                : null;
-              return (
-                <div class="history-row">
-                  <div class="history-row__main">
-                    <div class="history-row__tags">
-                      <GovTypePill type={row.type} />
-                      <span
-                        class="vote-badge"
-                        style={`color:${voteColor};border-color:${voteColor}`}
-                      >
-                        Voted {row.vote}
-                      </span>
-                    </div>
-                    <p class="history-row__title">
-                      {row.topic_slug ? (
-                        <a href={`/t/${row.topic_slug}/`}>{row.title ?? shortGovActionId(row.ga_id)}</a>
-                      ) : (
-                        (row.title ?? shortGovActionId(row.ga_id))
-                      )}
-                    </p>
-                    {(row.decided_epoch != null || row.meta_url || shareHref) && (
-                      <p class="history-row__meta">
-                        {row.decided_epoch != null && <>Decided epoch {row.decided_epoch}</>}
-                        {row.meta_url && (
-                          <>
-                            {row.decided_epoch != null && <>{' '}</>}
-                            <a href={row.meta_url} rel="nofollow noopener" target="_blank" class="rationale-link">Rationale</a>
-                          </>
-                        )}
-                        {shareHref && (
-                          <>
-                            {(row.decided_epoch != null || row.meta_url) && <>{' '}</>}
-                            <a href={shareHref} class="rationale-link">Share your rationale</a>
-                          </>
+          <>
+            <div class="record-chips" data-record-controls role="group" aria-label="Filter your voting record">
+              <button type="button" class="record-chip is-active" data-record-filter="all" aria-pressed="true">
+                All <span class="record-chip__n">{historyRows.length}</span>
+              </button>
+              {recordChips.map((chip) => recordCounts[chip.key] > 0 && (
+                <button type="button" class="record-chip" data-record-filter={chip.key} aria-pressed="false">
+                  {chip.label} <span class="record-chip__n">{recordCounts[chip.key]}</span>
+                </button>
+              ))}
+            </div>
+
+            <div class="history-list" data-record-list>
+              {historyRows.map((row) => {
+                const voteColor = TONE_COLORS[voteTone(row.vote)];
+                // On-site page for this vote+rationale, shareable off-site. Only when
+                // a rationale is stored and the action has a slug (else it redirects).
+                const shareHref = voteShareBase && row.rationale_html && row.topic_slug
+                  ? `${voteShareBase}${row.topic_slug}/`
+                  : null;
+                // "voted N ago" when the vote's block_time is known; older synced
+                // votes lack it, so those show the decided epoch alone.
+                const when = row.block_time != null ? formatRelativeTime(row.block_time * 1000, now) : null;
+                return (
+                  <div class="history-row" data-record-row data-vote={voteBucket(row.vote)}>
+                    <div class="history-row__main">
+                      <div class="history-row__tags">
+                        <GovTypePill type={row.type} />
+                        <span
+                          class="vote-badge"
+                          style={`color:${voteColor};border-color:${voteColor}`}
+                        >
+                          Voted {row.vote}
+                        </span>
+                      </div>
+                      <p class="history-row__title">
+                        {row.topic_slug ? (
+                          <a href={`/t/${row.topic_slug}/`}>{row.title ?? shortGovActionId(row.ga_id)}</a>
+                        ) : (
+                          (row.title ?? shortGovActionId(row.ga_id))
                         )}
                       </p>
-                    )}
+                      {(when || row.decided_epoch != null) && (
+                        <p class="history-row__meta">
+                          {when}
+                          {when && row.decided_epoch != null && <span class="record-dot" aria-hidden="true">·</span>}
+                          {row.decided_epoch != null && <>Epoch {row.decided_epoch}</>}
+                        </p>
+                      )}
+                    </div>
+                    <div class="history-row__aside">
+                      {shareHref ? (
+                        <ShareVoteButton url={new URL(shareHref, Astro.url).href} label="Share your rationale" />
+                      ) : (
+                        <span class="history-row__norationale">No rationale</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            <p class="record-empty" data-record-empty hidden>No votes match this filter.</p>
+            <button type="button" class="record-more" data-record-more hidden>Show more</button>
+          </>
         )}
       </section>
     </>
   )}
   {drepId && actions.length > 0 && <script is:inline set:html={voteFiltersJs} />}
+  {drepId && historyRows.length > 0 && <script is:inline set:html={voteRecordJs} />}
 </Layout>
 
 <style>
@@ -465,7 +508,8 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
     padding: 0.875rem 1rem;
     border-bottom: 1px solid var(--border);
   }
@@ -525,13 +569,99 @@ const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.ty
     margin: 0;
   }
 
-  .rationale-link {
-    color: var(--accent);
+  /* Rationale action in the row's right column: the share-link pill, or a muted
+     placeholder. Wraps under the main block on narrow screens (row flex-wrap). */
+  .history-row__aside {
+    flex-shrink: 0;
     font-size: 0.8125rem;
-    text-decoration: none;
   }
-  .rationale-link:hover {
-    text-decoration: underline;
+  .history-row__norationale {
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .record-dot {
+    margin: 0 0.4rem;
+    color: var(--muted);
+  }
+
+  /* ---- Voting-record header + filter chips ------------------------------- */
+  .record-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 0 1rem;
+  }
+  /* Size-only modifier on the shared .btn: the export link is smaller than a
+     standard button, everything else (border, hover, disabled) comes from .btn. */
+  .record-export {
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+    padding: 0.375rem 0.75rem;
+  }
+
+  .record-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+  }
+  .record-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .record-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .record-chip.is-active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .record-chip__n {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .record-chip.is-active .record-chip__n {
+    color: var(--accent);
+  }
+
+  .record-empty {
+    color: var(--muted);
+    font-size: 0.9375rem;
+    margin: 1rem 0 0;
+  }
+  .record-empty[hidden] {
+    display: none;
+  }
+  .record-more {
+    display: block;
+    margin: 1rem auto 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    cursor: pointer;
+  }
+  .record-more:hover {
+    border-color: var(--accent);
+  }
+  .record-more[hidden] {
+    display: none;
   }
 
   /* ---- Stats strip ------------------------------------------------------- */
