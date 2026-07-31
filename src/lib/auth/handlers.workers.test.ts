@@ -944,6 +944,260 @@ describe('handleVerify: moderator allowlist', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleVerify -- co-proposer grant login fallback
+// ---------------------------------------------------------------------------
+
+// Inserts a proposer_grants row directly (bypassing the invite/redeem flow,
+// which is exercised elsewhere) so these tests can set up whatever grant
+// state the login fallback needs to see.
+async function insertGrant(args: {
+  id: string;
+  proposerUserId: string;
+  proposerStakeAddr: string;
+  coStakeAddr: string;
+  status?: 'active' | 'revoked' | 'pending';
+  now?: number;
+}) {
+  const now = args.now ?? 1_700_000_000;
+  const status = args.status ?? 'active';
+  await env.DB.prepare(
+    `INSERT INTO proposer_grants
+       (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
+     VALUES (?1, ?2, ?3, NULL, ?4, ?1, ?5, ?6, ?7, ?8, ?9)`,
+  )
+    .bind(
+      args.id,
+      args.proposerUserId,
+      args.proposerStakeAddr,
+      args.coStakeAddr,
+      status,
+      now,
+      now + 604800,
+      status === 'active' ? now : null,
+      status === 'revoked' ? now : null,
+    )
+    .run();
+}
+
+describe('handleVerify: co-proposer grant login fallback', () => {
+  it('stake key with no proposals but an active grant logs in with proposer role, grantId and actsFor on the session', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
+    await insertGrant({
+      id: 'grant-fallback-1',
+      proposerUserId: 'proposer-user-1',
+      proposerStakeAddr: 'stake_test1proposerone',
+      coStakeAddr: DELEGATOR_STAKE_ADDR,
+    });
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'proposer',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll(), // no on-chain proposals: the grant is what opens the door
+        network: 'preprod',
+        now: 1_700_000_000,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(200);
+    const json = result.json as { ok: boolean; user: { id: string; roles: string[] } };
+    expect(json.ok).toBe(true);
+    expect(json.user.roles).toContain('proposer');
+
+    const cookie = result.setCookie!;
+    const token = /dreptalk_session=([^;]+)/.exec(cookie)![1];
+    const session = await getSession(env.SESSIONS, token);
+    expect(session?.grantId).toBe('grant-fallback-1');
+    expect(session?.actsFor).toEqual({ userId: 'proposer-user-1', stakeAddr: 'stake_test1proposerone' });
+  });
+
+  it('grant login never sets is_proposer on the user row', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
+    await insertGrant({
+      id: 'grant-fallback-2',
+      proposerUserId: 'proposer-user-2',
+      proposerStakeAddr: 'stake_test1proposertwo',
+      coStakeAddr: DELEGATOR_STAKE_ADDR,
+    });
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'proposer',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll(),
+        network: 'preprod',
+        now: 1_700_000_000,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(200);
+    const json = result.json as { user: { id: string } };
+    const row = await getUserById(env.DB, json.user.id);
+    expect(row).not.toBeNull();
+    expect(row!.is_proposer).toBe(false);
+  });
+
+  it('stake key with no proposals and no grant: unchanged 401 "not a proposer or moderator"', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'proposer',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll(),
+        network: 'preprod',
+        now: 1_700_000_000,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(401);
+    expect((result.json as { error: string }).error).toBe('not a proposer or moderator');
+  });
+
+  it('revoked grant: 401', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
+    await insertGrant({
+      id: 'grant-fallback-revoked',
+      proposerUserId: 'proposer-user-3',
+      proposerStakeAddr: 'stake_test1proposerthree',
+      coStakeAddr: DELEGATOR_STAKE_ADDR,
+      status: 'revoked',
+    });
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'proposer',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll(),
+        network: 'preprod',
+        now: 1_700_000_000,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(401);
+  });
+
+  it('moderator who is also a co-proposer gets both the mod role and proposer', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
+    await insertGrant({
+      id: 'grant-fallback-mod',
+      proposerUserId: 'proposer-user-4',
+      proposerStakeAddr: 'stake_test1proposerfour',
+      coStakeAddr: DELEGATOR_STAKE_ADDR,
+    });
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'proposer',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll(),
+        network: 'preprod',
+        now: 1_700_000_000,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride, getModeratorRole: () => 'moderator' },
+    );
+
+    expect(result.status).toBe(200);
+    const json = result.json as { user: { roles: string[] } };
+    expect(json.user.roles).toContain('moderator');
+    expect(json.user.roles).toContain('proposer');
+  });
+
+  it('a REAL on-chain proposer who also redeemed a grant logs in with their own identity: no grantId/actsFor on the session', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
+    // The grant lies dormant: this stake key is also a real on-chain proposer,
+    // so its own identity wins and the grant is never consulted.
+    await insertGrant({
+      id: 'grant-fallback-dormant',
+      proposerUserId: 'proposer-user-5',
+      proposerStakeAddr: 'stake_test1proposerfive',
+      coStakeAddr: DELEGATOR_STAKE_ADDR,
+    });
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'proposer',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: {
+          drepInfo: async () => null,
+          accountInfo: async () => null,
+          proposalsByReturnAddress: async (addr: string) => [
+            { proposal_id: 'gov_action1dormant', return_address: addr, proposal_type: 'InfoAction' },
+          ],
+        },
+        network: 'preprod',
+        now: 1_700_000_000,
+        secure: false,
+      },
+      { consumeNonce: consumeOverride },
+    );
+
+    expect(result.status).toBe(200);
+    const json = result.json as { user: { id: string; roles: string[] } };
+    expect(json.user.roles).toContain('proposer');
+    const row = await getUserById(env.DB, json.user.id);
+    expect(row!.is_proposer).toBe(true);
+
+    const cookie = result.setCookie!;
+    const token = /dreptalk_session=([^;]+)/.exec(cookie)![1];
+    const session = await getSession(env.SESSIONS, token);
+    expect(session?.grantId).toBeFalsy();
+    expect(session?.actsFor).toBeFalsy();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleVerify -- reject: wrong header byte for the role
 // ---------------------------------------------------------------------------
 
