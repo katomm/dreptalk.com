@@ -26,6 +26,12 @@ export interface ActivityRow {
  * can append it to their existing D1 batch (the event is then atomic with the
  * write that caused it). The id is a fresh UUID; payload is JSON-encoded when
  * present. System events (gov_created, gov_status) pass no actorId.
+ *
+ * createdAt is the feed date (for governance events, the on-chain epoch
+ * boundary, which may be days in the past). notifiedAt is when we LEARNED of
+ * the event and defaults to createdAt; governance events pass the real
+ * detection time so a back-dated action still counts as new against the
+ * notification cursors (see migration 0067 and govThreadsSinceSql).
  */
 export function activityInsert(
   db: D1Database,
@@ -36,12 +42,13 @@ export function activityInsert(
     refPostId?: string | null;
     payload?: Record<string, unknown> | null;
     createdAt: number;
+    notifiedAt?: number;
   },
 ): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at, notified_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       crypto.randomUUID(),
@@ -51,6 +58,7 @@ export function activityInsert(
       a.refPostId ?? null,
       a.payload ? JSON.stringify(a.payload) : null,
       a.createdAt,
+      a.notifiedAt ?? a.createdAt,
     );
 }
 
@@ -65,18 +73,26 @@ export function activityInsert(
  */
 export async function insertGovStatusEventIfNew(
   db: D1Database,
-  a: { topicId: string; from: string; to: string; createdAt: number },
+  a: { topicId: string; from: string; to: string; createdAt: number; notifiedAt?: number },
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at)
-       SELECT ?, 'gov_status', NULL, ?, NULL, ?, ?
+      `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at, notified_at)
+       SELECT ?, 'gov_status', NULL, ?, NULL, ?, ?, ?
        WHERE NOT EXISTS (
          SELECT 1 FROM activity
          WHERE type = 'gov_status' AND topic_id = ? AND json_extract(payload, '$.to') = ?
        )`,
     )
-    .bind(crypto.randomUUID(), a.topicId, JSON.stringify({ from: a.from, to: a.to }), a.createdAt, a.topicId, a.to)
+    .bind(
+      crypto.randomUUID(),
+      a.topicId,
+      JSON.stringify({ from: a.from, to: a.to }),
+      a.createdAt,
+      a.notifiedAt ?? a.createdAt,
+      a.topicId,
+      a.to,
+    )
     .run();
 }
 

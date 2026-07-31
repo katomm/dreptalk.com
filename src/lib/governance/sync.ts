@@ -187,12 +187,17 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
           }),
           // The newly discovered action is a feed event. created_at is the
           // submission time (same as the topic's), so the feed and the topic
-          // agree on the action's date.
+          // agree on the action's date. notified_at is the real detection time
+          // (now), so this action counts as new against the notification cursors
+          // even though created_at is back-dated to the epoch boundary. The title
+          // rides along in the payload so a single-action push can name it without
+          // a topic join.
           activityInsert(db, {
             type: 'gov_created',
             topicId,
-            payload: { type: p.proposal_type },
+            payload: { type: p.proposal_type, title },
             createdAt: submittedAtMs,
+            notifiedAt: now,
           }),
         ],
       });

@@ -17,6 +17,8 @@ import {
   type NotificationChannelRow,
   type PendingCounts,
 } from '../db/notificationChannels.js';
+import { formatNotification, DETAIL_MAX, type PendingLead } from './pushMessage.js';
+import { resolvePendingLead } from './pendingLead.js';
 import { isSubscriptionDead } from '../push/webPush.js';
 import type { sendWebPush, VapidConfig, PushSubscriptionTarget } from '../push/webPush.js';
 import { isTelegramChatDead } from '../push/telegram.js';
@@ -44,33 +46,6 @@ export interface DispatchResult {
   skipped: number;
 }
 
-/** Comma-joined, singular/plural-correct summary of the non-zero pending counts. */
-function formatSummary(counts: PendingCounts): string {
-  const parts: string[] = [];
-  if (counts.replies > 0) {
-    parts.push(`${counts.replies} new ${counts.replies === 1 ? 'reply' : 'replies'}`);
-  }
-  if (counts.mentions > 0) {
-    parts.push(`${counts.mentions} ${counts.mentions === 1 ? 'mention' : 'mentions'}`);
-  }
-  if (counts.governance > 0) {
-    parts.push(`${counts.governance} governance ${counts.governance === 1 ? 'update' : 'updates'}`);
-  }
-  if (counts.drepActivity > 0) {
-    parts.push(`${counts.drepActivity} DRep vote ${counts.drepActivity === 1 ? 'update' : 'updates'}`);
-  }
-  if (counts.drepStatus > 0) {
-    parts.push(`${counts.drepStatus} DRep status ${counts.drepStatus === 1 ? 'change' : 'changes'}`);
-  }
-  if (counts.myDelegation > 0) {
-    parts.push(`${counts.myDelegation} delegation ${counts.myDelegation === 1 ? 'change' : 'changes'}`);
-  }
-  if (counts.devices > 0) {
-    parts.push(`${counts.devices} new ${counts.devices === 1 ? 'device' : 'devices'} paired`);
-  }
-  return parts.join(', ');
-}
-
 /** What one adapter did with one channel's bundle. */
 type DeliveryOutcome = 'sent' | 'dead' | 'failed';
 
@@ -85,7 +60,7 @@ type DeliveryOutcome = 'sent' | 'dead' | 'failed';
 async function dispatchChannels(
   db: D1Database,
   kind: NotificationChannelKind,
-  deliver: (row: NotificationChannelRow, counts: PendingCounts) => Promise<DeliveryOutcome>,
+  deliver: (row: NotificationChannelRow, counts: PendingCounts, lead: PendingLead | null) => Promise<DeliveryOutcome>,
   now: number,
 ): Promise<DispatchResult> {
   const rows = await listChannelsByKind(db, kind);
@@ -112,7 +87,11 @@ async function dispatchChannels(
         continue;
       }
 
-      const outcome = await deliver(row, counts);
+      // Only resolve the per-item lead for small bundles: those get the detailed
+      // single-line message; larger bundles use the count summary and never look
+      // at the lead, so the lookup is skipped entirely.
+      const lead = counts.total <= DETAIL_MAX ? await resolvePendingLead(db, row, prefs) : null;
+      const outcome = await deliver(row, counts, lead);
       if (outcome === 'sent') {
         await advanceCursor(db, row.id, now);
         sent++;
@@ -146,13 +125,11 @@ export async function dispatchWebPush(
   return dispatchChannels(
     db,
     'webpush',
-    async (row, counts) => {
+    async (row, counts, lead) => {
       const target = JSON.parse(row.target) as PushSubscriptionTarget;
-      const payload = JSON.stringify({
-        title: 'DRepTalk',
-        body: formatSummary(counts),
-        url: '/notifications/',
-      });
+      const { body, path } = formatNotification(counts, lead);
+      // path is app-relative; the service worker resolves it against its own origin.
+      const payload = JSON.stringify({ title: 'DRepTalk', body, url: path });
       const result = await deps.send(target, payload, vapid);
       if (result.ok) return 'sent';
       return isSubscriptionDead(result.status) ? 'dead' : 'failed';
@@ -177,8 +154,10 @@ export async function dispatchTelegram(
   return dispatchChannels(
     db,
     'telegram',
-    async (row, counts) => {
-      const text = `${formatSummary(counts)}\n${cfg.origin}/notifications/`;
+    async (row, counts, lead) => {
+      const { body, path } = formatNotification(counts, lead);
+      // Telegram messages carry no origin context, so the link is absolute.
+      const text = `${body}\n${cfg.origin}${path}`;
       const result = await deps.send(cfg.botToken, row.target, text);
       if (result.ok) return 'sent';
       return isTelegramChatDead(result) ? 'dead' : 'failed';

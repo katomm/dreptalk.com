@@ -96,13 +96,19 @@ export async function getNotificationsPage(
  * dispatcher (getPendingCounts, delivery cursor) so the two can never
  * silently diverge. cursorExpr must be a bind placeholder or a subquery over
  * bound values, never user data.
+ *
+ * Compares notified_at (detection time), not created_at (the back-dated
+ * on-chain epoch boundary): a governance action is dated at submission for the
+ * feed, but for notifications it is "new" when we discovered it. Using
+ * created_at here silently dropped every back-dated action that landed before
+ * the cursor (migration 0067). COALESCE guards rows predating the column.
  */
 export function govThreadsSinceSql(cursorExpr: string): string {
   return `(SELECT COUNT(DISTINCT a.topic_id) FROM activity a
             JOIN topics t ON t.id = a.topic_id
             WHERE a.type IN ('gov_created', 'gov_status')
               AND t.deleted = 0
-              AND a.created_at > ${cursorExpr})`;
+              AND COALESCE(a.notified_at, a.created_at) > ${cursorExpr})`;
 }
 
 /**
