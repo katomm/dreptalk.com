@@ -34,6 +34,14 @@ const voteFiltersSource = readFileSync(
 );
 const voteFiltersHash = `sha256-${createHash('sha256').update(voteFiltersSource).digest('base64')}`;
 
+// The voting-record filter + "show more" script, inlined via set:html on /vote.
+// Derived from the inlined file so editing it cannot desync the CSP hash.
+const voteRecordSource = readFileSync(
+  fileURLToPath(new URL('./src/scripts/vote-record.js', import.meta.url)),
+  'utf8',
+);
+const voteRecordHash = `sha256-${createHash('sha256').update(voteRecordSource).digest('base64')}`;
+
 export default defineConfig({
   site: 'https://dreptalk.com',
   output: 'server',
@@ -122,7 +130,7 @@ export default defineConfig({
         resources: ["'self'", 'https://static.cloudflareinsights.com', "'unsafe-eval'"],
         // Astro hashes its own bundled/inline scripts but not author is:inline
         // ones, so add the inlined script hashes explicitly.
-        hashes: [themeInitHash, govPrefsHash, voteFiltersHash],
+        hashes: [themeInitHash, govPrefsHash, voteFiltersHash, voteRecordHash],
       },
     },
   },
