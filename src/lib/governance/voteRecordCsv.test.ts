@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildVoteRecordCsv, csvField } from './voteRecordCsv.js';
+import { buildVoteRecordCsv } from './voteRecordCsv.js';
 import type { DrepVoteHistoryRow } from '@/lib/db/drepVotes.js';
 
 const OPTS = { origin: 'https://dreptalk.com', voteShareBase: '/dreps/drep1abc/vote/' };
@@ -19,18 +19,6 @@ function row(overrides: Partial<DrepVoteHistoryRow> = {}): DrepVoteHistoryRow {
     ...overrides,
   };
 }
-
-describe('csvField', () => {
-  it('leaves plain values untouched', () => {
-    expect(csvField('Reduce minPoolCost')).toBe('Reduce minPoolCost');
-  });
-
-  it('quotes and escapes values with commas, quotes, or newlines', () => {
-    expect(csvField('a,b')).toBe('"a,b"');
-    expect(csvField('say "hi"')).toBe('"say ""hi"""');
-    expect(csvField('line1\nline2')).toBe('"line1\nline2"');
-  });
-});
 
 describe('buildVoteRecordCsv', () => {
   it('starts with the header row', () => {

@@ -29,7 +29,9 @@ export const GET: APIRoute = async ({ locals, request, redirect }) => {
   // Match the dashboard: full history (realistically ~150 rows) newest first,
   // plus the DRep record to build the shareable rationale-page base.
   const [rows, drep] = await Promise.all([
-    getDrepVotingHistory(db, drepId, { limit: 500 }),
+    // The CSV links to the rationale page when one exists; it never renders the
+    // body, so fetch presence only, not the full HTML, across all 500 rows.
+    getDrepVotingHistory(db, drepId, { limit: 500, rationalePresenceOnly: true }),
     getDrepByIdOrSlug(db, drepId),
   ]);
   const voteShareBase = drep ? `/dreps/${drep.slug ?? drep.drepId}/vote/` : null;

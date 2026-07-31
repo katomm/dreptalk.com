@@ -172,6 +172,16 @@ export function voteChangedSince(
   return postVote.toLowerCase() !== currentVote.toLowerCase();
 }
 
+/**
+ * Normalizes a stored vote to the three counting buckets: anything that is not
+ * Yes/No folds into Abstain. Single source for vote bucketing so the tally
+ * helpers, badges, and the record filter cannot drift.
+ */
+export function voteBucket(vote: string): 'yes' | 'no' | 'abstain' {
+  const v = vote.toLowerCase();
+  return v === 'yes' ? 'yes' : v === 'no' ? 'no' : 'abstain';
+}
+
 /** Color tone for a vote badge. */
 export function voteTone(vote: string): StatusTone {
   const v = vote.toLowerCase();

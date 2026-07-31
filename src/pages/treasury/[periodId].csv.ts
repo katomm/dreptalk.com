@@ -5,17 +5,10 @@
 import type { APIRoute } from 'astro';
 import { runtimeEnv } from '@/lib/api/response';
 import { lovelaceToAdaDecimal } from '@/lib/format/ada.js';
+import { csvField } from '@/lib/format/csv.js';
 import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
 
 export const prerender = false;
-
-/** Wrap a CSV field in double quotes if it may contain a comma, quote, or newline. */
-function csvField(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
 
 export const GET: APIRoute = async ({ params, locals }) => {
   const env = runtimeEnv(locals as App.Locals);

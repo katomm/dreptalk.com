@@ -2,20 +2,13 @@
 // list the dashboard renders. Pure (no I/O) so the route stays a thin wrapper
 // and the column shape is unit-tested directly.
 import { readableType, shortGovActionId } from './view.js';
+import { csvField } from '@/lib/format/csv.js';
+import { isoDate } from '@/lib/format/date.js';
 import type { DrepVoteHistoryRow } from '@/lib/db/drepVotes.js';
 
-/** Wrap a CSV field in double quotes if it may contain a comma, quote, or newline. */
-export function csvField(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
-
 /** Vote tx unix seconds to an ISO date (YYYY-MM-DD); empty when unknown. */
-function isoDate(blockTime: number | null): string {
-  if (blockTime == null) return '';
-  return new Date(blockTime * 1000).toISOString().slice(0, 10);
+function voteDate(blockTime: number | null): string {
+  return blockTime == null ? '' : isoDate(new Date(blockTime * 1000));
 }
 
 /**
@@ -57,7 +50,7 @@ export function buildVoteRecordCsv(
   const lines = rows.map((row) =>
     [
       row.decided_epoch != null ? String(row.decided_epoch) : '',
-      isoDate(row.block_time),
+      voteDate(row.block_time),
       csvField(readableType(row.type)),
       csvField(row.vote),
       csvField(row.title ?? shortGovActionId(row.ga_id)),

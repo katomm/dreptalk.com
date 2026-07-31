@@ -9,6 +9,7 @@ import {
   type ExistingVoteRow,
 } from './voteHistory.js';
 import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
+import { voteBucket } from '@/lib/governance/view.js';
 
 export interface VoteInput {
   voterRole: string;
@@ -249,24 +250,33 @@ export interface DrepVoteHistoryRow {
  * timeline. Rows with no block_time fall back to the action's decided epoch/id.
  * Uses idx_drep_votes_voter. Default limit 20, capped 500. Pass `confirmedOnly`
  * to additionally require `local_status IS NULL`, so a delegator viewing their
- * DRep's history never sees a still-optimistic (unconfirmed) self-cast.
+ * DRep's history never sees a still-optimistic (unconfirmed) self-cast. Pass
+ * `rationalePresenceOnly` when the caller only needs to know a rationale exists
+ * (e.g. to link a "view rationale" page): rationale_html then carries a '1'
+ * sentinel instead of the full body_html, so a 500-row pull does not drag KBs
+ * of rendered HTML the caller never renders.
  */
 export async function getDrepVotingHistory(
   db: D1Database,
   voterId: string,
-  opts?: { limit?: number; offset?: number; confirmedOnly?: boolean },
+  opts?: { limit?: number; offset?: number; confirmedOnly?: boolean; rationalePresenceOnly?: boolean },
 ): Promise<DrepVoteHistoryRow[]> {
   // The ceiling is a runaway guard, sized so a profile can render a DRep's
   // complete history (a vote per action; mainnet has ~150 actions so far).
   const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 500);
   const offset = Math.max(opts?.offset ?? 0, 0);
   const confirmedClause = opts?.confirmedOnly ? 'AND v.local_status IS NULL' : '';
+  // Presence sentinel vs the full body: callers that only test truthiness skip
+  // the (potentially multi-KB) HTML transfer.
+  const rationaleCol = opts?.rationalePresenceOnly
+    ? `CASE WHEN r.body_html IS NOT NULL AND trim(r.body_html) <> '' THEN '1' ELSE NULL END`
+    : 'r.body_html';
   const rows = (
     await db
       .prepare(
         `SELECT v.ga_id AS ga_id, v.vote AS vote, g.title AS title, g.type AS type,
                 g.status AS status, g.decided_epoch AS decided_epoch, t.slug AS topic_slug,
-                v.meta_url AS meta_url, v.block_time AS block_time, r.body_html AS rationale_html
+                v.meta_url AS meta_url, v.block_time AS block_time, ${rationaleCol} AS rationale_html
          FROM drep_votes v
          JOIN governance_actions g ON g.id = v.ga_id
          LEFT JOIN topics t ON t.id = g.topic_id
@@ -460,10 +470,7 @@ export async function getDrepVoteBreakdown(db: D1Database, voterId: string): Pro
   ).results ?? [];
   const out: DrepVoteBreakdown = { yes: 0, no: 0, abstain: 0, total: 0 };
   for (const r of rows) {
-    const v = r.vote.toLowerCase();
-    if (v === 'yes') out.yes += r.n;
-    else if (v === 'no') out.no += r.n;
-    else out.abstain += r.n;
+    out[voteBucket(r.vote)] += r.n;
     out.total += r.n;
   }
   return out;
@@ -664,10 +671,7 @@ export async function getPoolVoteBreakdown(db: D1Database, poolId: string): Prom
   ).results ?? [];
   const out: DrepVoteBreakdown = { yes: 0, no: 0, abstain: 0, total: 0 };
   for (const r of rows) {
-    const v = r.vote.toLowerCase();
-    if (v === 'yes') out.yes += r.n;
-    else if (v === 'no') out.no += r.n;
-    else out.abstain += r.n;
+    out[voteBucket(r.vote)] += r.n;
     out.total += r.n;
   }
   return out;

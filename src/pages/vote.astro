@@ -21,7 +21,7 @@ import { getTopicsByIds, type Topic } from '@/lib/db/forum';
 import { getGovernanceActionsByTopicIds, type GovernanceAction } from '@/lib/db/governance';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation';
-import { epochDaysLeft, voteTone, TONE_COLORS, govTypeTone, shortGovActionId } from '@/lib/governance/view';
+import { epochDaysLeft, voteTone, voteBucket, TONE_COLORS, govTypeTone, shortGovActionId } from '@/lib/governance/view';
 import { resolveNetwork, epochStartUnix } from '@/lib/config/network';
 import { deriveVoteStats, isClosingSoon } from '@/lib/governance/voteDashboard';
 import { GOV_ACTION_TYPES } from '@/lib/governance/types';
@@ -57,7 +57,9 @@ const now = Date.now();
 const [votableRows, historyRows, drep] = drepId && db
   ? await Promise.all([
       getVotableActionsForViewer(db, drepId),
-      getDrepVotingHistory(db, drepId, { limit: 500 }),
+      // The record only needs to know a rationale exists (to link its page), not
+      // the HTML body; presence-only keeps the 500-row pull lean.
+      getDrepVotingHistory(db, drepId, { limit: 500, rationalePresenceOnly: true }),
       getDrepByIdOrSlug(db, drepId),
     ])
   : [[], [], null];
@@ -125,14 +127,17 @@ const stats = deriveVoteStats(actions.map((a) => ({ voted: !!a.row.viewerVote, d
 // Only offer type-filter options for types actually present in the list.
 const presentTypes = GOV_ACTION_TYPES.filter((t) => actions.some((a) => a.row.type === t.value));
 
-// Normalize a stored vote to the three filter buckets (anything not Yes/No is
-// Abstain, matching getDrepVoteBreakdown), for the record's chip data + counts.
-const voteKey = (v: string): 'yes' | 'no' | 'abstain' => {
-  const l = v.toLowerCase();
-  return l === 'yes' ? 'yes' : l === 'no' ? 'no' : 'abstain';
-};
+// Chip counts over the rendered (client-filterable) history, bucketed with the
+// shared voteBucket so the numbers match the vote badges and tally helpers.
 const recordCounts = { yes: 0, no: 0, abstain: 0 };
-for (const r of historyRows) recordCounts[voteKey(r.vote)]++;
+for (const r of historyRows) recordCounts[voteBucket(r.vote)]++;
+// Filter chips, data-driven so the label lives in one place (only buckets with
+// at least one vote are offered).
+const recordChips = [
+  { key: 'yes', label: 'Voted yes' },
+  { key: 'no', label: 'Voted no' },
+  { key: 'abstain', label: 'Abstained' },
+] as const;
 ---
 <Layout
   title="Vote - DRepTalk"
@@ -337,7 +342,7 @@ for (const r of historyRows) recordCounts[voteKey(r.vote)]++;
         <div class="record-head">
           <h2 style="margin:0;font-size:1.125rem;">Your voting record</h2>
           {historyRows.length > 0 && (
-            <a class="record-export" href="/vote/record.csv" download>
+            <a class="btn btn-secondary record-export" href="/vote/record.csv" download>
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
               </svg>
@@ -355,21 +360,11 @@ for (const r of historyRows) recordCounts[voteKey(r.vote)]++;
               <button type="button" class="record-chip is-active" data-record-filter="all" aria-pressed="true">
                 All <span class="record-chip__n">{historyRows.length}</span>
               </button>
-              {recordCounts.yes > 0 && (
-                <button type="button" class="record-chip" data-record-filter="yes" aria-pressed="false">
-                  Voted yes <span class="record-chip__n">{recordCounts.yes}</span>
+              {recordChips.map((chip) => recordCounts[chip.key] > 0 && (
+                <button type="button" class="record-chip" data-record-filter={chip.key} aria-pressed="false">
+                  {chip.label} <span class="record-chip__n">{recordCounts[chip.key]}</span>
                 </button>
-              )}
-              {recordCounts.no > 0 && (
-                <button type="button" class="record-chip" data-record-filter="no" aria-pressed="false">
-                  Voted no <span class="record-chip__n">{recordCounts.no}</span>
-                </button>
-              )}
-              {recordCounts.abstain > 0 && (
-                <button type="button" class="record-chip" data-record-filter="abstain" aria-pressed="false">
-                  Abstained <span class="record-chip__n">{recordCounts.abstain}</span>
-                </button>
-              )}
+              ))}
             </div>
 
             <div class="history-list" data-record-list>
@@ -384,7 +379,7 @@ for (const r of historyRows) recordCounts[voteKey(r.vote)]++;
                 // votes lack it, so those show the decided epoch alone.
                 const when = row.block_time != null ? formatRelativeTime(row.block_time * 1000, now) : null;
                 return (
-                  <div class="history-row" data-record-row data-vote={voteKey(row.vote)}>
+                  <div class="history-row" data-record-row data-vote={voteBucket(row.vote)}>
                     <div class="history-row__main">
                       <div class="history-row__tags">
                         <GovTypePill type={row.type} />
@@ -411,7 +406,7 @@ for (const r of historyRows) recordCounts[voteKey(r.vote)]++;
                       </p>
                       {(when || row.decided_epoch != null) && (
                         <p class="history-row__meta">
-                          {when && <>{when}</>}
+                          {when}
                           {when && row.decided_epoch != null && <span class="record-dot" aria-hidden="true">·</span>}
                           {row.decided_epoch != null && <>Epoch {row.decided_epoch}</>}
                         </p>
@@ -603,23 +598,12 @@ for (const r of historyRows) recordCounts[voteKey(r.vote)]++;
     gap: 1rem;
     margin: 0 0 1rem;
   }
+  /* Size-only modifier on the shared .btn: the export link is smaller than a
+     standard button, everything else (border, hover, disabled) comes from .btn. */
   .record-export {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
     flex-shrink: 0;
     font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--fg);
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
     padding: 0.375rem 0.75rem;
-    background: var(--surface);
-    text-decoration: none;
-  }
-  .record-export:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
 
   .record-chips {
