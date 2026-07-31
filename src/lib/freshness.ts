@@ -60,7 +60,7 @@ export const FRESHNESS: readonly FreshnessRow[] = [
 // These MUST match the `crons` array in workers/gov-sync/wrangler.toml: the worker
 // dispatches on event.cron against these constants, so a mismatch is caught in the
 // first scheduled log after a deploy (the run falls through to the default branch).
-export const CRON_GOVERNANCE = '*/15 * * * *'; // discovery + active-action tallies
+export const CRON_GOVERNANCE = '*/5 * * * *'; // discovery + notification dispatch every 5 min; heavy tallies gated to every 15 (minute % 15)
 export const CRON_VOTE_SYNC = '*/20 * * * *'; // per-post vote lists (every 20 min, active only)
 export const CRON_DREP_SYNC = '0 */6 * * *'; // DRep profile sync
 

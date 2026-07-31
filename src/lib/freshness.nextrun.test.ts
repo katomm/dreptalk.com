@@ -5,8 +5,8 @@ import { nextCronRunMs, CRON_GOVERNANCE, CRON_VOTE_SYNC, CRON_DREP_SYNC } from '
 const NOW = Date.UTC(2026, 5, 12, 10, 7, 30);
 
 describe('nextCronRunMs', () => {
-  it('finds the next quarter hour for the governance cron', () => {
-    expect(nextCronRunMs(CRON_GOVERNANCE, NOW)).toBe(Date.UTC(2026, 5, 12, 10, 15));
+  it('finds the next five-minute boundary for the governance cron', () => {
+    expect(nextCronRunMs(CRON_GOVERNANCE, NOW)).toBe(Date.UTC(2026, 5, 12, 10, 10));
   });
 
   it('finds the next 20-minute boundary for the vote cron', () => {

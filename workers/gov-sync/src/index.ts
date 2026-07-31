@@ -2,7 +2,9 @@
 // Standalone cron worker: three triggers share this handler, dispatched on
 // event.cron against the constants in src/lib/freshness.js (kept in sync with
 // wrangler.toml's `crons`).
-//   */15 * * * *  discover governance actions + refresh active-action tallies.
+//   */5 * * * *   discover governance actions + dispatch pending notifications;
+//                 the heavy active-action tallies + backfills only run on the
+//                 quarter-hours (scheduled minute % 15 === 0).
 //   */20 * * * *  refresh the larger per-post vote lists (active actions only).
 //   0 */6 * * *   enumerate every registered DRep and persist profile data.
 // Shares the app's D1 database.
@@ -51,6 +53,11 @@
 //   2026-07-30: pick up the whitespace-tolerant anchor verification so vote
 //               rationales whose on-chain hash was taken over a reformatted
 //               (pretty vs minified) copy of the same document verify and render.
+//   2026-07-31: date governance notification eligibility at detection time
+//               (activity.notified_at, migration 0067) so back-dated new actions
+//               actually push; move discovery + fan-out + push/telegram to a
+//               5-minute cadence (heavy tallies gated to minute % 15); include
+//               per-item detail + deep links in single-event pushes.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
@@ -148,7 +155,12 @@ const VOTE_PACE_MS = 200;
 const DREP_ANCHOR_LIMIT = 400;
 
 // Discover new actions, then refresh tallies + lifecycle for active actions.
-async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
+// This trigger fires every 5 minutes. The cheap, latency-sensitive phases
+// (discovery + fan-out + push/telegram dispatch) run every time; the heavy
+// tally/backfill/params phases only run when `heavy` is set (the scheduled
+// minute is a multiple of 15), so those keep their old 15-minute cost while
+// new actions and pending notifications go out within 5 minutes.
+async function runGovernanceSync(env: Env, phase: PhaseFn, opts: { heavy: boolean }): Promise<void> {
   const { koios, network } = buildKoios(env);
   const now = Date.now();
 
@@ -158,6 +170,7 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     return { items: disc.total, failed: disc.failed };
   }, { primary: true });
 
+  if (opts.heavy) {
   // The tip lookup lives inside the tally phase: tallies are its only consumer,
   // so a tip failure surfaces as a failed tallies phase, not a failed discovery.
   await phase('tallies', async () => {
@@ -307,6 +320,7 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
     console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold} ccSize=${next.committeeSize} treasuryLovelace=${next.treasuryLovelace}`);
     return { items: written };
   });
+  } // end heavy-only phases
 
   // Drain the delegator-notification outbox into per-recipient notification rows.
   // Runs right before the webpush/telegram dispatch phases so a fan-out job
@@ -344,13 +358,16 @@ async function runGovernanceSync(env: Env, phase: PhaseFn): Promise<void> {
   // (or never attempted). gov-sync works in unix milliseconds throughout this
   // file; delegator_follows timestamps are unix seconds (like users.last_verified_at),
   // so convert once here. The due window inside refreshBulk caps this to at most
-  // one Koios attempt per address per day even though this cron runs every 15 min.
-  await phase('delegation-refresh', async () => {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const res = await refreshBulk(env.DB, koios, nowSec);
-    console.log(`[delegation-refresh] attempted=${res.attempted} resolved=${res.resolved} changed=${res.changed} failed=${res.failed}`);
-    return { items: res.resolved, failed: res.failed };
-  });
+  // one Koios attempt per address per day. Heavy-only (every 15 min): a day-capped
+  // refresh gains nothing from the 5-minute cadence and it is a Koios call.
+  if (opts.heavy) {
+    await phase('delegation-refresh', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const res = await refreshBulk(env.DB, koios, nowSec);
+      console.log(`[delegation-refresh] attempted=${res.attempted} resolved=${res.resolved} changed=${res.changed} failed=${res.failed}`);
+      return { items: res.resolved, failed: res.failed };
+    });
+  }
 }
 
 // Refresh the per-post vote lists (active actions only). Every 20 min: vote lists
@@ -583,12 +600,16 @@ export default {
     // keeps the invocation alive until it finishes (and `wrangler dev
     // --test-scheduled` only returns once it resolves).
     try {
+      // The governance trigger fires every 5 min; run its heavy tally/backfill
+      // phases only on the quarter-hours (minute % 15 === 0), so those keep the
+      // old 15-min cost while discovery + notification dispatch run every 5 min.
+      const heavy = new Date(event.scheduledTime).getUTCMinutes() % 15 === 0;
       const [kind, run] =
         event.cron === CRON_DREP_SYNC
-          ? (['dreps', runDrepSync] as const)
+          ? (['dreps', (env: Env, phase: PhaseFn) => runDrepSync(env, phase)] as const)
           : event.cron === CRON_VOTE_SYNC
-            ? (['votes', runVoteSync] as const)
-            : (['governance', runGovernanceSync] as const);
+            ? (['votes', (env: Env, phase: PhaseFn) => runVoteSync(env, phase)] as const)
+            : (['governance', (env: Env, phase: PhaseFn) => runGovernanceSync(env, phase, { heavy })] as const);
       const summary = await recordSyncRun(env.DB, kind, (phase) => run(env, phase));
       console.log(
         `[sync-run] kind=${kind} status=${summary.status} items=${summary.items} failed=${summary.failed}` +

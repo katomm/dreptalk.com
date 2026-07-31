@@ -24,7 +24,7 @@ import {
 import { CRON_GOVERNANCE, CRON_VOTE_SYNC, CRON_DREP_SYNC, nextCronRunMs } from '@/lib/freshness.js';
 
 const KINDS = [
-  { kind: 'governance', label: 'Governance discovery + tallies', cron: CRON_GOVERNANCE },
+  { kind: 'governance', label: 'Governance discovery + notifications', cron: CRON_GOVERNANCE },
   { kind: 'votes', label: 'Per-post vote lists + badges', cron: CRON_VOTE_SYNC },
   { kind: 'dreps', label: 'DRep profiles', cron: CRON_DREP_SYNC },
 ] as const;

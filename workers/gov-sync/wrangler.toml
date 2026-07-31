@@ -31,11 +31,14 @@ binding = "IMAGES"
 
 # Three cron triggers (the expressions are mirrored as constants in
 # src/lib/freshness.ts, which the worker dispatches on; keep them in sync):
-#   */15 * * * *  governance discovery + active-action tallies (fast)
+#   */5 * * * *   governance discovery + notification dispatch every 5 min; the
+#                 heavy active-action tallies + backfills only run when the
+#                 scheduled minute is a multiple of 15 (see runGovernanceSync),
+#                 so tally cost stays at the old 15-min cadence.
 #   */20 * * * *  per-post vote lists (every 20 min, active actions only)
 #   0 */6 * * *   DRep sync (heavy: enumerates all DReps, runs every 6 h)
 [triggers]
-crons = ["*/15 * * * *", "*/20 * * * *", "0 */6 * * *"]
+crons = ["*/5 * * * *", "*/20 * * * *", "0 */6 * * *"]
 
 # CARDANO_NETWORK is intentionally NOT set here: unset defaults to mainnet in
 # production. For local preprod runs, set it in workers/gov-sync/.dev.vars
@@ -78,4 +81,4 @@ bucket_name = "dreptalk-avatars-preprod"
 binding = "IMAGES"
 
 [env.preprod.triggers]
-crons = ["*/15 * * * *", "*/20 * * * *", "0 */6 * * *"]
+crons = ["*/5 * * * *", "*/20 * * * *", "0 */6 * * *"]
