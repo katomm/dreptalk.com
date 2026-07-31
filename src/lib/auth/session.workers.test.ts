@@ -7,6 +7,7 @@ import {
   getSession,
   revokeSession,
   revokeAllForUser,
+  revokeAllForGrant,
   buildSessionCookie,
   clearSessionCookie,
   parseSessionToken,
@@ -156,6 +157,120 @@ describe('revokeAllForUser', () => {
 
   it('does not throw for a user with no sessions', async () => {
     await expect(revokeAllForUser(kv(), 'non-existent-user')).resolves.toBeUndefined();
+  });
+});
+
+describe('grant-scoped sessions (gsess index)', () => {
+  it('createSession with grantId indexes the hash under gsess:<grantId>', async () => {
+    const grantId = 'grant-1';
+    const token = await createSession(kv(), {
+      id: 'user-grant-1',
+      roles: ['proposer'],
+      grantId,
+      actsFor: { userId: 'principal-1', stakeAddr: 'stake1principal' },
+    });
+    const record = await getSession(kv(), token);
+    expect(record!.grantId).toBe(grantId);
+    expect(record!.actsFor).toEqual({ userId: 'principal-1', stakeAddr: 'stake1principal' });
+
+    const indexRaw = await kv().get(`gsess:${grantId}`);
+    expect(indexRaw).not.toBeNull();
+    const index = JSON.parse(indexRaw!) as string[];
+    expect(index.length).toBe(1);
+  });
+
+  it('sessions without grantId never touch a gsess key', async () => {
+    const before = await kv().get('gsess:no-grant-here');
+    expect(before).toBeNull();
+    await createSession(kv(), { id: 'user-no-grant', roles: ['voter'] });
+    const after = await kv().get('gsess:no-grant-here');
+    expect(after).toBeNull();
+  });
+
+  it('revokeAllForGrant deletes grant sessions and prunes them from the user usess index', async () => {
+    const grantId = 'grant-revoke-1';
+    const userId = 'user-grant-revoke-1';
+    const token = await createSession(kv(), { id: userId, roles: ['proposer'], grantId });
+
+    expect(await getSession(kv(), token)).not.toBeNull();
+
+    await revokeAllForGrant(kv(), grantId);
+
+    expect(await getSession(kv(), token)).toBeNull();
+    const indexRaw = await kv().get(`usess:${userId}`);
+    if (indexRaw !== null) {
+      const index = JSON.parse(indexRaw) as string[];
+      expect(index.length).toBe(0);
+    }
+    expect(await kv().get(`gsess:${grantId}`)).toBeNull();
+  });
+
+  it("revokeAllForGrant leaves the same user's non-grant sessions valid", async () => {
+    const grantId = 'grant-revoke-2';
+    const userId = 'user-grant-revoke-2';
+    const grantToken = await createSession(kv(), { id: userId, roles: ['proposer'], grantId });
+    const plainToken = await createSession(kv(), { id: userId, roles: ['voter'] });
+
+    await revokeAllForGrant(kv(), grantId);
+
+    expect(await getSession(kv(), grantToken)).toBeNull();
+    expect(await getSession(kv(), plainToken)).not.toBeNull();
+  });
+
+  it('revokeAllForGrant does not throw for an unknown grant', async () => {
+    await expect(revokeAllForGrant(kv(), 'non-existent-grant')).resolves.toBeUndefined();
+  });
+
+  it('revokeSession prunes the hash from gsess too', async () => {
+    const grantId = 'grant-revoke-session';
+    const userId = 'user-grant-revoke-session';
+    const token = await createSession(kv(), { id: userId, roles: ['proposer'], grantId });
+
+    await revokeSession(kv(), token);
+
+    expect(await getSession(kv(), token)).toBeNull();
+    const indexRaw = await kv().get(`gsess:${grantId}`);
+    if (indexRaw !== null) {
+      const index = JSON.parse(indexRaw) as string[];
+      expect(index.length).toBe(0);
+    }
+  });
+
+  it("revokeAllForUser cleans gsess entries of that user's grant sessions (best-effort read-before-delete)", async () => {
+    const grantId = 'grant-revoke-all-for-user';
+    const userId = 'user-grant-revoke-all';
+    const grantToken = await createSession(kv(), { id: userId, roles: ['proposer'], grantId });
+    const plainToken = await createSession(kv(), { id: userId, roles: ['voter'] });
+
+    await revokeAllForUser(kv(), userId);
+
+    expect(await getSession(kv(), grantToken)).toBeNull();
+    expect(await getSession(kv(), plainToken)).toBeNull();
+
+    const gsessRaw = await kv().get(`gsess:${grantId}`);
+    if (gsessRaw !== null) {
+      const index = JSON.parse(gsessRaw) as string[];
+      expect(index.length).toBe(0);
+    }
+  });
+
+  it('sliding renewal in getSession refreshes the gsess index TTL alongside usess', async () => {
+    const grantId = 'grant-sliding-renewal';
+    const userId = 'user-grant-sliding-renewal';
+    const createdAt = 1_700_000_000;
+    const token = await createSession(
+      kv(),
+      { id: userId, roles: ['proposer'], grantId },
+      { now: createdAt },
+    );
+
+    const laterNow = createdAt + 21_601;
+    await getSession(kv(), token, { now: laterNow });
+
+    const indexRaw = await kv().get(`gsess:${grantId}`);
+    expect(indexRaw).not.toBeNull();
+    const index = JSON.parse(indexRaw!) as string[];
+    expect(index.length).toBeGreaterThan(0);
   });
 });
 

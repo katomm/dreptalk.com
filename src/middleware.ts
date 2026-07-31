@@ -30,7 +30,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
     if (token) {
       const record = await getSession(sessionKv, token);
       if (record) {
-        context.locals.user = { id: record.userId, roles: record.roles, drepId: record.drepId };
+        context.locals.user = {
+          id: record.userId,
+          roles: record.roles,
+          drepId: record.drepId,
+          grantId: record.grantId ?? null,
+          actsFor: record.actsFor ?? null,
+        };
       }
     }
   }

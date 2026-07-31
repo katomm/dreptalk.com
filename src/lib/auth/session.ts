@@ -1,6 +1,12 @@
 /// <reference types="@cloudflare/workers-types" />
 // Opaque KV session storage with sliding TTL and per-user revocation.
 // Tokens are stored hashed so a KV dump never yields usable bearer tokens.
+//
+// The gsess:<grantId> index accelerates finding and killing every session
+// backed by a given co-proposer grant when that grant is revoked. It is NOT
+// a security boundary: KV indexes are read-modify-write and can lose entries
+// under concurrency. The hard authorization boundary for grants is the D1
+// check on write paths.
 
 import { toBase64Url } from '../crypto/base64url.js';
 import { bytesToHex } from '../crypto/hex.js';
@@ -24,6 +30,16 @@ export interface SessionRecord {
    * field existed (callers fall back to a DB read for those).
    */
   drepId?: string | null;
+  /**
+   * The co-proposer grant this session was minted under, or null for an
+   * ordinary session. Set once at mint time; never changes afterward.
+   */
+  grantId?: string | null;
+  /**
+   * When grantId is set, the identity of the grant's principal (the user who
+   * created the grant) that the co-proposer is acting on behalf of.
+   */
+  actsFor?: { userId: string; stakeAddr: string } | null;
   createdAt: number;
   lastSeen: number;
 }
@@ -49,17 +65,44 @@ function usessKey(userId: string): string {
   return `usess:${userId}`;
 }
 
+/** KV key for the per-grant session index. */
+function gsessKey(grantId: string): string {
+  return `gsess:${grantId}`;
+}
+
 /**
- * Reads the per-user session hash index from KV.
+ * Reads a session hash index (usess or gsess) from KV by its full key.
  * Returns an empty array if the key is absent or the stored value is corrupt JSON.
  */
-async function readHashIndex(kv: KVNamespace, userId: string): Promise<string[]> {
-  const raw = await kv.get(usessKey(userId));
+async function readHashIndexByKey(kv: KVNamespace, key: string): Promise<string[]> {
+  const raw = await kv.get(key);
   if (raw === null) return [];
   try {
     return JSON.parse(raw) as string[];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Reads the per-user session hash index from KV.
+ * Returns an empty array if the key is absent or the stored value is corrupt JSON.
+ */
+async function readHashIndex(kv: KVNamespace, userId: string): Promise<string[]> {
+  return readHashIndexByKey(kv, usessKey(userId));
+}
+
+/**
+ * Removes a single hash from an index (usess or gsess) identified by its full
+ * KV key: writes back the pruned list, or deletes the key if it is now empty.
+ */
+async function pruneHashFromIndex(kv: KVNamespace, key: string, hash: string): Promise<void> {
+  const hashes = await readHashIndexByKey(kv, key);
+  const pruned = hashes.filter(h => h !== hash);
+  if (pruned.length > 0) {
+    await kv.put(key, JSON.stringify(pruned), { expirationTtl: SESSION_TTL_SEC });
+  } else {
+    await kv.delete(key);
   }
 }
 
@@ -77,7 +120,13 @@ async function readHashIndex(kv: KVNamespace, userId: string): Promise<string[]>
  */
 export async function createSession(
   kv: KVNamespace,
-  user: { id: string; roles: string[]; drepId?: string | null },
+  user: {
+    id: string;
+    roles: string[];
+    drepId?: string | null;
+    grantId?: string | null;
+    actsFor?: { userId: string; stakeAddr: string } | null;
+  },
   opts?: { now?: number },
 ): Promise<string> {
   const now = Math.floor(opts?.now ?? Date.now() / 1000);
@@ -92,6 +141,9 @@ export async function createSession(
     // Store the field explicitly (null when absent) so getSelfDrepId can tell a
     // known "no drep_id" from a legacy session that predates this field.
     drepId: user.drepId ?? null,
+    // Store explicitly (null when absent) for the same reason as drepId above.
+    grantId: user.grantId ?? null,
+    actsFor: user.actsFor ?? null,
     createdAt: now,
     lastSeen: now,
   };
@@ -105,6 +157,18 @@ export async function createSession(
   // Append new hash and write updated index.
   hashes.push(keyHash);
   await kv.put(usessKey(user.id), JSON.stringify(hashes), { expirationTtl: SESSION_TTL_SEC });
+
+  // When the session is grant-backed, also index it under gsess:<grantId> so
+  // revokeAllForGrant can find and kill it. Awaited (not fire-and-forget): if
+  // this put throws, createSession fails rather than returning a token for a
+  // session the grant-revocation index does not know about.
+  if (record.grantId) {
+    const gsessHashes = await readHashIndexByKey(kv, gsessKey(record.grantId));
+    gsessHashes.push(keyHash);
+    await kv.put(gsessKey(record.grantId), JSON.stringify(gsessHashes), {
+      expirationTtl: SESSION_TTL_SEC,
+    });
+  }
 
   return token;
 }
@@ -133,14 +197,21 @@ export async function getSession(
     // Lazy sliding renewal: refresh at most once per 6-hour window.
     if (now - record.lastSeen > SLIDING_WINDOW_SEC) {
       record.lastSeen = now;
-      // Session re-put and index read are independent (different keys): run concurrently.
-      const [, indexRaw] = await Promise.all([
+      // Session re-put and index reads are independent (different keys): run concurrently.
+      const [, indexRaw, gsessRaw] = await Promise.all([
         kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC }),
         kv.get(usessKey(record.userId)),
+        record.grantId ? kv.get(gsessKey(record.grantId)) : Promise.resolve(null),
       ]);
       // Also refresh the per-user index TTL so it never expires before live sessions.
       if (indexRaw !== null) {
         await kv.put(usessKey(record.userId), indexRaw, { expirationTtl: SESSION_TTL_SEC });
+      }
+      // For grant-backed sessions, refresh the gsess index TTL too, else it
+      // would expire 30 days after mint while the sliding session lives on,
+      // and revokeAllForGrant would no longer find it.
+      if (record.grantId && gsessRaw !== null) {
+        await kv.put(gsessKey(record.grantId), gsessRaw, { expirationTtl: SESSION_TTL_SEC });
       }
     }
 
@@ -152,27 +223,23 @@ export async function getSession(
 
 /**
  * Revokes a single session by deleting its KV record and removing the hash
- * from the per-user index to prevent unbounded index growth.
+ * from the per-user index (and, for grant-backed sessions, the per-grant
+ * index) to prevent unbounded index growth.
  *
  * @param kv - The SESSIONS KV namespace.
  * @param token - The opaque bearer token to revoke.
  */
 export async function revokeSession(kv: KVNamespace, token: string): Promise<void> {
   const keyHash = await sha256hex(token);
-  // Read the record first so we know which user's index to prune.
+  // Read the record first so we know which user's (and grant's) index to prune.
   const raw = await kv.get(sessKey(keyHash));
   await kv.delete(sessKey(keyHash));
   if (raw !== null) {
     try {
       const record = JSON.parse(raw) as SessionRecord;
-      const hashes = await readHashIndex(kv, record.userId);
-      const pruned = hashes.filter(h => h !== keyHash);
-      if (pruned.length > 0) {
-        await kv.put(usessKey(record.userId), JSON.stringify(pruned), {
-          expirationTtl: SESSION_TTL_SEC,
-        });
-      } else {
-        await kv.delete(usessKey(record.userId));
+      await pruneHashFromIndex(kv, usessKey(record.userId), keyHash);
+      if (record.grantId) {
+        await pruneHashFromIndex(kv, gsessKey(record.grantId), keyHash);
       }
     } catch {
       // If we cannot parse the record the session key is already deleted; nothing more to do.
@@ -183,6 +250,11 @@ export async function revokeSession(kv: KVNamespace, token: string): Promise<voi
 /**
  * Revokes all sessions for a user by reading their index and deleting every
  * session record, then removing the index itself.
+ *
+ * Each record is read before it is deleted (rather than deleting blind) so
+ * that grant-backed sessions among them can also be pruned from their gsess
+ * index. This cleanup is best-effort: a corrupt or already-missing record is
+ * skipped silently, since the session key deletion is what actually matters.
  *
  * Note: the read-modify-write on the per-user index is not atomic. A concurrent
  * createSession during revokeAllForUser may result in the new session surviving
@@ -203,8 +275,61 @@ export async function revokeAllForUser(kv: KVNamespace, userId: string): Promise
     await kv.delete(usessKey(userId));
     return;
   }
-  await Promise.all(hashes.map(h => kv.delete(sessKey(h))));
+  // Sequential (not Promise.all): two sessions under the same grant would
+  // otherwise race a concurrent read-modify-write on the same gsess key and
+  // lose an update.
+  for (const h of hashes) {
+    const rec = await kv.get(sessKey(h));
+    await kv.delete(sessKey(h));
+    if (rec) {
+      try {
+        const record = JSON.parse(rec) as SessionRecord;
+        if (record.grantId) {
+          await pruneHashFromIndex(kv, gsessKey(record.grantId), h);
+        }
+      } catch {
+        // Corrupt record: session key is already deleted, nothing more to prune.
+      }
+    }
+  }
   await kv.delete(usessKey(userId));
+}
+
+/**
+ * Revokes every session backed by a co-proposer grant: deletes each session
+ * record, prunes it from the affected users' usess indexes, then clears the
+ * gsess index itself.
+ *
+ * @param kv - The SESSIONS KV namespace.
+ * @param grantId - The grant whose sessions should all be revoked.
+ */
+export async function revokeAllForGrant(kv: KVNamespace, grantId: string): Promise<void> {
+  const raw = await kv.get(gsessKey(grantId));
+  if (!raw) return;
+  let hashes: string[];
+  try {
+    hashes = JSON.parse(raw) as string[];
+  } catch {
+    await kv.delete(gsessKey(grantId));
+    return;
+  }
+  // Read each record first so the per-user index can be pruned, then delete.
+  // Sequential (not Promise.all): two sessions for the same user would
+  // otherwise race a concurrent read-modify-write on the same usess key and
+  // lose an update.
+  for (const h of hashes) {
+    const rec = await kv.get(sessKey(h));
+    await kv.delete(sessKey(h));
+    if (rec) {
+      try {
+        const record = JSON.parse(rec) as SessionRecord;
+        await pruneHashFromIndex(kv, usessKey(record.userId), h);
+      } catch {
+        // Corrupt record: session key is already deleted, nothing more to prune.
+      }
+    }
+  }
+  await kv.delete(gsessKey(grantId));
 }
 
 // ---------------------------------------------------------------------------
