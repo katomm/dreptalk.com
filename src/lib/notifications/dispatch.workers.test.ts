@@ -222,6 +222,51 @@ describe('dispatchWebPush', () => {
     expect(body).toBe('2 DRep vote updates, 1 DRep status change, 1 delegation change');
   });
 
+  it('spells out a single governance action with its title and a deep link', async () => {
+    await seedTopic('g1');
+    await addWebpushChannel('alice', 100);
+    await activityInsert(db(), {
+      type: 'gov_created',
+      topicId: 'g1',
+      actorId: null,
+      payload: { type: 'ParameterChange', title: 'Reduce committee size to 75' },
+      createdAt: 200,
+    }).run();
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    const result = await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    expect(result).toEqual({ sent: 1, pruned: 0, skipped: 0 });
+    expect(JSON.parse(calls[0].payload)).toEqual({
+      title: 'DRepTalk',
+      body: 'New governance action: Reduce committee size to 75',
+      url: '/t/g1-slug/',
+    });
+  });
+
+  it('leads with the newest item and "(+N more)" for a small mixed bundle', async () => {
+    await seedTopic('g1');
+    await addWebpushChannel('alice', 100);
+    // An older reply (counts, but not the lead) and a newer governance action.
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+    ]);
+    await activityInsert(db(), {
+      type: 'gov_created',
+      topicId: 'g1',
+      actorId: null,
+      payload: { type: 'InfoAction', title: 'Ratify the budget' },
+      createdAt: 300,
+    }).run();
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    const payload = JSON.parse(calls[0].payload);
+    expect(payload.body).toBe('New governance action: Ratify the budget (+1 more)');
+    expect(payload.url).toBe('/notifications/');
+  });
+
   it('returns all-zero without calling send when vapid is null (unset secret)', async () => {
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
