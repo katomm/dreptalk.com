@@ -8,7 +8,8 @@ import {
   listChannels,
   listChannelsByKind,
   deleteChannelById,
-  advanceCursor,
+  setChannelCursor,
+  claimChannelCursor,
   getPrefs,
   setPref,
   getPendingCounts,
@@ -120,11 +121,24 @@ describe('addChannel + listChannels + removeChannel', () => {
   });
 });
 
-describe('advanceCursor', () => {
+describe('setChannelCursor', () => {
   it('moves the delivered_until cursor forward', async () => {
     const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 100 });
 
-    await advanceCursor(db(), id, 500);
+    await setChannelCursor(db(), id, 500);
+
+    const [row] = await listChannels(db(), 'alice');
+    expect(row.delivered_until).toBe(500);
+  });
+});
+
+describe('claimChannelCursor', () => {
+  it('lets only the first of two claims on the same cursor value win', async () => {
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 100 });
+
+    // Both overlapping runs read delivered_until = 100 before either wrote.
+    expect(await claimChannelCursor(db(), id, 100, 500)).toBe(true);
+    expect(await claimChannelCursor(db(), id, 100, 600)).toBe(false);
 
     const [row] = await listChannels(db(), 'alice');
     expect(row.delivered_until).toBe(500);

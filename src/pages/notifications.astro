@@ -203,7 +203,13 @@ if (db) {
     return {
       kind: e.kind as 'gov_created' | 'gov_status',
       createdAt: e.createdAt,
-      unread: e.createdAt > seenAt,
+      // Unread is decided by detection time, the same value the header badge
+      // counts on (govThreadsSinceSql). createdAt is the on-chain epoch boundary
+      // and can predate the seen cursor by days for an action discovered just
+      // now, which would leave the badge counting a row nothing here marks
+      // unread, so "Mark all as read" stayed disabled and the badge stuck.
+      // The row still renders (and sorts) at its true submission date.
+      unread: (e.notifiedAt ?? e.createdAt) > seenAt,
       actorName: null,
       actorHref: null,
       verb: null,

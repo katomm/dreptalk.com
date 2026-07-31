@@ -11,7 +11,16 @@ self.addEventListener('push', (event) => {
     body: data.body,
     icon: '/favicon.png',
     data: { url: data.url },
-    tag: 'dreptalk', // successive summaries replace the previous one instead of piling up
+    // Tagged per destination, not with one shared tag: repeated inbox summaries
+    // still collapse into a single entry (they are cumulative, so the newest
+    // supersedes), while messages about different items keep their own entry.
+    // A shared tag would drop an unread item-level message, and its deep link
+    // with it, as soon as an unrelated one arrived; the dispatcher advances its
+    // cursor on send, so that message is never repeated.
+    tag: `dreptalk:${data.url}`,
+    // A replacement is otherwise silent, so a superseded summary would never
+    // re-alert about what it added.
+    renotify: true,
   }));
 });
 self.addEventListener('notificationclick', (event) => {

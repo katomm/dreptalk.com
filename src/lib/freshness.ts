@@ -27,7 +27,7 @@ export const FRESHNESS: readonly FreshnessRow[] = [
   {
     key: 'ga-discovery',
     label: 'Governance actions (new threads)',
-    refresh: 'About every 15 minutes',
+    refresh: 'About every 5 minutes',
     notes: 'A discovery cron opens one thread per new on-chain action.',
   },
   {
@@ -57,6 +57,9 @@ export const FRESHNESS: readonly FreshnessRow[] = [
 ] as const;
 
 // Cron expressions for the gov-sync worker, documented alongside the cadences.
+// Changing one of these means changing the matching FRESHNESS row above AND its
+// copy in the markdown table: the drift guard only compares those two against
+// each other, so a stale cadence claim here passes CI unnoticed.
 // These MUST match the `crons` array in workers/gov-sync/wrangler.toml: the worker
 // dispatches on event.cron against these constants, so a mismatch is caught in the
 // first scheduled log after a deploy (the run falls through to the default branch).

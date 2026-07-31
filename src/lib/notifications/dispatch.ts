@@ -5,13 +5,14 @@
 // message, then advances or prunes the channel's delivery cursor based on the
 // send result. Two adapters share the loop: web push (encrypted push payload)
 // and telegram (plain bot message). Called from the gov-sync worker's
-// 15-minute governance trigger, after the rest of that run's sync work.
+// 5-minute governance trigger, after the rest of that run's sync work.
 
 import {
   listChannelsByKind,
   getPrefs,
   getPendingCounts,
-  advanceCursor,
+  claimChannelCursor,
+  setChannelCursor,
   deleteChannelById,
   type NotificationChannelKind,
   type NotificationChannelRow,
@@ -51,11 +52,11 @@ type DeliveryOutcome = 'sent' | 'dead' | 'failed';
 
 /**
  * The shared per-kind loop: list channels, cache prefs per user, skip muted
- * and empty channels, hand each pending bundle to the adapter, then advance
- * the cursor (sent) or prune the row (dead). A failure on one channel is
- * caught and logged so it never aborts the rest of the scan; other failure
- * outcomes leave the cursor untouched, so the next run retries the same (or
- * larger) bundle.
+ * and empty channels, claim each pending bundle by advancing the cursor, hand
+ * it to the adapter, then keep the claim (sent) or prune the row (dead). A
+ * failure on one channel is caught and logged so it never aborts the rest of
+ * the scan; other failure outcomes give the cursor back, so the next run
+ * retries the same (or larger) bundle.
  */
 async function dispatchChannels(
   db: D1Database,
@@ -72,6 +73,10 @@ async function dispatchChannels(
   const prefsByUser = new Map<string, Awaited<ReturnType<typeof getPrefs>>>();
 
   for (const row of rows) {
+    // Set once the cursor is claimed, cleared once the outcome is final. Anything
+    // still true in the finally hands the claim back, covering both a failed send
+    // and a throw, so the bundle is retried instead of silently swallowed.
+    let claimed = false;
     try {
       let prefs = prefsByUser.get(row.user_id);
       if (!prefs) {
@@ -91,16 +96,29 @@ async function dispatchChannels(
       // single-line message; larger bundles use the count summary and never look
       // at the lead, so the lookup is skipped entirely.
       const lead = counts.total <= DETAIL_MAX ? await resolvePendingLead(db, row, prefs) : null;
+
+      // Claim the bundle before sending, never after: two overlapping runs of
+      // this loop otherwise both read the same cursor and deliver the same
+      // message. Losing the claim means another run already has this bundle.
+      claimed = await claimChannelCursor(db, row.id, row.delivered_until, now);
+      if (!claimed) {
+        skipped++;
+        continue;
+      }
+
       const outcome = await deliver(row, counts, lead);
       if (outcome === 'sent') {
-        await advanceCursor(db, row.id, now);
+        claimed = false;
         sent++;
       } else if (outcome === 'dead') {
+        claimed = false;
         await deleteChannelById(db, row.id);
         pruned++;
       }
     } catch (err) {
       console.error(`[${kind}-dispatch] channel ${row.id} failed`, err);
+    } finally {
+      if (claimed) await setChannelCursor(db, row.id, row.delivered_until);
     }
   }
 

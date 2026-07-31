@@ -101,14 +101,20 @@ export async function getNotificationsPage(
  * on-chain epoch boundary): a governance action is dated at submission for the
  * feed, but for notifications it is "new" when we discovered it. Using
  * created_at here silently dropped every back-dated action that landed before
- * the cursor (migration 0067). COALESCE guards rows predating the column.
+ * the cursor (migration 0067).
+ *
+ * The comparison is on the bare column, never COALESCE(notified_at, created_at):
+ * an expression over the column is not sargable, so the wrapped form cannot use
+ * idx_activity_notified and makes this scan all of activity on a per-render path
+ * (the header badge). No fallback is needed, since migration 0067 backfilled
+ * every existing row and both insert paths always bind a value.
  */
 export function govThreadsSinceSql(cursorExpr: string): string {
   return `(SELECT COUNT(DISTINCT a.topic_id) FROM activity a
             JOIN topics t ON t.id = a.topic_id
             WHERE a.type IN ('gov_created', 'gov_status')
               AND t.deleted = 0
-              AND COALESCE(a.notified_at, a.created_at) > ${cursorExpr})`;
+              AND a.notified_at > ${cursorExpr})`;
 }
 
 /**
