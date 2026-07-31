@@ -112,6 +112,23 @@ describe('handleCreateInvite: guard enforcement', () => {
     expect(third.status).toBe(409);
     expect((third.json as { error: string }).error).toBe('limit reached');
   });
+
+  it('500s when proposer row lacks a stake address', async () => {
+    const proposer = await makeProposer();
+    // Clear the stake_addr to simulate a malformed row that lacks the proposer identity.
+    await db().prepare('UPDATE users SET stake_addr = NULL WHERE id = ?1').bind(proposer.userId).run();
+    const result = await handleCreateInvite({
+      db: db(),
+      user: sessionUser(proposer.userId, ['proposer'], null),
+      now: NOW,
+    });
+    expect(result.status).toBe(500);
+    expect((result.json as { error: string }).error).toBe('internal error');
+
+    // Verify no grant row was created.
+    const grants = await getGrantsForProposer(db(), proposer.userId, { now: NOW });
+    expect(grants).toHaveLength(0);
+  });
 });
 
 describe('handleRevokeGrant', () => {

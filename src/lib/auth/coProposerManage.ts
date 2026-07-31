@@ -77,9 +77,15 @@ export async function handleCreateInvite(input: CreateInviteInput): Promise<Hand
     const guard = await requireGrantManager(db, user);
     if (isHandlerResult(guard)) return guard;
 
+    // Proposer stake address is required to guard against self-invites in
+    // redeemGrant's WHERE clause. Fail closed if missing.
+    if (!guard.row.stake_addr) {
+      return { status: 500, json: { error: 'internal error' } };
+    }
+
     const invite = await createGrantInvite(db, {
       proposerUserId: user.id,
-      proposerStakeAddr: guard.row.stake_addr ?? user.id,
+      proposerStakeAddr: guard.row.stake_addr,
       now,
     });
     if (!invite) {
