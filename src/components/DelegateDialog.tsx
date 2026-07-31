@@ -6,7 +6,7 @@
 // bundle on first load.
 import { useRef, useState } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
-import { useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
+import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { useDialogA11y } from '@/components/useDialogA11y.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -79,6 +79,9 @@ export default function DelegateDialog({
       return;
     }
     apiRef.current = api;
+    // Remember the wallet as soon as it is enabled, like every other signing
+    // flow, so the next one starts on the wallet the user actually delegates with.
+    rememberWallet(selected);
 
     // Catch a network mismatch (e.g. wallet on Mainnet, app on Preprod) here, so
     // the user gets a clear "switch your wallet" message rather than the cryptic

@@ -94,23 +94,42 @@ describe('listCardanoWallets', () => {
 describe('chooseSelectedWallet', () => {
   const found = (...keys: string[]) => keys.map((key) => ({ key }) as { key: string });
 
-  it('keeps the current pick when it is still available', () => {
-    expect(chooseSelectedWallet('eternl', 'lace', found('lace', 'eternl'))).toBe('eternl');
+  it('keeps a pick the user made when it is still available', () => {
+    expect(chooseSelectedWallet('eternl', 'lace', found('lace', 'eternl'), true)).toBe('eternl');
   });
 
   it('prefers the remembered wallet over the first one when nothing is picked', () => {
-    expect(chooseSelectedWallet('', 'eternl', found('lace', 'eternl'))).toBe('eternl');
+    expect(chooseSelectedWallet('', 'eternl', found('lace', 'eternl'), false)).toBe('eternl');
   });
 
   it('falls back to the first wallet when the remembered one is gone', () => {
-    expect(chooseSelectedWallet('', 'typhon', found('lace', 'eternl'))).toBe('lace');
+    expect(chooseSelectedWallet('', 'typhon', found('lace', 'eternl'), false)).toBe('lace');
   });
 
   it('falls back to the first wallet when nothing is remembered', () => {
-    expect(chooseSelectedWallet('', null, found('lace', 'eternl'))).toBe('lace');
+    expect(chooseSelectedWallet('', null, found('lace', 'eternl'), false)).toBe('lace');
   });
 
   it('returns empty when no wallets are found', () => {
-    expect(chooseSelectedWallet('', 'lace', [])).toBe('');
+    expect(chooseSelectedWallet('', 'lace', [], false)).toBe('');
+  });
+
+  it('replaces an auto-filled selection once the remembered wallet shows up', () => {
+    // The scan sequence when Lace injects before the remembered Eternl: the
+    // provisional Lace must not survive the scan that finally sees Eternl.
+    const firstScan = chooseSelectedWallet('', 'eternl', found('lace'), false);
+    expect(firstScan).toBe('lace');
+    expect(chooseSelectedWallet(firstScan, 'eternl', found('lace', 'eternl'), false)).toBe('eternl');
+  });
+
+  it('keeps a user pick even when the remembered wallet is also available', () => {
+    // Same late injection, but the user actively chose Lace in the meantime.
+    expect(chooseSelectedWallet('lace', 'eternl', found('lace', 'eternl'), true)).toBe('lace');
+  });
+
+  it('re-selects when a user pick disappears', () => {
+    // The picked wallet vanished from the list (extension disabled mid-session);
+    // the remembered one takes over rather than leaving a dangling selection.
+    expect(chooseSelectedWallet('typhon', 'eternl', found('lace', 'eternl'), true)).toBe('eternl');
   });
 });
