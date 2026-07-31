@@ -26,9 +26,16 @@ interface Props {
   truncate?: boolean;
   /** Entity kind for the identicon glyph; pass "pool" for an SPO voter. */
   kind?: IdenticonKind;
+  /**
+   * Co-proposer mandate label ("for Intersect"), resolved from the post/topic's
+   * persisted proposer_grant_id. Historical attribution: never derived from the
+   * author's current session, so it stays correct even after the grant is
+   * revoked.
+   */
+  mandate?: string | null;
 }
 
-const { author, size = 28, truncate = false, kind } = Astro.props;
+const { author, size = 28, truncate = false, kind, mandate } = Astro.props;
 const { displayName, imageHash, badges = [], isSystem = false } = author;
 
 // Same seed everywhere for a given author (DRep hex when known, else the id).
@@ -65,6 +72,8 @@ const hasSub = Astro.slots.has('sub');
   {badges.map((badge) => (
     <span class="author-identity__badge">{badge}</span>
   ))}
+
+  {mandate && <span class="author-identity__badge author-identity__badge--mandate">{mandate}</span>}
 </span>
 
 <style>
@@ -115,6 +124,11 @@ const hasSub = Astro.slots.has('sub');
     border-radius: 999px;
     padding: 0.15rem 0.4rem;
   }
+
+  /* Mandate pill: same shape as the role badges, but a label ("for Intersect")
+     reads oddly shouted in caps, so it drops the uppercase transform and
+     letter-spacing the role badges use. */
+  .author-identity__badge--mandate { text-transform: none; letter-spacing: 0; }
 
   .author-identity__name--link { text-decoration: none; }
   .author-identity__name--link:hover { text-decoration: underline; }

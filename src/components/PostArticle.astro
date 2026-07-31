@@ -33,9 +33,11 @@ interface Props {
   topicLocked?: boolean;
   /** 1-based position in the thread; renders "Post #N" on the right of the header row when set (top-level posts on user topics only). */
   postNumber?: number;
+  /** Co-proposer mandate label for this post's persisted proposer_grant_id, or null/absent for a personal post. */
+  mandate?: string | null;
 }
 
-const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber } = Astro.props;
+const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber, mandate } = Astro.props;
 
 const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
 
@@ -64,7 +66,7 @@ const changedVoteHref = author.drepId ? `?tab=positions#voter-${author.drepId}` 
 
 <article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
   <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
-    <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.card} />
+    <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.card} mandate={mandate} />
     {!isVoteRationale && (authorVote ? <VoteBadge vote={authorVote.vote} /> : authorHasNotVoted && <VoteBadge hasNotVoted />)}
     {isVoteRationale && post.vote && (
       <span
