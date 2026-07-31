@@ -48,8 +48,10 @@ cfg.images = { binding: 'IMAGES' };
 
 // This is a standalone config, not a wrangler environment: drop the env
 // metadata so the derived name is used verbatim (no legacy "-preprod" suffix).
+// The worker is deployed by name via `-c`, never `--env`, so no env handling is
+// needed. `legacy_env` must NOT be set: wrangler 4 removed service environments
+// and now rejects the field outright, which broke every preprod deploy.
 delete cfg.definedEnvironments;
-cfg.legacy_env = false;
 
 writeFileSync(OUT, JSON.stringify(cfg, null, 2));
 console.log(`Wrote ${OUT} (worker ${cfg.name}, db ${cfg.d1_databases[0].database_name})`);
