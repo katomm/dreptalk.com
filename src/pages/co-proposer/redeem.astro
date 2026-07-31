@@ -1,0 +1,72 @@
+---
+// Co-proposer invite redemption page. The URL carries a bearer code (?code=),
+// so the invite is resolved server-side (never trusting a client-supplied
+// grantId, see coProposerRedeem.ts) and the response is hardened against
+// caching and referrer leakage: a copied/forwarded Referer header would leak
+// the still-unredeemed code to whatever site the user navigates to next.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import ProposerIdentity from '@/components/ProposerIdentity.astro';
+import RedeemCoProposer from '@/components/RedeemCoProposer.tsx';
+import { lookupInviteByCode } from '@/lib/db/proposerGrants';
+import { runtimeEnv, currentNetwork } from '@/lib/api/response';
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+Astro.response.headers.set('Referrer-Policy', 'no-referrer');
+
+const code = Astro.url.searchParams.get('code') ?? '';
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+
+const invite = code && db ? await lookupInviteByCode(db, code) : null;
+const network = currentNetwork().network;
+---
+<Layout title="Join as a co-proposer - DRepTalk" noindex={true}>
+  <div class="redeem">
+    {invite ? (
+      <>
+        <header class="redeem__head">
+          <h1 class="redeem__title">You have been invited</h1>
+          <p class="redeem__intro">You have been invited to write on behalf of:</p>
+          <div class="redeem__proposer">
+            <ProposerIdentity returnAddress={invite.proposerStakeAddr} size={28} />
+          </div>
+        </header>
+
+        <RedeemCoProposer network={network} code={code} client:load />
+      </>
+    ) : (
+      <div class="callout callout--error" role="alert">
+        <div class="callout__body">
+          This invite is no longer valid. It may have already been used, withdrawn, or expired. Ask the proposer
+          who invited you to send a new one.
+        </div>
+      </div>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .redeem {
+    max-width: 34rem;
+    margin: 0 auto;
+  }
+  .redeem__head {
+    text-align: center;
+    margin-bottom: 1.75rem;
+  }
+  .redeem__title {
+    font-size: clamp(1.4rem, 3.5vw, 1.75rem);
+    margin: 0 0 0.6rem;
+  }
+  .redeem__intro {
+    color: var(--muted);
+    margin: 0 0 0.85rem;
+  }
+  .redeem__proposer {
+    display: flex;
+    justify-content: center;
+  }
+</style>

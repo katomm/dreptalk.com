@@ -26,6 +26,18 @@ describe('applySecurityHeaders', () => {
     applySecurityHeaders(headers);
     expect(headers.get('X-Frame-Options')).toBe('DENY');
   });
+
+  it('preserves a route-set Referrer-Policy stricter than the baseline', () => {
+    const headers = new Headers({ 'Referrer-Policy': 'no-referrer' });
+    applySecurityHeaders(headers);
+    expect(headers.get('Referrer-Policy')).toBe('no-referrer');
+  });
+
+  it('still overwrites a Referrer-Policy weaker than the baseline', () => {
+    const headers = new Headers({ 'Referrer-Policy': 'unsafe-url' });
+    applySecurityHeaders(headers);
+    expect(headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+  });
 });
 
 describe('relaxStyleSrc', () => {
