@@ -10,6 +10,7 @@ import DrepSettings from '@/components/DrepSettings.tsx';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { getSelfDrepId } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
+import { requireGrantManager } from '@/lib/auth/coProposerManage';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -26,6 +27,11 @@ if (!drepId) {
 }
 const drep = db ? await getDrepById(db, drepId) : null;
 
+// Grant-manager status gates the Co-proposers tab in the shell (a DRep who is
+// also an on-chain proposer still gets the tab from this page).
+const grantGuard = db ? await requireGrantManager(db, user) : null;
+const isProposer = grantGuard !== null && 'row' in grantGuard;
+
 // Prefill: synced on-chain metadata when available, empty form otherwise
 // (covers DReps without any metadata yet).
 const initialName = drep?.name ?? '';
@@ -39,7 +45,7 @@ const initialQualifications = drep?.qualifications ?? '';
 const initialPaymentAddress = drep?.paymentAddress ?? '';
 const initialDoNotList = drep?.doNotList ?? false;
 ---
-<SettingsShell active="profile" isDrep={true}>
+<SettingsShell active="profile" isDrep={true} isProposer={isProposer}>
   <p style="margin:0 0 1.25rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
     Manage your DRep profile metadata stored on-chain (CIP-119).
   </p>
