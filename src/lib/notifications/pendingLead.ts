@@ -92,12 +92,14 @@ export async function resolvePendingLead(
   const gov = prefs.governance
     ? await db
         .prepare(
+          // Bare notified_at, matching govThreadsSinceSql: an expression over the
+          // column would not be sargable and would skip idx_activity_notified.
           `SELECT a.type AS type, a.topic_id AS topic_id, a.payload AS payload,
-                  COALESCE(a.notified_at, a.created_at) AS at
+                  a.notified_at AS at
              FROM activity a JOIN topics t ON t.id = a.topic_id
             WHERE a.type IN ('gov_created', 'gov_status')
               AND t.deleted = 0
-              AND COALESCE(a.notified_at, a.created_at) > ?1
+              AND a.notified_at > ?1
             ORDER BY at DESC LIMIT 1`,
         )
         .bind(cursor)

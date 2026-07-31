@@ -118,9 +118,31 @@ export async function deleteChannelsByEndpoint(db: D1Database, endpoint: string)
   return result.meta.changes ?? 0;
 }
 
-/** Advances the delivery cursor after a successful send. */
-export async function advanceCursor(db: D1Database, id: string, deliveredUntil: number): Promise<void> {
+/** Sets the delivery cursor unconditionally; used to hand a claim back on failure. */
+export async function setChannelCursor(db: D1Database, id: string, deliveredUntil: number): Promise<void> {
   await db.prepare('UPDATE notification_channels SET delivered_until = ? WHERE id = ?').bind(deliveredUntil, id).run();
+}
+
+/**
+ * Claims a channel's pending bundle by advancing its cursor, but only while the
+ * row still holds the value this run read. The governance cron fires every five
+ * minutes and a heavy run can outlast that, so two invocations can sit in the
+ * dispatch loop at once; both would read the same delivered_until and send the
+ * same bundle. Only one conditional UPDATE can match, so the loser gets false
+ * and skips the channel. Callers must claim BEFORE sending and hand the claim
+ * back (setChannelCursor to the old value) when delivery does not succeed.
+ */
+export async function claimChannelCursor(
+  db: D1Database,
+  id: string,
+  expected: number,
+  deliveredUntil: number,
+): Promise<boolean> {
+  const res = await db
+    .prepare('UPDATE notification_channels SET delivered_until = ? WHERE id = ? AND delivered_until = ?')
+    .bind(deliveredUntil, id, expected)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 /** Per-event-type prefs for one user/channel; a missing row counts as enabled. */

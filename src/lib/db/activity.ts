@@ -19,6 +19,11 @@ export interface ActivityRow {
   ref_post_id: string | null;
   payload: string | null;
   created_at: number;
+  /**
+   * Detection time (migration 0067). Set on every insert, so it is only null on
+   * rows read through a query that does not select it.
+   */
+  notified_at?: number | null;
 }
 
 /**
@@ -147,11 +152,19 @@ export async function getActivityPage(
   // topic-start and reply is kept (discussion activity is never collapsed). gov_rn = 1
   // is the row to show.
   const cols = 'a.id, a.type, a.actor_id, a.topic_id, a.ref_post_id, a.payload, a.created_at';
+  const partition = `PARTITION BY a.topic_id,
+                CASE WHEN a.type IN ('gov_created', 'gov_status') THEN 'gov' ELSE a.id END`;
+  // notified_at is reported as the partition's NEWEST detection time, not the
+  // surviving row's own: the collapse picks by created_at, so a thread whose
+  // gov_created was discovered late would otherwise report the older gov_status
+  // detection time. This makes the returned value mean "when this thread last had
+  // news", matching govThreadsSinceSql's per-thread notification semantics, so the
+  // inbox's unread marker and the header badge agree.
   const ranked =
     `SELECT ${cols},
+            MAX(a.notified_at) OVER (${partition}) AS notified_at,
             ROW_NUMBER() OVER (
-              PARTITION BY a.topic_id,
-                CASE WHEN a.type IN ('gov_created', 'gov_status') THEN 'gov' ELSE a.id END
+              ${partition}
               ORDER BY a.created_at DESC, a.id DESC
             ) AS gov_rn
      FROM activity a JOIN topics t ON t.id = a.topic_id
@@ -160,7 +173,7 @@ export async function getActivityPage(
 
   const [pageRes, countRow] = await Promise.all([
     db
-      .prepare(`SELECT ${cols} ${base} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`)
+      .prepare(`SELECT ${cols}, a.notified_at ${base} ORDER BY a.created_at DESC, a.id DESC LIMIT ? OFFSET ?`)
       .bind(...types, limit, offset)
       .all<ActivityRow>(),
     db.prepare(`SELECT COUNT(*) AS n ${base}`).bind(...types).first<{ n: number }>(),

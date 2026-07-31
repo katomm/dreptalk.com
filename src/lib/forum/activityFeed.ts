@@ -39,6 +39,12 @@ export function parseActivityFilter(value: string | null): ActivityFilter {
 export interface ActivityEvent {
   kind: ActivityKind;
   createdAt: number;
+  /**
+   * When we learned of the event, which for governance is days after createdAt
+   * (the on-chain epoch boundary). Read this, not createdAt, when comparing
+   * against a notification cursor; null only on rows predating migration 0067.
+   */
+  notifiedAt: number | null;
   /** Resolved author, or null for system events (gov_created, gov_status). */
   actor: AuthorDescriptor | null;
   topic: {
@@ -115,6 +121,7 @@ export async function loadActivityFeed(
     return {
       kind: r.type,
       createdAt: r.created_at,
+      notifiedAt: r.notified_at ?? null,
       actor: r.actor_id ? identities.describe(r.actor_id) : null,
       topic: {
         title: t.title,
