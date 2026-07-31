@@ -84,5 +84,7 @@ declare namespace Cloudflare {
     LEGAL_VAT_ID?: string;
     /** Local dev only: '1' switches voting-power-origins to a fixture payload, bypassing Koios (astro dev SSR fetch hangs, see the DEV stub comment there). */
     PROVENANCE_STUB?: string;
+    /** Auth token for Pinata's IPFS pinning API, used to anchor InfoAction metadata. */
+    PINATA_JWT?: string;
   }
 }
