@@ -10,7 +10,7 @@ const NOW = 1_752_000_000_000;
 const AUTHOR = 'drep-editor-1';
 
 let seq = 0;
-async function newTopicPost(): Promise<{ topicId: string; postId: string }> {
+async function newTopicPost(proposerGrantId?: string | null): Promise<{ topicId: string; postId: string }> {
   seq++;
   const { topic, firstPost } = await createTopic(db(), {
     categorySlug: 'general',
@@ -20,6 +20,7 @@ async function newTopicPost(): Promise<{ topicId: string; postId: string }> {
     bodyHtml: '<p>original body</p>',
     now: NOW,
     rand: `ed${seq}`,
+    proposerGrantId,
   });
   return { topicId: topic.id, postId: firstPost.id };
 }
@@ -47,6 +48,7 @@ describe('editPost: grace window', () => {
     const res = await editPost(db(), {
       postId, authorId: AUTHOR, bodyMd: 'typo fixed', bodyHtml: '<p>typo fixed</p>',
       now: NOW + 60_000, // 1 minute later
+      sessionGrantId: null,
     });
     expect(res.edited).toBe(false);
     const body = await readBody(postId);
@@ -60,6 +62,7 @@ describe('editPost: grace window', () => {
     const res = await editPost(db(), {
       postId, authorId: AUTHOR, bodyMd: 'rewritten', bodyHtml: '<p>rewritten</p>',
       now: NOW + EDIT_GRACE_MS + 1,
+      sessionGrantId: null,
     });
     expect(res.edited).toBe(true);
     const body = await readBody(postId);
@@ -81,13 +84,13 @@ describe('editPost: authorization and state', () => {
   it('throws not_owner when editing someone else\'s post', async () => {
     const { postId } = await newTopicPost();
     await expect(
-      editPost(db(), { postId, authorId: 'other-drep', bodyMd: 'x', bodyHtml: '<p>x</p>', now: NOW + EDIT_GRACE_MS + 1 }),
+      editPost(db(), { postId, authorId: 'other-drep', bodyMd: 'x', bodyHtml: '<p>x</p>', now: NOW + EDIT_GRACE_MS + 1, sessionGrantId: null }),
     ).rejects.toThrow('not_owner');
   });
 
   it('throws post_not_found for a missing post', async () => {
     await expect(
-      editPost(db(), { postId: crypto.randomUUID(), authorId: AUTHOR, bodyMd: 'x', bodyHtml: '<p>x</p>', now: NOW }),
+      editPost(db(), { postId: crypto.randomUUID(), authorId: AUTHOR, bodyMd: 'x', bodyHtml: '<p>x</p>', now: NOW, sessionGrantId: null }),
     ).rejects.toThrow('post_not_found');
   });
 
@@ -95,7 +98,7 @@ describe('editPost: authorization and state', () => {
     const { topicId, postId } = await newTopicPost();
     await db().prepare('UPDATE topics SET locked = 1 WHERE id = ?').bind(topicId).run();
     await expect(
-      editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'x', bodyHtml: '<p>x</p>', now: NOW + EDIT_GRACE_MS + 1 }),
+      editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'x', bodyHtml: '<p>x</p>', now: NOW + EDIT_GRACE_MS + 1, sessionGrantId: null }),
     ).rejects.toThrow('topic_locked');
   });
 
@@ -103,7 +106,44 @@ describe('editPost: authorization and state', () => {
     const { postId } = await newTopicPost();
     await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(postId).run();
     await expect(
-      editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'x', bodyHtml: '<p>x</p>', now: NOW + EDIT_GRACE_MS + 1 }),
+      editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'x', bodyHtml: '<p>x</p>', now: NOW + EDIT_GRACE_MS + 1, sessionGrantId: null }),
     ).rejects.toThrow('post_hidden');
+  });
+});
+
+describe('editPost: mandate context match', () => {
+  it('throws mandate_mismatch when a personal session edits a post written under a mandate', async () => {
+    const { postId } = await newTopicPost('grant-1');
+    await expect(
+      editPost(db(), {
+        postId, authorId: AUTHOR, bodyMd: 'x', bodyHtml: '<p>x</p>',
+        now: NOW + EDIT_GRACE_MS + 1, sessionGrantId: null,
+      }),
+    ).rejects.toThrow('mandate_mismatch');
+  });
+
+  it('throws mandate_mismatch when a grant session edits a post written without a mandate', async () => {
+    const { postId } = await newTopicPost(null);
+    await expect(
+      editPost(db(), {
+        postId, authorId: AUTHOR, bodyMd: 'x', bodyHtml: '<p>x</p>',
+        now: NOW + EDIT_GRACE_MS + 1, sessionGrantId: 'grant-1',
+      }),
+    ).rejects.toThrow('mandate_mismatch');
+  });
+
+  it('a grant session edits its own mandate post; stored proposer_grant_id unchanged', async () => {
+    const { postId } = await newTopicPost('grant-1');
+    const res = await editPost(db(), {
+      postId, authorId: AUTHOR, bodyMd: 'updated by mandate', bodyHtml: '<p>updated by mandate</p>',
+      now: NOW + EDIT_GRACE_MS + 1, sessionGrantId: 'grant-1',
+    });
+    expect(res.edited).toBe(true);
+    const row = await db()
+      .prepare('SELECT body_md, proposer_grant_id FROM posts WHERE id = ?')
+      .bind(postId)
+      .first<{ body_md: string; proposer_grant_id: string | null }>();
+    expect(row?.body_md).toBe('updated by mandate');
+    expect(row?.proposer_grant_id).toBe('grant-1');
   });
 });

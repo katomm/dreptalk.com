@@ -23,6 +23,8 @@ export interface Topic {
   created_at: number;
   /** Set when the title has been edited (marker only; no stored prior titles). */
   title_edited_at: number | null;
+  /** The co-proposer grant active at write time, or null for a personal post. Immutable after write. */
+  proposer_grant_id: string | null;
 }
 
 export interface Post {
@@ -46,6 +48,8 @@ export interface Post {
   source?: string | null;
   /** On-chain vote value for vote_rationale posts (yes/no/abstain); null otherwise. */
   vote?: string | null;
+  /** The co-proposer grant active at write time, or null for a personal post. Immutable after write. */
+  proposer_grant_id: string | null;
 }
 
 // Raw row shapes as stored in D1 (booleans as 0/1 integers).
@@ -64,6 +68,7 @@ export interface TopicRow {
   last_post_at: number;
   created_at: number;
   title_edited_at: number | null;
+  proposer_grant_id: string | null;
 }
 
 interface PostRow {
@@ -82,6 +87,7 @@ interface PostRow {
   created_at: number;
   source: string | null;
   vote: string | null;
+  proposer_grant_id: string | null;
 }
 
 // Subset returned by the thread/post readers (body_md excluded to avoid
@@ -92,7 +98,7 @@ interface PostRowNoBody extends Omit<PostRow, 'body_md'> {
 
 // The display column list shared by every post reader (body_md excluded).
 const POST_COLUMNS =
-  'id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at, source, vote';
+  'id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at, source, vote, proposer_grant_id';
 
 /** Maps a raw D1 row to the Topic type (0/1 integers to JS booleans). */
 export function rowToTopic(row: TopicRow): Topic {
@@ -111,6 +117,7 @@ export function rowToTopic(row: TopicRow): Topic {
     last_post_at: row.last_post_at,
     created_at: row.created_at,
     title_edited_at: row.title_edited_at,
+    proposer_grant_id: row.proposer_grant_id,
   };
 }
 
@@ -131,6 +138,7 @@ function rowToPost(row: PostRow | PostRowNoBody): Post {
     created_at: row.created_at,
     source: row.source ?? null,
     vote: row.vote ?? null,
+    proposer_grant_id: row.proposer_grant_id ?? null,
   };
   if ('body_md' in row && row.body_md !== undefined) {
     post.body_md = row.body_md;
@@ -175,6 +183,9 @@ export async function createTopic(
     // on-chain submission time so a synced action's post date is its submission date.
     postedAt?: number;
     rand: string;
+    // The co-proposer grant active at write time, or null/omitted for a
+    // personal post. Stamped on both the topic and its first post.
+    proposerGrantId?: string | null;
     // Extra statements to commit atomically in the same batch as the topic and
     // first post (e.g. a governance_actions row). Receives the new topic id.
     batchWith?: (topicId: string) => D1PreparedStatement[];
@@ -182,6 +193,7 @@ export async function createTopic(
 ): Promise<{ topic: Topic; firstPost: Post }> {
   const { categorySlug, authorId, title, bodyMd, bodyHtml, source = 'user', now, rand, batchWith } = args;
   const postedAt = args.postedAt ?? now;
+  const proposerGrantId = args.proposerGrantId ?? null;
   const slug = slugify(title, rand);
   const topicId = crypto.randomUUID();
   const postId = crypto.randomUUID();
@@ -189,18 +201,18 @@ export async function createTopic(
   const insertTopic = db
     .prepare(
       `INSERT INTO topics
-         (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+         (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at, proposer_grant_id)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
     )
-    .bind(topicId, categorySlug, authorId, source, title, slug, postedAt, postedAt);
+    .bind(topicId, categorySlug, authorId, source, title, slug, postedAt, postedAt, proposerGrantId);
 
   const insertPost = db
     .prepare(
       `INSERT INTO posts
-         (id, topic_id, author_id, body_md, body_html, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (id, topic_id, author_id, body_md, body_html, created_at, proposer_grant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(postId, topicId, authorId, bodyMd, bodyHtml, postedAt);
+    .bind(postId, topicId, authorId, bodyMd, bodyHtml, postedAt, proposerGrantId);
 
   const extra = batchWith ? batchWith(topicId) : [];
   // A user-created topic emits a 'topic_created' event in the same atomic batch.
@@ -229,6 +241,7 @@ export async function createTopic(
     last_post_at: postedAt,
     created_at: postedAt,
     title_edited_at: null,
+    proposer_grant_id: proposerGrantId,
   });
 
   const firstPost = rowToPost({
@@ -247,6 +260,7 @@ export async function createTopic(
     created_at: postedAt,
     source: null,
     vote: null,
+    proposer_grant_id: proposerGrantId,
   });
 
   return { topic, firstPost };
@@ -532,9 +546,12 @@ export async function createPost(
     now: number;
     /** Optional reply target; resolved to its top-level parent when nested. */
     parentPostId?: string | null;
+    // The co-proposer grant active at write time, or null/omitted for a personal post.
+    proposerGrantId?: string | null;
   },
 ): Promise<Post> {
   const { topicId, authorId, bodyMd, bodyHtml, now } = args;
+  const proposerGrantId = args.proposerGrantId ?? null;
 
   // Topic and parent lookups are independent, so they go through one batch.
   const lookups = [
@@ -578,10 +595,10 @@ export async function createPost(
   const insertPost = db
     .prepare(
       `INSERT INTO posts
-         (id, topic_id, author_id, parent_post_id, body_md, body_html, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (id, topic_id, author_id, parent_post_id, body_md, body_html, created_at, proposer_grant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(postId, topicId, authorId, parentId, bodyMd, bodyHtml, now);
+    .bind(postId, topicId, authorId, parentId, bodyMd, bodyHtml, now, proposerGrantId);
 
   const updateTopic = db
     .prepare(
@@ -613,6 +630,7 @@ export async function createPost(
     created_at: now,
     source: null,
     vote: null,
+    proposer_grant_id: proposerGrantId,
   });
 }
 
@@ -625,24 +643,38 @@ export async function createPost(
  */
 export async function editPost(
   db: D1Database,
-  args: { postId: string; authorId: string; bodyMd: string; bodyHtml: string; now: number },
+  args: {
+    postId: string;
+    authorId: string;
+    bodyMd: string;
+    bodyHtml: string;
+    now: number;
+    // The editing session's grant id, or null for a personal session. Must match
+    // the post's stored proposer_grant_id (mandate_mismatch otherwise).
+    sessionGrantId: string | null;
+  },
 ): Promise<{ edited: boolean }> {
-  const { postId, authorId, bodyMd, bodyHtml, now } = args;
+  const { postId, authorId, bodyMd, bodyHtml, now, sessionGrantId } = args;
 
   // Load the post WITH its body (needed to archive the prior version), then its
   // topic's state (depends on post.topic_id). Two sequential reads.
   const post = await db
     .prepare(
-      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at, source FROM posts WHERE id = ?',
+      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at, source, proposer_grant_id FROM posts WHERE id = ?',
     )
     .bind(postId)
     .first<{
       id: string; topic_id: string; author_id: string; body_md: string;
       body_html: string; hidden: number; deleted: number; created_at: number;
-      source: string | null;
+      source: string | null; proposer_grant_id: string | null;
     }>();
   if (!post || post.deleted === 1) throw new Error('post_not_found');
   if (post.author_id !== authorId) throw new Error('not_owner');
+  if ((post.proposer_grant_id ?? null) !== (sessionGrantId ?? null)) {
+    // A mandate post is only editable by the same active mandate; a personal
+    // post never by a mandate session. Attribution is immutable either way.
+    throw new Error('mandate_mismatch');
+  }
   // Vote rationale posts are frozen: their body must match the on-chain hash.
   if (post.source === 'vote_rationale') throw new Error('frozen_rationale');
   if (post.hidden === 1) throw new Error('post_hidden');
@@ -686,16 +718,32 @@ export async function editPost(
  */
 export async function editTitle(
   db: D1Database,
-  args: { topicId: string; authorId: string; title: string; now: number },
+  args: {
+    topicId: string;
+    authorId: string;
+    title: string;
+    now: number;
+    // The editing session's grant id, or null for a personal session. Must match
+    // the topic's stored proposer_grant_id (mandate_mismatch otherwise).
+    sessionGrantId: string | null;
+  },
 ): Promise<void> {
-  const { topicId, authorId, title, now } = args;
+  const { topicId, authorId, title, now, sessionGrantId } = args;
   const topic = await db
-    .prepare('SELECT author_id, source, deleted, locked FROM topics WHERE id = ?')
+    .prepare('SELECT author_id, source, deleted, locked, proposer_grant_id FROM topics WHERE id = ?')
     .bind(topicId)
-    .first<{ author_id: string; source: string; deleted: number; locked: number }>();
+    .first<{
+      author_id: string; source: string; deleted: number; locked: number;
+      proposer_grant_id: string | null;
+    }>();
   if (!topic || topic.deleted === 1) throw new Error('topic_not_found');
   if (topic.source !== 'user') throw new Error('not_user_topic');
   if (topic.author_id !== authorId) throw new Error('not_owner');
+  if ((topic.proposer_grant_id ?? null) !== (sessionGrantId ?? null)) {
+    // A mandate topic is only editable by the same active mandate; a personal
+    // topic never by a mandate session. Attribution is immutable either way.
+    throw new Error('mandate_mismatch');
+  }
   if (topic.locked === 1) throw new Error('topic_locked');
 
   await db

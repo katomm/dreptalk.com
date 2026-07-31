@@ -35,8 +35,8 @@ describe('getPostHistory', () => {
 
   it('returns current + revisions newest-first after marked edits', async () => {
     const postId = await newPost();
-    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v1', bodyHtml: '<p>v1</p>', now: NOW + EDIT_GRACE_MS + 10 });
-    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v2', bodyHtml: '<p>v2</p>', now: NOW + EDIT_GRACE_MS + 20 });
+    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v1', bodyHtml: '<p>v1</p>', now: NOW + EDIT_GRACE_MS + 10, sessionGrantId: null });
+    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v2', bodyHtml: '<p>v2</p>', now: NOW + EDIT_GRACE_MS + 20, sessionGrantId: null });
     const h = await getPostHistory(db(), postId);
     expect(h?.versions.map((v) => v.bodyMd)).toEqual(['v2', 'v1', 'v0']);
     expect(h?.versions[0].current).toBe(true);
