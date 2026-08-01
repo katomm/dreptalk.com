@@ -3,6 +3,7 @@
 // hosting, the lazy transaction-builder import, the non-fatal vote-record
 // POST, and the localStorage draft plumbing.
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
+import { verifyHostedAnchor } from '@/lib/governance/anchorSelfVerify.js';
 
 /**
  * A failure that happened strictly BEFORE the wallet could sign anything
@@ -29,7 +30,17 @@ export async function hostVoteRationale(args: {
       body?.error ? `Could not host rationale: ${body.error}.` : 'Could not host the vote rationale. Please try again.',
     );
   }
-  return res.json() as Promise<{ url: string; hash: string }>;
+  const anchor = (await res.json()) as { url: string; hash: string };
+  // Defense-in-depth before an irreversible on-chain commit: confirm the bytes
+  // now served at the anchor URL hash to the hash we are about to sign. A genuine
+  // mismatch aborts the vote (never anchor a document we cannot re-verify); a
+  // transient fetch failure does not block it (the host already hashed what it
+  // stored), it only skips the check.
+  const verdict = await verifyHostedAnchor(anchor.url, anchor.hash);
+  if (verdict === 'mismatch') {
+    throw new PreSignError('The hosted rationale did not match its hash. No vote was submitted; please try again.');
+  }
+  return anchor;
 }
 
 /**

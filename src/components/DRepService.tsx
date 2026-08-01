@@ -11,6 +11,7 @@ import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { registerDRep, retireDRep } from '@/lib/governance/drepTx.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
+import { verifyHostedAnchor } from '@/lib/governance/anchorSelfVerify.js';
 import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
 import { blake2b224 } from '@/lib/crypto/blake.js';
 import { hexToBytes } from '@/lib/crypto/hex.js';
@@ -215,6 +216,18 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
         return;
       }
       const { url, hash } = (await metaRes.json()) as { url: string; hash: string };
+
+      // Before the wallet signs the (irreversible) anchor, confirm the hosted
+      // document still hashes to the hash we are about to commit. A mismatch
+      // aborts; a transient fetch failure only skips the check.
+      if ((await verifyHostedAnchor(url, hash)) === 'mismatch') {
+        setPhase({
+          status: 'error',
+          message: 'The saved profile did not match its hash. Nothing was submitted; please try again.',
+          identity,
+        });
+        return;
+      }
 
       // 4b + 4c: the wallet builds, signs (deposit + fee shown here), submits.
       const { txHash } = await registerDRep({

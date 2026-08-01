@@ -9,6 +9,7 @@ import { env } from 'cloudflare:test';
 import { handleDrepMetadata } from './drepMetadataHandler.js';
 import { buildDrepMetadata } from './drepMetadata.js';
 import { getDrepMetadataByHash } from '../db/drepMetadata.js';
+import { fetchAnchorMetadata } from './metadata.js';
 
 const DREP_ID = 'drep1yyqw67szjkwns4vfqvnk0v8r20zy5qmv3hge2qlxm0s3apgsp3qsk6j5t4';
 const ORIGIN = 'https://dreptalk.com';
@@ -41,6 +42,16 @@ describe('handleDrepMetadata: content-addressed hosting', () => {
     expect(row).not.toBeNull();
     expect(row!.hash).toBe(json.hash);
     expect(row!.name).toBe('Fixture DRep');
+
+    // Roundtrip: the hosted bytes must verify against the returned hash through
+    // the same anchor verifier syncDreps uses, so our own registration can never
+    // commit a hash/format mismatch.
+    const bytes = new TextEncoder().encode(row!.body as string);
+    const verified = await fetchAnchorMetadata(json.url, json.hash, {
+      fetchImpl: (async () =>
+        new Response(bytes, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch,
+    });
+    expect(verified.status).toBe('ok');
   });
 
   it('returns an anchor url within the on-chain 128-character limit', async () => {
