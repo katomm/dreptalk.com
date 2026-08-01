@@ -87,9 +87,11 @@ function noNetworkDocumentLoader(url: string): never {
 }
 
 /** blake2b-256 hex of the URDNA2015-canonicalized { '@context', body }. */
-export async function canonicalBodyHashFor(body: Record<string, unknown>): Promise<string> {
-  // `body` accepts any plain object (see Cip108Body / the vector's extra `references`
-  // key); @types/jsonld's NodeObject shape is far stricter than the actual runtime
+export async function canonicalBodyHashFor(body: Cip108Body): Promise<string> {
+  // Typed as Cip108Body for callers, but canonize() processes whatever object
+  // is passed at runtime; the interop test still passes a vector body with an
+  // extra `references` key (typed `any`), which is unaffected by this typing.
+  // @types/jsonld's NodeObject shape is far stricter than the actual runtime
   // API (which accepts any JSON-LD-compatible document), so this cast is required.
   const doc = { '@context': CIP108_CONTEXT, body } as unknown as JsonLdDocument;
   const canonical = await canonize(doc, {

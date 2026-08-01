@@ -14,7 +14,7 @@ import {
   INFO_MOTIVATION_MAX,
   INFO_RATIONALE_MAX,
 } from './infoActionMetadata.js';
-import { canonicalBodyHashFor } from './cip108Canonical.js';
+import { canonicalBodyHashFor, type Cip108Body } from './cip108Canonical.js';
 import { verifyWalletAuthorWitness } from './authorWitness.js';
 import { pinInfoActionMetadata, type FileUploader } from './pinata.js';
 import { getGovActionMetadata, putGovActionMetadata } from '../db/govActionMetadata.js';
@@ -35,16 +35,9 @@ const bodySchema = z.object({
     .optional(),
 });
 
-interface CleanBody {
-  title: string;
-  abstract: string;
-  motivation: string;
-  rationale: string;
-}
-
 // Sanitize every field, then re-check non-emptiness: sanitize can strip a
 // field to '' (e.g. an input that was only control characters).
-function cleanBody(b: z.infer<typeof bodySchema>): CleanBody | null {
+function cleanBody(b: z.infer<typeof bodySchema>): Cip108Body | null {
   const clean = {
     title: sanitizeExternalText(b.title, INFO_TITLE_MAX),
     abstract: sanitizeExternalMultiline(b.abstract, INFO_ABSTRACT_MAX),
