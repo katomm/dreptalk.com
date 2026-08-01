@@ -289,6 +289,39 @@ if (notFound) {
     margin-top: 0.25rem;
   }
 
+  /* Phones: merge the four KPI cards into one bordered 2x2 block split by
+     hairline dividers instead of four separate padded boxes. Drops the label
+     icon and tightens padding to reclaim vertical space near the top of the
+     page. */
+  @media (max-width: 560px) {
+    .stat-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .stat-card {
+      border: 0;
+      border-radius: 0;
+      padding: 0.7rem 0.75rem;
+      background: none;
+    }
+    .stat-card:nth-child(2n) {
+      border-left: 1px solid var(--border);
+    }
+    .stat-card:nth-child(n + 3) {
+      border-top: 1px solid var(--border);
+    }
+    .stat-card__label svg {
+      display: none;
+    }
+    .stat-card__value {
+      font-size: 1.2rem;
+    }
+  }
+
   .usage {
     border: 1px solid var(--border);
     border-radius: var(--radius);
