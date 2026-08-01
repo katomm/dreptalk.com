@@ -3,7 +3,7 @@
 // makes JSON.stringify deterministic, which is required because the hash is
 // the on-chain anchor hash. Reuses the verbatim CIP-108 @context from Task 1
 // so the served document is a conformant standalone CIP-108 document.
-import { CIP108_CONTEXT, type Cip108Body, type Cip108Reference } from './cip108Canonical.js';
+import { CIP108_CONTEXT, type Cip108Body } from './cip108Canonical.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import {
@@ -31,13 +31,7 @@ export function buildInfoActionMetadata(input: { body: Cip108Body; authors: Cip1
   // Fixed key order => deterministic bytes => the hash matches the served/pinned file.
   // `references` is appended last, and only when present and non-empty, so a
   // no-references doc stays byte-identical to the (pre-references) 4-field body.
-  const bodyDoc: {
-    title: string;
-    abstract: string;
-    motivation: string;
-    rationale: string;
-    references?: Cip108Reference[];
-  } = {
+  const bodyDoc: Cip108Body = {
     title: input.body.title,
     abstract: input.body.abstract,
     motivation: input.body.motivation,

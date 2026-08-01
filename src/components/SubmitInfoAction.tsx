@@ -19,6 +19,9 @@ import {
   INFO_ABSTRACT_MAX,
   INFO_MOTIVATION_MAX,
   INFO_RATIONALE_MAX,
+  REFERENCE_LABEL_MAX,
+  REFERENCE_URI_MAX,
+  REFERENCES_MAX,
 } from '@/lib/governance/infoActionLimits.js';
 import {
   infoActionDraftKey,
@@ -38,12 +41,6 @@ import WalletConnection from '@/components/WalletConnection.js';
 // in sync manually since that constant is server-internal.
 const AUTHOR_NAME_MAX = 120;
 
-// Mirrors the un-exported REFERENCE_LABEL_MAX / REFERENCE_URI_MAX / REFERENCES_MAX
-// in infoActionMetadataHandler.ts; kept in sync manually since those constants
-// are server-internal (like AUTHOR_NAME_MAX above).
-const REFERENCE_LABEL_MAX = 200;
-const REFERENCE_URI_MAX = 2048;
-const REFERENCES_MAX = 10;
 
 // The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key). The
 // drepTx WalletApi omits signData entirely (no tx builder there calls it), so
@@ -378,6 +375,9 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
     const referencePayload = references
       .map((r) => ({ label: r.label.trim(), uri: r.uri.trim() }))
       .filter((r) => r.label && r.uri);
+    // Only include the references key when there is at least one, so the served
+    // doc stays byte-identical to the no-references case (the builder omits it too).
+    const referencesField = referencePayload.length > 0 ? { references: referencePayload } : {};
 
     setPhase({ status: 'submitting' });
 
@@ -401,7 +401,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
         const prepareRes = await fetchWithTimeout(`${window.location.origin}/api/gov-action/metadata/prepare`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...fields, ...(referencePayload.length > 0 ? { references: referencePayload } : {}) }),
+          body: JSON.stringify({ ...fields, ...referencesField }),
         });
         if (!prepareRes.ok) {
           const body = (await prepareRes.json().catch(() => null)) as { error?: string } | null;
@@ -435,7 +435,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
         body: JSON.stringify({
           ...fields,
           ...(author ? { author } : {}),
-          ...(referencePayload.length > 0 ? { references: referencePayload } : {}),
+          ...referencesField,
         }),
       });
       if (!metaRes.ok) {

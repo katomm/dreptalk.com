@@ -13,6 +13,9 @@ import {
   INFO_ABSTRACT_MAX,
   INFO_MOTIVATION_MAX,
   INFO_RATIONALE_MAX,
+  REFERENCE_LABEL_MAX,
+  REFERENCE_URI_MAX,
+  REFERENCES_MAX,
 } from './infoActionLimits.js';
 import { canonicalBodyHashFor, type Cip108Body, type Cip108Reference } from './cip108Canonical.js';
 import { verifyWalletAuthorWitness } from './authorWitness.js';
@@ -21,12 +24,8 @@ import { getGovActionMetadata, putGovActionMetadata } from '../db/govActionMetad
 
 const AUTHOR_NAME_MAX = 120;
 
-// Mirrors GovTool's reference-link caps. referenceHash is spec-optional and
-// we do not collect it (see Cip108Reference).
-const REFERENCE_LABEL_MAX = 200;
-const REFERENCE_URI_MAX = 2048;
-const REFERENCES_MAX = 10;
-
+// referenceHash is spec-optional and we do not collect it (see Cip108Reference).
+// The caps live in infoActionLimits.ts so the client island shares them.
 const referenceSchema = z.object({
   label: z.string().min(1).max(REFERENCE_LABEL_MAX),
   uri: z.string().url().max(REFERENCE_URI_MAX),

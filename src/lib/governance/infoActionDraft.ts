@@ -35,6 +35,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Coerces an unknown to a string, defaulting to '' for any non-string. */
+function str(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 /** A stored reference row coerced to `{ label, uri }` strings, or null when malformed. */
 function coerceReferenceRow(raw: unknown): { label: string; uri: string } | null {
   if (!isPlainObject(raw)) return null;
@@ -73,12 +78,12 @@ export function loadInfoActionDraft(storage: Pick<Storage, 'getItem'>, key: stri
     : [];
 
   return {
-    title: typeof parsed.title === 'string' ? parsed.title : '',
-    abstract: typeof parsed.abstract === 'string' ? parsed.abstract : '',
-    motivation: typeof parsed.motivation === 'string' ? parsed.motivation : '',
-    rationale: typeof parsed.rationale === 'string' ? parsed.rationale : '',
+    title: str(parsed.title),
+    abstract: str(parsed.abstract),
+    motivation: str(parsed.motivation),
+    rationale: str(parsed.rationale),
     signAsAuthor: parsed.signAsAuthor === true,
-    authorName: typeof parsed.authorName === 'string' ? parsed.authorName : '',
+    authorName: str(parsed.authorName),
     references,
   };
 }
