@@ -28,8 +28,14 @@ interface Props {
   /** Scope pill the search palette opens with on this page (defaults to "all").
       Help and glossary pages preselect "help" so a search stays within them. */
   searchScope?: Scope;
+  /** Same-origin image URL to preload with high priority. Used by profile pages
+      to fetch the hero avatar early: it renders as a CSS background-image, which
+      the browser would otherwise discover late (after layout) at low priority,
+      making it a slow LCP element. The preload matches the same URL, so no
+      double fetch. Pass null when no stored avatar exists (identicon fallback). */
+  preloadImage?: string | null;
 }
-const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg', wide = false, readingWidth = false, searchScope } = Astro.props;
+const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg', wide = false, readingWidth = false, searchScope, preloadImage = null } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 // og:url and og:image must resolve on the host that actually served the page. On
 // preprod that is preprod.dreptalk.com, so build them from the request origin
@@ -115,6 +121,9 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
       type="font/woff2"
       crossorigin
     />
+    {preloadImage && (
+      <link rel="preload" href={preloadImage} as="image" fetchpriority="high" />
+    )}
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />

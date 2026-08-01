@@ -200,6 +200,7 @@ const profileSummary = drep
     })}
     noindex={!indexable}
     wide
+    preloadImage={drep.imageContentHash ? `/api/avatar/${drep.imageContentHash}` : null}
     ogImage={`/og/drep/${drep.slug ?? drep.drepId}.png?v=${ogCardVersion([
       displayName,
       drep.votingPower,
