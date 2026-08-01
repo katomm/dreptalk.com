@@ -9,7 +9,7 @@ import { renderMarkdown, type MentionLink } from '../markdown.js';
 import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
-import { isWriter } from '../auth/roles.js';
+import { isWriter, WRITER_ROLES } from '../auth/roles.js';
 import { isGrantActiveForUser } from '../db/proposerGrants.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { toBase64Url } from '../crypto/base64url.js';
@@ -41,6 +41,44 @@ async function mandateGate(
   if (!user.grantId) return null;
   if (await isGrantActiveForUser(db, user.grantId, user.id)) return null;
   return { status: 403, json: { ok: false, error: 'mandate revoked' } };
+}
+
+/**
+ * Session roles are a login-time cache; DRep write authority additionally
+ * requires the synced dreps row to still be active, so a deregistered DRep
+ * loses posting rights at the next write after the DRep sync instead of
+ * keeping them for the session's remaining lifetime. Only applies when 'drep'
+ * is the user's sole writer role: any other writer role is its own live
+ * identity and keeps its access. A missing dreps row stays permissive; a
+ * freshly registered DRep may not be synced yet, and login itself verified
+ * the role on-chain.
+ */
+async function drepActiveGate(
+  db: D1Database,
+  user: { id: string; roles: string[] },
+): Promise<HandlerResult | null> {
+  const writerRoles = user.roles.filter((r) => (WRITER_ROLES as readonly string[]).includes(r));
+  if (writerRoles.length !== 1 || writerRoles[0] !== 'drep') return null;
+  const row = await db
+    .prepare(
+      `SELECT d.active AS active FROM users u
+         JOIN dreps d ON d.drep_id = u.drep_id
+        WHERE u.id = ?1`,
+    )
+    .bind(user.id)
+    .first<{ active: number }>();
+  if (row !== null && row.active === 0) {
+    return { status: 403, json: { ok: false, error: 'Your DRep registration has ended, so posting is disabled.' } };
+  }
+  return null;
+}
+
+/** The full write-authority gate every forum write passes after isWriter. */
+async function writeGate(
+  db: D1Database,
+  user: { id: string; roles: string[]; grantId?: string | null },
+): Promise<HandlerResult | null> {
+  return (await mandateGate(db, user)) ?? (await drepActiveGate(db, user));
 }
 
 /**
@@ -102,7 +140,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
     if (!isWriter(user.roles)) {
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
-    const gateResult = await mandateGate(db, user);
+    const gateResult = await writeGate(db, user);
     if (gateResult) return gateResult;
 
     // 2. Rate limit: 5 topics per 600s per user.
@@ -210,7 +248,7 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     if (!isWriter(user.roles)) {
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
-    const gateResult = await mandateGate(db, user);
+    const gateResult = await writeGate(db, user);
     if (gateResult) return gateResult;
 
     // 2. Rate limit: 20 posts per 600s per user.
@@ -300,7 +338,7 @@ async function authorizeFlag(
   if (!isWriter(user.roles)) {
     return { fail: { status: 403, json: { ok: false, error: 'forbidden' } } };
   }
-  const gateResult = await mandateGate(db, user);
+  const gateResult = await writeGate(db, user);
   if (gateResult) return { fail: gateResult };
 
   // 2 + 3. Rate limit (30 toggles per 600s per user) and post lookup are
@@ -391,7 +429,7 @@ async function handleReactionChange(
     if (!isWriter(user.roles)) {
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
-    const gateResult = await mandateGate(db, user);
+    const gateResult = await writeGate(db, user);
     if (gateResult) return gateResult;
 
     // 2 + 3. Rate limit (60 toggles per 600s; reactions are lightweight) and
@@ -479,7 +517,7 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
     const { user, postId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
     if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
-    const gateResult = await mandateGate(db, user);
+    const gateResult = await writeGate(db, user);
     if (gateResult) return gateResult;
 
     const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
@@ -531,7 +569,7 @@ export async function handleEditTitle(input: EditTitleInput): Promise<HandlerRes
     const { user, topicId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
     if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
-    const gateResult = await mandateGate(db, user);
+    const gateResult = await writeGate(db, user);
     if (gateResult) return gateResult;
 
     const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
