@@ -8,8 +8,8 @@ import { governanceActionUrl, epochStartMs, resolveNetwork, type CardanoNetwork 
 import { readableType, formatAda } from './view.js';
 import { fetchAnchorMetadata, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
-import { createTopic, setTopicPostedAt, setGovTopicTitleAndBody, getAllTopicsByCategory } from '../db/forum.js';
-import { activityInsert } from '../db/activity.js';
+import { createTopic, buildTopicPostedAtStatements, setGovTopicTitleAndBody, getAllTopicsByCategory } from '../db/forum.js';
+import { activityInsert, buildSetGovCreatedEventDate } from '../db/activity.js';
 import {
   getKnownActionIds,
   buildInsertGovernanceAction,
@@ -141,9 +141,15 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
       );
       const bodyHtml = renderMarkdown(bodyMd);
 
-      // Post date = on-chain submission time (epoch start; ~5-day granularity, always
-      // at or before the true submission). Falls back to now when the epoch is unknown.
-      const submittedAtMs = p.proposed_epoch != null ? epochStartMs(p.proposed_epoch, cfg) : now;
+      // Post date = exact on-chain submission time (block_time). The epoch start is
+      // only a fallback (~5-day granularity, always at or before the true submission);
+      // stamping it as the post date made actions look days older than they are.
+      const submittedAtMs =
+        p.block_time != null
+          ? p.block_time * 1000
+          : p.proposed_epoch != null
+            ? epochStartMs(p.proposed_epoch, cfg)
+            : now;
 
       // The governance_actions row is committed in the same atomic batch as the
       // topic and first post, so a partial write can never leave an orphan topic
@@ -189,9 +195,9 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
           // submission time (same as the topic's), so the feed and the topic
           // agree on the action's date. notified_at is the real detection time
           // (now), so this action counts as new against the notification cursors
-          // even though created_at is back-dated to the epoch boundary. The title
-          // rides along in the payload so a single-action push can name it without
-          // a topic join.
+          // even when created_at predates them (sync lag, or the epoch-start
+          // fallback). The title rides along in the payload so a single-action
+          // push can name it without a topic join.
           activityInsert(db, {
             type: 'gov_created',
             topicId,
@@ -327,29 +333,46 @@ export interface SubmittedAtBackfillResult {
 export interface SubmittedAtBackfillDeps {
   db: D1Database;
   network: CardanoNetwork;
-  /** Max no-reply topics to inspect per run (bounds the sweep). */
+  /** Max governance topics to inspect per run (bounds the sweep). */
   limit: number;
 }
 
 /**
- * Idempotent post-date backfill: for governance topics with no replies, sets the
- * topic and its system post timestamps to the on-chain submission time derived from
- * the stored submitted_epoch. Sweeps our own D1 (not the live Koios list), so the
- * whole backlog is covered, including terminal actions. After the first corrected run
- * it finds everything already at the submission time and updates nothing (no writes),
- * so it is safe to call every sync. preprod and mainnet each self-correct against
- * their own database the next time the worker runs there.
+ * Idempotent post-date backfill: sets each governance topic's timestamps (and its
+ * gov_created feed event) to the exact on-chain submission time (submitted_at,
+ * from Koios block_time), falling back to the submitted_epoch start for rows the
+ * sync never got a block_time for. Replied topics are corrected too, but keep
+ * their reply-driven last_post_at (list ordering). Sweeps our own D1 (not the
+ * live Koios list), so the whole backlog is covered, including terminal actions.
+ * After the first corrected run it finds everything already at the submission
+ * time and updates nothing (no writes), so it is safe to call every sync. preprod
+ * and mainnet each self-correct against their own database the next time the
+ * worker runs there.
  */
 export async function backfillGovTopicSubmittedAt(deps: SubmittedAtBackfillDeps): Promise<SubmittedAtBackfillResult> {
   const { db, network, limit } = deps;
   const cfg = resolveNetwork(network);
   const candidates = await getGovTopicsForSubmittedAtBackfill(db, limit);
+  // Per-topic statements (post + topic + feed event) stay contiguous so each
+  // chunked batch corrects whole topics atomically; the guard below can then
+  // rely on created_at alone (a topic at its target implies the rest moved with
+  // it in the same batch). Chunking bounds statement count per D1 batch while a
+  // first run after a target change corrects the entire backlog.
+  const corrections: D1PreparedStatement[] = [];
   let updated = 0;
   for (const c of candidates) {
-    const submittedAtMs = epochStartMs(c.submittedEpoch, cfg);
-    if (c.createdAt === submittedAtMs && c.lastPostAt === submittedAtMs) continue;
-    await setTopicPostedAt(db, c.topicId, submittedAtMs);
+    const submittedAtMs = c.submittedAt ?? epochStartMs(c.submittedEpoch, cfg);
+    if (c.createdAt === submittedAtMs) continue;
+    corrections.push(
+      ...buildTopicPostedAtStatements(db, c.topicId, submittedAtMs),
+      buildSetGovCreatedEventDate(db, c.topicId, submittedAtMs),
+    );
     updated++;
+  }
+  const STMTS_PER_TOPIC = 3;
+  const CHUNK = 20 * STMTS_PER_TOPIC;
+  for (let i = 0; i < corrections.length; i += CHUNK) {
+    await db.batch(corrections.slice(i, i + CHUNK));
   }
   return { scanned: candidates.length, updated };
 }

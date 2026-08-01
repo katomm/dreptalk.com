@@ -68,6 +68,22 @@ export function activityInsert(
 }
 
 /**
+ * Statement that moves a topic's gov_created feed event to the given date (the
+ * exact on-chain submission time). Returned unrun so the governance post-date
+ * backfill batches it with the topic-timestamp statements: the topic and its
+ * feed event move atomically, keeping the two in agreement. notified_at is
+ * deliberately untouched: it is the detection-time cursor value the
+ * notification paths compare on (see govThreadsSinceSql), and rewriting it
+ * would re-notify already-seen actions. A topic without such an event
+ * (predating the activity feed) is a no-op.
+ */
+export function buildSetGovCreatedEventDate(db: D1Database, topicId: string, createdAt: number): D1PreparedStatement {
+  return db
+    .prepare("UPDATE activity SET created_at = ? WHERE type = 'gov_created' AND topic_id = ?")
+    .bind(createdAt, topicId);
+}
+
+/**
  * Records a gov_status transition event, but only if one for the same topic and
  * target status does not already exist. A terminal transition happens once per
  * topic, so (topic_id, payload.to) is its stable identity: two overlapping tally

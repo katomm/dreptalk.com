@@ -267,23 +267,35 @@ export async function createTopic(
 }
 
 /**
- * Overwrites a topic's post-date timestamps (created_at and last_post_at) and its
- * first (system) post's created_at, atomically. Used by the governance backfill to set
- * the post date to the on-chain submission time. The post update targets only the
- * earliest post, so it is safe by construction even if a reply races in between the
- * backfill's candidate read and this call: a reply always has a later created_at than
- * the system post, so it is never the subquery's match and its timestamp is preserved.
+ * Statements that move a topic's post date: stamp the earliest (system) post
+ * with `postedAt`, then set the topic's created_at to it and recompute
+ * last_post_at from the live posts. Used by the governance backfill to set the
+ * post date to the on-chain submission time. Recomputing (instead of assigning)
+ * last_post_at makes replied topics keep their reply-driven ordering and makes
+ * a reply that raced the caller's candidate read harmless by construction; a
+ * reply is always later than the system post, so it is never the earliest-post
+ * subquery's match either. Returned in execution order for one db.batch, so the
+ * move is atomic; callers may append related statements to the same batch.
  */
-export async function setTopicPostedAt(db: D1Database, topicId: string, postedAt: number): Promise<void> {
-  await db.batch([
-    db.prepare('UPDATE topics SET created_at = ?, last_post_at = ? WHERE id = ?').bind(postedAt, postedAt, topicId),
+export function buildTopicPostedAtStatements(db: D1Database, topicId: string, postedAt: number): D1PreparedStatement[] {
+  return [
     // Stamps only the earliest (system) post; never a later reply.
     db
       .prepare(
         'UPDATE posts SET created_at = ? WHERE id = (SELECT id FROM posts WHERE topic_id = ? ORDER BY created_at ASC LIMIT 1)',
       )
       .bind(postedAt, topicId),
-  ]);
+    // Runs after the stamp above (batch order), so the recompute sees it. The
+    // COALESCE keeps a postless topic (not possible for governance topics, but
+    // cheap to guard) from nulling last_post_at.
+    db
+      .prepare(
+        `UPDATE topics SET created_at = ?,
+           last_post_at = COALESCE((SELECT MAX(created_at) FROM posts WHERE topic_id = ? AND deleted = 0), ?)
+         WHERE id = ?`,
+      )
+      .bind(postedAt, topicId, postedAt, topicId),
+  ];
 }
 
 /**

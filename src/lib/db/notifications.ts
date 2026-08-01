@@ -97,11 +97,11 @@ export async function getNotificationsPage(
  * silently diverge. cursorExpr must be a bind placeholder or a subquery over
  * bound values, never user data.
  *
- * Compares notified_at (detection time), not created_at (the back-dated
- * on-chain epoch boundary): a governance action is dated at submission for the
- * feed, but for notifications it is "new" when we discovered it. Using
- * created_at here silently dropped every back-dated action that landed before
- * the cursor (migration 0067).
+ * Compares notified_at (detection time), not created_at (the on-chain
+ * submission time, which predates discovery): a governance action is dated at
+ * submission for the feed, but for notifications it is "new" when we discovered
+ * it. Using created_at here silently dropped every back-dated action that
+ * landed before the cursor (migration 0067).
  *
  * The comparison is on the bare column, never COALESCE(notified_at, created_at):
  * an expression over the column is not sargable, so the wrapped form cannot use

@@ -5,7 +5,7 @@ import type { GovernanceAction } from '@/lib/db/governance.js';
 import { readableType, formatAda } from '@/lib/governance/view.js';
 import { govTypeGlossarySlug } from '@/lib/governance/types.js';
 import { resolveNetwork, epochStartUnix, governanceActionUrl, type CardanoNetwork } from '@/lib/config/network.js';
-import { formatEpochDate } from '@/lib/governance/view.js';
+import { formatEpochDate, submittedDateLabel } from '@/lib/governance/view.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import CopyButton from '@/components/CopyButton.astro';
 
@@ -27,9 +27,7 @@ const explorerUrl = action.proposalId
 
 const deposit = formatAda(action.deposit);
 
-const submittedDate = action.submittedEpoch != null
-  ? formatEpochDate(epochStartUnix(action.submittedEpoch, netCfg))
-  : null;
+const submittedDate = submittedDateLabel(action.submittedAt, action.submittedEpoch, netCfg);
 const expiryDate = action.expiryEpoch != null
   ? formatEpochDate(epochStartUnix(action.expiryEpoch, netCfg))
   : null;

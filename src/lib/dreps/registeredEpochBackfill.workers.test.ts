@@ -16,8 +16,8 @@ function drepArgs(drepId: string) {
 
 describe('backfillRegisteredEpochs', () => {
   it('resolves the earliest registered epoch per missing DRep and is a no-op once filled', async () => {
-    const cfg = resolveNetwork('preprod'); // epoch 0 starts 1655769600, 5-day epochs
-    const at = (epoch: number) => 1655769600 + epoch * 5 * 24 * 60 * 60;
+    const cfg = resolveNetwork('preprod'); // epoch 4 starts 1655769600, 5-day epochs
+    const at = (epoch: number) => 1655769600 + (epoch - 4) * 5 * 24 * 60 * 60;
 
     await upsertDrep(env.DB, drepArgs('drepA'));
     await upsertDrep(env.DB, drepArgs('drepB'));

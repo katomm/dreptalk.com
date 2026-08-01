@@ -36,8 +36,11 @@ const CONFIGS: Record<CardanoNetwork, NetworkConfig> = {
     addrPrefix: 'addr_test',
     stakePrefix: 'stake_test',
     networkId: 0,
-    // preprod system start: epoch 0 began 2022-06-21T00:00:00Z.
-    epochAnchor: { epoch: 0, unixSeconds: 1655769600 },
+    // preprod Shelley-era anchor: epoch 4 began 2022-06-21T00:00:00Z (Byron ran
+    // epochs 0..3 from 2022-06-01). Anchoring this boundary at epoch 0 shifted
+    // every derived preprod date 20 days into the future; verified against
+    // Koios /epoch_info (epoch 293 = 1780617600).
+    epochAnchor: { epoch: 4, unixSeconds: 1655769600 },
     siteOrigin: 'https://preprod.dreptalk.com',
   },
 };
