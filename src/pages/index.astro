@@ -30,15 +30,22 @@ import {
 import CompositionBar from '@/components/ga/CompositionBar.astro';
 import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
-import { cacheControlFor } from '@/lib/forum/view.js';
+import { cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 import CategorySidebar from '@/components/CategorySidebar.astro';
 import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
+import { fetchLatestRelease } from '@/lib/github/latestRelease.js';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
 const user = Astro.locals.user;
+
+// Newest GitHub release for the open-source banner. Kicked off here so it runs
+// concurrently with the D1 queries below (no serial latency); the result is
+// collected at the end. Edge-cached and null-on-failure, so it never blocks or
+// breaks the page. Independent of the database.
+const latestReleasePromise = fetchLatestRelease(now);
 
 // The hero "live voting" scene shows the strongest DRep voters actively (avatar
 // plus a vote badge) ringed by fainter "ghost" voters, so it reads as a vote in
@@ -169,6 +176,9 @@ const ringActive = { rx: HERO_RING_RADII.active.rx * VIEWBOX, ry: HERO_RING_RADI
 const ringOuter = { rx: HERO_RING_RADII.active.rx * 1.1 * VIEWBOX, ry: HERO_RING_RADII.active.ry * 1.13 * VIEWBOX };
 
 const categories = getCategories();
+
+// Collect the release started up top (already in flight alongside the D1 work).
+const latestRelease = await latestReleasePromise;
 
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 
@@ -422,15 +432,40 @@ const heroFeatures = [
     </div>
   </section>
 
-  <aside class="announce reveal" style="--reveal-delay:220ms" aria-label="Open source">
-    <span class="announce__icon" aria-hidden="true">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.78 1.2 1.78 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.2-3.1-.12-.3-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.75.11 3.05.75.81 1.2 1.84 1.2 3.1 0 4.43-2.69 5.41-5.25 5.69.41.36.78 1.05.78 2.12v3.14c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z" /></svg>
-    </span>
-    <div class="announce__text">
-      <strong class="announce__title">Open source, by design</strong>
-      <span class="announce__body">DRepTalk is built in the open so the community can verify and shape it.</span>
+  <aside
+    class:list={['announce reveal', { 'announce--with-release': latestRelease }]}
+    style="--reveal-delay:220ms"
+    aria-label="Open source"
+  >
+    <div class="announce__brand">
+      <span class="announce__icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.78 1.2 1.78 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.2-3.1-.12-.3-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.75.11 3.05.75.81 1.2 1.84 1.2 3.1 0 4.43-2.69 5.41-5.25 5.69.41.36.78 1.05.78 2.12v3.14c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z" /></svg>
+      </span>
+      <div class="announce__text">
+        <strong class="announce__title">Open source, by design</strong>
+        <span class="announce__body">DRepTalk is built in public. Review the code, report issues, or help shape the platform.</span>
+        <a class="announce__link" href="https://github.com/katomm/dreptalk.com" rel="noopener" target="_blank">View on GitHub</a>
+      </div>
     </div>
-    <a class="announce__link" href="https://github.com/katomm/dreptalk.com" rel="noopener" target="_blank">View on GitHub</a>
+
+    {
+      latestRelease && (
+        <div class="announce__release">
+          <span class="announce__release-label">Latest release</span>
+          <div class="announce__release-head">
+            <span class="announce__pill">{latestRelease.version}</span>
+            {latestRelease.title && <span class="announce__release-title">{latestRelease.title}</span>}
+          </div>
+          {latestRelease.summary && <p class="announce__release-summary">{latestRelease.summary}</p>}
+          <div class="announce__release-foot">
+            <span class="announce__release-date">Released {formatRelativeTime(latestRelease.publishedAtMs, now)}</span>
+            <a class="announce__link" href={latestRelease.url} rel="noopener" target="_blank">
+              View release notes
+            </a>
+          </div>
+        </div>
+      )
+    }
   </aside>
 
   <section id="categories" class="categories" aria-labelledby="categories-heading">
@@ -862,15 +897,30 @@ const heroFeatures = [
   }
 
   /* ---- Announcement banner ------------------------------------------- */
+  /* One card, two regions: the open-source message on the left and the newest
+     release on the right, split by a divider. The right region only exists when
+     a release was fetched; without it the card is just the brand block. */
   .announce {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 1rem 1.25rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    padding: 1.25rem 1.5rem;
     margin: 0.5rem 0 2.5rem;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+  @media (min-width: 640px) {
+    .announce--with-release {
+      grid-template-columns: minmax(0, 45fr) minmax(0, 55fr);
+      gap: 2rem;
+      align-items: start;
+    }
+  }
+  .announce__brand {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
   }
   .announce__icon {
     flex-shrink: 0;
@@ -886,8 +936,8 @@ const heroFeatures = [
   .announce__text {
     display: flex;
     flex-direction: column;
-    gap: 0.1rem;
-    margin-right: auto;
+    gap: 0.3rem;
+    min-width: 0;
   }
   .announce__title {
     font-weight: 600;
@@ -897,9 +947,10 @@ const heroFeatures = [
   .announce__body {
     color: var(--muted);
     font-size: 0.9rem;
+    line-height: 1.45;
   }
   .announce__link {
-    flex-shrink: 0;
+    align-self: flex-start;
     color: var(--accent);
     text-decoration: none;
     font-size: 0.9rem;
@@ -907,6 +958,74 @@ const heroFeatures = [
   }
   .announce__link:hover {
     text-decoration: underline;
+  }
+
+  /* Right region: latest release */
+  .announce__release {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  @media (min-width: 640px) {
+    .announce--with-release .announce__release {
+      border-left: 1px solid var(--border);
+      padding-left: 2rem;
+    }
+  }
+  .announce__release-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  .announce__release-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .announce__pill {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    line-height: 1.5;
+  }
+  .announce__release-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .announce__release-summary {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .announce__release-foot {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 0.1rem;
+  }
+  .announce__release-date {
+    color: var(--muted);
+    font-size: 0.85rem;
   }
   /* ---- Categories + discussions overview ------------------------------ */
   .categories {
@@ -959,12 +1078,20 @@ const heroFeatures = [
       display: none;
     }
   }
-  @media (max-width: 560px) {
+  /* Below the two-column breakpoint the release stacks under the brand block,
+     separated by a thin rule. The summary is dropped so the banner stays short
+     and there is no second competing block of body copy. */
+  @media (max-width: 639px) {
     .announce {
-      flex-wrap: wrap;
+      padding: 1.1rem 1.25rem;
+      gap: 1rem;
     }
-    .announce__link {
-      margin-left: 52px;
+    .announce--with-release .announce__release {
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+    }
+    .announce__release-summary {
+      display: none;
     }
   }
 </style>
