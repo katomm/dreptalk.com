@@ -60,6 +60,9 @@ export default defineConfig({
   // /drep/<hash>.json documents) to /register-drep. Redirect so old links hold.
   redirects: {
     '/drep': '/register-drep',
+    // German aliases for the legal pages, which live under their English names.
+    '/impressum': '/imprint',
+    '/datenschutz': '/privacy',
   },
   vite: {
     // Pin React to a single instance. Astro's React islands load the renderer's
