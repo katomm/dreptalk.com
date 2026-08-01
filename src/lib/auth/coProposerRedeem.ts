@@ -20,9 +20,11 @@ import { createSession, buildSessionCookie } from './session.js';
 import { rolesFromUser, normalizeSessionRoles } from './roles.js';
 import { isHex, sanitizeExternalText, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
 import type { CardanoNetwork } from '../config/network.js';
+// Re-exported from a client-safe module so the redeem island can import the
+// limit without dragging this server-only module into the client bundle.
+import { MAX_CO_PROPOSER_NAME } from './coProposerLimits.js';
 
-/** Max length of the co-proposer's display name, filled in only when their account row has none yet. */
-export const MAX_CO_PROPOSER_NAME = 60;
+export { MAX_CO_PROPOSER_NAME };
 
 // Invite codes are randomToken() output (32 raw bytes as base64url, ~43
 // chars); the cap is generous headroom, not a tight fit to the real length.

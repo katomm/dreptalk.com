@@ -6,7 +6,7 @@
 // grantId is never sent to or received from the client (see coProposerRedeem.ts).
 import { useState } from 'react';
 import { redeemCoProposerInvite, friendlyRedeemError } from '@/lib/auth/redeemCoProposer.js';
-import { MAX_CO_PROPOSER_NAME } from '@/lib/auth/coProposerRedeem.js';
+import { MAX_CO_PROPOSER_NAME } from '@/lib/auth/coProposerLimits.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import WalletConnection from '@/components/WalletConnection.js';
