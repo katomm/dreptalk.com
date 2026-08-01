@@ -103,7 +103,7 @@ const metaDescription = pool
 {!pool ? (
   ownProfileSyncing ? <ProfileSyncing kind="pool" id={poolId ?? ''} /> : <NotFound noun="stake pool" />
 ) : (
-  <Layout title={`${displayName} - SPO on DRepTalk`} description={metaDescription} noindex={!indexable} wide>
+  <Layout title={`${displayName} - SPO on DRepTalk`} description={metaDescription} noindex={!indexable} wide preloadImage={pool.imageContentHash ? `/api/avatar/${pool.imageContentHash}` : null}>
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
       <a href="/">DRepTalk</a>
       <span style="margin:0 0.375rem;">/</span>
