@@ -4,7 +4,7 @@ description: "How any ada holder hands their Cardano voting power to a DRep, wha
 cardLabel: "Delegating to a DRep"
 category: "Start here"
 order: 2
-updated: 2026-06-23
+updated: 2026-08-02
 ---
 
 Every ada holder on Cardano has voting power in the governance system. If you
@@ -49,18 +49,27 @@ delegation at any time.
 
 ## How to delegate
 
-Delegation is done inside your wallet. You need a CIP-95 capable wallet:
-Lace, Eternl, and Typhon all support this.
+You can delegate directly on DRepTalk, or from inside your wallet. Both
+paths end the same way: your wallet signs and submits a delegation
+certificate, and once it confirms on-chain your voting power is delegated.
+There is no deposit; you pay only a small network fee, similar to a
+standard Cardano transaction.
 
-1. Open the governance or voting section of your wallet.
+**On DRepTalk:**
+
+1. Open the profile of the DRep you chose in the [DRep
+   directory](/dreps/).
+2. Click **Delegate** and connect your wallet.
+3. Review the delegation in your wallet and confirm. The wallet shows the
+   exact cost before anything is sent; DRepTalk never sees your keys.
+
+**In your wallet:**
+
+1. Open the governance or voting section of your wallet (Lace, Eternl, and
+   Typhon all have one).
 2. Find the DRep you want to delegate to. You can search by DRep ID, which
    you can copy from their profile on the [DRep directory](/dreps/).
 3. Select the DRep and confirm the delegation transaction.
-4. Your wallet shows you the exact cost before anything is sent. There is no
-   deposit; you pay only a small network fee, similar to a standard Cardano
-   transaction.
-
-Once the transaction confirms on-chain, your voting power is delegated.
 
 ## Abstain and No Confidence
 
@@ -91,7 +100,16 @@ replaces the old one.
 
 The only cost is the small network fee for each delegation transaction.
 
+## After you delegate: follow what your DRep does
+
+Delegation is not the end of the story. You can sign in to DRepTalk as a
+delegator (a free, read-only message signature) to see your DRep's votes and
+rationales on your start page, spot open actions they have not voted on yet,
+and get notified when they act. See
+[Tracking your delegation](/help/for-delegators/).
+
 ## Related
 
+- [Tracking your delegation](/help/for-delegators/)
 - [How to become a DRep](/help/become-a-drep/)
 - [Governance action types](/help/governance-action-types/)

@@ -3,7 +3,7 @@ title: "Cardano governance action statuses explained"
 description: "What each Cardano governance action status label means: active, ratified, enacted, expired, dropped, closed, and syncing."
 cardLabel: "Governance action statuses"
 category: "Understanding governance"
-order: 2
+order: 3
 ---
 
 Each governance action carries a status label derived from its on-chain lifecycle.

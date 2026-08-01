@@ -3,7 +3,7 @@ title: "Add DRepTalk to your home screen"
 description: "How to install DRepTalk as an app on iPhone and iPad, which is required for push notifications on iOS and iPadOS, with a note on Android and desktop."
 cardLabel: "Home screen app"
 category: "About DRepTalk"
-order: 5
+order: 6
 ---
 
 DRepTalk works as a web app you can add to your home screen. On iPhone and iPad

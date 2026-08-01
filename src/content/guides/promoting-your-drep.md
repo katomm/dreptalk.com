@@ -5,7 +5,7 @@ cardLabel: "Promoting your DRep"
 category: "For DReps"
 order: 4
 featured: true
-updated: 2026-07-14
+updated: 2026-08-02
 faqs:
   - q: "Can I pay to promote my DRep on DRepTalk?"
     a: "No. There is no paid placement. The DRep directory ranks by on-chain numbers such as voting power and delegator count, so visibility comes from verifiable activity only."
@@ -67,6 +67,22 @@ in the reference links of your on-chain metadata; the page renders a rich
 preview card when the link is shared, so it works as a landing page for anyone
 deciding whether to delegate to you.
 
+## Link to individual votes and rationales
+
+When you explain one specific decision, link the vote itself rather than your
+whole profile. Every vote you cast with a rationale has its own shareable
+page showing your vote, your full rationale, and a **Delegate** button, and
+the link renders a preview card with your vote on it when shared on social
+platforms and in messengers. It is the strongest single link you can post
+after voting: readers see your reasoning first and can act on it in place.
+
+Getting the link takes one click: open the action's **Votes** tab and use
+the copy-link button on your row, or copy the URL from your vote's page. You
+can also link any action or profile from a raw on-chain id; [Linking to
+DReps, governance actions, and votes](/help/linking/) shows all the
+patterns, including how a pasted `gov_action1…` id inside a post becomes a
+linked chip automatically.
+
 ## Let the record accumulate
 
 Consistency reads better than bursts. [Achievement badges](/help/badges/) are
@@ -102,3 +118,4 @@ foundation; the forum is how people find the person behind it.
 - [Managing your DRep](/help/managing-your-drep/)
 - [Writing a vote rationale](/help/writing-a-vote-rationale/)
 - [How to vote on a governance action](/help/voting/)
+- [Linking to DReps, governance actions, and votes](/help/linking/)

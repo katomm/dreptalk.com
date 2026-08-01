@@ -1,19 +1,21 @@
 ---
 title: "Signing in"
-description: "Who can sign in to DRepTalk and with which Cardano keys: DReps (CIP-95 DRep key), proposers (reward address), SPOs (Calidus key) and CC members (committee hot key). No password, no transaction, no fees."
+description: "Who can sign in to DRepTalk and with which Cardano keys: DReps (CIP-95 DRep key), proposers (reward address), SPOs (Calidus key), CC members (committee hot key), and delegators (read-only). No password, no transaction, no fees."
 cardLabel: "Signing in"
 category: "Start here"
-order: 3
+order: 4
+updated: 2026-08-02
 ---
 
 DRepTalk has no passwords and no accounts to create. You sign in with your Cardano
 wallet by signing a one-time challenge, which proves you control an on-chain
 governance identity. Signing in is **non-custodial**: it is a message
 signature, not a transaction, so there is nothing to send and no fees, and the server
-never sees your private keys. There are four ways to sign in, one for each on-chain
-writer role. DReps and proposers connect a CIP-30 wallet; SPOs and CC members sign the
-challenge offline with cardano-signer and paste the result, because wallets cannot sign
-with those keys yet.
+never sees your private keys. There are four writer roles, one for each on-chain
+governance identity, plus a read-only delegator sign-in for ada holders who want to
+follow their DRep. DReps, proposers, and delegators connect a CIP-30 wallet; SPOs and
+CC members sign the challenge offline with cardano-signer and paste the result, because
+wallets cannot sign with those keys yet.
 
 ## DReps
 
@@ -28,7 +30,10 @@ not yet a registered DRep, you can [register as a DRep](/register-drep/) first.
 Pick the **Proposer** role. You sign with your wallet's
 **reward (stake) address**, and we confirm on-chain that this address
 submitted at least one governance action. Use the same wallet that submitted the
-action. Listed moderators can also sign in through this flow.
+action. Listed moderators also sign in through this flow, and so do
+**co-proposers**: people a proposer has authorized to write on their behalf,
+using their own wallet. How a proposer invites and revokes co-proposers is
+covered in [Proposers](/help/proposers/).
 
 ## Stake pool operators
 
@@ -45,6 +50,15 @@ Pick the **CC member** role. You sign with your committee
 **hot key** using the same offline cardano-signer paste flow. We confirm
 on-chain that the key is a currently authorized committee hot credential. Script-based
 credentials are not supported yet.
+
+## Delegators
+
+Pick the **Delegator** role and connect the wallet that holds your delegated ada. Any
+CIP-30 wallet works; no governance features are required. You sign with your wallet's
+**reward (stake) address**, and DRepTalk reads your delegation from the chain. A
+delegator sign-in is **read-only**: you can follow your DRep's votes on your start
+page and get notified, but posting and voting stay reserved for the writer roles
+above. See [Tracking your delegation](/help/for-delegators/) for what you get.
 
 ## On a phone or tablet
 
@@ -68,4 +82,5 @@ payment to sign in, stop: that is not how DRepTalk works.
 - [Managing your DRep](/help/managing-your-drep/)
 - [Become a DRep](/help/become-a-drep/)
 - [Delegate to a DRep](/help/delegate-to-a-drep/)
+- [Tracking your delegation](/help/for-delegators/)
 - [Pair a phone or tablet](/help/pair-a-device/)

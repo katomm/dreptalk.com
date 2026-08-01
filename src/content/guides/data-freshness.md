@@ -3,7 +3,7 @@ title: "Data freshness"
 description: "How often DRepTalk refreshes Cardano on-chain values: governance tallies, DRep profiles, and vote badges. Cached, not live."
 cardLabel: "Data freshness"
 category: "About DRepTalk"
-order: 4
+order: 5
 ---
 
 DRepTalk reads on-chain data (governance tallies and status, DRep profiles, vote badges)
@@ -28,7 +28,7 @@ below no longer match FRESHNESS (label, refresh, and notes columns, in order). -
 
 ## Which vote rationales appear
 
-On a governance action's Positions tab we show the on-chain rationales attached to
+On a governance action's Votes tab we show the on-chain rationales attached to
 votes. Each rationale is a separate document the DRep links from their vote, often
 hosted on IPFS or their own server, so reading one means fetching an external file.
 To keep the page fast and reliable we surface the rationales behind the largest
@@ -44,7 +44,7 @@ reads the same as anyone else.
 
 A vote can also be cast after an action has already passed its threshold and gone
 to ratification. It is still a valid on-chain vote, and we show it with its
-rationale, but its weight was not part of the frozen tally, so on the Positions tab
+rationale, but its weight was not part of the frozen tally, so on the Votes tab
 we mark it "not counted" and strike its weight through.
 
 ## Related
