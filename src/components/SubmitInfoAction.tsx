@@ -19,7 +19,7 @@ import {
   INFO_ABSTRACT_MAX,
   INFO_MOTIVATION_MAX,
   INFO_RATIONALE_MAX,
-} from '@/lib/governance/infoActionMetadata.js';
+} from '@/lib/governance/infoActionLimits.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';

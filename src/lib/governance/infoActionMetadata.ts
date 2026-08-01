@@ -6,19 +6,19 @@
 import { CIP108_CONTEXT, type Cip108Body } from './cip108Canonical.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
+import {
+  INFO_TITLE_MAX,
+  INFO_ABSTRACT_MAX,
+  INFO_MOTIVATION_MAX,
+  INFO_RATIONALE_MAX,
+  type Cip108Author,
+} from './infoActionLimits.js';
 
-// Caps on the InfoAction metadata fields. Like MAX_VOTE_RATIONALE in
-// voteRationale.ts, these are ours (CIP-108 imposes no cap) and exist to keep
-// storage, rendering and search sane; they are enforced by callers, not here.
-export const INFO_TITLE_MAX = 80;
-export const INFO_ABSTRACT_MAX = 2500;
-export const INFO_MOTIVATION_MAX = 20000;
-export const INFO_RATIONALE_MAX = 40000;
-
-export interface Cip108Author {
-  name: string;
-  witness: { witnessAlgorithm: 'CIP-0008'; publicKey: string; signature: string };
-}
+// Field caps and the Cip108Author type live in infoActionLimits.ts (a leaf
+// module with no jsonld-tainted imports) so the client island can import them
+// without dragging the server-only URDNA2015 canonicalization engine into the
+// browser bundle. Re-exported here for backward-compat.
+export { INFO_TITLE_MAX, INFO_ABSTRACT_MAX, INFO_MOTIVATION_MAX, INFO_RATIONALE_MAX, type Cip108Author };
 
 const TEXT_ENCODER = new TextEncoder();
 

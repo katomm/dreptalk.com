@@ -6,14 +6,14 @@
 
 import { z } from 'zod';
 import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
+import { buildInfoActionMetadata } from './infoActionMetadata.js';
 import {
-  buildInfoActionMetadata,
   type Cip108Author,
   INFO_TITLE_MAX,
   INFO_ABSTRACT_MAX,
   INFO_MOTIVATION_MAX,
   INFO_RATIONALE_MAX,
-} from './infoActionMetadata.js';
+} from './infoActionLimits.js';
 import { canonicalBodyHashFor, type Cip108Body } from './cip108Canonical.js';
 import { verifyWalletAuthorWitness } from './authorWitness.js';
 import { pinInfoActionMetadata, type FileUploader } from './pinata.js';
@@ -29,8 +29,8 @@ const bodySchema = z.object({
   author: z
     .object({
       name: z.string().min(1).max(AUTHOR_NAME_MAX),
-      keyHex: z.string().regex(/^[0-9a-fA-F]+$/),
-      signatureHex: z.string().regex(/^[0-9a-fA-F]+$/),
+      keyHex: z.string().max(4096).regex(/^[0-9a-fA-F]+$/),
+      signatureHex: z.string().max(4096).regex(/^[0-9a-fA-F]+$/),
     })
     .optional(),
 });
