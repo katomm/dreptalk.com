@@ -14,10 +14,18 @@ function toBase64(buf: ArrayBuffer): string {
   return btoa(binary);
 }
 
+// resvg (the rasterizer workers-og uses) decodes only PNG and JPEG for embedded
+// <img> data URLs. Handing it a webp/avif/gif makes the whole card render to an
+// empty 0-byte PNG, so only these two are inlined; every other format falls back
+// to the identicon SVG (which always renders). The avatar store downscales large
+// images to webp (see avatarStore.ts), so this fallback is common by design.
+const RESVG_SAFE_TYPES = new Set(['image/png', 'image/jpeg']);
+
 /**
  * Avatar data URL for a DRep or forum author: the self-hosted R2 image when one
- * is stored, otherwise the deterministic identicon. Any R2 miss or error falls
- * through to the identicon so a card always renders.
+ * is stored in a rasterizer-safe format, otherwise the deterministic identicon.
+ * Any R2 miss, error, or unsupported format falls through to the identicon so a
+ * card always renders.
  */
 export async function loadAvatar(
   avatars: R2Bucket | undefined,
@@ -30,8 +38,11 @@ export async function loadAvatar(
       // (matches serveAvatar); the bare hash never resolves.
       const obj = await avatars.get(AVATAR_KEY_PREFIX + imageContentHash);
       if (obj) {
-        const ct = obj.httpMetadata?.contentType ?? 'image/webp';
-        return `data:${ct};base64,${toBase64(await obj.arrayBuffer())}`;
+        const ct = (obj.httpMetadata?.contentType ?? '').split(';')[0].trim().toLowerCase();
+        if (RESVG_SAFE_TYPES.has(ct)) {
+          return `data:${ct};base64,${toBase64(await obj.arrayBuffer())}`;
+        }
+        // Unsupported by resvg (webp/avif/gif/unknown): fall through to the identicon.
       }
     } catch {
       // fall through to the identicon
