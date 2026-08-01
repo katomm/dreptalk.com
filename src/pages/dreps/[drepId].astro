@@ -266,7 +266,8 @@ const profileSummary = drep
               </svg>
             </span>
             <span class="drep-hd__cardbody">
-              <span class="drep-hd__value">{formatAda(drep.votingPower)}</span>
+              <span class="drep-hd__value drep-hd__value--full">{formatAda(drep.votingPower)}</span>
+              <span class="drep-hd__value drep-hd__value--compact">{formatAdaCompact(drep.votingPower)}</span>
               <span class="drep-hd__caption">Voting power</span>
             </span>
           </span>
@@ -491,6 +492,9 @@ const profileSummary = drep
   }
   .drep-hd__cardbody { display: flex; flex-direction: column; line-height: 1.15; }
   .drep-hd__value { font-weight: 700; font-size: 1.05rem; color: var(--fg); font-variant-numeric: tabular-nums; }
+  /* Voting power ships both a full ("39,558,963 ₳") and a compact ("39.6M ₳")
+     value; the compact one only surfaces on the mobile stat strip below. */
+  .drep-hd__value--compact { display: none; }
   .drep-hd__caption { font-size: 0.75rem; color: var(--muted); }
 
   /* Desktop summary row: trend card beside the badges card, stacking on narrow
@@ -525,9 +529,52 @@ const profileSummary = drep
   .drep-summary__all { margin-top: auto; align-self: flex-start; padding-top: 0.95rem; font-size: 0.9375rem; }
 
   @media (max-width: 560px) {
+    /* MOBILE_AVATAR and MOBILE_GAP are kept in lockstep with the stat strip's
+       negative margin below: the strip is pulled back under the avatar column to
+       span the full header width, so its offset must equal avatar width + gap. */
     .drep-hd { gap: 0.85rem; }
     .drep-hd__name { font-size: 1.5rem; }
-    .drep-hd__stats { gap: 0.5rem; }
+    /* Trim the hero avatar (96 -> 72px): reclaims width for the full-bleed strip
+       and keeps the shortest header (a retired DRep with no Delegate button)
+       taller than the avatar, so the strip always clears it. */
+    .drep-hd__avatar :global(.avatar) { width: 72px; height: 72px; }
+    /* The three roomy iconed cards collapse into one compact strip: a single
+       bordered row split into equal columns by hairline dividers, value over
+       caption. Stacked full-width they ate ~270px of vertical space here. The
+       negative left margin pulls the strip out of the avatar's right column so
+       it spans the full header width (= avatar 72px + the 0.85rem header gap),
+       reclaiming the dead space under the avatar. Flex (not a fixed 3-col grid)
+       so a DRep missing the delegator or influence card still splits evenly. */
+    .drep-hd__stats {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin-left: calc(-72px - 0.85rem);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      overflow: hidden;
+    }
+    .drep-hd__card {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 0;
+      padding: 0.5rem 0.4rem;
+      border: 0;
+      border-radius: 0;
+      background: none;
+    }
+    .drep-hd__card + .drep-hd__card { border-left: 1px solid var(--border); }
+    .drep-hd__icon { display: none; }
+    .drep-hd__cardbody { align-items: center; }
+    .drep-hd__value { font-size: 0.95rem; }
+    .drep-hd__value--full { display: none; }
+    .drep-hd__value--compact { display: block; }
+    .drep-hd__caption { font-size: 0.7rem; }
     /* Button wraps below the name and spans the column for an easy tap target. */
     .drep-hd__cta { width: 100%; }
     .drep-hd__cta :global(.btn) { width: 100%; }
