@@ -27,6 +27,8 @@ interface Props {
   now: number;
   /** 1-based numbering offset for top-level posts on this page; undefined renders no Post #N (governance topics). */
   startIndex?: number;
+  /** Grant id -> "for <name>" mandate label, resolved once for the whole page. */
+  mandates: Map<string, string>;
 }
 
 const {
@@ -43,7 +45,13 @@ const {
   nextPage,
   now,
   startIndex,
+  mandates,
 } = Astro.props;
+
+// Each post carries its own persisted proposer_grant_id (stamped at write
+// time), so the mandate label is looked up per post, not per topic.
+const mandateFor = (post: { proposer_grant_id: string | null }) =>
+  post.proposer_grant_id ? mandates.get(post.proposer_grant_id) : undefined;
 
 // One gate for both write affordances: the composer section and the per-post
 // Reply buttons (signed in, topic not locked; the server enforces writer roles).
@@ -95,6 +103,7 @@ const notVoted = (author: AuthorDescriptor) =>
           topicLocked={topic.locked}
           now={now}
           postNumber={startIndex !== undefined ? startIndex + i + 1 : undefined}
+          mandate={mandateFor(post)}
         />
         {children.length > 0 && (
           <div class="thread-replies">
@@ -113,6 +122,7 @@ const notVoted = (author: AuthorDescriptor) =>
                   topicLocked={topic.locked}
                   now={now}
                   compact
+                  mandate={mandateFor(child)}
                 />
               );
             })}

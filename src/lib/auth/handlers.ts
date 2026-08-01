@@ -21,12 +21,13 @@ import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep 
 import type { KoiosClient } from './resolveRole.js';
 import { upsertUserFromAuth, type AuthRole, type User } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
-import { rolesFromUser } from './roles.js';
+import { rolesFromUser, normalizeSessionRoles } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
 import { ensureFollow } from '../db/delegatorFollows.js';
 import { resolveFollow } from '../delegation/refresh.js';
+import { getActiveGrantByCoStake } from '../db/proposerGrants.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -323,8 +324,26 @@ async function verifyWalletCip8(
     stakeAddr = stakeAddressFromPubKey(pubKey, network);
     const resolution = await resolveProposer(koios, stakeAddr);
     modRole = getModeratorRole(stakeAddr);
-    if (!resolution.isProposer && !modRole) {
-      return { status: 401, json: { ok: false, error: 'not a proposer or moderator' } };
+    if (!resolution.isProposer) {
+      // Not an on-chain proposer: an active co-proposer grant still opens the
+      // proposer door, with the mandate pinned to the session. The user row
+      // keeps is_proposer = 0; the role exists only while the grant does.
+      const grant = await getActiveGrantByCoStake(db, stakeAddr);
+      if (grant) {
+        const verifiedAt = Math.floor(now ?? Date.now() / 1000);
+        const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
+        const base = rolesFromUser(user, modRole).filter((r) => r !== 'member');
+        const roles = normalizeSessionRoles([...base, 'proposer']);
+        return mintSessionResult(input, user, null, {
+          roles,
+          drepId: user.drep_id,
+          grantId: grant.id,
+          actsFor: { userId: grant.proposer_user_id, stakeAddr: grant.proposer_stake_addr },
+        });
+      }
+      if (!modRole) {
+        return { status: 401, json: { ok: false, error: 'not a proposer or moderator' } };
+      }
     }
     if (resolution.isProposer) grantedRoles.push('proposer');
   }
@@ -459,12 +478,21 @@ async function mintSessionResult(
   input: VerifyInput,
   user: User,
   modRole: ModeratorRole | null,
-  opts?: { roles?: string[]; drepId?: string | null },
+  opts?: {
+    roles?: string[];
+    drepId?: string | null;
+    grantId?: string | null;
+    actsFor?: { userId: string; stakeAddr: string } | null;
+  },
 ): Promise<VerifyResult> {
   const { sessionKv, now, secure } = input;
   const roles = opts?.roles ?? rolesFromUser(user, modRole);
   const drepId = opts?.roles ? (opts.drepId ?? null) : user.drep_id;
-  const token = await createSession(sessionKv, { id: user.id, roles, drepId }, { now });
+  const token = await createSession(
+    sessionKv,
+    { id: user.id, roles, drepId, grantId: opts?.grantId ?? null, actsFor: opts?.actsFor ?? null },
+    { now },
+  );
   return {
     status: 200,
     json: { ok: true, user: { id: user.id, roles } },

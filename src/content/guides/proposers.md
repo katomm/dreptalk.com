@@ -1,10 +1,10 @@
 ---
 title: "Proposers of Cardano governance actions"
-description: "How DRepTalk shows who proposed a governance action: an experimental curated list on the overview, and the submitter plus the on-chain author list on the action page."
+description: "How DRepTalk shows who proposed a governance action, and how proposer accounts can authorize co-proposers to write on their behalf."
 cardLabel: "Proposers"
 category: "Understanding governance"
 order: 4
-updated: 2026-07-27
+updated: 2026-08-01
 ---
 
 Every governance action has a proposer, identified on-chain by the reward
@@ -54,6 +54,33 @@ The curated list is maintained in the open. You can see exactly which
 organizations and addresses are recognized, and suggest additions, in
 [config/proposers.ts](https://github.com/katomm/dreptalk.com/blob/main/config/proposers.ts)
 on GitHub.
+
+## Co-proposers
+
+A proposer account can authorize up to two **co-proposers**: colleagues who
+sign in with their own wallet and write on the proposer's behalf. Their posts
+show their own name together with a badge naming the proposer they write for,
+so readers always see both the person and the mandate.
+
+**Inviting.** Sign in as a proposer and open
+[Settings, Co-proposers](/settings/co-proposers/). Creating an invite gives
+you a one-time link that is valid for 7 days and can be redeemed exactly once.
+The link is the credential: anyone who opens it can claim the invite, so share
+it only over a private channel with the person it is meant for.
+
+**Accepting.** The invited person opens the link, picks a display name,
+connects their own Cardano wallet, and signs a confirmation. No on-chain role
+or transaction is required on their side. Afterwards they sign in through the
+normal proposer sign-in with their own wallet.
+
+**Revoking.** The proposer sees all pending invites and active co-proposers in
+the same settings section and can withdraw or revoke them at any time.
+Revoking ends the co-proposer's access immediately; posts written under the
+mandate keep their badge, since it records who wrote on whose behalf at the
+time.
+
+Co-proposers cannot invite further people, and a wallet can hold only one
+mandate at a time.
 
 ## Related
 

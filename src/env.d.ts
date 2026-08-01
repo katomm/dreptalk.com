@@ -7,8 +7,17 @@ declare namespace App {
      * Authenticated user from the session cookie, or null if unauthenticated.
      * drepId is the user's own drep_id cached on the session (null = no drep_id;
      * undefined = legacy session predating the field, resolve via getSelfDrepId).
+     * grantId/actsFor are set when the session was minted under a co-proposer
+     * grant: grantId identifies the grant, actsFor identifies the principal
+     * (the user who created the grant) the request acts on behalf of.
      */
-    user: { id: string; roles: string[]; drepId?: string | null } | null;
+    user: {
+      id: string;
+      roles: string[];
+      drepId?: string | null;
+      grantId?: string | null;
+      actsFor?: { userId: string; stakeAddr: string } | null;
+    } | null;
     /**
      * Request-scoped memo of the signed-in header data (identity + unread
      * count); set and read via loadSessionHeader, never directly.

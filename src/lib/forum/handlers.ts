@@ -10,6 +10,7 @@ import { getCategory, isDiscussion } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
 import { isWriter } from '../auth/roles.js';
+import { isGrantActiveForUser } from '../db/proposerGrants.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { toBase64Url } from '../crypto/base64url.js';
 import { notifyReply, notifyMentions } from '../notifications/notify.js';
@@ -24,7 +25,23 @@ export interface HandlerResult {
   json: unknown;
 }
 
-type User = { id: string; roles: string[] };
+type User = { id: string; roles: string[]; grantId?: string | null };
+
+/**
+ * Revocation is a hard guarantee for writes: KV session deletion propagates
+ * lazily across PoPs, so a grant-backed session must re-check its grant in D1
+ * before any write. The check also binds the grant to the session's user so a
+ * stray grantId can never authorize someone else. Non-grant sessions never
+ * pay this read.
+ */
+async function mandateGate(
+  db: D1Database,
+  user: { id: string; grantId?: string | null },
+): Promise<HandlerResult | null> {
+  if (!user.grantId) return null;
+  if (await isGrantActiveForUser(db, user.grantId, user.id)) return null;
+  return { status: 403, json: { ok: false, error: 'mandate revoked' } };
+}
 
 /**
  * Resolves @slug mentions in a markdown body: returns the link map (href +
@@ -85,6 +102,8 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
     if (!isWriter(user.roles)) {
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
+    const gateResult = await mandateGate(db, user);
+    if (gateResult) return gateResult;
 
     // 2. Rate limit: 5 topics per 600s per user.
     const allowed = await checkRate(rateLimiter, `topic:${user.id}`, { max: 5, windowSec: 600, now });
@@ -132,6 +151,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
       source: 'user',
       now,
       rand,
+      proposerGrantId: user.grantId ?? null,
     });
 
     // 9. Mention notifications for the opening post. Never fail the topic over
@@ -190,6 +210,8 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     if (!isWriter(user.roles)) {
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
+    const gateResult = await mandateGate(db, user);
+    if (gateResult) return gateResult;
 
     // 2. Rate limit: 20 posts per 600s per user.
     const allowed = await checkRate(rateLimiter, `post:${user.id}`, { max: 20, windowSec: 600, now });
@@ -212,7 +234,15 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     const bodyHtml = renderMarkdown(bodyMd, { mentions });
 
     // 5. Persist. createPost throws domain errors for locked/missing targets.
-    const post = await createPost(db, { topicId, authorId: user.id, bodyMd, bodyHtml, now, parentPostId });
+    const post = await createPost(db, {
+      topicId,
+      authorId: user.id,
+      bodyMd,
+      bodyHtml,
+      now,
+      parentPostId,
+      proposerGrantId: user.grantId ?? null,
+    });
 
     // 6. Notify: mention rows for the mentioned users, reply rows for the
     // other thread participants (mention recipients excluded so nobody is
@@ -270,6 +300,8 @@ async function authorizeFlag(
   if (!isWriter(user.roles)) {
     return { fail: { status: 403, json: { ok: false, error: 'forbidden' } } };
   }
+  const gateResult = await mandateGate(db, user);
+  if (gateResult) return { fail: gateResult };
 
   // 2 + 3. Rate limit (30 toggles per 600s per user) and post lookup are
   // independent round-trips (DO vs D1), so they run concurrently. The rate
@@ -359,6 +391,8 @@ async function handleReactionChange(
     if (!isWriter(user.roles)) {
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
+    const gateResult = await mandateGate(db, user);
+    if (gateResult) return gateResult;
 
     // 2 + 3. Rate limit (60 toggles per 600s; reactions are lightweight) and
     // post lookup are independent round-trips (DO vs D1), so they run
@@ -420,6 +454,9 @@ function editError(err: unknown): HandlerResult {
   if (msg === 'not_owner' || msg === 'post_hidden' || msg === 'topic_locked' || msg === 'not_user_topic' || msg === 'frozen_rationale') {
     return { status: 403, json: { ok: false, error: msg } };
   }
+  if (msg === 'mandate_mismatch') {
+    return { status: 403, json: { ok: false, error: 'forbidden' } };
+  }
   return { status: 500, json: { ok: false, error: 'internal error' } };
 }
 
@@ -442,6 +479,8 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
     const { user, postId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
     if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
+    const gateResult = await mandateGate(db, user);
+    if (gateResult) return gateResult;
 
     const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
     if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };
@@ -456,7 +495,14 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
     const bodyHtml = renderMarkdown(bodyMd, { mentions });
 
     try {
-      const { edited } = await editPost(db, { postId, authorId: user.id, bodyMd, bodyHtml, now });
+      const { edited } = await editPost(db, {
+        postId,
+        authorId: user.id,
+        bodyMd,
+        bodyHtml,
+        now,
+        sessionGrantId: user.grantId ?? null,
+      });
       return { status: 200, json: { ok: true, edited } };
     } catch (err) {
       return editError(err);
@@ -485,6 +531,8 @@ export async function handleEditTitle(input: EditTitleInput): Promise<HandlerRes
     const { user, topicId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
     if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
+    const gateResult = await mandateGate(db, user);
+    if (gateResult) return gateResult;
 
     const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
     if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };
@@ -495,7 +543,7 @@ export async function handleEditTitle(input: EditTitleInput): Promise<HandlerRes
     }
 
     try {
-      await editTitle(db, { topicId, authorId: user.id, title, now });
+      await editTitle(db, { topicId, authorId: user.id, title, now, sessionGrantId: user.grantId ?? null });
       return { status: 200, json: { ok: true } };
     } catch (err) {
       return editError(err);

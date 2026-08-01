@@ -33,8 +33,30 @@ async function newPost(authorId: string, source: 'user' | 'governance' = 'user')
   return firstPost.id;
 }
 
-function reactInput(user: { id: string; roles: string[] } | null, postId: string) {
+function reactInput(user: { id: string; roles: string[]; grantId?: string | null } | null, postId: string) {
   return { user, postId, db: db(), rateLimiter: rateLimiter(), now: NOW };
+}
+
+// Inserts a proposer_grants row directly (bypassing the invite/redeem flow,
+// which is exercised elsewhere) so this test can set up a revoked grant.
+async function insertGrant(args: { id: string; proposerUserId: string; coUserId: string; status: 'active' | 'revoked' }) {
+  await db()
+    .prepare(
+      `INSERT INTO proposer_grants
+         (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
+       VALUES (?1, ?2, 'stake_test1reactproposer', ?3, 'stake_test1reactco', ?1, ?4, ?5, ?6, ?7, ?8)`,
+    )
+    .bind(
+      args.id,
+      args.proposerUserId,
+      args.coUserId,
+      args.status,
+      NOW,
+      NOW + 604800,
+      args.status === 'active' ? NOW : null,
+      args.status === 'revoked' ? NOW : null,
+    )
+    .run();
 }
 
 describe('handleReactToPost: authorization and validation', () => {
@@ -67,6 +89,18 @@ describe('handleReactToPost: authorization and validation', () => {
     const r = await handleReactToPost(reactInput(WRITER, postId), 'up');
     expect(r.status).toBe(403);
     expect((r.json as { error: string }).error).toBe('cannot_react_own');
+  });
+
+  it('403 mandate revoked when the reactor\'s grant was revoked', async () => {
+    const postId = await newPost('someone-else');
+    const coUserId = 'grant-co-user-react';
+    await insertGrant({ id: 'grant-react-1', proposerUserId: 'proposer-user-1', coUserId, status: 'revoked' });
+    const r = await handleReactToPost(
+      reactInput({ id: coUserId, roles: ['proposer'], grantId: 'grant-react-1' }, postId),
+      'up',
+    );
+    expect(r.status).toBe(403);
+    expect((r.json as { error: string }).error).toBe('mandate revoked');
   });
 
   it('200 for a system/governance post (unlike flagging)', async () => {

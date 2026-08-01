@@ -175,6 +175,43 @@ describe('createTopic', () => {
       .first<{ created_at: number; last_post_at: number }>();
     expect(stored).toEqual({ created_at: POSTED, last_post_at: POSTED });
   });
+
+  it('persists proposer_grant_id on the topic and first post when given, null otherwise', async () => {
+    const { topic: withGrant, firstPost: firstPostWithGrant } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: AUTHOR,
+      title: 'Mandate Topic',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: T1,
+      rand: 'grnt1',
+      proposerGrantId: 'grant-abc',
+    });
+    expect(withGrant.proposer_grant_id).toBe('grant-abc');
+    expect(firstPostWithGrant.proposer_grant_id).toBe('grant-abc');
+    const storedTopic = await db()
+      .prepare('SELECT proposer_grant_id FROM topics WHERE id = ?')
+      .bind(withGrant.id)
+      .first<{ proposer_grant_id: string | null }>();
+    expect(storedTopic?.proposer_grant_id).toBe('grant-abc');
+    const storedPost = await db()
+      .prepare('SELECT proposer_grant_id FROM posts WHERE id = ?')
+      .bind(firstPostWithGrant.id)
+      .first<{ proposer_grant_id: string | null }>();
+    expect(storedPost?.proposer_grant_id).toBe('grant-abc');
+
+    const { topic: withoutGrant, firstPost: firstPostWithoutGrant } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: AUTHOR,
+      title: 'Personal Topic',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: T1,
+      rand: 'grnt2',
+    });
+    expect(withoutGrant.proposer_grant_id).toBeNull();
+    expect(firstPostWithoutGrant.proposer_grant_id).toBeNull();
+  });
 });
 
 // ---- getTopicBySlug ---------------------------------------------------------
@@ -461,6 +498,42 @@ describe('createPost', () => {
     expect(post.created_at).toBe(T2);
     expect(typeof post.deleted).toBe('boolean');
     expect(post.deleted).toBe(false);
+  });
+
+  it('persists proposer_grant_id when given, null otherwise', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: AUTHOR,
+      title: 'Reply Grant Topic',
+      bodyMd: 'original',
+      bodyHtml: '<p>original</p>',
+      now: T1,
+      rand: 'r063',
+    });
+
+    const withGrant = await createPost(db(), {
+      topicId: topic.id,
+      authorId: AUTHOR,
+      bodyMd: 'mandate reply',
+      bodyHtml: '<p>mandate reply</p>',
+      now: T2,
+      proposerGrantId: 'grant-xyz',
+    });
+    expect(withGrant.proposer_grant_id).toBe('grant-xyz');
+    const stored = await db()
+      .prepare('SELECT proposer_grant_id FROM posts WHERE id = ?')
+      .bind(withGrant.id)
+      .first<{ proposer_grant_id: string | null }>();
+    expect(stored?.proposer_grant_id).toBe('grant-xyz');
+
+    const withoutGrant = await createPost(db(), {
+      topicId: topic.id,
+      authorId: AUTHOR,
+      bodyMd: 'personal reply',
+      bodyHtml: '<p>personal reply</p>',
+      now: T3,
+    });
+    expect(withoutGrant.proposer_grant_id).toBeNull();
   });
 
   it('getThreadPage returns top-level posts in created_at asc order', async () => {

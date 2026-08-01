@@ -1,27 +1,29 @@
 ---
 // Shared chrome for the settings sub-pages: breadcrumb, heading and the tab
-// bar. Each settings route (profile, account, danger) renders its own content
-// into the slot. The tab bar is role-aware: only a DRep has more than the
-// Account tab, so non-DRep writers and members get no tab bar at all (a single
-// tab would be noise). The tabs are plain links to the sub-routes, so switching
-// is SSR and deep-linkable, no client JS. Tab styling mirrors GaTabs.
+// bar. Each settings route (profile, account, co-proposers, danger) renders
+// its own content into the slot. The tab bar is role-aware: a plain member or
+// writer with no extra role gets no tab bar at all (a single Account tab
+// would be noise). The tabs are plain links to the sub-routes, so switching is
+// SSR and deep-linkable, no client JS. Tab styling mirrors GaTabs.
 import Layout from '@/layouts/Layout.astro';
 
 interface Props {
-  active: 'profile' | 'account' | 'danger';
+  active: 'profile' | 'account' | 'co-proposers' | 'danger';
   /** Whether the signed-in user is a synced DRep; gates the Profile/Danger tabs. */
   isDrep: boolean;
+  /** Whether the user manages co-proposer grants; gates the Co-proposers tab. */
+  isProposer?: boolean;
 }
 
-const { active, isDrep } = Astro.props;
+const { active, isDrep, isProposer = false } = Astro.props;
 
-const tabs = isDrep
-  ? ([
-      { id: 'profile', label: 'Profile', href: '/settings/profile/' },
-      { id: 'account', label: 'Account', href: '/settings/account/' },
-      { id: 'danger', label: 'Danger Zone', href: '/settings/danger/' },
-    ] as const)
-  : [];
+// Additive: each role contributes its own tabs. Account only shows up once
+// another tab exists, so a plain writer still gets no tab bar.
+const tabs: { id: Props['active']; label: string; href: string }[] = [];
+if (isDrep) tabs.push({ id: 'profile', label: 'Profile', href: '/settings/profile/' });
+if (isDrep || isProposer) tabs.push({ id: 'account', label: 'Account', href: '/settings/account/' });
+if (isProposer) tabs.push({ id: 'co-proposers', label: 'Co-proposers', href: '/settings/co-proposers/' });
+if (isDrep) tabs.push({ id: 'danger', label: 'Danger Zone', href: '/settings/danger/' });
 ---
 <Layout
   title="Settings - DRepTalk"

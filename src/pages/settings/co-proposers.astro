@@ -1,0 +1,73 @@
+---
+// Settings > Co-proposers tab: a real on-chain proposer invites up to
+// MAX_GRANTS_PER_PROPOSER co-proposers, sees pending invites and active
+// grants, and can withdraw or revoke them. Gated by the same
+// requireGrantManager guard the management API routes enforce, so a grant
+// session or a member-capped delegator-door session for a real proposer
+// never sees the management UI, only a short note.
+export const prerender = false;
+
+import SettingsShell from '@/components/SettingsShell.astro';
+import CoProposerInvite from '@/components/CoProposerInvite.tsx';
+import { requireGrantManager } from '@/lib/auth/coProposerManage';
+import { getGrantsForProposer, MAX_GRANTS_PER_PROPOSER } from '@/lib/db/proposerGrants';
+import { getSelfDrepId, getUsersByIds } from '@/lib/db/users';
+import { truncateIdMiddle } from '@/lib/forum/view';
+import { runtimeEnv } from '@/lib/api/response';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+
+// DRep status gates the Profile/Danger tabs in the shell.
+const drepId = db ? await getSelfDrepId(db, user) : null;
+
+const grantGuard = db ? await requireGrantManager(db, user) : null;
+const canManage = grantGuard !== null && 'row' in grantGuard;
+
+const grants = canManage && db ? await getGrantsForProposer(db, user.id) : [];
+const pendingGrants = grants.filter((g) => g.status === 'pending');
+const activeGrants = grants.filter((g) => g.status === 'active');
+
+const coUserIds = activeGrants
+  .map((g) => g.co_user_id)
+  .filter((id): id is string => id != null);
+const coUsers = db && coUserIds.length > 0 ? await getUsersByIds(db, coUserIds) : new Map();
+
+const initialPending = pendingGrants.map((g) => ({
+  grantId: g.id,
+  createdAt: g.created_at,
+  expiresAt: g.expires_at,
+}));
+const initialActive = activeGrants.map((g) => ({
+  grantId: g.id,
+  coName: (g.co_user_id ? coUsers.get(g.co_user_id)?.display_name : null) || 'Co-proposer',
+  coStakeAddr: g.co_stake_addr ? truncateIdMiddle(g.co_stake_addr) : null,
+  since: g.redeemed_at,
+}));
+---
+<SettingsShell active="co-proposers" isDrep={drepId != null} isProposer={canManage}>
+  {canManage ? (
+    <>
+      <p style="margin:0 0 1.25rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+        Invite co-proposers to post on your behalf. Each invite link works once; a co-proposer's writes are
+        attributed to you and stay attributed even after you revoke their access.
+      </p>
+      <CoProposerInvite
+        initialPending={initialPending}
+        initialActive={initialActive}
+        maxSlots={MAX_GRANTS_PER_PROPOSER}
+        client:load
+      />
+    </>
+  ) : (
+    <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
+      Proposers only. Co-proposer management is available to signed-in on-chain proposers, not to co-proposer
+      sessions or accounts signed in through another door.
+    </p>
+  )}
+</SettingsShell>

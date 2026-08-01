@@ -39,6 +39,7 @@ import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import '@/styles/list-controls.css';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
+import { loadMandates } from '@/lib/forum/mandate.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
 // Raw inline script (pinned in the CSP by its hash in astro.config.mjs) that
@@ -192,6 +193,12 @@ const catStats = catStatsPromise
   : new Map<string, { topicCount: number; lastPostAt: number | null }>();
 
 const identities = db && topics.length ? await loadAuthorIdentities(db, topics.map((t) => t.author_id)) : null;
+
+// Co-proposer mandate badges for the discussions-variant TopicRow list, one
+// batched call for the whole page. On the governance branch (GovActionRow,
+// not TopicRow) every topic.proposer_grant_id is null, so this short-circuits
+// to an empty Map with zero D1 queries.
+const mandates = db && topics.length ? await loadMandates(db, topics.map((t) => t.proposer_grant_id)) : new Map<string, string>();
 
 if (!notFound) {
   Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
@@ -529,6 +536,7 @@ const breadcrumbLd = {
                     variant="discussions"
                     participants={participantCounts.get(topic.id) ?? 0}
                     excerpt={excerptHtml.has(topic.id) ? excerptFromHtml(excerptHtml.get(topic.id)!, 140) : undefined}
+                    mandate={topic.proposer_grant_id ? mandates.get(topic.proposer_grant_id) : undefined}
                   />
                 ))}
               </div>

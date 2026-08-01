@@ -19,6 +19,35 @@ const rateLimiter = () => env.RATE_LIMITER;
 // Fixed timestamp to keep tests deterministic.
 const NOW = 1_750_000_000_000;
 
+// Inserts a proposer_grants row directly (bypassing the invite/redeem flow,
+// which is exercised elsewhere) so these tests can set up whatever grant
+// state the write-path mandate gate needs to see.
+async function insertGrant(args: {
+  id: string;
+  proposerUserId: string;
+  coUserId: string;
+  status?: 'active' | 'revoked';
+}) {
+  const status = args.status ?? 'active';
+  await db()
+    .prepare(
+      `INSERT INTO proposer_grants
+         (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
+       VALUES (?1, ?2, 'stake_test1grantproposer', ?3, 'stake_test1grantco', ?1, ?4, ?5, ?6, ?7, ?8)`,
+    )
+    .bind(
+      args.id,
+      args.proposerUserId,
+      args.coUserId,
+      status,
+      NOW,
+      NOW + 604800,
+      status === 'active' ? NOW : null,
+      status === 'revoked' ? NOW : null,
+    )
+    .run();
+}
+
 // ---------------------------------------------------------------------------
 // Posting works for every on-chain writer role (drep, spo, cc, proposer)
 // ---------------------------------------------------------------------------
@@ -341,6 +370,66 @@ describe('handleCreateTopic: rate limiting', () => {
 });
 
 // ---------------------------------------------------------------------------
+// handleCreateTopic / handleCreatePost: co-proposer mandate
+// ---------------------------------------------------------------------------
+
+describe('handleCreateTopic: co-proposer mandate', () => {
+  it('copies the session grantId onto the topic and its first post', async () => {
+    const coUserId = 'grant-co-user-create-topic';
+    await insertGrant({ id: 'grant-create-topic-1', proposerUserId: 'proposer-user-1', coUserId });
+    const user = { id: coUserId, roles: ['proposer'], grantId: 'grant-create-topic-1' };
+
+    const res = await handleCreateTopic({
+      user,
+      body: { categorySlug: 'general', title: 'Mandate topic', bodyMd: 'body' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(201);
+    const { slug } = res.json as { slug: string };
+    const topic = await getTopicBySlug(db(), slug);
+    expect(topic?.proposer_grant_id).toBe('grant-create-topic-1');
+
+    const post = await db()
+      .prepare('SELECT proposer_grant_id FROM posts WHERE topic_id = ?')
+      .bind(topic!.id)
+      .first<{ proposer_grant_id: string | null }>();
+    expect(post?.proposer_grant_id).toBe('grant-create-topic-1');
+  });
+
+  it('rejects a grant session whose grant is active but owned by another user', async () => {
+    await insertGrant({ id: 'grant-owned-by-other', proposerUserId: 'proposer-user-1', coUserId: 'real-co-user' });
+    const user = { id: 'impersonator', roles: ['proposer'], grantId: 'grant-owned-by-other' };
+
+    const res = await handleCreateTopic({
+      user,
+      body: { categorySlug: 'general', title: 'Should be blocked', bodyMd: 'body' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(403);
+    expect((res.json as { error: string }).error).toBe('mandate revoked');
+  });
+
+  it('non-grant sessions are untouched: writes succeed with proposer_grant_id null', async () => {
+    const user = { id: 'plain-writer-no-grant', roles: ['drep'] };
+    const res = await handleCreateTopic({
+      user,
+      body: { categorySlug: 'general', title: 'Plain topic', bodyMd: 'body' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(201);
+    const { slug } = res.json as { slug: string };
+    const topic = await getTopicBySlug(db(), slug);
+    expect(topic?.proposer_grant_id).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleCreatePost
 // ---------------------------------------------------------------------------
 
@@ -552,6 +641,50 @@ describe('handleCreatePost: rate limiting', () => {
     // 21st denied.
     const denied = await makeReq(21);
     expect(denied.status).toBe(429);
+  });
+});
+
+describe('handleCreatePost: co-proposer mandate', () => {
+  it('403 mandate revoked when the grant was revoked; no post inserted', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: WRITER.id,
+      title: 'Revoked mandate reply target',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: NOW,
+      rand: 'revoked-post-001',
+    });
+    const coUserId = 'grant-co-user-create-post-revoked';
+    await insertGrant({
+      id: 'grant-create-post-revoked-1',
+      proposerUserId: 'proposer-user-1',
+      coUserId,
+      status: 'revoked',
+    });
+    const user = { id: coUserId, roles: ['proposer'], grantId: 'grant-create-post-revoked-1' };
+
+    const before = await db()
+      .prepare('SELECT post_count FROM topics WHERE id = ?')
+      .bind(topic.id)
+      .first<{ post_count: number }>();
+
+    const res = await handleCreatePost({
+      user,
+      topicId: topic.id,
+      body: { bodyMd: 'should not land' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW + 1,
+    });
+    expect(res.status).toBe(403);
+    expect((res.json as { error: string }).error).toBe('mandate revoked');
+
+    const after = await db()
+      .prepare('SELECT post_count FROM topics WHERE id = ?')
+      .bind(topic.id)
+      .first<{ post_count: number }>();
+    expect(after?.post_count).toBe(before?.post_count);
   });
 });
 

@@ -14,6 +14,7 @@ import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { getSelfDrepId, getUserById } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
 import { getFollow } from '@/lib/db/delegatorFollows';
+import { requireGrantManager } from '@/lib/auth/coProposerManage';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -26,6 +27,11 @@ const network = currentNetwork().network;
 
 // DRep status gates the Profile/Danger tabs in the shell.
 const drepId = db ? await getSelfDrepId(db, user) : null;
+// Grant-manager status gates the Co-proposers tab: the same guard the
+// management routes enforce, so the tab only appears when the page itself
+// would actually let the user manage grants.
+const grantGuard = db ? await requireGrantManager(db, user) : null;
+const isProposer = grantGuard !== null && 'row' in grantGuard;
 
 // "Link your stake wallet" is writer-only. Prefetch any existing link/track
 // state so the island opens straight into the right view.
@@ -44,7 +50,7 @@ const initialTracking = follow
     }
   : null;
 ---
-<SettingsShell active="account" isDrep={drepId != null}>
+<SettingsShell active="account" isDrep={drepId != null} isProposer={isProposer}>
   <p style="margin:0 0 1.25rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
     Signed in as{' '}
     <span

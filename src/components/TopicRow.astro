@@ -32,9 +32,11 @@ interface Props {
   variant?: 'default' | 'discussions';
   excerpt?: string;
   participants?: number;
+  /** Co-proposer mandate label ("for Intersect"), resolved from the topic's persisted proposer_grant_id. */
+  mandate?: string | null;
 }
 
-const { topic, now, network, author, category, governance, variant = 'default', excerpt, participants } = Astro.props;
+const { topic, now, network, author, category, governance, variant = 'default', excerpt, participants, mandate } = Astro.props;
 
 // The discussion list never passes `governance`, so the leading type icon is
 // message in practice; gavel is kept for parity with ActivityRow.
@@ -99,6 +101,7 @@ const gaCountdown = governance
             : <span class="topic-row__author">{author.displayName}</span>)
         : <span>by {truncateId(topic.author_id)}</span>}
       {badges.map((b) => <span class="topic-row__role">{b}</span>)}
+      {mandate && <span class="topic-row__role topic-row__role--mandate">{mandate}</span>}
       <span>{topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}</span>
       {gaCountdown && <span>{gaCountdown}</span>}
     </div>
@@ -228,6 +231,13 @@ const gaCountdown = governance
     border-radius: 999px;
     padding: 0.05rem 0.35rem;
     white-space: nowrap;
+  }
+  /* Mandate pill: same pill shape as the role badge, but a label ("for
+     Intersect") reads oddly shouted in caps, so it drops the uppercase
+     transform and letter-spacing (mirrors AuthorIdentity's own mandate badge). */
+  .topic-row__role--mandate {
+    text-transform: none;
+    letter-spacing: 0;
   }
   .topic-row__tally {
     display: flex;

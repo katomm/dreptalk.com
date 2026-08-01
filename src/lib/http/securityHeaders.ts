@@ -25,15 +25,27 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
 const SECURITY_HEADER_ENTRIES = Object.entries(SECURITY_HEADERS);
 
 const CSP_HEADER = 'Content-Security-Policy';
+const REFERRER_POLICY_HEADER = 'Referrer-Policy';
 
 // The style-src value we want on every document: permissive inline styles, which
 // is the project's long-standing posture (only script-src must be strict).
 const RELAXED_STYLE_SRC = "style-src 'self' 'unsafe-inline'";
 
+// Referrer-Policy values stricter than the site baseline. A route whose URL
+// carries a bearer token (e.g. the co-proposer invite redeem page's ?code=)
+// sets one of these itself so a forwarded Referer header can never leak it;
+// applySecurityHeaders must not weaken that back down to the baseline.
+const STRICTER_REFERRER_POLICIES = new Set(['no-referrer', 'same-origin']);
+
 // Enforce the baseline security headers on a response, replacing any weaker
-// value a route may have set.
+// value a route may have set. Referrer-Policy is the one exception: a route
+// may opt into a stricter value than the baseline, which is preserved.
 export function applySecurityHeaders(headers: Headers): void {
   for (const [name, value] of SECURITY_HEADER_ENTRIES) {
+    if (name === REFERRER_POLICY_HEADER) {
+      const existing = headers.get(name);
+      if (existing && STRICTER_REFERRER_POLICIES.has(existing)) continue;
+    }
     headers.set(name, value);
   }
 }

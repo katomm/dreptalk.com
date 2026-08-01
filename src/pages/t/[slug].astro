@@ -43,6 +43,7 @@ import VotePanel from '@/components/VotePanel.js';
 import MultisigVotePanel from '@/components/MultisigVotePanel.js';
 import { parseDrepId } from '@/lib/cardano/identity.js';
 import { loadAuthorIdentities, systemAuthor, authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
+import { loadMandates } from '@/lib/forum/mandate.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { isWriter } from '@/lib/auth/roles.js';
 import { currentNetwork } from '@/lib/api/response.js';
@@ -110,6 +111,13 @@ const identities = db
 
 const describe = (authorId: string): AuthorDescriptor =>
   identities ? identities.describe(authorId) : { authorId, displayName: truncateId(authorId) };
+
+// Co-proposer mandate badges: one batched lookup for the topic and every post
+// on this page, keyed by their persisted proposer_grant_id (never the
+// author's current session).
+const mandates = db
+  ? await loadMandates(db, [topic?.proposer_grant_id, ...pagePosts.map((p) => p.proposer_grant_id)])
+  : new Map<string, string>();
 
 // The first post of a governance-sourced topic carries the system identity even
 // if its author_id is not literally gov-sync.
@@ -500,7 +508,11 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           <div style="font-size:0.8125rem;color:var(--muted);display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
             {isGovernanceTopic && (
               <Fragment>
-                <AuthorIdentity author={topicAuthor} size={AVATAR_SIZE.card} />
+                <AuthorIdentity
+                  author={topicAuthor}
+                  size={AVATAR_SIZE.card}
+                  mandate={topic.proposer_grant_id ? mandates.get(topic.proposer_grant_id) : undefined}
+                />
                 <span>{formatRelativeTime(topic.created_at, now)}</span>
                 <span>{topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}</span>
               </Fragment>
@@ -543,6 +555,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 prevPage={prevPage}
                 nextPage={nextPage}
                 now={now}
+                mandates={mandates}
               />
             ) : tab === 'positions' ? (
               <GaPositions
@@ -667,6 +680,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           nextPage={nextPage}
           now={now}
           startIndex={offset}
+          mandates={mandates}
         />
         {relatedTopics.length > 0 && (
           <section class="thread-related">
