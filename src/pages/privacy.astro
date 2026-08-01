@@ -6,7 +6,7 @@ import { getLegalInfo } from '@/lib/legal';
 export const prerender = false;
 
 const legal = getLegalInfo();
-const lastUpdated = '7 June 2026';
+const lastUpdated = '1 August 2026';
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 <Layout
@@ -42,6 +42,10 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       is no password. When you sign in, we store your public on-chain identifier (for
       example your DRep ID or stake address) and the on-chain role it proves (DRep, SPO,
       Constitutional Committee member, or proposer) in order to grant posting access.
+      You can also sign in as a delegator: in that case we store your stake address and
+      the delegation it currently points to (for example the DRep you delegate to),
+      refreshed periodically from public chain data, in order to show your delegation
+      dashboard and to enable the optional notifications described below.
       Legal basis: Art. 6(1)(b) GDPR (providing the service you request) and (f)
       (legitimate interest in operating a forum with verifiable on-chain roles).
     </p>
@@ -59,6 +63,27 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       GDPR and &sect; 25(2) TDDDG (strictly necessary).
     </p>
 
+    <h3>Notifications (optional)</h3>
+    <p>
+      If you enable browser push notifications, we store the push subscription your
+      browser issues (its endpoint URL and the public encryption key for that device)
+      together with your per-event preferences, and use it to deliver notifications.
+      Delivery necessarily runs through the push service of your browser vendor (for
+      example Google, Mozilla, or Apple). Notification content is end-to-end encrypted
+      (RFC 8291): we encrypt each notification with that public key, the matching
+      private key never leaves your browser, and the push service cannot read the
+      content and only handles delivery metadata. You can disable push at any time in your notification settings or in
+      your browser, which removes the subscription. Legal basis: Art. 6(1)(a) GDPR
+      (consent).
+    </p>
+    <p>
+      If you link a Telegram account, we store your Telegram chat ID and send
+      notifications through the Telegram Bot API. Unlike push, the content of these
+      messages is visible to Telegram, as with any Telegram message. You can unlink
+      Telegram at any time in your notification settings, which deletes the stored
+      chat ID. Legal basis: Art. 6(1)(a) GDPR (consent).
+    </p>
+
     <h3>Server logs and security</h3>
     <p>
       Our hosting and security provider (Cloudflare) processes connection data such as
@@ -69,7 +94,7 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
 
     <h3>Analytics</h3>
     <p>
-      When enabled, the site uses Cloudflare Web Analytics, a privacy-preserving,
+      The site uses Cloudflare Web Analytics, a privacy-preserving,
       cookieless tool that collects only aggregate metrics. It does not use cookies,
       does not fingerprint you, and does not track you across sites. Legal basis:
       Art. 6(1)(f) GDPR.
@@ -81,8 +106,9 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       public data from the Cardano blockchain through the Koios API. We do not transmit
       personal data to Koios beyond public on-chain identifiers. Profile details (name,
       description, image) that DReps publish on-chain via CIP-119 are displayed here;
-      profile images are served through our own cache, so your browser does not contact
-      third-party image hosts.
+      profile images are served through our own cache, so your browser never contacts
+      the third-party hosts these images come from and your IP address is not revealed
+      to them.
     </p>
 
     <h2>Recipients and processors</h2>
@@ -93,6 +119,8 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     <ul>
       <li>Cloudflare, Inc.: hosting, content delivery, security, and cookieless analytics, under a data processing agreement.</li>
       <li>Koios: a public, read-only Cardano data API; we send only public on-chain identifiers.</li>
+      <li>Browser push services (Google, Mozilla, or Apple, depending on your browser): deliver the push notifications you enable; content is end-to-end encrypted, so they handle only delivery metadata.</li>
+      <li>Telegram: delivers notifications if you link a Telegram account; these messages are readable by Telegram.</li>
     </ul>
 
     <h2>International transfers</h2>
