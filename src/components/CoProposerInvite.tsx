@@ -144,7 +144,10 @@ export default function CoProposerInvite({ initialPending, initialActive, maxSlo
               <CopyButton value={inviteState.url} label="Copy invite link" />
             </div>
             <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem' }}>
-              Valid 7 days, single use. Share it over a private channel.
+              Valid 7 days, single use.{' '}
+              <strong>
+                <a href="/help/proposers/#co-proposers">Share it over a private channel.</a>
+              </strong>
             </p>
           </div>
         </div>

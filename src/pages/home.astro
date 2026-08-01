@@ -174,7 +174,13 @@ const cards: HomeCard[] = [
           title: 'Settings',
           href: '/settings/',
           icon: icons.settings,
-          desc: 'Manage your DRepTalk account.',
+          // Proposers manage their co-proposers in settings; surface that here
+          // so it is discoverable from the start page. Grant-backed sessions
+          // (co-proposers) cannot manage grants, so they keep the plain copy.
+          desc:
+            user.roles.includes('proposer') && !user.grantId
+              ? 'Manage your DRepTalk account and invite co-proposers to write on your behalf.'
+              : 'Manage your DRepTalk account.',
         },
       ]),
   {
