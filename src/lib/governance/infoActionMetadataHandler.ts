@@ -14,18 +14,30 @@ import {
   INFO_MOTIVATION_MAX,
   INFO_RATIONALE_MAX,
 } from './infoActionLimits.js';
-import { canonicalBodyHashFor, type Cip108Body } from './cip108Canonical.js';
+import { canonicalBodyHashFor, type Cip108Body, type Cip108Reference } from './cip108Canonical.js';
 import { verifyWalletAuthorWitness } from './authorWitness.js';
 import { pinInfoActionMetadata, type FileUploader } from './pinata.js';
 import { getGovActionMetadata, putGovActionMetadata } from '../db/govActionMetadata.js';
 
 const AUTHOR_NAME_MAX = 120;
 
+// Mirrors GovTool's reference-link caps. referenceHash is spec-optional and
+// we do not collect it (see Cip108Reference).
+const REFERENCE_LABEL_MAX = 200;
+const REFERENCE_URI_MAX = 2048;
+const REFERENCES_MAX = 10;
+
+const referenceSchema = z.object({
+  label: z.string().min(1).max(REFERENCE_LABEL_MAX),
+  uri: z.string().url().max(REFERENCE_URI_MAX),
+});
+
 const bodySchema = z.object({
   title: z.string().min(1).max(INFO_TITLE_MAX),
   abstract: z.string().min(1).max(INFO_ABSTRACT_MAX),
   motivation: z.string().min(1).max(INFO_MOTIVATION_MAX),
   rationale: z.string().min(1).max(INFO_RATIONALE_MAX),
+  references: z.array(referenceSchema).max(REFERENCES_MAX).optional(),
   author: z
     .object({
       name: z.string().min(1).max(AUTHOR_NAME_MAX),
@@ -35,16 +47,34 @@ const bodySchema = z.object({
     .optional(),
 });
 
+// Sanitizes each candidate reference and drops entries left empty by
+// sanitization (e.g. a label that was only control characters). Returns
+// undefined rather than [] so the caller can omit the key entirely, matching
+// buildInfoActionMetadata's omit-when-empty behavior.
+function cleanReferences(refs: z.infer<typeof referenceSchema>[] | undefined): Cip108Reference[] | undefined {
+  if (!refs || refs.length === 0) return undefined;
+  const cleaned: Cip108Reference[] = [];
+  for (const r of refs) {
+    const label = sanitizeExternalText(r.label, REFERENCE_LABEL_MAX);
+    const uri = sanitizeExternalText(r.uri, REFERENCE_URI_MAX);
+    if (!label || !uri) continue;
+    cleaned.push({ '@type': 'Other', label, uri });
+  }
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
 // Sanitize every field, then re-check non-emptiness: sanitize can strip a
 // field to '' (e.g. an input that was only control characters).
 function cleanBody(b: z.infer<typeof bodySchema>): Cip108Body | null {
-  const clean = {
+  const clean: Cip108Body = {
     title: sanitizeExternalText(b.title, INFO_TITLE_MAX),
     abstract: sanitizeExternalMultiline(b.abstract, INFO_ABSTRACT_MAX),
     motivation: sanitizeExternalMultiline(b.motivation, INFO_MOTIVATION_MAX),
     rationale: sanitizeExternalMultiline(b.rationale, INFO_RATIONALE_MAX),
   };
   if (!clean.title || !clean.abstract || !clean.motivation || !clean.rationale) return null;
+  const references = cleanReferences(b.references);
+  if (references) clean.references = references;
   return clean;
 }
 

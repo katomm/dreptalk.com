@@ -78,4 +78,85 @@ describe('handleInfoActionMetadata', () => {
     await handleInfoActionMetadata(input);
     expect(calls).toBe(1);
   });
+
+  it('rejects a reference with an invalid uri', async () => {
+    const res = await handleInfoActionMetadata({
+      body: { ...body, title: 'RefBadUri', references: [{ label: 'Bad', uri: 'not-a-url' }] },
+      db: env.DB,
+      jwt: 'jwt',
+      now: 1,
+      expectedNetworkId: 0,
+      upload: fakeUpload,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a reference with an over-long label', async () => {
+    const res = await handleInfoActionMetadata({
+      body: { ...body, title: 'RefLongLabel', references: [{ label: 'x'.repeat(201), uri: 'https://example.com' }] },
+      db: env.DB,
+      jwt: 'jwt',
+      now: 1,
+      expectedNetworkId: 0,
+      upload: fakeUpload,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('drops a reference entry whose label is empty after sanitization, keeping the doc references-free', async () => {
+    let uploadedBody: string | undefined;
+    const capturingUpload = async (file: File) => {
+      uploadedBody = await file.text();
+      return { cid: CID, size: (await file.arrayBuffer()).byteLength };
+    };
+    const res = await handleInfoActionMetadata({
+      body: { ...body, title: 'RefDropped', references: [{ label: ' ', uri: 'https://example.com' }] },
+      db: env.DB,
+      jwt: 'jwt',
+      now: 1,
+      expectedNetworkId: 0,
+      upload: capturingUpload,
+    });
+    expect(res.status).toBe(200);
+    const doc = JSON.parse(uploadedBody ?? '{}');
+    expect(doc.body.references).toBeUndefined();
+  });
+
+  it('rejects more than 10 references', async () => {
+    const references = Array.from({ length: 11 }, (_, i) => ({ label: `Ref ${i}`, uri: `https://example.com/${i}` }));
+    const res = await handleInfoActionMetadata({
+      body: { ...body, title: 'RefTooMany', references },
+      db: env.DB,
+      jwt: 'jwt',
+      now: 1,
+      expectedNetworkId: 0,
+      upload: fakeUpload,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('round-trips a valid, trimmed reference into the stored doc with the fixed @type/label/uri shape', async () => {
+    let uploadedBody: string | undefined;
+    const capturingUpload = async (file: File) => {
+      uploadedBody = await file.text();
+      return { cid: CID, size: (await file.arrayBuffer()).byteLength };
+    };
+    const res = await handleInfoActionMetadata({
+      body: {
+        ...body,
+        title: 'RefValid',
+        references: [{ label: '  Forum thread  ', uri: 'https://example.com/thread' }],
+      },
+      db: env.DB,
+      jwt: 'jwt',
+      now: 1,
+      expectedNetworkId: 0,
+      upload: capturingUpload,
+    });
+    expect(res.status).toBe(200);
+    const doc = JSON.parse(uploadedBody ?? '{}');
+    expect(doc.body.references).toEqual([
+      { '@type': 'Other', label: 'Forum thread', uri: 'https://example.com/thread' },
+    ]);
+  });
 });

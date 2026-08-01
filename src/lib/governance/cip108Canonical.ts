@@ -17,11 +17,21 @@ const canonize = jsonld.canonize as (
   options: Options.Normalize,
 ) => Promise<string>;
 
+// A GovTool-style reference link. `referenceHash` (an optional
+// {hashAlgorithm, hashDigest} proving the linked document's content) is part
+// of the CIP-108 spec but we do not collect it, so it is omitted here.
+export interface Cip108Reference {
+  '@type': 'Other';
+  label: string;
+  uri: string;
+}
+
 export interface Cip108Body {
   title: string;
   abstract: string;
   motivation: string;
   rationale: string;
+  references?: Cip108Reference[];
 }
 
 // Verbatim @context from the official CIP-108 example

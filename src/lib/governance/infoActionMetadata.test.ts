@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildInfoActionMetadata } from './infoActionMetadata.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
+import type { Cip108Reference } from './cip108Canonical.js';
 
 const body = { title: 'Ping', abstract: 'A', motivation: 'M', rationale: 'R' };
 
@@ -23,5 +24,28 @@ describe('buildInfoActionMetadata', () => {
     const doc = JSON.parse(buildInfoActionMetadata({ body, authors }).body);
     expect(doc.authors[0].name).toBe('Alice');
     expect(doc.authors[0].witness.witnessAlgorithm).toBe('CIP-0008');
+  });
+
+  it('omits the references key when absent, and an explicit empty array hashes the same as absent', () => {
+    const absent = buildInfoActionMetadata({ body, authors: [] });
+    const emptyArray = buildInfoActionMetadata({ body: { ...body, references: [] }, authors: [] });
+    expect(emptyArray.hash).toBe(absent.hash);
+    expect(emptyArray.body).toBe(absent.body);
+    const doc = JSON.parse(absent.body);
+    expect(Object.keys(doc.body)).toEqual(['title', 'abstract', 'motivation', 'rationale']);
+  });
+
+  it('includes references as the last body field, with fixed per-entry key order, when present', () => {
+    const references: Cip108Reference[] = [
+      { '@type': 'Other', label: 'Forum thread', uri: 'https://example.com/thread' },
+      { '@type': 'Other', label: 'Docs', uri: 'https://example.com/docs' },
+    ];
+    const { body: served, hash } = buildInfoActionMetadata({ body: { ...body, references }, authors: [] });
+    const doc = JSON.parse(served);
+    expect(Object.keys(doc.body)).toEqual(['title', 'abstract', 'motivation', 'rationale', 'references']);
+    expect(doc.body.references).toEqual(references);
+    // Fixed per-entry key order in the raw served bytes (JSON.stringify preserves insertion order).
+    expect(served).toContain('"references":[{"@type":"Other","label":"Forum thread","uri":"https://example.com/thread"}');
+    expect(hash).toBe(bytesToHex(blake2b256(new TextEncoder().encode(served))));
   });
 });

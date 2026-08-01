@@ -3,7 +3,7 @@
 // makes JSON.stringify deterministic, which is required because the hash is
 // the on-chain anchor hash. Reuses the verbatim CIP-108 @context from Task 1
 // so the served document is a conformant standalone CIP-108 document.
-import { CIP108_CONTEXT, type Cip108Body } from './cip108Canonical.js';
+import { CIP108_CONTEXT, type Cip108Body, type Cip108Reference } from './cip108Canonical.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import {
@@ -29,16 +29,29 @@ const TEXT_ENCODER = new TextEncoder();
  */
 export function buildInfoActionMetadata(input: { body: Cip108Body; authors: Cip108Author[] }): { body: string; hash: string } {
   // Fixed key order => deterministic bytes => the hash matches the served/pinned file.
+  // `references` is appended last, and only when present and non-empty, so a
+  // no-references doc stays byte-identical to the (pre-references) 4-field body.
+  const bodyDoc: {
+    title: string;
+    abstract: string;
+    motivation: string;
+    rationale: string;
+    references?: Cip108Reference[];
+  } = {
+    title: input.body.title,
+    abstract: input.body.abstract,
+    motivation: input.body.motivation,
+    rationale: input.body.rationale,
+  };
+  if (input.body.references && input.body.references.length > 0) {
+    // Fixed per-entry key order, mirroring the doc's own fixed key order.
+    bodyDoc.references = input.body.references.map((r) => ({ '@type': r['@type'], label: r.label, uri: r.uri }));
+  }
   const doc = {
     '@context': CIP108_CONTEXT,
     hashAlgorithm: 'blake2b-256',
     authors: input.authors,
-    body: {
-      title: input.body.title,
-      abstract: input.body.abstract,
-      motivation: input.body.motivation,
-      rationale: input.body.rationale,
-    },
+    body: bodyDoc,
   };
   const body = JSON.stringify(doc);
   const hash = bytesToHex(blake2b256(TEXT_ENCODER.encode(body)));

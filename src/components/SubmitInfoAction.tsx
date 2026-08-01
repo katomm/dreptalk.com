@@ -31,6 +31,13 @@ import WalletConnection from '@/components/WalletConnection.js';
 // in sync manually since that constant is server-internal.
 const AUTHOR_NAME_MAX = 120;
 
+// Mirrors the un-exported REFERENCE_LABEL_MAX / REFERENCE_URI_MAX / REFERENCES_MAX
+// in infoActionMetadataHandler.ts; kept in sync manually since those constants
+// are server-internal (like AUTHOR_NAME_MAX above).
+const REFERENCE_LABEL_MAX = 200;
+const REFERENCE_URI_MAX = 2048;
+const REFERENCES_MAX = 10;
+
 // The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key). The
 // drepTx WalletApi omits signData entirely (no tx builder there calls it), so
 // this island defines its own fuller CIP-30 surface. It is a structural
@@ -57,6 +64,15 @@ interface InfoActionFields {
   abstract: string;
   motivation: string;
   rationale: string;
+}
+
+// A row in the References editor below. Kept as a local, unadorned shape
+// (not the server's Cip108Reference) so this island never imports
+// cip108Canonical.ts, which would drag the jsonld/URDNA2015 engine into the
+// client bundle; the server adds the fixed '@type': 'Other' field.
+interface ReferenceRow {
+  label: string;
+  uri: string;
 }
 
 type DepositState =
@@ -207,6 +223,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   const [rationale, setRationale] = useState('');
   const [signAsAuthor, setSignAsAuthor] = useState(false);
   const [authorName, setAuthorName] = useState('');
+  const [references, setReferences] = useState<ReferenceRow[]>([]);
 
   // Deposit is informational chain data, independent of wallet connection;
   // load it once on mount so it is ready before the user reaches the form.
@@ -235,6 +252,19 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   }, []);
 
   const busy = phase.status === 'connecting' || phase.status === 'submitting';
+
+  // ------------------------------------------------------------------
+  // References row editor (optional, like GovTool's reference links).
+  // ------------------------------------------------------------------
+  function updateReference(i: number, patch: Partial<ReferenceRow>) {
+    setReferences((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  function removeReference(i: number) {
+    setReferences((rows) => rows.filter((_, idx) => idx !== i));
+  }
+  function addReference() {
+    setReferences((rows) => (rows.length < REFERENCES_MAX ? [...rows, { label: '', uri: '' }] : rows));
+  }
 
   // ------------------------------------------------------------------
   // Step 1: connect wallet, run network guard. Plain CIP-30 enable, no CIP-95
@@ -303,6 +333,13 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
       return;
     }
 
+    // Trimmed, non-empty rows only. Sent identically to both the prepare and
+    // finalize calls below so the hash the wallet signs matches what is
+    // finally anchored.
+    const referencePayload = references
+      .map((r) => ({ label: r.label.trim(), uri: r.uri.trim() }))
+      .filter((r) => r.label && r.uri);
+
     setPhase({ status: 'submitting' });
 
     try {
@@ -325,7 +362,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
         const prepareRes = await fetchWithTimeout(`${window.location.origin}/api/gov-action/metadata/prepare`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(fields),
+          body: JSON.stringify({ ...fields, ...(referencePayload.length > 0 ? { references: referencePayload } : {}) }),
         });
         if (!prepareRes.ok) {
           const body = (await prepareRes.json().catch(() => null)) as { error?: string } | null;
@@ -356,7 +393,11 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
       const metaRes = await fetchWithTimeout(`${window.location.origin}/api/gov-action/metadata`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...fields, ...(author ? { author } : {}) }),
+        body: JSON.stringify({
+          ...fields,
+          ...(author ? { author } : {}),
+          ...(referencePayload.length > 0 ? { references: referencePayload } : {}),
+        }),
       });
       if (!metaRes.ok) {
         const body = (await metaRes.json().catch(() => null)) as { error?: string } | null;
@@ -550,6 +591,58 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
                   placeholder="Explain the reasoning in detail..."
                 />
               </CountedField>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <span style={labelStyle}>References (optional)</span>
+                <span style={helpStyle}>Link to supporting documents or discussions, like GovTool&apos;s reference links.</span>
+                {references.map((ref, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional inputs owned by index; there is no stable id
+                  <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={ref.label}
+                      onChange={(e) => updateReference(i, { label: e.target.value })}
+                      placeholder="Label (e.g. Forum discussion)"
+                      maxLength={REFERENCE_LABEL_MAX}
+                      disabled={busy}
+                      style={{ ...inputStyle, flex: '0 0 12rem' }}
+                      aria-label={`Reference ${i + 1} label`}
+                    />
+                    <input
+                      type="url"
+                      value={ref.uri}
+                      onChange={(e) => updateReference(i, { uri: e.target.value })}
+                      placeholder="https://..."
+                      maxLength={REFERENCE_URI_MAX}
+                      disabled={busy}
+                      style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                      aria-label={`Reference ${i + 1} URL`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeReference(i)}
+                      disabled={busy}
+                      aria-label={`Remove reference ${i + 1}`}
+                      style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.8125rem', padding: '0 0.25rem', flexShrink: 0, textDecoration: 'underline' }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {references.length < REFERENCES_MAX && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                    <button
+                      type="button"
+                      onClick={addReference}
+                      disabled={busy}
+                      style={{ background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '0.375rem', padding: '0.375rem 0.75rem', fontSize: '0.875rem', cursor: busy ? 'not-allowed' : 'pointer' }}
+                    >
+                      Add reference
+                    </button>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>You can add up to {REFERENCES_MAX} references.</span>
+                  </div>
+                )}
+              </div>
 
               <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
                 <input
