@@ -1,13 +1,13 @@
 /// <reference types="@cloudflare/workers-types" />
 // Workers-runtime tests for POST /api/auth/logout-all.
 // Calls the exported POST handler directly with a synthetic APIContext, the
-// same convention as src/pages/api/auth/pair/poll.workers.test.ts, so the
+// same convention as pair/__tests__/poll.workers.test.ts, so the
 // test runs inside the real Workers runtime (KV) without an HTTP server or
 // the Astro middleware chain.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createSession, getSession } from '@/lib/auth/session';
-import { POST } from './logout-all';
+import { POST } from '../logout-all';
 
 const USER_ID = 'user-logout-all-1';
 

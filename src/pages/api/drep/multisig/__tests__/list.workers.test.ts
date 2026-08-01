@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createPendingMultisig } from '@/lib/db/pendingMultisigTx';
-import { GET } from './list';
+import { GET } from '../list';
 
 // ---------------------------------------------------------------------------
 // Fixtures

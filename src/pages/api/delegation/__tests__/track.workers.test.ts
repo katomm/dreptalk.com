@@ -7,7 +7,7 @@
 // the route wires up a real Koios client (network call), not an injectable
 // one.
 import { describe, it, expect } from 'vitest';
-import { POST } from './track';
+import { POST } from '../track';
 
 const USER_ID = 'user-track-gate-1';
 

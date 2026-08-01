@@ -65,7 +65,7 @@ vi.mock('@evolution-sdk/evolution', async (importOriginal) => {
 
 // Import the handler AFTER the mocks are registered (vitest hoists vi.mock above
 // the import, but placing it here makes the dependency order explicit).
-import { POST } from './index';
+import { POST } from '../index';
 
 // ---------------------------------------------------------------------------
 // Script fixture: a known native-script whose hash we compute at module load.

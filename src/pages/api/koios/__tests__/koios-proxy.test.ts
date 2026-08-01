@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST, _setFetchImpl } from './[...path]';
+import { GET, POST, _setFetchImpl } from '../[...path]';
 
 // Minimal stand-ins for the Astro APIRoute context objects.
 function makeContext(
@@ -158,7 +158,7 @@ describe('koios proxy: method rejection', () => {
   it('does not export PUT (only GET and POST are exposed)', async () => {
     // Only GET and POST are exported: other HTTP methods are not handled,
     // so Astro returns 405 automatically.
-    const mod = await import('./[...path]');
+    const mod = await import('../[...path]');
     expect((mod as Record<string, unknown>).PUT).toBeUndefined();
     expect((mod as Record<string, unknown>).PATCH).toBeUndefined();
     expect((mod as Record<string, unknown>).DELETE).toBeUndefined();

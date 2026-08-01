@@ -45,7 +45,7 @@ vi.mock('cloudflare:workers', () => ({
 }));
 
 // Import after mock is registered.
-import { GET } from './[hash].json.js';
+import { GET } from '../[hash].json.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

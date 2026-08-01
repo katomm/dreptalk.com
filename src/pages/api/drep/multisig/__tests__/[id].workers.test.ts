@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parseNativeScriptJson, nativeScriptHash } from '@/lib/cardano/nativeScript';
 import { createPendingMultisig } from '@/lib/db/pendingMultisigTx';
-import { GET } from './[id]';
+import { GET } from '../[id]';
 
 // ---------------------------------------------------------------------------
 // Script fixture: a known 2-of-3 atLeast native script.
