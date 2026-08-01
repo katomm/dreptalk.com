@@ -3,6 +3,7 @@ import { env } from 'cloudflare:test';
 import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt, backfillGovTopicTitles, refreshTrendingScores } from './sync.js';
 import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
+import { activityInsert } from '../db/activity.js';
 import { createTopic, getOpeningPostBody } from '../db/forum.js';
 import type { ProposalListRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
@@ -628,7 +629,7 @@ describe('backfillActionMetadata', () => {
 });
 
 describe('submission-date post stamping and backfill', () => {
-  const EPOCH_200_MS = 1742169600000; // epochStartUnix(200, preprod) * 1000
+  const EPOCH_200_MS = 1740441600000; // epochStartUnix(200, preprod) * 1000
 
   it('stamps a newly synced governance topic with the submission-epoch time', async () => {
     let n = 0;
@@ -650,6 +651,53 @@ describe('submission-date post stamping and backfill', () => {
       .bind(`${'aa'.repeat(32)}#0`)
       .first<{ created_at: number; last_post_at: number }>();
     expect(row).toEqual({ created_at: EPOCH_200_MS, last_post_at: EPOCH_200_MS });
+  });
+
+  it('stamps a newly synced governance topic and its feed event with the exact block time', async () => {
+    const txHash = 'ab'.repeat(32);
+    const BLOCK_TIME = 1_742_400_123; // unix seconds, well after the epoch-200 boundary
+    const NOW = 1_742_500_000_000;
+    let n = 0;
+    await syncGovernanceActions({
+      koios: fakeKoios([
+        {
+          proposal_id: 'gov_action1exact',
+          proposal_tx_hash: txHash,
+          proposal_index: 0,
+          proposal_type: 'InfoAction',
+          meta_url: null,
+          meta_hash: null,
+          proposed_epoch: 200,
+          expiration: 230,
+          block_time: BLOCK_TIME,
+        },
+      ]),
+      db: env.DB,
+      network: 'preprod',
+      now: NOW,
+      rand: () => `rex${n++}`,
+      fetchImpl: fetchOk,
+    });
+    const row = await env.DB
+      .prepare(
+        `SELECT t.id AS topicId, t.created_at AS tc, t.last_post_at AS tl, p.created_at AS pc
+         FROM topics t
+         JOIN governance_actions ga ON ga.topic_id = t.id
+         JOIN posts p ON p.topic_id = t.id
+         WHERE ga.id = ?`,
+      )
+      .bind(`${txHash}#0`)
+      .first<{ topicId: string; tc: number; tl: number; pc: number }>();
+    expect(row).toMatchObject({ tc: BLOCK_TIME * 1000, tl: BLOCK_TIME * 1000, pc: BLOCK_TIME * 1000 });
+
+    // The feed event carries the same exact date, while notified_at stays the
+    // detection time so notification cursors still see the action as new.
+    const ev = await env.DB
+      .prepare("SELECT created_at, notified_at FROM activity WHERE type = 'gov_created' AND topic_id = ?")
+      .bind(row!.topicId)
+      .first<{ created_at: number; notified_at: number }>();
+    expect(ev!.created_at).toBe(BLOCK_TIME * 1000);
+    expect(ev!.notified_at).toBe(NOW);
   });
 
   it('corrects a no-reply governance topic to the submission time, then is a no-op', async () => {
@@ -705,18 +753,95 @@ describe('submission-date post stamping and backfill', () => {
     expect(r2.updated).toBe(0);
   });
 
-  it('never touches a governance topic that has real replies', async () => {
-    const SYNC_TIME = 1_700_000_000_000;
+  it('corrects topic, system post and feed event to the exact submission time when known', async () => {
+    // Row stamped at the epoch boundary by the old code; the action row knows the
+    // exact block time (~2.8 days into the epoch), the feed event was detected later.
+    const SUB_MS = EPOCH_200_MS + 244_191_000;
+    const DETECT_MS = EPOCH_200_MS + 300_000_000;
+    const topicId = 'bf-topic-exact';
+    await env.DB.batch([
+      env.DB
+        .prepare(
+          `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
+           VALUES (?, 'governance-actions', 'gov-sync', 'governance', 'Exact Time', 'exact-time-bf4', 1, ?, ?)`,
+        )
+        .bind(topicId, EPOCH_200_MS, EPOCH_200_MS),
+      env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+           VALUES ('bf-post-exact', ?, 'gov-sync', 'b', '<p>b</p>', ?)`,
+        )
+        .bind(topicId, EPOCH_200_MS),
+      buildInsertGovernanceAction(env.DB, {
+        id: 'bf-action-exact',
+        proposalId: 'gov_action1bf4',
+        type: 'InfoAction',
+        title: null,
+        abstract: null,
+        rationaleHtml: null,
+        anchorUrl: null,
+        anchorHash: null,
+        anchorStatus: 'no-anchor',
+        returnAddress: null,
+        deposit: null,
+        submittedEpoch: 200,
+        submittedAt: SUB_MS,
+        expiryEpoch: null,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId,
+        now: EPOCH_200_MS,
+      }),
+      activityInsert(env.DB, { type: 'gov_created', topicId, createdAt: EPOCH_200_MS, notifiedAt: DETECT_MS }),
+    ]);
+
+    const r1 = await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+    expect(r1.updated).toBeGreaterThanOrEqual(1);
+
+    const fixed = await env.DB
+      .prepare(
+        `SELECT t.created_at AS tc, t.last_post_at AS tl, p.created_at AS pc
+         FROM topics t JOIN posts p ON p.topic_id = t.id WHERE t.id = ?`,
+      )
+      .bind(topicId)
+      .first<{ tc: number; tl: number; pc: number }>();
+    expect(fixed).toEqual({ tc: SUB_MS, tl: SUB_MS, pc: SUB_MS });
+
+    // The feed event moves to the exact date; the notification cursor value stays.
+    const ev = await env.DB
+      .prepare("SELECT created_at, notified_at FROM activity WHERE type = 'gov_created' AND topic_id = ?")
+      .bind(topicId)
+      .first<{ created_at: number; notified_at: number }>();
+    expect(ev).toEqual({ created_at: SUB_MS, notified_at: DETECT_MS });
+
+    const r2 = await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+    expect(r2.updated).toBe(0);
+  });
+
+  it('corrects created_at and the system post on a replied topic but preserves last_post_at', async () => {
+    // A replied topic must keep its reply-driven last_post_at (list ordering), while
+    // the opening post and topic created_at still move to the exact submission time.
+    const SUB_MS = EPOCH_200_MS + 100_000_000;
+    const REPLY_MS = EPOCH_200_MS + 400_000_000;
     const topicId = 'bf-topic-replied';
     await env.DB.batch([
-      // post_count is the denormalized reply counter; no post rows are needed to
-      // exercise the post_count <= 1 filter.
       env.DB
         .prepare(
           `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
            VALUES (?, 'governance-actions', 'gov-sync', 'governance', 'Has Replies', 'has-replies-bf2', 2, ?, ?)`,
         )
-        .bind(topicId, SYNC_TIME, SYNC_TIME),
+        .bind(topicId, REPLY_MS, EPOCH_200_MS),
+      env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+           VALUES ('bf-post-replied-sys', ?, 'gov-sync', 's', '<p>s</p>', ?)`,
+        )
+        .bind(topicId, EPOCH_200_MS),
+      env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+           VALUES ('bf-post-replied-reply', ?, 'drep-user', 'r', '<p>r</p>', ?)`,
+        )
+        .bind(topicId, REPLY_MS),
       buildInsertGovernanceAction(env.DB, {
         id: 'bf-action-replied',
         proposalId: 'gov_action1bf2',
@@ -730,20 +855,32 @@ describe('submission-date post stamping and backfill', () => {
         returnAddress: null,
         deposit: null,
         submittedEpoch: 200,
+        submittedAt: SUB_MS,
         expiryEpoch: null,
         metaVersion: META_EXTRACT_VERSION,
         topicId,
-        now: SYNC_TIME,
+        now: EPOCH_200_MS,
       }),
     ]);
 
     await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
 
-    const row = await env.DB
+    const topic = await env.DB
       .prepare('SELECT created_at, last_post_at FROM topics WHERE id = ?')
       .bind(topicId)
       .first<{ created_at: number; last_post_at: number }>();
-    expect(row).toEqual({ created_at: SYNC_TIME, last_post_at: SYNC_TIME });
+    expect(topic).toEqual({ created_at: SUB_MS, last_post_at: REPLY_MS });
+
+    const sys = await env.DB
+      .prepare('SELECT created_at FROM posts WHERE id = ?')
+      .bind('bf-post-replied-sys')
+      .first<{ created_at: number }>();
+    const reply = await env.DB
+      .prepare('SELECT created_at FROM posts WHERE id = ?')
+      .bind('bf-post-replied-reply')
+      .first<{ created_at: number }>();
+    expect(sys!.created_at).toBe(SUB_MS);
+    expect(reply!.created_at).toBe(REPLY_MS);
   });
 
   it('stamps only the system post, never a reply that raced the candidate read', async () => {

@@ -74,10 +74,12 @@ describe('epochStartUnix', () => {
     expect(epochStartUnix(209, resolveNetwork('mainnet'))).toBe(1596059091 + 432000);
     expect(epochStartUnix(206, resolveNetwork('mainnet'))).toBe(1596059091 - 2 * 432000);
   });
-  it('uses the preprod genesis anchor at epoch 0', () => {
-    // preprod system start = 2022-06-21T00:00:00Z = unix 1655769600.
-    expect(epochStartUnix(0, resolveNetwork('preprod'))).toBe(1655769600);
-    expect(epochStartUnix(2, resolveNetwork('preprod'))).toBe(1655769600 + 2 * 432000);
+  it('matches the chain-reported preprod epoch boundaries', () => {
+    // Chain-verified via Koios /epoch_info: preprod epoch 293 started at
+    // 1780617600 (2026-06-05T00:00:00Z). The Shelley-era anchor (2022-06-21)
+    // is the epoch-4 boundary, not epoch 0: Byron epochs 0..3 precede it.
+    expect(epochStartUnix(293, resolveNetwork('preprod'))).toBe(1780617600);
+    expect(epochStartUnix(4, resolveNetwork('preprod'))).toBe(1655769600);
   });
 });
 

@@ -1,7 +1,7 @@
 ---
 // Sidebar card: lifecycle status pill + submitted/decided epochs with dates.
 import type { GovernanceAction } from '@/lib/db/governance.js';
-import { statusBadge, formatEpochDate, TONE_COLORS } from '@/lib/governance/view.js';
+import { statusBadge, formatEpochDate, submittedDateLabel, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 
 interface Props {
@@ -14,10 +14,10 @@ const badge = statusBadge(action.status);
 const badgeColor = TONE_COLORS[badge.tone];
 const netCfg = resolveNetwork(network);
 
-// Derive epoch dates only when an epoch is known; never invent dates.
-const submittedDate = action.submittedEpoch != null
-  ? formatEpochDate(epochStartUnix(action.submittedEpoch, netCfg))
-  : null;
+// Derive epoch dates only when an epoch is known; never invent dates. Expiry
+// and decided stay at epoch boundaries, where those genuinely happen; the
+// submission date preference lives in submittedDateLabel.
+const submittedDate = submittedDateLabel(action.submittedAt, action.submittedEpoch, netCfg);
 const expiryDate = action.expiryEpoch != null
   ? formatEpochDate(epochStartUnix(action.expiryEpoch, netCfg))
   : null;

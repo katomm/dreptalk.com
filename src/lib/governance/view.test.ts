@@ -13,6 +13,8 @@ import {
   fmtPct,
   fmtPctFine,
   formatEpochDate,
+  formatSubmittedDateTime,
+  submittedDateLabel,
   govTypeTone,
   govActionOgImage,
   threadOgImage,
@@ -31,6 +33,7 @@ import {
 } from './view.js';
 import { spoTallyPct } from '../koios/corrections.js';
 import type { VotingSummary } from '../koios/client.js';
+import { resolveNetwork } from '../config/network.js';
 
 describe('readableType / formatAda', () => {
   it('spaces camelCase types', () => {
@@ -148,7 +151,27 @@ describe('fmtPct', () => {
 describe('formatEpochDate', () => {
   it('formats a unix-seconds epoch boundary as a UTC short date', () => {
     expect(formatEpochDate(1596059091)).toBe('Jul 29, 2020'); // mainnet epoch 208 boundary
-    expect(formatEpochDate(1655769600)).toBe('Jun 21, 2022'); // preprod epoch 0 boundary
+    expect(formatEpochDate(1655769600)).toBe('Jun 21, 2022'); // preprod epoch 4 boundary
+  });
+});
+
+describe('formatSubmittedDateTime', () => {
+  it('formats a unix-ms submission time as a UTC date with minutes', () => {
+    // The Update Constitutional Committee 2026 submission: 2026-07-31T17:34:42Z.
+    expect(formatSubmittedDateTime(1785519282000)).toBe('Jul 31, 2026, 17:34 UTC');
+  });
+});
+
+describe('submittedDateLabel', () => {
+  const cfg = resolveNetwork('mainnet');
+  it('prefers the exact submission time over the epoch-start fallback', () => {
+    expect(submittedDateLabel(1785519282000, 646, cfg)).toBe('Jul 31, 2026, 17:34 UTC');
+  });
+  it('falls back to the epoch-start date when no exact time is stored', () => {
+    expect(submittedDateLabel(null, 208, cfg)).toBe('Jul 29, 2020');
+  });
+  it('returns null when neither is known', () => {
+    expect(submittedDateLabel(null, null, cfg)).toBeNull();
   });
 });
 

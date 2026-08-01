@@ -5,6 +5,7 @@
 // (governanceActionUrl), since they are network-aware.
 
 import { formatAda, formatAdaCompact } from '../format/ada.js';
+import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import type { Body } from './thresholds.js';
 
 // Re-exported so governance components keep importing the ADA formatters from
@@ -223,6 +224,40 @@ const EPOCH_DATE_FMT = new Intl.DateTimeFormat('en-US', {
 /** "Jul 29, 2020" from a unix-seconds timestamp (see network.ts epochStartUnix). */
 export function formatEpochDate(unixSeconds: number): string {
   return EPOCH_DATE_FMT.format(new Date(unixSeconds * 1000));
+}
+
+// Exact on-chain submission times (governance_actions.submitted_at) get minutes
+// and a spelled-out zone, unlike epoch boundaries: the whole point of storing
+// block_time is showing when in the epoch the action actually landed.
+const SUBMITTED_AT_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC',
+  timeZoneName: 'short',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** "Jul 31, 2026, 17:34 UTC" from a unix-ms timestamp (governance_actions.submitted_at). */
+export function formatSubmittedDateTime(unixMs: number): string {
+  return SUBMITTED_AT_FMT.format(new Date(unixMs));
+}
+
+/**
+ * Submission date for display: the exact on-chain time when the sync has stored
+ * it, else the submitted-epoch start (up to ~5 days early), else null. The one
+ * place that encodes this preference, so every surface shows the same date.
+ */
+export function submittedDateLabel(
+  submittedAt: number | null,
+  submittedEpoch: number | null,
+  cfg: NetworkConfig,
+): string | null {
+  if (submittedAt != null) return formatSubmittedDateTime(submittedAt);
+  if (submittedEpoch != null) return formatEpochDate(epochStartUnix(submittedEpoch, cfg));
+  return null;
 }
 
 // Color tone per governance action type, for the pastel category pill on list

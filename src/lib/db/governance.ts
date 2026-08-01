@@ -651,19 +651,21 @@ export async function getActionsNeedingVotedPower(db: D1Database, limit: number)
   return rows.map(rowToGovernanceAction);
 }
 
-/** A no-reply governance topic plus the epoch needed to derive its submission time. */
+/** A governance topic plus the fields needed to derive its submission time. */
 export interface GovTopicSubmittedAt {
   topicId: string;
   submittedEpoch: number;
+  /** Exact on-chain submission time (unix ms), when the sync has stored it. */
+  submittedAt: number | null;
   createdAt: number;
-  lastPostAt: number;
 }
 
 /**
- * Governance topics with no real replies (post_count <= 1) and a known submission
- * epoch, for the post-date backfill. Sweeps our own tables (not the live Koios list),
- * so the whole backlog is covered, including terminal actions Koios may no longer
- * return. Bounded by `limit`.
+ * Governance topics with a known submission epoch, for the post-date backfill.
+ * Sweeps our own tables (not the live Koios list), so the whole backlog is
+ * covered, including terminal actions Koios may no longer return. Replied
+ * topics are included; the correction recomputes last_post_at from the posts
+ * themselves, so no reply data is needed here. Bounded by `limit`.
  */
 export async function getGovTopicsForSubmittedAtBackfill(
   db: D1Database,
@@ -672,11 +674,11 @@ export async function getGovTopicsForSubmittedAtBackfill(
   const rows = (
     await db
       .prepare(
-        `SELECT t.id AS topicId, ga.submitted_epoch AS submittedEpoch,
-                t.created_at AS createdAt, t.last_post_at AS lastPostAt
+        `SELECT t.id AS topicId, ga.submitted_epoch AS submittedEpoch, ga.submitted_at AS submittedAt,
+                t.created_at AS createdAt
          FROM topics t
          JOIN governance_actions ga ON ga.topic_id = t.id
-         WHERE t.source = 'governance' AND t.post_count <= 1 AND ga.submitted_epoch IS NOT NULL
+         WHERE t.source = 'governance' AND ga.submitted_epoch IS NOT NULL
          LIMIT ?`,
       )
       .bind(limit)

@@ -52,10 +52,17 @@ interface Milestone {
 const milestones: Milestone[] = [];
 
 if (!noData) {
+  // Submission has an exact block time when the sync stored it; show that date
+  // (date-only, matching the timeline's granularity) instead of the epoch-start
+  // fallback. The later milestones are genuine epoch-boundary events and keep
+  // the epoch-start date. noData already guarantees submittedEpoch is non-null.
   milestones.push({
     label: 'Submitted',
     epoch: action.submittedEpoch,
-    epochLabel: action.submittedEpoch != null ? epochLabel(action.submittedEpoch) : null,
+    epochLabel:
+      action.submittedAt != null
+        ? `Epoch ${action.submittedEpoch} (${formatEpochDate(Math.floor(action.submittedAt / 1000))})`
+        : epochLabel(action.submittedEpoch!),
     badgeLabel: null,
     badgeColor: null,
     isCurrent: false,
