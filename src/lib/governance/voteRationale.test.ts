@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { buildVoteRationale, MAX_VOTE_RATIONALE } from './voteRationale.js';
+import { blake2b256 } from '@/lib/crypto/blake.js';
+import { bytesToHex } from '@/lib/crypto/hex.js';
 
 describe('buildVoteRationale', () => {
+  it('hash is blake2b-256 of the exact body bytes it serves (no reserialization)', () => {
+    // Guards against a cgov-class mismatch on our own side: the hash we put
+    // on-chain must be over the very bytes served at the anchor URL.
+    const r = buildVoteRationale({ rationale: 'Weighing costs against ecosystem value “here”.' });
+    const recomputed = bytesToHex(blake2b256(new TextEncoder().encode(r.body)));
+    expect(r.hash).toBe(recomputed);
+  });
+
   it('puts the rationale in body.comment and produces a stable hash', () => {
     const a = buildVoteRationale({ rationale: 'I support this because of X.' });
     const b = buildVoteRationale({ rationale: 'I support this because of X.' });
