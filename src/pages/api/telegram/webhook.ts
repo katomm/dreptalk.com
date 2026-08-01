@@ -6,6 +6,7 @@
 // failures are logged instead.
 import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { secretsEqual } from '@/lib/crypto/secretsEqual';
 import { resolveNetwork } from '@/lib/config/network';
 import { sendTelegramMessage } from '@/lib/push/telegram';
 import { handleTelegramUpdate } from '@/lib/notifications/telegramWebhook';
@@ -21,7 +22,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!db || !kv || !botToken || !webhookSecret) {
     return jsonResponse({ ok: false, error: 'not configured' }, 503);
   }
-  if (request.headers.get('x-telegram-bot-api-secret-token') !== webhookSecret) {
+  const presented = request.headers.get('x-telegram-bot-api-secret-token') ?? '';
+  if (!(await secretsEqual(presented, webhookSecret))) {
     return jsonResponse({ ok: false, error: 'unauthorized' }, 401);
   }
 

@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { resolveNetwork } from '@/lib/config/network';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
+import { readBodyLimited } from '@/lib/http/bodyLimit';
 import type { RateLimiter } from '@/lib/rateLimiterDO';
 
 export const prerender = false;
@@ -12,6 +13,10 @@ export const prerender = false;
 // generous so a legitimate tx build (several reads in a burst) is never blocked.
 const RATE_MAX = 100;
 const RATE_WINDOW_SEC = 60;
+
+// Largest accepted request body. Legitimate Koios POST bodies are id arrays
+// far below this; the cap keeps a hostile client from ballooning Worker memory.
+const MAX_BODY_BYTES = 1_048_576; // 1 MiB
 
 // Hop-by-hop headers that must not be forwarded to the upstream.
 const HOP_BY_HOP = new Set([
@@ -114,10 +119,27 @@ async function proxyRequest(request: Request, subPath: string): Promise<Response
     outHeaders.set('authorization', `Bearer ${token}`);
   }
 
-  const body =
-    request.method === 'POST' || request.method === 'PUT'
-      ? await request.arrayBuffer()
-      : undefined;
+  let body: ArrayBuffer | undefined;
+  if (request.method === 'POST' || request.method === 'PUT') {
+    // Honest oversize senders are rejected from the header alone; the bounded
+    // reader below stays the enforced cap for chunked or lying ones.
+    const declared = Number(request.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      return new Response(JSON.stringify({ error: 'body_too_large' }), {
+        status: 413,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    const read = await readBodyLimited(request.body, MAX_BODY_BYTES);
+    if (!read.ok) {
+      return new Response(JSON.stringify({ error: 'body_too_large' }), {
+        status: 413,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    // The reader allocates an exact-size buffer, so .buffer carries no slack.
+    body = read.bytes.buffer as ArrayBuffer;
+  }
 
   const upstream = await _fetchImpl(upstreamUrl, {
     method: request.method,

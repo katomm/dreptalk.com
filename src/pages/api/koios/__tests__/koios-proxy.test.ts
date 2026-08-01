@@ -164,3 +164,24 @@ describe('koios proxy: method rejection', () => {
     expect((mod as Record<string, unknown>).DELETE).toBeUndefined();
   });
 });
+
+describe('koios proxy: body size cap', () => {
+  it('rejects a POST body over 1 MiB with 413 and never calls upstream', async () => {
+    const mockFetch = vi.fn();
+    _setFetchImpl(mockFetch as unknown as typeof fetch);
+
+    const oversize = `{"_drep_ids":["${'x'.repeat(1_048_576)}"]}`;
+    const ctx = makeContext(
+      'POST',
+      'https://dreptalk.com/api/koios/drep_info',
+      oversize,
+      'application/json',
+    );
+
+    const res = await POST(ctx);
+
+    expect(res.status).toBe(413);
+    expect(((await res.json()) as { error: string }).error).toBe('body_too_large');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});

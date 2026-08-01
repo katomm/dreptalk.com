@@ -9,6 +9,7 @@ import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
+import { readBodyLimited } from '@/lib/http/bodyLimit';
 import { handleDrepImageUpload } from '@/lib/governance/drepImageHandler';
 import { MAX_DOWNLOAD_BYTES, imagesDownscaler } from '@/lib/dreps/avatarStore';
 
@@ -37,16 +38,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return jsonResponse({ error: 'rate_limited' }, 429);
   }
 
-  // Cheap pre-check before buffering the body; the handler re-checks the
-  // actual byte length (content-length can lie or be absent). Images over the
-  // store-as-is cap are downscaled by the handler, not rejected; only the hard
-  // ceiling is enforced here.
+  // Cheap pre-check before reading any bytes; content-length can lie or be
+  // absent (chunked), so the bounded reader below is the enforced ceiling.
+  // Images over the store-as-is cap are downscaled by the handler, not
+  // rejected; only the hard ceiling is enforced here.
   const declared = Number(request.headers.get('content-length') ?? '0');
   if (declared > MAX_DOWNLOAD_BYTES) {
     return jsonResponse({ error: 'image too large (max 10 MB)' }, 413);
   }
 
-  const bytes = await request.arrayBuffer();
+  const read = await readBodyLimited(request.body, MAX_DOWNLOAD_BYTES);
+  if (!read.ok) {
+    return jsonResponse({ error: 'image too large (max 10 MB)' }, 413);
+  }
+  // The reader allocates an exact-size buffer, so .buffer carries no slack.
+  const bytes = read.bytes.buffer as ArrayBuffer;
   const result = await handleDrepImageUpload({
     bytes,
     bucket,

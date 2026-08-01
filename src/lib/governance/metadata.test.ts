@@ -95,6 +95,31 @@ describe('fetchAnchorMetadata', () => {
     expect(res.status).toBe('too-large');
   });
 
+  it('caps an oversize document mid-stream when the sender omits content-length', async () => {
+    // A chunked/lying sender must be cut off at the byte cap, not buffered
+    // whole and rejected after the fact.
+    const chunk = new Uint8Array(64 * 1024).fill(0x7b);
+    let pulls = 0;
+    let cancelled = false;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls++;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const res = await fetchAnchorMetadata('https://example.com/m.json', hashOf('x'), {
+      fetchImpl: async () =>
+        new Response(endless, { status: 200, headers: { 'content-type': 'application/json' } }),
+    });
+    expect(res.status).toBe('too-large');
+    expect(cancelled).toBe(true);
+    // Reading stopped shortly past the cap instead of draining the stream.
+    expect(pulls).toBeLessThan(MAX_ANCHOR_BYTES / chunk.byteLength + 3);
+  });
+
   it('accepts a document larger than the old 100KB limit (real proposals reach ~1MB)', async () => {
     // Several mainnet CIP-108 proposals (e.g. "Cardano Vision 2026") have a long
     // rationale that pushes the doc just over 100KB; the title must still extract.

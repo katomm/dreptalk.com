@@ -11,6 +11,7 @@
 // caller still creates the thread, just without trusted metadata.
 
 import { blake2b256 } from '../crypto/blake.js';
+import { readBodyLimited } from '../http/bodyLimit.js';
 import { bytesToHex, HEX_HASH_256_RE } from '../crypto/hex.js';
 import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
@@ -390,9 +391,11 @@ export async function fetchAnchorDoc(
     if (Number.isFinite(declared) && declared > MAX_ANCHOR_BYTES) {
       return { status: 'too-large', doc: null };
     }
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > MAX_ANCHOR_BYTES) return { status: 'too-large', doc: null };
-    bytes = new Uint8Array(buf);
+    // Content-Length is only a fast path; the bounded reader enforces the cap
+    // even for chunked or lying senders without buffering past the limit.
+    const read = await readBodyLimited(res.body, MAX_ANCHOR_BYTES);
+    if (!read.ok) return { status: 'too-large', doc: null };
+    bytes = read.bytes;
   } catch {
     return { status: 'fetch-failed', doc: null };
   } finally {
