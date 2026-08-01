@@ -20,6 +20,13 @@ import {
   INFO_MOTIVATION_MAX,
   INFO_RATIONALE_MAX,
 } from '@/lib/governance/infoActionLimits.js';
+import {
+  infoActionDraftKey,
+  loadInfoActionDraft,
+  saveInfoActionDraft,
+  clearInfoActionDraft,
+  type InfoActionDraft,
+} from '@/lib/governance/infoActionDraft.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -225,6 +232,38 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   const [authorName, setAuthorName] = useState('');
   const [references, setReferences] = useState<ReferenceRow[]>([]);
 
+  // Draft persistence: restore runs once after mount (no localStorage during
+  // SSR); the persist effect stays quiet until then so it can never clobber a
+  // stored draft with the pre-restore empty state. Mirrors VotePanel's
+  // draftRestoredRef pattern. Never persists wallet data, addresses,
+  // signatures, the deposit, or the tx result: only the plain form fields.
+  const draftKey = infoActionDraftKey(network);
+  const draftRestoredRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const draft = loadInfoActionDraft(window.localStorage, draftKey);
+    if (draft) {
+      setTitle(draft.title);
+      setAbstract(draft.abstract);
+      setMotivation(draft.motivation);
+      setRationale(draft.rationale);
+      setSignAsAuthor(draft.signAsAuthor);
+      setAuthorName(draft.authorName);
+      setReferences(draft.references);
+    }
+    draftRestoredRef.current = true;
+  }, [draftKey]);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !draftRestoredRef.current) return;
+    const draft: InfoActionDraft = { title, abstract, motivation, rationale, signAsAuthor, authorName, references };
+    // A draft is only worth keeping while it carries some text; an all-blank
+    // draft (e.g. right after a clear) should not leave a stale empty entry.
+    const isBlank =
+      !title.trim() && !abstract.trim() && !motivation.trim() && !rationale.trim() && !authorName.trim() && references.length === 0;
+    if (isBlank) clearInfoActionDraft(window.localStorage, draftKey);
+    else saveInfoActionDraft(window.localStorage, draftKey, draft);
+  }, [draftKey, title, abstract, motivation, rationale, signAsAuthor, authorName, references]);
+
   // Deposit is informational chain data, independent of wallet connection;
   // load it once on mount so it is ready before the user reaches the form.
   useEffect(() => {
@@ -421,6 +460,9 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
         govActionDepositLovelace: deposit.lovelace,
       });
 
+      // The proposal is on chain: drop the draft eagerly so a crash right
+      // after success cannot resurrect the already-submitted form text.
+      if (typeof window !== 'undefined') clearInfoActionDraft(window.localStorage, draftKey);
       setPhase({ status: 'success', txHash, authored: signAsAuthor });
     } catch (err) {
       setPhase({ status: 'error', message: mapSubmitError(err), connected: true });
