@@ -5,7 +5,7 @@
 // link-challenge.workers.test.ts.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { POST } from './link-stake';
+import { POST } from '../link-stake';
 import { issueNonce } from '@/lib/auth/nonce';
 
 const USER_ID = 'user-link-stake-1';

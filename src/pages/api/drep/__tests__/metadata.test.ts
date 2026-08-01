@@ -58,7 +58,7 @@ vi.mock('cloudflare:workers', () => ({
 }));
 
 // Import after the mock is registered.
-import { POST } from './metadata.js';
+import { POST } from '../metadata.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

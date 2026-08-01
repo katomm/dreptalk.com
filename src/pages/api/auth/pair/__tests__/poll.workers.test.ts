@@ -1,14 +1,14 @@
 /// <reference types="@cloudflare/workers-types" />
 // Workers-runtime tests for POST /api/auth/pair/poll.
 // Calls the exported POST handler directly with a synthetic APIContext, the
-// same convention as src/pages/api/vote/record.workers.test.ts, so the test
+// same convention as api/vote/__tests__/record.workers.test.ts, so the test
 // runs inside the real Workers runtime (D1, KV, the RATE_LIMITER Durable
 // Object) without needing an HTTP server or the Astro middleware chain.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createPairing, approvePairing } from '@/lib/auth/pairing';
 import { getSession, parseSessionToken } from '@/lib/auth/session';
-import { POST } from './poll';
+import { POST } from '../poll';
 
 const NOW = 1_700_000_000;
 const USER_ID = 'user-pair-poll-1';

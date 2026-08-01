@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { getViewerVote } from '@/lib/db/drepVotes';
 import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale';
-import { POST } from './record';
+import { POST } from '../record';
 
 const NOW = 1_752_000_000;
 const DREP_ID = `drep1${'a'.repeat(50)}`;

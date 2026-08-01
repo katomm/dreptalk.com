@@ -13,7 +13,7 @@ import { parseNativeScriptJson, nativeScriptHash } from '@/lib/cardano/nativeScr
 import { encodeBech32 } from '@/lib/crypto/bech32';
 import { DREP_SCRIPT_HEADER } from '@/lib/cardano/identity';
 import { createPendingMultisig, getPendingMultisig } from '@/lib/db/pendingMultisigTx';
-import { POST } from './witness';
+import { POST } from '../witness';
 
 // ---------------------------------------------------------------------------
 // Helper: build a witness-set CBOR hex from a private key + body hash.

@@ -6,7 +6,7 @@
 // server or the Astro middleware chain.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { POST } from './link-challenge';
+import { POST } from '../link-challenge';
 
 const USER_ID = 'user-link-challenge-1';
 

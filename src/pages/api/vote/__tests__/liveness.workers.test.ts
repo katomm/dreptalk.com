@@ -2,7 +2,7 @@
 // Workers-runtime tests for POST /api/vote/liveness.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { POST } from './liveness';
+import { POST } from '../liveness';
 
 const NOW = 1_752_000_000;
 const GA_ACTIVE = `${'a'.repeat(64)}#0`;

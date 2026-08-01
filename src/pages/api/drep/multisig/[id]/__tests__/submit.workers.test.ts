@@ -39,7 +39,7 @@ vi.mock('@evolution-sdk/evolution', async (importOriginal) => {
 });
 
 // Import AFTER vi.mock so the mock is active when the module loads.
-const { POST } = await import('./submit');
+const { POST } = await import('../submit');
 
 // ---------------------------------------------------------------------------
 // Key fixtures: 2-of-3 atLeast native script.

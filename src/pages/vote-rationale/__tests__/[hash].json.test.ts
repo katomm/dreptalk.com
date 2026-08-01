@@ -22,7 +22,7 @@ const { fakeDb } = vi.hoisted(() => {
 
 vi.mock('cloudflare:workers', () => ({ env: { DB: fakeDb } }));
 
-import { GET } from './[hash].json.js';
+import { GET } from '../[hash].json.js';
 
 function makeCtx(hash: string) {
   const url = new URL(`https://dreptalk.com/vote-rationale/${hash}.json`);

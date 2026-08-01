@@ -15,6 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Gate: Astro routes every supported file under src/pages except
+      # underscore-prefixed ones, so a test file outside a __tests__/ dir becomes
+      # a public production route. Cheap and dependency-free, so it runs first
+      # and fails fast with a clear message.
+      - name: Routed-pages guard
+        run: |
+          if find src/pages \( -name '*.test.*' -o -name '*.spec.*' \) ! -path '*/_*' | grep .; then
+            echo 'These test files would be routed into the production Worker; put route tests in a colocated __tests__/ folder.'
+            exit 1
+          fi
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -23,6 +33,16 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      # Build the deployable artifact so packaging regressions fail CI, not production.
+      - run: npm run build
+      # Gate: the built artifact must stay free of test-runner imports (a routed
+      # test file or a bundling regression would pull `cloudflare:test` into dist).
+      - name: Built-artifact guard
+        run: |
+          if grep -rl 'cloudflare:test' dist/; then
+            echo 'Built artifact contains test-runner imports.'
+            exit 1
+          fi
       # Gate: production dependencies must be free of high and critical vulnerabilities.
       # The deployed Workers runtime ships only the runtime deps (cborg, noble, blake, bech32, zod);
       # the Astro/adapter toolchain (undici, vitest, miniflare) is build/dev only.

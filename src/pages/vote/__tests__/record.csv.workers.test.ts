@@ -5,7 +5,7 @@
 // HTTP server or the Astro middleware chain.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { GET } from './record.csv';
+import { GET } from '../record.csv';
 
 const NOW = 1_752_000_000;
 const DREP_ID = `drep1${'a'.repeat(50)}`;

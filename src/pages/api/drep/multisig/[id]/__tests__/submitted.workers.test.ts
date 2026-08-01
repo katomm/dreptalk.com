@@ -13,7 +13,7 @@ import { parseNativeScriptJson, nativeScriptHash } from '@/lib/cardano/nativeScr
 import { encodeBech32 } from '@/lib/crypto/bech32';
 import { DREP_SCRIPT_HEADER } from '@/lib/cardano/identity';
 import { createPendingMultisig, getPendingMultisig } from '@/lib/db/pendingMultisigTx';
-import { POST } from './submitted';
+import { POST } from '../submitted';
 
 // ---------------------------------------------------------------------------
 // Key fixtures: a simple 2-sig "any" script.
