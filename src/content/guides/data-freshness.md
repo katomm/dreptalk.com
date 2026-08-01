@@ -24,7 +24,7 @@ below no longer match FRESHNESS (label, refresh, and notes columns, in order). -
 | Governance tallies and status (DRep, SPO, CC) | About every 15 minutes, active actions only | Frozen once an action is ratified, enacted, expired, or dropped. Shown with an "as of" time. |
 | Per-post vote badges | About every 20 minutes, active actions only | Vote lists are larger than the tallies but still refresh on a short cycle. |
 | DRep profiles (name, bio, avatar) and status | About every 4 to 6 hours | The drep-sync cron keeps every DRep profile current. |
-| DRep role re-check (write access) | Daily | Independent of the login session. |
+| DRep role re-check (write access) | About every 4 to 6 hours (with the DRep sync) | Every post is checked against the synced DRep status, independent of the login session. |
 
 ## Which vote rationales appear
 

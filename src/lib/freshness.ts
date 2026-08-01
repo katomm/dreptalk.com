@@ -51,8 +51,8 @@ export const FRESHNESS: readonly FreshnessRow[] = [
   {
     key: 'role-recheck',
     label: 'DRep role re-check (write access)',
-    refresh: 'Daily',
-    notes: 'Independent of the login session.',
+    refresh: 'About every 4 to 6 hours (with the DRep sync)',
+    notes: 'Every post is checked against the synced DRep status, independent of the login session.',
   },
 ] as const;
 

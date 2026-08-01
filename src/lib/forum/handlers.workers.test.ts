@@ -834,3 +834,104 @@ describe('mentions in handlers', () => {
     expect((await getNotificationsPage(db(), 'user-alice', 10)).length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// DRep write access follows the synced on-chain status (dreps.active)
+// ---------------------------------------------------------------------------
+
+describe('drep write access follows the synced drep status', () => {
+  // Seeds the users row (as a drep login would create it) plus, optionally,
+  // the synced dreps row the write gate reads.
+  async function insertDrepUser(args: { userId: string; drepId: string; active?: boolean }) {
+    await db()
+      .prepare(
+        `INSERT INTO users (id, drep_id, is_drep, created_at, last_verified_at)
+         VALUES (?1, ?2, 1, ?3, ?3)`,
+      )
+      .bind(args.userId, args.drepId, NOW)
+      .run();
+    if (args.active !== undefined) {
+      await db()
+        .prepare(
+          `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?4)`,
+        )
+        .bind(args.drepId, args.active ? 'registered' : 'deregistered', args.active ? 1 : 0, NOW)
+        .run();
+    }
+  }
+
+  it('a deregistered drep cannot create a topic or reply', async () => {
+    await insertDrepUser({ userId: 'drep_test1gonedrep', drepId: 'drep_test1gonedrep', active: false });
+    const user = { id: 'drep_test1gonedrep', roles: ['drep'] };
+
+    const topicRes = await handleCreateTopic({
+      user,
+      body: { categorySlug: 'general', title: 'From a deregistered drep', bodyMd: 'nope' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(topicRes.status).toBe(403);
+    // The Composer surfaces this string verbatim, so it must be a readable
+    // sentence, not an internal slug.
+    expect((topicRes.json as { error: string }).error).toBe(
+      'Your DRep registration has ended, so posting is disabled.',
+    );
+
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: WRITER.id,
+      title: 'Open thread for the gate test',
+      bodyMd: 'first',
+      bodyHtml: '<p>first</p>',
+      now: NOW,
+      rand: 'gate-test-001',
+    });
+    const replyRes = await handleCreatePost({
+      user,
+      topicId: topic.id,
+      body: { bodyMd: 'reply from a deregistered drep' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW + 1,
+    });
+    expect(replyRes.status).toBe(403);
+  });
+
+  it('an active drep still posts normally', async () => {
+    await insertDrepUser({ userId: 'drep_test1livedrep', drepId: 'drep_test1livedrep', active: true });
+    const res = await handleCreateTopic({
+      user: { id: 'drep_test1livedrep', roles: ['drep'] },
+      body: { categorySlug: 'general', title: 'From an active drep', bodyMd: 'hello' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('a drep without a synced dreps row still posts (fresh registration, sync pending)', async () => {
+    await insertDrepUser({ userId: 'drep_test1freshdrep', drepId: 'drep_test1freshdrep' });
+    const res = await handleCreateTopic({
+      user: { id: 'drep_test1freshdrep', roles: ['drep'] },
+      body: { categorySlug: 'general', title: 'From a fresh drep', bodyMd: 'hello' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('a second live writer role keeps write access despite a deregistered drep identity', async () => {
+    await insertDrepUser({ userId: 'drep_test1dualrole', drepId: 'drep_test1dualrole', active: false });
+    const res = await handleCreateTopic({
+      user: { id: 'drep_test1dualrole', roles: ['drep', 'proposer'] },
+      body: { categorySlug: 'general', title: 'From a dual-role writer', bodyMd: 'hello' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(201);
+  });
+});
