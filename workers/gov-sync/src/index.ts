@@ -37,6 +37,7 @@ import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../..
 import { getFollowedDrepIds } from '../../../src/lib/db/delegatorFollows.js';
 import { runFanout } from '../../../src/lib/notifications/fanout.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
+import { runDrepStatsDigest } from '../../../src/lib/db/drepStatsDigest.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
 import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler } from '../../../src/lib/dreps/avatarStore.js';
 import { syncPools } from '../../../src/lib/pools/sync.js';
@@ -447,6 +448,11 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
 async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   const { koios } = buildKoios(env);
 
+  // Delegator counts Koios actually delivered in this run's dreps phase, for
+  // the epoch stamp below. Stays empty when the dreps phase failed, which
+  // leaves the epoch's counts NULL until a later pass observes them.
+  let observedDelegatorCounts: ReadonlyMap<string, number> = new Map();
+
   await phase('dreps', async () => {
     // Loaded once per run and threaded into the writers below: an active/inactive
     // flip for a followed DRep gets a delegator status-change fan-out job atomic
@@ -460,6 +466,7 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
       downscale: env.IMAGES ? imagesDownscaler(env.IMAGES) : undefined,
       followedDrepIds,
     });
+    observedDelegatorCounts = r.observedDelegatorCounts;
     console.log(
       `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} ` +
         `deactivated=${r.deactivated} anchorsFetched=${r.anchorsFetched} ` +
@@ -473,14 +480,36 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
   // the rolling window, and projects the latest two snapshots onto the dreps rows.
   // Inserts are chunked to stay under D1's 100 bound-parameter-per-query limit.
   // A fetch failure here must not fail the DRep sync that already succeeded.
+  // The epoch the history phase captured this run, so the digest below only
+  // ever evaluates data written in the same pass. Set only after the history
+  // sync returned, so a failed fetch skips the digest until the next run.
+  let vpHistoryEpoch: number | null = null;
   await phase('voting-power-history', async () => {
     const tip = await koios.tip();
-    const r = await syncDrepVotingPowerHistory({ koios, db: env.DB, currentEpoch: tip.epoch_no });
+    const r = await syncDrepVotingPowerHistory({
+      koios,
+      db: env.DB,
+      currentEpoch: tip.epoch_no,
+      observedDelegatorCounts,
+    });
+    vpHistoryEpoch = tip.epoch_no;
     console.log(
       `[drep-vp-history] window=${r.window[0]}..${r.window[r.window.length - 1]} ` +
-        `fetched=${r.fetchedEpochs.length} inserted=${r.inserted} pruned=${r.pruned}`,
+        `fetched=${r.fetchedEpochs.length} inserted=${r.inserted} pruned=${r.pruned} stamped=${r.stamped}`,
     );
     return { items: r.inserted };
+  });
+
+  // Epoch digest for DRep account holders: one notification when voting power
+  // or delegator count moved beyond the thresholds. Idempotent per epoch via
+  // the notifications event_key index, so running every pass is safe and the
+  // 5-minute dispatcher picks the rows up on its next sweep. No second
+  // koios.tip(): the epoch rides over from the history phase.
+  await phase('drep-stats-digest', async () => {
+    if (vpHistoryEpoch === null) return { items: 0 };
+    const r = await runDrepStatsDigest(env.DB, vpHistoryEpoch, Date.now());
+    console.log(`[drep-stats] epoch=${vpHistoryEpoch} candidates=${r.candidates} fired=${r.fired}`);
+    return { items: r.fired };
   });
 
   // Backfill registration epochs for any DReps still missing one (drives the
