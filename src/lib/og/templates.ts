@@ -73,8 +73,8 @@ function cardShell(accent: string, pillText: string, body: string): string {
   </div>`);
 }
 
-function title(text: string): string {
-  return `<div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:1010px;">${esc(text)}</div>`;
+function title(text: string, maxWidth = 1010): string {
+  return `<div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:${maxWidth}px;">${esc(text)}</div>`;
 }
 
 // Number-led: the leading body's Yes-of-eligible share as a big figure, over a thin
@@ -265,6 +265,32 @@ export function discussionCardHtml(m: DiscussionCardModel): string {
     : '';
   const titleBlock = `<div style="display:flex;flex-direction:column;">${title(m.title)}${subtitle}</div>`;
   return cardShell(m.accent, m.category, `${titleBlock}${footer}`);
+}
+
+// Help-guide card. Same shell as the discussion card, but when the guide's
+// frontmatter illustration is bundled (a transparent line-art PNG), it sits on
+// the right on a soft accent panel with the title and description to its left.
+// Without an illustration it falls back to the plain wide text layout, so a
+// guide missing its PNG renders exactly as it did before.
+export function helpCardHtml(m: DiscussionCardModel & { illustrationDataUrl?: string | null }): string {
+  const hasIllo = Boolean(m.illustrationDataUrl);
+  const illo = hasIllo
+    ? `<div style="display:flex;align-items:center;justify-content:center;width:320px;height:320px;background:${tint(BRAND_ACCENT)};border-radius:32px;">
+        <img src="${m.illustrationDataUrl}" width="272" height="272" />
+      </div>`
+    : '';
+  const subtitle = m.subtitle
+    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:16px;line-height:1.35;">${esc(m.subtitle)}</div>`
+    : '';
+  // With the illustration on the right the title wraps in a ~720px column (its
+  // char cap in helpCardModel is tuned to match); without it the title spans the
+  // full width like the other cards.
+  const titleBlock = `<div style="display:flex;flex-direction:column;flex:1;${hasIllo ? 'padding-right:44px;' : ''}">
+      ${title(m.title, hasIllo ? 720 : 1010)}
+      ${subtitle}
+    </div>`;
+  const footer = `<div style="display:flex;"><span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};">${esc(m.meta)}</span></div>`;
+  return cardShell(m.accent, m.category, `<div style="display:flex;align-items:center;">${titleBlock}${illo}</div>${footer}`);
 }
 
 export function voteCardHtml(m: VoteCardModel): string {
