@@ -4,6 +4,8 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { runDrepStatsDigest } from './drepStatsDigest.js';
 import { insertVotingPowerHistory } from './drepVotingPowerHistory.js';
+import { addChannel, getPendingCounts, getPrefs } from './notificationChannels.js';
+import { resolvePendingLead } from '../notifications/pendingLead.js';
 
 const db = () => env.DB as D1Database;
 
@@ -167,5 +169,40 @@ describe('runDrepStatsDigest', () => {
     expect(r.fired).toBe(2);
     expect(await notificationsFor(u1)).toHaveLength(1);
     expect(await notificationsFor(u2)).toHaveLength(1);
+  });
+
+  it('feeds counts and a deep-linked lead to the dispatcher', async () => {
+    const userId = await seedUser('drep_digest_lead');
+    await seedHistory('drep_digest_lead', [
+      { epoch: 860, amount: '100000000000000', count: 100 },
+      { epoch: 861, amount: '103000000000000', count: 102 },
+    ]);
+
+    // Channel FIRST: addChannel seeds delivered_until with its `now`, so the
+    // cursor must predate the digest's created_at or the notification counts as
+    // already delivered.
+    const channelId = await addChannel(db(), {
+      userId,
+      channel: 'webpush',
+      target: JSON.stringify({ endpoint: 'https://push.example/x', keys: {} }),
+      endpoint: 'https://push.example/x',
+      now: 1_699_999_999_000,
+    });
+    await runDrepStatsDigest(db(), 861, 1_700_000_000_000);
+
+    const row = (await db()
+      .prepare('SELECT * FROM notification_channels WHERE id = ?')
+      .bind(channelId)
+      .first()) as never;
+    const prefs = await getPrefs(db(), userId, 'webpush');
+
+    const counts = await getPendingCounts(db(), row, prefs);
+    expect(counts.drepStats).toBe(1);
+
+    const lead = await resolvePendingLead(db(), row, { ...prefs, governance: false });
+    expect(lead?.text).toContain('Epoch 861');
+    expect(lead?.text).toContain('voting power');
+    // drepPath falls back to the raw id when no slug is passed: /dreps/<id>/.
+    expect(lead?.href).toBe('/dreps/drep_digest_lead/');
   });
 });

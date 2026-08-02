@@ -12,6 +12,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'drep_activity',
   'drep_status',
   'my_delegation',
+  'drep_stats',
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 export type NotificationChannelKind = 'webpush' | 'telegram';
@@ -183,6 +184,8 @@ export interface PendingCounts {
   drepActivity: number;
   drepStatus: number;
   myDelegation: number;
+  /** DRep stats epoch digests (the user's own DRep). */
+  drepStats: number;
   /** Security notices; deliberately not prefs-filtered, unlike the others. */
   devices: number;
   total: number;
@@ -192,12 +195,13 @@ export interface PendingCounts {
  * Counts undelivered work for one channel row: personal reply/mention
  * notifications, distinct live governance threads with activity, delegator
  * fan-out notifications (drep vote activity, drep status changes, and the
- * user's own delegation changes), all newer than the row's delivered_until
- * cursor. The gov term is the shared govThreadsSinceSql fragment (same
- * definition the header badge uses), keyed off the channel's delivery cursor
- * instead of the user's notif_seen_at. Each term is zeroed when its pref is
- * off, except device_paired: a security alert that can be switched off is
- * worthless, so it always contributes.
+ * user's own delegation changes), the user's own DRep stats epoch digests,
+ * all newer than the row's delivered_until cursor. The gov term is the
+ * shared govThreadsSinceSql fragment (same definition the header badge
+ * uses), keyed off the channel's delivery cursor instead of the user's
+ * notif_seen_at. Each term is zeroed when its pref is off, except
+ * device_paired: a security alert that can be switched off is worthless, so
+ * it always contributes.
  */
 export async function getPendingCounts(
   db: D1Database,
@@ -213,6 +217,7 @@ export async function getPendingCounts(
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type IN ('delegator_drep_voted', 'delegator_drep_re_voted') AND created_at > ?2) AS drepActivity,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegator_drep_status_changed' AND created_at > ?2) AS drepStatus,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegation_changed' AND created_at > ?2) AS myDelegation,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'drep_stats' AND created_at > ?2) AS drepStats,
          ${govThreadsSinceSql('?2')} AS governance`,
     )
     .bind(row.user_id, row.delivered_until)
@@ -224,6 +229,7 @@ export async function getPendingCounts(
       drepActivity: number;
       drepStatus: number;
       myDelegation: number;
+      drepStats: number;
     }>();
 
   const replies = prefs.reply ? (result?.replies ?? 0) : 0;
@@ -232,6 +238,7 @@ export async function getPendingCounts(
   const drepActivity = prefs.drep_activity ? (result?.drepActivity ?? 0) : 0;
   const drepStatus = prefs.drep_status ? (result?.drepStatus ?? 0) : 0;
   const myDelegation = prefs.my_delegation ? (result?.myDelegation ?? 0) : 0;
+  const drepStats = prefs.drep_stats ? (result?.drepStats ?? 0) : 0;
   // Security notices are deliberately not gated on prefs: an alert that can be
   // switched off is worthless, so a device pairing always contributes.
   const devices = result?.devices ?? 0;
@@ -242,7 +249,8 @@ export async function getPendingCounts(
     drepActivity,
     drepStatus,
     myDelegation,
+    drepStats,
     devices,
-    total: replies + mentions + governance + drepActivity + drepStatus + myDelegation + devices,
+    total: replies + mentions + governance + drepActivity + drepStatus + myDelegation + drepStats + devices,
   };
 }

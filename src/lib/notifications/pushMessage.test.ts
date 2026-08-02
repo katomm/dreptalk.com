@@ -10,6 +10,7 @@ function counts(partial: Partial<PendingCounts>): PendingCounts {
     drepActivity: 0,
     drepStatus: 0,
     myDelegation: 0,
+    drepStats: 0,
     devices: 0,
   };
   const merged = { ...base, ...partial };
@@ -20,6 +21,7 @@ function counts(partial: Partial<PendingCounts>): PendingCounts {
     merged.drepActivity +
     merged.drepStatus +
     merged.myDelegation +
+    merged.drepStats +
     merged.devices;
   return { ...merged, total };
 }
@@ -61,5 +63,10 @@ describe('formatSummary', () => {
     expect(formatSummary(counts({ drepActivity: 1, drepStatus: 2 }))).toBe(
       '1 DRep vote update, 2 DRep status changes',
     );
+  });
+
+  it('summarizes pending DRep stats digests', () => {
+    expect(formatSummary(counts({ drepStats: 1 }))).toBe('1 DRep stats update');
+    expect(formatSummary(counts({ drepStats: 2, replies: 1 }))).toBe('1 new reply, 2 DRep stats updates');
   });
 });

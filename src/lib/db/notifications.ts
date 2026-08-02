@@ -14,7 +14,9 @@ export interface NotificationInsert {
     | 'delegation_changed'
     | 'delegator_drep_voted'
     | 'delegator_drep_re_voted'
-    | 'delegator_drep_status_changed';
+    | 'delegator_drep_status_changed'
+    // drep_stats rows are written by drepStatsDigest.ts with payload + event_key.
+    | 'drep_stats';
   actorId: string | null;
   topicId: string | null;
   postId: string | null;
