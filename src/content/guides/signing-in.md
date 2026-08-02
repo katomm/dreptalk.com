@@ -17,13 +17,22 @@ follow their DRep. DReps, proposers, and delegators connect a CIP-30 wallet; SPO
 CC members sign the challenge offline with cardano-signer and paste the result, because
 wallets cannot sign with those keys yet.
 
+<img class="shot" src="/help/shots/account-menu.webp" alt="The sign-in menu in the site header: enter as DRep, delegator, SPO, CC member, or proposer, or register as a DRep" width="237" height="285" loading="lazy" />
+
 ## DReps
 
 Pick the **DRep** role and connect a CIP-95 capable wallet
 (for example Lace, Eternl, or Typhon). You sign with your **DRep key**.
 We derive your DRep ID from that signature and confirm on-chain that it belongs to a
-registered, active DRep. Script-based DReps are not supported yet. If your wallet is
-not yet a registered DRep, you can [register as a DRep](/register-drep/) first.
+registered, active DRep. If your wallet is not yet a registered DRep, you can
+[register as a DRep](/register-drep/) first.
+
+<img class="shot" src="/help/shots/signin-drep.webp" alt="The sign-in screen with the DRep role selected: connected wallet, the sign-in methods, and the multisig / script DRep toggle" width="650" height="510" loading="lazy" />
+
+**Multisig and script DReps.** A DRep controlled by a native multisig script signs
+in with the "This is a multisig / script DRep" toggle: enter the script DRep ID and
+prove membership by signing with one of the script's authorized keys. Plutus-script
+DReps cannot sign in, since they have no member keys to sign with.
 
 ## Proposers
 

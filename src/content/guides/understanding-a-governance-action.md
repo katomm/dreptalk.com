@@ -87,7 +87,10 @@ If the DRep later changes their vote, the frozen copy does not linger: it is
 replaced by the new rationale, or removed if the DRep did not cross-post
 again.
 
-<img class="shot" src="/help/shots/ga-frozen.webp" alt="A frozen rationale post in a discussion thread: a DRep's cross-posted vote rationale with Voted Yes and Rationale badges and a frozen notice linking to the on-chain record" width="844" height="290" loading="lazy" />
+<a href="https://dreptalk.com/t/withdraw-120-000-000-ada-for-alphagrowth-s-cardano-prime-a59c03bc/?tab=discussion#post-61669166-a308-47dd-bf1b-f53e3daf7f75"><img class="shot" src="/help/shots/ga-frozen.webp" alt="A frozen rationale post in a discussion thread: a DRep's cross-posted vote rationale with Voted Yes and Rationale badges and a frozen notice linking to the on-chain record" width="844" height="290" loading="lazy" /></a>
+
+This one is live too: [read this frozen rationale in its
+discussion](https://dreptalk.com/t/withdraw-120-000-000-ada-for-alphagrowth-s-cardano-prime-a59c03bc/?tab=discussion#post-61669166-a308-47dd-bf1b-f53e3daf7f75).
 
 ## Votes
 
@@ -105,7 +108,11 @@ Two markers are worth knowing:
   ratified, but the tally was frozen at ratification. Late votes appear in
   the list and are marked as not counted in the outcome.
 
-<img class="shot" src="/help/shots/ga-votes.webp" alt="A vote row on the Votes tab, expanded to show the DRep's rationale, with a Changed badge, the superseded earlier vote, and a copy-link button" width="840" height="269" loading="lazy" />
+<a href="https://dreptalk.com/t/net-change-limit-cardano-treasury-epochs-613-713-7ac0d510/?tab=positions#voter-drep1y2csyxt7u2hl4674pl9cef5lknafaw5nraxvyx033kmd0es3awuv0"><img class="shot" src="/help/shots/ga-votes.webp" alt="A vote row on the Votes tab, expanded to show the DRep's rationale, with a Changed badge, the superseded earlier vote, and a copy-link button" width="840" height="269" loading="lazy" /></a>
+
+The row above is a real example. [See this vote live on the action's Votes
+tab](https://dreptalk.com/t/net-change-limit-cardano-treasury-epochs-613-713-7ac0d510/?tab=positions#voter-drep1y2csyxt7u2hl4674pl9cef5lknafaw5nraxvyx033kmd0es3awuv0),
+including the earlier vote it replaced.
 
 Every vote row has a copy-link button, so you can share a link that opens
 the page with exactly that vote expanded and highlighted. Votes with a
