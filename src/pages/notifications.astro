@@ -13,6 +13,7 @@ import NotificationsInbox from '@/components/NotificationsInbox.tsx';
 import { runtimeEnv } from '@/lib/api/response';
 import { getNotificationsPage, getNotifSeenAt } from '@/lib/db/notifications';
 import { listChannels, getPrefs, NOTIFICATION_EVENT_TYPES } from '@/lib/db/notificationChannels';
+import { getUserById } from '@/lib/db/users.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels';
 import { toClientChannels } from '@/lib/notifications/channelView';
 import type { ClientChannel } from '@/lib/notifications/channelView';
@@ -56,16 +57,24 @@ const allPrefsEnabled = Object.fromEntries(NOTIFICATION_EVENT_TYPES.map((t) => [
 >;
 let pushPrefs = allPrefsEnabled;
 let telegramPrefs = allPrefsEnabled;
+// The DRep stats digest targets ACCOUNTS linked to a DRep, so the matrix
+// group keys on the account row, not the session roles: the delegator door
+// deliberately mints ['member'] sessions even when it routed to a DRep
+// account (Decision A), and that DRep still gets the digest and must see the
+// toggle. For everyone else the group is hidden (the pref itself stays
+// default-on and harmless).
+let showDrepStats = false;
 if (db) {
   // Read the cursor BEFORE anything else so unread highlighting reflects the
   // state the user is coming from, not the state after this page marks it seen.
-  const [seenAt, personal, gov, channelRows, pPrefs, tPrefs] = await Promise.all([
+  const [seenAt, personal, gov, channelRows, pPrefs, tPrefs, account] = await Promise.all([
     getNotifSeenAt(db, user.id),
     getNotificationsPage(db, user.id, 30),
     loadActivityFeed(db, { filter: 'governance', limit: 30 }),
     listChannels(db, user.id),
     getPrefs(db, user.id, 'webpush'),
     getPrefs(db, user.id, 'telegram'),
+    getUserById(db, user.id),
   ]);
   // Client-safe projection: id, dates, label and an endpoint fingerprint reach
   // the islands; the stored subscription (endpoint, keys) stays server-side.
@@ -74,6 +83,7 @@ if (db) {
   telegramChannels = clientChannels.filter((c) => c.channel === 'telegram');
   pushPrefs = pPrefs;
   telegramPrefs = tPrefs;
+  showDrepStats = account?.is_drep === true;
 
   const topicIds = [...new Set(personal.map((n) => n.topic_id).filter((id): id is string => !!id))];
   // Collect the `to`-DRep ids from delegation_changed payloads for a single
@@ -264,6 +274,7 @@ const unreadCount = items.filter((r) => r.unread).length;
         channels={pushChannels}
         prefs={pushPrefs}
         vapidPublicKey={vapidPublicKey}
+        showDrepStats={showDrepStats}
         client:load
       />
       {telegramBotUsername !== '' && (
@@ -271,6 +282,7 @@ const unreadCount = items.filter((r) => r.unread).length;
           channels={telegramChannels}
           prefs={telegramPrefs}
           botUsername={telegramBotUsername}
+          showDrepStats={showDrepStats}
           client:load
         />
       )}

@@ -21,10 +21,12 @@ export default function TelegramSettings({
   channels,
   prefs,
   botUsername,
+  showDrepStats = false,
 }: {
   channels: ClientChannelProps[];
   prefs: Record<NotificationEventType, boolean>;
   botUsername: string;
+  showDrepStats?: boolean;
 }) {
   const [connected, setConnected] = useState<ClientChannelProps[]>(channels);
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
@@ -262,6 +264,7 @@ export default function TelegramSettings({
               onChange={(e, v) => void togglePref(e, v)}
               error={prefError}
               disabled={prefsBusy}
+              showDrepStats={showDrepStats}
             />
           )}
         </>

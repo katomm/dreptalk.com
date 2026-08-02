@@ -22,6 +22,7 @@ export interface NotificationSettingsProps {
   channels: ClientChannelProps[];
   prefs: Record<NotificationEventType, boolean>;
   vapidPublicKey: string;
+  showDrepStats?: boolean;
 }
 
 type ConnectPhase =
@@ -34,7 +35,7 @@ function pushSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
 }
 
-export default function NotificationSettings({ channels, prefs, vapidPublicKey }: NotificationSettingsProps) {
+export default function NotificationSettings({ channels, prefs, vapidPublicKey, showDrepStats = false }: NotificationSettingsProps) {
   const [devices, setDevices] = useState<ClientChannelProps[]>(channels);
   const [phase, setPhase] = useState<ConnectPhase>({ status: 'idle' });
   const { prefState, prefError, prefsBusy, masterOn, toggleAll, togglePref } = useChannelPrefs('webpush', prefs);
@@ -346,6 +347,7 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey }
               onChange={(e, v) => void togglePref(e, v)}
               error={prefError}
               disabled={prefsBusy}
+              showDrepStats={showDrepStats}
             />
           )}
         </>
