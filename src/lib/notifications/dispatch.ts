@@ -20,6 +20,7 @@ import {
 } from '../db/notificationChannels.js';
 import { formatNotification, DETAIL_MAX, type PendingLead } from './pushMessage.js';
 import { resolvePendingLead } from './pendingLead.js';
+import { getUnreadCount } from '../db/notifications.js';
 import { isSubscriptionDead } from '../push/webPush.js';
 import type { sendWebPush, VapidConfig, PushSubscriptionTarget } from '../push/webPush.js';
 import { isTelegramChatDead } from '../push/telegram.js';
@@ -140,14 +141,24 @@ export async function dispatchWebPush(
     console.warn('[webpush-dispatch] VAPID keys not configured, skipping dispatch');
     return { sent: 0, pruned: 0, skipped: 0 };
   }
+  // The app-icon badge shows the same unread count as the header bell, not the
+  // per-push bundle size (which resets each send), so it accumulates and clears
+  // correctly. Memoized per user so a multi-device account costs one count query
+  // per pass, not one per device. Stable within a pass: dispatch only reads.
+  const unreadByUser = new Map<string, number>();
   return dispatchChannels(
     db,
     'webpush',
     async (row, counts, lead) => {
       const target = JSON.parse(row.target) as PushSubscriptionTarget;
       const { body, path } = formatNotification(counts, lead);
+      let badge = unreadByUser.get(row.user_id);
+      if (badge === undefined) {
+        badge = await getUnreadCount(db, row.user_id);
+        unreadByUser.set(row.user_id, badge);
+      }
       // path is app-relative; the service worker resolves it against its own origin.
-      const payload = JSON.stringify({ title: 'DRepTalk', body, url: path });
+      const payload = JSON.stringify({ title: 'DRepTalk', body, url: path, badge });
       const result = await deps.send(target, payload, vapid);
       if (result.ok) return 'sent';
       return isSubscriptionDead(result.status) ? 'dead' : 'failed';
