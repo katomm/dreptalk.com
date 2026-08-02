@@ -14,50 +14,9 @@
 // the rest), and the run row carries ok/partial/error plus per-phase outcomes
 // for the /debug/sync page.
 //
-// Deployed separately from the app via Cloudflare Workers Builds, whose build
-// trigger only watches this directory (workers/gov-sync/**). This worker bundles
-// shared logic from src/lib at build time, but changes under src/lib do NOT match
-// the watch path, so editing the bundled governance/sync logic alone leaves the
-// cron running the old bundle. A change here (even a comment) is required to
-// trigger a redeploy that picks up new src/lib code.
-//
-// Redeploy markers (touch this file to pick up the named src/lib change):
-//   2026-06-20: ship the governance_actions.submitted_at writer + backfill so the
-//               "new" sort orders by exact on-chain submission time.
-//   2026-06-21: ship the DRep sync deactivation pass so deregistered DReps stop
-//               showing as active with frozen voting power.
-//   2026-06-23: vote sync orders by votes_synced_at (not tally recency) and the
-//               budget covers the full active set, so per-post vote lists stop
-//               lagging hours behind; vote cron moved hourly -> every 20 min.
-//   2026-06-25: re-fetch governance anchors that failed at discovery (previously
-//               stamped current-version and never retried), and add a gov-titles phase
-//               that reconciles topic titles + opening posts with the recovered action
-//               title (also fixes older action-only recoveries).
-//   2026-06-27: keep re-checking ratified actions until Koios sets enacted_epoch, so
-//               an action frozen during the ~1-epoch ratified window flips to "Enacted"
-//               instead of staying stuck on "Ratified".
-//   2026-06-27: date gov_status feed events at their on-chain epoch boundary (not
-//               detection time) + add a gov-status-times backfill that re-dates the
-//               catch-up burst of "was enacted" events to when they actually enacted.
-//   2026-06-30: stop the avatar pass from wiping inline data: URI DRep avatars
-//               (clearOrphanedImageStore now spares rows with no stored source URL).
-//   2026-07-01: pick up META_EXTRACT_VERSION 3 so the metadata backfill re-extracts
-//               action bodies with motivation + rationale merged (was dropping the
-//               motivation section, cutting the body off at the start).
-//   2026-07-02: params phase also syncs the active committee size, so the CC
-//               quorum check runs on real membership instead of votes cast
-//               (fixes false "Not met" on the detail page).
-//   2026-07-30: pass followedDrepIds into the live vote sync and the drep sync so
-//               delegator fan-out jobs actually get emitted, and drain the fan-out
-//               outbox with a delegation-fanout phase before webpush/telegram.
-//   2026-07-30: pick up the whitespace-tolerant anchor verification so vote
-//               rationales whose on-chain hash was taken over a reformatted
-//               (pretty vs minified) copy of the same document verify and render.
-//   2026-07-31: date governance notification eligibility at detection time
-//               (activity.notified_at, migration 0067) so back-dated new actions
-//               actually push; move discovery + fan-out + push/telegram to a
-//               5-minute cadence (heavy tallies gated to minute % 15); include
-//               per-item detail + deep links in single-event pushes.
+// Deployed separately from the app via Cloudflare Workers Builds. The build
+// trigger watches the whole repository (watch path `*`), so changes to the
+// shared src/lib code this worker bundles redeploy it automatically on merge.
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';

@@ -7,6 +7,7 @@
 // the work queue instead of starving fresh rows; one bad avatar never aborts
 // the pass.
 import { bytesToHex } from '../crypto/hex.js';
+import { readBodyLimited } from '../http/bodyLimit.js';
 import {
   listDrepsNeedingAvatar,
   setDrepImageStored,
@@ -158,15 +159,13 @@ export async function fetchValidatedImage(
   const declared = Number(res.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > MAX_DOWNLOAD_BYTES) return null;
 
-  let bytes: ArrayBuffer;
-  try {
-    bytes = await res.arrayBuffer();
-  } catch {
-    return null;
-  }
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_DOWNLOAD_BYTES) return null;
+  // Content-Length is only a fast path; the bounded reader enforces the cap
+  // even for chunked or lying senders without buffering past the limit. The
+  // catch covers mid-body stream errors, matching the old arrayBuffer() shape.
+  const read = await readBodyLimited(res.body, MAX_DOWNLOAD_BYTES).catch(() => null);
+  if (!read?.ok || read.bytes.byteLength === 0) return null;
 
-  return { bytes, contentType };
+  return { bytes: read.bytes.buffer as ArrayBuffer, contentType };
 }
 
 /**

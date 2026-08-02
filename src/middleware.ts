@@ -4,6 +4,7 @@
 import { defineMiddleware } from 'astro:middleware';
 import { env } from 'cloudflare:workers';
 import { parseSessionToken, getSession } from './lib/auth/session.js';
+import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
 import { isDatabaseUnavailable, serviceUnavailableResponse } from './lib/http/serviceUnavailable.js';
 import { currentNetwork } from './lib/api/response.js';
@@ -17,6 +18,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (url.hostname === 'www.dreptalk.com') {
     url.hostname = 'dreptalk.com';
     return context.redirect(url.toString(), 301);
+  }
+
+  // Cross-origin browser writes are rejected site-wide before any work
+  // happens; see crossOriginWriteResponse for the semantics.
+  const originBlock = crossOriginWriteResponse(context.request);
+  if (originBlock) {
+    applySecurityHeaders(originBlock.headers);
+    return originBlock;
   }
 
   // Default to unauthenticated.
