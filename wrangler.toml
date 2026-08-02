@@ -2,8 +2,14 @@ name = "dreptalk-com"
 # Custom entry (src/worker.ts) so the RateLimiter Durable Object class is exported
 # from this worker; it re-exports the DO and delegates SSR to the adapter's handle().
 main = "./src/worker.ts"
-compatibility_date = "2025-09-01"
+compatibility_date = "2026-07-01"
 compatibility_flags = ["nodejs_compat"]
+
+# Persisted Workers Logs (dash + wrangler tail). Full sampling: traffic is
+# modest, and the adapter copies this top-level block into the generated
+# deploy config, so the preprod app worker inherits it too.
+[observability]
+enabled = true
 
 # Custom domains. wrangler deploy provisions the DNS records and edge TLS
 # certificates from the dreptalk.com zone (already active in this account).

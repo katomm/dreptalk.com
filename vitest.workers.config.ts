@@ -1,6 +1,18 @@
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
+
+// Tests must run under the same runtime compatibility date as the deployed
+// worker, so read it from wrangler.toml instead of pinning a copy here (the
+// pool cannot consume wrangler.toml wholesale, see the [assets] note below).
+// compatDate.test.ts guards the app and gov-sync tomls against drifting apart.
+function deployCompatibilityDate(): string {
+  const toml = readFileSync(path.join(import.meta.dirname, 'wrangler.toml'), 'utf8');
+  const match = toml.match(/^compatibility_date\s*=\s*"(\d{4}-\d{2}-\d{2})"/m);
+  if (!match) throw new Error('compatibility_date not found in wrangler.toml');
+  return match[1];
+}
 
 // Vitest 4 / pool-workers 0.16: the old defineWorkersProject + poolOptions.workers
 // shape is replaced by the cloudflareTest() plugin. The previous worker pool
@@ -22,7 +34,7 @@ export default defineConfig(async () => {
         // the [assets] block is irrelevant here.
         main: './src/lib/test-worker-entry.ts',
         miniflare: {
-          compatibilityDate: '2025-09-01',
+          compatibilityDate: deployCompatibilityDate(),
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],
           kvNamespaces: ['SESSIONS'],
