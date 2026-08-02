@@ -30,6 +30,7 @@ import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
+import ShareButton from '@/components/ShareButton.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
 import {
   cacheControlForSynced, formatAda, formatAdaCompact, formatRelativeTime, truncateId, truncateIdMiddle, excerptFromHtml, SITE_ORIGIN,
@@ -253,6 +254,7 @@ const profileSummary = drep
               />
             </div>
           )}
+          <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={`${displayName} on DRepTalk`} ariaLabel="Share this profile" />
         </div>
         <div class="drep-hd__id"><span title={drep.drepId}>{truncateIdMiddle(drep.drepId)}</span><CopyButton value={drep.drepId} label="Copy DRep id" /></div>
         <div class="drep-hd__stats">

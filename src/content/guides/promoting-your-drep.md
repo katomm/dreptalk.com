@@ -4,7 +4,6 @@ description: "Practical ways for a Cardano DRep to become more visible: a comple
 cardLabel: "Promoting your DRep"
 category: "For DReps"
 order: 4
-featured: true
 updated: 2026-08-02
 faqs:
   - q: "Can I pay to promote my DRep on DRepTalk?"

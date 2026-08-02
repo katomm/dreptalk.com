@@ -6,6 +6,7 @@ import SearchTrigger from '@/components/search/SearchTrigger';
 import RoleEntry from '@/components/RoleEntry.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import LogoMark from '@/components/LogoMark.astro';
+import ShareButton from '@/components/ShareButton.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { NAV_LINKS } from '@/lib/config/nav.js';
 import type { AuthorDescriptor } from '@/lib/forum/author';
@@ -98,8 +99,18 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    {/* Standalone/installed title-bar and browser-chrome color. A single tag kept
+        in sync with the manual theme toggle by theme-init.js, so it stays correct
+        even when the user forces a theme against the OS scheme. */}
+    <meta name="theme-color" content="#0c0a12" />
+    {/* Installed home-screen app: run standalone with a fixed app title. The
+        manifest's display:standalone drives the mode; these refine iOS. */}
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="DRepTalk" />
     {/* Inlined (not external) to avoid a render-blocking request before first
         paint. Its CSP hash is added in astro.config.mjs and only ships on the
         Worker-rendered (SSR) CSP header, so pages using this layout must stay
@@ -182,6 +193,9 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
 
         <div class="header-actions">
           <SearchTrigger client:idle helpEntries={helpEntries} initialScope={searchScope} />
+          {/* Share the current page. Only shown in the installed standalone app,
+              where there is no address bar to copy or share the URL from. */}
+          <span class="header-share"><ShareButton iconOnly ariaLabel="Share this page" /></span>
           <ThemeToggle />
           {sessionUser && (
             <a
@@ -217,6 +231,13 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
                 >{link.label}</a>
               ))}
               <RoleEntry layout="flat" account={account} />
+              {/* Install entry: a plain link to the guide by default, so it works
+                  on iOS, Firefox, etc. without browser sniffing; Chromium's
+                  beforeinstallprompt upgrades it to the native install prompt.
+                  Hidden once already installed. */}
+              <a class="mobile-menu__link install-hint" data-install-hint href="/help/add-to-home-screen/">
+                Install app
+              </a>
             </div>
           </details>
         </div>
@@ -363,13 +384,52 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
       }
     </script>
 
+    <script>
+      // "Install app" entry in the mobile menu. It is a plain link to the guide
+      // by default (so iOS, Firefox, etc. get sensible manual instructions with
+      // no browser sniffing). On Chromium, beforeinstallprompt is deferred and
+      // the entry fires the native install prompt instead of following the link.
+      // Hidden when already installed. Bundled once; the strict CSP forbids
+      // inline handlers.
+      interface InstallPromptEvent extends Event {
+        prompt: () => Promise<void>;
+        userChoice: Promise<{ outcome: string }>;
+      }
+      const installEntry = document.querySelector<HTMLAnchorElement>('[data-install-hint]');
+      if (installEntry) {
+        const isStandalone =
+          matchMedia('(display-mode: standalone)').matches ||
+          (navigator as Navigator & { standalone?: boolean }).standalone === true;
+        if (isStandalone) {
+          installEntry.hidden = true;
+        } else {
+          let deferredPrompt: InstallPromptEvent | null = null;
+          window.addEventListener('beforeinstallprompt', (event) => {
+            event.preventDefault();
+            deferredPrompt = event as InstallPromptEvent;
+          });
+          installEntry.addEventListener('click', (event) => {
+            if (!deferredPrompt) return; // no native prompt: the link opens the guide
+            event.preventDefault();
+            const dp = deferredPrompt;
+            deferredPrompt = null;
+            void dp.prompt();
+            void dp.userChoice.catch(() => {});
+          });
+          window.addEventListener('appinstalled', () => {
+            installEntry.hidden = true;
+          });
+        }
+      }
+    </script>
+
     <style>
       /* Preprod testnet flag: a fixed pill shown only on the preprod deployment
          so the test network is unmistakable. Hidden on mainnet. */
       .preprod-flag {
         position: fixed;
-        bottom: 12px;
-        right: 12px;
+        bottom: max(12px, env(safe-area-inset-bottom, 0px));
+        right: max(12px, env(safe-area-inset-right, 0px));
         z-index: 50;
         background: #fde68a;
         color: #7c5800;
@@ -388,6 +448,21 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         backdrop-filter: saturate(180%) blur(12px);
         -webkit-backdrop-filter: saturate(180%) blur(12px);
         border-bottom: 1px solid var(--border);
+        /* In the installed standalone app the header can sit under the device
+           status bar / notch; the inset is 0 in a normal browser tab. */
+        padding-top: env(safe-area-inset-top, 0px);
+      }
+      /* Header share control: only meaningful in the installed standalone app,
+         where there is no address bar to copy or share the URL from. Hidden in
+         a normal browser tab. */
+      .header-share {
+        display: none;
+        align-items: center;
+      }
+      @media (display-mode: standalone) {
+        .header-share {
+          display: inline-flex;
+        }
       }
       .site-header__inner {
         display: flex;
@@ -563,7 +638,9 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         align-items: center;
         gap: 1rem 2rem;
         padding-top: 2.25rem;
-        padding-bottom: 2.25rem;
+        /* Clear the home indicator on notched phones in the installed app; the
+           inset is 0 in a normal browser tab. */
+        padding-bottom: calc(2.25rem + env(safe-area-inset-bottom, 0px));
       }
       .site-footer__brand {
         display: flex;

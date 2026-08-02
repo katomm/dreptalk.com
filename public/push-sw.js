@@ -1,5 +1,12 @@
-// Web push service worker: shows one notification per push message and opens
-// the inbox on click. Payload: { title, body, url } JSON.
+// Web push service worker, registered at scope '/'. Shows one notification per
+// push message and opens the inbox on click. Payload: { title, body, url } JSON.
+//
+// This is the ONLY service worker on the site and it owns the root scope. Do not
+// add a second service worker or a fetch handler for PWA/offline support: a
+// second worker registered at '/' would take over this scope and can break Web
+// Push. Any future offline caching must be added to THIS file and must preserve
+// the push and notificationclick handlers below, caching only versioned static
+// assets, never SSR pages, session responses, or /api/* routes.
 self.addEventListener('push', (event) => {
   let data = { title: 'DRepTalk', body: 'New notifications', url: '/notifications/' };
   try {
