@@ -14,10 +14,17 @@ import type { NclStatus } from '../governance/ncl.js';
 import { voteDisplay } from '../governance/voteStatement.js';
 import { accentForType, BRAND_ACCENT, statusColor, tint, TALLY, MUTED } from './theme.js';
 
-/** Hard character caps so a long title/name can never overflow the fixed canvas. */
+/** Hard character caps so a long title/name can never overflow the fixed canvas.
+    When it has to cut, it prefers the last word boundary within the limit so the
+    ellipsis never lands mid-word (falls back to a hard cut if the only space is
+    far from the limit). */
 function clamp(text: string, max: number): string {
   const t = text.trim();
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+  if (t.length <= max) return t;
+  const slice = t.slice(0, max - 1).trimEnd();
+  const space = slice.lastIndexOf(' ');
+  const cut = space > max * 0.6 ? slice.slice(0, space) : slice;
+  return `${cut.trimEnd()}…`;
 }
 
 export interface GovCardInput extends RowVotingInput {
@@ -181,7 +188,10 @@ export function helpCardModel(g: HelpCardInput): DiscussionCardModel {
   return {
     accent: BRAND_ACCENT,
     category: g.category,
-    title: clamp(g.title, 96),
+    // Tighter than the other cards: the illustration takes the right third, so
+    // the title wraps in a ~720px column and a long one would run past three or
+    // four lines into the description.
+    title: clamp(g.title, 62),
     subtitle: excerptFromHtml(g.description, 140),
     authorName: null,
     avatarDataUrl: null,

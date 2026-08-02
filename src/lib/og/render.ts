@@ -37,8 +37,14 @@ async function renderPng(html: string, fonts: OgFont[]): Promise<ArrayBuffer | n
 /** Loads fonts, builds the card HTML, encodes the PNG, and edge-caches it. On any
     render failure returns the site's static OG image so a share is never a broken
     0-byte card. `url` is the request URL, used verbatim as the content-addressed
-    cache key (each card URL already carries a content version). */
-export async function renderOgCard(assets: Fetcher, url: string, build: () => string): Promise<Response> {
+    cache key (each card URL already carries a content version). `build` may be
+    async so any per-card asset loading (e.g. an embedded illustration) runs only
+    after the cache misses, not on every warm request. */
+export async function renderOgCard(
+  assets: Fetcher,
+  url: string,
+  build: () => string | Promise<string>,
+): Promise<Response> {
   const cache = (caches as CacheStorage & { default: Cache }).default;
   const cacheKey = new Request(url, { method: 'GET' });
   const cached = await cache.match(cacheKey);
@@ -47,7 +53,7 @@ export async function renderOgCard(assets: Fetcher, url: string, build: () => st
   if (cached) return new Response(cached.body, cached);
 
   const fonts = await loadOgFonts(assets, url);
-  const png = await renderPng(build(), fonts);
+  const png = await renderPng(await build(), fonts);
 
   if (!png) {
     // The static default card, streamed from the assets binding. Never edge-cached,

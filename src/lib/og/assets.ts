@@ -50,3 +50,26 @@ export async function loadAvatar(
   }
   return identiconDataUri(seed, 160);
 }
+
+/**
+ * Load a bundled raster asset (a help-guide illustration) from the ASSETS binding
+ * as a data URL for embedding in a card. resvg decodes only PNG and JPEG, so a
+ * miss, an error, or any other content type returns null and the card renders
+ * without the illustration (its prior text-only look), never a broken 0-byte PNG.
+ */
+export async function loadCardImage(
+  assets: Fetcher | undefined,
+  origin: string,
+  path: string,
+): Promise<string | null> {
+  if (!assets) return null;
+  try {
+    const res = await assets.fetch(new URL(path, origin));
+    if (!res.ok) return null;
+    const ct = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    if (!RESVG_SAFE_TYPES.has(ct)) return null;
+    return `data:${ct};base64,${toBase64(await res.arrayBuffer())}`;
+  } catch {
+    return null;
+  }
+}
