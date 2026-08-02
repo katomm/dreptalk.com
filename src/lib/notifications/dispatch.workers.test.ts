@@ -27,6 +27,16 @@ async function seedTopic(id: string) {
     .run();
 }
 
+// A users row is needed for the payload's `badge` (getUnreadCount reads
+// notif_seen_at, which is 0 here so every gov thread counts); without it the
+// gov term compares against a NULL cursor and contributes nothing.
+async function seedUser(id: string) {
+  await db()
+    .prepare('INSERT INTO users (id, created_at, last_verified_at) VALUES (?, 0, 0)')
+    .bind(id)
+    .run();
+}
+
 /** A fake `send` that records every call and always returns the given result. */
 function fakeSend(result: PushSendResult) {
   const calls: Array<{ target: PushSubscriptionTarget; payload: string; vapid: VapidConfig }> = [];
@@ -71,6 +81,7 @@ async function addTelegramChannel(userId: string, chatId: string, now: number) {
 
 describe('dispatchWebPush', () => {
   it('bundles pending counts into one send per channel with the exact summary text', async () => {
+    await seedUser('alice');
     await seedTopic('g1');
     await seedTopic('g2');
     await seedTopic('g3');
@@ -96,12 +107,29 @@ describe('dispatchWebPush', () => {
       title: 'DRepTalk',
       body: '2 new replies, 1 mention, 3 governance updates',
       url: '/notifications/',
+      // Same tally as the header bell: 3 unread personal rows + 3 gov threads.
+      badge: 6,
     });
     expect(result).toEqual({ sent: 1, pruned: 0, skipped: 0 });
 
     const [row] = await listChannelsByKind(db(), 'webpush');
     expect(row.id).toBe(id);
     expect(row.delivered_until).toBe(999);
+  });
+
+  it('carries the signed-in unread count as the app-icon badge', async () => {
+    await seedUser('alice');
+    await addWebpushChannel('alice', 100);
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 210 },
+    ]);
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    // Two unread personal rows, mirroring the header bell.
+    expect(JSON.parse(calls[0].payload).badge).toBe(2);
   });
 
   it('skips a channel with zero pending notifications, advancing nothing and never calling send', async () => {
@@ -223,6 +251,7 @@ describe('dispatchWebPush', () => {
   });
 
   it('spells out a single governance action with its title and a deep link', async () => {
+    await seedUser('alice');
     await seedTopic('g1');
     await addWebpushChannel('alice', 100);
     await activityInsert(db(), {
@@ -241,6 +270,8 @@ describe('dispatchWebPush', () => {
       title: 'DRepTalk',
       body: 'New governance action: Reduce committee size to 75',
       url: '/t/g1-slug/',
+      // One unseen gov thread, no personal rows.
+      badge: 1,
     });
   });
 
