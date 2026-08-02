@@ -23,7 +23,7 @@ import { detectIdentifier } from '@/lib/search/identifiers.js';
 import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
-import { isSpoLedType } from '@/lib/governance/view.js';
+import { headlineComposition, isSpoLedType } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getVoteTrendRows, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline } from '@/lib/db/committee.js';
@@ -464,6 +464,14 @@ const breadcrumbLd = topic
 // that caches the image by URL refetches when any of that changes; it covers the
 // case where an author's name resolves only after the link was first shared. The
 // endpoint ignores the query and always renders current content.
+//
+// The live tally is included, but only as a coarse bucket (the leading body's
+// yes-share floored to 5%), so the URL changes when support moves meaningfully,
+// above all when it crosses the 50% line a floored-to-5 bucket boundary sits on,
+// without churning the token on every single vote. This is the same figure the
+// card headlines (headlineComposition), so token and image stay in step.
+const ogTally = govAction ? headlineComposition(govAction) : null;
+const ogTallyBucket = ogTally ? Math.floor(ogTally.yesPct / 5) * 5 : null;
 const ogVersion = topic
   ? ogCardVersion([
       topic.title,
@@ -471,6 +479,7 @@ const ogVersion = topic
       topicAuthor.displayName,
       topicAuthor.imageHash,
       govAction?.status,
+      ogTallyBucket,
     ])
   : undefined;
 const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
