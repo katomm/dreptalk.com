@@ -3,7 +3,7 @@ title: "Cardano governance action types explained"
 description: "The kinds of on-chain governance actions on Cardano, what each one does, and which bodies (DReps, SPOs, the Constitutional Committee) vote on them."
 cardLabel: "Governance action types"
 category: "Understanding governance"
-order: 1
+order: 2
 updated: 2026-06-23
 ---
 

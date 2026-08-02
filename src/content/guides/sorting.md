@@ -3,7 +3,7 @@ title: "Sorting Cardano governance actions"
 description: "What the Trending, New, Closing Soon, and Recently Ratified sorts order by on the Cardano governance actions list."
 cardLabel: "Sorting governance actions"
 category: "Understanding governance"
-order: 3
+order: 4
 ---
 
 The governance actions list can be ordered four ways, chosen with the tabs above the

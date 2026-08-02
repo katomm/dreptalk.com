@@ -3,7 +3,7 @@ title: "Proposers of Cardano governance actions"
 description: "How DRepTalk shows who proposed a governance action, and how proposer accounts can authorize co-proposers to write on their behalf."
 cardLabel: "Proposers"
 category: "Understanding governance"
-order: 4
+order: 5
 updated: 2026-08-01
 ---
 

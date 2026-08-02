@@ -3,7 +3,7 @@ title: "Pair a phone or tablet"
 description: "How to sign in to DRepTalk on a phone or tablet by approving a pairing code from a computer where you are already signed in, so you can receive push notifications."
 cardLabel: "Pair a device"
 category: "Start here"
-order: 4
+order: 5
 ---
 
 Signing in to DRepTalk normally means connecting a Cardano wallet or signing a

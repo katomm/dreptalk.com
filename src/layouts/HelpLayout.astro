@@ -146,4 +146,12 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     padding: 0.1em 0.35em;
     border-radius: 4px;
   }
+  /* Screenshots inside guides (sizing and radius come from the global img and
+     .prose img rules). Captured in the light theme, so on dark they sit on
+     their own light ground behind a border instead of blending in. */
+  .prose :global(img.shot) {
+    border: 1px solid var(--border);
+    margin: 0.75rem 0 0.5rem;
+    background: #fff;
+  }
 </style>
