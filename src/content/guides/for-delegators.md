@@ -32,6 +32,8 @@ DRep](/help/delegate-to-a-drep/).
    sign a message works (for example Lace, Eternl, or Typhon).
 3. Approve the signature request in your wallet.
 
+<img class="shot" src="/help/shots/signin-delegator.webp" alt="The sign-in screen with the Delegator role selected: connect a wallet and sign a one-time message; delegators cannot post or vote" width="650" height="410" loading="lazy" />
+
 That signature only proves you control the wallet's stake key; it is not a
 transaction and costs nothing. DRepTalk reads your delegation from the chain
 and links your sign-in to it. A delegator account is read-only: you can
@@ -52,6 +54,8 @@ glance:
   is the quickest way to see whether your representative is on top of the
   current ballot.
 
+<img class="shot" src="/help/shots/delegator-dashboard.webp" alt="The delegation dashboard: the tracked DRep with voting power and delegator count, followed by their recent Yes and No votes with rationale links" width="1040" height="501" loading="lazy" />
+
 If your voting power is delegated to one of the two special options instead
 of a DRep, the dashboard explains what that means: **Always Abstain** and
 **No Confidence** are standing positions, so there are no individual votes
@@ -66,6 +70,8 @@ delegator you receive a notification when:
 - your DRep **votes or changes a vote** on a governance action,
 - your DRep's **registration status changes**, for example if they retire,
 - your **delegation itself changes** on-chain.
+
+<img class="shot" src="/help/shots/delegator-notifications.webp" alt="The notifications inbox of a delegator: entries for each vote their DRep cast and for governance actions changing status" width="1040" height="740" loading="lazy" />
 
 Notifications arrive in your on-site inbox, and optionally as browser push
 notifications or Telegram messages. You choose the channels and event types

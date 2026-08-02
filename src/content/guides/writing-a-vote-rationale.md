@@ -39,6 +39,8 @@ That is enough. Most published rationales are a paragraph or two. Longer is not 
 
 When you vote with a rationale on DRepTalk, you write it in the editor and your wallet submits it together with the vote. The rationale is a small document in the community metadata standard **CIP-100**; in practice most rationales use a single comment field, and the editor formats it for you.
 
+<img class="shot" src="/help/shots/rationale-editor.webp" alt="The vote rationale editor: a Markdown text area with formatting toolbar and preview, opened while casting a vote" width="686" height="573" loading="lazy" />
+
 The document does not live on the chain. What your vote records on-chain is a link to the document and a fingerprint (a hash) of its exact contents. DRepTalk hosts the document and serves it at a web address that is itself that fingerprint. Here is a real one, published through DRepTalk:
 
 [`dreptalk.com/vote-rationale/30e507c6…eec6eb61.json`](https://dreptalk.com/vote-rationale/30e507c64f300ad90187044b9b27dfa7244de3a42b15159e506eb5cfeec6eb61.json)

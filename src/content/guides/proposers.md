@@ -4,7 +4,7 @@ description: "How DRepTalk shows who proposed a governance action, and how propo
 cardLabel: "Proposers"
 category: "Understanding governance"
 order: 5
-updated: 2026-08-01
+updated: 2026-08-02
 ---
 
 Every governance action has a proposer, identified on-chain by the reward
@@ -68,10 +68,14 @@ you a one-time link that is valid for 7 days and can be redeemed exactly once.
 The link is the credential: anyone who opens it can claim the invite, so share
 it only over a private channel with the person it is meant for.
 
+<img class="shot" src="/help/shots/coproposer-settings.webp" alt="The Co-proposers settings section: invite button, a pending invite with its expiry, and an active co-proposer with a revoke button" width="826" height="654" loading="lazy" />
+
 **Accepting.** The invited person opens the link, picks a display name,
 connects their own Cardano wallet, and signs a confirmation. No on-chain role
 or transaction is required on their side. Afterwards they sign in through the
 normal proposer sign-in with their own wallet.
+
+<img class="shot" src="/help/shots/coproposer-invite.webp" alt="The co-proposer invite page: the invited person picks a display name, connects their own wallet, and signs a one-time message" width="826" height="654" loading="lazy" />
 
 **Revoking.** The proposer sees all pending invites and active co-proposers in
 the same settings section and can withdraw or revoke them at any time.

@@ -29,6 +29,8 @@ The vote is built for you, but your wallet signs and submits it. Your private ke
 
 A rationale is optional but encouraged. When you include one, it is recorded with your vote on-chain and shown on the action's Votes tab, and you can see the link to the on-chain record before you sign. A checkbox lets you also post a copy into the action's discussion thread so others can respond; that cross-post is off by default. The on-chain rationale is permanent and cannot be edited, since it reflects what was committed on-chain. For what makes a good rationale and how to structure it, see [Writing a vote rationale](/help/writing-a-vote-rationale/).
 
+<img class="shot" src="/help/shots/vote-panel.webp" alt="The Cast your vote panel on a governance action: Yes selected, a rationale added, and the checkbox to also post the rationale under the discussion" width="322" height="459" loading="lazy" />
+
 ## Changing your vote
 
 While an action is still open you can change your vote. Cast again with the new choice and the later vote replaces the earlier one on-chain; if you included a rationale, it is replaced along with the vote. Once the action closes, votes are final.

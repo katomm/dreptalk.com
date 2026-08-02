@@ -4,7 +4,7 @@ description: "How a DRep selects several open governance actions on the voting d
 cardLabel: "Voting on multiple actions"
 category: "For DReps"
 order: 5
-updated: 2026-07-16
+updated: 2026-08-02
 ---
 
 When several governance actions are open at the same time, you do not have to vote on them one by one. The voting dashboard lets you pick a choice for each action and submit everything as a single transaction: one wallet prompt, one signature, one network fee. This guide covers how the batch flow works, how rationales behave in a batch, and the limits that apply.
@@ -15,6 +15,8 @@ When several governance actions are open at the same time, you do not have to vo
 2. Each open action has Yes, No, and Abstain buttons directly in its row. Pick a choice for every action you want to vote on; clicking the same choice again deselects it.
 3. A bar appears at the bottom counting your selections. Open **Review & submit** to check the batch: change or remove entries, add rationales, then submit.
 4. Your wallet shows one transaction containing all selected votes. Approve it once and every vote is cast together.
+
+<img class="shot" src="/help/shots/multivote-review.webp" alt="The batch review on the voting dashboard: three selected Yes votes, a warning that two of them change earlier on-chain votes, per-action rationale links, a shared rationale option, and the signing wallet" width="760" height="604" loading="lazy" />
 
 Selecting a choice in a row does not submit anything by itself. Nothing is signed or sent until you approve the transaction in your wallet.
 
