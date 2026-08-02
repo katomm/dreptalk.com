@@ -38,7 +38,7 @@ import { getFollowedDrepIds } from '../../../src/lib/db/delegatorFollows.js';
 import { runFanout } from '../../../src/lib/notifications/fanout.js';
 import { syncDrepVotingPowerHistory } from '../../../src/lib/dreps/votingPowerHistorySync.js';
 import { awardBadges } from '../../../src/lib/badges/engine.js';
-import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler, type ImagesLike } from '../../../src/lib/dreps/avatarStore.js';
+import { storeDrepAvatars, gcDrepAvatars, imagesDownscaler } from '../../../src/lib/dreps/avatarStore.js';
 import { syncPools } from '../../../src/lib/pools/sync.js';
 import { storePoolAvatars } from '../../../src/lib/pools/avatarStore.js';
 import { listReferencedPoolImageHashes, backfillPoolSlugs } from '../../../src/lib/db/pools.js';
@@ -51,15 +51,11 @@ import { dispatchWebPush, dispatchTelegram } from '../../../src/lib/notification
 import { sendWebPush, type VapidConfig } from '../../../src/lib/push/webPush.js';
 import { sendTelegramMessage } from '../../../src/lib/push/telegram.js';
 
-interface Env {
+// The binding shapes live once on the global Cloudflare.Env augmentation
+// (src/env.d.ts, same TS program); this worker only narrows DB to required
+// since every phase needs the database.
+interface Env extends Cloudflare.Env {
   DB: D1Database;
-  AVATARS?: R2Bucket;
-  IMAGES?: ImagesLike;
-  CARDANO_NETWORK?: string;
-  KOIOS_API_KEY?: string;
-  VAPID_PUBLIC_KEY?: string;
-  VAPID_PRIVATE_KEY?: string;
-  TELEGRAM_BOT_TOKEN?: string;
 }
 
 /** Both VAPID keys must be set (the private key is a secret) or push dispatch fails soft. */
