@@ -729,9 +729,37 @@ const recordChips = [
     text-underline-offset: 2px;
   }
 
+  /* Phones: collapse the four count cards into one bordered strip split by
+     hairline dividers (value over label), instead of a 2x2 block of padded
+     boxes. Values are short counts, so four columns stay readable. The accent
+     card keeps its emphasis via the number colour, not a per-box border. */
   @media (max-width: 600px) {
     .vote-stats {
-      grid-template-columns: repeat(2, 1fr);
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .vote-stat {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      border-radius: 0;
+      padding: 0.6rem 0.35rem;
+      background: none;
+      text-align: center;
+    }
+    .vote-stat + .vote-stat {
+      border-left: 1px solid var(--border);
+    }
+    .vote-stat__num {
+      font-size: 1.1rem;
+    }
+    .vote-stat__label {
+      font-size: 0.7rem;
     }
   }
 </style>

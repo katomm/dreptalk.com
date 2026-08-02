@@ -630,7 +630,15 @@ main.container {
   margin: 0 0 1.25rem;
 }
 @media (max-width: 900px) { .drep-stats { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 480px) { .drep-stats { grid-template-columns: 1fr; } }
+/* Keep a 2x2 grid on phones (was a single column of four tall boxes): drop the
+   large icon tile and tighten padding so all four metrics, trend line included,
+   fit above the fold instead of pushing the table down. */
+@media (max-width: 480px) {
+  .drep-stats { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .drep-stat { padding: 0.7rem 0.75rem; gap: 0; }
+  .drep-stat__icon { display: none; }
+  .drep-stat__value { font-size: 1.15rem; }
+}
 .drep-stat {
   display: flex;
   align-items: flex-start;
