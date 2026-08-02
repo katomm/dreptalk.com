@@ -2,11 +2,12 @@
 // and attaches the baseline security headers to every SSR response (public/_headers
 // does not cover Worker-generated responses on Cloudflare Workers Static Assets).
 import { defineMiddleware } from 'astro:middleware';
-import { env } from 'cloudflare:workers';
+import { env, waitUntil } from 'cloudflare:workers';
 import { parseSessionToken, getSession } from './lib/auth/session.js';
 import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
 import { isDatabaseUnavailable, serviceUnavailableResponse } from './lib/http/serviceUnavailable.js';
+import { pageCacheKey, isCacheableRequest, isCacheableResponse } from './lib/http/pageCache.js';
 import { currentNetwork } from './lib/api/response.js';
 
 export const onRequest = defineMiddleware(async (context, next) => {
@@ -26,6 +27,24 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (originBlock) {
     applySecurityHeaders(originBlock.headers);
     return originBlock;
+  }
+
+  // Anonymous page cache. A logged-out GET to a page that declares itself public
+  // is served from (and later stored in) the edge cache, so repeat anonymous
+  // traffic skips the session read, the render, and its D1 queries. Disabled in
+  // dev so a page edit is never masked by a stale cached copy. Any request with a
+  // session cookie stays fully dynamic and never touches the cache. The stored
+  // response already carries the security headers (put happens after they are
+  // applied), so a hit is returned verbatim. See lib/http/pageCache for the rules.
+  const cacheKey =
+    !import.meta.env.DEV && isCacheableRequest(context.request)
+      ? pageCacheKey(context.request.url)
+      : null;
+  const cache = cacheKey ? (caches as CacheStorage & { default: Cache }).default : null;
+  if (cache && cacheKey) {
+    const hit = await cache.match(cacheKey);
+    // A Cache API response has immutable headers; hand back a fresh, mutable copy.
+    if (hit) return new Response(hit.body, hit);
   }
 
   // Default to unauthenticated.
@@ -71,6 +90,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // unknown CARDANO_NETWORK value).
   if (currentNetwork().network === 'preprod') {
     response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+  }
+
+  // Store an anonymous, public HTML render for the next visitor. Runs after the
+  // header post-processing above so the cached copy is byte-complete; the put is
+  // deferred so the miss that paid for the render does not wait on the write.
+  if (cache && cacheKey && isCacheableResponse(response, context.locals.user)) {
+    waitUntil(cache.put(cacheKey, response.clone()));
   }
   return response;
 });
