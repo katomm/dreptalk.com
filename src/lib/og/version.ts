@@ -8,9 +8,12 @@
 // refetch the image instead of reusing stale bytes.
 //
 // The token is derived only from fields the page already has in hand (no extra
-// queries). Time-based bits of a governance card (countdown, live tally) are
-// intentionally not part of it; those stay fresh via the endpoint's own
-// cache-control TTL and would otherwise churn the token on every render.
+// queries). Continuous, time-based bits of a governance card (the expiry
+// countdown) are left out, since they would churn the token on every render and
+// stay fresh via the endpoint's own cache-control TTL. The live tally is the
+// exception: a caller may fold in a coarse bucket of it (e.g. the yes-share
+// floored to 5%) so the URL turns over when support moves meaningfully, without
+// changing on every single vote.
 
 // Bump when a card template changes in a way that should re-version every
 // existing share (new layout, moved fields), independent of the underlying data.
