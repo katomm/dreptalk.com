@@ -84,6 +84,17 @@ function KindIcon({ kind }: { kind: InboxItem['kind'] }) {
       </svg>
     );
   }
+  if (kind === 'drep_stats') {
+    // The DRep's own epoch stats: a small bar chart.
+    return (
+      <svg {...common} aria-hidden="true">
+        <path d="M3 21h18" />
+        <path d="M7 21V9" />
+        <path d="M12 21V4" />
+        <path d="M17 21v-8" />
+      </svg>
+    );
+  }
   // Governance (including delegator_drep_voted/re_voted): a simple landmark.
   return (
     <svg {...common} aria-hidden="true">
@@ -122,6 +133,8 @@ function Row({ item, now }: { item: InboxItem; now: number }) {
             'Your DRep'
           ) : item.kind === 'delegator_drep_status_changed' ? (
             'Your DRep'
+          ) : item.kind === 'drep_stats' ? (
+            'Your DRep stats'
           ) : item.kind === 'gov_created' ? (
             'New governance action'
           ) : (

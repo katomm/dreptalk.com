@@ -28,6 +28,7 @@ import { delegationLabel } from '@/lib/delegation/format.js';
 import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
 import { parseDrepEventPayload } from '@/lib/delegation/notifyPayload.js';
 import { drepPath } from '@/lib/dreps/profile.js';
+import { parseDrepStatsPayload, formatDrepStatsSummary } from '@/lib/notifications/drepStats.js';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -178,6 +179,23 @@ if (db) {
           actorHref: null,
           verb: null,
           title: `Your DRep is now ${p.to.effective}`,
+          href: drepPath({ drepId: p.drepId }),
+          pill: null,
+        },
+      ];
+    }
+    if (n.type === 'drep_stats') {
+      const p = parseDrepStatsPayload(n.payload);
+      if (!p) return [];
+      return [
+        {
+          kind: 'drep_stats' as const,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title: formatDrepStatsSummary(p),
           href: drepPath({ drepId: p.drepId }),
           pill: null,
         },
