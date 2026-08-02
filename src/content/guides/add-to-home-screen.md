@@ -1,20 +1,26 @@
 ---
-title: "Add DRepTalk to your home screen"
-description: "How to install DRepTalk as an app on iPhone and iPad, which is required for push notifications on iOS and iPadOS, with a note on Android and desktop."
-cardLabel: "Home screen app"
+title: "Install DRepTalk as an app on your home screen"
+description: "How to install DRepTalk as an app on iPhone, iPad, Android, and desktop (a progressive web app, or PWA). On iOS and iPadOS the installed app is also required for push notifications."
+cardLabel: "DRepTalk as an app"
 category: "About DRepTalk"
 order: 6
+featured: true
+updated: 2026-08-02
 ---
 
-DRepTalk works as a web app you can add to your home screen. On iPhone and iPad
-this is more than a shortcut: **push notifications on iOS and iPadOS only work
-from the installed home-screen app**, not from a website open in Safari. That
-is an Apple platform rule, not a DRepTalk limitation.
+You can install DRepTalk as an app on your home screen: it opens in its own
+window and behaves like a native app, with no app store needed. (For the
+technically minded, this kind of installable web app is called a progressive web
+app, or PWA.) On iPhone and iPad installing is more than a shortcut: **push
+notifications on iOS and iPadOS only work from the installed home-screen app**,
+not from a website open in Safari. That is an Apple platform rule, not a DRepTalk
+limitation.
 
 ## iPhone and iPad
 
-1. Open **dreptalk.com** in **Safari**. Other browsers on iOS cannot add
-   home-screen web apps with notification support.
+1. Open **dreptalk.com** in **Safari**. Since iOS and iPadOS 16.4 some other
+   browsers can add home-screen apps too, but Safari is the most reliable path,
+   so these steps use it.
 2. Tap the **Share** button (the square with the arrow pointing up) in the
    toolbar.
 3. Scroll down and tap **Add to Home Screen**.
@@ -25,7 +31,10 @@ window. To receive push notifications, open it from there and sign in. On a
 phone there is no wallet extension to sign with, so use
 [Pair a phone or tablet](/help/pair-a-device/): the app shows a code that you
 approve from a computer where you are already signed in. Pair from inside the
-installed app, not from a browser tab, because the two do not share a sign-in.
+installed app: it keeps its own sign-in. On iOS and iPadOS 17.2 and later your
+current cookies are copied in when you install, but the app and the browser tab
+keep separate storage afterwards, so a later sign-in in one does not carry to the
+other.
 
 Once signed in, go to [Notifications](/notifications/) and enable push under
 **Push notifications**. iOS asks for notification permission once; after
@@ -33,6 +42,14 @@ allowing it, DRepTalk notifications appear like any other app's, including on
 the lock screen.
 
 Requires iOS or iPadOS 16.4 or newer.
+
+## Sharing a page from the app
+
+The installed app runs without a browser address bar, so to pass on what you are
+looking at, use the **Share** button. It appears in the header inside the app and
+on every governance action, DRep profile, discussion, and vote rationale. It
+opens your device's share sheet (or copies the link) so you can post it, send it
+in a message, or open it in your wallet's in-app browser.
 
 ## Android
 

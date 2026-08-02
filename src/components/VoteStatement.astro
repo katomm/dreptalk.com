@@ -6,6 +6,7 @@ import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import EarlierVotes from '@/components/EarlierVotes.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
+import ShareButton from '@/components/ShareButton.astro';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/forum/view.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
@@ -72,6 +73,7 @@ const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=
       <a class="btn btn-primary" href={p.rawRationaleUrl} rel="nofollow noopener" target="_blank">Raw rationale</a>
     )}
     <a class="btn btn-secondary" href={backHref}>Back to action</a>
+    <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={`How ${p.author.displayName} voted on ${p.actionTitle}`} ariaLabel="Share this rationale" />
   </div>
 </article>
 

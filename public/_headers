@@ -31,6 +31,8 @@
   Cache-Control: public, max-age=31536000, immutable
 /apple-touch-icon.png
   Cache-Control: public, max-age=31536000, immutable
+/icons/*
+  Cache-Control: public, max-age=31536000, immutable
 
 # Hand-edited script with a stable filename, so it cannot be immutable: an edit
 # would not propagate to returning visitors. Cap at one hour with revalidation

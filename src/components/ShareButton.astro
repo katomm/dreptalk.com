@@ -1,0 +1,166 @@
+---
+// Share control for a page or item. Where the Web Share API exists it opens the
+// native share sheet (copy, messengers, socials, hand-off to another app);
+// otherwise it copies the URL with a "Copied" confirmation. This is the answer
+// to "the installed PWA has no address bar, so the URL cannot be shared or
+// pasted into a wallet's in-app browser" (issue #310), and the general share
+// affordance on shareable pages and vote rows.
+//
+// One delegated, bundled listener handles every instance on the page (hoisted
+// once regardless of how many buttons appear); the strict CSP forbids inline
+// handlers. This is the single share implementation: ShareVoteButton renders
+// this component too, so there is no second parallel share/copy logic.
+interface Props {
+  /** URL to share. Defaults to the current page URL at click time. */
+  url?: string;
+  /** Title passed to the share sheet. Defaults to the document title. */
+  title?: string;
+  /** Visible label (hidden when iconOnly). */
+  label?: string;
+  /** Accessible label and tooltip. */
+  ariaLabel?: string;
+  /** Render only the icon, no label text. */
+  iconOnly?: boolean;
+  /** 'default' is a normal button/pill; 'compact' is the smaller vote-row size. */
+  variant?: 'default' | 'compact';
+}
+const { url, title, label = 'Share', ariaLabel = 'Share this page', iconOnly = false, variant = 'default' } = Astro.props;
+---
+
+<button
+  type="button"
+  class:list={['share-btn', { 'share-btn--icon': iconOnly, 'share-btn--compact': variant === 'compact' }]}
+  data-share-url={url}
+  data-share-title={title}
+  aria-label={ariaLabel}
+  title={ariaLabel}
+>
+  <svg class="share-btn__icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+  </svg>
+  <svg class="share-btn__check" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+  {!iconOnly && (
+    <>
+      <span class="share-btn__idle">{label}</span>
+      <span class="share-btn__done">Copied</span>
+    </>
+  )}
+  {/* Announces the copy fallback to screen readers (the native sheet announces
+      itself). role="status" is an implicit polite live region. */}
+  <span class="sr-only" data-share-status role="status"></span>
+</button>
+
+<script>
+  // Native share first, clipboard copy as the fallback. Delegated to document so
+  // the single bundled listener covers every .share-btn on the page.
+  document.addEventListener('click', (event) => {
+    const btn = (event.target as Element | null)?.closest<HTMLButtonElement>('.share-btn');
+    if (!btn) return;
+    const shareUrl = btn.dataset.shareUrl || window.location.href;
+    const shareTitle = btn.dataset.shareTitle || document.title;
+
+    const copyFallback = () => {
+      navigator.clipboard
+        ?.writeText(shareUrl)
+        .then(() => {
+          btn.classList.add('is-copied');
+          const status = btn.querySelector('[data-share-status]');
+          if (status) status.textContent = 'Link copied';
+          setTimeout(() => {
+            btn.classList.remove('is-copied');
+            if (status) status.textContent = '';
+          }, 1500);
+        })
+        .catch(() => {
+          // Clipboard blocked (no permission / insecure context): nothing to do.
+        });
+    };
+
+    // navigator.share is the capability check; canShare is not required.
+    if (typeof navigator.share === 'function') {
+      navigator.share({ title: shareTitle, url: shareUrl }).catch((err) => {
+        // Sheet dismissed: do nothing, do not surprise-copy.
+        if (err && err.name === 'AbortError') return;
+        // Web Share failed for a technical reason: fall back to copying.
+        copyFallback();
+      });
+      return;
+    }
+    copyFallback();
+  });
+</script>
+
+<style>
+  .share-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-weight: 600;
+    line-height: 1;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .share-btn:hover {
+    color: var(--fg);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .share-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* Icon-only square (header and tight rows). */
+  .share-btn--icon {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    gap: 0;
+  }
+  /* Compact size for vote rows (matches the old permalink pill). */
+  .share-btn--compact {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.78rem;
+    gap: 0.3em;
+    border-radius: 0.4rem;
+  }
+  .share-btn--compact.share-btn--icon {
+    width: 1.9em;
+    height: 1.9em;
+  }
+  .share-btn--compact .share-btn__icon,
+  .share-btn--compact .share-btn__check {
+    width: 14px;
+    height: 14px;
+  }
+  /* Icon/check swap on the copy fallback; check hidden until then. */
+  .share-btn__check {
+    display: none;
+    color: var(--accent);
+  }
+  .share-btn.is-copied .share-btn__icon {
+    display: none;
+  }
+  .share-btn.is-copied .share-btn__check {
+    display: inline-block;
+  }
+  .share-btn__done {
+    display: none;
+  }
+  .share-btn.is-copied .share-btn__idle {
+    display: none;
+  }
+  .share-btn.is-copied .share-btn__done {
+    display: inline;
+    color: var(--accent);
+  }
+</style>

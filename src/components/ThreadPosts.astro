@@ -268,26 +268,6 @@ const notVoted = (author: AuthorDescriptor) =>
         });
       return;
     }
-
-    // The header Share button (rendered by t/[slug].astro for user topics)
-    // copies the plain page URL. It lives outside this component's markup,
-    // but this handler is delegated to document, so it catches it too.
-    const copyLinkBtn = target.closest('[data-copy-link]');
-    if (copyLinkBtn) {
-      const original = copyLinkBtn.textContent;
-      const copiedLabel = copyLinkBtn.getAttribute('data-copied-label') ?? 'Copied';
-      navigator.clipboard
-        .writeText(window.location.href)
-        .then(() => {
-          copyLinkBtn.textContent = copiedLabel;
-          setTimeout(() => {
-            copyLinkBtn.textContent = original;
-          }, 1500);
-        })
-        .catch(() => {
-          // Clipboard unavailable (permissions, http): leave the label as is.
-        });
-    }
   });
 </script>
 

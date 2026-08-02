@@ -1,35 +1,25 @@
 ---
 // Permalink control for a single vote+rationale, shown at the end of the
-// expanded rationale. Copies the deep link to this exact vote so it can be
-// shared into socials or chats; opening the link scrolls to, expands, and
-// highlights the row via the reveal-hash-target script in the base layout.
-// It reuses the global .copy-btn[data-copy] convention, so the one delegated
-// copy listener in src/layouts/Layout.astro handles the click and the
-// copy/check icon swap; the .share-vote class turns it into a labelled pill
-// (styles in global.css). A link glyph signals "permalink" rather than
-// "copy value".
+// expanded rationale. It shares (or copies) the deep link to this exact vote;
+// opening the link scrolls to, expands, and highlights the row via the
+// reveal-hash-target script in the base layout.
+//
+// A thin wrapper over the shared ShareButton (compact variant), so the whole
+// site has one share/copy implementation, not a second parallel one.
+import ShareButton from '@/components/ShareButton.astro';
 interface Props {
   /** Absolute deep-link URL to this vote, including the #anchor. */
   url: string;
+  /** Pass 'Share your rationale' for a voter sharing their own; anything else is
+      treated as the generic per-vote share. */
   label?: string;
-  /** Render just the link glyph (no pill, no text), for tight rows. */
+  /** Render just the icon (no pill, no text), for tight rows. */
   iconOnly?: boolean;
 }
 const { url, label = 'Copy link to this vote', iconOnly = false } = Astro.props;
+const isOwnRationale = label === 'Share your rationale';
+const idle = isOwnRationale ? 'Share your rationale' : 'Share';
+const aria = isOwnRationale ? 'Share your rationale' : 'Share a link to this vote';
 ---
 
-<button type="button" class:list={['copy-btn', { 'share-vote': !iconOnly }]} data-copy={url} aria-label={label} title={label}>
-  <svg class="copy-btn__copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-  </svg>
-  <svg class="copy-btn__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M20 6 9 17l-5-5" />
-  </svg>
-  {!iconOnly && (
-    <>
-      <span class="share-vote__idle">{label === 'Share your rationale' ? 'Share your rationale' : 'Copy link'}</span>
-      <span class="share-vote__done">Copied</span>
-    </>
-  )}
-</button>
+<ShareButton url={url} label={idle} ariaLabel={aria} iconOnly={iconOnly} variant="compact" />

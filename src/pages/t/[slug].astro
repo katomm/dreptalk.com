@@ -16,6 +16,7 @@ import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
+import ShareButton from '@/components/ShareButton.astro';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
 import { getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
@@ -523,11 +524,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           </div>
         )}
       </div>
-      {!isGovernanceTopic && (
-        <button type="button" class="thread-share-btn" data-copy-link data-copied-label="Copied">
-          Share
-        </button>
-      )}
+      <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={topic.title} ariaLabel="Share this page" />
+
     </div>
 
     {isGovernanceTopic && govAction ? (
@@ -755,22 +753,6 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     color: var(--accent);
     text-decoration: none;
   }
-  .thread-share-btn {
-    flex-shrink: 0;
-    padding: 0.4rem 0.85rem;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--fg);
-    font-size: 0.8125rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .thread-share-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
   /* Two-column layout: main content on the left, sidebar on the right.
      Single column on mobile (sidebar stacks below). */
   .ga-detail-layout {
