@@ -9,6 +9,7 @@ import { activityInsert } from '../db/activity.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory, getVotesNeedingMetaHash } from '../db/drepVotes.js';
 import { upsertProtocolParams, type ProtocolParams } from '../db/protocolParams.js';
+import { upsertCommitteeMembers, upsertCommitteeHotKeys, recomputeCommitteePct } from '../db/committee.js';
 import { readThresholdSnapshot } from './thresholds.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow, EpochParamsRow } from '../koios/client.js';
 import { epochStartMs, resolveNetwork } from '../config/network.js';
@@ -80,6 +81,113 @@ function fakeTallyKoios(lifecycle: ProposalListRow[], s: VotingSummary | null = 
     },
   };
 }
+
+describe('syncGovernanceTallies committee override', () => {
+  // Two-member committee where member cc-aa rotated its hot key and voted twice
+  // (Yes via both keys): Koios' summary double-counts the rotation, the ledger
+  // counts one final Yes for cc-aa plus cc-bb's No -> 1/1 of 2 active members.
+  async function seedCommittee() {
+    await db().prepare('DELETE FROM committee_member').run();
+    await db().prepare('DELETE FROM committee_hot_key').run();
+    await upsertCommitteeMembers(db(), [
+      { coldKeyHex: 'cc-aa', versionFrom: 0, versionTo: null, termExpiration: 1000, authorizedFrom: 0, resignedAt: null },
+      { coldKeyHex: 'cc-bb', versionFrom: 0, versionTo: null, termExpiration: 1000, authorizedFrom: 0, resignedAt: null },
+    ]);
+    await upsertCommitteeHotKeys(db(), [
+      { hotKeyHex: 'hot-aa-1', coldKeyHex: 'cc-aa' },
+      { hotKeyHex: 'hot-aa-2', coldKeyHex: 'cc-aa' },
+      { hotKeyHex: 'hot-bb', coldKeyHex: 'cc-bb' },
+    ]);
+  }
+
+  async function emptyCommittee() {
+    await db().prepare('DELETE FROM committee_member').run();
+    await db().prepare('DELETE FROM committee_hot_key').run();
+  }
+
+  async function seedCcVotes(gaId: string) {
+    const insert = (voterId: string, hex: string, vote: string, blockTime: number) =>
+      db()
+        .prepare(
+          `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at)
+           VALUES (?, 'ConstitutionalCommittee', ?, ?, ?, NULL, ?, 0)`,
+        )
+        .bind(gaId, voterId, hex, vote, blockTime);
+    await db().batch([
+      insert('cc_hot_aa_1', 'hot-aa-1', 'Yes', 100),
+      insert('cc_hot_aa_2', 'hot-aa-2', 'Yes', 200),
+      insert('cc_hot_bb', 'hot-bb', 'No', 150),
+    ]);
+  }
+
+  // What Koios' summary reports for that vote set: the rotated key counted twice.
+  const rawCcSummary: VotingSummary = {
+    ...summary,
+    committee_yes_votes_cast: 2,
+    committee_no_votes_cast: 1,
+    committee_abstain_votes_cast: 0,
+    committee_yes_pct: 66.67,
+    committee_no_pct: 33.33,
+  };
+
+  it('stores the ledger-exact committee tally instead of the raw Koios summary', async () => {
+    await seedCommittee();
+    const a = await insertActive(400);
+    await seedCcVotes(a.id);
+
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)], rawCcSummary),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 10,
+    });
+
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.ccYes).toBe(1);
+    expect(got!.ccNo).toBe(1);
+    expect(got!.ccAbstain).toBe(0);
+    expect(got!.ccYesPct).toBe(50);
+    expect(got!.ccNoPct).toBe(50);
+  });
+
+  it('never reverts a committee-pct recompute back to raw Koios values', async () => {
+    await seedCommittee();
+    const a = await insertActive(400);
+    await seedCcVotes(a.id);
+
+    // The committee-pct phase (vote cron) already fixed the row...
+    await recomputeCommitteePct(db(), 293, 100);
+    // ...then a later tally pass re-syncs the same action with raw Koios data.
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)], rawCcSummary),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 20,
+    });
+
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.ccYes).toBe(1);
+    expect(got!.ccNo).toBe(1);
+    expect(got!.ccYesPct).toBe(50);
+  });
+
+  it('falls back to the raw Koios values when the membership timeline is empty (preprod)', async () => {
+    await emptyCommittee();
+    const a = await insertActive(400);
+    await seedCcVotes(a.id);
+
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)], rawCcSummary),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 10,
+    });
+
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.ccYes).toBe(2);
+    expect(got!.ccYesPct).toBe(66.67);
+  });
+});
 
 describe('deriveStatus', () => {
   const ga = { expiryEpoch: 294 } as never;

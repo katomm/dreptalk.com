@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId, getSelfDrepId, getUserByStakeAddr } from './users.js';
+import { bindCountingDb } from './__tests__/bindCountingDb.js';
 
 const db = () => env.DB;
 const NOW = 1_700_000_000;
@@ -276,5 +277,26 @@ describe('getUserByStakeAddr', () => {
     expect(found?.id).toBe('acct-lookup');
     const missing = await getUserByStakeAddr(db(), 'stake_test1absent');
     expect(missing).toBeNull();
+  });
+});
+
+describe('getUsersByIds bind cap', () => {
+  it('stays under the D1 100-bind cap and still finds users beyond the first chunk', async () => {
+    // Five real users placed at the END of a 205-id lookup, so they land past
+    // the first chunk boundary. A single IN (...) would bind 205 parameters:
+    // production D1 rejects that, miniflare does not, hence the bind counter.
+    const real = Array.from({ length: 5 }, (_, i) => `drep1-bindcap-${NOW}-${i}`);
+    for (const id of real) {
+      await upsertUserFromAuth(db(), { drepId: id, roles: ['drep'], now: NOW });
+    }
+    const missing = Array.from({ length: 200 }, (_, i) => `drep1-bindcap-missing-${i}`);
+    const ids = [...missing, ...real];
+
+    const counted = bindCountingDb(db());
+    const found = await getUsersByIds(counted.db, ids);
+
+    expect(found.size).toBe(5);
+    for (const id of real) expect(found.get(id)?.drep_id).toBe(id);
+    expect(counted.maxBinds()).toBeLessThanOrEqual(100);
   });
 });

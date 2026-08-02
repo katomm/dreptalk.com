@@ -29,7 +29,7 @@ import {
   type GovernanceTally,
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, getVotesNeedingMetaHash, setVoteMetaHash, type VoteInput } from '../db/drepVotes.js';
-import { getCommitteeTimeline } from '../db/committee.js';
+import { getCommitteeTimeline, ledgerCcTally } from '../db/committee.js';
 import { activeCommitteeSizeAt } from '../koios/committeeTimeline.js';
 import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
@@ -303,6 +303,10 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
   // until the params sync has run at least once.
   const params = await getProtocolParams(db);
 
+  // Membership timeline for the ledger-exact committee override below, one read
+  // per run. Empty on preprod (no seed coverage), which disables the override.
+  const committee = await getCommitteeTimeline(db);
+
   let updated = 0;
   let frozen = 0;
   let failed = 0;
@@ -323,6 +327,21 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       const decidedEpoch =
         life?.enacted_epoch ?? life?.ratified_epoch ?? life?.expired_epoch ?? life?.dropped_epoch ??
         (status !== 'active' ? ga.expiryEpoch ?? life?.expiration ?? null : null);
+
+      // Ledger-exact committee override: Koios' summary double-counts rotated
+      // hot keys and mis-sizes the denominator (see ccTallyPct). Where the
+      // membership timeline covers the action's epoch, replace the raw cc_*
+      // numbers with the same recompute the committee-pct phase runs, so a
+      // tally pass never reverts an already recomputed action and the
+      // threshold check below judges the exact value.
+      const ledgerCc = await ledgerCcTally(db, committee, ga.id, decidedEpoch ?? currentEpoch);
+      if (ledgerCc) {
+        tally.ccYes = ledgerCc.yes;
+        tally.ccNo = ledgerCc.no;
+        tally.ccAbstain = ledgerCc.abstain;
+        tally.ccYesPct = ledgerCc.yesPct;
+        tally.ccNoPct = ledgerCc.noPct;
+      }
 
       // Freeze the per-body thresholds with the action so a historical line is never
       // rebuilt from today's protocol params. Recomputed each tally sync while active;

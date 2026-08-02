@@ -7,7 +7,7 @@
 // number of distinct flaggers and posts.hidden is set when that count reaches the
 // threshold, so the hidden state is always consistent with the flags table.
 
-import { sqlPlaceholders } from './sql.js';
+import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
 
 // Distinct flaggers required to hide a post. Kept low on purpose: every flagger
 // is a wallet-verified on-chain writer, so few flags signal real consensus.
@@ -83,24 +83,27 @@ export async function unflagPost(
 }
 
 /**
- * Statement selecting the subset of postIds that flaggerId has already flagged.
- * Exported so the thread view can run it inside one batch with other per-viewer
- * lookups (a single D1 round-trip).
+ * Statements selecting the subset of postIds that flaggerId has already flagged,
+ * chunked to D1's 100-bind cap (flaggerId takes one bind per statement; a thread's
+ * reply count is unbounded). Exported so the thread view can run them inside one
+ * batch with other per-viewer lookups (a single D1 round-trip).
  */
-export function flaggedPostIdsStmt(
+export function flaggedPostIdsStmts(
   db: D1Database,
   flaggerId: string,
   postIds: string[],
-): D1PreparedStatement {
-  const placeholders = sqlPlaceholders(postIds);
-  return db
-    .prepare(`SELECT post_id FROM post_flags WHERE flagger_id = ? AND post_id IN (${placeholders})`)
-    .bind(flaggerId, ...postIds);
+): D1PreparedStatement[] {
+  return chunked(postIds, D1_MAX_BINDS - 1).map((chunk) =>
+    db
+      .prepare(`SELECT post_id FROM post_flags WHERE flagger_id = ? AND post_id IN (${sqlPlaceholders(chunk)})`)
+      .bind(flaggerId, ...chunk),
+  );
 }
 
 /**
- * Returns the subset of postIds that flaggerId has already flagged, in a single
- * query (no N+1). Used to render each post's flag button in the correct state.
+ * Returns the subset of postIds that flaggerId has already flagged, in one
+ * batched round-trip (no N+1). Used to render each post's flag button in the
+ * correct state.
  */
 export async function getFlaggedPostIds(
   db: D1Database,
@@ -108,6 +111,6 @@ export async function getFlaggedPostIds(
   postIds: string[],
 ): Promise<Set<string>> {
   if (postIds.length === 0) return new Set();
-  const rows = (await flaggedPostIdsStmt(db, flaggerId, postIds).all<{ post_id: string }>()).results ?? [];
-  return new Set(rows.map((r) => r.post_id));
+  const batched = await db.batch<{ post_id: string }>(flaggedPostIdsStmts(db, flaggerId, postIds));
+  return new Set(batched.flatMap((r) => (r.results ?? []).map((row) => row.post_id)));
 }

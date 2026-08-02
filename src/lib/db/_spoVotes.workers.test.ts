@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { countPoolVotes, getPoolParticipation, getPoolRationaleStats, getPoolVoteBreakdown, getPoolVotingHistory } from './drepVotes.js';
+import { countActionSpoVoters, countPoolVotes, getActionSpoVoters, getPoolParticipation, getPoolRationaleStats, getPoolVoteBreakdown, getPoolVotingHistory } from './drepVotes.js';
 
 const NOW = 1_700_000_000;
 
@@ -63,5 +63,36 @@ describe('SPO vote stats', () => {
     await seedActionWithSpoVote('ga-2', 'pool1y', 'Yes', null, 11); // another SPO voted, pool1x did not
     const p = await getPoolParticipation(env.DB, 'pool1x');
     expect(p).toEqual({ eligible: 2, voted: 1 });
+  });
+
+  it('hides a locally failed SPO vote from every pool read (same rule as DRep reads)', async () => {
+    await seedActionWithSpoVote('ga-live', 'poolF', 'Yes', null, 10);
+    // A failed optimistic vote: submitted from the app but never confirmed on
+    // chain, marked 'failed' by markStalePendingVotesFailed. It must not count
+    // in any public pool read, mirroring the DRep-side predicate.
+    await env.DB
+      .prepare(
+        `INSERT INTO governance_actions (id, type, anchor_status, status, created_at, last_synced_at, decided_epoch, title)
+         VALUES ('ga-failed', 'InfoAction', 'no-anchor', 'voting', ?, ?, 11, 'Failed Vote Action')`,
+      )
+      .bind(NOW, NOW)
+      .run();
+    await env.DB
+      .prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at, local_status)
+         VALUES ('ga-failed', 'SPO', 'poolF', NULL, 'No', NULL, ?, ?, 'failed')`,
+      )
+      .bind(NOW + 500, NOW)
+      .run();
+
+    expect(await countPoolVotes(env.DB, 'poolF')).toBe(1);
+    expect(await getPoolVoteBreakdown(env.DB, 'poolF')).toEqual({ yes: 1, no: 0, abstain: 0, total: 1 });
+    expect(await getPoolRationaleStats(env.DB, 'poolF')).toEqual({ total: 1, without: 1, withRationale: 0 });
+    expect((await getPoolVotingHistory(env.DB, 'poolF')).map((r) => r.ga_id)).toEqual(['ga-live']);
+    // A failed vote is no evidence the action was SPO-votable: eligible stays 1.
+    expect(await getPoolParticipation(env.DB, 'poolF')).toEqual({ eligible: 1, voted: 1 });
+    // The per-action voter list and count exclude it too.
+    expect(await getActionSpoVoters(env.DB, 'ga-failed')).toEqual([]);
+    expect(await countActionSpoVoters(env.DB, 'ga-failed')).toBe(0);
   });
 });
