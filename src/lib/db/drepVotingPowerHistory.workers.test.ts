@@ -7,6 +7,7 @@ import {
   pruneVotingPowerHistoryBefore,
   getDrepVotingPowerSeries,
   denormalizeDrepVotingPower,
+  stampDelegatorCounts,
 } from './drepVotingPowerHistory.js';
 
 // Minimal dreps row: only the NOT NULL columns plus voting_power.
@@ -17,6 +18,14 @@ async function seedDrep(drepId: string, votingPower: string | null): Promise<voi
   )
     .bind(drepId, votingPower)
     .run();
+}
+
+async function readCount(drepId: string, epoch: number) {
+  return env.DB.prepare(
+    'SELECT delegator_count FROM drep_voting_power_history WHERE drep_id = ? AND epoch = ?',
+  )
+    .bind(drepId, epoch)
+    .first<{ delegator_count: number | null }>();
 }
 
 async function readSnapshotCols(drepId: string) {
@@ -103,5 +112,59 @@ describe('drep voting power history store', () => {
 
     const row = await readSnapshotCols('drepGone');
     expect(row).toMatchObject({ snap: null, prev: null, ep: 540 });
+  });
+});
+
+describe('stampDelegatorCounts', () => {
+  it('stamps observed counts and never the stale dreps column', async () => {
+    // The dreps row carries a (possibly stale) count, but only drep_stamp_x
+    // was observed this run: drep_stamp_a must stay NULL.
+    await seedDrep('drep_stamp_a', '100');
+    await env.DB.prepare('UPDATE dreps SET delegator_count = 99 WHERE drep_id = ?')
+      .bind('drep_stamp_a')
+      .run();
+    await insertVotingPowerHistory(env.DB, [
+      { drepId: 'drep_stamp_a', epoch: 900, amount: '100' },
+      { drepId: 'drep_stamp_x', epoch: 900, amount: '50' },
+    ]);
+
+    const stamped = await stampDelegatorCounts(env.DB, 900, new Map([['drep_stamp_x', 5]]));
+    expect(stamped).toBe(1);
+    expect((await readCount('drep_stamp_x', 900))?.delegator_count).toBe(5);
+    expect((await readCount('drep_stamp_a', 900))?.delegator_count).toBeNull();
+  });
+
+  it('stamps once and never overwrites', async () => {
+    await insertVotingPowerHistory(env.DB, [{ drepId: 'drep_stamp_b', epoch: 901, amount: '100' }]);
+    await stampDelegatorCounts(env.DB, 901, new Map([['drep_stamp_b', 7]]));
+    const again = await stampDelegatorCounts(env.DB, 901, new Map([['drep_stamp_b', 9]]));
+    expect(again).toBe(0);
+    expect((await readCount('drep_stamp_b', 901))?.delegator_count).toBe(7);
+  });
+
+  it('retries per DRep: a later pass fills what an earlier one could not', async () => {
+    await insertVotingPowerHistory(env.DB, [
+      { drepId: 'drep_stamp_c', epoch: 902, amount: '100' },
+      { drepId: 'drep_stamp_d', epoch: 902, amount: '100' },
+    ]);
+    await stampDelegatorCounts(env.DB, 902, new Map([['drep_stamp_c', 3]]));
+    expect((await readCount('drep_stamp_d', 902))?.delegator_count).toBeNull();
+    await stampDelegatorCounts(env.DB, 902, new Map([['drep_stamp_d', 4]]));
+    expect((await readCount('drep_stamp_c', 902))?.delegator_count).toBe(3);
+    expect((await readCount('drep_stamp_d', 902))?.delegator_count).toBe(4);
+  });
+
+  it('ignores observations without a history row and other epochs', async () => {
+    await insertVotingPowerHistory(env.DB, [{ drepId: 'drep_stamp_e', epoch: 903, amount: '100' }]);
+    const stamped = await stampDelegatorCounts(
+      env.DB,
+      904,
+      new Map([
+        ['drep_stamp_e', 6],
+        ['drep_stamp_ghost', 1],
+      ]),
+    );
+    expect(stamped).toBe(0);
+    expect((await readCount('drep_stamp_e', 903))?.delegator_count).toBeNull();
   });
 });

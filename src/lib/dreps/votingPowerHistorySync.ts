@@ -12,6 +12,7 @@ import {
   insertVotingPowerHistory,
   pruneVotingPowerHistoryBefore,
   denormalizeDrepVotingPower,
+  stampDelegatorCounts,
   type VotingPowerHistoryRow,
 } from '../db/drepVotingPowerHistory.js';
 
@@ -34,6 +35,13 @@ export interface VotingPowerHistorySyncDeps {
   currentEpoch: number;
   /** How many trailing epochs to retain. Defaults to DEFAULT_WINDOW. */
   windowSize?: number;
+  /**
+   * Delegator counts observed by the dreps phase of THIS run (see
+   * DrepSyncResult.observedDelegatorCounts). Optional: without it the stamp
+   * is skipped and the epoch's counts stay NULL until a later pass supplies
+   * observations.
+   */
+  observedDelegatorCounts?: ReadonlyMap<string, number>;
 }
 
 export interface VotingPowerHistorySyncResult {
@@ -45,6 +53,8 @@ export interface VotingPowerHistorySyncResult {
   inserted: number;
   /** Snapshot rows pruned below the window floor. */
   pruned: number;
+  /** Current-epoch rows whose delegator count was stamped this run. */
+  stamped: number;
 }
 
 /** Pages through one epoch, collecting every DRep's snapshot (skipping null amounts). */
@@ -89,5 +99,13 @@ export async function syncDrepVotingPowerHistory(
   // first run still populates every row.
   if (fetchedEpochs.length > 0) await denormalizeDrepVotingPower(db, currentEpoch);
 
-  return { window, fetchedEpochs, inserted, pruned };
+  // Freeze this run's observed delegator counts into the current epoch's rows
+  // (stamp-once inside, see stampDelegatorCounts).
+  const stamped = await stampDelegatorCounts(
+    db,
+    currentEpoch,
+    deps.observedDelegatorCounts ?? new Map(),
+  );
+
+  return { window, fetchedEpochs, inserted, pruned, stamped };
 }

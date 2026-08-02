@@ -139,3 +139,63 @@ export async function denormalizeDrepVotingPower(db: D1Database, currentEpoch: n
     .bind(currentEpoch, currentEpoch - 1)
     .run();
 }
+
+// Two binds per (drep_id, count) pair plus the epoch bind, so 49 pairs keep a
+// statement at 99 parameters, under D1's 100-bind cap.
+const STAMP_CHUNK = 49;
+
+/**
+ * Stamps delegator counts observed by THIS sync run into the given epoch's
+ * rows, stamp-once: only rows still NULL are written, so the first successful
+ * pass of an epoch freezes each DRep's value and later passes retry only the
+ * gaps, each with its own fresh observation. Deliberately takes the observed
+ * map instead of reading dreps.delegator_count, which can silently hold a
+ * stale value when Koios omitted the count (see sync.ts buildRow). Rows
+ * without an observation stay NULL. Returns the number of rows stamped.
+ */
+export async function stampDelegatorCounts(
+  db: D1Database,
+  epoch: number,
+  observed: ReadonlyMap<string, number>,
+): Promise<number> {
+  if (observed.size === 0) return 0;
+  // Cheap pre-scan: after the first successful pass of an epoch this is empty
+  // and the stamp costs one indexed SELECT (idx_drep_voting_power_history_epoch).
+  const open =
+    (
+      await db
+        .prepare(
+          'SELECT drep_id FROM drep_voting_power_history WHERE epoch = ? AND delegator_count IS NULL',
+        )
+        .bind(epoch)
+        .all<{ drep_id: string }>()
+    ).results ?? [];
+  const pairs: [string, number][] = [];
+  for (const row of open) {
+    const count = observed.get(row.drep_id);
+    if (count != null) pairs.push([row.drep_id, count]);
+  }
+  if (pairs.length === 0) return 0;
+
+  // UPDATE ... FROM (VALUES ...) needs SQLite 3.33+, which both workerd and D1
+  // ship. SQLite names bare VALUES columns column1/column2. Should a future
+  // runtime reject the syntax (the workers tests would fail immediately), fall
+  // back to one UPDATE per pair batched through db.batch.
+  const stmts: D1PreparedStatement[] = [];
+  for (let i = 0; i < pairs.length; i += STAMP_CHUNK) {
+    const chunk = pairs.slice(i, i + STAMP_CHUNK);
+    const values = chunk.map(() => '(?, ?)').join(', ');
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE drep_voting_power_history AS h
+              SET delegator_count = v.column2
+             FROM (VALUES ${values}) AS v
+            WHERE h.drep_id = v.column1 AND h.epoch = ? AND h.delegator_count IS NULL`,
+        )
+        .bind(...chunk.flat(), epoch),
+    );
+  }
+  const results = await db.batch(stmts);
+  return results.reduce((sum, r) => sum + (r.meta.changes ?? 0), 0);
+}

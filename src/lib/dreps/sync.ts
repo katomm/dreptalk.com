@@ -46,6 +46,14 @@ export interface DrepSyncResult {
   // Hosted-metadata GC (junk written for self-generated keys).
   gcScanned: number;
   gcDeleted: number;
+  /**
+   * Delegator counts actually delivered by Koios THIS run (drep_id to
+   * live_delegator_count). The epoch history stamp uses only these, never the
+   * dreps column, which silently keeps a stale value when Koios omits the
+   * count (see buildRow). Filled per parsed /drep_info row regardless of
+   * whether the row changed.
+   */
+  observedDelegatorCounts: Map<string, number>;
 }
 
 export interface DrepSyncDeps {
@@ -371,6 +379,7 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   // real DRep's metadata is never deleted.
   const registeredIds = new Set(ids);
   const keepHashes = new Set<string>();
+  const observedDelegatorCounts = new Map<string, number>();
 
   for (const chunkIds of chunk(ids, CHUNK_SIZE)) {
     // One batched Koios lookup and one batched D1 read per chunk (no N+1). The
@@ -382,6 +391,12 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
 
     for (const info of infoRows) {
       if (info.meta_hash) keepHashes.add(info.meta_hash.toLowerCase());
+      // Observation is about the Koios response, not about persistence: record
+      // it before the try so an unrelated profile/anchor failure for this row
+      // cannot drop a count Koios did deliver.
+      if (info.live_delegator_count != null) {
+        observedDelegatorCounts.set(info.drep_id, info.live_delegator_count);
+      }
       try {
         const prior = existing.get(info.drep_id);
         const canFetch = anchorsFetched < maxAnchorFetches;
@@ -455,7 +470,18 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
     gcDeleted = gc.deleted;
   }
 
-  return { total: ids.length, updated, skipped, deactivated, anchorsFetched, anchorsDeferred, failed, gcScanned, gcDeleted };
+  return {
+    total: ids.length,
+    updated,
+    skipped,
+    deactivated,
+    anchorsFetched,
+    anchorsDeferred,
+    failed,
+    gcScanned,
+    gcDeleted,
+    observedDelegatorCounts,
+  };
 }
 
 export interface SlugBackfillResult {
