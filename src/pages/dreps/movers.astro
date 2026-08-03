@@ -55,17 +55,13 @@ const selfStanding: string | null = selfStandingData
 const hasData = gainers.length > 0 || losers.length > 0;
 const epochLabel = epoch != null ? `epoch ${epoch}` : 'the latest epoch';
 
-// Dynamic OG card of the top gainers/losers, versioned by the epoch and the two
-// leaders so a fresh scrape refetches once the standings turn over each epoch.
-const ogImage = hasData
-  ? `/og/dreps/movers.png?v=${ogCardVersion([
-      epoch,
-      gainers[0]?.drepId,
-      gainers[0]?.votingPowerSnapshot,
-      losers[0]?.drepId,
-      losers[0]?.votingPowerSnapshot,
-    ])}`
-  : undefined;
+// Dynamic OG card of the top gainers and losers. The standings come from immutable
+// per-epoch snapshots (drepVotingPowerHistory), so the card only changes when the
+// epoch rolls. Versioning by the epoch alone makes a fresh scrape refetch exactly
+// then and no more often. A finer token would only re-fetch an identical image.
+// OG_CARD_VERSION stays folded in via ogCardVersion, so a template change still
+// re-versions every existing share.
+const ogImage = hasData ? `/og/dreps/movers.png?v=${ogCardVersion([epoch])}` : undefined;
 
 const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
   { key: 'up', title: 'Top gainers', items: gainers },
