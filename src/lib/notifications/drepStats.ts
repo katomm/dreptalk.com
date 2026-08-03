@@ -128,12 +128,12 @@ function readCount(v: unknown): number | null | undefined {
 }
 
 /**
- * One line for the inbox row and the push lead, e.g.
- * "Epoch 570: voting power 65.2M ₳ (+3.2%), 1,540 delegators (+12)".
- * Parts whose data is absent are omitted, deltas that cannot be computed are
- * left off rather than guessed.
+ * The stat changes without the epoch prefix, e.g.
+ * "voting power 65.2M ₳ (+3.2%), 1,540 delegators (+12)". Parts whose data is
+ * absent are omitted, deltas that cannot be computed are left off rather than
+ * guessed. Used as the push body, where the epoch rides in the title instead.
  */
-export function formatDrepStatsSummary(p: DrepStatsPayload): string {
+export function formatDrepStatsDetail(p: DrepStatsPayload): string {
   const ev = evaluateDrepStats(p);
   const parts: string[] = [];
   const power = formatAdaCompact(p.power);
@@ -155,7 +155,16 @@ export function formatDrepStatsSummary(p: DrepStatsPayload): string {
     const noun = p.delegators === 1 ? 'delegator' : 'delegators';
     parts.push(`${p.delegators.toLocaleString('en-US')} ${noun}${delta}`);
   }
-  return `Epoch ${p.epoch}: ${parts.join(', ')}`;
+  return parts.join(', ');
+}
+
+/**
+ * One line for the inbox row, e.g.
+ * "Epoch 570: voting power 65.2M ₳ (+3.2%), 1,540 delegators (+12)": the epoch
+ * prefix plus {@link formatDrepStatsDetail}.
+ */
+export function formatDrepStatsSummary(p: DrepStatsPayload): string {
+  return `Epoch ${p.epoch}: ${formatDrepStatsDetail(p)}`;
 }
 
 function toNumber(v: string | null): number | null {

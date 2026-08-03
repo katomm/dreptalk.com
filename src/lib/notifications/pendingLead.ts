@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
-// Resolves the single most-recent pending event for one channel into a human
-// sentence plus the in-app path to open, so a small bundle can be spelled out
-// with a deep link instead of a bare count (see pushMessage.formatNotification).
+// Resolves the single most-recent pending event for one channel into a push
+// title + body plus the in-app path to open, so a small bundle can be spelled
+// out with a deep link instead of a bare count (see pushMessage.formatNotification).
 //
 // This mirrors the inbox row hydration in src/pages/notifications.astro, but for
 // exactly ONE item: the dispatcher only asks for the lead when a channel has at
@@ -18,7 +18,7 @@ import { getGovernanceActionSlugsByIds } from '../db/governance.js';
 import { loadAuthorIdentity } from '../forum/author.js';
 import { statusBadge } from '../governance/view.js';
 import { parseDrepEventPayload } from '../delegation/notifyPayload.js';
-import { parseDrepStatsPayload, formatDrepStatsSummary } from './drepStats.js';
+import { parseDrepStatsPayload, formatDrepStatsDetail } from './drepStats.js';
 import { drepPath } from '../dreps/profile.js';
 
 const INBOX_PATH = '/notifications/';
@@ -122,58 +122,72 @@ async function hydrateGov(db: D1Database, row: GovRow): Promise<PendingLead | nu
   const href = `/t/${topic.slug}/`;
 
   if (row.type === 'gov_status') {
+    // Subject in the title, the new status as the news below it.
     const to = readString(row.payload, 'to');
-    const status = to ? statusBadge(to).label : 'updated';
-    return { text: `${clip(topic.title)} is now ${status}`, href };
+    const status = to ? statusBadge(to).label : null;
+    return { title: clip(topic.title), body: status ? `Now ${status}` : 'Status updated', href };
   }
-  // gov_created: the title rides in the payload (see governance/sync.ts), so no
-  // extra read; fall back to the topic title if an older row lacks it.
+  // gov_created: the action title rides in the payload (see governance/sync.ts),
+  // so no extra read; fall back to the topic title if an older row lacks it.
   const title = readString(row.payload, 'title') ?? topic.title;
-  return { text: `New governance action: ${clip(title)}`, href };
+  return { title: clip(title), body: 'New governance action', href };
 }
 
 async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<PendingLead | null> {
   switch (row.type) {
     case 'device_paired':
-      return { text: 'A new device was paired', href: '/devices/' };
+      return { title: 'New device paired', body: 'Tap to review your devices', href: '/devices/' };
 
     case 'delegation_changed':
-      return { text: 'Your delegation changed', href: '/home/' };
+      return { title: 'Delegation changed', body: 'Tap to review your delegation', href: '/home/' };
 
     case 'delegator_drep_voted':
     case 'delegator_drep_re_voted': {
       const p = parseDrepEventPayload(row.payload);
-      const action = p?.title ? clip(p.title) : 'a governance action';
-      const verb = row.type === 'delegator_drep_voted' ? 'voted on' : 'changed a vote on';
+      const verb = row.type === 'delegator_drep_voted' ? 'Your DRep voted' : 'Your DRep changed a vote';
       const slug = p?.gaId ? (await getGovernanceActionSlugsByIds(db, [p.gaId])).get(p.gaId) : null;
-      return { text: `Your DRep ${verb} ${action}`, href: slug ? `/t/${slug}/` : INBOX_PATH };
+      const href = slug ? `/t/${slug}/` : INBOX_PATH;
+      // With the action known it is the subject (title); otherwise the verb leads.
+      return p?.title
+        ? { title: clip(p.title), body: verb, href }
+        : { title: verb, body: 'on a governance action', href };
     }
 
     case 'delegator_drep_status_changed': {
       const p = parseDrepEventPayload(row.payload);
       if (!p?.drepId || !p.to) return null;
-      return { text: `Your DRep is now ${p.to.effective}`, href: drepPath({ drepId: p.drepId }) };
+      return {
+        title: 'DRep status changed',
+        body: `Your DRep is now ${p.to.effective}`,
+        href: drepPath({ drepId: p.drepId }),
+      };
     }
 
     case 'drep_stats': {
       const p = parseDrepStatsPayload(row.payload);
       if (!p) return null;
-      return { text: formatDrepStatsSummary(p), href: drepPath({ drepId: p.drepId }) };
+      const detail = formatDrepStatsDetail(p);
+      return {
+        title: `Epoch ${p.epoch} · DRep stats`,
+        body: detail ? detail.charAt(0).toUpperCase() + detail.slice(1) : 'Stats updated',
+        href: drepPath({ drepId: p.drepId }),
+      };
     }
 
     default: {
-      // reply / mention: name the actor and the thread, deep-linking to the post.
+      // reply / mention: the thread is the subject (title), the actor's action
+      // the body. Deep-links to the post.
       if (!row.topic_id) return null;
       const topic = (await getTopicsByIds(db, [row.topic_id])).get(row.topic_id);
       if (!topic || topic.deleted) return null;
       const actor = row.actor_id ? (await loadAuthorIdentity(db, row.actor_id)).displayName : null;
-      const verb = row.type === 'mention' ? 'mentioned you in' : 'replied in';
-      const text = actor
-        ? `${actor} ${verb} "${clip(topic.title)}"`
-        : `New ${row.type === 'mention' ? 'mention' : 'reply'} in "${clip(topic.title)}"`;
+      const isMention = row.type === 'mention';
+      const body = actor
+        ? `${actor} ${isMention ? 'mentioned you' : 'replied'}`
+        : `New ${isMention ? 'mention' : 'reply'}`;
       const tab = topic.source === 'governance' ? '?tab=discussion' : '';
       const anchor = row.post_id ? `#post-${row.post_id}` : '';
-      return { text, href: `/t/${topic.slug}/${tab}${anchor}` };
+      return { title: `"${clip(topic.title)}"`, body, href: `/t/${topic.slug}/${tab}${anchor}` };
     }
   }
 }

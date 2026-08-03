@@ -104,7 +104,8 @@ describe('dispatchWebPush', () => {
     expect(calls[0].target).toEqual(TARGET);
     expect(calls[0].vapid).toEqual(VAPID);
     expect(JSON.parse(calls[0].payload)).toEqual({
-      title: 'DRepTalk',
+      // Six pending events, no single subject to name: the generic title.
+      title: 'New activity',
       body: '2 new replies, 1 mention, 3 governance updates',
       url: '/notifications/',
       // Same tally as the header bell: 3 unread personal rows + 3 gov threads.
@@ -250,7 +251,7 @@ describe('dispatchWebPush', () => {
     expect(body).toBe('2 DRep vote updates, 1 DRep status change, 1 delegation change');
   });
 
-  it('spells out a single governance action with its title and a deep link', async () => {
+  it('puts a single governance action title in the push title, with a deep link', async () => {
     await seedUser('alice');
     await seedTopic('g1');
     await addWebpushChannel('alice', 100);
@@ -267,8 +268,8 @@ describe('dispatchWebPush', () => {
 
     expect(result).toEqual({ sent: 1, pruned: 0, skipped: 0 });
     expect(JSON.parse(calls[0].payload)).toEqual({
-      title: 'DRepTalk',
-      body: 'New governance action: Reduce committee size to 75',
+      title: 'Reduce committee size to 75',
+      body: 'New governance action',
       url: '/t/g1-slug/',
       // One unseen gov thread, no personal rows.
       badge: 1,
@@ -294,7 +295,8 @@ describe('dispatchWebPush', () => {
     await dispatchWebPush(db(), VAPID, { send, now: 999 });
 
     const payload = JSON.parse(calls[0].payload);
-    expect(payload.body).toBe('New governance action: Ratify the budget (+1 more)');
+    expect(payload.title).toBe('Ratify the budget');
+    expect(payload.body).toBe('New governance action (+1 more)');
     expect(payload.url).toBe('/notifications/');
   });
 
@@ -326,7 +328,8 @@ describe('dispatchTelegram', () => {
     expect(r).toEqual({ sent: 1, pruned: 0, skipped: 0 });
     expect(calls).toHaveLength(1);
     expect(calls[0].chatId).toBe('111');
-    expect(calls[0].text).toBe('1 new reply\nhttps://dreptalk.com/notifications/');
+    // Title line folded in ahead of the summary body, then the absolute link.
+    expect(calls[0].text).toBe('New activity\n1 new reply\nhttps://dreptalk.com/notifications/');
     const [row] = await listChannelsByKind(db(), 'telegram');
     expect(row.delivered_until).toBe(50);
   });

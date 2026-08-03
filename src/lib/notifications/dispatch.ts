@@ -151,14 +151,17 @@ export async function dispatchWebPush(
     'webpush',
     async (row, counts, lead) => {
       const target = JSON.parse(row.target) as PushSubscriptionTarget;
-      const { body, path } = formatNotification(counts, lead);
+      const { title, body, path } = formatNotification(counts, lead);
       let badge = unreadByUser.get(row.user_id);
       if (badge === undefined) {
         badge = await getUnreadCount(db, row.user_id);
         unreadByUser.set(row.user_id, badge);
       }
+      // The title names the subject, not the app: the OS already shows "DRepTalk"
+      // in the notification's own header and (on iOS) a "from DRepTalk" line, so a
+      // "DRepTalk" title here would just be a third redundant copy.
       // path is app-relative; the service worker resolves it against its own origin.
-      const payload = JSON.stringify({ title: 'DRepTalk', body, url: path, badge });
+      const payload = JSON.stringify({ title, body, url: path, badge });
       const result = await deps.send(target, payload, vapid);
       if (result.ok) return 'sent';
       return isSubscriptionDead(result.status) ? 'dead' : 'failed';
@@ -184,9 +187,10 @@ export async function dispatchTelegram(
     db,
     'telegram',
     async (row, counts, lead) => {
-      const { body, path } = formatNotification(counts, lead);
-      // Telegram messages carry no origin context, so the link is absolute.
-      const text = `${body}\n${cfg.origin}${path}`;
+      const { title, body, path } = formatNotification(counts, lead);
+      // Telegram has no separate title field, so fold it into the first line; it
+      // also carries no origin context, so the link is absolute.
+      const text = `${title}\n${body}\n${cfg.origin}${path}`;
       const result = await deps.send(cfg.botToken, row.target, text);
       if (result.ok) return 'sent';
       return isTelegramChatDead(result) ? 'dead' : 'failed';
