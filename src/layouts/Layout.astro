@@ -1,6 +1,7 @@
 ---
 import '@/styles/global.css';
 import themeInit from '@/scripts/theme-init.js?raw';
+import badgeSync from '@/scripts/badge-sync.js?raw';
 import ThemeToggle from '@/components/ThemeToggle.astro';
 import SearchTrigger from '@/components/search/SearchTrigger';
 import RoleEntry from '@/components/RoleEntry.astro';
@@ -96,7 +97,7 @@ const isActive = (href: string) => {
 const helpEntries: HelpEntry[] = await getHelpEntries();
 ---
 <!doctype html>
-<html lang="en">
+<html lang="en" data-notif-unread={sessionUser ? String(unreadCount) : undefined}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -117,6 +118,10 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         SSR: a prerendered page gets the hash-less /* CSP from public/_headers,
         which would block this script. Keep pages off `export const prerender`. */}
     <script is:inline set:html={themeInit} />
+    {/* Syncs the installed app's icon badge to the signed-in unread count (read
+        off <html data-notif-unread>), and clears it when signed out. Inlined for
+        the same CSP reason as theme-init above; its hash ships on the SSR header. */}
+    <script is:inline set:html={badgeSync} />
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />

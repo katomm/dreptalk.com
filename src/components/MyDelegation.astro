@@ -4,8 +4,9 @@
 // voting power, delegator count, profile link), recent confirmed votes, and
 // the open actions the DRep has not voted on yet. The other kinds
 // (abstain/no_confidence/none/no-follow/pending) are short explainer states
-// with no history or actions. Presentational only, no data access; loadDelegation
-// (src/lib/db/loadDelegation.ts) does all the fetching.
+// with no history or actions. No server-side data access; loadDelegation
+// (src/lib/db/loadDelegation.ts) does all the fetching. The pending state
+// carries a small client retry against POST /api/delegation/track.
 import Avatar from '@/components/Avatar.astro';
 import Callout from '@/components/Callout.astro';
 import DrepVoteRow from '@/components/DrepVoteRow.astro';
@@ -141,9 +142,51 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
 
 {
   view.kind === 'pending' && (
-    <Callout variant="info">We could not load your delegation just now. It will refresh shortly.</Callout>
+    <div data-delegation-pending>
+      <Callout variant="info">
+        <span data-pending-msg>We could not load your delegation just now.</span>
+        <button type="button" class="mydel-retry" data-retry>Retry</button>
+      </Callout>
+    </div>
   )
 }
+
+<script>
+  // Pending-state retry: the login resolves the delegation in the background,
+  // so the first dashboard render can beat it, and a failed resolve is only
+  // re-attempted by the daily cron. One automatic retry via the track endpoint
+  // (which re-resolves inline) covers the login race; the button covers real
+  // upstream failures. Bundled <script> (not is:inline) keeps the strict CSP intact.
+  const pendingRoot = document.querySelector('[data-delegation-pending]');
+  if (pendingRoot) {
+    const msg = pendingRoot.querySelector('[data-pending-msg]') as HTMLElement | null;
+    const btn = pendingRoot.querySelector('[data-retry]') as HTMLButtonElement | null;
+
+    const retry = async () => {
+      if (!btn || btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = 'Retrying…';
+      try {
+        const res = await fetch('/api/delegation/track', { method: 'POST' });
+        const data = (await res.json().catch(() => null)) as { status?: string } | null;
+        if (res.ok && data?.status === 'resolved') {
+          window.location.reload();
+          return;
+        }
+      } catch {
+        // Network error: fall through to the retryable state below.
+      }
+      if (msg) msg.textContent = 'We still could not load your delegation. Please retry in a moment.';
+      btn.disabled = false;
+      btn.textContent = 'Retry';
+    };
+
+    btn?.addEventListener('click', retry);
+    // The deferred login resolve usually lands within a second or two; wait it
+    // out, then retry once automatically so the common case self-heals.
+    setTimeout(retry, 1500);
+  }
+</script>
 
 <style>
   .mydel__heading {
@@ -261,6 +304,26 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
     flex-shrink: 0;
     font-size: 0.8125rem;
     color: var(--muted);
+  }
+
+  /* Link-styled retry button inside the pending callout. */
+  .mydel-retry {
+    margin-left: 0.5rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mydel-retry:hover {
+    text-decoration: underline;
+  }
+  .mydel-retry:disabled {
+    color: var(--muted);
+    cursor: default;
+    text-decoration: none;
   }
 
   .mydel-onboarding {

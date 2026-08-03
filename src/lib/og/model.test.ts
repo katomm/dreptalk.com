@@ -193,10 +193,21 @@ describe('helpCardModel', () => {
     expect(m.meta).toBe('Help guide');
   });
 
-  it('clamps an overlong title and truncates the description on a word boundary', () => {
+  it('clamps an overlong title on a word boundary (illustration takes the right third)', () => {
+    const spaced = 'Managing your DRep: register, change metadata, get your deposit back';
+    const m = helpCardModel({ ...guide, title: spaced });
+    expect(m.title.length).toBeLessThanOrEqual(62);
+    expect(m.title.endsWith('…')).toBe(true);
+    // The visible prefix is a whole-word prefix of the original: the cut sits on a space.
+    const base = m.title.slice(0, -1);
+    expect(spaced.startsWith(base)).toBe(true);
+    expect(spaced[base.length]).toBe(' ');
+  });
+
+  it('hard-cuts a title with no nearby word boundary and truncates the description', () => {
     const long = 'lorem ipsum dolor sit amet '.repeat(12).trim();
     const m = helpCardModel({ ...guide, title: 'x'.repeat(200), description: long });
-    expect(m.title.length).toBeLessThanOrEqual(96);
+    expect(m.title.length).toBeLessThanOrEqual(62);
     expect(m.title.endsWith('…')).toBe(true);
     expect(m.subtitle).toMatch(/\S\.\.\.$/);
     expect((m.subtitle as string).length).toBeLessThan(150);

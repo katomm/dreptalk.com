@@ -42,6 +42,14 @@ const voteRecordSource = readFileSync(
 );
 const voteRecordHash = `sha256-${createHash('sha256').update(voteRecordSource).digest('base64')}`;
 
+// The app-icon badge sync script, inlined via set:html on every page in Layout.
+// Derived from the same file that is inlined so editing it cannot desync the hash.
+const badgeSyncSource = readFileSync(
+  fileURLToPath(new URL('./src/scripts/badge-sync.js', import.meta.url)),
+  'utf8',
+);
+const badgeSyncHash = `sha256-${createHash('sha256').update(badgeSyncSource).digest('base64')}`;
+
 export default defineConfig({
   site: 'https://dreptalk.com',
   output: 'server',
@@ -133,7 +141,7 @@ export default defineConfig({
         resources: ["'self'", 'https://static.cloudflareinsights.com', "'unsafe-eval'"],
         // Astro hashes its own bundled/inline scripts but not author is:inline
         // ones, so add the inlined script hashes explicitly.
-        hashes: [themeInitHash, govPrefsHash, voteFiltersHash, voteRecordHash],
+        hashes: [themeInitHash, govPrefsHash, voteFiltersHash, voteRecordHash, badgeSyncHash],
       },
     },
   },
