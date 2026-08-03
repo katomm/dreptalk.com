@@ -396,16 +396,15 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
       // the entry fires the native install prompt instead of following the link.
       // Hidden when already installed. Bundled once; the strict CSP forbids
       // inline handlers.
+      import { isStandaloneApp } from '@/scripts/standalone.js';
+
       interface InstallPromptEvent extends Event {
         prompt: () => Promise<void>;
         userChoice: Promise<{ outcome: string }>;
       }
       const installEntry = document.querySelector<HTMLAnchorElement>('[data-install-hint]');
       if (installEntry) {
-        const isStandalone =
-          matchMedia('(display-mode: standalone)').matches ||
-          (navigator as Navigator & { standalone?: boolean }).standalone === true;
-        if (isStandalone) {
+        if (isStandaloneApp()) {
           installEntry.hidden = true;
         } else {
           let deferredPrompt: InstallPromptEvent | null = null;
@@ -425,6 +424,170 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
             installEntry.hidden = true;
           });
         }
+      }
+    </script>
+
+    <script>
+      // Pull-to-refresh for the installed iOS app. iOS home-screen apps have no
+      // address bar, no reload button, and no native pull gesture, so without
+      // this the only way to refresh a page is relaunching the app. Android
+      // standalone keeps Chrome's built-in pull-to-refresh and browser tabs
+      // have their own reload UI, so the script stays inert everywhere else.
+      // Styles live in global.css (.ptr-indicator): the stylesheet owns all
+      // position/opacity math, the script only writes the --ptr-pull and
+      // --ptr-progress custom properties and toggles state classes. Bundled;
+      // the strict CSP forbids inline handlers.
+      import { isStandaloneApp } from '@/scripts/standalone.js';
+
+      // iPadOS reports itself as macOS; the touch-point count tells them apart.
+      const ptrIOS =
+        /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+        (navigator.userAgent.includes('Mac') && navigator.maxTouchPoints > 1);
+      if (isStandaloneApp() && ptrIOS) {
+        // Distances are in damped pixels: raw finger travel past the slop is
+        // multiplied by 0.5, so arming takes ~120px of actual pull.
+        const SLOP = 10;
+        const DAMPING = 0.5;
+        const THRESHOLD = 55;
+        const MAX_PULL = 90;
+
+        // Created on the first engaged pull, not on page load: most page views
+        // never pull, and as an MPA every navigation would otherwise pay for it.
+        let indicator: HTMLDivElement | null = null;
+        function getIndicator(): HTMLDivElement {
+          if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.className = 'ptr-indicator';
+            indicator.setAttribute('aria-hidden', 'true');
+            indicator.innerHTML =
+              '<svg class="ptr-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><polyline points="19 12 12 19 5 12" /></svg>' +
+              '<svg class="ptr-spinner" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="42" stroke-dashoffset="14" /></svg>';
+            document.body.appendChild(indicator);
+          }
+          return indicator;
+        }
+
+        let startX = 0;
+        let startY = 0;
+        let startTarget: EventTarget | null = null;
+        let tracking = false;
+        let engaged = false;
+        let refreshing = false;
+        let distance = 0;
+
+        const scroller = () => document.scrollingElement || document.documentElement;
+
+        // A pull that starts inside a scrollable panel (an open dropdown, an
+        // overflowing code block) should scroll that panel, never refresh.
+        function insideNestedScroller(from: EventTarget | null): boolean {
+          let node = from instanceof Element ? from : null;
+          for (; node && node !== document.body; node = node.parentElement) {
+            if (node.scrollHeight > node.clientHeight + 1) {
+              const overflowY = getComputedStyle(node).overflowY;
+              if (overflowY === 'auto' || overflowY === 'scroll') return true;
+            }
+          }
+          return false;
+        }
+
+        function render() {
+          const el = getIndicator();
+          el.style.setProperty('--ptr-pull', `${distance}px`);
+          el.style.setProperty('--ptr-progress', String(Math.min(distance / THRESHOLD, 1)));
+          el.classList.toggle('is-armed', distance >= THRESHOLD);
+        }
+
+        // Clearing the inline custom properties lets the stylesheet's resting
+        // (or .is-refreshing) values take over, animated via .is-settling.
+        function settleBack() {
+          engaged = false;
+          distance = 0;
+          const el = getIndicator();
+          el.classList.add('is-settling');
+          el.classList.remove('is-armed');
+          el.style.removeProperty('--ptr-pull');
+          el.style.removeProperty('--ptr-progress');
+        }
+
+        function onTouchMove(event: TouchEvent) {
+          if (!tracking) return;
+          if (event.touches.length !== 1) {
+            tracking = false;
+            if (engaged) settleBack();
+            return;
+          }
+          const dx = event.touches[0].clientX - startX;
+          const dy = event.touches[0].clientY - startY;
+          if (!engaged) {
+            // Upward or mostly-horizontal movement is a scroll or swipe (a
+            // negative dy always fails this test).
+            if (Math.abs(dx) > dy) {
+              tracking = false;
+              return;
+            }
+            if (dy < SLOP) return;
+            // The costlier qualification runs once per actual pull, not on
+            // every tap: no refresh once the page has scrolled, while an
+            // overlay is up (native dialogs, the search palette and other
+            // role="dialog" overlays, which only exist in the DOM while
+            // open), or from inside a scrollable panel.
+            if (
+              scroller().scrollTop > 0 ||
+              document.querySelector('dialog[open], [role="dialog"]') ||
+              insideNestedScroller(startTarget)
+            ) {
+              tracking = false;
+              return;
+            }
+            engaged = true;
+            getIndicator().classList.remove('is-settling');
+          }
+          // Suppress the iOS rubber-band bounce while the indicator follows
+          // the finger. Normal scrolling is untouched: the listener returns
+          // above before ever calling preventDefault.
+          event.preventDefault();
+          distance = Math.min((dy - SLOP) * DAMPING, MAX_PULL);
+          render();
+        }
+
+        function onRelease() {
+          document.removeEventListener('touchmove', onTouchMove);
+          document.removeEventListener('touchend', onRelease);
+          document.removeEventListener('touchcancel', onRelease);
+          if (!tracking) return;
+          tracking = false;
+          if (!engaged) return;
+          if (distance >= THRESHOLD) {
+            refreshing = true;
+            const el = getIndicator();
+            el.classList.add('is-refreshing', 'is-settling');
+            el.style.removeProperty('--ptr-pull');
+            el.style.removeProperty('--ptr-progress');
+            location.reload();
+          } else {
+            settleBack();
+          }
+        }
+
+        document.addEventListener(
+          'touchstart',
+          (event) => {
+            if (refreshing || tracking || event.touches.length !== 1) return;
+            if (scroller().scrollTop > 0) return;
+            tracking = true;
+            engaged = false;
+            startX = event.touches[0].clientX;
+            startY = event.touches[0].clientY;
+            startTarget = event.target;
+            // The non-passive move listener exists only for the duration of a
+            // gesture that began at the top of the page; ordinary scrolling
+            // elsewhere never has a non-passive touch listener registered.
+            document.addEventListener('touchmove', onTouchMove, { passive: false });
+            document.addEventListener('touchend', onRelease, { passive: true });
+            document.addEventListener('touchcancel', onRelease, { passive: true });
+          },
+          { passive: true },
+        );
       }
     </script>
 

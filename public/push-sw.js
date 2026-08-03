@@ -44,5 +44,24 @@ self.addEventListener('push', (event) => {
 });
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  event.waitUntil(clients.openWindow(event.notification.data?.url || '/notifications/'));
+  const url = event.notification.data?.url || '/notifications/';
+  // Reuse an already-open app window: focus it and navigate to the target,
+  // instead of opening one new window per clicked notification (in the
+  // installed app those pile up as separate windows). matchAll returns the
+  // most recently focused window first.
+  event.waitUntil(
+    (async () => {
+      const wins = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const win = wins[0];
+      if (!win) return clients.openWindow(url);
+      await win.focus().catch(() => {});
+      try {
+        // navigate() rejects for windows this worker does not control yet
+        // (a tab opened before the worker activated). Open a fresh one then.
+        return await win.navigate(url);
+      } catch {
+        return clients.openWindow(url);
+      }
+    })(),
+  );
 });
