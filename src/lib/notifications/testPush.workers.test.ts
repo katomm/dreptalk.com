@@ -32,7 +32,7 @@ describe('sendTestPush', () => {
     const [target, payload, vapid] = d.send.mock.calls[0];
     expect(target.endpoint).toBe('https://push.example/dev1');
     expect(JSON.parse(payload)).toEqual({
-      title: 'DRepTalk test notification',
+      title: 'Test notification',
       body: 'Push is working on this device.',
       url: '/notifications/',
     });
@@ -86,7 +86,7 @@ describe('sendTestTelegram', () => {
     const outcome = await sendTestTelegram(db(), 'TOKEN', { userId: 'tt-1', channelId: id }, { send });
     expect(outcome).toBe('sent');
     expect(calls[0].chatId).toBe('900');
-    expect(calls[0].text).toContain('test');
+    expect(calls[0].text).toContain('Test notification');
   });
 
   it("rejects a channel the user does not own or that is not telegram", async () => {

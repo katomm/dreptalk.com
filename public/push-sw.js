@@ -9,7 +9,11 @@
 // the push and notificationclick handlers below, caching only versioned static
 // assets, never SSR pages, session responses, or /api/* routes.
 self.addEventListener('push', (event) => {
-  let data = { title: 'DRepTalk', body: 'New notifications', url: '/notifications/' };
+  // Title names the subject, never the app: the OS already shows "DRepTalk" in
+  // the notification header (and a "from DRepTalk" line on iOS), so repeating it
+  // as the title is pure redundancy. This default only shows on an unparseable
+  // payload; the real title/body come from the dispatcher (see dispatch.ts).
+  let data = { title: 'New activity', body: 'You have new notifications', url: '/notifications/' };
   try {
     data = { ...data, ...event.data.json() };
   } catch {

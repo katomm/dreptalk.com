@@ -3,6 +3,7 @@ import {
   evaluateDrepStats,
   parseDrepStatsPayload,
   formatDrepStatsSummary,
+  formatDrepStatsDetail,
   type DrepStatsPayload,
 } from './drepStats.js';
 
@@ -160,5 +161,21 @@ describe('formatDrepStatsSummary', () => {
       delegatorsPrev: 10,
     });
     expect(text).toBe('Epoch 573: 8 delegators (-2)');
+  });
+});
+
+describe('formatDrepStatsDetail', () => {
+  it('drops the epoch prefix so the push body can stand alone under the title', () => {
+    const p: DrepStatsPayload = {
+      epoch: 570,
+      drepId: 'drep1abc',
+      power: '65200000000000',
+      powerPrev: '63200000000000',
+      delegators: 1540,
+      delegatorsPrev: 1528,
+    };
+    expect(formatDrepStatsDetail(p)).toBe('voting power 65.2M ₳ (+3.2%), 1,540 delegators (+12)');
+    // The summary is exactly the epoch prefix plus this detail.
+    expect(formatDrepStatsSummary(p)).toBe(`Epoch ${p.epoch}: ${formatDrepStatsDetail(p)}`);
   });
 });
