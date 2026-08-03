@@ -45,6 +45,9 @@ export function formatSummary(counts: PendingCounts): string {
   if (counts.myDelegation > 0) {
     parts.push(`${counts.myDelegation} delegation ${counts.myDelegation === 1 ? 'change' : 'changes'}`);
   }
+  if (counts.drepStats > 0) {
+    parts.push(`${counts.drepStats} DRep stats ${counts.drepStats === 1 ? 'update' : 'updates'}`);
+  }
   if (counts.devices > 0) {
     parts.push(`${counts.devices} new ${counts.devices === 1 ? 'device' : 'devices'} paired`);
   }

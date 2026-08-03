@@ -117,4 +117,24 @@ describe('syncDrepVotingPowerHistory', () => {
     const epochs = [...(await getStoredEpochs(env.DB))].sort((a, b) => a - b);
     expect(epochs.every((e) => e >= 537)).toBe(true);
   });
+
+  it('stamps observed delegator counts for the current epoch even when nothing was fetched', async () => {
+    await insertVotingPowerHistory(env.DB, [{ drepId: 'drep_stamp_sync', epoch: 950, amount: '100' }]);
+
+    const r = await syncDrepVotingPowerHistory({
+      koios: { drepVotingPowerHistory: async () => [] },
+      db: env.DB,
+      currentEpoch: 950,
+      windowSize: 1,
+      observedDelegatorCounts: new Map([['drep_stamp_sync', 11]]),
+    });
+    expect(r.stamped).toBe(1);
+
+    const row = await env.DB.prepare(
+      'SELECT delegator_count FROM drep_voting_power_history WHERE drep_id = ? AND epoch = ?',
+    )
+      .bind('drep_stamp_sync', 950)
+      .first<{ delegator_count: number | null }>();
+    expect(row?.delegator_count).toBe(11);
+  });
 });

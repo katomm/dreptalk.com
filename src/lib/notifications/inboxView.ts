@@ -11,7 +11,8 @@ export type InboxKind =
   | 'delegation_changed'
   | 'delegator_drep_voted'
   | 'delegator_drep_re_voted'
-  | 'delegator_drep_status_changed';
+  | 'delegator_drep_status_changed'
+  | 'drep_stats';
 
 export interface InboxItem {
   kind: InboxKind;
@@ -44,8 +45,9 @@ export interface InboxCounts {
 /** Rows shown per group before the rest collapses behind "View N more". */
 export const GROUP_VISIBLE = 5;
 
-// delegation_changed is deliberately excluded: a personal delegation change is
-// not governance activity, so it stays all/unread only, never the governance tab.
+// delegation_changed and drep_stats are deliberately excluded: personal stats
+// about your own account are not governance activity, so they stay all/unread
+// only, never the governance tab.
 const GOV_KINDS: ReadonlySet<InboxKind> = new Set([
   'gov_created',
   'gov_status',

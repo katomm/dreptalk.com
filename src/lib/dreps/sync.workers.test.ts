@@ -713,4 +713,48 @@ describe('syncDreps delegator counts', () => {
     expect(stored!.delegatorCount).toBe(5);
     expect(stored!.delegatorCountSyncedAt).toBe(NOW + 60_000);
   });
+
+  it('collects only the counts Koios actually delivered this run', async () => {
+    const idWithCount = 'drep1-observed-count';
+    const idWithoutCount = 'drep1-observed-missing';
+    const infoWithout = infoRow(idWithoutCount);
+    delete (infoWithout as { live_delegator_count?: number | null }).live_delegator_count;
+    const { koios } = fakeKoios({
+      pages: [[listRow(idWithCount), listRow(idWithoutCount)]],
+      infoById: new Map([
+        [idWithCount, infoRow(idWithCount, { live_delegator_count: 42 })],
+        [idWithoutCount, infoWithout],
+      ]),
+    });
+
+    const result = await syncDreps({ koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    expect(result.observedDelegatorCounts.get(idWithCount)).toBe(42);
+    expect(result.observedDelegatorCounts.has(idWithoutCount)).toBe(false);
+  });
+
+  it('observes a count even when the row is unchanged and the write is skipped', async () => {
+    const id = 'drep1-observed-unchanged';
+    const first = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { live_delegator_count: 7 })]]),
+    });
+    await syncDreps({ koios: first.koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    // Second run with the identical count: buildRow's output is unchanged, so
+    // the write is skipped entirely, but the observation must still be recorded.
+    const second = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { live_delegator_count: 7 })]]),
+    });
+    const secondRunResult = await syncDreps({
+      koios: second.koios,
+      db: env.DB,
+      fetchImpl: noFetch,
+      now: NOW + 60_000,
+    });
+
+    expect(secondRunResult).toMatchObject({ updated: 0, skipped: 1 });
+    expect(secondRunResult.observedDelegatorCounts.get(id)).toBe(7);
+  });
 });

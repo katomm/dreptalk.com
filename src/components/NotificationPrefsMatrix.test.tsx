@@ -29,4 +29,21 @@ describe('NotificationPrefsMatrix', () => {
     expect(html).toContain('DRep votes');
     expect(html).toContain('DRep status');
   });
+
+  it('hides the As a DRep group by default', () => {
+    const html = renderToStaticMarkup(
+      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} />,
+    );
+    expect(html).not.toContain('As a DRep');
+    expect(html).not.toContain('Voting power and delegators');
+  });
+
+  it('shows the As a DRep group when showDrepStats is set', () => {
+    const html = renderToStaticMarkup(
+      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} showDrepStats />,
+    );
+    expect(html).toContain('As a DRep');
+    expect(html).toContain('Voting power and delegators');
+    expect(html).toContain('Epoch summary of your own DRep statistics');
+  });
 });

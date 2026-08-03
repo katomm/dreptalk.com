@@ -195,6 +195,27 @@ describe('delegator DRep-event inbox rows', () => {
   });
 });
 
+describe('drep_stats inbox rows', () => {
+  it('keeps drep_stats out of the governance tab (all/unread only)', () => {
+    const item = {
+      kind: 'drep_stats' as const,
+      createdAt: 1,
+      unread: true,
+      actorName: null,
+      actorHref: null,
+      verb: null,
+      title: 'Epoch 570: voting power 65.2M ₳ (+3.2%)',
+      href: '/dreps/drep1abc/',
+      pill: null,
+    };
+    const counts = countItems([item]);
+    expect(counts.all).toBe(1);
+    expect(counts.governance).toBe(0);
+    expect(filterItems([item], 'governance')).toHaveLength(0);
+    expect(filterItems([item], 'unread')).toHaveLength(1);
+  });
+});
+
 describe('relativeTime', () => {
   it('formats the usual buckets', () => {
     expect(relativeTime(NOW - 30_000, NOW)).toBe('just now');

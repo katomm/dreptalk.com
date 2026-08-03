@@ -2,13 +2,15 @@
 // push and Telegram settings cards on /notifications. Purely presentational
 // and controlled: the parent (useChannelPrefs) owns pref state, optimistic
 // updates and reverts, and passes the current prefs plus an onChange handler.
-// Two deliberate groups: forum/governance activity (the original three
-// types) and the delegator-fanout types introduced for the delegator
-// dashboard (DRep vote activity, DRep status, the user's own delegation).
+// Three deliberate groups: forum/governance activity (the original three
+// types), the delegator-fanout types introduced for the delegator dashboard
+// (DRep vote activity, DRep status, the user's own delegation), and the
+// DRep-only stats digest, shown only to accounts flagged as a DRep.
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
 
 const GENERAL_EVENT_TYPES: NotificationEventType[] = ['reply', 'mention', 'governance'];
 const DELEGATION_EVENT_TYPES: NotificationEventType[] = ['drep_activity', 'drep_status', 'my_delegation'];
+const DREP_EVENT_TYPES: NotificationEventType[] = ['drep_stats'];
 
 const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string }> = {
   reply: { label: 'Replies', hint: 'When someone replies in a thread you posted in' },
@@ -17,6 +19,7 @@ const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string 
   drep_activity: { label: 'DRep votes', hint: 'When your DRep casts or changes a vote' },
   drep_status: { label: 'DRep status', hint: 'When your DRep becomes active or inactive' },
   my_delegation: { label: 'My delegation', hint: 'When your delegation changes' },
+  drep_stats: { label: 'Voting power and delegators', hint: 'Epoch summary of your own DRep statistics' },
 };
 
 function EventGroup({
@@ -58,11 +61,13 @@ export default function NotificationPrefsMatrix({
   onChange,
   error,
   disabled = false,
+  showDrepStats = false,
 }: {
   prefs: Record<NotificationEventType, boolean>;
   onChange: (eventType: NotificationEventType, enabled: boolean) => void;
   error?: string | null;
   disabled?: boolean;
+  showDrepStats?: boolean;
 }) {
   return (
     <div className="nset__matrix">
@@ -80,6 +85,15 @@ export default function NotificationPrefsMatrix({
         onChange={onChange}
         disabled={disabled}
       />
+      {showDrepStats && (
+        <EventGroup
+          heading="As a DRep"
+          eventTypes={DREP_EVENT_TYPES}
+          prefs={prefs}
+          onChange={onChange}
+          disabled={disabled}
+        />
+      )}
       {error && <p style={{ margin: 0, color: 'var(--danger)', fontSize: '0.8125rem' }}>{error}</p>}
     </div>
   );

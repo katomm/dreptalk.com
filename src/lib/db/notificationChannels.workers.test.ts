@@ -39,6 +39,7 @@ const allEnabled = {
   drep_activity: true,
   drep_status: true,
   my_delegation: true,
+  drep_stats: true,
 };
 
 describe('addChannel + listChannels + removeChannel', () => {
@@ -206,6 +207,7 @@ describe('getPendingCounts', () => {
       drepActivity: 0,
       drepStatus: 0,
       myDelegation: 0,
+      drepStats: 0,
       devices: 0,
       total: 2,
     });
@@ -225,6 +227,7 @@ describe('getPendingCounts', () => {
       drepActivity: 0,
       drepStatus: 0,
       myDelegation: 0,
+      drepStats: 0,
       devices: 0,
       total: 1,
     });
@@ -245,6 +248,7 @@ describe('getPendingCounts', () => {
       drepActivity: 0,
       drepStatus: 0,
       myDelegation: 0,
+      drepStats: 0,
       devices: 0,
       total: 1,
     });
@@ -262,6 +266,7 @@ describe('getPendingCounts', () => {
       drepActivity: 0,
       drepStatus: 0,
       myDelegation: 0,
+      drepStats: 0,
       devices: 0,
       total: 0,
     });
@@ -279,6 +284,7 @@ describe('getPendingCounts', () => {
       drepActivity: 0,
       drepStatus: 0,
       myDelegation: 0,
+      drepStats: 0,
       devices: 0,
       total: 0,
     });
@@ -296,6 +302,7 @@ describe('getPendingCounts', () => {
       drep_activity: false,
       drep_status: false,
       my_delegation: false,
+      drep_stats: false,
     });
     expect(counts).toEqual({
       replies: 0,
@@ -304,6 +311,7 @@ describe('getPendingCounts', () => {
       drepActivity: 0,
       drepStatus: 0,
       myDelegation: 0,
+      drepStats: 0,
       devices: 1,
       total: 1,
     });

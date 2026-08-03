@@ -18,6 +18,7 @@ import { getGovernanceActionSlugsByIds } from '../db/governance.js';
 import { loadAuthorIdentity } from '../forum/author.js';
 import { statusBadge } from '../governance/view.js';
 import { parseDrepEventPayload } from '../delegation/notifyPayload.js';
+import { parseDrepStatsPayload, formatDrepStatsSummary } from './drepStats.js';
 import { drepPath } from '../dreps/profile.js';
 
 const INBOX_PATH = '/notifications/';
@@ -32,6 +33,7 @@ const PERSONAL_PREF: Record<string, NotificationEventType | 'always'> = {
   delegator_drep_re_voted: 'drep_activity',
   delegator_drep_status_changed: 'drep_status',
   delegation_changed: 'my_delegation',
+  drep_stats: 'drep_stats',
   device_paired: 'always',
 };
 
@@ -151,6 +153,12 @@ async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<Pendin
       const p = parseDrepEventPayload(row.payload);
       if (!p?.drepId || !p.to) return null;
       return { text: `Your DRep is now ${p.to.effective}`, href: drepPath({ drepId: p.drepId }) };
+    }
+
+    case 'drep_stats': {
+      const p = parseDrepStatsPayload(row.payload);
+      if (!p) return null;
+      return { text: formatDrepStatsSummary(p), href: drepPath({ drepId: p.drepId }) };
     }
 
     default: {
