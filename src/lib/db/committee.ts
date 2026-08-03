@@ -133,6 +133,35 @@ export async function getCommitteeVotes(db: D1Database, gaId: string): Promise<C
   return out;
 }
 
+/** The loaded membership timeline, read once and shared across a sync run. */
+export interface CommitteeTimeline {
+  members: CommitteeMemberTerm[];
+  hotToCold: Map<string, string>;
+}
+
+/**
+ * Ledger-exact committee tally for one action, computed from the local
+ * per-voter votes and the membership timeline (the same math as
+ * recomputeCommitteePct). Returns null when it cannot improve on Koios: empty
+ * timeline (preprod), unknown epoch, no local CC votes yet, or no active
+ * committee at that epoch. The tally sync uses this to write ledger-exact cc_*
+ * values in the first place, so a later tally pass can never revert an already
+ * recomputed action back to the raw Koios summary.
+ */
+export async function ledgerCcTally(
+  db: D1Database,
+  timeline: CommitteeTimeline,
+  gaId: string,
+  epoch: number | null,
+): Promise<{ yesPct: number; noPct: number; yes: number; no: number; abstain: number } | null> {
+  if (timeline.members.length === 0 || epoch == null) return null;
+  const votes = await getCommitteeVotes(db, gaId);
+  if (votes.length === 0) return null;
+  const t = ccTallyPct(votes, timeline.members, timeline.hotToCold, epoch);
+  if (t.yesPct == null || t.noPct == null) return null;
+  return { yesPct: t.yesPct, noPct: t.noPct, yes: t.yes, no: t.no, abstain: t.abstain };
+}
+
 interface RecomputeRow {
   id: string;
   decidedEpoch: number | null;

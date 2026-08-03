@@ -2,7 +2,7 @@
 // Render store for per-voter vote rationales on an action. One row per
 // (ga_id, voter_id), written by the vote sync (on-chain) and the self-cast path.
 import { htmlToText } from '../forum/view.js';
-import type { ActionVoterRow } from './drepVotes.js';
+import { liveVoteSql, type ActionVoterRow } from './drepVotes.js';
 
 export interface RationaleJob {
   gaId: string;
@@ -100,7 +100,7 @@ export async function getRationaleHighlights(
                   ) AS rn
            FROM action_rationale r
            JOIN drep_votes v ON v.ga_id = r.ga_id AND v.voter_id = r.voter_id
-                AND v.voter_role = 'DRep' AND (v.local_status IS NULL OR v.local_status <> 'failed')
+                AND v.voter_role = 'DRep' AND ${liveVoteSql('v')}
            LEFT JOIN dreps d ON d.drep_id = v.voter_id
            WHERE r.ga_id = ?1
              AND r.body_html IS NOT NULL AND r.body_html <> ''

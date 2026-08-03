@@ -4,8 +4,8 @@
 // authenticated writer) and the same bind inputs, so they run as one D1 batch
 // (a single round-trip) instead of two queries.
 
-import { flaggedPostIdsStmt } from '../db/postFlags.js';
-import { viewerReactionsStmt, type Reaction } from '../db/postReactions.js';
+import { flaggedPostIdsStmts } from '../db/postFlags.js';
+import { viewerReactionsStmts, type Reaction } from '../db/postReactions.js';
 
 export interface ViewerPostState {
   /** Posts on this page the viewer has flagged. */
@@ -19,7 +19,11 @@ export function emptyViewerPostState(): ViewerPostState {
   return { flaggedPostIds: new Set(), reactions: new Map() };
 }
 
-/** Loads both per-viewer lookups for the given posts in one batched round-trip. */
+/**
+ * Loads both per-viewer lookups for the given posts in one batched round-trip.
+ * Each lookup arrives as one statement per 99-id chunk (D1's 100-bind cap with
+ * the viewer id taking one bind), so the batch is split back by count.
+ */
 export async function loadViewerPostState(
   db: D1Database,
   viewerId: string,
@@ -27,13 +31,16 @@ export async function loadViewerPostState(
 ): Promise<ViewerPostState> {
   if (postIds.length === 0) return emptyViewerPostState();
 
-  const [flags, reactions] = await db.batch([
-    flaggedPostIdsStmt(db, viewerId, postIds),
-    viewerReactionsStmt(db, viewerId, postIds),
-  ]);
+  const flagStmts = flaggedPostIdsStmts(db, viewerId, postIds);
+  const reactionStmts = viewerReactionsStmts(db, viewerId, postIds);
+  const results = await db.batch([...flagStmts, ...reactionStmts]);
 
-  const flagRows = (flags.results ?? []) as { post_id: string }[];
-  const reactionRows = (reactions.results ?? []) as { post_id: string; reaction: Reaction }[];
+  const flagRows = results
+    .slice(0, flagStmts.length)
+    .flatMap((r) => (r.results ?? []) as { post_id: string }[]);
+  const reactionRows = results
+    .slice(flagStmts.length)
+    .flatMap((r) => (r.results ?? []) as { post_id: string; reaction: Reaction }[]);
 
   return {
     flaggedPostIds: new Set(flagRows.map((r) => r.post_id)),

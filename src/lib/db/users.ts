@@ -2,7 +2,7 @@
 // Parameterized D1 access for the users table.
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 
-import { sqlPlaceholders } from './sql.js';
+import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
 
 export interface User {
   id: string;
@@ -144,24 +144,24 @@ export async function touchUserVerification(
 }
 
 /**
- * Fetches multiple users by id in a single query (no N+1).
- * Builds a parameterized IN clause from the id list.
+ * Fetches multiple users by id in one batched round-trip (no N+1).
+ * Chunked to D1's 100-bind cap: a thread page passes one author id per post,
+ * and replies are unbounded, so the list can exceed a single IN clause.
  * Returns an empty Map for empty input without querying D1.
  */
 export async function getUsersByIds(db: D1Database, ids: string[]): Promise<Map<string, User>> {
   if (ids.length === 0) return new Map();
 
-  const placeholders = sqlPlaceholders(ids);
-  const rows = (
-    await db
-      .prepare(`SELECT * FROM users WHERE id IN (${placeholders})`)
-      .bind(...ids)
-      .all<UserRow>()
-  ).results ?? [];
+  const stmts = chunked(ids, D1_MAX_BINDS).map((chunk) =>
+    db.prepare(`SELECT * FROM users WHERE id IN (${sqlPlaceholders(chunk)})`).bind(...chunk),
+  );
+  const batched = await db.batch<UserRow>(stmts);
 
   const result = new Map<string, User>();
-  for (const row of rows) {
-    result.set(row.id, rowToUser(row));
+  for (const res of batched) {
+    for (const row of res.results ?? []) {
+      result.set(row.id, rowToUser(row));
+    }
   }
   return result;
 }

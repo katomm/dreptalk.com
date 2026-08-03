@@ -61,11 +61,27 @@ export const FRESHNESS: readonly FreshnessRow[] = [
 // copy in the markdown table: the drift guard only compares those two against
 // each other, so a stale cadence claim here passes CI unnoticed.
 // These MUST match the `crons` array in workers/gov-sync/wrangler.toml: the worker
-// dispatches on event.cron against these constants, so a mismatch is caught in the
-// first scheduled log after a deploy (the run falls through to the default branch).
+// dispatches on event.cron via resolveCronKind, and an unmatched expression runs
+// nothing and logs an error (freshness.cron.test.ts guards the toml against drift).
 export const CRON_GOVERNANCE = '*/5 * * * *'; // discovery + notification dispatch every 5 min; heavy tallies gated to every 15 (minute % 15)
 export const CRON_VOTE_SYNC = '*/20 * * * *'; // per-post vote lists (every 20 min, active only)
 export const CRON_DREP_SYNC = '0 */6 * * *'; // DRep profile sync
+
+/** The three sync runs the gov-sync worker dispatches, one per cron trigger. */
+export type SyncCronKind = 'governance' | 'votes' | 'dreps';
+
+/**
+ * Maps a scheduled event's cron expression to the sync run it drives. Returns
+ * null for anything else: the worker must refuse to run rather than fall back
+ * to a default, so a toml/constant mismatch surfaces as a loud error instead of
+ * silently running the governance sync on the wrong cadence.
+ */
+export function resolveCronKind(cron: string): SyncCronKind | null {
+  if (cron === CRON_GOVERNANCE) return 'governance';
+  if (cron === CRON_VOTE_SYNC) return 'votes';
+  if (cron === CRON_DREP_SYNC) return 'dreps';
+  return null;
+}
 
 // Matches one cron field against a value: '*', '*/n', or a plain number. This
 // covers exactly the subset of cron syntax the CRON_* constants use; anything

@@ -19,6 +19,7 @@
 // so submission must happen from the wallet that built the tx.
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
+import { hostVoteRationale } from '@/lib/governance/voteFlowClient.js';
 import { CopyButton as CopyIdButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
@@ -238,18 +239,11 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
       }
 
       // Host the rationale first (when present) so its anchor lands in the tx.
+      // The shared helper includes the pre-sign self-verify (re-fetch + hash
+      // check) that every anchor-committing flow runs before the wallet signs.
       let anchor: { url: string; hash: string } | undefined;
       if (rationaleText.trim()) {
-        const res = await fetchWithTimeout('/api/vote/rationale', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ drepId: scriptDrepId, gaId, rationale: rationaleText }),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(body?.error ? `Could not host rationale: ${body.error}.` : 'Could not host the vote rationale. Please try again.');
-        }
-        anchor = (await res.json()) as { url: string; hash: string };
+        anchor = await hostVoteRationale({ gaId, drepId: scriptDrepId, rationale: rationaleText });
       }
 
       // Fetch the native script for this script DRep from the Koios proxy.

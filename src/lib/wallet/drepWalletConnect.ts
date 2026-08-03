@@ -1,6 +1,8 @@
-// Shared DRep wallet-connect flow: CIP-95 enable, network guard, DRep identity
-// derivation, and the registered-DRep status preflight. Used by VotePanel
-// (single vote) and MultiVoteBar (batch vote) so the two flows cannot drift.
+// Shared DRep wallet-connect flows: CIP-95 enable, network guard, DRep
+// identity derivation, and per-flow verification. connectAsDrep (VotePanel,
+// MultiVoteBar) preflights the registered-DRep status; connectVerifiedDrep
+// (DrepSettings, DrepRetire) checks the wallet against the signed-in DRep id.
+// One module so the flows cannot drift.
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
 import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
@@ -103,4 +105,50 @@ export async function connectAsDrep(
   }
 
   return { api, identity };
+}
+
+/** True when the wallet-derived drep id matches the session's. Pure; case-insensitive bech32 compare. */
+export function identityMatches(walletDrepId: string, expectedDrepId: string): boolean {
+  return walletDrepId.toLowerCase() === expectedDrepId.toLowerCase();
+}
+
+/**
+ * Connects a wallet as the signed-in DRep for the manage flows (settings
+ * update, retire): CIP-95 enable (skipped when a still-enabled api is passed;
+ * enable() is idempotent but each call is an extension IPC round trip), network
+ * guard, DRep identity derivation, and the identity check against the
+ * session's DRep id. Throws an Error with a user-facing message on any
+ * failure. No Koios status preflight here: the manage flows act on an already
+ * signed-in DRep, and the wallet + chain gate the final transaction.
+ */
+export async function connectVerifiedDrep(args: {
+  rawWallet: { enable(opts?: { extensions: Array<{ cip: number }> }): Promise<unknown> };
+  network: CardanoNetwork;
+  expectedDrepId: string;
+  cachedApi?: EnabledWalletApi | null;
+}): Promise<{ api: EnabledWalletApi; drepKeyHash: Uint8Array }> {
+  const api =
+    args.cachedApi ?? ((await args.rawWallet.enable({ extensions: [{ cip: 95 }] })) as unknown as EnabledWalletApi);
+
+  // Network guard runs on the cached api too: the wallet's network can change
+  // between actions.
+  await assertWalletNetwork(api, args.network);
+
+  if (!api.cip95 || typeof api.cip95.getPubDRepKey !== 'function') {
+    throw new Error(
+      'This wallet does not support CIP-95, which is required to manage a DRep. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).',
+    );
+  }
+
+  const pubKeyHex = await api.cip95.getPubDRepKey();
+  const drepKeyHash = blake2b224(hexToBytes(pubKeyHex));
+  const drepId = drepIdFromKeyHash(drepKeyHash);
+
+  if (!identityMatches(drepId, args.expectedDrepId)) {
+    throw new Error(
+      `This wallet belongs to a different DRep (${drepId}). Please connect the wallet you signed in with.`,
+    );
+  }
+
+  return { api, drepKeyHash };
 }

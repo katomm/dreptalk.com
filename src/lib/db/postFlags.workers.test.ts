@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, getPostById } from './forum.js';
 import { flagPost, unflagPost, getFlaggedPostIds, FLAG_HIDE_THRESHOLD } from './postFlags.js';
+import { bindCountingDb } from './__tests__/bindCountingDb.js';
 
 const db = () => env.DB;
 const NOW = 1_751_000_000_000;
@@ -105,5 +106,23 @@ describe('getFlaggedPostIds', () => {
   it('returns an empty set for empty input without querying', async () => {
     const set = await getFlaggedPostIds(db(), 'drep-z', []);
     expect(set.size).toBe(0);
+  });
+});
+
+describe('getFlaggedPostIds bind cap', () => {
+  it('stays under the D1 100-bind cap for a lookup of more than 100 post ids', async () => {
+    // flaggerId occupies one bind, so 150 post ids would put a single statement
+    // at 151 binds: over production D1's cap (unenforced in miniflare).
+    const flagged = [await newPostId(), await newPostId(), await newPostId()];
+    for (const id of flagged) {
+      await flagPost(db(), { postId: id, flaggerId: 'drep-bindcap', now: NOW });
+    }
+    const ids = [...Array.from({ length: 150 }, (_, i) => `missing-post-${i}`), ...flagged];
+
+    const counted = bindCountingDb(db());
+    const got = await getFlaggedPostIds(counted.db, 'drep-bindcap', ids);
+
+    expect(got).toEqual(new Set(flagged));
+    expect(counted.maxBinds()).toBeLessThanOrEqual(100);
   });
 });

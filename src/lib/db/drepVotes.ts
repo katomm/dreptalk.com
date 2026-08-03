@@ -224,6 +224,20 @@ export async function setVoteMetaHash(db: D1Database, gaId: string, voterId: str
     .run();
 }
 
+/**
+ * SQL predicate for votes that count publicly: synced on-chain rows
+ * (local_status NULL) plus optimistic local rows still pending, excluding the
+ * ones markStalePendingVotesFailed flagged as never confirmed. One source for
+ * every role: only recordLocalVote writes a local_status and it is DRep-only
+ * today, but the SPO/CC reads carry the same guard so an optimistic path added
+ * for them later cannot leak failed votes into public reads. Pass the query's
+ * table alias (e.g. 'v') or nothing for unaliased queries.
+ */
+export function liveVoteSql(alias = ''): string {
+  const a = alias ? `${alias}.` : '';
+  return `(${a}local_status IS NULL OR ${a}local_status <> 'failed')`;
+}
+
 /** One row of a DRep's voting history: the vote plus its action's context. */
 export interface DrepVoteHistoryRow {
   ga_id: string;
@@ -282,7 +296,7 @@ export async function getDrepVotingHistory(
          LEFT JOIN topics t ON t.id = g.topic_id
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
          WHERE v.voter_id = ? AND v.voter_role = 'DRep'
-           AND (v.local_status IS NULL OR v.local_status <> 'failed')
+           AND ${liveVoteSql('v')}
            ${confirmedClause}
          ORDER BY (v.block_time IS NULL), v.block_time DESC, g.decided_epoch DESC, g.id DESC
          LIMIT ? OFFSET ?`,
@@ -296,7 +310,7 @@ export async function getDrepVotingHistory(
 /** Count of a DRep's recorded on-chain votes (role 'DRep'). Uses idx_drep_votes_voter. */
 export async function countDrepVotes(db: D1Database, voterId: string): Promise<number> {
   const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep' AND (local_status IS NULL OR local_status <> 'failed')`)
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep' AND ${liveVoteSql()}`)
     .bind(voterId)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -335,7 +349,7 @@ export async function getActionVoters(
          FROM drep_votes v
          LEFT JOIN dreps d ON d.drep_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'DRep'
-           AND (v.local_status IS NULL OR v.local_status <> 'failed')
+           AND ${liveVoteSql('v')}
          ORDER BY (d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id
          LIMIT ? OFFSET ?`,
       )
@@ -348,7 +362,7 @@ export async function getActionVoters(
 /** Count of DRep votes (role 'DRep') on one action. */
 export async function countActionVoters(db: D1Database, gaId: string): Promise<number> {
   const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ? AND voter_role = 'DRep' AND (local_status IS NULL OR local_status <> 'failed')`)
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ? AND voter_role = 'DRep' AND ${liveVoteSql()}`)
     .bind(gaId)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -376,7 +390,7 @@ export async function getActionSpoVoters(
                 p.image_stored_url AS image_url, v.block_time AS block_time
          FROM drep_votes v
          LEFT JOIN pools p ON p.pool_id = v.voter_id
-         WHERE v.ga_id = ? AND v.voter_role = 'SPO'
+         WHERE v.ga_id = ? AND v.voter_role = 'SPO' AND ${liveVoteSql('v')}
          ORDER BY (v.block_time IS NULL), v.block_time DESC, v.voter_id
          LIMIT ? OFFSET ?`,
       )
@@ -389,7 +403,7 @@ export async function getActionSpoVoters(
 /** Count of SPO votes (role 'SPO') on one action. */
 export async function countActionSpoVoters(db: D1Database, gaId: string): Promise<number> {
   const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ? AND voter_role = 'SPO'`)
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE ga_id = ? AND voter_role = 'SPO' AND ${liveVoteSql()}`)
     .bind(gaId)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -407,7 +421,7 @@ export async function getVotesByGaId(
     await db
       .prepare(
         `SELECT voter_id, voter_role, vote, meta_url FROM drep_votes
-         WHERE ga_id = ? AND (local_status IS NULL OR local_status <> 'failed')`,
+         WHERE ga_id = ? AND ${liveVoteSql()}`,
       )
       .bind(gaId)
       .all<{ voter_id: string; voter_role: string; vote: string; meta_url: string | null }>()
@@ -436,7 +450,7 @@ export async function getDrepRationaleStats(db: D1Database, voterId: string): Pr
       `SELECT COUNT(*) AS total,
               SUM(CASE WHEN meta_url IS NULL OR meta_url = '' THEN 1 ELSE 0 END) AS without
        FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep'
-         AND (local_status IS NULL OR local_status <> 'failed')`,
+         AND ${liveVoteSql()}`,
     )
     .bind(voterId)
     .first<{ total: number; without: number }>();
@@ -462,7 +476,7 @@ export async function getDrepVoteBreakdown(db: D1Database, voterId: string): Pro
     await db
       .prepare(
         `SELECT vote, COUNT(*) AS n FROM drep_votes
-         WHERE voter_id = ? AND voter_role = 'DRep' AND (local_status IS NULL OR local_status <> 'failed')
+         WHERE voter_id = ? AND voter_role = 'DRep' AND ${liveVoteSql()}
          GROUP BY vote`,
       )
       .bind(voterId)
@@ -505,11 +519,11 @@ export async function getDrepParticipation(
       `SELECT COUNT(*) AS eligible, COUNT(v.ga_id) AS voted
        FROM governance_actions g
        LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'DRep'
-            AND (v.local_status IS NULL OR v.local_status <> 'failed')
+            AND ${liveVoteSql('v')}
        WHERE g.decided_epoch IS NOT NULL
          AND g.decided_epoch >= ?
          AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep'
-                       AND (dv.local_status IS NULL OR dv.local_status <> 'failed'))`,
+                       AND ${liveVoteSql('dv')})`,
     )
     .bind(voterId, registeredEpoch)
     .first<{ eligible: number; voted: number }>();
@@ -642,7 +656,7 @@ export async function getPoolVotingHistory(
          JOIN governance_actions g ON g.id = v.ga_id
          LEFT JOIN topics t ON t.id = g.topic_id
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
-         WHERE v.voter_id = ? AND v.voter_role = 'SPO'
+         WHERE v.voter_id = ? AND v.voter_role = 'SPO' AND ${liveVoteSql('v')}
          ORDER BY (v.block_time IS NULL), v.block_time DESC, g.decided_epoch DESC, g.id DESC
          LIMIT ? OFFSET ?`,
       )
@@ -655,7 +669,7 @@ export async function getPoolVotingHistory(
 /** Count of a pool's recorded on-chain votes (role 'SPO'). */
 export async function countPoolVotes(db: D1Database, poolId: string): Promise<number> {
   const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO'`)
+    .prepare(`SELECT COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO' AND ${liveVoteSql()}`)
     .bind(poolId)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -665,7 +679,7 @@ export async function countPoolVotes(db: D1Database, poolId: string): Promise<nu
 export async function getPoolVoteBreakdown(db: D1Database, poolId: string): Promise<DrepVoteBreakdown> {
   const rows = (
     await db
-      .prepare(`SELECT vote, COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO' GROUP BY vote`)
+      .prepare(`SELECT vote, COUNT(*) AS n FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO' AND ${liveVoteSql()} GROUP BY vote`)
       .bind(poolId)
       .all<{ vote: string; n: number }>()
   ).results ?? [];
@@ -683,7 +697,7 @@ export async function getPoolRationaleStats(db: D1Database, poolId: string): Pro
     .prepare(
       `SELECT COUNT(*) AS total,
               SUM(CASE WHEN meta_url IS NULL OR meta_url = '' THEN 1 ELSE 0 END) AS without
-       FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO'`,
+       FROM drep_votes WHERE voter_id = ? AND voter_role = 'SPO' AND ${liveVoteSql()}`,
     )
     .bind(poolId)
     .first<{ total: number; without: number }>();
@@ -705,8 +719,10 @@ export async function getPoolParticipation(db: D1Database, poolId: string): Prom
       `SELECT COUNT(*) AS eligible, COUNT(v.ga_id) AS voted
        FROM governance_actions g
        LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'SPO'
+            AND ${liveVoteSql('v')}
        WHERE g.decided_epoch IS NOT NULL
-         AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'SPO')`,
+         AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'SPO'
+                       AND ${liveVoteSql('dv')})`,
     )
     .bind(poolId)
     .first<{ eligible: number; voted: number }>();
@@ -735,7 +751,7 @@ export async function getVoteTrendRows(db: D1Database, gaId: string): Promise<Tr
          FROM drep_votes
          WHERE ga_id = ? AND voter_role IN ('DRep', 'SPO')
            AND block_time IS NOT NULL
-           AND (local_status IS NULL OR local_status <> 'failed')
+           AND ${liveVoteSql()}
          ORDER BY block_time ASC, voter_id`,
       )
       .bind(gaId)

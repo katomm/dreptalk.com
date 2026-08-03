@@ -22,7 +22,7 @@ import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
 import { activeCommitteeSize } from '../../../src/lib/koios/committee.js';
 import { bytesToHex } from '../../../src/lib/crypto/hex.js';
-import { CRON_VOTE_SYNC, CRON_DREP_SYNC } from '../../../src/lib/freshness.js';
+import { resolveCronKind } from '../../../src/lib/freshness.js';
 import {
   syncGovernanceActions,
   backfillActionMetadata,
@@ -584,16 +584,26 @@ export default {
     // keeps the invocation alive until it finishes (and `wrangler dev
     // --test-scheduled` only returns once it resolves).
     try {
+      // Strict dispatch: an unknown cron runs nothing. Falling back to the
+      // governance sync here would let a toml/constant typo silently run the
+      // wrong sync on that schedule with no error.
+      const kind = resolveCronKind(event.cron);
+      if (!kind) {
+        console.error(
+          `[gov-sync] unknown cron "${event.cron}": no sync dispatched. Align wrangler.toml crons with the CRON_* constants in src/lib/freshness.ts.`,
+        );
+        return;
+      }
       // The governance trigger fires every 5 min; run its heavy tally/backfill
       // phases only on the quarter-hours (minute % 15 === 0), so those keep the
       // old 15-min cost while discovery + notification dispatch run every 5 min.
       const heavy = new Date(event.scheduledTime).getUTCMinutes() % 15 === 0;
-      const [kind, run] =
-        event.cron === CRON_DREP_SYNC
-          ? (['dreps', (env: Env, phase: PhaseFn) => runDrepSync(env, phase)] as const)
-          : event.cron === CRON_VOTE_SYNC
-            ? (['votes', (env: Env, phase: PhaseFn) => runVoteSync(env, phase)] as const)
-            : (['governance', (env: Env, phase: PhaseFn) => runGovernanceSync(env, phase, { heavy })] as const);
+      const run =
+        kind === 'dreps'
+          ? (env: Env, phase: PhaseFn) => runDrepSync(env, phase)
+          : kind === 'votes'
+            ? (env: Env, phase: PhaseFn) => runVoteSync(env, phase)
+            : (env: Env, phase: PhaseFn) => runGovernanceSync(env, phase, { heavy });
       const summary = await recordSyncRun(env.DB, kind, (phase) => run(env, phase));
       console.log(
         `[sync-run] kind=${kind} status=${summary.status} items=${summary.items} failed=${summary.failed}` +

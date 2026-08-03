@@ -1,30 +1,17 @@
 // React island: the DRep "Danger Zone" on the settings page. Split out of
 // DrepSettings so the destructive retire action sits on its own at the very
 // bottom of the page, below the metadata form and the stake-wallet link. The
-// wallet connect + identity verification deliberately mirror DrepSettings (the
-// same pattern VotePanel mirrors from DRepService); the pure identityMatches
-// helper is shared from DrepSettings.
+// wallet connect + identity verification use the same shared helper as
+// DrepSettings (connectVerifiedDrep), so the two manage flows cannot drift.
 import { useState, useRef } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { retireDRep } from '@/lib/governance/drepTx.js';
-import type { WalletApi as TxWalletApi } from '@/lib/governance/drepTx.js';
-import { drepIdFromKeyHash } from '@/lib/cardano/identity.js';
-import { blake2b224 } from '@/lib/crypto/blake.js';
-import { hexToBytes } from '@/lib/crypto/hex.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
+import { connectVerifiedDrep, type EnabledWalletApi } from '@/lib/wallet/drepWalletConnect.js';
 import WalletConnection from '@/components/WalletConnection.js';
-import { identityMatches } from '@/components/DrepSettings.js';
-
-// Same enabled-api shape as DrepSettings: CIP-30 tx surface plus the cip95
-// reader for the DRep key and getNetworkId for the network guard.
-type EnabledWalletApi = TxWalletApi & {
-  getNetworkId(): Promise<number>;
-  cip95?: { getPubDRepKey(): Promise<string> };
-};
 
 type Phase =
   | { status: 'idle' }
@@ -48,9 +35,9 @@ export default function DrepRetire({ network = 'preprod', expectedDrepId }: Drep
   // extension IPC round trip).
   const enabledApiRef = useRef<EnabledWalletApi | null>(null);
 
-  // Connects the selected wallet, runs the network guard, derives the DRep
-  // identity, and verifies it matches the signed-in DRep. Returns null after
-  // setting an error phase when any step fails. Mirrors DrepSettings.
+  // Connects the selected wallet via the shared manage-flow helper (CIP-95
+  // enable, network guard, identity derivation + match against the signed-in
+  // DRep). Returns null after setting an error phase when any step fails.
   async function connectAndVerify(): Promise<{ api: EnabledWalletApi; drepKeyHash: Uint8Array } | null> {
     const walletInfo = wallets.find((w) => w.key === selected);
     if (!walletInfo) {
@@ -58,51 +45,21 @@ export default function DrepRetire({ network = 'preprod', expectedDrepId }: Drep
       return null;
     }
 
-    let api = enabledApiRef.current;
     try {
-      if (!api) {
-        api = (await walletInfo.raw.enable({ extensions: [{ cip: 95 }] })) as unknown as EnabledWalletApi;
-      }
-      await assertWalletNetwork(api, network);
+      const connected = await connectVerifiedDrep({
+        rawWallet: walletInfo.raw,
+        network,
+        expectedDrepId,
+        cachedApi: enabledApiRef.current,
+      });
+      enabledApiRef.current = connected.api;
+      // The right wallet for this DRep: remember it as the future default.
+      rememberWallet(selected);
+      return connected;
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
       return null;
     }
-
-    if (!api.cip95 || typeof api.cip95.getPubDRepKey !== 'function') {
-      setPhase({
-        status: 'error',
-        message:
-          'This wallet does not support CIP-95, which is required to manage a DRep. Please use a DRep-capable wallet (e.g. Lace, Eternl, Typhon).',
-      });
-      return null;
-    }
-
-    enabledApiRef.current = api;
-
-    let drepKeyHash: Uint8Array;
-    let drepId: string;
-    try {
-      const pubKeyHex = await api.cip95.getPubDRepKey();
-      drepKeyHash = blake2b224(hexToBytes(pubKeyHex));
-      drepId = drepIdFromKeyHash(drepKeyHash);
-    } catch (err) {
-      setPhase({ status: 'error', message: readableError(err) });
-      return null;
-    }
-
-    if (!identityMatches(drepId, expectedDrepId)) {
-      setPhase({
-        status: 'error',
-        message: `This wallet belongs to a different DRep (${drepId}). Please connect the wallet you signed in with.`,
-      });
-      return null;
-    }
-
-    // The right wallet for this DRep: remember it as the future default.
-    rememberWallet(selected);
-
-    return { api, drepKeyHash };
   }
 
   // Retire flow: unreg_drep certificate; checkbox-gated, wallet is the final

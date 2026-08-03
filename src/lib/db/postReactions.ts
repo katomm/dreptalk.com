@@ -7,7 +7,7 @@
 // posts.down_count are recomputed from the reactions table in the same batch,
 // so the materialized counts are always consistent.
 
-import { sqlPlaceholders } from './sql.js';
+import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
 
 export type Reaction = 'up' | 'down';
 
@@ -84,26 +84,29 @@ export async function clearReaction(
 }
 
 /**
- * Statement selecting reactorId's current reaction for each of postIds.
- * Exported so the thread view can run it inside one batch with other
- * per-viewer lookups (a single D1 round-trip).
+ * Statements selecting reactorId's current reaction for each of postIds,
+ * chunked to D1's 100-bind cap (reactorId takes one bind per statement; a
+ * thread's reply count is unbounded). Exported so the thread view can run them
+ * inside one batch with other per-viewer lookups (a single D1 round-trip).
  */
-export function viewerReactionsStmt(
+export function viewerReactionsStmts(
   db: D1Database,
   reactorId: string,
   postIds: string[],
-): D1PreparedStatement {
-  const placeholders = sqlPlaceholders(postIds);
-  return db
-    .prepare(
-      `SELECT post_id, reaction FROM post_reactions WHERE reactor_id = ? AND post_id IN (${placeholders})`,
-    )
-    .bind(reactorId, ...postIds);
+): D1PreparedStatement[] {
+  return chunked(postIds, D1_MAX_BINDS - 1).map((chunk) =>
+    db
+      .prepare(
+        `SELECT post_id, reaction FROM post_reactions WHERE reactor_id = ? AND post_id IN (${sqlPlaceholders(chunk)})`,
+      )
+      .bind(reactorId, ...chunk),
+  );
 }
 
 /**
- * Returns reactorId's current reaction for each of postIds, in a single query
- * (no N+1). Used to render each post's reaction buttons in the correct state.
+ * Returns reactorId's current reaction for each of postIds, in one batched
+ * round-trip (no N+1). Used to render each post's reaction buttons in the
+ * correct state.
  */
 export async function getViewerReactions(
   db: D1Database,
@@ -111,8 +114,8 @@ export async function getViewerReactions(
   postIds: string[],
 ): Promise<Map<string, Reaction>> {
   if (postIds.length === 0) return new Map();
-  const rows =
-    (await viewerReactionsStmt(db, reactorId, postIds).all<{ post_id: string; reaction: Reaction }>())
-      .results ?? [];
-  return new Map(rows.map((r) => [r.post_id, r.reaction]));
+  const batched = await db.batch<{ post_id: string; reaction: Reaction }>(
+    viewerReactionsStmts(db, reactorId, postIds),
+  );
+  return new Map(batched.flatMap((r) => (r.results ?? []).map((row) => [row.post_id, row.reaction] as const)));
 }
