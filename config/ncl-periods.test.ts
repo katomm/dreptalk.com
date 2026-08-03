@@ -18,7 +18,8 @@ describe('NCL_PERIODS', () => {
   });
 
   it('resolves a period by id', () => {
-    expect(getNclPeriod('2026-27')?.ceilingLovelace).toBe(350_000_000_000_000n);
+    // Pinned to the curated operative ceiling: 500M after the August 2026 raise.
+    expect(getNclPeriod('2026-27')?.ceilingLovelace).toBe(500_000_000_000_000n);
     expect(getNclPeriod('nope')).toBeUndefined();
   });
 });
