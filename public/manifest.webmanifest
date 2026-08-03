@@ -6,6 +6,7 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "launch_handler": { "client_mode": "navigate-existing" },
   "lang": "en",
   "dir": "ltr",
   "categories": ["government", "finance", "social"],
@@ -18,10 +19,57 @@
     { "src": "/icons/icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
+  "screenshots": [
+    {
+      "src": "/screenshots/narrow-home.webp",
+      "sizes": "780x1688",
+      "type": "image/webp",
+      "form_factor": "narrow",
+      "label": "Where DReps discuss governance"
+    },
+    {
+      "src": "/screenshots/narrow-govactions.webp",
+      "sizes": "780x1688",
+      "type": "image/webp",
+      "form_factor": "narrow",
+      "label": "On-chain governance actions with live voting progress"
+    },
+    {
+      "src": "/screenshots/narrow-dreps.webp",
+      "sizes": "780x1688",
+      "type": "image/webp",
+      "form_factor": "narrow",
+      "label": "DRep directory ranked by voting power"
+    },
+    {
+      "src": "/screenshots/wide-home.webp",
+      "sizes": "2560x1600",
+      "type": "image/webp",
+      "form_factor": "wide",
+      "label": "DRepTalk, the public deliberation layer for Cardano governance"
+    }
+  ],
   "shortcuts": [
-    { "name": "Governance Actions", "url": "/c/governance-actions/" },
-    { "name": "DReps", "url": "/dreps/" },
-    { "name": "Treasury", "url": "/c/budget/" },
-    { "name": "Discussions", "url": "/discussions/" }
+    {
+      "name": "Governance Actions",
+      "short_name": "Actions",
+      "url": "/c/governance-actions/",
+      "icons": [{ "src": "/icons/shortcut-govactions.png", "sizes": "96x96", "type": "image/png", "purpose": "any maskable" }]
+    },
+    {
+      "name": "DReps",
+      "url": "/dreps/",
+      "icons": [{ "src": "/icons/shortcut-dreps.png", "sizes": "96x96", "type": "image/png", "purpose": "any maskable" }]
+    },
+    {
+      "name": "Treasury",
+      "url": "/c/budget/",
+      "icons": [{ "src": "/icons/shortcut-treasury.png", "sizes": "96x96", "type": "image/png", "purpose": "any maskable" }]
+    },
+    {
+      "name": "Discussions",
+      "url": "/discussions/",
+      "icons": [{ "src": "/icons/shortcut-discussions.png", "sizes": "96x96", "type": "image/png", "purpose": "any maskable" }]
+    }
   ]
 }
