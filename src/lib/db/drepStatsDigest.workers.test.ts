@@ -200,8 +200,9 @@ describe('runDrepStatsDigest', () => {
     expect(counts.drepStats).toBe(1);
 
     const lead = await resolvePendingLead(db(), row, { ...prefs, governance: false });
-    expect(lead?.text).toContain('Epoch 861');
-    expect(lead?.text).toContain('voting power');
+    // Epoch rides in the title, the stat changes in the body.
+    expect(lead?.title).toContain('Epoch 861');
+    expect(lead?.body.toLowerCase()).toContain('voting power');
     // drepPath falls back to the raw id when no slug is passed: /dreps/<id>/.
     expect(lead?.href).toBe('/dreps/drep_digest_lead/');
   });

@@ -26,32 +26,36 @@ function counts(partial: Partial<PendingCounts>): PendingCounts {
   return { ...merged, total };
 }
 
-const lead: PendingLead = { text: 'New governance action: Parameter Change', href: '/t/param-change/' };
+const lead: PendingLead = { title: 'Parameter Change', body: 'New governance action', href: '/t/param-change/' };
 
 describe('formatNotification', () => {
   it('spells out a single event and links straight to it', () => {
     const msg = formatNotification(counts({ governance: 1 }), lead);
-    expect(msg.body).toBe('New governance action: Parameter Change');
+    expect(msg.title).toBe('Parameter Change');
+    expect(msg.body).toBe('New governance action');
     expect(msg.path).toBe('/t/param-change/');
   });
 
-  it('leads with the item and "(+N more)" for two or three, linking to the inbox', () => {
+  it('keeps the lead title and appends "(+N more)" to the body for two or three, to the inbox', () => {
     const two = formatNotification(counts({ governance: 1, replies: 1 }), lead);
-    expect(two.body).toBe('New governance action: Parameter Change (+1 more)');
+    expect(two.title).toBe('Parameter Change');
+    expect(two.body).toBe('New governance action (+1 more)');
     expect(two.path).toBe('/notifications/');
 
     const three = formatNotification(counts({ governance: 2, replies: 1 }), lead);
-    expect(three.body).toBe('New governance action: Parameter Change (+2 more)');
+    expect(three.body).toBe('New governance action (+2 more)');
   });
 
-  it('falls back to the count summary at four or more', () => {
+  it('falls back to a generic title and the count summary at four or more', () => {
     const msg = formatNotification(counts({ replies: 2, governance: 2 }), lead);
+    expect(msg.title).toBe('New activity');
     expect(msg.body).toBe('2 new replies, 2 governance updates');
     expect(msg.path).toBe('/notifications/');
   });
 
   it('uses the summary when no lead could be resolved, even for a single event', () => {
     const msg = formatNotification(counts({ governance: 1 }), null);
+    expect(msg.title).toBe('New activity');
     expect(msg.body).toBe('1 governance update');
     expect(msg.path).toBe('/notifications/');
   });

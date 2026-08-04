@@ -41,8 +41,11 @@ export async function sendTestPush(
   await deps.sleep(TEST_PUSH_DELAY_MS);
 
   const target = JSON.parse(channel.target) as PushSubscriptionTarget;
+  // Title names the subject, not the app: the OS already shows "DRepTalk" in the
+  // notification header (and a "from DRepTalk" line on iOS), so a "DRepTalk"
+  // title would just repeat it (see dispatch.ts).
   const payload = JSON.stringify({
-    title: 'DRepTalk test notification',
+    title: 'Test notification',
     body: 'Push is working on this device.',
     url: '/notifications/',
   });
@@ -72,7 +75,7 @@ export async function sendTestTelegram(
   );
   if (!channel) return 'not_found';
 
-  const result = await deps.send(botToken, channel.target, 'DRepTalk test notification: Telegram is connected and working.');
+  const result = await deps.send(botToken, channel.target, 'Test notification: Telegram is connected and working.');
   if (result.ok) return 'sent';
   if (isTelegramChatDead(result)) {
     await deleteChannelById(db, channel.id);
