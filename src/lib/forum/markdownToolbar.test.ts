@@ -46,6 +46,36 @@ describe('applyMarkdown: inline wrap (italic, code)', () => {
   });
 });
 
+describe('applyMarkdown: strikethrough', () => {
+  it('wraps a selection in ~~', () => {
+    const out = applyMarkdown({ text: 'a word', start: 2, end: 6 }, 'strike');
+    expect(out.text).toBe('a ~~word~~');
+    expect(show(out)).toBe('a ~~[word]~~');
+  });
+
+  it('toggles strikethrough off', () => {
+    const out = applyMarkdown({ text: '~~word~~', start: 2, end: 6 }, 'strike');
+    expect(out.text).toBe('word');
+  });
+});
+
+describe('applyMarkdown: ordered list', () => {
+  it('numbers every line in the selection', () => {
+    const out = applyMarkdown({ text: 'one\ntwo\nthree', start: 0, end: 13 }, 'orderedList');
+    expect(out.text).toBe('1. one\n2. two\n3. three');
+  });
+
+  it('numbers a single line the cursor sits on', () => {
+    const out = applyMarkdown({ text: 'a line', start: 3, end: 3 }, 'orderedList');
+    expect(out.text).toBe('1. a line');
+  });
+
+  it('toggles numbering off when every line is already numbered', () => {
+    const out = applyMarkdown({ text: '1. one\n2. two\n3. three', start: 0, end: 22 }, 'orderedList');
+    expect(out.text).toBe('one\ntwo\nthree');
+  });
+});
+
 describe('applyMarkdown: link', () => {
   it('turns a selection into link text and selects the url placeholder', () => {
     const out = applyMarkdown({ text: 'see docs', start: 4, end: 8 }, 'link');

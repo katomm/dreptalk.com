@@ -1,6 +1,9 @@
-import { forwardRef, useImperativeHandle, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { forwardRef, useImperativeHandle, useState, useEffect, useLayoutEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { applyMarkdown, type MarkdownAction } from '@/lib/forum/markdownToolbar.js';
-import { detectMentionQuery, filterCandidates, insertMention, type ActiveMention } from '@/lib/forum/mentionAutocomplete.js';
+import { TOOLBAR_ICON } from '@/lib/forum/markdownToolbarIcons.js';
+import { continueList } from '@/lib/forum/markdownEnter.js';
+import { linkFromPaste } from '@/lib/forum/markdownPaste.js';
+import { detectMentionQuery, filterCandidates, insertMention, insertMentionTrigger, type ActiveMention } from '@/lib/forum/mentionAutocomplete.js';
 import type { MentionCandidate } from '@/lib/db/mentionCandidates.js';
 
 // Fetched once per page; the candidate set is small and edge-cached.
@@ -23,16 +26,77 @@ function loadCandidates(): Promise<MentionCandidate[]> {
   return candidatesPromise;
 }
 
-// Toolbar buttons: label is what shows in the button, title is the tooltip.
-const TOOLBAR: { action: MarkdownAction; label: string; title: string }[] = [
-  { action: 'bold', label: 'B', title: 'Bold' },
-  { action: 'italic', label: 'I', title: 'Italic' },
-  { action: 'heading', label: 'H', title: 'Heading' },
-  { action: 'link', label: '\u{1F517}', title: 'Link' },
-  { action: 'quote', label: '"', title: 'Quote' },
-  { action: 'list', label: '•', title: 'List' },
-  { action: 'code', label: '<>', title: 'Code' },
+// Toolbar buttons: the icon comes from TOOLBAR_ICON[action], title is the
+// tooltip and accessible name.
+const TOOLBAR: { action: MarkdownAction; title: string }[] = [
+  { action: 'bold', title: 'Bold' },
+  { action: 'italic', title: 'Italic' },
+  { action: 'strike', title: 'Strikethrough' },
+  { action: 'heading', title: 'Heading' },
+  { action: 'link', title: 'Link' },
+  { action: 'quote', title: 'Quote' },
+  { action: 'list', title: 'Bullet list' },
+  { action: 'orderedList', title: 'Numbered list' },
+  { action: 'code', title: 'Code' },
 ];
+
+// Shared square style for every toolbar button, split by disabled state so the
+// two variants are static module constants (no per-render object allocation on
+// the keystroke path).
+const TOOLBAR_BTN: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '2rem',
+  height: '2rem',
+  border: '1px solid var(--border)',
+  borderRadius: '0.375rem',
+  background: 'var(--bg)',
+  color: 'var(--fg)',
+  lineHeight: 1,
+};
+const TOOLBAR_BTN_ENABLED: CSSProperties = { ...TOOLBAR_BTN, cursor: 'pointer' };
+const TOOLBAR_BTN_DISABLED: CSSProperties = { ...TOOLBAR_BTN, cursor: 'not-allowed' };
+
+// One <path> Lucide glyph (24x24 stroke grid) at button size, inheriting the
+// button's currentColor so it themes with --fg.
+function ToolbarIcon({ path }: { path: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={path} />
+    </svg>
+  );
+}
+
+// A single toolbar button (icon + tooltip). Shared by the formatting actions and
+// the mention trigger so the button chrome lives in one place. onMouseDown is
+// prevented so clicking never blurs the textarea (which would drop the caret and
+// close the mention panel).
+function ToolbarButton({ title, path, disabled, onClick }: { title: string; path: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      disabled={disabled}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      style={disabled ? TOOLBAR_BTN_DISABLED : TOOLBAR_BTN_ENABLED}
+    >
+      <ToolbarIcon path={path} />
+    </button>
+  );
+}
 
 export interface MarkdownEditorHandle {
   focus(): void;
@@ -98,6 +162,20 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     },
     [value, onChange],
   );
+
+  // Toolbar "@" button: insert an '@' trigger and open the mention picker, so
+  // the feature is discoverable without knowing to type '@'. Seeds the active
+  // mention directly (empty query) and loads candidates on first use.
+  const triggerMention = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const next = insertMentionTrigger(value, el.selectionStart, el.selectionEnd);
+    pendingSelRef.current = { start: next.caret, end: next.caret };
+    setHighlight(0);
+    setActive({ start: next.at, query: '' });
+    if (candidates === null) void loadCandidates().then(setCandidates);
+    onChange(next.text);
+  }, [value, onChange, candidates]);
 
   // Restore focus + selection after a toolbar edit updates the value.
   // biome-ignore lint/correctness/useExhaustiveDependencies: value is the intended re-run trigger (restore caret after the value updates), not read in the effect body
@@ -213,20 +291,10 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       ) : (
         <>
           <div role="toolbar" aria-label="Markdown formatting" style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.375rem', flexWrap: 'wrap' }}>
-            {TOOLBAR.map(({ action, label: btnLabel, title }) => (
-              <button
-                key={action}
-                type="button"
-                title={title}
-                aria-label={title}
-                disabled={disabled}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => runAction(action)}
-                style={{ minWidth: '2rem', height: '2rem', padding: '0 0.5rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg)', color: 'var(--fg)', fontSize: '0.875rem', fontWeight: action === 'bold' ? 700 : 500, fontStyle: action === 'italic' ? 'italic' : 'normal', cursor: disabled ? 'not-allowed' : 'pointer', lineHeight: 1 }}
-              >
-                {btnLabel}
-              </button>
+            {TOOLBAR.map(({ action, title }) => (
+              <ToolbarButton key={action} title={title} path={TOOLBAR_ICON[action]} disabled={disabled} onClick={() => runAction(action)} />
             ))}
+            <ToolbarButton title="Mention someone" path={TOOLBAR_ICON.mention} disabled={disabled} onClick={triggerMention} />
           </div>
           <textarea
             ref={textareaRef}
@@ -237,22 +305,52 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
               syncActive(e.target);
             }}
             onKeyDown={(e) => {
-              if (!panelOpen) return;
-              // An Enter that confirms an IME composition (e.g. picking a Japanese/Chinese
-              // candidate) must not also accept a mention suggestion.
-              if (e.nativeEvent.isComposing) return;
-              if (e.key === 'ArrowDown') {
+              if (panelOpen) {
+                // An Enter that confirms an IME composition (e.g. picking a Japanese/Chinese
+                // candidate) must not also accept a mention suggestion.
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setHighlight((h) => (h + 1) % suggestions.length);
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setHighlight((h) => (h - 1 + suggestions.length) % suggestions.length);
+                } else if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  acceptSuggestion(suggestions[highlight]);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setActive(null);
+                }
+                return;
+              }
+              // Plain Enter continues a Markdown list (Shift/Cmd/Ctrl+Enter and IME
+              // confirmations fall through to a normal newline or submit).
+              if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && !e.nativeEvent.isComposing) {
+                const el = e.currentTarget;
+                const next = continueList({ text: value, start: el.selectionStart, end: el.selectionEnd });
+                if (next) {
+                  e.preventDefault();
+                  pendingSelRef.current = { start: next.start, end: next.end };
+                  onChange(next.text);
+                }
+              }
+            }}
+            onPaste={(e) => {
+              const el = e.currentTarget;
+              // Fast path: only a real selection can become a link, so skip
+              // reading the clipboard on an ordinary caret paste (linkFromPaste
+              // re-checks this).
+              if (el.selectionStart === el.selectionEnd) return;
+              const next = linkFromPaste(
+                { text: value, start: el.selectionStart, end: el.selectionEnd },
+                e.clipboardData.getData('text/plain'),
+              );
+              if (next) {
                 e.preventDefault();
-                setHighlight((h) => (h + 1) % suggestions.length);
-              } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                setHighlight((h) => (h - 1 + suggestions.length) % suggestions.length);
-              } else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                acceptSuggestion(suggestions[highlight]);
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
+                pendingSelRef.current = { start: next.start, end: next.end };
                 setActive(null);
+                onChange(next.text);
               }
             }}
             onKeyUp={(e) => {
@@ -305,7 +403,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
       {helpText && (
         <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          Use the toolbar or type Markdown directly: headings, bold, italics, links, quotes, lists, and code.
+          Use the toolbar or type Markdown directly: headings, bold, italics, strikethrough, links, quotes, lists, and code. Type @ to mention someone.
         </p>
       )}
     </div>
