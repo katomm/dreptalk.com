@@ -5,6 +5,7 @@ describe('classifySocialLink', () => {
   it('recognizes the supported platforms by hostname', () => {
     expect(classifySocialLink('https://x.com/someone')).toBe('x');
     expect(classifySocialLink('https://twitter.com/someone')).toBe('x');
+    expect(classifySocialLink('https://bsky.app/profile/someone.bsky.social')).toBe('bluesky');
     expect(classifySocialLink('https://www.linkedin.com/in/someone/')).toBe('linkedin');
     expect(classifySocialLink('https://facebook.com/someone')).toBe('facebook');
     expect(classifySocialLink('https://github.com/someone')).toBe('github');

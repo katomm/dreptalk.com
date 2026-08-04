@@ -61,7 +61,7 @@ describe('voteChangeStat', () => {
   it('a same-choice re-vote (rationale revision) is not a change', () => {
     expect(
       voteChangeStat(new Map([['a', earlier('Yes')]]), new Map([['a', 'Yes']])),
-    ).toBeNull();
+    ).toEqual({ actionsChanged: 0, totalChanges: 0 });
   });
 
   it('mixes revisions and real changes correctly', () => {
@@ -79,7 +79,7 @@ describe('voteChangeStat', () => {
     expect(stat).toEqual({ actionsChanged: 1, totalChanges: 1 });
   });
 
-  it('is null with no history at all', () => {
-    expect(voteChangeStat(new Map(), new Map())).toBeNull();
+  it('returns explicit zeros with no history at all', () => {
+    expect(voteChangeStat(new Map(), new Map())).toEqual({ actionsChanged: 0, totalChanges: 0 });
   });
 });

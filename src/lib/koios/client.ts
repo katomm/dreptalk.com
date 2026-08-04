@@ -240,6 +240,22 @@ const voteListRowSchema = z
 
 export type VoteListRow = z.infer<typeof voteListRowSchema>;
 
+// One row of /vote_list filtered to a single proposal (all voters, all roles):
+// every vote transaction ever cast on the action, used by the vote-history
+// sweep to reconstruct re-vote chains.
+const actionVoteListRowSchema = z
+  .object({
+    voter_id: z.string(),
+    voter_role: z.string(),
+    vote: z.string(),
+    block_time: z.number().nullable().optional(),
+    meta_url: z.string().nullable().optional(),
+    meta_hash: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type ActionVoteListRow = z.infer<typeof actionVoteListRowSchema>;
+
 // One row of /pool_info. meta_json is the validated base off-chain metadata
 // (ticker/name/homepage/description); Koios omits the CIP-6 `extended` field, so
 // the logo URL is resolved separately from the raw meta_url document.
@@ -652,6 +668,19 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const path = `/proposal_votes?_proposal_id=${encodeURIComponent(proposalId)}&limit=${limit}&offset=${offset}`;
       const data = await request(path, { method: 'GET' });
       return z.array(proposalVoteRowSchema).parse(data);
+    },
+
+    // Every vote transaction on one action (all voters and roles), oldest
+    // first so re-vote chains reconstruct by walking forward. Like the
+    // per-voter variant below, /vote_list keeps superseded votes and votes by
+    // since-deregistered voters. Paginated (Koios caps at 1000 rows).
+    async actionVoteList(proposalId: string, limit = 1000, offset = 0): Promise<ActionVoteListRow[]> {
+      const path =
+        `/vote_list?proposal_id=eq.${encodeURIComponent(proposalId)}` +
+        `&select=voter_id,voter_role,vote,block_time,meta_url,meta_hash` +
+        `&order=block_time.asc&limit=${limit}&offset=${offset}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(actionVoteListRowSchema).parse(data);
     },
 
     // One voter's full vote history on one governance action, newest first.

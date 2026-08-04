@@ -5,6 +5,7 @@
 
 export type SocialKind =
   | 'x'
+  | 'bluesky'
   | 'linkedin'
   | 'facebook'
   | 'github'
@@ -15,6 +16,7 @@ export type SocialKind =
 
 const PLATFORM_DOMAINS: [SocialKind, string[]][] = [
   ['x', ['x.com', 'twitter.com']],
+  ['bluesky', ['bsky.app', 'bsky.social']],
   ['linkedin', ['linkedin.com']],
   ['facebook', ['facebook.com', 'fb.com']],
   ['github', ['github.com']],
@@ -27,6 +29,7 @@ const PLATFORM_DOMAINS: [SocialKind, string[]][] = [
 /** Human platform names, used for accessible labels when a link has none. */
 export const SOCIAL_NAMES: Record<SocialKind, string> = {
   x: 'X',
+  bluesky: 'Bluesky',
   linkedin: 'LinkedIn',
   facebook: 'Facebook',
   github: 'GitHub',

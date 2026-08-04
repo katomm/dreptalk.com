@@ -119,9 +119,15 @@ const participationLine =
               <path d="M21 12a9 9 0 1 1-2.64-6.36" />
               <path d="M21 3v6h-6" />
             </svg>
-            <span class="vstats__changes-part">Changed vote on {changes.actionsChanged} {changes.actionsChanged === 1 ? 'action' : 'actions'}</span>
-            <span class="vstats__changes-sep" aria-hidden="true">·</span>
-            <span class="vstats__changes-part">{changes.totalChanges} {changes.totalChanges === 1 ? 'change' : 'changes'} total</span>
+            {changes.totalChanges === 0 ? (
+              <span class="vstats__changes-part">No vote changes</span>
+            ) : (
+              <Fragment>
+                <span class="vstats__changes-part">Changed vote on {changes.actionsChanged} {changes.actionsChanged === 1 ? 'action' : 'actions'}</span>
+                <span class="vstats__changes-sep" aria-hidden="true">·</span>
+                <span class="vstats__changes-part">{changes.totalChanges} {changes.totalChanges === 1 ? 'change' : 'changes'} total</span>
+              </Fragment>
+            )}
           </p>
         )}
       </div>

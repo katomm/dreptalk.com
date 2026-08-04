@@ -108,13 +108,13 @@ export interface VoteChangeStat {
  * A re-vote that kept the same choice (rationale revision) is deliberately NOT
  * a change: per action the chain oldest-to-newest (superseded votes, newest
  * first in the map, then the current vote) is walked and only adjacent
- * differing pairs count. Null when nothing ever changed, so the UI can omit
- * the line entirely.
+ * differing pairs count. Zero counts are returned as zeros (not null): the UI
+ * states "No vote changes" explicitly, absence would be ambiguous.
  */
 export function voteChangeStat(
   earlierByAction: ReadonlyMap<string, { vote: string }[]>,
   currentVoteByAction: ReadonlyMap<string, string>,
-): VoteChangeStat | null {
+): VoteChangeStat {
   let actionsChanged = 0;
   let totalChanges = 0;
   for (const [gaId, earlier] of earlierByAction) {
@@ -131,5 +131,5 @@ export function voteChangeStat(
       totalChanges += changes;
     }
   }
-  return totalChanges === 0 ? null : { actionsChanged, totalChanges };
+  return { actionsChanged, totalChanges };
 }
