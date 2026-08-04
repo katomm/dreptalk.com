@@ -80,8 +80,10 @@ export default function DrepProfileFields({ value, onChange, disabled, idPrefix,
         <DrepImageUpload value={value.image} onChange={(img) => set('image', img)} disabled={disabled} />
       </div>
 
-      <CountedField id={`${idPrefix}-bio`} label="Bio" count={value.bio.length} max={BIO_MAX}
-        help="Short description shown on your public profile.">
+      {/* The CIP-119 `objectives` field: labeled with its on-chain name so DReps
+          know which field of the standard they are filling. */}
+      <CountedField id={`${idPrefix}-bio`} label="Objectives" count={value.bio.length} max={BIO_MAX}
+        help="What you want to achieve as a DRep, shown first on your public profile.">
         <textarea id={`${idPrefix}-bio`} value={value.bio} onChange={(e) => set('bio', e.target.value)}
           placeholder="Tell delegators what you stand for (plain text)." maxLength={BIO_MAX} rows={6} disabled={disabled} style={textAreaStyle} />
       </CountedField>
