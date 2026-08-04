@@ -142,8 +142,10 @@ const profileTabs = drep
       ...(rationaleRows.length > 0 ? [{ id: 'rationales' as const, label: 'Rationales', count: rationaleRows.length }] : []),
     ])
   : [];
+// Tab links carry the #activity anchor so the reload lands back at the section
+// instead of the page top; scroll-margin keeps it clear of the sticky header.
 const tabHref = (id: ProfileTab): string =>
-  drep ? (id === 'all' ? drepPath(drep) : `${drepPath(drep)}?tab=${id}`) : '';
+  drep ? (id === 'all' ? `${drepPath(drep)}#activity` : `${drepPath(drep)}?tab=${id}#activity`) : '';
 // A hand-typed ?tab= for a hidden (empty) tab falls back to the All feed.
 const renderTab: ProfileTab = profileTabs.some((t) => t.id === activeTab) ? activeTab : 'all';
 
@@ -722,6 +724,7 @@ const profileSummary = drep
 
   /* Activity tab bar: link-based like the governance-action page, the active
      panel is chosen server-side (?tab=<id>). Scrolls sideways on phones. */
+  #activity { scroll-margin-top: 5rem; }
   .ptabs {
     display: flex;
     gap: 0;
