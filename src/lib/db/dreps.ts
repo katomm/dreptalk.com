@@ -629,6 +629,12 @@ export interface UpsertDrepArgs {
   anchorHash: string | null;
   anchorStatus: string;
   profileExtractVersion: number;
+  /**
+   * Unix seconds of the newest observed on-chain metadata change. Optional so
+   * callers outside the chain sync can omit it; the upsert then preserves the
+   * stored value (COALESCE), it never nulls out a backfilled date.
+   */
+  metadataLastUpdatedAt?: number | null;
   lastSyncedAt: number;
   createdAt: number;
 }
@@ -647,8 +653,8 @@ function buildDrepUpsertStatement(db: D1Database, args: UpsertDrepArgs): D1Prepa
           image_stored_url, image_fetch_failed_at, links,
           motivations, qualifications, payment_address, do_not_list,
           anchor_url, anchor_hash, anchor_status, profile_extract_version,
-          last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          metadata_last_updated_at, last_synced_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(drep_id) DO UPDATE SET
          hex = excluded.hex,
          has_script = excluded.has_script,
@@ -674,6 +680,7 @@ function buildDrepUpsertStatement(db: D1Database, args: UpsertDrepArgs): D1Prepa
          anchor_hash = excluded.anchor_hash,
          anchor_status = excluded.anchor_status,
          profile_extract_version = excluded.profile_extract_version,
+         metadata_last_updated_at = COALESCE(excluded.metadata_last_updated_at, dreps.metadata_last_updated_at),
          last_synced_at = excluded.last_synced_at,
          created_at = dreps.created_at`,
     )
@@ -703,6 +710,7 @@ function buildDrepUpsertStatement(db: D1Database, args: UpsertDrepArgs): D1Prepa
       args.anchorHash,
       args.anchorStatus,
       args.profileExtractVersion,
+      args.metadataLastUpdatedAt ?? null,
       args.lastSyncedAt,
       args.createdAt,
     );

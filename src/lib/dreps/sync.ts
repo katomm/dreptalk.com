@@ -303,7 +303,13 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     // so a profile upsert never wipes a resolved value.
     registeredEpoch: existing?.registeredEpoch ?? null,
     registeredAt: existing?.registeredAt ?? null,
-    metadataLastUpdatedAt: existing?.metadataLastUpdatedAt ?? null,
+    // A changed anchor hash on a known row is an on-chain metadata update
+    // observed by this run: stamp it (sync-time precision, unix seconds). The
+    // backfill owns the initial value for rows synced before the column existed.
+    metadataLastUpdatedAt:
+      existing && profile.anchorHash !== existing.anchorHash
+        ? Math.floor(now / 1000)
+        : (existing?.metadataLastUpdatedAt ?? null),
     name: profile.name,
     // Owned by the slug backfill, not the chain sync; sticky once assigned.
     slug: existing?.slug ?? null,
