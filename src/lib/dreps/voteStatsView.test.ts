@@ -39,7 +39,7 @@ describe('participationStat', () => {
 });
 
 describe('voteChangeStat', () => {
-  const earlier = (...votes) => votes.map((vote) => ({ vote })); // newest first, like the map
+  const earlier = (...votes: string[]) => votes.map((vote) => ({ vote })); // newest first, like the map
 
   it('counts real switches per action and in total', () => {
     // Action a, oldest to newest: No then current Yes = 1 change.
