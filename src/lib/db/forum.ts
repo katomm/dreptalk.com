@@ -504,6 +504,12 @@ export interface AuthorPost {
   topic_id: string;
   topic_title: string;
   topic_slug: string;
+  /**
+   * 1 when this post opened its topic (createTopic writes topic and first post
+   * with the same author and timestamp), 0 for any later post. parent_post_id
+   * cannot tell these apart: it is NULL for every top-level post of a thread.
+   */
+  is_topic_start: number;
   body_html: string;
   created_at: number;
 }
@@ -525,6 +531,7 @@ export async function getPostsByAuthor(
     await db
       .prepare(
         `SELECT p.id, p.topic_id, t.title AS topic_title, t.slug AS topic_slug,
+                (p.author_id = t.author_id AND p.created_at = t.created_at) AS is_topic_start,
                 p.body_html, p.created_at
          FROM posts p
          JOIN topics t ON t.id = p.topic_id

@@ -783,6 +783,22 @@ describe('getPostsByAuthor', () => {
     expect(rows[0].created_at).toBe(2000); // newest first
     expect(rows[0].topic_title).toBe('Hello World');
     expect(rows[0].topic_slug).toBe(topic.slug);
+    // The later post is a comment, the topic-opening post is the start.
+    expect(rows[0].is_topic_start).toBe(0);
+    expect(rows[1].is_topic_start).toBe(1);
+  });
+
+  it('marks a comment in someone else\'s topic as not a topic start', async () => {
+    const { topic } = await createTopic(env.DB, {
+      categorySlug: 'general', authorId: 'author-owner', title: 'Owned Topic',
+      bodyMd: 'a', bodyHtml: '<p>a</p>', now: 1000, rand: 'bbbb',
+    });
+    await createPost(env.DB, { topicId: topic.id, authorId: 'author-guest', bodyMd: 'b', bodyHtml: '<p>b</p>', now: 1000 });
+
+    const rows = await getPostsByAuthor(env.DB, 'author-guest', { limit: 10, offset: 0 });
+    expect(rows.length).toBe(1);
+    // Same created_at as the topic but a different author: still a comment.
+    expect(rows[0].is_topic_start).toBe(0);
   });
 
   it('excludes deleted and hidden posts', async () => {
