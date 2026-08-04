@@ -19,8 +19,10 @@ import {
 // Koios paginates /drep_voting_power_history at 1000 rows; page through by
 // incrementing offset until a short page signals the end.
 const PAGE_SIZE = 1000;
-// Default rolling window: eight epochs (~40 days) of trend for the profile sparkline.
-const DEFAULT_WINDOW = 8;
+// Default rolling window: sixteen epochs (~80 days) of trend for the profile
+// sparkline. Raising it is self-healing: the next run fetches the newly missing
+// older epochs from Koios (served historically), no manual backfill needed.
+const DEFAULT_WINDOW = 16;
 
 export interface VotingPowerHistorySyncDeps {
   koios: {
