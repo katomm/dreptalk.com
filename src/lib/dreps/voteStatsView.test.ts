@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildVoteDonut, rationaleStat, participationStat } from './voteStatsView.js';
+import { buildVoteDonut, rationaleStat, participationStat, voteChangeStat } from './voteStatsView.js';
 
 describe('buildVoteDonut', () => {
   it('skips zero-count slices, keeps all three in the legend with percentages', () => {
@@ -35,5 +35,51 @@ describe('participationStat', () => {
   });
   it('flags none when there are no concluded actions', () => {
     expect(participationStat({ eligible: 0, voted: 0 })).toEqual({ kind: 'none' });
+  });
+});
+
+describe('voteChangeStat', () => {
+  const earlier = (...votes: string[]) => votes.map((vote) => ({ vote })); // newest first, like the map
+
+  it('counts real switches per action and in total', () => {
+    // Action a, oldest to newest: No then current Yes = 1 change.
+    // Action b, oldest to newest: Yes, No, current Yes = 2 changes
+    // (the map is newest first, so superseded [No, Yes]).
+    const stat = voteChangeStat(
+      new Map([
+        ['a', earlier('No')],
+        ['b', earlier('No', 'Yes')],
+      ]),
+      new Map([
+        ['a', 'Yes'],
+        ['b', 'Yes'],
+      ]),
+    );
+    expect(stat).toEqual({ actionsChanged: 2, totalChanges: 3 });
+  });
+
+  it('a same-choice re-vote (rationale revision) is not a change', () => {
+    expect(
+      voteChangeStat(new Map([['a', earlier('Yes')]]), new Map([['a', 'Yes']])),
+    ).toEqual({ actionsChanged: 0, totalChanges: 0 });
+  });
+
+  it('mixes revisions and real changes correctly', () => {
+    // Chain oldest-to-newest: Yes, Yes (revision), No (change) = 1 change.
+    const stat = voteChangeStat(
+      new Map([['a', earlier('Yes', 'Yes')]]),
+      new Map([['a', 'No']]),
+    );
+    expect(stat).toEqual({ actionsChanged: 1, totalChanges: 1 });
+  });
+
+  it('handles an action beyond the loaded history rows (no current vote)', () => {
+    // Only superseded votes known: No then Yes superseded = 1 change among them.
+    const stat = voteChangeStat(new Map([['a', earlier('Yes', 'No')]]), new Map());
+    expect(stat).toEqual({ actionsChanged: 1, totalChanges: 1 });
+  });
+
+  it('returns explicit zeros with no history at all', () => {
+    expect(voteChangeStat(new Map(), new Map())).toEqual({ actionsChanged: 0, totalChanges: 0 });
   });
 });

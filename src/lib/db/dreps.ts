@@ -101,6 +101,20 @@ export interface Drep {
   expiresEpochNo: number | null;
   /** Epoch the DRep first registered (from /drep_updates), or null until backfilled. */
   registeredEpoch: number | null;
+  /**
+   * Unix seconds of the newest 'registered' action, i.e. the start of the
+   * current registration period ("Registered since"). Deliberately not the
+   * historical first registration; registeredEpoch keeps that role for the
+   * participation stats. Null until backfilled.
+   */
+  registeredAt: number | null;
+  /**
+   * Unix seconds of the newest on-chain metadata change: the latest 'updated'
+   * action from the backfill (falling back to the registration time when a DRep
+   * never updated), then kept fresh by the sync stamping it on anchor changes.
+   * Null until backfilled.
+   */
+  metadataLastUpdatedAt: number | null;
   name: string | null;
   /**
    * SEO-friendly profile path segment ("lisa-cardano-9zulj"), assigned once by
@@ -151,6 +165,8 @@ interface DrepRow {
   delegator_count_synced_at: number | null;
   expires_epoch_no: number | null;
   registered_epoch: number | null;
+  registered_at: number | null;
+  metadata_last_updated_at: number | null;
   name: string | null;
   slug: string | null;
   bio: string | null;
@@ -188,6 +204,8 @@ function rowToDrep(row: DrepRow): Drep {
     delegatorCountSyncedAt: row.delegator_count_synced_at,
     expiresEpochNo: row.expires_epoch_no,
     registeredEpoch: row.registered_epoch,
+    registeredAt: row.registered_at,
+    metadataLastUpdatedAt: row.metadata_last_updated_at,
     name: row.name,
     slug: row.slug,
     bio: row.bio,
@@ -611,6 +629,12 @@ export interface UpsertDrepArgs {
   anchorHash: string | null;
   anchorStatus: string;
   profileExtractVersion: number;
+  /**
+   * Unix seconds of the newest observed on-chain metadata change. Optional so
+   * callers outside the chain sync can omit it; the upsert then preserves the
+   * stored value (COALESCE), it never nulls out a backfilled date.
+   */
+  metadataLastUpdatedAt?: number | null;
   lastSyncedAt: number;
   createdAt: number;
 }
@@ -629,8 +653,8 @@ function buildDrepUpsertStatement(db: D1Database, args: UpsertDrepArgs): D1Prepa
           image_stored_url, image_fetch_failed_at, links,
           motivations, qualifications, payment_address, do_not_list,
           anchor_url, anchor_hash, anchor_status, profile_extract_version,
-          last_synced_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          metadata_last_updated_at, last_synced_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(drep_id) DO UPDATE SET
          hex = excluded.hex,
          has_script = excluded.has_script,
@@ -656,6 +680,7 @@ function buildDrepUpsertStatement(db: D1Database, args: UpsertDrepArgs): D1Prepa
          anchor_hash = excluded.anchor_hash,
          anchor_status = excluded.anchor_status,
          profile_extract_version = excluded.profile_extract_version,
+         metadata_last_updated_at = COALESCE(excluded.metadata_last_updated_at, dreps.metadata_last_updated_at),
          last_synced_at = excluded.last_synced_at,
          created_at = dreps.created_at`,
     )
@@ -685,6 +710,7 @@ function buildDrepUpsertStatement(db: D1Database, args: UpsertDrepArgs): D1Prepa
       args.anchorHash,
       args.anchorStatus,
       args.profileExtractVersion,
+      args.metadataLastUpdatedAt ?? null,
       args.lastSyncedAt,
       args.createdAt,
     );
@@ -923,28 +949,44 @@ export async function clearOrphanedImageStore(db: D1Database): Promise<number> {
   return res.meta.changes ?? 0;
 }
 
-/** DRep ids whose registration epoch has not been backfilled yet. */
+/** DRep ids with any registration/metadata date still missing (backfill queue). */
 export async function listDrepIdsMissingRegisteredEpoch(db: D1Database): Promise<string[]> {
   const rows = (
-    await db.prepare('SELECT drep_id FROM dreps WHERE registered_epoch IS NULL').all<{ drep_id: string }>()
+    await db
+      .prepare(
+        'SELECT drep_id FROM dreps WHERE registered_epoch IS NULL OR registered_at IS NULL OR metadata_last_updated_at IS NULL',
+      )
+      .all<{ drep_id: string }>()
   ).results ?? [];
   return rows.map((r) => r.drep_id);
 }
 
 /**
- * Sets registered_epoch for the given DReps in one batch, only where it is still
- * NULL (idempotent; never overwrites an already-resolved value). Returns the
- * number of statements issued. No-op for an empty list.
+ * Sets the registration/metadata dates for the given DReps in one batch, each
+ * column only where it is still NULL (idempotent; never overwrites an already
+ * resolved value). Returns the number of statements issued. No-op for an empty
+ * list.
  */
-export async function setRegisteredEpochs(
+export async function setRegistrationDates(
   db: D1Database,
-  entries: { drepId: string; epoch: number }[],
+  entries: {
+    drepId: string;
+    epoch: number | null;
+    registeredAt: number | null;
+    metadataLastUpdatedAt: number | null;
+  }[],
 ): Promise<number> {
   if (entries.length === 0) return 0;
   const stmts = entries.map((e) =>
     db
-      .prepare('UPDATE dreps SET registered_epoch = ? WHERE drep_id = ? AND registered_epoch IS NULL')
-      .bind(e.epoch, e.drepId),
+      .prepare(
+        `UPDATE dreps SET
+           registered_epoch = COALESCE(registered_epoch, ?),
+           registered_at = COALESCE(registered_at, ?),
+           metadata_last_updated_at = COALESCE(metadata_last_updated_at, ?)
+         WHERE drep_id = ?`,
+      )
+      .bind(e.epoch, e.registeredAt, e.metadataLastUpdatedAt, e.drepId),
   );
   await db.batch(stmts);
   return entries.length;

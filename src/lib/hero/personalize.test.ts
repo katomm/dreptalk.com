@@ -10,6 +10,7 @@ function hist(partial: Partial<DrepVoteHistoryRow>): DrepVoteHistoryRow {
     type: 'InfoAction',
     status: 'expired',
     decided_epoch: 500,
+    submitted_epoch: 493,
     topic_slug: 'a-proposal',
     meta_url: null,
     block_time: 1000,

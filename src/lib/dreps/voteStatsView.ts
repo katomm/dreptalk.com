@@ -94,3 +94,42 @@ export function participationStat(p: DrepParticipation | null): ParticipationSta
   if (p.eligible === 0) return { kind: 'none' };
   return { kind: 'ok', voted: p.voted, eligible: p.eligible, pct: Math.round((p.voted / p.eligible) * 100) };
 }
+
+export interface VoteChangeStat {
+  /** Actions where the recorded vote actually switched at least once. */
+  actionsChanged: number;
+  /** Total number of actual switches across all actions. */
+  totalChanges: number;
+}
+
+/**
+ * Counts real vote switches from the already-loaded re-vote history (the same
+ * map that drives the "changed from X" chips, so this costs no extra query).
+ * A re-vote that kept the same choice (rationale revision) is deliberately NOT
+ * a change: per action the chain oldest-to-newest (superseded votes, newest
+ * first in the map, then the current vote) is walked and only adjacent
+ * differing pairs count. Zero counts are returned as zeros (not null): the UI
+ * states "No vote changes" explicitly, absence would be ambiguous.
+ */
+export function voteChangeStat(
+  earlierByAction: ReadonlyMap<string, { vote: string }[]>,
+  currentVoteByAction: ReadonlyMap<string, string>,
+): VoteChangeStat {
+  let actionsChanged = 0;
+  let totalChanges = 0;
+  for (const [gaId, earlier] of earlierByAction) {
+    if (earlier.length === 0) continue;
+    const chain = earlier.map((e) => e.vote).reverse();
+    const current = currentVoteByAction.get(gaId);
+    if (current != null) chain.push(current);
+    let changes = 0;
+    for (let i = 1; i < chain.length; i++) {
+      if (chain[i] !== chain[i - 1]) changes++;
+    }
+    if (changes > 0) {
+      actionsChanged++;
+      totalChanges += changes;
+    }
+  }
+  return { actionsChanged, totalChanges };
+}

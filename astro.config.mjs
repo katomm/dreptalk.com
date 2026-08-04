@@ -50,6 +50,22 @@ const badgeSyncSource = readFileSync(
 );
 const badgeSyncHash = `sha256-${createHash('sha256').update(badgeSyncSource).digest('base64')}`;
 
+// The legacy vote-anchor hop on DRep profiles (jumps #vote-<id> links to the
+// votes tab). Derived from the inlined file so editing it cannot desync the hash.
+const voteAnchorSource = readFileSync(
+  fileURLToPath(new URL('./src/scripts/profile-vote-anchor.js', import.meta.url)),
+  'utf8',
+);
+const voteAnchorHash = `sha256-${createHash('sha256').update(voteAnchorSource).digest('base64')}`;
+
+// The profile activity-tab enhancement (in-place panel swap instead of a full
+// reload). Derived from the inlined file so editing it cannot desync the hash.
+const activityTabsSource = readFileSync(
+  fileURLToPath(new URL('./src/scripts/profile-activity-tabs.js', import.meta.url)),
+  'utf8',
+);
+const activityTabsHash = `sha256-${createHash('sha256').update(activityTabsSource).digest('base64')}`;
+
 export default defineConfig({
   site: 'https://dreptalk.com',
   output: 'server',
@@ -141,7 +157,7 @@ export default defineConfig({
         resources: ["'self'", 'https://static.cloudflareinsights.com', "'unsafe-eval'"],
         // Astro hashes its own bundled/inline scripts but not author is:inline
         // ones, so add the inlined script hashes explicitly.
-        hashes: [themeInitHash, govPrefsHash, voteFiltersHash, voteRecordHash, badgeSyncHash],
+        hashes: [themeInitHash, govPrefsHash, voteFiltersHash, voteRecordHash, badgeSyncHash, voteAnchorHash, activityTabsHash],
       },
     },
   },

@@ -149,6 +149,44 @@ describe('syncDreps', () => {
     expect(afterSecond!.lastSyncedAt).toBe(NOW);
   });
 
+  it('stamps metadata_last_updated_at when a known row changes its anchor hash', async () => {
+    const id = 'drep1-meta-stamp';
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([
+        [id, infoRow(id, { meta_url: 'https://example.com/a.json', meta_hash: profileHash })],
+      ]),
+    });
+
+    // First run inserts the row: no stamp, the backfill owns the initial value.
+    const first = countingProfileFetch();
+    await syncDreps({ koios, db: env.DB, fetchImpl: first.fetchImpl, now: NOW });
+    expect((await getDrepById(env.DB, id))!.metadataLastUpdatedAt).toBeNull();
+
+    // Unchanged hash: no write, no stamp.
+    await syncDreps({ koios, db: env.DB, fetchImpl: first.fetchImpl, now: NOW + 60_000 });
+    expect((await getDrepById(env.DB, id))!.metadataLastUpdatedAt).toBeNull();
+
+    // The DRep publishes new metadata: different doc, different meta_hash.
+    const doc2 = { ...profileDoc, body: { ...profileDoc.body, objectives: 'Now with fresh objectives.' } };
+    const json2 = JSON.stringify(doc2);
+    const hash2 = bytesToHex(blake2b256(new TextEncoder().encode(json2)));
+    const { koios: koios2 } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([
+        [id, infoRow(id, { meta_url: 'https://example.com/a.json', meta_hash: hash2 })],
+      ]),
+    });
+    const fetch2: typeof fetch = async () => jsonResponse(json2);
+    const later = NOW + 3_600_000;
+    await syncDreps({ koios: koios2, db: env.DB, fetchImpl: fetch2, now: later });
+
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.anchorHash).toBe(hash2);
+    expect(stored!.bio).toBe('Now with fresh objectives.');
+    expect(stored!.metadataLastUpdatedAt).toBe(Math.floor(later / 1000));
+  });
+
   it('re-fetches and re-extracts an ok row stored at a stale profile-extract version', async () => {
     // The version gate is how a parser fix heals already-stored rows: an 'ok' row
     // whose anchor hash is unchanged is normally reused with no fetch, but a stale

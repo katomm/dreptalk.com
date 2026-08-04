@@ -845,7 +845,7 @@ main.container {
 
 .vhist__row {
   display: grid;
-  grid-template-columns: 7rem minmax(0, 1fr) 7rem 5rem;
+  grid-template-columns: 7rem minmax(0, 1fr) 10rem 7rem 5rem;
   align-items: center;
   gap: 1rem;
   padding: 0.7rem 0;
@@ -890,10 +890,14 @@ main.container {
 .vhist__badge--active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .vhist__when { text-align: right; color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
 
+/* Rationale column: "View rationale" (accent, part of the expandable summary)
+   or a muted state ("Rationale unavailable" / "No rationale published"). */
+.vhist__rat { min-width: 0; }
+.vhist__rat-none { color: var(--muted); font-size: 0.8125rem; }
+
 /* Expandable rationale row: the summary reuses the .vhist__row grid (so columns
    stay aligned with static rows), the native marker is stripped, and the whole
-   row toggles. The "Rationale" affordance sits as a third line in the action
-   column, so no extra grid column is needed. Mirrors the action's Positions tab. */
+   row toggles. Mirrors the action's Positions tab. */
 .vhist__row--expandable { cursor: pointer; list-style: none; }
 .vhist__row--expandable::-webkit-details-marker { display: none; }
 .vhist__rationale-cta {
@@ -986,6 +990,11 @@ main.container {
   .vhist__row--head { display: none; }
   .vhist__vote-label { display: none; }
   .vhist__when { display: none; }
+  /* The rationale column folds away; only an actual "View rationale" survives,
+     slotting under the action cell like a third line (muted states would be
+     noise on every row here). */
+  .vhist__rat { display: none; }
+  .vhist__rat--view { display: block; grid-column: 2; grid-row: 2; }
 }
 
 /* Forum activity: rows inside the shared card chrome (.vhist-section), so the

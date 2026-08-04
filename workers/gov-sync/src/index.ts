@@ -32,6 +32,7 @@ import {
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillThresholdSnapshots, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
+import { backfillVoteHistorySweep } from '../../../src/lib/governance/voteHistoryBackfill.js';
 import { backfillRationaleText } from '../../../src/lib/db/rationaleTextBackfill.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
 import { getFollowedDrepIds } from '../../../src/lib/db/delegatorFollows.js';
@@ -510,6 +511,19 @@ async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
     const r = await runDrepStatsDigest(env.DB, vpHistoryEpoch, Date.now());
     console.log(`[drep-stats] epoch=${vpHistoryEpoch} candidates=${r.candidates} fired=${r.fired}`);
     return { items: r.fired };
+  });
+
+  // Sweep historical re-votes into drep_vote_history (drives the vote-change
+  // stat and the "changed from X" chips for changes that predate live
+  // tracking). A few actions drain per run; no-op once every action is swept.
+  await phase('vote-history-sweep', async () => {
+    const sweep = await backfillVoteHistorySweep({ koios, db: env.DB, now: Date.now() });
+    if (sweep.pending > 0) {
+      console.log(
+        `[vote-history-sweep] pending=${sweep.pending} swept=${sweep.swept} inserted=${sweep.inserted} failed=${sweep.failed}`,
+      );
+    }
+    return { items: sweep.inserted };
   });
 
   // Backfill registration epochs for any DReps still missing one (drives the

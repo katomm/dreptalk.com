@@ -8,9 +8,9 @@ import { upsertVoteRationalePost } from './voteRationalePost.js';
 
 async function seedAction(id: string, title: string, decidedEpoch: number) {
   await env.DB.prepare(
-    `INSERT INTO governance_actions (id, type, title, status, decided_epoch, topic_id, created_at, last_synced_at)
-     VALUES (?, 'InfoAction', ?, 'enacted', ?, NULL, 0, 0)`,
-  ).bind(id, title, decidedEpoch).run();
+    `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_epoch, topic_id, created_at, last_synced_at)
+     VALUES (?, 'InfoAction', ?, 'enacted', ?, ?, NULL, 0, 0)`,
+  ).bind(id, title, decidedEpoch, decidedEpoch - 7).run();
 }
 
 describe('getDrepVotingHistory + countDrepVotes', () => {
@@ -26,6 +26,8 @@ describe('getDrepVotingHistory + countDrepVotes', () => {
     expect(history.map((h) => h.ga_id)).toEqual(['ga2', 'ga1']);
     expect(history[0].vote).toBe('No');
     expect(history[0].title).toBe('Action Two');
+    expect(history[0].decided_epoch).toBe(520);
+    expect(history[0].submitted_epoch).toBe(513);
 
     expect(await countDrepVotes(env.DB, 'drepX')).toBe(2);
     expect(await countDrepVotes(env.DB, 'drepOther')).toBe(1);

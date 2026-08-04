@@ -12,6 +12,7 @@ function row(overrides: Partial<DrepVoteHistoryRow> = {}): DrepVoteHistoryRow {
     type: 'TreasuryWithdrawals',
     status: 'enacted',
     decided_epoch: 657,
+    submitted_epoch: 650,
     topic_slug: 'test-action',
     meta_url: null,
     block_time: 1_752_000_000,
