@@ -130,3 +130,14 @@ export function influencePct(
   if (!Number.isFinite(power) || power <= 0) return null;
   return (power / totalActiveLovelace) * 100;
 }
+
+/**
+ * Display label for the share of active voting power. A tiny-but-real share
+ * must never render as the broken-looking "0.00%": anything positive that
+ * two-decimal rounding would flatten to zero reads "<0.01%" instead.
+ */
+export function formatSharePct(pct: number | null): string | null {
+  if (pct == null || pct <= 0) return null;
+  if (pct < 0.005) return '<0.01%';
+  return `${pct.toFixed(2)}%`;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isIndexableProfile, influencePct, drepMetaDescription, drepProfileSummary } from './profile.js';
+import { isIndexableProfile, influencePct, formatSharePct, drepMetaDescription, drepProfileSummary } from './profile.js';
 
 describe('isIndexableProfile (SEO quality-gate)', () => {
   it('is indexable with on-chain metadata', () => {
@@ -105,5 +105,21 @@ describe('influencePct', () => {
   it('is null without power or total', () => {
     expect(influencePct(null, 100)).toBeNull();
     expect(influencePct('5', 0)).toBeNull();
+  });
+});
+
+describe('formatSharePct', () => {
+  it('renders two decimals for a normal share', () => {
+    expect(formatSharePct(0.42)).toBe('0.42%');
+    expect(formatSharePct(12.3456)).toBe('12.35%');
+  });
+  it('never shows a broken 0.00% for a tiny-but-real share', () => {
+    expect(formatSharePct(0.004)).toBe('<0.01%');
+    expect(formatSharePct(0.0000001)).toBe('<0.01%');
+    expect(formatSharePct(0.005)).toBe('0.01%');
+  });
+  it('is null for null or non-positive input', () => {
+    expect(formatSharePct(null)).toBeNull();
+    expect(formatSharePct(0)).toBeNull();
   });
 });
