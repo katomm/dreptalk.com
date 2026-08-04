@@ -1,4 +1,8 @@
 ---
+// Governance record: three equal metric blocks (participation, rationale
+// coverage, vote pattern donut). Shared by the DRep and SPO profiles, so the
+// copy stays role-neutral. Values are informational, never judgmental: no
+// warning colors on a low rate.
 import {
   buildVoteDonut, rationaleStat, participationStat, DONUT_R, DONUT_STROKE, DONUT_C,
 } from '@/lib/dreps/voteStatsView.js';
@@ -24,49 +28,33 @@ const participationLine =
 ---
 
 <section class="vstats">
-  <h2 class="vstats__h">Voting stats</h2>
+  <h2 class="vstats__h">Governance record</h2>
 
   {donut.total === 0 ? (
     <p class="vstats__empty">No recorded on-chain votes.</p>
   ) : (
     <div class="vstats__body">
-      <div class="vstats__chart">
-        <div class="vstats__donut">
-          <svg viewBox="0 0 200 200" width="160" height="160" aria-hidden="true">
-            <circle cx="100" cy="100" r={DONUT_R} fill="none" stroke="var(--border)" stroke-width={DONUT_STROKE} opacity="0.5" />
-            <g transform="rotate(-90 100 100)">
-              {donut.arcs.map((a) => (
-                <circle
-                  cx="100" cy="100" r={DONUT_R} fill="none"
-                  stroke={a.color} stroke-width={DONUT_STROKE}
-                  stroke-dasharray={`${a.dash} ${DONUT_C - a.dash}`}
-                  stroke-dashoffset={a.offset}
-                />
-              ))}
-            </g>
-          </svg>
-          <div class="vstats__donut-center">
-            <span class="vstats__donut-total">{donut.total.toLocaleString('en-US')}</span>
-            <span class="vstats__donut-label">votes</span>
-          </div>
-        </div>
-
-        <ul class="vstats__legend">
-          {donut.legend.map((l) => (
-            <li class="vstats__legend-item">
-              <span class="vstats__swatch" style={`background:${l.color};`} aria-hidden="true"></span>
-              <span class="vstats__legend-label">{l.label}</span>
-              <span class="vstats__legend-count">{l.count} ({l.pct.toFixed(0)}%)</span>
-            </li>
-          ))}
-        </ul>
+      <div class="vstats__cell">
+        <span class="vstats__cell-title">
+          <span class="vstats__icon vstats__icon--accent" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1" />
+              <circle cx="9" cy="8" r="3.2" />
+              <path d="M22 19v-1a4 4 0 0 0-3-3.87" />
+              <path d="M16 4.2a4 4 0 0 1 0 7.6" />
+            </svg>
+          </span>
+          Participation
+        </span>
+        {pStat.kind === 'ok' && <span class="vstats__big">{pStat.pct}%</span>}
+        <span class="vstats__cell-line">{participationLine}</span>
       </div>
 
-      <div class="vstats__metrics">
-        {rStat && (
-          <div class="vstats__metric">
+      {rStat && (
+        <div class="vstats__cell">
+          <span class="vstats__cell-title">
             <span class="vstats__icon vstats__icon--pos" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
                 <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
                 <path d="M7 21h10" />
@@ -74,28 +62,45 @@ const participationLine =
                 <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
               </svg>
             </span>
-            <span class="vstats__metric-body">
-              <span class="vstats__metric-title">Rationale</span>
-              <span class="vstats__metric-line">{rStat.withRationale} of {rStat.total} votes with rationale</span>
-            </span>
-            <span class="vstats__badge vstats__badge--pos">{rStat.pct}%</span>
-          </div>
-        )}
+            Votes with rationale
+          </span>
+          <span class="vstats__big">{rStat.pct}%</span>
+          <span class="vstats__cell-line">{rStat.withRationale} of {rStat.total} votes with rationale</span>
+        </div>
+      )}
 
-        <div class="vstats__metric">
-          <span class="vstats__icon vstats__icon--accent" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1" />
-              <circle cx="9" cy="8" r="3.2" />
-              <path d="M22 19v-1a4 4 0 0 0-3-3.87" />
-              <path d="M16 4.2a4 4 0 0 1 0 7.6" />
+      <div class="vstats__cell">
+        <span class="vstats__cell-title">Voting pattern</span>
+        <div class="vstats__chart">
+          <div class="vstats__donut">
+            <svg viewBox="0 0 200 200" width="120" height="120" aria-hidden="true">
+              <circle cx="100" cy="100" r={DONUT_R} fill="none" stroke="var(--border)" stroke-width={DONUT_STROKE} opacity="0.5" />
+              <g transform="rotate(-90 100 100)">
+                {donut.arcs.map((a) => (
+                  <circle
+                    cx="100" cy="100" r={DONUT_R} fill="none"
+                    stroke={a.color} stroke-width={DONUT_STROKE}
+                    stroke-dasharray={`${a.dash} ${DONUT_C - a.dash}`}
+                    stroke-dashoffset={a.offset}
+                  />
+                ))}
+              </g>
             </svg>
-          </span>
-          <span class="vstats__metric-body">
-            <span class="vstats__metric-title">Participation</span>
-            <span class="vstats__metric-line">{participationLine}</span>
-          </span>
-          {pStat.kind === 'ok' && <span class="vstats__badge vstats__badge--accent">{pStat.pct}%</span>}
+            <div class="vstats__donut-center">
+              <span class="vstats__donut-total">{donut.total.toLocaleString('en-US')}</span>
+              <span class="vstats__donut-label">votes</span>
+            </div>
+          </div>
+
+          <ul class="vstats__legend">
+            {donut.legend.map((l) => (
+              <li class="vstats__legend-item">
+                <span class="vstats__swatch" style={`background:${l.color};`} aria-hidden="true"></span>
+                <span class="vstats__legend-label">{l.label}</span>
+                <span class="vstats__legend-count">{l.count} ({l.pct.toFixed(0)}%)</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </div>
@@ -104,7 +109,9 @@ const participationLine =
 
 <style>
   .vstats {
-    margin-top: 2rem;
+    /* Top margin for consumers that place this after another card (SPO page).
+       Sibling margins collapse, so the DRep page's tighter flow is unaffected. */
+    margin: 2rem 0 1.5rem;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--surface-2);
@@ -114,9 +121,24 @@ const participationLine =
   .vstats__h { font-size: 1.125rem; margin: 0 0 1rem; }
   .vstats__empty { color: var(--muted); margin: 0; }
 
-  .vstats__body { display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem 2rem; }
-  .vstats__chart { display: flex; align-items: center; gap: 1.25rem; flex: 1 1 18rem; }
-  .vstats__donut { position: relative; width: 160px; height: 160px; flex: none; }
+  /* Three equal blocks, each folding to full width on narrow screens. */
+  .vstats__body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: 1.25rem 2rem;
+    align-items: start;
+  }
+  .vstats__cell { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+  .vstats__cell-title { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; }
+  .vstats__big { font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .vstats__cell-line { font-size: 0.8125rem; color: var(--muted); }
+
+  .vstats__icon { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; flex: none; }
+  .vstats__icon--pos { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
+  .vstats__icon--accent { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+
+  .vstats__chart { display: flex; align-items: center; gap: 1rem; }
+  .vstats__donut { position: relative; width: 120px; height: 120px; flex: none; }
   .vstats__donut-center {
     position: absolute;
     inset: 0;
@@ -125,46 +147,16 @@ const participationLine =
     align-items: center;
     justify-content: center;
   }
-  .vstats__donut-total { font-size: 1.5rem; font-weight: 700; }
-  .vstats__donut-label { font-size: 0.75rem; color: var(--muted); }
+  .vstats__donut-total { font-size: 1.15rem; font-weight: 700; }
+  .vstats__donut-label { font-size: 0.7rem; color: var(--muted); }
 
-  .vstats__legend { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; flex: 1 1 9rem; min-width: 9rem; }
-  .vstats__legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9375rem; }
+  .vstats__legend { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; flex: 1; min-width: 7rem; }
+  .vstats__legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
   .vstats__swatch { width: 0.75rem; height: 0.75rem; border-radius: 3px; flex: none; }
   .vstats__legend-label { font-weight: 600; }
   .vstats__legend-count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
 
-  .vstats__metrics { display: flex; flex-direction: column; gap: 0.75rem; flex: 1 1 20rem; }
-  .vstats__metric {
-    display: flex;
-    align-items: center;
-    gap: 0.85rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg);
-    padding: 0.7rem 1rem;
-  }
-  .vstats__icon { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: 50%; flex: none; }
-  .vstats__icon--pos { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
-  .vstats__icon--accent { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-  .vstats__metric-body { display: flex; flex-direction: column; min-width: 0; }
-  .vstats__metric-title { font-weight: 600; }
-  .vstats__metric-line { font-size: 0.8125rem; color: var(--muted); }
-  .vstats__badge {
-    margin-left: auto;
-    flex: none;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .vstats__badge--pos { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
-  .vstats__badge--accent { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-
   @media (max-width: 560px) {
     .vstats { padding: 1.1rem; }
-    .vstats__chart { flex-direction: column; gap: 0.85rem; align-items: flex-start; }
-    .vstats__legend { width: 100%; }
   }
 </style>

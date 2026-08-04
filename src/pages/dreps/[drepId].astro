@@ -9,7 +9,6 @@ import ProfileSyncing from '@/components/ProfileSyncing.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVoteRow from '@/components/DrepVoteRow.astro';
-import DrepForumRow from '@/components/DrepForumRow.astro';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory.js';
 import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
@@ -24,7 +23,9 @@ import { getVoterVoteHistory } from '@/lib/db/voteHistory.js';
 import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
-import { isIndexableProfile, influencePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary } from '@/lib/dreps/profile.js';
+import { isIndexableProfile, influencePct, formatSharePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary } from '@/lib/dreps/profile.js';
+import { buildRecentActivity } from '@/lib/dreps/recentActivity.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
@@ -92,14 +93,19 @@ const HISTORY_HEAD = 5;
 const historyHead = votingHistory.slice(0, HISTORY_HEAD);
 const historyTail = votingHistory.slice(HISTORY_HEAD);
 
-// Forum activity uses the same head/tail collapse as the voting history, so both
-// cards read alike and a prolific poster's list stays short until expanded.
-const FORUM_HEAD = 3;
-const postsHead = posts.slice(0, FORUM_HEAD);
-const postsTail = posts.slice(FORUM_HEAD);
-
 const hasMetadata = !!(drep?.name || drep?.bio);
 const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length });
+
+// Merged recent-activity list: votes, published rationales, and forum posts on
+// one timeline (newest first, deterministic type order at equal timestamps).
+const recentActivity = drep
+  ? buildRecentActivity({ votes: votingHistory, posts, profilePath: drepPath(drep), cfg: currentNetwork() }, 5)
+  : [];
+
+// Long About texts clamp to a few lines with a CSS-only "Read more", short ones
+// render plain. A rough length gate is enough, exact overflow depends on the
+// viewport anyway.
+const CLAMP_THRESHOLD = 320;
 
 if (drep) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
@@ -113,10 +119,10 @@ const influence = drep ? influencePct(drep.votingPower, activeStake.total) : nul
 // A DRep that deregistered its credential: still viewable for the governance
 // record, but clearly marked and no longer delegatable (no voting power).
 const isRetired = !!drep && drep.status === 'deregistered';
-// Status is only surfaced when it warrants attention. An active DRep shows no
-// pill (that is the norm); a deregistered one reads "Retired", any other
-// non-active state (registered but stale) reads "Inactive".
-const statusLabel = isRetired ? 'Retired' : 'Inactive';
+// Always exactly one explicit status pill: role ("DRep" chip) and status never
+// share a pill, and Active is stated rather than implied by absence.
+const statusLabel = isRetired ? 'Retired' : drep?.active ? 'Active' : 'Inactive';
+const share = formatSharePct(influence);
 const canonical = drep ? `${siteOrigin}${drepPath(drep)}` : siteOrigin;
 
 // Delegation CTA: the island needs the deployment's network and the 28-byte
@@ -230,12 +236,10 @@ const profileSummary = drep
       <div class="drep-hd__main">
         <div class="drep-hd__tags">
           <span class="drep-hd__kind">DRep</span>
-          {!drep.active && (
-            <span class="drep-hd__status">
-              <span class="drep-hd__dot" aria-hidden="true"></span>
-              {statusLabel}
-            </span>
-          )}
+          <span class={`drep-hd__status${drep.active && !isRetired ? ' drep-hd__status--ok' : ''}`}>
+            <span class="drep-hd__dot" aria-hidden="true"></span>
+            {statusLabel}
+          </span>
         </div>
         <div class="drep-hd__titlerow">
           <h1 class="drep-hd__name">{displayName}</h1>
@@ -257,60 +261,89 @@ const profileSummary = drep
           <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={`${displayName} on DRepTalk`} ariaLabel="Share this profile" />
         </div>
         <div class="drep-hd__id"><span title={drep.drepId}>{truncateIdMiddle(drep.drepId)}</span><CopyButton value={drep.drepId} label="Copy DRep id" /></div>
-        <div class="drep-hd__stats">
-          <span class="drep-hd__card">
-            <span class="drep-hd__icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1" />
-                <circle cx="9" cy="8" r="3.2" />
-                <path d="M22 19v-1a4 4 0 0 0-3-3.87" />
-                <path d="M16 4.2a4 4 0 0 1 0 7.6" />
-              </svg>
-            </span>
-            <span class="drep-hd__cardbody">
-              <span class="drep-hd__value drep-hd__value--full">{formatAda(drep.votingPower)}</span>
-              <span class="drep-hd__value drep-hd__value--compact">{formatAdaCompact(drep.votingPower)}</span>
-              <span class="drep-hd__caption">Voting power</span>
-            </span>
-          </span>
-          {drep.delegatorCount != null && (
-            <span class="drep-hd__card">
-              <span class="drep-hd__icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-              </span>
-              <span class="drep-hd__cardbody">
-                <span class="drep-hd__value">{drep.delegatorCount.toLocaleString('en-US')}</span>
-                <span class="drep-hd__caption">Delegators</span>
-              </span>
-            </span>
-          )}
-          {influence != null && (
-            <span class="drep-hd__card">
-              <span class="drep-hd__icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15.5A9 9 0 1 1 8.5 3" />
-                  <path d="M21.5 12A9.5 9.5 0 0 0 12 2.5V12z" />
-                </svg>
-              </span>
-              <span class="drep-hd__cardbody">
-                <span class="drep-hd__value">{influence.toFixed(2)}%</span>
-                <span class="drep-hd__caption">Influence</span>
-              </span>
-            </span>
-          )}
-        </div>
+        <p class="drep-hd__power">
+          <span class="drep-hd__powerval drep-hd__value--full">{formatAda(drep.votingPower)}</span>
+          <span class="drep-hd__powerval drep-hd__value--compact">{formatAdaCompact(drep.votingPower)}</span>
+          <span class="drep-hd__powercap">voting power</span>
+        </p>
+        {(drep.delegatorCount != null || share) && (
+          <p class="drep-hd__subline">
+            {drep.delegatorCount != null && (
+              <span>{drep.delegatorCount.toLocaleString('en-US')} {drep.delegatorCount === 1 ? 'delegator' : 'delegators'}</span>
+            )}
+            {drep.delegatorCount != null && share && <span class="drep-hd__sep" aria-hidden="true">·</span>}
+            {share && <span>{share} of active voting power</span>}
+          </p>
+        )}
       </div>
     </header>
+
+    {isRetired && (
+      <p style="border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.75rem;color:var(--muted);font-size:0.875rem;max-width:65ch;margin:0 0 1rem;">
+        This DRep has retired: the credential was deregistered on-chain, so it no longer holds voting power or accepts delegation. The history below is kept for the governance record.
+      </p>
+    )}
+
+    <section class="about">
+      <h2 class="about__h">About</h2>
+      <div class="about__grid">
+        <div class="about__block about__block--main">
+          {drep.bio ? (
+            <Fragment>
+              <h3 class="about__field">Objectives</h3>
+              <p class={`about__text${drep.bio.length > CLAMP_THRESHOLD ? ' about__text--clamp' : ''}`}>{drep.bio}</p>
+              {drep.bio.length > CLAMP_THRESHOLD && (
+                <details class="about__more">
+                  <summary><span class="about__more-show">Read more</span><span class="about__more-hide">Show less</span></summary>
+                </details>
+              )}
+            </Fragment>
+          ) : (
+            <Fragment>
+              <h3 class="about__field">Overview</h3>
+              <p class="about__gen">Generated from public on-chain data</p>
+              <p class="about__text about__text--muted">{profileSummary}</p>
+            </Fragment>
+          )}
+          {drep.links && drep.links.length > 0 && (
+            <ul class="about__links">
+              {dedupeLinks(drep.links).map((l) => (
+                <li><a href={l.uri} rel="nofollow noopener" target="_blank">{linkDisplayLabel(l)}</a></li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {drep.motivations && (
+          <div class="about__block">
+            <h3 class="about__field">Motivations</h3>
+            <p class={`about__text${drep.motivations.length > CLAMP_THRESHOLD ? ' about__text--clamp' : ''}`}>{drep.motivations}</p>
+            {drep.motivations.length > CLAMP_THRESHOLD && (
+              <details class="about__more">
+                <summary><span class="about__more-show">Read more</span><span class="about__more-hide">Show less</span></summary>
+              </details>
+            )}
+          </div>
+        )}
+        {drep.qualifications && (
+          <div class="about__block">
+            <h3 class="about__field">Qualifications</h3>
+            <p class={`about__text${drep.qualifications.length > CLAMP_THRESHOLD ? ' about__text--clamp' : ''}`}>{drep.qualifications}</p>
+            {drep.qualifications.length > CLAMP_THRESHOLD && (
+              <details class="about__more">
+                <summary><span class="about__more-show">Read more</span><span class="about__more-hide">Show less</span></summary>
+              </details>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+
+    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
 
     <div class="drep-summary">
       <DrepPowerSparkline series={powerSeries} />
       <section class="drep-summary__badges">
-        <h2 class="drep-summary__h">Badges <span class="drep-summary__count">({earnedBadges.length})</span></h2>
+        <h2 class="drep-summary__h">Recognition <span class="drep-summary__count">({earnedBadges.length})</span></h2>
         {showcase.length === 0 ? (
           <p class="drep-summary__empty">
             No badges yet. <a href={`${drepPath(drep)}badges/`}>See what can be earned</a>.
@@ -319,74 +352,69 @@ const profileSummary = drep
           <Fragment>
             <div class="drep-summary__badgegrid">
               {showcase.map((t) => (
-                <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} tip={t.badge.description} size={72} />
+                <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} tip={t.badge.description} size={56} />
               ))}
             </div>
-            <a href={`${drepPath(drep)}badges/`} class="drep-summary__all">All badges →</a>
+            <a href={`${drepPath(drep)}badges/`} class="drep-summary__all">View all {earnedBadges.length} badges</a>
           </Fragment>
         )}
       </section>
     </div>
 
-    {isRetired && (
-      <p style="border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.75rem;color:var(--muted);font-size:0.875rem;max-width:65ch;margin:0 0 1rem;">
-        This DRep has retired: the credential was deregistered on-chain, so it no longer holds voting power or accepts delegation. The history below is kept for the governance record.
-      </p>
-    )}
-
-    {drep.bio
-      ? <p style="color:var(--fg);max-width:65ch;">{drep.bio}</p>
-      : <p style="color:var(--muted);max-width:65ch;">{profileSummary}</p>}
-
-    {drep.links && drep.links.length > 0 && (
-      <ul style="list-style:none;padding:0;display:flex;gap:1rem;flex-wrap:wrap;">
-        {dedupeLinks(drep.links).map((l) => (
-          <li><a href={l.uri} rel="nofollow noopener" target="_blank">{linkDisplayLabel(l)}</a></li>
-        ))}
-      </ul>
-    )}
-
-    {drep.motivations && (
-      <section style="max-width:65ch;margin-top:0.5rem;">
-        <h2 style="font-size:1rem;margin:0 0 0.25rem;">Motivations</h2>
-        <p style="color:var(--fg);margin:0;white-space:pre-wrap;">{drep.motivations}</p>
-      </section>
-    )}
-    {drep.qualifications && (
-      <section style="max-width:65ch;margin-top:0.5rem;">
-        <h2 style="font-size:1rem;margin:0 0 0.25rem;">Qualifications</h2>
-        <p style="color:var(--fg);margin:0;white-space:pre-wrap;">{drep.qualifications}</p>
-      </section>
-    )}
-    {drep.paymentAddress && (
-      <p style="font-size:0.8125rem;color:var(--muted);margin-top:0.5rem;">
-        Payment address: <span style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;" title={drep.paymentAddress}>{truncateIdMiddle(drep.paymentAddress)}</span><CopyButton value={drep.paymentAddress} label="Copy payment address" />
-      </p>
-    )}
-
-    <p style="font-size:0.75rem;color:var(--muted);">On-chain data as of {formatRelativeTime(drep.lastSyncedAt, now)}.</p>
-
-    <section id="forum-activity" class="vhist-section">
-      <h2 class="vhist-section__title">Forum activity <span class="vhist-section__count">({posts.length})</span></h2>
-      {posts.length === 0 ? (
-        <p class="vhist__empty">No forum posts yet.</p>
-      ) : (
-        <div class="factivity">
-          {postsHead.map((p) => <DrepForumRow post={p} now={now} />)}
-          {postsTail.length > 0 && (
-            <details class="vhist__more">
-              <summary class="vhist__more-toggle">
-                <span class="vhist__more-show">Show {postsTail.length} more</span>
-                <span class="vhist__more-hide">Show less</span>
-              </summary>
-              {postsTail.map((p) => <DrepForumRow post={p} now={now} />)}
-            </details>
-          )}
+    {recentActivity.length > 0 && (
+      <section id="recent-activity" class="vhist-section">
+        <h2 class="vhist-section__title">Recent activity</h2>
+        <div class="ract">
+          {recentActivity.map((e) => (
+            <div class="ract__row">
+              {e.kind === 'vote' ? (
+                <span class={`ract__icon ract__icon--${e.vote === 'Yes' ? 'yes' : e.vote === 'No' ? 'no' : 'abstain'}`} aria-hidden="true">
+                  {e.vote === 'Yes' && (
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                  )}
+                  {e.vote === 'No' && (
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                  )}
+                  {e.vote !== 'Yes' && e.vote !== 'No' && (
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 12h12" /></svg>
+                  )}
+                </span>
+              ) : e.kind === 'rationale' ? (
+                <span class="ract__icon ract__icon--rationale" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+                    <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+                    <path d="M7 21h10" />
+                    <path d="M12 3v18" />
+                    <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
+                  </svg>
+                </span>
+              ) : (
+                <span class="ract__icon ract__icon--discussion" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                </span>
+              )}
+              <span class="ract__body">
+                <span class="ract__label">
+                  {e.kind === 'vote'
+                    ? `Voted ${e.vote}`
+                    : e.kind === 'rationale'
+                      ? 'Published rationale'
+                      : e.started
+                        ? 'Started discussion'
+                        : 'Commented'}
+                </span>
+                {e.href ? <a class="ract__title" href={e.href}>{e.title}</a> : <span class="ract__title">{e.title}</span>}
+                {e.kind === 'vote' && <span class="ract__epoch">Epoch {e.epoch}</span>}
+              </span>
+              <span class="ract__when">{formatRelativeTime(e.ts, now)}</span>
+            </div>
+          ))}
         </div>
-      )}
-    </section>
-
-    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
+      </section>
+    )}
 
     <section id="voting-history" class="vhist-section">
       <h2 class="vhist-section__title">Voting history <span class="vhist-section__count">({votesCast})</span></h2>
@@ -416,6 +444,38 @@ const profileSummary = drep
           )}
         </div>
       )}
+    </section>
+
+    <section class="ocd">
+      <h2 class="ocd__h">On-chain profile details</h2>
+      <dl class="ocd__grid">
+        <div class="ocd__item">
+          <dt class="ocd__dt">DRep ID</dt>
+          <dd class="ocd__dd"><span class="ocd__mono" title={drep.drepId}>{truncateIdMiddle(drep.drepId)}</span><CopyButton value={drep.drepId} label="Copy DRep id" /></dd>
+        </div>
+        {drep.paymentAddress && (
+          <div class="ocd__item">
+            <dt class="ocd__dt">Payment address</dt>
+            <dd class="ocd__dd"><span class="ocd__mono" title={drep.paymentAddress}>{truncateIdMiddle(drep.paymentAddress)}</span><CopyButton value={drep.paymentAddress} label="Copy payment address" /></dd>
+          </div>
+        )}
+        {drep.registeredAt != null && (
+          <div class="ocd__item">
+            <dt class="ocd__dt">{isRetired ? 'Last registered' : 'Registered since'}</dt>
+            <dd class="ocd__dd">{formatEpochDate(drep.registeredAt)}</dd>
+          </div>
+        )}
+        {drep.metadataLastUpdatedAt != null && (
+          <div class="ocd__item">
+            <dt class="ocd__dt">Last metadata update</dt>
+            <dd class="ocd__dd">{formatRelativeTime(drep.metadataLastUpdatedAt * 1000, now)}</dd>
+          </div>
+        )}
+        <div class="ocd__item">
+          <dt class="ocd__dt">Data freshness</dt>
+          <dd class="ocd__dd">On-chain data as of {formatRelativeTime(drep.lastSyncedAt, now)}</dd>
+        </div>
+      </dl>
     </section>
   </Layout>
 )}
@@ -452,11 +512,20 @@ const profileSummary = drep
      button follows it; on narrow screens the button wraps below. */
   .drep-hd__titlerow { display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap; margin: 0 0 0.2rem; }
   .drep-hd__name { margin: 0; font-size: 2rem; line-height: 1.1; overflow-wrap: anywhere; }
-  .drep-hd__id { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.9rem; }
-  .drep-hd__stats { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+  .drep-hd__id { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.65rem; }
 
-  /* Only shown for a non-active DRep (inactive or retired): a compact red pill
-     sitting beside the "DRep" tag. Active needs no pill, it is the norm. */
+  /* Voting power as the header's one prominent figure, delegators and share as
+     a muted secondary line: correct, but not staged as a heroic KPI wall. */
+  .drep-hd__power { margin: 0 0 0.1rem; display: flex; align-items: baseline; gap: 0.45rem; flex-wrap: wrap; }
+  .drep-hd__powerval { font-weight: 700; font-size: 1.15rem; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .drep-hd__powercap { color: var(--muted); font-size: 0.875rem; }
+  /* Voting power ships both a full ("39,558,963 ₳") and a compact ("39.6M ₳")
+     value; the compact one only surfaces on narrow screens. */
+  .drep-hd__value--compact { display: none; }
+  .drep-hd__subline { margin: 0; color: var(--muted); font-size: 0.875rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+  /* One explicit status pill beside the "DRep" tag: red for inactive/retired,
+     positive for active. */
   .drep-hd__status {
     display: inline-flex;
     align-items: center;
@@ -471,46 +540,23 @@ const profileSummary = drep
     background: color-mix(in srgb, var(--c-neg) 12%, transparent);
   }
   .drep-hd__dot { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; flex: none; }
+  .drep-hd__status--ok {
+    color: var(--c-pos);
+    background: color-mix(in srgb, var(--c-pos) 12%, transparent);
+  }
 
   .drep-hd__cta { flex: none; }
 
-  .drep-hd__card {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.45rem 0.9rem;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-  }
-  .drep-hd__icon {
-    display: grid;
-    place-items: center;
-    width: 1.9rem;
-    height: 1.9rem;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    color: var(--accent);
-    flex: none;
-  }
-  .drep-hd__cardbody { display: flex; flex-direction: column; line-height: 1.15; }
-  .drep-hd__value { font-weight: 700; font-size: 1.05rem; color: var(--fg); font-variant-numeric: tabular-nums; }
-  /* Voting power ships both a full ("39,558,963 ₳") and a compact ("39.6M ₳")
-     value; the compact one only surfaces on the mobile stat strip below. */
-  .drep-hd__value--compact { display: none; }
-  .drep-hd__caption { font-size: 0.75rem; color: var(--muted); }
-
-  /* Desktop summary row: trend card beside the badges card, stacking on narrow
-     screens. The trend card keeps its own max-width; the badges card fills the
-     remaining width. */
+  /* Summary row: trend card (~65%) beside the visually lighter badges card
+     (~35%), stacking on narrow screens. */
   .drep-summary {
     display: grid;
-    /* Two columns when both fit at >= 22rem, otherwise one (stacked). Grid sizes
-       row heights after the column widths are known, so the badges card never
-       overflows the way an equal-height flex row did. */
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    grid-template-columns: minmax(0, 13fr) minmax(0, 7fr);
     gap: 1.25rem;
     margin-bottom: 1.5rem;
+  }
+  @media (max-width: 760px) {
+    .drep-summary { grid-template-columns: 1fr; }
   }
   .drep-summary__badges {
     display: flex;
@@ -532,54 +578,102 @@ const profileSummary = drep
   .drep-summary__all { margin-top: auto; align-self: flex-start; padding-top: 0.95rem; font-size: 0.9375rem; }
 
   @media (max-width: 560px) {
-    /* MOBILE_AVATAR and MOBILE_GAP are kept in lockstep with the stat strip's
-       negative margin below: the strip is pulled back under the avatar column to
-       span the full header width, so its offset must equal avatar width + gap. */
     .drep-hd { gap: 0.85rem; }
     .drep-hd__name { font-size: 1.5rem; }
-    /* Trim the hero avatar (96 -> 72px): reclaims width for the full-bleed strip
-       and keeps the shortest header (a retired DRep with no Delegate button)
-       taller than the avatar, so the strip always clears it. */
+    /* Trim the hero avatar (96 -> 72px) so the shortest header (a retired DRep
+       with no Delegate button) stays taller than the avatar. */
     .drep-hd__avatar :global(.avatar) { width: 72px; height: 72px; }
-    /* The three roomy iconed cards collapse into one compact strip: a single
-       bordered row split into equal columns by hairline dividers, value over
-       caption. Stacked full-width they ate ~270px of vertical space here. The
-       negative left margin pulls the strip out of the avatar's right column so
-       it spans the full header width (= avatar 72px + the 0.85rem header gap),
-       reclaiming the dead space under the avatar. Flex (not a fixed 3-col grid)
-       so a DRep missing the delegator or influence card still splits evenly. */
-    .drep-hd__stats {
-      display: flex;
-      align-items: stretch;
-      gap: 0;
-      margin-left: calc(-72px - 0.85rem);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      background: var(--surface-2);
-      overflow: hidden;
-    }
-    .drep-hd__card {
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-      gap: 0;
-      padding: 0.5rem 0.4rem;
-      border: 0;
-      border-radius: 0;
-      background: none;
-    }
-    .drep-hd__card + .drep-hd__card { border-left: 1px solid var(--border); }
-    .drep-hd__icon { display: none; }
-    .drep-hd__cardbody { align-items: center; }
-    .drep-hd__value { font-size: 0.95rem; }
     .drep-hd__value--full { display: none; }
-    .drep-hd__value--compact { display: block; }
-    .drep-hd__caption { font-size: 0.7rem; }
+    .drep-hd__value--compact { display: inline; }
     /* Button wraps below the name and spans the column for an easy tap target. */
     .drep-hd__cta { width: 100%; }
     .drep-hd__cta :global(.btn) { width: 100%; }
   }
+
+  /* About: the CIP-119 texts side by side under one roof, each block headed by
+     its on-chain field name. Blocks render only when filled. */
+  .about { margin-bottom: 1.5rem; }
+  .about__h { font-size: 1.125rem; margin: 0 0 0.75rem; }
+  .about__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+    gap: 1.25rem 2rem;
+  }
+  .about__block { min-width: 0; }
+  .about__field {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin: 0 0 0.35rem;
+  }
+  .about__text { margin: 0; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .about__text--muted { color: var(--muted); }
+  /* Clamp without duplicating the text in the DOM: one text node, the sibling
+     <details> only carries the toggle, :has() lifts the clamp when open. */
+  .about__text--clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+    overflow: hidden;
+  }
+  .about__block:has(.about__more[open]) .about__text--clamp {
+    display: block;
+    -webkit-line-clamp: none;
+    overflow: visible;
+  }
+  /* The fallback prose is generated by us, never presented as the DRep's own. */
+  .about__gen { margin: 0 0 0.3rem; font-size: 0.75rem; font-style: italic; color: var(--muted); }
+  .about__more { margin-top: 0.3rem; }
+  .about__more summary { list-style: none; cursor: pointer; color: var(--accent); font-weight: 600; font-size: 0.875rem; }
+  .about__more summary::-webkit-details-marker { display: none; }
+  .about__more-hide { display: none; }
+  .about__more[open] .about__more-show { display: none; }
+  .about__more[open] .about__more-hide { display: inline; }
+  .about__links { list-style: none; padding: 0; margin: 0.85rem 0 0; display: flex; gap: 1rem; flex-wrap: wrap; }
+
+  /* Recent activity: one merged timeline row per event (vote, rationale,
+     discussion), icon + label/title + relative time. */
+  .ract__row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid var(--border); }
+  .ract > .ract__row:first-child { border-top: none; padding-top: 0.2rem; }
+  .ract__icon { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; color: #fff; flex: none; margin-top: 0.1rem; }
+  .ract__icon--yes { background: var(--c-pos); }
+  .ract__icon--no { background: var(--c-neg); }
+  .ract__icon--abstain { background: var(--muted); }
+  .ract__icon--rationale { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
+  .ract__icon--discussion { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+  .ract__body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 0.1rem; }
+  .ract__label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .ract__title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ract__epoch { font-size: 0.8125rem; color: var(--muted); }
+  .ract__when { flex: none; color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
+
+  /* On-chain profile details: the technical footer block. */
+  .ocd {
+    margin-top: 2rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    padding: 1.25rem 1.5rem;
+  }
+  .ocd__h { font-size: 1.125rem; margin: 0 0 1rem; }
+  .ocd__grid {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: 1rem 2rem;
+  }
+  .ocd__item { min-width: 0; }
+  .ocd__dt {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.25rem;
+  }
+  .ocd__dd { margin: 0; font-size: 0.9375rem; color: var(--fg); display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+  .ocd__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875rem; }
 </style>
