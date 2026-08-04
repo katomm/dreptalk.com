@@ -5,6 +5,7 @@ import {
   detectMentionQuery,
   filterCandidates,
   insertMention,
+  insertMentionTrigger,
   MAX_SUGGESTIONS,
 } from './mentionAutocomplete';
 import type { MentionCandidate } from '../db/mentionCandidates';
@@ -71,5 +72,33 @@ describe('insertMention', () => {
     const out = insertMention('hi @al', { start: 3, query: 'al' }, 6, 'alice-drep');
     expect(out.text).toBe('hi @alice-drep ');
     expect(out.caret).toBe(out.text.length);
+  });
+});
+
+describe('insertMentionTrigger', () => {
+  it('inserts a bare @ at the start of the text', () => {
+    const out = insertMentionTrigger('', 0, 0);
+    expect(out).toEqual({ text: '@', caret: 1, at: 0 });
+    // The inserted @ is detectable as an empty active mention.
+    expect(detectMentionQuery(out.text, out.caret)).toEqual({ start: out.at, query: '' });
+  });
+
+  it('adds a leading space when the caret follows a word', () => {
+    const out = insertMentionTrigger('hi', 2, 2);
+    expect(out.text).toBe('hi @');
+    expect(out.at).toBe(3);
+    expect(detectMentionQuery(out.text, out.caret)).toEqual({ start: 3, query: '' });
+  });
+
+  it('does not add a space right after existing whitespace', () => {
+    const out = insertMentionTrigger('hi ', 3, 3);
+    expect(out.text).toBe('hi @');
+    expect(out.at).toBe(3);
+  });
+
+  it('replaces the current selection with the trigger', () => {
+    const out = insertMentionTrigger('hi there', 3, 8);
+    expect(out.text).toBe('hi @');
+    expect(out.at).toBe(3);
   });
 });

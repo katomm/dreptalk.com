@@ -3,7 +3,16 @@
 // returns the new value with the new selection, so the React island stays a
 // thin wrapper: read selectionStart/selectionEnd, call applyMarkdown, write back.
 
-export type MarkdownAction = 'bold' | 'italic' | 'code' | 'link' | 'quote' | 'list' | 'heading';
+export type MarkdownAction =
+  | 'bold'
+  | 'italic'
+  | 'strike'
+  | 'code'
+  | 'link'
+  | 'quote'
+  | 'list'
+  | 'orderedList'
+  | 'heading';
 
 export interface SelectionState {
   text: string;
@@ -11,10 +20,21 @@ export interface SelectionState {
   end: number;
 }
 
+// Expand a [start, end) selection to the whole lines it spans. Shared by the
+// block-level transforms and the Enter-key list continuation so the off-by-one
+// boundary math lives in exactly one place.
+export function lineBounds(text: string, start: number, end: number): { lineStart: number; lineEnd: number } {
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  let lineEnd = text.indexOf('\n', end);
+  if (lineEnd === -1) lineEnd = text.length;
+  return { lineStart, lineEnd };
+}
+
 // Marker pairs for inline wraps.
-const INLINE: Record<'bold' | 'italic' | 'code', string> = {
+const INLINE: Record<'bold' | 'italic' | 'strike' | 'code', string> = {
   bold: '**',
   italic: '*',
+  strike: '~~',
   code: '`',
 };
 
@@ -29,6 +49,7 @@ export function applyMarkdown(state: SelectionState, action: MarkdownAction): Se
   switch (action) {
     case 'bold':
     case 'italic':
+    case 'strike':
     case 'code':
       return wrapInline(state, INLINE[action]);
     case 'link':
@@ -37,6 +58,8 @@ export function applyMarkdown(state: SelectionState, action: MarkdownAction): Se
     case 'list':
     case 'heading':
       return prefixLines(state, PREFIX[action]);
+    case 'orderedList':
+      return orderedList(state);
   }
 }
 
@@ -85,23 +108,44 @@ function insertLink(state: SelectionState): SelectionState {
   return { text: next, start: urlStart, end: urlStart + 3 }; // select "url"
 }
 
-// Add or remove a line prefix (> , - , ## ) on every line the selection spans.
-function prefixLines(state: SelectionState, prefix: string): SelectionState {
+// Apply a per-line transform across the whole lines a selection spans, toggling
+// it off when every line already matches. `detect` reports the on-state, `add`
+// and `strip` convert a line each way. Backs both the block-prefix toggles and
+// the ordered list so the whole-line machinery lives in one place.
+function toggleLines(
+  state: SelectionState,
+  detect: (line: string) => boolean,
+  add: (line: string, i: number) => string,
+  strip: (line: string) => string,
+): SelectionState {
   const { text } = state;
+  const { lineStart, lineEnd } = lineBounds(text, state.start, state.end);
+  const lines = text.slice(lineStart, lineEnd).split('\n');
+  const on = lines.every(detect);
 
-  // Expand the range to whole lines.
-  const lineStart = text.lastIndexOf('\n', state.start - 1) + 1;
-  let lineEnd = text.indexOf('\n', state.end);
-  if (lineEnd === -1) lineEnd = text.length;
-
-  const block = text.slice(lineStart, lineEnd);
-  const lines = block.split('\n');
-  const allPrefixed = lines.every((l) => l.startsWith(prefix));
-
-  const transformed = lines
-    .map((l) => (allPrefixed ? l.slice(prefix.length) : prefix + l))
-    .join('\n');
-
+  const transformed = lines.map((l, i) => (on ? strip(l) : add(l, i))).join('\n');
   const next = text.slice(0, lineStart) + transformed + text.slice(lineEnd);
   return { text: next, start: lineStart, end: lineStart + transformed.length };
+}
+
+// Add or remove a line prefix (> , - , ## ) on every line the selection spans.
+function prefixLines(state: SelectionState, prefix: string): SelectionState {
+  return toggleLines(
+    state,
+    (l) => l.startsWith(prefix),
+    (l) => prefix + l,
+    (l) => l.slice(prefix.length),
+  );
+}
+
+// Number every line the selection spans as "1. ", "2. ", ... or strip the
+// numbering when every line is already numbered (toggle off).
+const NUMBERED = /^\d+\.\s/;
+function orderedList(state: SelectionState): SelectionState {
+  return toggleLines(
+    state,
+    (l) => NUMBERED.test(l),
+    (l, i) => `${i + 1}. ${l}`,
+    (l) => l.replace(NUMBERED, ''),
+  );
 }

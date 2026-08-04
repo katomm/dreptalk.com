@@ -52,6 +52,24 @@ export function filterCandidates(candidates: MentionCandidate[], query: string):
   return ranked.slice(0, MAX_SUGGESTIONS).map((x) => x.cand);
 }
 
+/**
+ * Inserts an '@' trigger at the selection so the toolbar's mention button can
+ * open the picker the same way typing '@' does. A leading space is added when
+ * the caret does not already sit at a mention boundary, so detectMentionQuery
+ * recognizes the inserted '@'. Returns the new text, the caret (just after the
+ * '@'), and the '@' index for seeding the active mention.
+ */
+export function insertMentionTrigger(
+  text: string,
+  start: number,
+  end: number,
+): { text: string; caret: number; at: number } {
+  const needsSpace = start > 0 && !BOUNDARY.test(text[start - 1]);
+  const insert = needsSpace ? ' @' : '@';
+  const at = start + insert.length - 1;
+  return { text: text.slice(0, start) + insert + text.slice(end), caret: at + 1, at };
+}
+
 /** Replaces the active mention with the canonical slug and a trailing space. */
 export function insertMention(
   text: string,
