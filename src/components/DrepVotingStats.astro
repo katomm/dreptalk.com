@@ -5,6 +5,7 @@
 // warning colors on a low rate.
 import {
   buildVoteDonut, rationaleStat, participationStat, DONUT_R, DONUT_STROKE, DONUT_C,
+  type VoteChangeStat,
 } from '@/lib/dreps/voteStatsView.js';
 import type { DrepVoteBreakdown, DrepRationaleStats, DrepParticipation } from '@/lib/db/drepVotes.js';
 
@@ -12,9 +13,11 @@ interface Props {
   breakdown: DrepVoteBreakdown;
   rationale: DrepRationaleStats;
   participation: DrepParticipation | null;
+  /** Real vote switches (see voteChangeStat); the line is omitted when null. */
+  changes?: VoteChangeStat | null;
 }
 
-const { breakdown, rationale, participation } = Astro.props;
+const { breakdown, rationale, participation, changes = null } = Astro.props;
 const donut = buildVoteDonut(breakdown);
 const rStat = rationaleStat(rationale);
 const pStat = participationStat(participation);
@@ -110,6 +113,17 @@ const participationLine =
             ))}
           </ul>
         </div>
+        {changes && (
+          <p class="vstats__changes">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+            <span class="vstats__changes-part">Changed vote on {changes.actionsChanged} {changes.actionsChanged === 1 ? 'action' : 'actions'}</span>
+            <span class="vstats__changes-sep" aria-hidden="true">·</span>
+            <span class="vstats__changes-part">{changes.totalChanges} {changes.totalChanges === 1 ? 'change' : 'changes'} total</span>
+          </p>
+        )}
       </div>
     </div>
   )}
@@ -177,6 +191,22 @@ const participationLine =
   .vstats__swatch { width: 0.75rem; height: 0.75rem; border-radius: 3px; flex: none; }
   .vstats__legend-label { font-weight: 600; }
   .vstats__legend-count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+  /* Neutral meta line: a re-vote is legitimate, so this is quiet information
+     under the pattern, never a same-rank KPI or a warning. */
+  .vstats__changes {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.4rem;
+    margin: 0.35rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .vstats__changes svg { flex: none; }
+  /* Wrap between the two phrases, never inside one. */
+  .vstats__changes-part { white-space: nowrap; }
+  .vstats__changes-sep { margin: 0 0.1rem; }
 
   @media (max-width: 560px) {
     .vstats { padding: 1.1rem; }

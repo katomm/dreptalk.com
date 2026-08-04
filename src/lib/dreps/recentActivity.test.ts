@@ -29,7 +29,7 @@ describe('buildRecentActivity', () => {
     const events = buildRecentActivity({
       votes: [voteRow({ block_time: at(500) })],
       posts: [post({ created_at: at(501) * 1000 })],
-      profilePath: '/dreps/lucas/',
+      voterId: 'drep1lucas',
       cfg,
     });
     expect(events.map((e) => e.kind)).toEqual(['discussion', 'vote']);
@@ -40,12 +40,12 @@ describe('buildRecentActivity', () => {
     const events = buildRecentActivity({
       votes: [voteRow({ rationale_html: '<p>Because reasons.</p>' })],
       posts: [],
-      profilePath: '/dreps/lucas/',
+      voterId: 'drep1lucas',
       cfg,
     });
     expect(events.map((e) => e.kind)).toEqual(['vote', 'rationale']);
     expect(events[0].ts).toBe(events[1].ts);
-    expect(events[1]).toMatchObject({ href: '/dreps/lucas/vote/some-action/' });
+    expect(events[1]).toMatchObject({ href: '/t/some-action/?tab=positions#voter-drep1lucas' });
   });
 
   it('marks topic starts vs comments and builds post anchors', () => {
@@ -55,7 +55,7 @@ describe('buildRecentActivity', () => {
         post({ id: 'p9', is_topic_start: 1, created_at: 5_000 }),
         post({ id: 'p10', is_topic_start: 0, created_at: 6_000 }),
       ],
-      profilePath: '/dreps/lucas/',
+      voterId: 'drep1lucas',
       cfg,
     });
     expect(events[0]).toMatchObject({ kind: 'discussion', started: false, href: '/t/a-discussion/#post-p10' });
@@ -70,7 +70,7 @@ describe('buildRecentActivity', () => {
         voteRow({ ga_id: 'ga#b', title: 'Action B', topic_slug: 'action-b', block_time: t, rationale_html: '<p>b</p>' }),
       ],
       posts: [],
-      profilePath: '/dreps/lucas/',
+      voterId: 'drep1lucas',
       cfg,
     });
     expect(events.map((e) => `${e.kind}:${e.key}`)).toEqual([
@@ -85,10 +85,10 @@ describe('buildRecentActivity', () => {
       voteRow({ ga_id: 'ga#3', block_time: at(491) }),
       voteRow({ ga_id: 'ga#4', block_time: at(492) }),
     ];
-    const events = buildRecentActivity({ votes, posts: [], profilePath: '/dreps/x/', cfg }, 2);
+    const events = buildRecentActivity({ votes, posts: [], voterId: 'drep1x', cfg }, 2);
     expect(events).toHaveLength(2);
     expect(events.map((e) => (e.kind === 'vote' ? e.epoch : null))).toEqual([492, 491]);
 
-    expect(buildRecentActivity({ votes: [], posts: [], profilePath: '/dreps/x/', cfg })).toEqual([]);
+    expect(buildRecentActivity({ votes: [], posts: [], voterId: 'drep1x', cfg })).toEqual([]);
   });
 });

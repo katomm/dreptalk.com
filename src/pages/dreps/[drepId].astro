@@ -30,6 +30,7 @@ import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
 import { isIndexableProfile, influencePct, formatSharePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary } from '@/lib/dreps/profile.js';
 import { buildRecentActivity } from '@/lib/dreps/recentActivity.js';
+import { voteChangeStat } from '@/lib/dreps/voteStatsView.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -117,6 +118,13 @@ const historyTail = votingHistory.slice(HISTORY_HEAD);
 
 // Rationales tab: the votes that carry a resolvable rationale, same row shape.
 const rationaleRows = votingHistory.filter((h) => h.rationale_html);
+
+// Vote-change meta line: counted from the re-vote history already loaded for
+// the "changed from X" chips, so it costs no extra query.
+const changeStat = voteChangeStat(
+  voteHistoryMap,
+  new Map(votingHistory.map((h) => [h.ga_id, h.vote])),
+);
 const rationaleHead = rationaleRows.slice(0, HISTORY_HEAD);
 const rationaleTail = rationaleRows.slice(HISTORY_HEAD);
 
@@ -131,7 +139,7 @@ const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.l
 // forum posts on one timeline (newest first, deterministic type order at equal
 // timestamps).
 const recentActivity = drep
-  ? buildRecentActivity({ votes: votingHistory, posts, profilePath: drepPath(drep), cfg: currentNetwork() }, 15)
+  ? buildRecentActivity({ votes: votingHistory, posts, voterId: drep.drepId, cfg: currentNetwork() }, 15)
   : [];
 
 // Tab bar entries: Discussions and Rationales only appear when they have rows.
@@ -387,7 +395,7 @@ const profileSummary = drep
       </div>
     </section>
 
-    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
+    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} changes={changeStat} />
 
     <div class="drep-summary">
       <DrepPowerSparkline series={powerSeries} />

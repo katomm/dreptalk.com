@@ -13,6 +13,7 @@ import DrepForumRow from '@/components/DrepForumRow.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import { getPoolByIdOrSlug } from '@/lib/db/pools.js';
 import { getVoterVoteHistory } from '@/lib/db/voteHistory.js';
+import { voteChangeStat } from '@/lib/dreps/voteStatsView.js';
 import { getUserByPoolId, getUserById } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import {
@@ -164,7 +165,7 @@ const metaDescription = pool
       )}
     </section>
 
-    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
+    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} changes={voteChangeStat(voteHistoryMap, new Map(votingHistory.map((h) => [h.ga_id, h.vote])))} />
 
     <section id="voting-history" class="vhist-section">
       <h2 class="vhist-section__title">Voting history <span class="vhist-section__count">({votesCast})</span></h2>

@@ -23,11 +23,12 @@ const KIND_RANK: Record<ActivityEvent['kind'], number> = { vote: 0, rationale: 1
 /**
  * Merges the three activity sources into one newest-first list. A vote that
  * carries a rationale yields two events sharing the vote's timestamp (that is
- * intended: casting and explaining are both activity). `profilePath` is the
- * canonical profile path ("/dreps/<slug>/") for the per-vote rationale links.
+ * intended: casting and explaining are both activity). A rationale event links
+ * to the voter's row on the action's Positions tab (`voterId` is the on-chain
+ * voter id the row anchors carry), where the rationale reads in context.
  */
 export function buildRecentActivity(
-  input: { votes: DrepVoteHistoryRow[]; posts: AuthorPost[]; profilePath: string; cfg: NetworkConfig },
+  input: { votes: DrepVoteHistoryRow[]; posts: AuthorPost[]; voterId: string; cfg: NetworkConfig },
   limit = 5,
 ): ActivityEvent[] {
   const events: ActivityEvent[] = [];
@@ -39,7 +40,9 @@ export function buildRecentActivity(
     const actionHref = v.topic_slug ? `/t/${v.topic_slug}/` : null;
     events.push({ kind: 'vote', ts, key: v.ga_id, vote: v.vote, title, href: actionHref, epoch: epochFromUnix(v.block_time, input.cfg) });
     if (v.rationale_html) {
-      const href = v.topic_slug ? `${input.profilePath}vote/${v.topic_slug}/` : actionHref;
+      const href = v.topic_slug
+        ? `/t/${v.topic_slug}/?tab=positions#voter-${input.voterId}`
+        : actionHref;
       events.push({ kind: 'rationale', ts, key: v.ga_id, title, href });
     }
   }
