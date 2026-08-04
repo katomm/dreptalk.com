@@ -35,15 +35,17 @@ export const NCL_PERIODS: NclPeriod[] = [
   {
     id: '2026-27',
     label: '2026 to 2027 Net Change Limit',
-    ceilingLovelace: 350_000_000_000_000n,
+    // Original 350M, raised to 500M by the second defining action (closed
+    // Aug 2026 with 62.4% DRep approval).
+    ceilingLovelace: 500_000_000_000_000n,
     startEpoch: 613,
     endEpoch: 713, // 2026-02-13 to 2027-07-03
     definingActionIds: [
-      'dc4c679c8cf1cec49817d4d2c1c96cd802ec8a047a11dc0b0bb125b5af0a76cd#0',
+      'dc4c679c8cf1cec49817d4d2c1c96cd802ec8a047a11dc0b0bb125b5af0a76cd#0', // original 350M
+      'a75645e0871f3dbb6207df867d9bd6a1a3a5befa40d68df6da651db4d6607fbf#0', // raise to 500M
     ],
     relatedActionIds: [
       '73a4eb2148781c37ef37c90a33a1d3d00511a8eefe9cdfaa1ea593b090f23f96#0', // proposed 300M, lost
-      'a75645e0871f3dbb6207df867d9bd6a1a3a5befa40d68df6da651db4d6607fbf#0', // proposes 500M, active
     ],
   },
 ];
