@@ -9,6 +9,8 @@ import ProfileSyncing from '@/components/ProfileSyncing.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVoteRow from '@/components/DrepVoteRow.astro';
+import DrepForumRow from '@/components/DrepForumRow.astro';
+import voteAnchorHop from '@/scripts/profile-vote-anchor.js?raw';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory.js';
 import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
@@ -39,6 +41,16 @@ import {
 
 const { drepId } = Astro.params;
 const db = env.DB as D1Database | undefined;
+
+// The activity section's tab, link-based like the governance-action page:
+// the default All feed lives at the plain profile URL, other tabs at ?tab=<id>.
+// Layout canonicalizes to the bare path, so tab URLs never compete in search.
+const PROFILE_TABS = ['all', 'votes', 'discussions', 'rationales'] as const;
+type ProfileTab = (typeof PROFILE_TABS)[number];
+const tabParam = Astro.url.searchParams.get('tab') ?? '';
+const activeTab: ProfileTab = (PROFILE_TABS as readonly string[]).includes(tabParam)
+  ? (tabParam as ProfileTab)
+  : 'all';
 
 const drep = drepId && db ? await getDrepByIdOrSlug(db, drepId) : null;
 
@@ -75,7 +87,14 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
   await Promise.all([
     drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
     db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
-    drep && db ? getDrepVotingHistory(db, drep.drepId, { limit: 500 }) : Promise.resolve([]),
+    drep && db
+      ? getDrepVotingHistory(db, drep.drepId, {
+          limit: 500,
+          // Rationale bodies only render on the votes/rationales tabs. The other
+          // tabs need mere presence, so skip dragging KBs of HTML through SSR.
+          rationalePresenceOnly: activeTab !== 'votes' && activeTab !== 'rationales',
+        })
+      : Promise.resolve([]),
     drep && db ? countDrepVotes(db, drep.drepId) : Promise.resolve(0),
     drep && db ? getDrepVoteBreakdown(db, drep.drepId) : Promise.resolve({ yes: 0, no: 0, abstain: 0, total: 0 }),
     drep && db ? getDrepRationaleStats(db, drep.drepId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
@@ -93,14 +112,34 @@ const HISTORY_HEAD = 5;
 const historyHead = votingHistory.slice(0, HISTORY_HEAD);
 const historyTail = votingHistory.slice(HISTORY_HEAD);
 
+// Rationales tab: the votes that carry a resolvable rationale, same row shape.
+const rationaleRows = votingHistory.filter((h) => h.rationale_html);
+const rationaleHead = rationaleRows.slice(0, HISTORY_HEAD);
+const rationaleTail = rationaleRows.slice(HISTORY_HEAD);
+
 const hasMetadata = !!(drep?.name || drep?.bio);
 const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length });
 
-// Merged recent-activity list: votes, published rationales, and forum posts on
-// one timeline (newest first, deterministic type order at equal timestamps).
+// Merged recent-activity feed for the All tab: votes, published rationales, and
+// forum posts on one timeline (newest first, deterministic type order at equal
+// timestamps).
 const recentActivity = drep
-  ? buildRecentActivity({ votes: votingHistory, posts, profilePath: drepPath(drep), cfg: currentNetwork() }, 5)
+  ? buildRecentActivity({ votes: votingHistory, posts, profilePath: drepPath(drep), cfg: currentNetwork() }, 15)
   : [];
+
+// Tab bar entries: Discussions and Rationales only appear when they have rows.
+const profileTabs = drep
+  ? ([
+      { id: 'all' as const, label: 'All', count: null },
+      { id: 'votes' as const, label: 'Votes', count: votesCast },
+      ...(posts.length > 0 ? [{ id: 'discussions' as const, label: 'Discussions', count: posts.length }] : []),
+      ...(rationaleRows.length > 0 ? [{ id: 'rationales' as const, label: 'Rationales', count: rationaleRows.length }] : []),
+    ])
+  : [];
+const tabHref = (id: ProfileTab): string =>
+  drep ? (id === 'all' ? drepPath(drep) : `${drepPath(drep)}?tab=${id}`) : '';
+// A hand-typed ?tab= for a hidden (empty) tab falls back to the All feed.
+const renderTab: ProfileTab = profileTabs.some((t) => t.id === activeTab) ? activeTab : 'all';
 
 // Long About texts clamp to a few lines with a CSS-only "Read more", short ones
 // render plain. A rough length gate is enough, exact overflow depends on the
@@ -361,9 +400,23 @@ const profileSummary = drep
       </section>
     </div>
 
-    {recentActivity.length > 0 && (
-      <section id="recent-activity" class="vhist-section">
-        <h2 class="vhist-section__title">Recent activity</h2>
+    <section id="activity" class="vhist-section">
+      <h2 class="vhist-section__title">Activity</h2>
+      <nav class="ptabs" aria-label="Activity sections">
+        {profileTabs.map((t) => (
+          <a
+            class={`ptabs__tab${renderTab === t.id ? ' ptabs__tab--active' : ''}`}
+            href={tabHref(t.id)}
+            aria-current={renderTab === t.id ? 'page' : undefined}
+          >
+            {t.label}{t.count != null && <span class="ptabs__count">({t.count})</span>}
+          </a>
+        ))}
+      </nav>
+
+      {renderTab === 'all' && (recentActivity.length === 0 ? (
+        <p class="vhist__empty">No recorded activity yet.</p>
+      ) : (
         <div class="ract">
           {recentActivity.map((e) => (
             <div class="ract__row">
@@ -413,12 +466,9 @@ const profileSummary = drep
             </div>
           ))}
         </div>
-      </section>
-    )}
+      ))}
 
-    <section id="voting-history" class="vhist-section">
-      <h2 class="vhist-section__title">Voting history <span class="vhist-section__count">({votesCast})</span></h2>
-      {votingHistory.length === 0 ? (
+      {renderTab === 'votes' && (votingHistory.length === 0 ? (
         <p class="vhist__empty">No recorded on-chain votes.</p>
       ) : (
         <div class="vhist">
@@ -443,8 +493,38 @@ const profileSummary = drep
             </details>
           )}
         </div>
+      ))}
+
+      {renderTab === 'discussions' && (
+        <div class="factivity">
+          {posts.map((p) => <DrepForumRow post={p} now={now} />)}
+        </div>
+      )}
+
+      {renderTab === 'rationales' && (
+        <div class="vhist">
+          <div class="vhist__row vhist__row--head" aria-hidden="true">
+            <span>Vote</span>
+            <span>Action</span>
+            <span>Rationale</span>
+            <span>Outcome</span>
+            <span class="vhist__when-h">Voted</span>
+          </div>
+          {rationaleHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
+          {rationaleTail.length > 0 && (
+            <details class="vhist__more">
+              <summary class="vhist__more-toggle">
+                <span class="vhist__more-show">Show {rationaleTail.length} more</span>
+                <span class="vhist__more-hide">Show less</span>
+              </summary>
+              {rationaleTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
+            </details>
+          )}
+        </div>
       )}
     </section>
+
+    {renderTab !== 'votes' && <script is:inline set:html={voteAnchorHop} />}
 
     <section class="ocd">
       <h2 class="ocd__h">On-chain profile details</h2>
@@ -633,8 +713,42 @@ const profileSummary = drep
   .about__more[open] .about__more-hide { display: inline; }
   .about__links { list-style: none; padding: 0; margin: 0.85rem 0 0; display: flex; gap: 1rem; flex-wrap: wrap; }
 
-  /* Recent activity: one merged timeline row per event (vote, rationale,
-     discussion), icon + label/title + relative time. */
+  /* Activity tab bar: link-based like the governance-action page, the active
+     panel is chosen server-side (?tab=<id>). Scrolls sideways on phones. */
+  .ptabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 1rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .ptabs::-webkit-scrollbar { display: none; }
+  .ptabs__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.55rem 0.9rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .ptabs__tab:hover { color: var(--fg); }
+  .ptabs__tab--active {
+    color: var(--fg);
+    font-weight: 700;
+    border-bottom-color: var(--accent);
+  }
+  .ptabs__count { color: var(--muted); font-weight: 400; }
+
+  /* Activity feed (All tab): one merged timeline row per event (vote,
+     rationale, discussion), icon + label/title + relative time. */
   .ract__row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid var(--border); }
   .ract > .ract__row:first-child { border-top: none; padding-top: 0.2rem; }
   .ract__icon { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; color: #fff; flex: none; margin-top: 0.1rem; }
