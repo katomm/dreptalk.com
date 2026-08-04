@@ -101,6 +101,20 @@ export interface Drep {
   expiresEpochNo: number | null;
   /** Epoch the DRep first registered (from /drep_updates), or null until backfilled. */
   registeredEpoch: number | null;
+  /**
+   * Unix seconds of the newest 'registered' action, i.e. the start of the
+   * current registration period ("Registered since"). Deliberately not the
+   * historical first registration; registeredEpoch keeps that role for the
+   * participation stats. Null until backfilled.
+   */
+  registeredAt: number | null;
+  /**
+   * Unix seconds of the newest on-chain metadata change: the latest 'updated'
+   * action from the backfill (falling back to the registration time when a DRep
+   * never updated), then kept fresh by the sync stamping it on anchor changes.
+   * Null until backfilled.
+   */
+  metadataLastUpdatedAt: number | null;
   name: string | null;
   /**
    * SEO-friendly profile path segment ("lisa-cardano-9zulj"), assigned once by
@@ -151,6 +165,8 @@ interface DrepRow {
   delegator_count_synced_at: number | null;
   expires_epoch_no: number | null;
   registered_epoch: number | null;
+  registered_at: number | null;
+  metadata_last_updated_at: number | null;
   name: string | null;
   slug: string | null;
   bio: string | null;
@@ -188,6 +204,8 @@ function rowToDrep(row: DrepRow): Drep {
     delegatorCountSyncedAt: row.delegator_count_synced_at,
     expiresEpochNo: row.expires_epoch_no,
     registeredEpoch: row.registered_epoch,
+    registeredAt: row.registered_at,
+    metadataLastUpdatedAt: row.metadata_last_updated_at,
     name: row.name,
     slug: row.slug,
     bio: row.bio,

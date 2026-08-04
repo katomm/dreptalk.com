@@ -302,6 +302,8 @@ function buildRow(info: DrepInfoRow, profile: ResolvedProfile, existing: Drep | 
     // Owned by the registration-epoch backfill, not the chain sync: carry it over
     // so a profile upsert never wipes a resolved value.
     registeredEpoch: existing?.registeredEpoch ?? null,
+    registeredAt: existing?.registeredAt ?? null,
+    metadataLastUpdatedAt: existing?.metadataLastUpdatedAt ?? null,
     name: profile.name,
     // Owned by the slug backfill, not the chain sync; sticky once assigned.
     slug: existing?.slug ?? null,

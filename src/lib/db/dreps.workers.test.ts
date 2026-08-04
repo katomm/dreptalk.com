@@ -91,6 +91,26 @@ describe('upsertDrep + getDrepById', () => {
     expect(result!.links).toBeNull();
   });
 
+  it('registration date columns round-trip and default to null', async () => {
+    const drepId = `${DREP_A}-regdates`;
+    await upsertDrep(db(), { ...BASE_ARGS, drepId });
+
+    // Backfill-owned columns: written directly, not via the profile upsert.
+    await db()
+      .prepare('UPDATE dreps SET registered_at = ?, metadata_last_updated_at = ? WHERE drep_id = ?')
+      .bind(1_678_617_600, 1_754_236_800, drepId)
+      .run();
+
+    const result = await getDrepById(db(), drepId);
+    expect(result!.registeredAt).toBe(1_678_617_600);
+    expect(result!.metadataLastUpdatedAt).toBe(1_754_236_800);
+
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: `${DREP_A}-regbare` });
+    const bare = await getDrepById(db(), `${DREP_A}-regbare`);
+    expect(bare!.registeredAt).toBeNull();
+    expect(bare!.metadataLastUpdatedAt).toBeNull();
+  });
+
   it('booleans round-trip correctly (false hasScript, true active)', async () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId: `${DREP_A}-bools`, hasScript: true, active: false });
 
