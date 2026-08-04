@@ -33,10 +33,55 @@ describe('backfillRegisteredEpochs', () => {
     const r = await backfillRegisteredEpochs({ koios, db: env.DB, cfg });
     expect(r.missing).toBe(2);
     expect(r.resolved).toBe(2);
-    expect((await getDrepById(env.DB, 'drepA'))?.registeredEpoch).toBe(10);
-    expect((await getDrepById(env.DB, 'drepB'))?.registeredEpoch).toBe(15);
+
+    const a = await getDrepById(env.DB, 'drepA');
+    // Epoch from the earliest registration, registered_at from the newest one
+    // (current registration period), metadata date from the newest 'updated'.
+    expect(a?.registeredEpoch).toBe(10);
+    expect(a?.registeredAt).toBe(at(20));
+    expect(a?.metadataLastUpdatedAt).toBe(at(30));
+
+    const b = await getDrepById(env.DB, 'drepB');
+    // No 'updated' row: the metadata date falls back to the registration time.
+    expect(b?.registeredEpoch).toBe(15);
+    expect(b?.registeredAt).toBe(at(15));
+    expect(b?.metadataLastUpdatedAt).toBe(at(15));
 
     const r2 = await backfillRegisteredEpochs({ koios, db: env.DB, cfg });
     expect(r2).toEqual({ missing: 0, resolved: 0, pages: 0 });
+  });
+
+  it('never overwrites already-resolved values on a re-run for a partial row', async () => {
+    const cfg = resolveNetwork('preprod');
+    const at = (epoch: number) => 1655769600 + (epoch - 4) * 5 * 24 * 60 * 60;
+
+    await upsertDrep(env.DB, drepArgs('drepC'));
+    // First run resolves everything from a feed with one registration.
+    const koios1 = {
+      drepUpdates: async (_l: number, off: number) =>
+        off === 0 ? [{ drep_id: 'drepC', action: 'registered', block_time: at(12) }] : [],
+    };
+    await backfillRegisteredEpochs({ koios: koios1, db: env.DB, cfg });
+
+    // Force the row back into the queue by clearing one column, then re-run with
+    // a feed that would suggest different values for the other two.
+    await env.DB.prepare('UPDATE dreps SET metadata_last_updated_at = NULL WHERE drep_id = ?')
+      .bind('drepC')
+      .run();
+    const koios2 = {
+      drepUpdates: async (_l: number, off: number) =>
+        off === 0
+          ? [
+              { drep_id: 'drepC', action: 'updated', block_time: at(40) },
+              { drep_id: 'drepC', action: 'registered', block_time: at(35) },
+            ]
+          : [],
+    };
+    await backfillRegisteredEpochs({ koios: koios2, db: env.DB, cfg });
+
+    const c = await getDrepById(env.DB, 'drepC');
+    expect(c?.registeredEpoch).toBe(12); // kept
+    expect(c?.registeredAt).toBe(at(12)); // kept
+    expect(c?.metadataLastUpdatedAt).toBe(at(40)); // filled
   });
 });

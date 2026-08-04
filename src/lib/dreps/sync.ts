@@ -10,7 +10,7 @@
 import type { DrepInfoRow, DrepListRow, DrepUpdateRow } from '../koios/client.js';
 import type { Drep } from '../db/dreps.js';
 import {
-  getDrepsByIds, upsertDrep, listDrepIdsMissingRegisteredEpoch, setRegisteredEpochs,
+  getDrepsByIds, upsertDrep, listDrepIdsMissingRegisteredEpoch, setRegistrationDates,
   listDrepsMissingSlug, listAssignedSlugs, setDrepSlugs,
   listActiveDrepIds, deactivateDreps,
 } from '../db/dreps.js';
@@ -530,9 +530,15 @@ export interface RegisteredEpochBackfillDeps {
 }
 
 /**
- * Fills dreps.registered_epoch for DReps that still lack it, from the unfiltered
- * /drep_updates feed (newest first). For each missing DRep we keep the earliest
- * 'registered' block_time seen, convert it to an epoch, and batch-update.
+ * Fills dreps.registered_epoch, registered_at and metadata_last_updated_at for
+ * DReps that still lack any of them, from the unfiltered /drep_updates feed
+ * (newest first). Per missing DRep one pass collects three values: the earliest
+ * 'registered' block_time (epoch basis, existing semantics), the newest
+ * 'registered' block_time (start of the current registration period), and the
+ * newest 'updated' block_time (latest metadata change), falling back to the
+ * registration time when a DRep never updated (registration set the initial
+ * metadata). The early stop can miss an 'updated' that is older than a later
+ * re-registration; the registration fallback covers that edge acceptably.
  *
  * No-op when nothing is missing, so steady-state cost is one indexed read; the
  * one-time backfill is a few pages. Stops paging early once every missing DRep
@@ -546,27 +552,35 @@ export async function backfillRegisteredEpochs(
   if (missingIds.length === 0) return { missing: 0, resolved: 0, pages: 0 };
 
   const missing = new Set(missingIds);
-  const earliest = new Map<string, number>(); // drep_id -> earliest registered block_time
+  const earliestRegistered = new Map<string, number>(); // drep_id -> earliest registered block_time
+  const latestRegistered = new Map<string, number>(); // first row seen in the newest-first feed
+  const latestUpdated = new Map<string, number>(); // first 'updated' row seen
 
   let pages = 0;
   for (let offset = 0; pages < MAX_UPDATE_PAGES; offset += UPDATES_PAGE, pages++) {
     const page = await koios.drepUpdates(UPDATES_PAGE, offset);
     for (const row of page) {
-      if (row.action !== 'registered' || row.block_time == null) continue;
-      if (!missing.has(row.drep_id)) continue;
-      const prev = earliest.get(row.drep_id);
-      if (prev == null || row.block_time < prev) earliest.set(row.drep_id, row.block_time);
+      if (row.block_time == null || !missing.has(row.drep_id)) continue;
+      if (row.action === 'registered') {
+        const prev = earliestRegistered.get(row.drep_id);
+        if (prev == null || row.block_time < prev) earliestRegistered.set(row.drep_id, row.block_time);
+        if (!latestRegistered.has(row.drep_id)) latestRegistered.set(row.drep_id, row.block_time);
+      } else if (row.action === 'updated') {
+        if (!latestUpdated.has(row.drep_id)) latestUpdated.set(row.drep_id, row.block_time);
+      }
     }
     if (page.length < UPDATES_PAGE) break; // last page
-    // Stop early once every missing DRep has a registration row. earliest only
+    // Stop early once every missing DRep has a registration row. The map only
     // ever gains keys from the missing set, so equal sizes means all are found.
-    if (earliest.size === missing.size) break;
+    if (earliestRegistered.size === missing.size) break;
   }
 
-  const entries = [...earliest].map(([drepId, blockTime]) => ({
+  const entries = [...earliestRegistered].map(([drepId, blockTime]) => ({
     drepId,
     epoch: epochFromUnix(blockTime, cfg),
+    registeredAt: latestRegistered.get(drepId) ?? null,
+    metadataLastUpdatedAt: latestUpdated.get(drepId) ?? latestRegistered.get(drepId) ?? null,
   }));
-  const resolved = await setRegisteredEpochs(db, entries);
+  const resolved = await setRegistrationDates(db, entries);
   return { missing: missingIds.length, resolved, pages };
 }

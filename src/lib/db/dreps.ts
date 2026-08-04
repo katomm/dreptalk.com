@@ -941,28 +941,44 @@ export async function clearOrphanedImageStore(db: D1Database): Promise<number> {
   return res.meta.changes ?? 0;
 }
 
-/** DRep ids whose registration epoch has not been backfilled yet. */
+/** DRep ids with any registration/metadata date still missing (backfill queue). */
 export async function listDrepIdsMissingRegisteredEpoch(db: D1Database): Promise<string[]> {
   const rows = (
-    await db.prepare('SELECT drep_id FROM dreps WHERE registered_epoch IS NULL').all<{ drep_id: string }>()
+    await db
+      .prepare(
+        'SELECT drep_id FROM dreps WHERE registered_epoch IS NULL OR registered_at IS NULL OR metadata_last_updated_at IS NULL',
+      )
+      .all<{ drep_id: string }>()
   ).results ?? [];
   return rows.map((r) => r.drep_id);
 }
 
 /**
- * Sets registered_epoch for the given DReps in one batch, only where it is still
- * NULL (idempotent; never overwrites an already-resolved value). Returns the
- * number of statements issued. No-op for an empty list.
+ * Sets the registration/metadata dates for the given DReps in one batch, each
+ * column only where it is still NULL (idempotent; never overwrites an already
+ * resolved value). Returns the number of statements issued. No-op for an empty
+ * list.
  */
-export async function setRegisteredEpochs(
+export async function setRegistrationDates(
   db: D1Database,
-  entries: { drepId: string; epoch: number }[],
+  entries: {
+    drepId: string;
+    epoch: number | null;
+    registeredAt: number | null;
+    metadataLastUpdatedAt: number | null;
+  }[],
 ): Promise<number> {
   if (entries.length === 0) return 0;
   const stmts = entries.map((e) =>
     db
-      .prepare('UPDATE dreps SET registered_epoch = ? WHERE drep_id = ? AND registered_epoch IS NULL')
-      .bind(e.epoch, e.drepId),
+      .prepare(
+        `UPDATE dreps SET
+           registered_epoch = COALESCE(registered_epoch, ?),
+           registered_at = COALESCE(registered_at, ?),
+           metadata_last_updated_at = COALESCE(metadata_last_updated_at, ?)
+         WHERE drep_id = ?`,
+      )
+      .bind(e.epoch, e.registeredAt, e.metadataLastUpdatedAt, e.drepId),
   );
   await db.batch(stmts);
   return entries.length;
