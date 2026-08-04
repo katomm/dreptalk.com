@@ -1,11 +1,12 @@
 ---
-// One row of a DRep's voting history: the vote (icon + label), the action (title
-// link + epoch), the outcome badge, and how long ago the vote was cast. When the
-// vote carries a rendered rationale, the row becomes an expandable <details>
-// (native, no inline script, CSP-safe) that reveals the rationale text, matching
-// the pattern used on the action's Positions tab. When the voter changed their
-// vote, a "changed from X" chip marks the row and the expansion lists the
-// superseded votes (with their rationales) under "Earlier votes". Styles live in
+// One row of a voting history: the vote (icon + label), the action (title link
+// + epoch), the rationale state, the outcome badge, and how long ago the vote
+// was cast. The rationale column carries one of three states: "View rationale"
+// (a rendered body exists, the row becomes an expandable <details>, native and
+// CSP-safe), "Rationale unavailable" (the vote anchors a rationale we could not
+// resolve), or "No rationale published". When the voter changed their vote, a
+// "changed from X" chip marks the row and the expansion lists the superseded
+// votes (with their rationales) under "Earlier votes". Styles live in
 // global.css (.vhist__*) so this row and the page's header row share one grid
 // definition.
 import EarlierVotes from '@/components/EarlierVotes.astro';
@@ -103,15 +104,32 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
         {href
           ? <a class="vhist__title" href={href}>{label}</a>
           : <span class="vhist__title">{label}</span>}
-        {row.decided_epoch != null && <span class="vhist__epoch">Epoch {row.decided_epoch}</span>}
+        {row.decided_epoch != null
+          ? <span class="vhist__epoch">Decided epoch {row.decided_epoch}</span>
+          : row.submitted_epoch != null
+            ? <span class="vhist__epoch">Submitted epoch {row.submitted_epoch}</span>
+            : null}
         {changedLabel && <span class="vhist__changed" title={`Earlier vote: ${changedFrom}`}>{changedLabel}</span>}
-        {expandable && (
+        {expandable && !rationaleHtml && (
           <span class="vhist__rationale-cta">
-            <span>{rationaleHtml ? 'Rationale' : 'History'}</span>
+            <span>History</span>
             <svg class="vhist__chev" viewBox="0 0 16 16" aria-hidden="true">
               <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </span>
+        )}
+      </span>
+
+      <span class={`vhist__rat${rationaleHtml ? ' vhist__rat--view' : ''}`}>
+        {rationaleHtml ? (
+          <span class="vhist__rationale-cta">
+            <span>View rationale</span>
+            <svg class="vhist__chev" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+        ) : (
+          <span class="vhist__rat-none">{row.meta_url ? 'Rationale unavailable' : 'No rationale published'}</span>
         )}
       </span>
 

@@ -652,7 +652,8 @@ export async function getPoolVotingHistory(
     await db
       .prepare(
         `SELECT v.ga_id AS ga_id, v.vote AS vote, g.title AS title, g.type AS type,
-                g.status AS status, g.decided_epoch AS decided_epoch, t.slug AS topic_slug,
+                g.status AS status, g.decided_epoch AS decided_epoch,
+                g.submitted_epoch AS submitted_epoch, t.slug AS topic_slug,
                 v.meta_url AS meta_url, v.block_time AS block_time, r.body_html AS rationale_html
          FROM drep_votes v
          JOIN governance_actions g ON g.id = v.ga_id
