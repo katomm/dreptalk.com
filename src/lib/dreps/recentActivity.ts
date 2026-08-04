@@ -5,14 +5,19 @@ import type { AuthorPost } from '../db/forum.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { excerptFromHtml } from '../forum/view.js';
 
-/** One row of the recent-activity list. `ts` is unix ms across all kinds. */
+/**
+ * One row of the recent-activity list. `ts` is unix ms across all kinds. `key`
+ * groups the events of one subject (the action id for votes/rationales, the
+ * post id for discussions) so a rationale stays glued under its vote even when
+ * a multi-vote transaction stamps several votes with one block_time.
+ */
 export type ActivityEvent =
-  | { kind: 'vote'; ts: number; vote: string; title: string; href: string | null; epoch: number }
-  | { kind: 'rationale'; ts: number; title: string; href: string | null }
-  | { kind: 'discussion'; ts: number; started: boolean; title: string; href: string; excerpt: string };
+  | { kind: 'vote'; ts: number; key: string; vote: string; title: string; href: string | null; epoch: number }
+  | { kind: 'rationale'; ts: number; key: string; title: string; href: string | null }
+  | { kind: 'discussion'; ts: number; key: string; started: boolean; title: string; href: string; excerpt: string };
 
-// Fixed order at equal timestamps: a vote renders directly above the rationale
-// published with it, forum posts last. Never database row order.
+// Fixed order at equal timestamps within one subject: the vote renders directly
+// above the rationale published with it. Never database row order.
 const KIND_RANK: Record<ActivityEvent['kind'], number> = { vote: 0, rationale: 1, discussion: 2 };
 
 /**
@@ -32,10 +37,10 @@ export function buildRecentActivity(
     const ts = v.block_time * 1000;
     const title = v.title ?? v.ga_id;
     const actionHref = v.topic_slug ? `/t/${v.topic_slug}/` : null;
-    events.push({ kind: 'vote', ts, vote: v.vote, title, href: actionHref, epoch: epochFromUnix(v.block_time, input.cfg) });
+    events.push({ kind: 'vote', ts, key: v.ga_id, vote: v.vote, title, href: actionHref, epoch: epochFromUnix(v.block_time, input.cfg) });
     if (v.rationale_html) {
       const href = v.topic_slug ? `${input.profilePath}vote/${v.topic_slug}/` : actionHref;
-      events.push({ kind: 'rationale', ts, title, href });
+      events.push({ kind: 'rationale', ts, key: v.ga_id, title, href });
     }
   }
 
@@ -43,6 +48,7 @@ export function buildRecentActivity(
     events.push({
       kind: 'discussion',
       ts: p.created_at,
+      key: p.id,
       started: p.is_topic_start === 1,
       title: p.topic_title,
       href: `/t/${p.topic_slug}/#post-${p.id}`,
@@ -50,6 +56,10 @@ export function buildRecentActivity(
     });
   }
 
-  events.sort((a, b) => b.ts - a.ts || KIND_RANK[a.kind] - KIND_RANK[b.kind]);
+  // At an equal timestamp (a multi-vote tx), cluster by subject first so each
+  // vote+rationale pair stays adjacent, then order within the pair by kind.
+  events.sort(
+    (a, b) => b.ts - a.ts || a.key.localeCompare(b.key) || KIND_RANK[a.kind] - KIND_RANK[b.kind],
+  );
   return events.slice(0, limit);
 }

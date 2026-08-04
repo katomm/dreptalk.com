@@ -62,6 +62,22 @@ describe('buildRecentActivity', () => {
     expect(events[1]).toMatchObject({ kind: 'discussion', started: true, href: '/t/a-discussion/#post-p9' });
   });
 
+  it('keeps each vote+rationale pair adjacent when a multi-vote tx shares one block_time', () => {
+    const t = at(500);
+    const events = buildRecentActivity({
+      votes: [
+        voteRow({ ga_id: 'ga#a', title: 'Action A', topic_slug: 'action-a', block_time: t, rationale_html: '<p>a</p>' }),
+        voteRow({ ga_id: 'ga#b', title: 'Action B', topic_slug: 'action-b', block_time: t, rationale_html: '<p>b</p>' }),
+      ],
+      posts: [],
+      profilePath: '/dreps/lucas/',
+      cfg,
+    });
+    expect(events.map((e) => `${e.kind}:${e.key}`)).toEqual([
+      'vote:ga#a', 'rationale:ga#a', 'vote:ga#b', 'rationale:ga#b',
+    ]);
+  });
+
   it('drops votes without a timestamp, applies the limit, and handles empty input', () => {
     const votes = [
       voteRow({ ga_id: 'ga#1', block_time: null }),

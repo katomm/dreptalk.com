@@ -48,6 +48,11 @@ const participationLine =
         </span>
         {pStat.kind === 'ok' && <span class="vstats__big">{pStat.pct}%</span>}
         <span class="vstats__cell-line">{participationLine}</span>
+        {pStat.kind === 'ok' && (
+          <span class="vstats__bar" aria-hidden="true">
+            <span class="vstats__bar-fill vstats__bar-fill--accent" style={`width:${pStat.pct}%;`}></span>
+          </span>
+        )}
       </div>
 
       {rStat && (
@@ -66,6 +71,9 @@ const participationLine =
           </span>
           <span class="vstats__big">{rStat.pct}%</span>
           <span class="vstats__cell-line">{rStat.withRationale} of {rStat.total} votes with rationale</span>
+          <span class="vstats__bar" aria-hidden="true">
+            <span class="vstats__bar-fill vstats__bar-fill--pos" style={`width:${rStat.pct}%;`}></span>
+          </span>
         </div>
       )}
 
@@ -132,6 +140,20 @@ const participationLine =
   .vstats__cell-title { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; }
   .vstats__big { font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
   .vstats__cell-line { font-size: 0.8125rem; color: var(--muted); }
+
+  /* Neutral progress track: informational fill, no warning tones at low rates. */
+  .vstats__bar {
+    display: block;
+    margin-top: 0.25rem;
+    max-width: 14rem;
+    height: 0.375rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted) 16%, transparent);
+    overflow: hidden;
+  }
+  .vstats__bar-fill { display: block; height: 100%; border-radius: 999px; }
+  .vstats__bar-fill--accent { background: var(--accent); }
+  .vstats__bar-fill--pos { background: var(--c-pos); }
 
   .vstats__icon { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; flex: none; }
   .vstats__icon--pos { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
