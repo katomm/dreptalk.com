@@ -11,6 +11,7 @@ import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVoteRow from '@/components/DrepVoteRow.astro';
 import DrepForumRow from '@/components/DrepForumRow.astro';
 import voteAnchorHop from '@/scripts/profile-vote-anchor.js?raw';
+import activityTabs from '@/scripts/profile-activity-tabs.js?raw';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory.js';
 import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
@@ -534,6 +535,7 @@ const profileSummary = drep
     </section>
 
     {renderTab !== 'votes' && <script is:inline set:html={voteAnchorHop} />}
+    <script is:inline set:html={activityTabs} />
 
     <section class="ocd">
       <h2 class="ocd__h">On-chain profile details</h2>
