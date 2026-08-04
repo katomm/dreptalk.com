@@ -14,6 +14,8 @@ import voteAnchorHop from '@/scripts/profile-vote-anchor.js?raw';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory.js';
 import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
+import { splitSocialLinks } from '@/lib/dreps/socialLinks.js';
+import SocialLinkIcons from '@/components/SocialLinkIcons.astro';
 import { getUserByDrepId, getSelfDrepId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
@@ -116,6 +118,10 @@ const historyTail = votingHistory.slice(HISTORY_HEAD);
 const rationaleRows = votingHistory.filter((h) => h.rationale_html);
 const rationaleHead = rationaleRows.slice(0, HISTORY_HEAD);
 const rationaleTail = rationaleRows.slice(HISTORY_HEAD);
+
+// Recognized platform links (X, GitHub, ...) surface as icons in the header;
+// everything else stays a text link in the About section.
+const { social: socialLinks, rest: textLinks } = splitSocialLinks(dedupeLinks(drep?.links ?? []));
 
 const hasMetadata = !!(drep?.name || drep?.bio);
 const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.length });
@@ -314,6 +320,7 @@ const profileSummary = drep
             {share && <span>{share} of active voting power</span>}
           </p>
         )}
+        <SocialLinkIcons links={socialLinks} />
       </div>
     </header>
 
@@ -344,9 +351,9 @@ const profileSummary = drep
               <p class="about__text about__text--muted">{profileSummary}</p>
             </Fragment>
           )}
-          {drep.links && drep.links.length > 0 && (
+          {textLinks.length > 0 && (
             <ul class="about__links">
-              {dedupeLinks(drep.links).map((l) => (
+              {textLinks.map((l) => (
                 <li><a href={l.uri} rel="nofollow noopener" target="_blank">{linkDisplayLabel(l)}</a></li>
               ))}
             </ul>
