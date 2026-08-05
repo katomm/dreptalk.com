@@ -434,35 +434,59 @@ export async function getLatestGovernanceAction(db: D1Database): Promise<LatestG
   return row ? { action: rowToGovernanceAction(row), slug: row.slug } : null;
 }
 
+// Newest titled candidates we consider for the vote-ringed hero. The hero is
+// almost always the newest few actions, so this cap avoids the previous plan
+// that walked the full submission-time ordering while evaluating a correlated
+// COUNT per row. Beyond ~30 the action would be too old to headline anyway; a
+// null return falls through to the plain "newest action" hero.
+const HERO_CANDIDATE_LIMIT = 30;
+
 /**
  * The newest governance action that already has at least `minVoters` recorded
  * DRep votes, for the homepage hero's ring of real voter pills. Same visibility
- * filter and ordering as getLatestGovernanceAction, plus a correlated count that
- * skips fresh actions whose pill ring would be empty (the card and its six pills
- * describe the same action, so a half-empty ring is never shown). Returns null
- * when none qualifies, leaving the caller on the decorative fallback hero.
+ * filter and ordering as getLatestGovernanceAction; a fresh action whose pill
+ * ring would be empty is skipped (the card and its six pills describe the same
+ * action, so a half-empty ring is never shown). Returns null when none of the
+ * top HERO_CANDIDATE_LIMIT titled actions qualifies, leaving the caller on the
+ * decorative fallback hero.
+ *
+ * Implementation: fetch the newest N titled candidates and count their DRep
+ * votes in a single batched follow-up, then pick the first winner in JS. This
+ * replaces a correlated per-row COUNT in the ORDER BY that scanned tens of
+ * thousands of drep_votes rows on every anonymous homepage hit.
  */
 export async function getLatestActionWithVotes(
   db: D1Database,
   opts: { minVoters: number },
 ): Promise<LatestGovernanceAction | null> {
   const min = Math.max(opts.minVoters, 1);
-  const row = await db
-    .prepare(
-      `SELECT ga.*, t.slug AS slug
-         FROM governance_actions ga
-         JOIN topics t ON t.id = ga.topic_id
-        WHERE t.deleted = 0 AND ga.title IS NOT NULL
-          AND (
-            SELECT COUNT(*) FROM drep_votes v
-             WHERE v.ga_id = ga.id AND v.voter_role = 'DRep'
-          ) >= ?
-        ORDER BY ga.submitted_at IS NULL, ga.submitted_at DESC, ga.submitted_epoch DESC, ga.created_at DESC
-        LIMIT 1`,
-    )
-    .bind(min)
-    .first<GovernanceActionRow & { slug: string }>();
-  return row ? { action: rowToGovernanceAction(row), slug: row.slug } : null;
+  const candidates = (
+    await db
+      .prepare(
+        `SELECT ga.*, t.slug AS slug
+           FROM governance_actions ga
+           JOIN topics t ON t.id = ga.topic_id
+          WHERE t.deleted = 0 AND ga.title IS NOT NULL
+          ORDER BY ga.submitted_at IS NULL, ga.submitted_at DESC, ga.submitted_epoch DESC, ga.created_at DESC
+          LIMIT ?`,
+      )
+      .bind(HERO_CANDIDATE_LIMIT)
+      .all<GovernanceActionRow & { slug: string }>()
+  ).results ?? [];
+  if (candidates.length === 0) return null;
+  const counts = (
+    await db
+      .prepare(
+        `SELECT ga_id, COUNT(*) AS n FROM drep_votes
+          WHERE voter_role = 'DRep' AND ga_id IN (${sqlPlaceholders(candidates)})
+          GROUP BY ga_id`,
+      )
+      .bind(...candidates.map((c) => c.id))
+      .all<{ ga_id: string; n: number }>()
+  ).results ?? [];
+  const countByGa = new Map(counts.map((r) => [r.ga_id, r.n]));
+  const winner = candidates.find((c) => (countByGa.get(c.id) ?? 0) >= min);
+  return winner ? { action: rowToGovernanceAction(winner), slug: winner.slug } : null;
 }
 
 // D1 caps bound params at 100 per query; each id binds one placeholder, so this
