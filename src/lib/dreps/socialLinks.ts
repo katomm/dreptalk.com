@@ -67,7 +67,9 @@ export interface SocialLink {
 /**
  * Splits a deduped link list into recognized platform links (for the header
  * icon row, input order preserved) and the rest (still rendered as text links
- * in the About section).
+ * in the About section). At most one icon per platform: extra links to the
+ * same platform (e.g. a second X link pointing at a specific tweet) fall back
+ * into the About list so the header stays a single unambiguous glyph per site.
  */
 export function splitSocialLinks(links: { label: string; uri: string }[]): {
   social: SocialLink[];
@@ -75,9 +77,11 @@ export function splitSocialLinks(links: { label: string; uri: string }[]): {
 } {
   const social: SocialLink[] = [];
   const rest: { label: string; uri: string }[] = [];
+  const seenKinds = new Set<SocialKind>();
   for (const link of links) {
     const kind = classifySocialLink(link.uri);
-    if (kind) {
+    if (kind && !seenKinds.has(kind)) {
+      seenKinds.add(kind);
       const label = link.label.trim().length > 0 ? link.label : SOCIAL_NAMES[kind];
       social.push({ kind, uri: link.uri, label });
     } else {
