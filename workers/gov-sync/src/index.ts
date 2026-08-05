@@ -333,7 +333,7 @@ async function runGovernanceSync(env: Env, phase: PhaseFn, opts: { heavy: boolea
 // pagination is bounded (see MAX_VOTE_PAGES in tallySync) so one action with a
 // pathologically long vote list cannot run this invocation out of CPU and leave
 // the run stuck mid-loop.
-async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
+async function runVoteSync(env: Env, phase: PhaseFn, opts: { hourly: boolean }): Promise<void> {
   const { koios } = buildKoios(env);
   const now = Date.now();
 
@@ -438,12 +438,18 @@ async function runVoteSync(env: Env, phase: PhaseFn): Promise<void> {
 
   // Award achievement badges from the freshly synced data: a set-based full
   // pass over D1 (no Koios calls) that writes only new awards and tier upgrades.
-  await phase('badges', async () => {
-    const cfg = resolveNetwork(env.CARDANO_NETWORK ?? null);
-    const badges = await awardBadges({ db: env.DB, cfg, now: Date.now() });
-    console.log(`[badges] desired=${badges.desired} written=${badges.written}`);
-    return { items: badges.written };
-  });
+  // Hourly-gated: the pass makes several full-scan aggregates over drep_votes and
+  // is the biggest D1 consumer on this worker; badges are cumulative, so a fresh
+  // award taking up to an hour to appear is fine and cuts the frequency 3x on the
+  // 20-minute vote cron.
+  if (opts.hourly) {
+    await phase('badges', async () => {
+      const cfg = resolveNetwork(env.CARDANO_NETWORK ?? null);
+      const badges = await awardBadges({ db: env.DB, cfg, now: Date.now() });
+      console.log(`[badges] desired=${badges.desired} written=${badges.written}`);
+      return { items: badges.written };
+    });
+  }
 }
 
 async function runDrepSync(env: Env, phase: PhaseFn): Promise<void> {
@@ -611,12 +617,16 @@ export default {
       // The governance trigger fires every 5 min; run its heavy tally/backfill
       // phases only on the quarter-hours (minute % 15 === 0), so those keep the
       // old 15-min cost while discovery + notification dispatch run every 5 min.
-      const heavy = new Date(event.scheduledTime).getUTCMinutes() % 15 === 0;
+      // The vote trigger fires every 20 min; the badges pass inside it is the
+      // biggest D1 consumer, so it runs only on the top of the hour (minute 0).
+      const minute = new Date(event.scheduledTime).getUTCMinutes();
+      const heavy = minute % 15 === 0;
+      const hourly = minute === 0;
       const run =
         kind === 'dreps'
           ? (env: Env, phase: PhaseFn) => runDrepSync(env, phase)
           : kind === 'votes'
-            ? (env: Env, phase: PhaseFn) => runVoteSync(env, phase)
+            ? (env: Env, phase: PhaseFn) => runVoteSync(env, phase, { hourly })
             : (env: Env, phase: PhaseFn) => runGovernanceSync(env, phase, { heavy });
       const summary = await recordSyncRun(env.DB, kind, (phase) => run(env, phase));
       console.log(
