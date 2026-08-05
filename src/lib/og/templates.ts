@@ -60,16 +60,17 @@ function pill(text: string, color: string): string {
   return `<span style="display:flex;font-size:24px;font-weight:600;color:${color};background:${tint(color)};padding:10px 22px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px;">${esc(text)}</span>`;
 }
 
-// The shared frame for every card: white canvas, accent bar, padded content
-// column with the brand header on top and the card-specific body below. The
-// three builders differ only in their pill label and body.
+// The shared frame for every card: white canvas, padded content column with
+// the brand header on top and the card-specific body below, and a full-width
+// accent bar along the bottom edge. Each builder feeds its own pill label and
+// body; the accent both tints the pill and paints the bottom bar.
 function cardShell(accent: string, pillText: string, body: string): string {
-  return compact(`<div style="display:flex;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
-    <div style="display:flex;width:12px;height:${OG_HEIGHT}px;background:${accent};"></div>
-    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 44px 84px;">
+  return compact(`<div style="display:flex;flex-direction:column;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
+    <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 48px;">
       ${header(pill(pillText, accent))}
       ${body}
     </div>
+    <div style="display:flex;width:1200px;height:12px;background:${accent};"></div>
   </div>`);
 }
 
@@ -167,7 +168,7 @@ export function drepCardHtml(m: DrepCardModel): string {
         ${idLine}
         ${bioLine}
       </div>
-      <img src="${m.avatarDataUrl}" width="160" height="160" style="border-radius:24px;" />
+      <img src="${m.avatarDataUrl}" width="160" height="160" style="border-radius:999px;" />
     </div>
     <div style="display:flex;">${m.stats.map((s) => statBlock(s, m.accent)).join('')}</div>`;
   return cardShell(m.accent, 'DRep', body);
@@ -267,30 +268,45 @@ export function discussionCardHtml(m: DiscussionCardModel): string {
   return cardShell(m.accent, m.category, `${titleBlock}${footer}`);
 }
 
-// Help-guide card. Same shell as the discussion card, but when the guide's
-// frontmatter illustration is bundled (a transparent line-art PNG), it sits on
-// the right on a soft accent panel with the title and description to its left.
-// Without an illustration it falls back to the plain wide text layout, so a
-// guide missing its PNG renders exactly as it did before.
+// Help-guide card. Full-bleed layout: no illustration panel, the artwork sits
+// flush against the right edge as a standalone motif, and the meta footer is
+// dropped so the description can be set larger. The left column carries the
+// header, title and description with its own inner padding, so the bottom
+// accent bar (from the shared shell dimensions) and the illustration are the
+// only things touching the card edges. Without an illustration the layout
+// falls back to the plain wide text shell.
 export function helpCardHtml(m: DiscussionCardModel & { illustrationDataUrl?: string | null }): string {
   const hasIllo = Boolean(m.illustrationDataUrl);
-  const illo = hasIllo
-    ? `<div style="display:flex;align-items:center;justify-content:center;width:320px;height:320px;background:${tint(BRAND_ACCENT)};border-radius:32px;">
-        <img src="${m.illustrationDataUrl}" width="272" height="272" />
-      </div>`
-    : '';
+  if (!hasIllo) {
+    const subtitle = m.subtitle
+      ? `<div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:20px;line-height:1.4;max-width:1010px;">${esc(m.subtitle)}</div>`
+      : '';
+    const titleBlock = `<div style="display:flex;flex-direction:column;">${title(m.title)}${subtitle}</div>`;
+    return cardShell(BRAND_ACCENT, m.category, titleBlock);
+  }
+  const illo = `<img src="${m.illustrationDataUrl}" width="460" height="460" style="flex-shrink:0;" />`;
   const subtitle = m.subtitle
-    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:16px;line-height:1.35;">${esc(m.subtitle)}</div>`
+    ? `<div style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-top:24px;line-height:1.4;">${esc(m.subtitle)}</div>`
     : '';
-  // With the illustration on the right the title wraps in a ~720px column (its
-  // char cap in helpCardModel is tuned to match); without it the title spans the
-  // full width like the other cards.
-  const titleBlock = `<div style="display:flex;flex-direction:column;flex:1;${hasIllo ? 'padding-right:44px;' : ''}">
-      ${title(m.title, hasIllo ? 720 : 1010)}
+  const titleBlock = `<div style="display:flex;flex-direction:column;flex:1;padding-right:40px;">
+      ${title(m.title, 620)}
       ${subtitle}
     </div>`;
-  const footer = `<div style="display:flex;"><span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};">${esc(m.meta)}</span></div>`;
-  return cardShell(m.accent, m.category, `<div style="display:flex;align-items:center;">${titleBlock}${illo}</div>${footer}`);
+  // flex-direction:column so header() stretches to full width (a row flex item
+  // has main-axis natural width; here we need it wide so its inner
+  // justify-content:space-between actually pushes the pill to the right edge).
+  const headerRow = `<div style="display:flex;flex-direction:column;padding-right:44px;">${header(pill(m.category, BRAND_ACCENT))}</div>`;
+  const body = `<div style="display:flex;align-items:center;flex:1;">${titleBlock}${illo}</div>`;
+  // Custom shell (not cardShell) because the illustration bleeds to the right
+  // edge, so the content column has zero right padding, only the left/top/bottom.
+  // Bottom bar matches the shared cardShell for visual consistency.
+  return compact(`<div style="display:flex;flex-direction:column;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
+    <div style="display:flex;flex-direction:column;flex:1;padding:40px 0 32px 48px;">
+      ${headerRow}
+      ${body}
+    </div>
+    <div style="display:flex;width:1200px;height:12px;background:${BRAND_ACCENT};"></div>
+  </div>`);
 }
 
 export function voteCardHtml(m: VoteCardModel): string {
