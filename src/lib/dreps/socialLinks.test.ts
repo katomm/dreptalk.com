@@ -45,4 +45,23 @@ describe('splitSocialLinks', () => {
   it('handles empty input', () => {
     expect(splitSocialLinks([])).toEqual({ social: [], rest: [] });
   });
+
+  it('keeps only the first link per platform in the icon row, rest go to About', () => {
+    const { social, rest } = splitSocialLinks([
+      { label: 'Profile', uri: 'https://x.com/someone' },
+      { label: 'Pinned tweet', uri: 'https://x.com/someone/status/123' },
+      { label: '', uri: 'https://bsky.app/profile/someone' },
+      { label: 'Bsky highlight', uri: 'https://bsky.app/profile/someone/post/abc' },
+      { label: 'Code', uri: 'https://github.com/someone' },
+    ]);
+    expect(social).toEqual([
+      { kind: 'x', uri: 'https://x.com/someone', label: 'Profile' },
+      { kind: 'bluesky', uri: 'https://bsky.app/profile/someone', label: 'Bluesky' },
+      { kind: 'github', uri: 'https://github.com/someone', label: 'Code' },
+    ]);
+    expect(rest).toEqual([
+      { label: 'Pinned tweet', uri: 'https://x.com/someone/status/123' },
+      { label: 'Bsky highlight', uri: 'https://bsky.app/profile/someone/post/abc' },
+    ]);
+  });
 });
