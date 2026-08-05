@@ -673,7 +673,11 @@ const profileSummary = drep
     color: var(--muted);
     margin: 0 0 0.35rem;
   }
-  .about__text { margin: 0; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+  /* Cap prose at a comfortable measure so a solo block on a wide viewport
+     (only Objectives filled, no Motivations/Qualifications) does not stretch
+     into a single edge-to-edge line. When several blocks fill the grid, each
+     column is narrower than the cap and the cap has no effect. */
+  .about__text { margin: 0; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 65ch; }
   .about__text--muted { color: var(--muted); }
   /* Clamp without duplicating the text in the DOM: one text node, the sibling
      <details> only carries the toggle, :has() lifts the clamp when open. */
