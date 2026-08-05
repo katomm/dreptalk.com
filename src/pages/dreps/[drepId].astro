@@ -10,6 +10,7 @@ import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVoteRow from '@/components/DrepVoteRow.astro';
 import DrepForumRow from '@/components/DrepForumRow.astro';
+import DrepRecentActivityRow from '@/components/DrepRecentActivityRow.astro';
 import voteAnchorHop from '@/scripts/profile-vote-anchor.js?raw';
 import activityTabs from '@/scripts/profile-activity-tabs.js?raw';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
@@ -141,6 +142,8 @@ const indexable = !!drep && isIndexableProfile({ hasMetadata, postCount: posts.l
 const recentActivity = drep
   ? buildRecentActivity({ votes: votingHistory, posts, voterId: drep.drepId, cfg: currentNetwork() }, 15)
   : [];
+const recentHead = recentActivity.slice(0, HISTORY_HEAD);
+const recentTail = recentActivity.slice(HISTORY_HEAD);
 
 // Tab bar entries: Discussions and Rationales only appear when they have rows.
 const profileTabs = drep
@@ -436,53 +439,16 @@ const profileSummary = drep
         <p class="vhist__empty">No recorded activity yet.</p>
       ) : (
         <div class="ract">
-          {recentActivity.map((e) => (
-            <div class="ract__row">
-              {e.kind === 'vote' ? (
-                <span class={`ract__icon ract__icon--${e.vote === 'Yes' ? 'yes' : e.vote === 'No' ? 'no' : 'abstain'}`} aria-hidden="true">
-                  {e.vote === 'Yes' && (
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7" /></svg>
-                  )}
-                  {e.vote === 'No' && (
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
-                  )}
-                  {e.vote !== 'Yes' && e.vote !== 'No' && (
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 12h12" /></svg>
-                  )}
-                </span>
-              ) : e.kind === 'rationale' ? (
-                <span class="ract__icon ract__icon--rationale" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
-                    <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
-                    <path d="M7 21h10" />
-                    <path d="M12 3v18" />
-                    <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
-                  </svg>
-                </span>
-              ) : (
-                <span class="ract__icon ract__icon--discussion" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  </svg>
-                </span>
-              )}
-              <span class="ract__body">
-                <span class="ract__label">
-                  {e.kind === 'vote'
-                    ? `Voted ${e.vote}`
-                    : e.kind === 'rationale'
-                      ? 'Published rationale'
-                      : e.started
-                        ? 'Started discussion'
-                        : 'Commented'}
-                </span>
-                {e.href ? <a class="ract__title" href={e.href}>{e.title}</a> : <span class="ract__title">{e.title}</span>}
-                {e.kind === 'vote' && <span class="ract__epoch">Epoch {e.epoch}</span>}
-              </span>
-              <span class="ract__when">{formatRelativeTime(e.ts, now)}</span>
-            </div>
-          ))}
+          {recentHead.map((e) => <DrepRecentActivityRow e={e} now={now} />)}
+          {recentTail.length > 0 && (
+            <details class="vhist__more">
+              <summary class="vhist__more-toggle">
+                <span class="vhist__more-show">Show {recentTail.length} more</span>
+                <span class="vhist__more-hide">Show less</span>
+              </summary>
+              {recentTail.map((e) => <DrepRecentActivityRow e={e} now={now} />)}
+            </details>
+          )}
         </div>
       ))}
 
