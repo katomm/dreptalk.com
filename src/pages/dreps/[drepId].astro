@@ -733,22 +733,6 @@ const profileSummary = drep
   }
   .ptabs__count { color: var(--muted); font-weight: 400; }
 
-  /* Activity feed (All tab): one merged timeline row per event (vote,
-     rationale, discussion), icon + label/title + relative time. */
-  .ract__row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid var(--border); }
-  .ract > .ract__row:first-child { border-top: none; padding-top: 0.2rem; }
-  .ract__icon { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; color: #fff; flex: none; margin-top: 0.1rem; }
-  .ract__icon--yes { background: var(--c-pos); }
-  .ract__icon--no { background: var(--c-neg); }
-  .ract__icon--abstain { background: var(--muted); }
-  .ract__icon--rationale { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
-  .ract__icon--discussion { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-  .ract__body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 0.1rem; }
-  .ract__label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-  .ract__title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ract__epoch { font-size: 0.8125rem; color: var(--muted); }
-  .ract__when { flex: none; color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
-
   /* On-chain profile details: the technical footer block. */
   .ocd {
     margin-top: 2rem;
