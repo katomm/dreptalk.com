@@ -152,12 +152,47 @@ export async function loadBadgeCounters(db: D1Database, drepId: string, userId: 
   };
 }
 
-/** Holders per badge id, for the /badges overview and rarity-ranked showcases. */
+/**
+ * Holders per badge id, for the /badges overview and rarity-ranked showcases.
+ * Reads the materialized `badge_holder_counts` table (refreshed by the hourly
+ * badges cron via refreshBadgeHolderCounts). When the table is empty (fresh
+ * deploy before the first refresh, or local dev), falls back to computing the
+ * live aggregate so callers never see an all-zero result.
+ */
 export async function getBadgeHolderCounts(db: D1Database): Promise<Map<string, number>> {
-  const res = await db
+  const cached = await db
+    .prepare('SELECT badge_id, n FROM badge_holder_counts')
+    .all<{ badge_id: string; n: number }>();
+  const rows = cached.results ?? [];
+  if (rows.length > 0) return new Map(rows.map((r) => [r.badge_id, r.n]));
+  const live = await db
     .prepare('SELECT badge_id, COUNT(*) AS n FROM badge_awards GROUP BY badge_id')
     .all<{ badge_id: string; n: number }>();
-  return new Map((res.results ?? []).map((r) => [r.badge_id, r.n]));
+  return new Map((live.results ?? []).map((r) => [r.badge_id, r.n]));
+}
+
+/**
+ * Recomputes badge_holder_counts from badge_awards. Called at the end of the
+ * hourly badges cron after applyAwards, so the materialized snapshot is always
+ * at most one cron cycle stale. The refresh runs in one batched round trip: a
+ * DELETE-all followed by an INSERT of the fresh aggregate, chunked to respect
+ * D1's bound-parameter cap (100 params per call, 3 per row here).
+ */
+export async function refreshBadgeHolderCounts(db: D1Database, now: number): Promise<number> {
+  const live = await db
+    .prepare('SELECT badge_id, COUNT(*) AS n FROM badge_awards GROUP BY badge_id')
+    .all<{ badge_id: string; n: number }>();
+  const rows = live.results ?? [];
+  const stmts: D1PreparedStatement[] = [db.prepare('DELETE FROM badge_holder_counts')];
+  const CHUNK = 30;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const values = chunk.map(() => '(?, ?, ?)').join(', ');
+    const binds = chunk.flatMap((r) => [r.badge_id, r.n, now]);
+    stmts.push(db.prepare(`INSERT INTO badge_holder_counts (badge_id, n, updated_at) VALUES ${values}`).bind(...binds));
+  }
+  await db.batch(stmts);
+  return rows.length;
 }
 
 // Bound parameters per row in the upsert; stays well under the SQLite limit.
