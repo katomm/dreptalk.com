@@ -47,19 +47,45 @@ export async function upsertActionRationale(
     .run();
 }
 
-/** Renderable rationales for one action, keyed by voter id (body_html present only). */
+/**
+ * Renderable rationales for one action, keyed by voter id (body_html present only).
+ * Joined to drep_votes for the voter's role, so a consumer can exclude CC rationales
+ * from a DRep-only segment without a second lookup.
+ */
 export async function getActionRationales(
   db: D1Database,
   gaId: string,
-): Promise<Map<string, { bodyHtml: string | null; source: string }>> {
+): Promise<Map<string, { bodyHtml: string | null; source: string; voterRole: string }>> {
   const rows = (
     await db
-      .prepare(`SELECT voter_id, body_html, source FROM action_rationale WHERE ga_id = ? AND body_html IS NOT NULL`)
+      .prepare(
+        `SELECT r.voter_id AS voter_id, r.body_html AS body_html, r.source AS source, v.voter_role AS voter_role
+           FROM action_rationale r
+           JOIN drep_votes v ON v.ga_id = r.ga_id AND v.voter_id = r.voter_id
+          WHERE r.ga_id = ? AND r.body_html IS NOT NULL`,
+      )
       .bind(gaId)
-      .all<{ voter_id: string; body_html: string; source: string }>()
+      .all<{ voter_id: string; body_html: string; source: string; voter_role: string }>()
   ).results ?? [];
-  const map = new Map<string, { bodyHtml: string | null; source: string }>();
-  for (const r of rows) map.set(r.voter_id, { bodyHtml: r.body_html, source: r.source });
+  const map = new Map<string, { bodyHtml: string | null; source: string; voterRole: string }>();
+  for (const r of rows) map.set(r.voter_id, { bodyHtml: r.body_html, source: r.source, voterRole: r.voter_role });
+  return map;
+}
+
+/**
+ * Rationale body + fetch status per voter on one action (all statuses), for the
+ * CC breakdown's three states (view / unavailable / none). Keyed by voter_id.
+ */
+export async function getActionRationaleStatuses(
+  db: D1Database,
+  gaId: string,
+): Promise<Map<string, { bodyHtml: string | null; status: string }>> {
+  const res = await db
+    .prepare('SELECT voter_id, body_html, status FROM action_rationale WHERE ga_id = ?')
+    .bind(gaId)
+    .all<{ voter_id: string; body_html: string | null; status: string }>();
+  const map = new Map<string, { bodyHtml: string | null; status: string }>();
+  for (const r of res.results ?? []) map.set(r.voter_id, { bodyHtml: r.body_html, status: r.status });
   return map;
 }
 
@@ -115,10 +141,17 @@ export async function getRationaleHighlights(
   return rows;
 }
 
-/** Count of readable rationales for one action (cheap; no bodies loaded). */
+/**
+ * Count of readable rationales for one action (cheap; no bodies loaded). Restricted
+ * to DRep and SPO voters so a CC rationale (a distinct segment) does not inflate it.
+ */
 export async function countActionRationales(db: D1Database, gaId: string): Promise<number> {
   const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM action_rationale WHERE ga_id = ? AND body_html IS NOT NULL`)
+    .prepare(
+      `SELECT COUNT(*) AS n FROM action_rationale r
+         JOIN drep_votes v ON v.ga_id = r.ga_id AND v.voter_id = r.voter_id
+        WHERE r.ga_id = ? AND r.body_html IS NOT NULL AND v.voter_role IN ('DRep','SPO')`,
+    )
     .bind(gaId)
     .first<{ n: number }>();
   return row?.n ?? 0;

@@ -5,18 +5,27 @@ import { upsertActionRationale, getActionRationales, getRationaleFetchQueue, cou
 const GA = `${'a'.repeat(64)}#0`;
 
 describe('action_rationale', () => {
-  it('counts only rows with a readable body', async () => {
+  it('counts only rows with a readable body from a DRep/SPO voter', async () => {
     const ga = `${'e'.repeat(64)}#0`;
+    await env.DB
+      .prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at) VALUES (?,'DRep','drep1x','Yes',0)`)
+      .bind(ga)
+      .run();
     await upsertActionRationale(env.DB, { gaId: ga, voterId: 'drep1x', bodyHtml: '<p>hi</p>', source: 'onchain', anchorUrl: 'u', status: 'ok', createdAt: 1000, now: 2000 });
     await upsertActionRationale(env.DB, { gaId: ga, voterId: 'drep1y', bodyHtml: null, source: 'onchain', anchorUrl: 'u2', status: 'failed', createdAt: 1000, now: 2000 });
     expect(await countActionRationales(env.DB, ga)).toBe(1);
   });
 
-  it('upserts and reads back only rows with body_html', async () => {
+  it('upserts and reads back only rows with body_html, tagged with the voter role', async () => {
+    await env.DB
+      .prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at) VALUES (?,'DRep','drep1a','Yes',0)`)
+      .bind(GA)
+      .run();
     await upsertActionRationale(env.DB, { gaId: GA, voterId: 'drep1a', bodyHtml: '<p>hi</p>', source: 'onchain', anchorUrl: 'u', status: 'ok', createdAt: 1000, now: 2000 });
     await upsertActionRationale(env.DB, { gaId: GA, voterId: 'drep1b', bodyHtml: null, source: 'onchain', anchorUrl: 'u2', status: 'failed', createdAt: 1000, now: 2000 });
     const map = await getActionRationales(env.DB, GA);
     expect(map.get('drep1a')?.bodyHtml).toBe('<p>hi</p>');
+    expect(map.get('drep1a')?.voterRole).toBe('DRep');
     expect(map.has('drep1b')).toBe(false); // failed/empty rows are not shown
   });
 

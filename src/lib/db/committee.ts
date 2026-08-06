@@ -133,6 +133,36 @@ export async function getCommitteeVotes(db: D1Database, gaId: string): Promise<C
   return out;
 }
 
+/** One CC vote on an action, with the fields the breakdown needs (identity + anchor). */
+export interface CcVoteRow {
+  voterId: string;
+  hotKeyHex: string;
+  vote: 'Yes' | 'No' | 'Abstain';
+  blockTime: number | null;
+  metaUrl: string | null;
+}
+
+/**
+ * All CC votes on one action (role 'ConstitutionalCommittee'), for the breakdown.
+ * voter_hex is lower-cased for stable joins with cc_member_name/committee_hot_key.
+ */
+export async function getActionCcVoteRows(db: D1Database, gaId: string): Promise<CcVoteRow[]> {
+  const res = await db
+    .prepare(
+      `SELECT voter_id, lower(voter_hex) AS hot_key_hex, vote, block_time, meta_url
+         FROM drep_votes
+        WHERE ga_id = ? AND voter_role = 'ConstitutionalCommittee' AND voter_hex IS NOT NULL AND voter_hex <> ''`,
+    )
+    .bind(gaId)
+    .all<{ voter_id: string; hot_key_hex: string; vote: string; block_time: number | null; meta_url: string | null }>();
+  const out: CcVoteRow[] = [];
+  for (const r of res.results ?? []) {
+    if (r.vote !== 'Yes' && r.vote !== 'No' && r.vote !== 'Abstain') continue;
+    out.push({ voterId: r.voter_id, hotKeyHex: r.hot_key_hex, vote: r.vote, blockTime: r.block_time, metaUrl: r.meta_url });
+  }
+  return out;
+}
+
 /** The loaded membership timeline, read once and shared across a sync run. */
 export interface CommitteeTimeline {
   members: CommitteeMemberTerm[];
