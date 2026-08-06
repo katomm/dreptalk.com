@@ -202,6 +202,15 @@ async function getActionsForCommitteeRecompute(db: D1Database, limit: number): P
   }));
 }
 
+/**
+ * The epoch whose committee may vote on an action: its decided epoch, or the
+ * current epoch while still open. The single rule the CC tally and the CC
+ * breakdown both use, so they never resolve different committees.
+ */
+export function committeeEpochForAction(decidedEpoch: number | null, currentEpoch: number | null): number | null {
+  return decidedEpoch ?? currentEpoch;
+}
+
 export interface CommitteePctRecomputeResult {
   scanned: number;
   updated: number;
@@ -227,7 +236,7 @@ export async function recomputeCommitteePct(
   let updated = 0;
   let skipped = 0;
   for (const a of actions) {
-    const epoch = a.decidedEpoch ?? currentEpoch;
+    const epoch = committeeEpochForAction(a.decidedEpoch, currentEpoch);
     if (epoch == null) {
       skipped++;
       continue;

@@ -73,6 +73,28 @@ export interface CcVote {
 }
 
 /**
+ * The winning vote row per active committee member: drop hot keys whose member
+ * is not active at `epoch`, then keep the latest block time per member. The one
+ * dedup used by the tally, the trend chart, and the breakdown, so they agree.
+ */
+export function finalCcVoteByMember<T extends { hotKeyHex: string; blockTime: number | null }>(
+  votes: T[],
+  members: CommitteeMemberTerm[],
+  hotToCold: Map<string, string>,
+  epoch: number,
+): Map<string, T> {
+  const active = activeCommitteeMembersAt(members, epoch);
+  const finalByMember = new Map<string, T>();
+  for (const v of votes) {
+    const cold = hotToCold.get(v.hotKeyHex);
+    if (cold == null || !active.has(cold)) continue;
+    const prev = finalByMember.get(cold);
+    if (prev == null || (v.blockTime ?? 0) >= (prev.blockTime ?? 0)) finalByMember.set(cold, v);
+  }
+  return finalByMember;
+}
+
+/**
  * Ledger-exact committee yes/no percentages, replacing Koios' committee_yes_pct.
  * Koios' summary is wrong for several actions: it double-counts a duplicate hot-key
  * registration and keeps a resigned member in the denominator. We recompute from the
@@ -99,14 +121,7 @@ export function ccTallyPct(
   const active = activeCommitteeMembersAt(members, ratifiedEpoch);
   if (active.size === 0) return { yesPct: null, noPct: null, yes: 0, no: 0, abstain: 0 };
 
-  const finalByMember = new Map<string, { vote: CcVote['vote']; blockTime: number }>();
-  for (const v of votes) {
-    const cold = hotToCold.get(v.hotKeyHex);
-    if (cold == null || !active.has(cold)) continue;
-    const bt = v.blockTime ?? 0;
-    const prev = finalByMember.get(cold);
-    if (prev == null || bt >= prev.blockTime) finalByMember.set(cold, { vote: v.vote, blockTime: bt });
-  }
+  const finalByMember = finalCcVoteByMember(votes, members, hotToCold, ratifiedEpoch);
 
   let yes = 0;
   let no = 0;
@@ -143,14 +158,10 @@ export function ccFinalVotesByMember(
   hotToCold: Map<string, string>,
   ratifiedEpoch: number,
 ): CcMemberFinalVote[] {
-  const active = activeCommitteeMembersAt(members, ratifiedEpoch);
-  const finalByMember = new Map<string, CcMemberFinalVote>();
-  for (const v of votes) {
-    const cold = hotToCold.get(v.hotKeyHex);
-    if (cold == null || !active.has(cold)) continue;
-    const bt = v.blockTime ?? 0;
-    const prev = finalByMember.get(cold);
-    if (prev == null || bt >= prev.blockTime) finalByMember.set(cold, { coldKeyHex: cold, vote: v.vote, blockTime: bt });
-  }
-  return [...finalByMember.values()];
+  const finalByMember = finalCcVoteByMember(votes, members, hotToCold, ratifiedEpoch);
+  return [...finalByMember.entries()].map(([coldKeyHex, v]) => ({
+    coldKeyHex,
+    vote: v.vote,
+    blockTime: v.blockTime ?? 0,
+  }));
 }

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { VotingSummary } from './client.js';
 import type { CommitteeMemberTerm } from './committeeTimeline.js';
-import { ccFinalVotesByMember, ccTallyPct, spoEligiblePower, spoTallyPct, type CcVote } from './corrections.js';
+import {
+  ccFinalVotesByMember,
+  ccTallyPct,
+  finalCcVoteByMember,
+  spoEligiblePower,
+  spoTallyPct,
+  type CcVote,
+} from './corrections.js';
 
 describe('spoTallyPct', () => {
   it('passes Koios percentages through unchanged for non-hard-fork actions', () => {
@@ -181,5 +188,29 @@ describe('ccFinalVotesByMember', () => {
     );
     expect(res).toHaveLength(1);
     expect(res[0].coldKeyHex).toBe('coldB');
+  });
+});
+
+describe('finalCcVoteByMember', () => {
+  const members: CommitteeMemberTerm[] = [
+    { coldKeyHex: 'colda', versionFrom: 0, versionTo: null, termExpiration: 900, authorizedFrom: 0, resignedAt: null },
+    { coldKeyHex: 'coldb', versionFrom: 0, versionTo: null, termExpiration: 900, authorizedFrom: 0, resignedAt: null },
+  ];
+
+  it('keeps the latest vote per active member and drops inactive/unknown hot keys', () => {
+    const hotToCold = new Map([
+      ['h1', 'colda'],
+      ['h2', 'colda'],
+      ['hb', 'coldb'],
+      ['hz', 'coldZZZ'],
+    ]);
+    const votes = [
+      { hotKeyHex: 'h1', vote: 'No' as const, blockTime: 5 },
+      { hotKeyHex: 'h2', vote: 'Yes' as const, blockTime: 30 }, // same member, newer, wins
+      { hotKeyHex: 'hz', vote: 'Yes' as const, blockTime: 99 }, // unknown cold, dropped
+    ];
+    const m = finalCcVoteByMember(votes, members, hotToCold, 500);
+    expect(m.get('colda')?.vote).toBe('Yes');
+    expect(m.has('coldb')).toBe(false);
   });
 });
