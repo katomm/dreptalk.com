@@ -9,13 +9,16 @@ Disallow: /privacy
 
 # AI training crawlers: blocked. Public deliberation should be discoverable in
 # answer engines, but the content is not offered up for model training. The
-# live citing bots above are deliberately kept out of this group.
+# live citing bots above are deliberately kept out of this group, and so is
+# Meta-ExternalFetcher, Meta's on-demand link/preview fetcher. Only the
+# training crawler Meta-ExternalAgent is blocked below.
 User-agent: GPTBot
 User-agent: Claude-Web
 User-agent: anthropic-ai
 User-agent: CCBot
 User-agent: Google-Extended
 User-agent: Applebot-Extended
+User-agent: meta-externalagent
 Disallow: /
 
 Sitemap: https://dreptalk.com/sitemap.xml
