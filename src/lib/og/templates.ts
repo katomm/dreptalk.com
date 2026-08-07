@@ -9,7 +9,6 @@ import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tin
 import { fmtPctFine } from '../governance/view.js';
 import type {
   CommitteeCardModel,
-  CommitteeColumn,
   DiscussionCardModel,
   DrepCardModel,
   DrepStat,
@@ -123,51 +122,56 @@ export function govCardHtml(m: GovCardModel): string {
   return cardShell(m.accent, m.typeLabel, body);
 }
 
-// One membership column for the committee card: a coloured +/- chip and count as
-// the heading, then the member names (a cold-key fallback renders muted). The
-// joining column carries a right gutter so the two lists never collide.
-function committeeColumnHtml(kind: 'add' | 'remove', col: CommitteeColumn, gutter: boolean): string {
+// A joining/leaving count chip for the committee summary: a coloured +/- box and
+// "<label> · <count>". Rendered only when the count is non-zero.
+function committeeChip(kind: 'add' | 'remove', count: number): string {
   const color = kind === 'add' ? TALLY.yes : TALLY.no;
   const sign = kind === 'add' ? '+' : '-';
   const label = kind === 'add' ? 'Joining' : 'Leaving';
-  const count = col.rows.length + col.extra;
-  const head = `<div style="display:flex;align-items:center;margin-bottom:18px;">
+  return `<div style="display:flex;align-items:center;">
       <span style="display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;background:${color};color:#ffffff;font-size:28px;font-weight:800;margin-right:12px;">${sign}</span>
       <span style="display:flex;font-size:28px;font-weight:700;color:${INK};">${label} · ${count}</span>
     </div>`;
-  const rows = col.rows
-    .map(
-      (r) =>
-        `<div style="display:flex;font-size:30px;font-weight:700;line-height:1.5;color:${r.muted ? MUTED : INK};">${esc(r.text)}</div>`,
-    )
-    .join('');
-  const more = col.extra
-    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:6px;">+${col.extra} more</div>`
-    : '';
-  return `<div style="display:flex;flex-direction:column;flex:1;${gutter ? 'margin-right:56px;' : ''}">${head}${rows}${more}</div>`;
 }
 
-// Committee membership change card: joining and leaving members in two columns
-// with the new threshold on the status line, replacing the generic tally block.
+// One Yes-of-eligible bar for a voting body (DReps / SPOs), compact enough that
+// both bodies stack under the summary within the card height.
+function committeeBar(label: string, yesPct: number): string {
+  const yes = Math.min(100, Math.max(0, yesPct));
+  return `<div style="display:flex;flex-direction:column;margin-top:20px;">
+      <div style="display:flex;align-items:baseline;margin-bottom:8px;">
+        <span style="display:flex;font-size:40px;font-weight:800;color:${INK};">${fmtPctFine(yes)}</span>
+        <span style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-left:12px;">${esc(label)} yes of eligible</span>
+      </div>
+      <div style="display:flex;width:1010px;height:16px;border-radius:8px;overflow:hidden;background:${TRACK};">
+        <div style="display:flex;width:${yes}%;height:16px;background:${TALLY.yes};"></div>
+      </div>
+    </div>`;
+}
+
+// Committee membership change card: a joining/leaving count summary over the DRep
+// and SPO Yes-of-eligible bars (the two bodies that vote on a committee action).
 export function committeeCardHtml(m: CommitteeCardModel): string {
   const meta = m.meta
     ? `<span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-left:16px;">${esc(m.meta)}</span>`
     : '';
-  const threshold = m.threshold
-    ? `<span style="display:flex;font-size:24px;font-weight:600;color:${INK};margin-left:16px;">Threshold ${esc(m.threshold)}</span>`
-    : '';
-  const statusRow = `<div style="display:flex;align-items:center;margin-bottom:30px;">
+  const statusRow = `<div style="display:flex;align-items:center;margin-bottom:26px;">
       <span style="display:flex;font-size:24px;font-weight:700;color:${m.status.color};background:${m.status.tint};padding:6px 16px;border-radius:8px;">${esc(m.status.label)}</span>
-      ${meta}${threshold}
+      ${meta}
     </div>`;
-  const hasJoin = m.joining.rows.length > 0;
-  const hasLeave = m.leaving.rows.length > 0;
-  const joiningHtml = hasJoin ? committeeColumnHtml('add', m.joining, hasLeave) : '';
-  const leavingHtml = hasLeave ? committeeColumnHtml('remove', m.leaving, false) : '';
+  const chips = [
+    m.addedCount > 0 ? committeeChip('add', m.addedCount) : '',
+    m.removedCount > 0 ? committeeChip('remove', m.removedCount) : '',
+  ].filter(Boolean);
+  // Right-aligned, with a fixed spacer between the two chips (satori's flex `gap`
+  // is unreliable, and a trailing margin would push the last chip off the edge).
+  const summary = `<div style="display:flex;justify-content:flex-end;align-items:center;">${chips.join('<span style="display:flex;width:36px;"></span>')}</div>`;
+  const bars = m.bars.map((b) => committeeBar(b.label, b.yesPct)).join('');
   const body = `<div style="display:flex;flex-direction:column;">${title(m.title)}</div>
     <div style="display:flex;flex-direction:column;">
       ${statusRow}
-      <div style="display:flex;">${joiningHtml}${leavingHtml}</div>
+      ${summary}
+      ${bars}
     </div>`;
   return cardShell(m.accent, m.typeLabel, body);
 }
