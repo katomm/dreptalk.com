@@ -89,7 +89,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
       key: `rat-${r.href}`,
       href: r.href,
       group: 'Rationales',
-      label: r.drepName ?? truncateId(r.drepId),
+      label: r.name ?? truncateId(r.voterId),
       badge: r.vote,
       detail: r.actionTitle,
       snippet: r.snippet,
