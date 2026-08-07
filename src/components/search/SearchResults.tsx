@@ -268,19 +268,20 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
           {!hasQuery && <p className="search-note">Type at least two characters to search.</p>}
           {hasQuery && error && <p className="search-note">Search is unavailable right now.</p>}
 
+          {hasQuery && !error && data.exact && (
+            <section className="search-group">
+              <h2 className="search-group__title">Exact match</h2>
+              <a className="search-hit" href={data.exact.href}>
+                <span className="search-hit__head">
+                  <span className="search-hit__title">{data.exact.label}</span>
+                  <span className="search-hit__badge">{data.exact.kind === 'governance-action' ? 'Governance Action' : 'DRep'}</span>
+                </span>
+              </a>
+            </section>
+          )}
+
           {hasQuery && !error && scope === 'all' && (
             <>
-              {data.exact && (
-                <section className="search-group">
-                  <h2 className="search-group__title">Exact match</h2>
-                  <a className="search-hit" href={data.exact.href}>
-                    <span className="search-hit__head">
-                      <span className="search-hit__title">{data.exact.label}</span>
-                      <span className="search-hit__badge">{data.exact.kind === 'governance-action' ? 'Governance Action' : 'DRep'}</span>
-                    </span>
-                  </a>
-                </section>
-              )}
               {data.governanceActions.length > 0 && (
                 <Group title="Governance" count={facetCount('governance')} onMore={() => changeScope('governance')}>
                   {data.governanceActions.slice(0, ALL_PREVIEW).map((ga) => (
