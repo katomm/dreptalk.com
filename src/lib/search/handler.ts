@@ -74,30 +74,34 @@ export async function handleSearch(db: D1Database, rawQuery: string | null, opts
     // in both, so they only vary the counts.
     const scopedCounts = opts.counts && scope !== 'all' ? await countScopes(db, match) : null;
 
+    // Identifier fast-path runs for EVERY scope: a pasted DRep / governance id
+    // is the most specific request a user can make, so it must resolve whatever
+    // filter happens to be active (pasting a DRep id under the DReps filter used
+    // to fall through to full-text and find nothing).
+    const ident = detectIdentifier(query);
+    const exact = ident ? await resolveIdentifier(db, ident) : null;
+
     // Scoped modes: one entity, paginated. countScopes' per-scope totals equal
     // each scoped query's total, so the facet numbers match the result lists.
     if (scope === 'governance') {
       const { hits, total } = await searchGovernancePage(db, match, page);
-      return { ...empty(query, scope, page, total), governanceActions: hits, counts: scopedCounts };
+      return { ...empty(query, scope, page, total), exact, governanceActions: hits, counts: scopedCounts };
     }
     if (scope === 'dreps') {
       const { hits, total } = await searchDrepsPage(db, match, page);
-      return { ...empty(query, scope, page, total), dreps: hits, counts: scopedCounts };
+      return { ...empty(query, scope, page, total), exact, dreps: hits, counts: scopedCounts };
     }
     if (scope === 'forum') {
       const { hits, total } = await searchForumPage(db, match, page);
-      return { ...empty(query, scope, page, total), discussions: hits, counts: scopedCounts };
+      return { ...empty(query, scope, page, total), exact, discussions: hits, counts: scopedCounts };
     }
     if (scope === 'rationales') {
       const { hits, total } = await searchRationalesPage(db, match, page);
-      return { ...empty(query, scope, page, total), rationales: hits, counts: scopedCounts };
+      return { ...empty(query, scope, page, total), exact, rationales: hits, counts: scopedCounts };
     }
 
     // scope === 'all'. The exact fast path (pasted governance-action id / DRep
     // id) runs in both modes.
-    const ident = detectIdentifier(query);
-    const exact = ident ? await resolveIdentifier(db, ident) : null;
-
     if (opts.counts) {
       // Page mode (/search): build every group from the same scoped queries
       // that back the facets, so the "All" preview and the facet counts agree.
