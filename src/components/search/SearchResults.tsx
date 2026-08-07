@@ -86,7 +86,7 @@ function RationaleRow({ r }: { r: RationaleHit }) {
     <a className="search-hit" href={r.href}>
       <span className="search-hit__head">
         {r.imageHash && <img src={`/api/avatar/${r.imageHash}`} alt="" width="20" height="20" loading="lazy" style={{ borderRadius: '50%', flexShrink: 0 }} />}
-        <span className="search-hit__title">{r.drepName ?? truncateId(r.drepId)}</span>
+        <span className="search-hit__title">{r.name ?? truncateId(r.voterId)}</span>
         <span className={`search-hit__vote search-hit__vote--${kind}`}>{r.vote}</span>
         <span className="search-hit__detail">{r.actionTitle}</span>
       </span>

@@ -41,7 +41,7 @@ describe('handleSearch rationales scope', () => {
     expect(body.scope).toBe('rationales');
     expect(body.rationales).toHaveLength(1);
     expect(body.rationales[0].vote).toBe('Yes');
-    expect(body.rationales[0].drepName).toBe('Xavier');
+    expect(body.rationales[0].name).toBe('Xavier');
     expect(body.governanceActions).toEqual([]);
     expect(body.discussions).toEqual([]);
     expect(body.total).toBe(1);

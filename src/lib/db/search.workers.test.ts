@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { searchAll, resolveIdentifier } from './search.js';
 import { upsertDrep } from './dreps.js';
+import { upsertActionRationale } from './actionRationale.js';
 import { encodeBech32 } from '../crypto/bech32.js';
 
 const db = () => env.DB;
@@ -193,6 +194,39 @@ describe('searchAll', () => {
       votingPower: '5000000000',
       imageHash: null,
     });
+  });
+
+  it('resolves a CC rationale hit with the CC name and the role=cc anchor', async () => {
+    await seedTopic({ id: 'gt-cc', title: 'Act', slug: 'act-slug', source: 'governance', categorySlug: 'governance-actions' });
+    await seedGa({ id: GA1, proposalId: 'gov_action1cc', title: 'Act', topicId: 'gt-cc' });
+    await db()
+      .prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, synced_at) VALUES (?, 'ConstitutionalCommittee', 'cc1', 'hot1', 'Yes', ?)`,
+      )
+      .bind(GA1, NOW)
+      .run();
+    await db()
+      .prepare(
+        `INSERT INTO cc_member_name (hot_key_hex, name, source_ga_id, source_block_time, updated_at) VALUES ('hot1', 'Eastern Cardano Council', ?, 10, ?)`,
+      )
+      .bind(GA1, NOW)
+      .run();
+    await upsertActionRationale(db(), {
+      gaId: GA1,
+      voterId: 'cc1',
+      bodyHtml: '<p>constitutional reasoning</p>',
+      source: 'onchain',
+      anchorUrl: 'https://a',
+      status: 'ok',
+      createdAt: NOW,
+      now: NOW,
+    });
+
+    const r = await searchAll(db(), '"constitutional"*');
+    const hit = r.rationales.find((h) => h.voterId === 'cc1');
+    expect(hit?.name).toBe('Eastern Cardano Council');
+    expect(hit?.href).toBe('/t/act-slug/?tab=positions&role=cc#voter-cc1');
+    expect(hit?.imageHash).toBeNull();
   });
 });
 

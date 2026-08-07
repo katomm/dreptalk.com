@@ -134,18 +134,35 @@ describe('decodeOnchainChanges', () => {
     });
     const r = decodeOnchainChanges(p, EP, 'preprod') as {
       kind: 'committee';
-      added: { who: string }[];
+      added: { label: string }[];
       threshold: string;
     };
     expect(r.kind).toBe('committee');
     expect(r.threshold).toBe('67%');
-    expect(r.added[0].who).toContain('scriptHash');
+    expect(r.added[0].label).toContain('scriptHash');
   });
 
   it('renders a whole-percent committee threshold without dropping the trailing zero', () => {
     const p = JSON.stringify({ tag: 'UpdateCommittee', contents: [null, [], {}, { numerator: 1, denominator: 2 }] });
     const r = decodeOnchainChanges(p, EP, 'preprod') as { threshold: string };
     expect(r.threshold).toBe('50%');
+  });
+
+  it('keeps full cold-key hex and credential type for added and removed members', () => {
+    const payload = {
+      tag: 'UpdateCommittee',
+      contents: [
+        null,
+        [{ keyHash: 'aa'.repeat(28) }, { scriptHash: 'cc'.repeat(28) }], // removed
+        { [`keyHash-${'bb'.repeat(28)}`]: 780 }, // added, term 780
+        { numerator: 2, denominator: 3 },
+      ],
+    };
+    const changes = decodeOnchainChanges(JSON.stringify(payload), EP, 'preprod');
+    if (changes?.kind !== 'committee') throw new Error('expected committee');
+    expect(changes.added[0]).toMatchObject({ credentialType: 'keyHash', coldKeyHex: 'bb'.repeat(28), termEpoch: 780 });
+    expect(changes.removed[0]).toMatchObject({ credentialType: 'keyHash', coldKeyHex: 'aa'.repeat(28) });
+    expect(changes.removed[1]).toMatchObject({ credentialType: 'scriptHash', coldKeyHex: 'cc'.repeat(28) });
   });
 
   it('returns a note for InfoAction', () => {

@@ -329,14 +329,16 @@ export interface ScopedResult<T> {
   total: number;
 }
 
-/** A DRep vote-rationale hit: who said it, how they voted, on which action.
- *  The href deep-links to the voter's row on page 1 of the Positions tab. A voter
- *  on a later page opens the tab at page 1 without scrolling (the anchor is not
- *  rendered yet); precise deep-paging is deferred (would need the voter's rank). */
+/** A vote-rationale hit: who said it (DRep or CC member), how they voted, on
+ *  which action. The href deep-links to the voter's row on page 1 of the
+ *  Positions tab, with role=cc appended for CC hits so the tab lands on the
+ *  right sub-section. A voter on a later page opens the tab at page 1 without
+ *  scrolling (the anchor is not rendered yet). Precise deep-paging is deferred
+ *  (would need the voter's rank). */
 export interface RationaleHit {
-  href: string; // /t/<slug>?tab=positions#voter-<voterId>
-  drepId: string;
-  drepName: string | null;
+  href: string; // /t/<slug>?tab=positions[&role=cc]#voter-<voterId>
+  voterId: string;
+  name: string | null;
   imageHash: string | null;
   vote: string; // 'Yes' | 'No' | 'Abstain'
   actionTitle: string;
@@ -350,10 +352,13 @@ function countOf(res: D1Result): number {
 // Rationale FTS row shape and the shared join used by both the page query and
 // the palette typeahead. INNER JOIN topics so a slug-less (unlinkable) rationale
 // is excluded from both hits and count, keeping the facet number honest.
+// voter_role tells DRep hits from CC hits apart so the name resolves from the
+// right table and the href links to the right Positions sub-section.
 interface RationaleRow {
   voter_id: string;
+  voter_role: string;
   vote: string;
-  drep_name: string | null;
+  name: string | null;
   image_content_hash: string | null;
   action_title: string | null;
   topic_slug: string;
@@ -361,7 +366,8 @@ interface RationaleRow {
 }
 
 const RATIONALE_SELECT = `
-  SELECT r.voter_id, v.vote, d.name AS drep_name, d.image_content_hash,
+  SELECT r.voter_id, v.voter_role, v.vote,
+         COALESCE(d.name, cn.name) AS name, d.image_content_hash,
          ga.title AS action_title, t.slug AS topic_slug,
          snippet(action_rationale_fts, 0, char(1), char(2), '…', 12) AS snip
   FROM action_rationale_fts
@@ -370,15 +376,17 @@ const RATIONALE_SELECT = `
   JOIN governance_actions ga ON ga.id = r.ga_id
   JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
   LEFT JOIN dreps d ON d.drep_id = r.voter_id
+  LEFT JOIN cc_member_name cn ON cn.hot_key_hex = lower(v.voter_hex)
   WHERE action_rationale_fts MATCH ?1 AND r.status = 'ok'
   ORDER BY bm25(action_rationale_fts)`;
 
 function toRationaleHit(r: RationaleRow): RationaleHit {
+  const cc = r.voter_role === 'ConstitutionalCommittee';
   return {
-    href: `/t/${r.topic_slug}/?tab=positions#voter-${r.voter_id}`,
-    drepId: r.voter_id,
-    drepName: r.drep_name,
-    imageHash: r.image_content_hash,
+    href: `/t/${r.topic_slug}/?tab=positions${cc ? '&role=cc' : ''}#voter-${r.voter_id}`,
+    voterId: r.voter_id,
+    name: r.name,
+    imageHash: cc ? null : r.image_content_hash, // CC members have no stored avatar, identicon renders from voterId
     vote: r.vote,
     actionTitle: r.action_title ?? r.topic_slug,
     snippet: r.snip,

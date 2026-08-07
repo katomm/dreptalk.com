@@ -177,8 +177,13 @@ export interface TreasuryRow {
   address: string;
   ada: string;
 }
-export interface CommitteeMember {
-  who: string;
+// Full committee member identity: the on-chain cold-key hash is kept verbatim
+// (never truncated) so a later lookup can resolve a name and the copy button can
+// copy the exact id. `label` is the truncated string for display only.
+export interface CommitteeMemberChange {
+  credentialType: 'keyHash' | 'scriptHash';
+  coldKeyHex: string;
+  label: string;
   termEpoch: number | null;
 }
 
@@ -186,7 +191,7 @@ export type OnchainChanges =
   | { kind: 'params'; rows: ParamRow[] }
   | { kind: 'hardfork'; fromVersion: string | null; toVersion: string }
   | { kind: 'treasury'; rows: TreasuryRow[]; totalAda: string }
-  | { kind: 'committee'; added: CommitteeMember[]; removed: string[]; threshold: string | null }
+  | { kind: 'committee'; added: CommitteeMemberChange[]; removed: CommitteeMemberChange[]; threshold: string | null }
   | { kind: 'constitution'; anchorUrl: string | null; scriptHash: string | null }
   | { kind: 'note'; text: string; tag: 'NoConfidence' | 'InfoAction' };
 
@@ -207,6 +212,28 @@ function labelMemberObj(o: unknown): string {
     if (typeof c.keyHash === 'string') return `keyHash ${shortenHash(c.keyHash)}`;
   }
   return '(member)';
+}
+
+// The added-map key is "<credType>-<hex>", keep the full hex and split off the type.
+function memberFromRaw(raw: string, termEpoch: number | null): CommitteeMemberChange {
+  const dash = raw.indexOf('-');
+  const credentialType = dash > -1 && raw.slice(0, dash) === 'scriptHash' ? 'scriptHash' : 'keyHash';
+  const coldKeyHex = dash > -1 ? raw.slice(dash + 1) : raw;
+  return { credentialType, coldKeyHex, label: labelMemberKey(raw), termEpoch };
+}
+
+// The removed entry is { keyHash } | { scriptHash }. Keep the full hex verbatim.
+function memberFromObj(o: unknown): CommitteeMemberChange {
+  const c = (o && typeof o === 'object' ? o : {}) as { scriptHash?: string; keyHash?: string };
+  if (typeof c.scriptHash === 'string') {
+    return { credentialType: 'scriptHash', coldKeyHex: c.scriptHash, label: labelMemberObj(o), termEpoch: null };
+  }
+  return {
+    credentialType: 'keyHash',
+    coldKeyHex: typeof c.keyHash === 'string' ? c.keyHash : '',
+    label: labelMemberObj(o),
+    termEpoch: null,
+  };
 }
 
 // Finds the first array element that is an object carrying `key`. Used to pull a
@@ -296,11 +323,10 @@ function decodeCommittee(contents: unknown[]): OnchainChanges {
   const addedRaw = contents[2] && typeof contents[2] === 'object' ? (contents[2] as Record<string, unknown>) : {};
   const thrRaw =
     contents[3] && typeof contents[3] === 'object' && 'numerator' in (contents[3] as object) ? contents[3] : null;
-  const added: CommitteeMember[] = Object.entries(addedRaw).map(([who, epoch]) => ({
-    who: labelMemberKey(who),
-    termEpoch: typeof epoch === 'number' ? epoch : null,
-  }));
-  const removed = removedRaw.map(labelMemberObj);
+  const added = Object.entries(addedRaw).map(([who, epoch]) =>
+    memberFromRaw(who, typeof epoch === 'number' ? epoch : null),
+  );
+  const removed = removedRaw.map(memberFromObj);
   // Committee thresholds are conventionally read as whole percents (2/3 -> 67%);
   // the fractional precision that param ratios need would only add noise here.
   return { kind: 'committee', added, removed, threshold: thrRaw ? fmtRatio(thrRaw, 0) : null };

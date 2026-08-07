@@ -68,8 +68,8 @@ describe('searchRationalesPage', () => {
     expect(res.total).toBe(1);
     expect(res.hits).toHaveLength(1);
     expect(res.hits[0]).toMatchObject({
-      drepId: 'drep1alice',
-      drepName: 'Alice',
+      voterId: 'drep1alice',
+      name: 'Alice',
       vote: 'Yes',
       actionTitle: 'Raise treasury cap',
       href: '/t/raise-treasury/?tab=positions#voter-drep1alice',

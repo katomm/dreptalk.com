@@ -12,9 +12,10 @@ import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 interface Props {
   action: GovernanceAction;
   onchain: OnchainChanges | null;
+  committeeNames?: Map<string, string>;
 }
 
-const { action, onchain } = Astro.props;
+const { action, onchain, committeeNames } = Astro.props;
 
 // Every CIP-108 action carries an abstract (a short summary). It is the always-
 // visible lede and the natural fold line: the reader gets the summary, and the
@@ -58,7 +59,7 @@ if (!hasBody) {
 ---
 
 <section class="ga-overview">
-  <GaOnchainChanges changes={onchain} />
+  <GaOnchainChanges changes={onchain} committeeNames={committeeNames} />
 
   {abstractHtml && (
     <div class="ga-abstract">

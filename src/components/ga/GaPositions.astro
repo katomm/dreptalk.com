@@ -4,6 +4,7 @@
 // Rows with a rationale become expandable via native <details> (no inline script, CSP-safe).
 // A role segment (DReps / SPOs) toggles which voter list is shown.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import Avatar from '@/components/Avatar.astro';
 import EarlierVotes from '@/components/EarlierVotes.astro';
 import ShareVoteButton from '@/components/ShareVoteButton.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
@@ -12,6 +13,7 @@ import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import type { Pool } from '@/lib/db/pools.js';
+import type { CcPositionRow } from '@/lib/governance/ccPositions.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
@@ -27,22 +29,28 @@ interface Props {
   page: number;
   pageSize: number;
   slug: string;
-  rationales: Map<string, { bodyHtml: string | null; source: string }>;
+  rationales: Map<string, { bodyHtml: string | null; source: string; voterRole: string }>;
   /** Voter ids whose vote was cast after ratification and did not count in the tally. */
   notCounted: Set<string>;
   /** Superseded votes on this action keyed by voter id (newest first); marks changed votes. */
   voteHistory: Map<string, SupersededVote[]>;
   now: number;
+  ccRows: CcPositionRow[];
+  ccTotal: number;
 }
 
-const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted, voteHistory, now } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted, voteHistory, now, ccRows, ccTotal } = Astro.props;
 
 // Determine active role from the query string; default to DReps.
-const role = (Astro.url.searchParams.get('role') === 'spo' ? 'spo' : 'drep') as 'drep' | 'spo';
-const activeVoters = role === 'spo' ? spoVoters : voters;
+const roleParam = Astro.url.searchParams.get('role');
+const role = (roleParam === 'spo' ? 'spo' : roleParam === 'cc' ? 'cc' : 'drep') as 'drep' | 'spo' | 'cc';
+// The DRep/SPO list below is CC-agnostic. The CC role has its own list further
+// down, so it gets no rows here (voters/spoVoters only ever hold DRep/SPO rows).
+const activeVoters = role === 'spo' ? spoVoters : role === 'cc' ? [] : voters;
 
 // Action-wide rationale count (the map covers the whole action, not just this page).
-const withRationale = rationales.size;
+// The map also carries CC rationales (Task 5's join), so filter to DReps here.
+const withRationale = [...rationales.values()].filter((r) => r.voterRole === 'DRep').length;
 
 // Action-wide count of voters who changed their vote, per role (the history map
 // covers the whole action too; each voter's entries all carry the same role).
@@ -66,6 +74,7 @@ function pageHref(p: number): string {
 // Role toggle hrefs: preserve tab=positions, reset page to avoid stale offsets.
 const drepHref = `/t/${slug}/?tab=positions&role=drep`;
 const spoHref = `/t/${slug}/?tab=positions&role=spo`;
+const ccHref = `/t/${slug}/?tab=positions&role=cc`;
 
 // Absolute base for per-vote share links. The link keeps role and page so the
 // targeted row is actually rendered (a voter on page 3 is not on page 1), and
@@ -88,6 +97,14 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
       class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'spo' }]}
       href={spoHref}
     >SPOs <span class="ga-positions__seg-count">{spoTotal}</span></a>
+    {ccTotal > 0 && (
+      <a
+        role="tab"
+        aria-selected={role === 'cc' ? 'true' : 'false'}
+        class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'cc' }]}
+        href={ccHref}
+      >CC <span class="ga-positions__seg-count">{ccTotal}</span></a>
+    )}
   </div>
 
   {role === 'drep' && (
@@ -138,8 +155,10 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
         const voterKey = role === 'spo'
           ? (pools.get(v.voter_id)?.slug ?? v.voter_id)
           : (dreps.get(v.voter_id)?.slug ?? v.voter_id);
+        // This list only ever renders for role 'drep' or 'spo' (activeVoters is
+        // empty for 'cc'), so the narrowed literal here is safe.
         const voteShareUrl = bodyHtml
-          ? `${shareOrigin}${voteStatementPath(role, voterKey, slug)}`
+          ? `${shareOrigin}${voteStatementPath(role === 'spo' ? 'spo' : 'drep', voterKey, slug)}`
           : `${shareBase}#voter-${v.voter_id}`;
         // Identity, vote, and power render identically whether or not the row
         // expands; the power slot is always present (empty when unknown) so the
@@ -191,6 +210,69 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
         );
       })}
     </ul>
+  )}
+
+  {role === 'cc' && (
+    <>
+      {(() => {
+        const voted = ccRows.filter((m) => m.vote != null).length;
+        return (
+          <p class="ga-positions__count">
+            {ccTotal === 0
+              ? 'No committee data for this action.'
+              : `${voted} of ${ccTotal} committee member${ccTotal === 1 ? '' : 's'} voted`}
+          </p>
+        );
+      })()}
+      <ul class="ga-positions__list">
+        {ccRows.map((m) => {
+          const seed = m.hotKeyHex ?? m.coldKeyHex;
+          const shortKey = `${seed.slice(0, 8)}…${seed.slice(-4)}`;
+          const shareUrl = m.voterId ? `${shareOrigin}/t/${slug}/?tab=positions&role=cc#voter-${m.voterId}` : null;
+          const lead = (
+            <>
+              <div class="ga-positions__identity cc-id">
+                <Avatar seed={seed} size={AVATAR_SIZE.rowLead} />
+                <span class="cc-id__text">
+                  <span class="cc-id__name">{m.displayName ?? shortKey}</span>
+                  <span class="cc-id__key">{shortKey}</span>
+                </span>
+              </div>
+              {m.vote
+                ? <VoteBadge vote={m.vote} compact />
+                : <span class="cc-notvoted" title="Did not vote on this action">Not voted</span>}
+              <span class="cc-standing">{m.standing}{m.termExpiration != null && ` · term ends epoch ${m.termExpiration}`}</span>
+            </>
+          );
+          return (
+            <li class="ga-positions__row" id={m.voterId ? `voter-${m.voterId}` : undefined} style="scroll-margin-top:5rem">
+              {m.rationale === 'view' && m.bodyHtml ? (
+                <details class="ga-positions__details">
+                  <summary class="ga-positions__summary">
+                    {lead}
+                    <span class="ga-positions__cta">
+                      <span class="ga-positions__cta-label">Rationale</span>
+                      <svg class="ga-positions__chev" viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </span>
+                  </summary>
+                  {shareUrl && <div class="vote-share"><ShareVoteButton url={shareUrl} /></div>}
+                  <div class="ga-positions__rationale-body" set:html={enhanceStoredHtml(m.bodyHtml)} />
+                </details>
+              ) : (
+                <div class="ga-positions__summary ga-positions__summary--static">
+                  {lead}
+                  <span class="ga-positions__cta ga-positions__cta--none">
+                    <span class="ga-positions__cta-label">{m.rationale === 'unavailable' ? 'Rationale unavailable' : 'No rationale'}</span>
+                  </span>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   )}
 
   {(prevPage || nextPage) && (
@@ -415,5 +497,54 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
     font-variant-numeric: tabular-nums;
     font-size: 0.75rem;
     opacity: 0.8;
+  }
+
+  /* CC row identity: not a DRep, so a plain Avatar (never a profile link) plus
+     name/key text, matching the drep row's flex layout for column alignment. */
+  .cc-id {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .cc-id__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .cc-id__name {
+    font-size: 0.9375rem;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cc-id__key {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+
+  .cc-standing {
+    flex-shrink: 0;
+    text-align: right;
+    color: var(--muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .cc-notvoted {
+    flex-shrink: 0;
+    color: var(--muted);
+    border: 1px dashed var(--muted);
+    border-radius: 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.15rem 0.4rem;
+    line-height: 1;
   }
 </style>

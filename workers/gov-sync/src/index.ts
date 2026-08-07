@@ -32,6 +32,7 @@ import {
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillThresholdSnapshots, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
+import { syncCommitteeVoteMeta } from '../../../src/lib/governance/committeeMetaSync.js';
 import { backfillVoteHistorySweep } from '../../../src/lib/governance/voteHistoryBackfill.js';
 import { backfillRationaleText } from '../../../src/lib/db/rationaleTextBackfill.js';
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../../src/lib/dreps/sync.js';
@@ -379,6 +380,15 @@ async function runVoteSync(env: Env, phase: PhaseFn, opts: { hourly: boolean }):
     const r = await syncVoteRationales({ db: env.DB, now: Date.now(), paceMs: VOTE_PACE_MS });
     console.log(`[vote-rationales] fetched=${r.fetched} ok=${r.ok} empty=${r.empty} failed=${r.failed}`);
     return { items: r.ok, failed: r.failed };
+  });
+
+  // Constitutional-committee votes are excluded from the DRep rationale queue
+  // (role='DRep', power-gated), so fetch their anchors here: stores the CC
+  // rationale and the member's self-declared name from one fetch. Tiny set.
+  await phase('committee-meta', async () => {
+    const r = await syncCommitteeVoteMeta({ db: env.DB, now: Date.now(), paceMs: VOTE_PACE_MS });
+    if (r.fetched > 0) console.log(`[committee-meta] fetched=${r.fetched} ok=${r.ok} named=${r.named} failed=${r.failed}`);
+    return { items: r.named, failed: r.failed };
   });
 
   // One-time historical fill for finalised actions never vote-synced. Small,

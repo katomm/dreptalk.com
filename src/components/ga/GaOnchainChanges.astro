@@ -5,11 +5,15 @@ import type { OnchainChanges } from '@/lib/governance/onchain.js';
 import { truncateIdMiddle } from '@/lib/forum/view.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import CopyButton from '@/components/CopyButton.astro';
+import Avatar from '@/components/Avatar.astro';
 
 interface Props {
   changes: OnchainChanges | null;
+  // Cold-key hex to display name, resolved by the caller (current names only,
+  // no as-of lookup). A member with no entry falls back to the plain label.
+  committeeNames?: Map<string, string>;
 }
-const { changes } = Astro.props;
+const { changes, committeeNames } = Astro.props;
 
 // The new-constitution document is an on-chain URI (often ipfs://); map it to a
 // browser-openable URL so the link is not dead, keeping the raw URI as the text.
@@ -91,21 +95,43 @@ const show =
             <span class="ocx__val"><span class="ocx__new">{changes.threshold}</span></span>
           </li>
         )}
-        {changes.added.map((m) => (
-          <li class="ocx__row">
-            <span class="ocx__name">Added</span>
-            <span class="ocx__val mono">
-              {m.who}<CopyButton value={m.who} label="Copy committee member id" />
-              {m.termEpoch !== null && <span class="ocx__group"> term to epoch {m.termEpoch}</span>}
-            </span>
-          </li>
-        ))}
-        {changes.removed.map((m) => (
-          <li class="ocx__row">
-            <span class="ocx__name">Removed</span>
-            <span class="ocx__val mono">{m}<CopyButton value={m} label="Copy committee member id" /></span>
-          </li>
-        ))}
+        {changes.added.map((m) => {
+          const name = m.coldKeyHex ? committeeNames?.get(m.coldKeyHex) : undefined;
+          return (
+            <li class="ocx__row">
+              <span class="ocx__name">Added</span>
+              <span class="ocx__val">
+                {name ? (
+                  <span class="ocx__member"><Avatar seed={m.coldKeyHex} size={20} />
+                    <span class="ocx__membername">{name}</span>
+                    <span class="mono ocx__memberkey">{m.label}</span><CopyButton value={m.coldKeyHex} label="Copy committee member id" />
+                  </span>
+                ) : (
+                  <span class="mono">{m.label}<CopyButton value={m.coldKeyHex || m.label} label="Copy committee member id" /></span>
+                )}
+                {m.termEpoch !== null && <span class="ocx__group"> term to epoch {m.termEpoch}</span>}
+              </span>
+            </li>
+          );
+        })}
+        {changes.removed.map((m) => {
+          const name = m.coldKeyHex ? committeeNames?.get(m.coldKeyHex) : undefined;
+          return (
+            <li class="ocx__row">
+              <span class="ocx__name">Removed</span>
+              <span class="ocx__val">
+                {name ? (
+                  <span class="ocx__member"><Avatar seed={m.coldKeyHex} size={20} />
+                    <span class="ocx__membername">{name}</span>
+                    <span class="mono ocx__memberkey">{m.label}</span><CopyButton value={m.coldKeyHex} label="Copy committee member id" />
+                  </span>
+                ) : (
+                  <span class="mono">{m.label}<CopyButton value={m.coldKeyHex || m.label} label="Copy committee member id" /></span>
+                )}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     )}
 
@@ -220,4 +246,7 @@ const show =
     word-break: break-all;
     overflow-wrap: anywhere;
   }
+  .ocx__member { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .ocx__membername { font-weight: 600; color: var(--fg); }
+  .ocx__memberkey { color: var(--muted); font-size: 0.72rem; }
 </style>
