@@ -44,6 +44,10 @@ const canonical = new URL(Astro.url.pathname, Astro.site).href;
 // rather than the hard-coded mainnet Astro.site. canonical stays on the stable
 // apex on purpose (SEO), and on mainnet the request origin equals Astro.site so
 // nothing changes there.
+// The <title> keeps the "- DRepTalk" suffix (browser tab, search results), but a
+// link preview already shows the domain and the brand on the card, so the suffix
+// is dropped from og:title to give the actual title the full width.
+const ogTitle = title.replace(/\s-\sDRepTalk$/, '');
 const ogUrl = new URL(Astro.url.pathname, Astro.url.origin).href;
 const ogImageUrl = new URL(ogImage, Astro.url.origin).href;
 // Declare the OG image MIME from its extension: the site mixes JPEG cards
@@ -140,7 +144,7 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
     {preloadImage && (
       <link rel="preload" href={preloadImage} as="image" fetchpriority="high" />
     )}
-    <meta property="og:title" content={title} />
+    <meta property="og:title" content={ogTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={ogUrl} />
