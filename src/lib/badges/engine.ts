@@ -12,7 +12,7 @@
 import { BADGES } from '../../../config/badges.js';
 import { EPOCH_LENGTH_SECONDS, epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
-import { applyAwards, getAllAwards, type BadgeAward, type BadgeSubjectType } from '../db/badgeAwards.js';
+import { applyAwards, getAllAwards, refreshBadgeHolderCounts, type BadgeAward, type BadgeSubjectType } from '../db/badgeAwards.js';
 
 export interface BadgeRunResult {
   /** Awards the current data justifies (including already-awarded ones). */
@@ -419,5 +419,10 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     return cur === undefined || a.tier > cur;
   });
   const written = await applyAwards(db, changes, now);
+  // Refresh the materialized per-badge holder counts read by the profile pages
+  // and the /badges overview. Runs after applyAwards so the snapshot reflects
+  // this cron's writes; every read path now hits a ~30-row table instead of
+  // aggregating the full badge_awards table on each render.
+  await refreshBadgeHolderCounts(db, now);
   return { desired: desired.length, written };
 }

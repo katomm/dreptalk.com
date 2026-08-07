@@ -143,6 +143,30 @@ export async function getRationaleFetchQueue(
   opts: { minPower: number; limit: number; now?: number },
 ): Promise<RationaleJob[]> {
   const now = opts.now ?? Date.now();
+  // Cheap presence probe: same WHERE clause as the fetch query, no ORDER BY, no
+  // sort. In steady state the queue is empty and the probe short-circuits at the
+  // first non-matching row, avoiding the full-scan-plus-sort of the main query
+  // (which was the biggest D1 consumer on this worker).
+  const probe = await db
+    .prepare(
+      `SELECT 1 AS hit
+         FROM drep_votes v
+         JOIN dreps d ON d.drep_id = v.voter_id
+         LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
+        WHERE v.voter_role = 'DRep'
+          AND v.meta_url IS NOT NULL AND v.meta_url != ''
+          AND v.meta_hash IS NOT NULL AND v.meta_hash != ''
+          AND CAST(d.voting_power AS INTEGER) >= ?1
+          AND (
+            r.ga_id IS NULL
+            OR (r.status = 'failed' AND r.attempts < ?2 AND r.fetched_at < ?3)
+            OR IFNULL(r.anchor_url, '') <> v.meta_url
+          )
+        LIMIT 1`,
+    )
+    .bind(opts.minPower, MAX_ATTEMPTS, now - RETRY_AFTER_MS)
+    .first<{ hit: number }>();
+  if (!probe) return [];
   const rows = (
     await db
       .prepare(
