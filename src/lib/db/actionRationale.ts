@@ -142,7 +142,7 @@ export async function getRationaleHighlights(
 }
 
 /**
- * Count of readable rationales for one action (cheap; no bodies loaded). Restricted
+ * Count of readable rationales for one action (cheap, no bodies loaded). Restricted
  * to DRep and SPO voters so a CC rationale (a distinct segment) does not inflate it.
  */
 export async function countActionRationales(db: D1Database, gaId: string): Promise<number> {

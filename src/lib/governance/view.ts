@@ -419,6 +419,11 @@ const ELIGIBLE_BY_TYPE: Record<string, Body[]> = {
 // an unknown action still renders a sensible row rather than an empty one.
 const DEFAULT_ELIGIBLE: Body[] = ['DRep', 'SPO', 'CC'];
 
+/** Whether the Constitutional Committee is entitled to vote on this action type. */
+export function isCcEligible(type: string): boolean {
+  return (ELIGIBLE_BY_TYPE[type] ?? DEFAULT_ELIGIBLE).includes('CC');
+}
+
 // Fixed render order for the overview row, independent of ELIGIBLE_BY_TYPE's
 // per-type array order above.
 const BODY_ORDER: Body[] = ['DRep', 'SPO', 'CC'];

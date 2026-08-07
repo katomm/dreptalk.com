@@ -27,7 +27,7 @@ describe('buildCcPositions', () => {
     expect(rows.map((r) => [r.coldKeyHex, r.vote, r.displayName, r.rationale, r.voterId])).toEqual([
       ['colda', 'Yes', 'Alpha Org', 'view', 'vA'],
       ['coldb', 'No', 'Beta Org', 'unavailable', 'vB'],
-      ['coldc', null, null, 'none', null], // did not vote; term 600 < currentEpoch 700 -> Expired
+      ['coldc', null, null, 'none', null], // did not vote, term 600 < currentEpoch 700 -> Expired
     ]);
     expect(rows[2].standing).toBe('Expired');
   });

@@ -44,7 +44,7 @@ const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, 
 // Determine active role from the query string; default to DReps.
 const roleParam = Astro.url.searchParams.get('role');
 const role = (roleParam === 'spo' ? 'spo' : roleParam === 'cc' ? 'cc' : 'drep') as 'drep' | 'spo' | 'cc';
-// The DRep/SPO list below is CC-agnostic; the CC role has its own list further
+// The DRep/SPO list below is CC-agnostic. The CC role has its own list further
 // down, so it gets no rows here (voters/spoVoters only ever hold DRep/SPO rows).
 const activeVoters = role === 'spo' ? spoVoters : role === 'cc' ? [] : voters;
 
@@ -97,12 +97,14 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
       class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'spo' }]}
       href={spoHref}
     >SPOs <span class="ga-positions__seg-count">{spoTotal}</span></a>
-    <a
-      role="tab"
-      aria-selected={role === 'cc' ? 'true' : 'false'}
-      class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'cc' }]}
-      href={ccHref}
-    >CC <span class="ga-positions__seg-count">{ccTotal}</span></a>
+    {ccTotal > 0 && (
+      <a
+        role="tab"
+        aria-selected={role === 'cc' ? 'true' : 'false'}
+        class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'cc' }]}
+        href={ccHref}
+      >CC <span class="ga-positions__seg-count">{ccTotal}</span></a>
+    )}
   </div>
 
   {role === 'drep' && (

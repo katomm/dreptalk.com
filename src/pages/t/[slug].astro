@@ -23,7 +23,7 @@ import { detectIdentifier } from '@/lib/search/identifiers.js';
 import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
 import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
-import { headlineComposition, isSpoLedType } from '@/lib/governance/view.js';
+import { headlineComposition, isSpoLedType, isCcEligible } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getVoteTrendRows, type ActionVoterRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows, committeeEpochForAction } from '@/lib/db/committee.js';
@@ -354,7 +354,7 @@ const currentEpoch = params?.epoch ?? null;
 const ccEpoch = govAction ? committeeEpochForAction(govAction.decidedEpoch, currentEpoch) : null;
 let ccRows: CcPositionRow[] = [];
 let ccTotal = 0;
-if (db && govAction && tab === 'positions' && committee.members.length > 0 && ccEpoch != null) {
+if (db && govAction && tab === 'positions' && committee.members.length > 0 && ccEpoch != null && isCcEligible(govAction.type)) {
   const [ccVoteRows, nameRows, ccRationales] = await Promise.all([
     getActionCcVoteRows(db, govAction.id),
     getAllCcMemberNames(db),

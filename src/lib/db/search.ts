@@ -333,7 +333,7 @@ export interface ScopedResult<T> {
  *  which action. The href deep-links to the voter's row on page 1 of the
  *  Positions tab, with role=cc appended for CC hits so the tab lands on the
  *  right sub-section. A voter on a later page opens the tab at page 1 without
- *  scrolling (the anchor is not rendered yet); precise deep-paging is deferred
+ *  scrolling (the anchor is not rendered yet). Precise deep-paging is deferred
  *  (would need the voter's rank). */
 export interface RationaleHit {
   href: string; // /t/<slug>?tab=positions[&role=cc]#voter-<voterId>

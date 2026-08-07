@@ -214,7 +214,7 @@ function labelMemberObj(o: unknown): string {
   return '(member)';
 }
 
-// The added-map key is "<credType>-<hex>"; keep the full hex and split off the type.
+// The added-map key is "<credType>-<hex>", keep the full hex and split off the type.
 function memberFromRaw(raw: string, termEpoch: number | null): CommitteeMemberChange {
   const dash = raw.indexOf('-');
   const credentialType = dash > -1 && raw.slice(0, dash) === 'scriptHash' ? 'scriptHash' : 'keyHash';
@@ -222,7 +222,7 @@ function memberFromRaw(raw: string, termEpoch: number | null): CommitteeMemberCh
   return { credentialType, coldKeyHex, label: labelMemberKey(raw), termEpoch };
 }
 
-// The removed entry is { keyHash } | { scriptHash }; keep the full hex verbatim.
+// The removed entry is { keyHash } | { scriptHash }. Keep the full hex verbatim.
 function memberFromObj(o: unknown): CommitteeMemberChange {
   const c = (o && typeof o === 'object' ? o : {}) as { scriptHash?: string; keyHash?: string };
   if (typeof c.scriptHash === 'string') {
