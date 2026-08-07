@@ -1,10 +1,10 @@
 // Assembles the CC vote breakdown rows for one action. Pure, no I/O. Eligible
-// members are those whose version covers the epoch (not necessarily currently
-// voting). Votes are deduped with finalCcVoteByMember (the same the tally uses),
-// so the breakdown and the tally never disagree. These rows are NOT DReps: the
-// caller renders them directly (identicon + name), never through
+// members are those active at the epoch (the same set activeCommitteeMembersAt
+// computes for the CC tally), so breakdown and tally never disagree. Votes are
+// deduped with finalCcVoteByMember (the same the tally uses). These rows are NOT
+// DReps: the caller renders them directly (identicon + name), never through
 // voterDescriptor/AuthorIdentity/drepPath.
-import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { activeCommitteeMembersAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { finalCcVoteByMember } from '../koios/corrections.js';
 import type { CcVoteRow } from '../db/committee.js';
 import type { CcNameIndex } from './ccNames.js';
@@ -46,13 +46,8 @@ export function buildCcPositions(input: {
 }): CcPositionRow[] {
   const { members, hotToCold, votes, epoch, currentEpoch, nameIndex, rationales } = input;
   if (epoch == null) return [];
-  const eligible = new Set<string>();
-  for (const m of members) {
-    if (m.versionFrom <= epoch && (m.versionTo == null || m.versionTo >= epoch)) {
-      eligible.add(m.coldKeyHex);
-    }
-  }
-  if (eligible.size === 0) return [];
+  const active = activeCommitteeMembersAt(members, epoch);
+  if (active.size === 0) return [];
 
   const coldToHot = new Map<string, string>();
   for (const [hot, cold] of hotToCold) if (!coldToHot.has(cold)) coldToHot.set(cold, hot);
@@ -60,7 +55,7 @@ export function buildCcPositions(input: {
   const finalByCold = finalCcVoteByMember(votes, members, hotToCold, epoch);
 
   const rows: CcPositionRow[] = [];
-  for (const cold of eligible) {
+  for (const cold of active) {
     const term = termRowAt(members, cold, epoch);
     const winning = finalByCold.get(cold) ?? null;
     const hotKeyHex = winning?.hotKeyHex ?? coldToHot.get(cold) ?? null;

@@ -5,7 +5,7 @@ import { buildCcNameIndex } from './ccNames.js';
 const members = [
   { coldKeyHex: 'colda', versionFrom: 0, versionTo: null, termExpiration: 900, authorizedFrom: 0, resignedAt: null },
   { coldKeyHex: 'coldb', versionFrom: 0, versionTo: null, termExpiration: 900, authorizedFrom: 0, resignedAt: null },
-  { coldKeyHex: 'coldc', versionFrom: 0, versionTo: null, termExpiration: 400, authorizedFrom: 0, resignedAt: null },
+  { coldKeyHex: 'coldc', versionFrom: 0, versionTo: null, termExpiration: 600, authorizedFrom: 0, resignedAt: null },
 ];
 const hotToCold = new Map([['hota', 'colda'], ['hotb', 'coldb'], ['hotc', 'coldc']]);
 const nameIndex = buildCcNameIndex(
@@ -21,13 +21,13 @@ describe('buildCcPositions', () => {
         { voterId: 'vA', hotKeyHex: 'hota', vote: 'Yes', blockTime: 10, metaUrl: 'https://a' },
         { voterId: 'vB', hotKeyHex: 'hotb', vote: 'No', blockTime: 10, metaUrl: 'https://b' },
       ],
-      epoch: 500, currentEpoch: 500, nameIndex,
+      epoch: 500, currentEpoch: 700, nameIndex,
       rationales: new Map([['vA', { bodyHtml: '<p>x</p>', status: 'ok' }], ['vB', { bodyHtml: null, status: 'failed' }]]),
     });
     expect(rows.map((r) => [r.coldKeyHex, r.vote, r.displayName, r.rationale, r.voterId])).toEqual([
       ['colda', 'Yes', 'Alpha Org', 'view', 'vA'],
       ['coldb', 'No', 'Beta Org', 'unavailable', 'vB'],
-      ['coldc', null, null, 'none', null], // did not vote; term 400 < currentEpoch 500 -> Expired
+      ['coldc', null, null, 'none', null], // did not vote; term 600 < currentEpoch 700 -> Expired
     ]);
     expect(rows[2].standing).toBe('Expired');
   });
