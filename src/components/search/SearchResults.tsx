@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SCOPES, SCOPE_LABELS, PAGE_SIZE, type Scope, type ApiScope } from '@/lib/search/scopes.js';
 import { searchHelp, type HelpDoc, type HelpHit } from '@/lib/search/help.js';
+import { otherScopesWithCounts } from '@/lib/search/emptyHint.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
 import { SnippetText } from './SnippetText.js';
@@ -339,11 +340,26 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
                 help: helpPageSlice.map((h) => <HelpRow key={h.href} h={h} />),
               };
               const list = rows[scope];
-              return (
-                <ScopeList empty={list.length === 0} q={trimmed}>
-                  {list}
-                </ScopeList>
-              );
+              if (list.length > 0) return <div className="search-group">{list}</div>;
+              const others = otherScopesWithCounts(counts, facetCount('help'), scope);
+              if (others.length > 0) {
+                return (
+                  <p className="search-note">
+                    No {SCOPE_LABELS[scope]} results for "{trimmed}".{' '}
+                    {others.map((o, i) => (
+                      <span key={o.scope}>
+                        {i > 0 ? ' · ' : ''}
+                        <button type="button" className="search-more" onClick={() => changeScope(o.scope)}>
+                          {o.count} in {SCOPE_LABELS[o.scope]}
+                        </button>
+                      </span>
+                    ))}
+                  </p>
+                );
+              }
+              // An exact match (rendered above) counts as a result: stay silent then.
+              if (data.exact) return null;
+              return <p className="search-note">No results for "{trimmed}".</p>;
             })()}
 
           {hasQuery && !error && scope !== 'all' && <Pagination page={page} totalPages={totalPages} onPage={setPage} />}
@@ -370,9 +386,4 @@ function Group({ title, count, onMore, children }: { title: string; count: numbe
       )}
     </section>
   );
-}
-
-function ScopeList({ empty, q, children }: { empty: boolean; q: string; children: ReactNode }) {
-  if (empty) return <p className="search-note">No results for "{q}".</p>;
-  return <div className="search-group">{children}</div>;
 }
