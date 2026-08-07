@@ -8,6 +8,8 @@
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
 import type {
+  CommitteeCardModel,
+  CommitteeColumn,
   DiscussionCardModel,
   DrepCardModel,
   DrepStat,
@@ -117,6 +119,55 @@ export function govCardHtml(m: GovCardModel): string {
         ${meta}
       </div>
       ${m.tally ? tallyBlock(m.tally) : votingOpen()}
+    </div>`;
+  return cardShell(m.accent, m.typeLabel, body);
+}
+
+// One membership column for the committee card: a coloured +/- chip and count as
+// the heading, then the member names (a cold-key fallback renders muted). The
+// joining column carries a right gutter so the two lists never collide.
+function committeeColumnHtml(kind: 'add' | 'remove', col: CommitteeColumn, gutter: boolean): string {
+  const color = kind === 'add' ? TALLY.yes : TALLY.no;
+  const sign = kind === 'add' ? '+' : '-';
+  const label = kind === 'add' ? 'Joining' : 'Leaving';
+  const count = col.rows.length + col.extra;
+  const head = `<div style="display:flex;align-items:center;margin-bottom:18px;">
+      <span style="display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;background:${color};color:#ffffff;font-size:28px;font-weight:800;margin-right:12px;">${sign}</span>
+      <span style="display:flex;font-size:28px;font-weight:700;color:${INK};">${label} · ${count}</span>
+    </div>`;
+  const rows = col.rows
+    .map(
+      (r) =>
+        `<div style="display:flex;font-size:30px;font-weight:700;line-height:1.5;color:${r.muted ? MUTED : INK};">${esc(r.text)}</div>`,
+    )
+    .join('');
+  const more = col.extra
+    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:6px;">+${col.extra} more</div>`
+    : '';
+  return `<div style="display:flex;flex-direction:column;flex:1;${gutter ? 'margin-right:56px;' : ''}">${head}${rows}${more}</div>`;
+}
+
+// Committee membership change card: joining and leaving members in two columns
+// with the new threshold on the status line, replacing the generic tally block.
+export function committeeCardHtml(m: CommitteeCardModel): string {
+  const meta = m.meta
+    ? `<span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-left:16px;">${esc(m.meta)}</span>`
+    : '';
+  const threshold = m.threshold
+    ? `<span style="display:flex;font-size:24px;font-weight:600;color:${INK};margin-left:16px;">Threshold ${esc(m.threshold)}</span>`
+    : '';
+  const statusRow = `<div style="display:flex;align-items:center;margin-bottom:30px;">
+      <span style="display:flex;font-size:24px;font-weight:700;color:${m.status.color};background:${m.status.tint};padding:6px 16px;border-radius:8px;">${esc(m.status.label)}</span>
+      ${meta}${threshold}
+    </div>`;
+  const hasJoin = m.joining.rows.length > 0;
+  const hasLeave = m.leaving.rows.length > 0;
+  const joiningHtml = hasJoin ? committeeColumnHtml('add', m.joining, hasLeave) : '';
+  const leavingHtml = hasLeave ? committeeColumnHtml('remove', m.leaving, false) : '';
+  const body = `<div style="display:flex;flex-direction:column;">${title(m.title)}</div>
+    <div style="display:flex;flex-direction:column;">
+      ${statusRow}
+      <div style="display:flex;">${joiningHtml}${leavingHtml}</div>
     </div>`;
   return cardShell(m.accent, m.typeLabel, body);
 }
