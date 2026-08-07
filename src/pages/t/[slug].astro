@@ -392,6 +392,18 @@ const onchainChanges = govAction
   ? decodeOnchainChanges(govAction.onchainPayload ?? null, params?.rawJson ?? null, network)
   : null;
 
+// Committee member names for the Overview's "On-chain changes" block: only read
+// on the Overview tab (where it renders) and only when the payload actually adds
+// or removes members. Current names only, no as-of lookup.
+let committeeNames = new Map<string, string>();
+if (db && tab === 'overview' && onchainChanges?.kind === 'committee' && committee.members.length > 0) {
+  const idx = buildCcNameIndex(await getAllCcMemberNames(db), committee.hotToCold);
+  for (const m of [...onchainChanges.added, ...onchainChanges.removed]) {
+    const name = idx.byCold(m.coldKeyHex);
+    if (name) committeeNames.set(m.coldKeyHex, name);
+  }
+}
+
 const prevPage = page > 1 ? page - 1 : null;
 // Pagination counts top-level posts; replies render with their parent.
 const nextPage = thread.topLevel.length === PAGE_SIZE ? page + 1 : null;
@@ -626,7 +638,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                       {spoTotal} {spoTotal === 1 ? 'SPO' : 'SPOs'} voted on this action, see how
                     </a>
                   )}
-                  <GaOverview action={govAction} onchain={onchainChanges} />
+                  <GaOverview action={govAction} onchain={onchainChanges} committeeNames={committeeNames} />
                   {nclProps && (
                     <NclPanel
                       status={nclProps.status}
