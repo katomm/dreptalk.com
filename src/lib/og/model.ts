@@ -72,30 +72,16 @@ export function govCardModel(
 
 // One added/removed committee member: the resolved self-declared name (null when
 // unknown) and the shortened cold-key label the detail page shows as a fallback.
-export interface CommitteeMemberInput {
-  name: string | null;
+export interface CommitteeCardInput extends GovCardInput {
+  addedCount: number;
+  removedCount: number;
+}
+
+// One voting body's Yes-of-eligible share on a committee action. Committee changes
+// are decided by DReps and SPOs; the committee itself does not vote on them.
+export interface CommitteeBar {
   label: string;
-}
-
-export interface CommitteeCardInput {
-  type: string;
-  status: string;
-  title: string | null;
-  expiryEpoch: number | null;
-  added: CommitteeMemberInput[];
-  removed: CommitteeMemberInput[];
-  threshold: string | null;
-}
-
-export interface CommitteeColumnRow {
-  text: string;
-  // A cold-key fallback (no resolved name) renders muted, so named seats read as
-  // the headline and anonymous ones stay legible but secondary.
-  muted: boolean;
-}
-export interface CommitteeColumn {
-  rows: CommitteeColumnRow[];
-  extra: number;
+  yesPct: number;
 }
 export interface CommitteeCardModel {
   accent: string;
@@ -103,26 +89,15 @@ export interface CommitteeCardModel {
   title: string;
   status: { label: string; color: string; tint: string };
   meta: string;
-  threshold: string | null;
-  joining: CommitteeColumn;
-  leaving: CommitteeColumn;
+  addedCount: number;
+  removedCount: number;
+  bars: CommitteeBar[];
 }
 
-// At most four names per column so the tallest case still clears the bottom
-// accent bar; a longer list keeps the first four and counts the rest as "+N more".
-const MAX_COMMITTEE_ROWS = 4;
-function committeeColumn(list: CommitteeMemberInput[]): CommitteeColumn {
-  const rows = list.slice(0, MAX_COMMITTEE_ROWS).map((m) => {
-    const name = m.name?.trim();
-    return { text: name ? clamp(name, 26) : clamp(m.label, 26), muted: !name };
-  });
-  return { rows, extra: Math.max(0, list.length - MAX_COMMITTEE_ROWS) };
-}
-
-// Committee membership change as a share card: who joins, who leaves and the new
-// vote threshold, instead of the generic Yes-of-eligible tally (near-meaningless
-// for a committee action, where the eligible body is tiny). Same status/countdown
-// grammar as govCardModel so the two stay consistent.
+// Committee membership change as a share card: a joining/leaving count summary
+// over the DRep and SPO Yes-of-eligible bars (the two bodies that vote on a
+// committee action). Deliberately no per-member names: incoming seats are not yet
+// seated, so their key has no hot-to-cold mapping and would render as a raw hash.
 export function committeeCardModel(
   a: CommitteeCardInput,
   opts: { expiryUnixMs: number | null; now: number; proposerName?: string | null },
@@ -131,15 +106,18 @@ export function committeeCardModel(
   const tone = statusColor(badge.tone);
   const countdown = epochCountdown(a.expiryEpoch, opts.expiryUnixMs, a.status, opts.now);
   const meta = [countdown, opts.proposerName ? `by ${opts.proposerName}` : null].filter(Boolean).join(', ');
+  const bars: CommitteeBar[] = [];
+  if (a.drepYesPct != null) bars.push({ label: 'DReps', yesPct: a.drepYesPct });
+  if (a.spoYesPct != null) bars.push({ label: 'SPOs', yesPct: a.spoYesPct });
   return {
     accent: accentForType(a.type),
     typeLabel: readableType(a.type),
     title: clamp(a.title?.trim() || readableType(a.type), 72),
     status: { label: badge.label, color: tone, tint: tint(tone) },
     meta,
-    threshold: a.threshold,
-    joining: committeeColumn(a.added),
-    leaving: committeeColumn(a.removed),
+    addedCount: a.addedCount,
+    removedCount: a.removedCount,
+    bars,
   };
 }
 

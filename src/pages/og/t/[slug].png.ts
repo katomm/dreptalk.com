@@ -8,12 +8,9 @@
 import type { APIRoute } from 'astro';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { epochStartMs } from '@/lib/config/network.js';
-import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
-import { getCommitteeTimeline } from '@/lib/db/committee.js';
 import { getOpeningPostBody, getTopicBySlug } from '@/lib/db/forum.js';
 import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
 import { loadAuthorIdentity } from '@/lib/forum/author.js';
-import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { proposerView } from '@/lib/identity/proposer.js';
 import { loadAvatar } from '@/lib/og/assets.js';
@@ -42,24 +39,12 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     const proposerName = pv.kind === 'known' ? pv.name : null;
 
     // A committee action that actually changes membership renders the dedicated
-    // joining/leaving card instead of the generic tally (near-meaningless for a
-    // body of a handful of seats). A threshold-only change falls through to the
-    // generic card below. Names resolve through the same store the detail page uses.
+    // card: a joining/leaving count summary over the DRep and SPO tally bars. A
+    // threshold-only change falls through to the generic card below.
     const changes = decodeOnchainChanges(action.onchainPayload ?? null, null, net.network);
     if (changes?.kind === 'committee' && (changes.added.length > 0 || changes.removed.length > 0)) {
-      const [{ hotToCold }, nameRows] = await Promise.all([getCommitteeTimeline(db), getAllCcMemberNames(db)]);
-      const idx = buildCcNameIndex(nameRows, hotToCold);
-      const toInput = (m: { coldKeyHex: string; label: string }) => ({ name: idx.byCold(m.coldKeyHex), label: m.label });
       const model = committeeCardModel(
-        {
-          type: action.type,
-          status: action.status,
-          title: action.title,
-          expiryEpoch: action.expiryEpoch,
-          added: changes.added.map(toInput),
-          removed: changes.removed.map(toInput),
-          threshold: changes.threshold,
-        },
+        { ...action, addedCount: changes.added.length, removedCount: changes.removed.length },
         { expiryUnixMs, now: Date.now(), proposerName },
       );
       return renderOgCard(assets, request.url, () => committeeCardHtml(model));
