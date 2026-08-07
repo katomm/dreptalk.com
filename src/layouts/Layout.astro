@@ -14,7 +14,7 @@ import type { AuthorDescriptor } from '@/lib/forum/author';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 import { getHelpEntries } from '@/lib/search/helpEntries.js';
 import type { HelpEntry } from '@/lib/search/staticEntries.js';
-import type { Scope } from '@/lib/search/scopes.js';
+import { scopeForPath, type Scope } from '@/lib/search/scopes.js';
 
 interface Props {
   title: string;
@@ -27,8 +27,10 @@ interface Props {
   /** Narrow only the main content to a comfortable reading column (the nav and
       footer keep their normal width). For single-column reading pages. */
   readingWidth?: boolean;
-  /** Scope pill the search palette opens with on this page (defaults to "all").
-      Help and glossary pages preselect "help" so a search stays within them. */
+  /** Scope pill the search palette opens with on this page. Omit to derive it
+      from the current path via scopeForPath (e.g. listing pages preselect
+      their own scope, everything else falls back to "all"). Pass explicitly
+      only to override that derivation. */
   searchScope?: Scope;
   /** Same-origin image URL to preload with high priority. Used by profile pages
       to fetch the hero avatar early: it renders as a CSS background-image, which
@@ -201,7 +203,7 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         </nav>
 
         <div class="header-actions">
-          <SearchTrigger client:idle helpEntries={helpEntries} initialScope={searchScope} />
+          <SearchTrigger client:idle helpEntries={helpEntries} initialScope={searchScope ?? scopeForPath(pathname)} />
           {/* Share the current page. Only shown in the installed standalone app,
               where there is no address bar to copy or share the URL from. */}
           <span class="header-share"><ShareButton iconOnly ariaLabel="Share this page" /></span>
