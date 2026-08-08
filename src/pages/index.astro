@@ -30,11 +30,11 @@ import {
 import CompositionBar from '@/components/ga/CompositionBar.astro';
 import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
-import { cacheControlFor, formatRelativeTime } from '@/lib/forum/view.js';
+import { cacheControlFor, formatRelativeTime, ACTIVE_WINDOW_MS } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 import CategorySidebar from '@/components/CategorySidebar.astro';
-import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
+import { listActiveGovIds, countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { fetchLatestRelease } from '@/lib/github/latestRelease.js';
 
 const db = env.DB as D1Database | undefined;
@@ -64,15 +64,24 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 // that already has enough DRep voters to drive the live ring. activeDrepStake is
 // the denominator for the hero card's vote-composition bar; it depends only on db,
 // so it rides this Promise.all instead of adding a serial round-trip later.
-const [stats, feed, votedHero, recentIds, activeDrepStake] = db
+const cutoff = now - ACTIVE_WINDOW_MS;
+const [stats, feed, votedHero, recentIds, activeDrepStake, activeCounts] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 15, withParticipants: true }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
-      listRecentlyActiveAuthorIds(db, 10),
+      listActiveGovIds(db, cutoff, 10),
       getActiveDrepStake(db),
+      countActiveByRole(db, cutoff),
     ])
-  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), [], null, [], { total: 0, asOf: null }];
+  : [
+      new Map<string, { topicCount: number; lastPostAt: number | null }>(),
+      [],
+      null,
+      [],
+      { total: 0, asOf: null },
+      { actors: 0, dreps: 0, spos: 0, delegators: 0 },
+    ];
 
 // Recently active DReps/SPOs for the list under the activity feed. Reuses the
 // shared forum author resolver (avatar, name, role badges, profile link) and
@@ -490,7 +499,7 @@ const heroFeatures = [
     </div>
   </section>
 
-  <RecentlyActiveCard authors={recentAuthors} />
+  <RecentlyActiveCard authors={recentAuthors} counts={activeCounts} />
 </Layout>
 
 <style>

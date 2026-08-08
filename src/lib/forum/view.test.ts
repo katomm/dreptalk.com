@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, truncateIdMiddle, excerptFromHtml, htmlToText, formatAda, cacheControlForSynced, recentlyActiveLabel, activeLabel } from './view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, truncateIdMiddle, excerptFromHtml, htmlToText, formatAda, cacheControlForSynced, activeLabel } from './view.js';
 
 // ---------------------------------------------------------------------------
 // serializeJsonLd
@@ -320,32 +320,6 @@ describe('cacheControlForSynced', () => {
   });
   it('never caches for logged-in users', () => {
     expect(cacheControlForSynced({ id: 'u' })).toBe('private, no-store');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// recentlyActiveLabel
-// ---------------------------------------------------------------------------
-
-describe('recentlyActiveLabel', () => {
-  it('returns both DReps and SPOs with "and" conjunction', () => {
-    expect(recentlyActiveLabel(3, 2)).toBe('3 DReps and 2 SPOs active recently on DRepTalk');
-  });
-
-  it('handles singular forms', () => {
-    expect(recentlyActiveLabel(1, 1)).toBe('1 DRep and 1 SPO active recently on DRepTalk');
-  });
-
-  it('returns only DReps when SPO count is zero', () => {
-    expect(recentlyActiveLabel(5, 0)).toBe('5 DReps active recently on DRepTalk');
-  });
-
-  it('returns only SPOs when DRep count is zero', () => {
-    expect(recentlyActiveLabel(0, 3)).toBe('3 SPOs active recently on DRepTalk');
-  });
-
-  it('returns null when both counts are zero', () => {
-    expect(recentlyActiveLabel(0, 0)).toBeNull();
   });
 });
 

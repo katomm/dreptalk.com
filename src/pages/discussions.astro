@@ -8,13 +8,13 @@ import CategorySidebar from '@/components/CategorySidebar.astro';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { loadActivityFeed, parseActivityFilter, type ActivityFilter } from '@/lib/forum/activityFeed.js';
 import { getCategories } from '../../config/categories.js';
-import { cacheControlFor, parsePage, pageToOffset, SITE_ORIGIN } from '@/lib/forum/view.js';
+import { cacheControlFor, parsePage, pageToOffset, SITE_ORIGIN, ACTIVE_WINDOW_MS } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 // Segmented pill styles for the activity filter, shared with the governance-actions
 // list and /vote so the three controls stay identical.
 import '@/styles/list-controls.css';
-import { listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive.js';
+import { listActiveGovIds, countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
 
 const db = env.DB as D1Database | undefined;
@@ -28,13 +28,20 @@ const page = parsePage(Astro.url.searchParams.get('page'));
 const offset = pageToOffset(page, PAGE_SIZE);
 
 // Category stats and the activity page are independent; load them together.
-const [stats, feed, recentIds] = db
+const cutoff = now - ACTIVE_WINDOW_MS;
+const [stats, feed, recentIds, activeCounts] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { filter, limit: PAGE_SIZE, offset, withParticipants: true }),
-      listRecentlyActiveAuthorIds(db, 10),
+      listActiveGovIds(db, cutoff, 10),
+      countActiveByRole(db, cutoff),
     ])
-  : [new Map<string, { topicCount: number; lastPostAt: number | null }>(), { events: [], total: 0 }, []];
+  : [
+      new Map<string, { topicCount: number; lastPostAt: number | null }>(),
+      { events: [], total: 0 },
+      [],
+      { actors: 0, dreps: 0, spos: 0, delegators: 0 },
+    ];
 
 // Hydrate the recently-active author ids into presentational descriptors using
 // the shared forum resolver (avatar, name, role badges, profile link), keeping
@@ -81,7 +88,7 @@ const breadcrumbLd = {
     />
   </div>
 
-  <RecentlyActiveCard authors={recentAuthors} />
+  <RecentlyActiveCard authors={recentAuthors} counts={activeCounts} />
 </Layout>
 
 <style>

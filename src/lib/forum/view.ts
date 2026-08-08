@@ -26,20 +26,6 @@ export function pageToOffset(page: number, pageSize: number): number {
 }
 
 /**
- * Label for the recently-active participants, e.g. "3 DReps and 2 SPOs active
- * recently on DRepTalk". A dual-role account counts under both roles. Shared
- * by the RecentlyActiveCard heading and the /home/ discussions card so the two
- * lines can never disagree. Returns null when there is nobody to report.
- */
-export function recentlyActiveLabel(drepCount: number, spoCount: number): string | null {
-  const parts = [
-    drepCount > 0 ? `${drepCount} ${drepCount === 1 ? 'DRep' : 'DReps'}` : null,
-    spoCount > 0 ? `${spoCount} ${spoCount === 1 ? 'SPO' : 'SPOs'}` : null,
-  ].filter(Boolean);
-  return parts.length ? `${parts.join(' and ')} active recently on DRepTalk` : null;
-}
-
-/**
  * Returns appropriate Cache-Control header value based on authentication state.
  * Authenticated users get private/no-store to prevent shared-cache poisoning.
  * Anonymous users get a short public cache for edge performance.
