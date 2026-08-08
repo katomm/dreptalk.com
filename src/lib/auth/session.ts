@@ -117,6 +117,8 @@ async function pruneHashFromIndex(kv: KVNamespace, key: string, hash: string): P
  * @param kv - The SESSIONS KV namespace.
  * @param user - User identity.
  * @param opts.now - Override for current Unix time in seconds.
+ * @param opts.onCreate - Optional best-effort callback fired with the user id
+ * once the session is minted. Never affects the returned token.
  */
 export async function createSession(
   kv: KVNamespace,
@@ -127,7 +129,7 @@ export async function createSession(
     grantId?: string | null;
     actsFor?: { userId: string; stakeAddr: string } | null;
   },
-  opts?: { now?: number },
+  opts?: { now?: number; onCreate?: (userId: string) => void },
 ): Promise<string> {
   const now = Math.floor(opts?.now ?? Date.now() / 1000);
   const rawBytes = new Uint8Array(32);
@@ -170,6 +172,10 @@ export async function createSession(
     });
   }
 
+  // Best effort: record the user as seen at mint. Wrapped so a tracking failure
+  // can never fail session creation.
+  try { opts?.onCreate?.(user.id); } catch { /* activity tracking must never affect auth */ }
+
   return token;
 }
 
@@ -180,11 +186,13 @@ export async function createSession(
  * @param kv - The SESSIONS KV namespace.
  * @param token - The opaque bearer token.
  * @param opts.now - Override for current Unix time in seconds.
+ * @param opts.onRenew - Optional best-effort callback fired with the user id
+ * when the sliding-window renewal fires. Never affects the returned record.
  */
 export async function getSession(
   kv: KVNamespace,
   token: string,
-  opts?: { now?: number },
+  opts?: { now?: number; onRenew?: (userId: string) => void },
 ): Promise<SessionRecord | null> {
   try {
     const now = Math.floor(opts?.now ?? Date.now() / 1000);
@@ -213,6 +221,8 @@ export async function getSession(
       if (record.grantId && gsessRaw !== null) {
         await kv.put(gsessKey(record.grantId), gsessRaw, { expirationTtl: SESSION_TTL_SEC });
       }
+      // Best effort: piggyback the 6h renewal to refresh the D1 usage signal.
+      try { opts?.onRenew?.(record.userId); } catch { /* activity tracking must never invalidate auth */ }
     }
 
     return record;
