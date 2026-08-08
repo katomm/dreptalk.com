@@ -3,6 +3,7 @@
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 
 import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
+import { SESSION_ACTIVITY_THROTTLE_MS } from '../auth/timing.js';
 
 export interface User {
   id: string;
@@ -21,6 +22,7 @@ export interface User {
   avatar_url: string | null;
   created_at: number;
   last_verified_at: number;
+  last_seen: number | null;
 }
 
 // Raw row shape as stored in D1 (booleans as 0/1 integers).
@@ -41,6 +43,7 @@ interface UserRow {
   avatar_url: string | null;
   created_at: number;
   last_verified_at: number;
+  last_seen: number | null;
 }
 
 /** Maps a raw D1 row to the User type (0/1 integers to JS booleans). */
@@ -62,6 +65,7 @@ function rowToUser(row: UserRow): User {
     avatar_url: row.avatar_url,
     created_at: row.created_at,
     last_verified_at: row.last_verified_at,
+    last_seen: row.last_seen,
   };
 }
 
@@ -141,6 +145,20 @@ export async function touchUserVerification(
   const user = await getUserById(db, userId);
   if (!user) throw new Error(`touchUserVerification: user not found for id=${userId}`);
   return user;
+}
+
+/**
+ * Records the user as seen now (Unix ms), throttled atomically per user: the
+ * write only lands when the stored value is NULL or older than the sliding
+ * window, so several concurrent sessions or devices cannot each write. Best
+ * effort by contract: callers fire-and-forget it and must never let it affect
+ * auth or the response.
+ */
+export async function bumpLastSeen(db: D1Database, userId: string, nowMs: number): Promise<void> {
+  await db
+    .prepare('UPDATE users SET last_seen = ? WHERE id = ? AND (last_seen IS NULL OR last_seen < ?)')
+    .bind(nowMs, userId, nowMs - SESSION_ACTIVITY_THROTTLE_MS)
+    .run();
 }
 
 /**

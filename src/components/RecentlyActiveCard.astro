@@ -1,26 +1,23 @@
 ---
-// "N DReps and M SPOs active recently on DRepTalk": the DReps/SPOs who posted most
-// recently, with the counts as the heading so they can never disagree with the
-// avatars shown below. Presentational only; the page resolves the descriptors and
-// passes them in. Renders nothing when empty.
+// "N DReps, M SPOs and K delegators active in the last 30 days on DRepTalk":
+// the DReps/SPOs seen most recently (faces) plus the role counts as the heading.
+// Counts are passed in (not derived from the faces) because delegators have no
+// faces and the counts span the whole window, not just the ten shown. Renders
+// nothing when the label is null (no active DReps/SPOs).
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
-import { recentlyActiveLabel } from '@/lib/forum/view.js';
+import { activeLabel } from '@/lib/forum/view.js';
 
 interface Props {
   authors: AuthorDescriptor[];
+  counts: { dreps: number; spos: number; delegators: number };
 }
-const { authors } = Astro.props;
-
-// Count exactly the people shown, split by role (a dual-role account counts under
-// both), so the heading always matches the faces beneath it.
-const drepCount = authors.filter((a) => a.badges?.includes('DRep')).length;
-const spoCount = authors.filter((a) => a.badges?.includes('SPO')).length;
-const heading = recentlyActiveLabel(drepCount, spoCount);
+const { authors, counts } = Astro.props;
+const heading = activeLabel(counts);
 ---
 
-{authors.length > 0 && (
+{heading && (
   <section class="recently-active" aria-labelledby="recently-active-title">
     <p class="recently-active__title" id="recently-active-title">{heading}</p>
     <ul class="recently-active__list">

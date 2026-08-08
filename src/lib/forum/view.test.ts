@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, truncateIdMiddle, excerptFromHtml, htmlToText, formatAda, cacheControlForSynced } from './view.js';
+import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, serializeJsonLd, truncateId, truncateIdMiddle, excerptFromHtml, htmlToText, formatAda, cacheControlForSynced, activeLabel } from './view.js';
 
 // ---------------------------------------------------------------------------
 // serializeJsonLd
@@ -320,5 +320,39 @@ describe('cacheControlForSynced', () => {
   });
   it('never caches for logged-in users', () => {
     expect(cacheControlForSynced({ id: 'u' })).toBe('private, no-store');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// activeLabel
+// ---------------------------------------------------------------------------
+
+describe('activeLabel', () => {
+  it('returns dreps and spos only when delegators are below threshold', () => {
+    expect(activeLabel({ dreps: 42, spos: 8, delegators: 0 })).toBe(
+      '42 DReps and 8 SPOs active in the last 30 days on DRepTalk',
+    );
+  });
+
+  it('includes delegators at the threshold', () => {
+    expect(activeLabel({ dreps: 42, spos: 8, delegators: 25 })).toBe(
+      '42 DReps, 8 SPOs and 25 delegators active in the last 30 days on DRepTalk',
+    );
+  });
+
+  it('excludes delegators below the threshold', () => {
+    expect(activeLabel({ dreps: 42, spos: 8, delegators: 24 })).toBe(
+      '42 DReps and 8 SPOs active in the last 30 days on DRepTalk',
+    );
+  });
+
+  it('handles singular forms correctly', () => {
+    expect(activeLabel({ dreps: 1, spos: 0, delegators: 0 })).toBe(
+      '1 DRep active in the last 30 days on DRepTalk',
+    );
+  });
+
+  it('returns null when no dreps or spos are active', () => {
+    expect(activeLabel({ dreps: 0, spos: 0, delegators: 100 })).toBeNull();
   });
 });

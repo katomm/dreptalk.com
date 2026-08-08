@@ -21,10 +21,10 @@ import { getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation } fro
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory';
 import { loadDelegation, NO_FOLLOW_DELEGATION } from '@/lib/db/loadDelegation';
 import { getMostRepliedRecentTopic } from '@/lib/db/forum';
-import { countRecentlyActiveAuthors, listRecentlyActiveAuthorIds } from '@/lib/db/recentlyActive';
+import { listActiveGovIds, countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes';
-import { recentlyActiveLabel } from '@/lib/forum/view';
+import { activeLabel, ACTIVE_WINDOW_MS } from '@/lib/forum/view';
 import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 
@@ -53,14 +53,13 @@ const drep = drepId && db ? await getDrepById(db, drepId) : null;
 // Windows for the discussions tile: "recently active" counts the last month
 // (pairs with the top-10 face row), the hot-topic teaser looks at the last week.
 const nowMs = Date.now();
-const ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const HOT_TOPIC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const [[account, unreadCount], votableRows, recentIds, activeCount, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData] =
+const [[account, unreadCount], votableRows, recentIds, activeCounts, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData] =
   await Promise.all([
     loadSessionHeader(Astro.locals, user.id),
     drepId && db ? getVotableActionsForViewer(db, drepId) : [],
-    db ? listRecentlyActiveAuthorIds(db, 10) : [],
-    db ? countRecentlyActiveAuthors(db, nowMs - ACTIVE_WINDOW_MS) : 0,
+    db ? listActiveGovIds(db, nowMs - ACTIVE_WINDOW_MS, 10) : [],
+    db ? countActiveByRole(db, nowMs - ACTIVE_WINDOW_MS) : { actors: 0, dreps: 0, spos: 0, delegators: 0 },
     db ? getMostRepliedRecentTopic(db, nowMs - HOT_TOPIC_WINDOW_MS) : null,
     drep && db ? getDrepVoteBreakdown(db, drep.drepId) : { yes: 0, no: 0, abstain: 0, total: 0 },
     drep && db ? getDrepRationaleStats(db, drep.drepId) : { total: 0, without: 0, withRationale: 0 },
@@ -71,17 +70,13 @@ const [[account, unreadCount], votableRows, recentIds, activeCount, hotTopic, vo
       : NO_FOLLOW_DELEGATION,
   ]);
 
-// Same "N DReps and M SPOs active recently" line the discussions page shows,
-// hydrated to full identities exactly like there, so the featured tile can
-// render the faces with their names and profile links.
+// The "... active in the last 30 days on DRepTalk" label (built from activeCounts),
+// with recentIds hydrated to full identities for the featured tile faces.
 const recentAuthors =
   db && recentIds.length
     ? await loadAuthorIdentities(db, recentIds).then((r) => recentIds.map((id) => r.describe(id)))
     : [];
-const activityLabel = recentlyActiveLabel(
-  recentAuthors.filter((a) => a.badges?.includes('DRep')).length,
-  recentAuthors.filter((a) => a.badges?.includes('SPO')).length,
-);
+const activityLabel = activeLabel(activeCounts);
 // The clickable faces in the featured tile: the whole recently-active list
 // (already capped at 10 by the query, matching the label), minus anyone whose
 // profile page does not resolve.
@@ -91,7 +86,7 @@ const recentFaces = recentAuthors
 // "+N" tail of the face row: how many more DReps/SPOs were active in the last
 // month beyond the faces shown. A quiet month can undershoot the top-10 list
 // (which has no window), so this clamps to zero instead of going negative.
-const moreActiveCount = Math.max(0, activeCount - recentFaces.length);
+const moreActiveCount = Math.max(0, activeCounts.actors - recentFaces.length);
 const hotTopicReplies = hotTopic ? Math.max(0, hotTopic.post_count - 1) : 0;
 
 const openCount = votableRows.length;
@@ -248,8 +243,8 @@ const cards: HomeCard[] = [
                 <a
                   class="home-card__face home-card__face--more"
                   href="/discussions/"
-                  title={`${moreActiveCount} more active in the last month`}
-                  aria-label={`${moreActiveCount} more people active in the last month`}
+                  title={`${moreActiveCount} more active in the last 30 days`}
+                  aria-label={`${moreActiveCount} more people active in the last 30 days`}
                 >+{moreActiveCount}</a>
               )}
             </span>
@@ -375,8 +370,8 @@ const cards: HomeCard[] = [
     inset: 0;
   }
   /* Recently-active faces: an overlapping row, each a profile link raised
-     above the stretched link. Desktop garnish only; the label line already
-     carries the information on narrow screens. */
+     above the stretched link. Shown on all sizes, the faces wrap under the
+     label on narrow screens. */
   .home-card__faces {
     display: flex;
     flex-wrap: wrap;
@@ -442,11 +437,6 @@ const cards: HomeCard[] = [
   }
   a.home-card__hot:hover .home-card__hot-title {
     color: var(--accent);
-  }
-  @media (max-width: 800px) {
-    .home-card__faces {
-      display: none;
-    }
   }
   .home-stats {
     margin-top: 1.75rem;

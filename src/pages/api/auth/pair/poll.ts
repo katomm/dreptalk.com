@@ -7,6 +7,7 @@ import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { pollPairing, parseApproverRoles } from '@/lib/auth/pairing';
 import { rolesFromUser } from '@/lib/auth/roles';
 import { createSession, buildSessionCookie } from '@/lib/auth/session';
+import { sessionActivityHook } from '@/lib/auth/sessionActivity.js';
 import { getUserById } from '@/lib/db/users';
 import { insertNotifications } from '@/lib/db/notifications';
 import { checkRate, peekRate } from '@/lib/rate';
@@ -103,7 +104,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const secure = new URL(request.url).protocol === 'https:';
     let token: string;
     try {
-      token = await createSession(sessionKv, { id: user.id, roles, drepId });
+      token = await createSession(
+        sessionKv,
+        { id: user.id, roles, drepId },
+        { onCreate: db ? sessionActivityHook(db) : undefined },
+      );
     } catch {
       // The pairing was already consumed by the atomic claim above and cannot be
       // handed out twice, so the only safe recovery is to start over. Losing a

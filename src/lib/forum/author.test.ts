@@ -8,7 +8,7 @@ const user = (over: Partial<User>): User => ({
   id: 'u1', drep_id: null, stake_addr: null, pool_id: null, cc_cred: null,
   is_drep: false, is_spo: false, is_cc: false, is_proposer: false,
   role: 'member', status: 'active', display_name: null, bio: null,
-  avatar_url: null, created_at: 0, last_verified_at: 0, ...over,
+  avatar_url: null, created_at: 0, last_verified_at: 0, last_seen: null, ...over,
 });
 
 describe('describeAuthor identiconSeed', () => {

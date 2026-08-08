@@ -26,20 +26,6 @@ export function pageToOffset(page: number, pageSize: number): number {
 }
 
 /**
- * Label for the recently-active participants, e.g. "3 DReps and 2 SPOs active
- * recently on DRepTalk". A dual-role account counts under both roles. Shared
- * by the RecentlyActiveCard heading and the /home/ discussions card so the two
- * lines can never disagree. Returns null when there is nobody to report.
- */
-export function recentlyActiveLabel(drepCount: number, spoCount: number): string | null {
-  const parts = [
-    drepCount > 0 ? `${drepCount} ${drepCount === 1 ? 'DRep' : 'DReps'}` : null,
-    spoCount > 0 ? `${spoCount} ${spoCount === 1 ? 'SPO' : 'SPOs'}` : null,
-  ].filter(Boolean);
-  return parts.length ? `${parts.join(' and ')} active recently on DRepTalk` : null;
-}
-
-/**
  * Returns appropriate Cache-Control header value based on authentication state.
  * Authenticated users get private/no-store to prevent shared-cache poisoning.
  * Anonymous users get a short public cache for edge performance.
@@ -186,4 +172,26 @@ export function formatAdaCompact(lovelace: string | null): string {
  */
 export function cacheControlForSynced(user: unknown | null): string {
   return user ? 'private, no-store' : 'public, s-maxage=300';
+}
+
+export const ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+export const DELEGATOR_MIN = 25;
+
+/**
+ * Label for the active-participant summary, e.g. "42 DReps, 8 SPOs and 137
+ * delegators active in the last 30 days on DRepTalk". A dual-role account counts
+ * under both roles. The delegator clause appears only at DELEGATOR_MIN or more.
+ * Returns null when no DReps/SPOs are active (the card is hidden, matching the
+ * face row which shows DReps/SPOs only).
+ */
+export function activeLabel(counts: { dreps: number; spos: number; delegators: number }): string | null {
+  if (counts.dreps + counts.spos === 0) return null;
+  const parts: string[] = [];
+  if (counts.dreps > 0) parts.push(`${counts.dreps} ${counts.dreps === 1 ? 'DRep' : 'DReps'}`);
+  if (counts.spos > 0) parts.push(`${counts.spos} ${counts.spos === 1 ? 'SPO' : 'SPOs'}`);
+  if (counts.delegators >= DELEGATOR_MIN) {
+    parts.push(`${counts.delegators} ${counts.delegators === 1 ? 'delegator' : 'delegators'}`);
+  }
+  const joined = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
+  return `${joined} active in the last 30 days on DRepTalk`;
 }
