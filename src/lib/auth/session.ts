@@ -10,9 +10,9 @@
 
 import { toBase64Url } from '../crypto/base64url.js';
 import { bytesToHex } from '../crypto/hex.js';
+import { SLIDING_WINDOW_SEC } from './timing.js';
 
 const SESSION_TTL_SEC = 2_592_000; // 30 days
-const SLIDING_WINDOW_SEC = 21_600; // 6 hours
 const SESSION_COOKIE_NAME = 'dreptalk_session';
 
 // ---------------------------------------------------------------------------
