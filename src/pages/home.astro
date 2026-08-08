@@ -243,8 +243,8 @@ const cards: HomeCard[] = [
                 <a
                   class="home-card__face home-card__face--more"
                   href="/discussions/"
-                  title={`${moreActiveCount} more active in the last month`}
-                  aria-label={`${moreActiveCount} more people active in the last month`}
+                  title={`${moreActiveCount} more active in the last 30 days`}
+                  aria-label={`${moreActiveCount} more people active in the last 30 days`}
                 >+{moreActiveCount}</a>
               )}
             </span>
@@ -370,8 +370,8 @@ const cards: HomeCard[] = [
     inset: 0;
   }
   /* Recently-active faces: an overlapping row, each a profile link raised
-     above the stretched link. Desktop garnish only; the label line already
-     carries the information on narrow screens. */
+     above the stretched link. Shown on all sizes, the faces wrap under the
+     label on narrow screens. */
   .home-card__faces {
     display: flex;
     flex-wrap: wrap;
@@ -437,11 +437,6 @@ const cards: HomeCard[] = [
   }
   a.home-card__hot:hover .home-card__hot-title {
     color: var(--accent);
-  }
-  @media (max-width: 800px) {
-    .home-card__faces {
-      display: none;
-    }
   }
   .home-stats {
     margin-top: 1.75rem;
