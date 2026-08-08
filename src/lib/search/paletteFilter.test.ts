@@ -2,28 +2,23 @@ import { describe, it, expect } from 'vitest';
 import { filterRowsByScope } from './paletteFilter.js';
 
 const rows = [
-  { group: 'Governance Actions' },
-  { group: 'Discussions' },
-  { group: 'DReps' },
-  { group: 'Help' },
-  { group: 'Pages' },
-  { group: 'Exact match' },
+  { group: 'Exact match', label: 'Stored DRep' },
+  { group: 'DReps', label: 'Some DRep' },
+  { group: 'Governance Actions', label: 'Some GA' },
 ];
 
 describe('filterRowsByScope', () => {
-  it('all keeps everything', () => {
-    expect(filterRowsByScope(rows, 'all')).toHaveLength(6);
+  it('keeps the exact match under a non-matching pill', () => {
+    const out = filterRowsByScope(rows, 'governance');
+    expect(out.map((r) => r.group)).toEqual(['Exact match', 'Governance Actions']);
   });
-  it('forum keeps discussions only', () => {
-    expect(filterRowsByScope(rows, 'forum').map((r) => r.group)).toEqual(['Discussions']);
+
+  it('keeps everything under all', () => {
+    expect(filterRowsByScope(rows, 'all')).toHaveLength(3);
   });
-  it('governance keeps governance actions only', () => {
-    expect(filterRowsByScope(rows, 'governance').map((r) => r.group)).toEqual(['Governance Actions']);
-  });
-  it('dreps keeps dreps only', () => {
-    expect(filterRowsByScope(rows, 'dreps').map((r) => r.group)).toEqual(['DReps']);
-  });
-  it('help keeps help only', () => {
-    expect(filterRowsByScope(rows, 'help').map((r) => r.group)).toEqual(['Help']);
+
+  it('keeps only the exact match plus the matching scope', () => {
+    const out = filterRowsByScope(rows, 'dreps');
+    expect(out.map((r) => r.group)).toEqual(['Exact match', 'DReps']);
   });
 });

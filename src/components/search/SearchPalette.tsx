@@ -8,6 +8,7 @@ import { truncateId } from '@/lib/forum/view.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
 import { SCOPES, SCOPE_LABELS, type Scope } from '@/lib/search/scopes.js';
 import { filterRowsByScope } from '@/lib/search/paletteFilter.js';
+import { otherScopesWithRows } from '@/lib/search/emptyHint.js';
 import { SnippetText } from './SnippetText.js';
 
 interface PaletteProps {
@@ -305,11 +306,37 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
             Search is unavailable right now.
           </p>
         )}
-        {!error && rows.length === 0 && hasQuery && (
-          <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-            No results for "{trimmed}".
-          </p>
-        )}
+        {!error && rows.length === 0 && hasQuery && (() => {
+          const others = otherScopesWithRows(allRows, scope);
+          if (others.length === 0) {
+            return (
+              <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                No results for "{trimmed}".
+              </p>
+            );
+          }
+          return (
+            <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+              No matches in {SCOPE_LABELS[scope]}. Also in{' '}
+              {others.map((s, i) => (
+                <span key={s}>
+                  {i > 0 ? ', ' : ''}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScope(s);
+                      setActive(0);
+                    }}
+                    style={{ padding: 0, border: 'none', background: 'transparent', color: 'var(--accent)', font: 'inherit', cursor: 'pointer' }}
+                  >
+                    {SCOPE_LABELS[s]}
+                  </button>
+                </span>
+              ))}
+              .
+            </p>
+          );
+        })()}
         <div id="search-palette-listbox" role="listbox" aria-label="Search results" style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0.25rem 0' }}>
           {rows.map((row, i) => {
             const header = row.group !== lastGroup ? row.group : null;

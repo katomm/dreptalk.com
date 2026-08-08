@@ -51,3 +51,19 @@ export function groupToScope(group: string): Scope {
       return 'all';
   }
 }
+
+/** The search filter a page pre-selects when its palette opens. Listing pages
+ *  start their search inside the matching filter, everything else starts in
+ *  "all". DRep *profile* pages (/dreps/<id>) intentionally stay on "all": only
+ *  the two DRep listing pages pre-select "dreps". Query strings are not part of
+ *  a pathname, so callers pass Astro.url.pathname directly. */
+export function scopeForPath(pathname: string): Scope {
+  const p = pathname.endsWith('/') ? pathname : `${pathname}/`;
+  if (p.startsWith('/help/') || p.startsWith('/glossary/')) return 'help';
+  if (p.startsWith('/discussions/')) return 'forum';
+  if (p === '/dreps/' || p === '/dreps/movers/') return 'dreps';
+  if (p.startsWith('/c/')) {
+    return p === '/c/governance-actions/' || p === '/c/budget/' ? 'governance' : 'forum';
+  }
+  return 'all';
+}

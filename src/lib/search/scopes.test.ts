@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseApiScope, isScope, groupToScope, SCOPES } from './scopes.js';
+import { parseApiScope, isScope, groupToScope, scopeForPath, SCOPES } from './scopes.js';
 
 describe('parseApiScope', () => {
   it('accepts D1 scopes', () => {
@@ -33,5 +33,27 @@ describe('groupToScope', () => {
     expect(groupToScope('Help')).toBe('help');
     expect(groupToScope('Pages')).toBe('all');
     expect(groupToScope('Exact match')).toBe('all');
+  });
+});
+
+describe('scopeForPath', () => {
+  it.each([
+    ['/help/', 'help'],
+    ['/help/becoming-a-drep/', 'help'],
+    ['/glossary/', 'help'],
+    ['/discussions/', 'forum'],
+    ['/discussions', 'forum'],
+    ['/dreps/', 'dreps'],
+    ['/dreps', 'dreps'],
+    ['/dreps/movers/', 'dreps'],
+    ['/dreps/drep1abc/', 'all'], // DRep profile page stays on all
+    ['/c/governance-actions/', 'governance'],
+    ['/c/governance-actions', 'governance'],
+    ['/c/budget/', 'governance'],
+    ['/c/general/', 'forum'],
+    ['/', 'all'],
+    ['/settings/', 'all'],
+  ])('maps %s to %s', (path, expected) => {
+    expect(scopeForPath(path)).toBe(expected);
   });
 });
