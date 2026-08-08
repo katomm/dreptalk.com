@@ -17,6 +17,7 @@ import { checkRewardAddressHeader } from './handlers.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
 import { lookupInviteByCode, redeemGrant } from '../db/proposerGrants.js';
 import { createSession, buildSessionCookie } from './session.js';
+import { sessionActivityHook } from './sessionActivity.js';
 import { rolesFromUser, normalizeSessionRoles } from './roles.js';
 import { isHex, sanitizeExternalText, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -243,7 +244,7 @@ async function handleRedeemGrantInternal(input: RedeemGrantInput, deps?: RedeemG
       grantId: invite.grantId,
       actsFor: { userId: res.proposerUserId, stakeAddr: res.proposerStakeAddr },
     },
-    { now: nowSec },
+    { now: nowSec, onCreate: sessionActivityHook(db) },
   );
 
   return {

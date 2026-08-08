@@ -4,6 +4,7 @@
 import { defineMiddleware } from 'astro:middleware';
 import { env, waitUntil } from 'cloudflare:workers';
 import { parseSessionToken, getSession } from './lib/auth/session.js';
+import { sessionActivityHook } from './lib/auth/sessionActivity.js';
 import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
 import { isDatabaseUnavailable, serviceUnavailableResponse } from './lib/http/serviceUnavailable.js';
@@ -56,7 +57,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
     const cookieHeader = context.request.headers.get('Cookie');
     const token = parseSessionToken(cookieHeader);
     if (token) {
-      const record = await getSession(sessionKv, token);
+      const db = env?.DB as D1Database | undefined;
+      const record = await getSession(sessionKv, token, db ? { onRenew: sessionActivityHook(db) } : undefined);
       if (record) {
         context.locals.user = {
           id: record.userId,
