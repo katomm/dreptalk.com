@@ -64,6 +64,14 @@ describe('LAST_SEEN_BACKFILL_SQL', () => {
     expect(await lastSeen('u0')).toBeNull();
   });
 
+  it('includes a zero-sentinel user via a qualifying post, seeding last_seen from the post', async () => {
+    await seedTopic();
+    await seedUser('uP', 0);                 // 0 sentinel: excluded by the > 0 guard on its own
+    await seedPost('pp', 'uP', MS + 7000);   // qualifying post pulls the row in via EXISTS
+    await env.DB.prepare(LAST_SEEN_BACKFILL_SQL).run();
+    expect(await lastSeen('uP')).toBe(MS + 7000);
+  });
+
   it('never seeds reserved accounts', async () => {
     await seedUser('system', SEC);
     await seedUser('gov-sync', SEC);

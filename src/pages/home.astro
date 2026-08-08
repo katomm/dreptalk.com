@@ -70,9 +70,8 @@ const [[account, unreadCount], votableRows, recentIds, activeCounts, hotTopic, v
       : NO_FOLLOW_DELEGATION,
   ]);
 
-// Same "N DReps and M SPOs active recently" line the discussions page shows,
-// hydrated to full identities exactly like there, so the featured tile can
-// render the faces with their names and profile links.
+// The "... active in the last 30 days on DRepTalk" label (built from activeCounts),
+// with recentIds hydrated to full identities for the featured tile faces.
 const recentAuthors =
   db && recentIds.length
     ? await loadAuthorIdentities(db, recentIds).then((r) => recentIds.map((id) => r.describe(id)))
