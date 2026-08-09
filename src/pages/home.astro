@@ -21,10 +21,11 @@ import { getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation } fro
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory';
 import { loadDelegation, NO_FOLLOW_DELEGATION } from '@/lib/db/loadDelegation';
 import { getMostRepliedRecentTopic } from '@/lib/db/forum';
-import { listActiveGovIds, countActiveByRole } from '@/lib/db/activeParticipants.js';
-import { authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author';
-import { AVATAR_SIZE } from '@/lib/forum/avatarSizes';
-import { activeLabel, ACTIVE_WINDOW_MS } from '@/lib/forum/view';
+import { countActiveByRole } from '@/lib/db/activeParticipants.js';
+import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
+import ActiveFaces from '@/components/ActiveFaces.astro';
+import { authorProfileHref } from '@/lib/forum/author';
+import { activeLabel, ACTIVE_WINDOW_MS, HOME_FACE_LIMIT } from '@/lib/forum/view';
 import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 
@@ -54,11 +55,11 @@ const drep = drepId && db ? await getDrepById(db, drepId) : null;
 // (pairs with the top-10 face row), the hot-topic teaser looks at the last week.
 const nowMs = Date.now();
 const HOT_TOPIC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const [[account, unreadCount], votableRows, recentIds, activeCounts, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData] =
+const [[account, unreadCount], votableRows, activeFaces, activeCounts, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData] =
   await Promise.all([
     loadSessionHeader(Astro.locals, user.id),
     drepId && db ? getVotableActionsForViewer(db, drepId) : [],
-    db ? listActiveGovIds(db, nowMs - ACTIVE_WINDOW_MS, 10) : [],
+    db ? loadActiveFaces(db, nowMs - ACTIVE_WINDOW_MS, HOME_FACE_LIMIT, nowMs) : [],
     db ? countActiveByRole(db, nowMs - ACTIVE_WINDOW_MS) : { actors: 0, dreps: 0, spos: 0, delegators: 0 },
     db ? getMostRepliedRecentTopic(db, nowMs - HOT_TOPIC_WINDOW_MS) : null,
     drep && db ? getDrepVoteBreakdown(db, drep.drepId) : { yes: 0, no: 0, abstain: 0, total: 0 },
@@ -70,23 +71,8 @@ const [[account, unreadCount], votableRows, recentIds, activeCounts, hotTopic, v
       : NO_FOLLOW_DELEGATION,
   ]);
 
-// The "... active in the last 30 days on DRepTalk" label (built from activeCounts),
-// with recentIds hydrated to full identities for the featured tile faces.
-const recentAuthors =
-  db && recentIds.length
-    ? await loadAuthorIdentities(db, recentIds).then((r) => recentIds.map((id) => r.describe(id)))
-    : [];
+// The "... active in the last 30 days on DRepTalk" label (built from activeCounts).
 const activityLabel = activeLabel(activeCounts);
-// The clickable faces in the featured tile: the whole recently-active list
-// (already capped at 10 by the query, matching the label), minus anyone whose
-// profile page does not resolve.
-const recentFaces = recentAuthors
-  .map((a) => ({ author: a, href: authorProfileHref(a) }))
-  .filter((f): f is typeof f & { href: string } => !!f.href);
-// "+N" tail of the face row: how many more DReps/SPOs were active in the last
-// month beyond the faces shown. A quiet month can undershoot the top-10 list
-// (which has no window), so this clamps to zero instead of going negative.
-const moreActiveCount = Math.max(0, activeCounts.actors - recentFaces.length);
 const hotTopicReplies = hotTopic ? Math.max(0, hotTopic.post_count - 1) : 0;
 
 const openCount = votableRows.length;
@@ -232,21 +218,9 @@ const cards: HomeCard[] = [
           <a class="home-card__title home-card__stretch-link" href={discussionsCard.href}>{discussionsCard.title}</a>
           <span class="home-card__text">{discussionsCard.desc}</span>
           {discussionsCard.stat && <span class="home-card__stat">{discussionsCard.stat}</span>}
-          {recentFaces.length > 0 && (
+          {activeFaces.length > 0 && (
             <span class="home-card__faces">
-              {recentFaces.map((f) => (
-                <a class="home-card__face" href={f.href} title={f.author.displayName} aria-label={`Profile of ${f.author.displayName}`}>
-                  <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} size={AVATAR_SIZE.rowLead} />
-                </a>
-              ))}
-              {moreActiveCount > 0 && (
-                <a
-                  class="home-card__face home-card__face--more"
-                  href="/discussions/"
-                  title={`${moreActiveCount} more active in the last 30 days`}
-                  aria-label={`${moreActiveCount} more people active in the last 30 days`}
-                >+{moreActiveCount}</a>
-              )}
+              <ActiveFaces faces={activeFaces} actorCount={activeCounts.actors} moreHref="/discussions/" />
             </span>
           )}
           {hotTopic && (
@@ -373,42 +347,7 @@ const cards: HomeCard[] = [
      above the stretched link. Shown on all sizes, the faces wrap under the
      label on narrow screens. */
   .home-card__faces {
-    display: flex;
-    flex-wrap: wrap;
-    row-gap: 0.4rem;
     margin-top: 0.4rem;
-  }
-  .home-card__face {
-    position: relative;
-    z-index: 1;
-    display: inline-flex;
-    border-radius: 50%;
-    /* Card-colored ring so the overlapping edges stay crisp. */
-    background: var(--surface);
-    box-shadow: 0 0 0 2px var(--surface);
-    transition: transform 0.15s ease;
-  }
-  .home-card__face + .home-card__face {
-    margin-left: -10px;
-  }
-  .home-card__face:hover {
-    z-index: 2;
-    transform: translateY(-2px);
-  }
-  /* "+N more" tail chip: sized like a face, styled as an accent count. */
-  .home-card__face--more {
-    width: 40px;
-    height: 40px;
-    align-items: center;
-    justify-content: center;
-    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-    color: var(--accent);
-    font-size: 0.8125rem;
-    font-weight: 700;
-    text-decoration: none;
-  }
-  a.home-card__face--more:hover {
-    background: color-mix(in srgb, var(--accent) 20%, var(--surface));
   }
   /* Hot-topic teaser, raised above the stretched link. Wraps freely so long
      titles stay readable; clamped at two lines to keep the tile compact. */

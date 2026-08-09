@@ -17,27 +17,64 @@ export interface ActiveRoleCounts {
   delegators: number;
 }
 
+export interface GovFaceRow {
+  id: string;
+  lastSeen: number;
+  isDrep: boolean;
+  isSpo: boolean;
+  /** DRep voting power in lovelace (string), null for non-DReps or unsynced. */
+  votingPower: string | null;
+  /** DRep delegator count, null for non-DReps or unsynced. */
+  delegatorCount: number | null;
+  /** SPO pool ticker, null for non-SPOs or unsynced. */
+  poolTicker: string | null;
+}
+
 /**
- * Ordered ids of DReps/SPOs seen within the window, newest activity first (id as
- * the stable tie-break), for the face row. limit clamped to [1, 50].
+ * Ordered DReps/SPOs seen within the window (newest first, id as the stable
+ * tie-break, limit clamped to [1, 50]) with the per-face stats the hover card
+ * needs: last seen, and the role headline (DRep voting power + delegator count,
+ * SPO ticker). One users query with left joins to dreps/pools. Callers hydrate
+ * names/avatars separately via loadAuthorIdentities using the returned ids.
  */
-export async function listActiveGovIds(db: D1Database, cutoffMs: number, limit: number): Promise<string[]> {
+export async function listActiveGovFaces(db: D1Database, cutoffMs: number, limit: number): Promise<GovFaceRow[]> {
   const n = Math.min(Math.max(Math.trunc(limit) || 0, 1), 50);
   const rows = (
     await db
       .prepare(
-        `SELECT id FROM users
-         WHERE (is_drep = 1 OR is_spo = 1)
-           AND status = 'active'
-           AND last_seen > ?
-           AND id NOT IN (?, ?)
-         ORDER BY last_seen DESC, id ASC
+        `SELECT u.id AS id, u.last_seen AS last_seen, u.is_drep AS is_drep, u.is_spo AS is_spo,
+                d.voting_power AS voting_power, d.delegator_count AS delegator_count,
+                p.ticker AS pool_ticker
+         FROM users u
+         LEFT JOIN dreps d ON d.drep_id = u.drep_id
+         LEFT JOIN pools p ON p.pool_id = u.pool_id
+         WHERE (u.is_drep = 1 OR u.is_spo = 1)
+           AND u.status = 'active'
+           AND u.last_seen > ?
+           AND u.id NOT IN (?, ?)
+         ORDER BY u.last_seen DESC, u.id ASC
          LIMIT ?`,
       )
       .bind(cutoffMs, SYSTEM_USER_ID, GOV_SYNC_AUTHOR, n)
-      .all<{ id: string }>()
+      .all<{
+        id: string;
+        last_seen: number;
+        is_drep: number;
+        is_spo: number;
+        voting_power: string | null;
+        delegator_count: number | null;
+        pool_ticker: string | null;
+      }>()
   ).results ?? [];
-  return rows.map((r) => r.id);
+  return rows.map((r) => ({
+    id: r.id,
+    lastSeen: r.last_seen,
+    isDrep: r.is_drep === 1,
+    isSpo: r.is_spo === 1,
+    votingPower: r.voting_power ?? null,
+    delegatorCount: r.delegator_count ?? null,
+    poolTicker: r.pool_ticker ?? null,
+  }));
 }
 
 /**

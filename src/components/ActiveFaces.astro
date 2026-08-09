@@ -1,0 +1,126 @@
+---
+// Overlapping row of recently-active DRep/SPO avatars, each revealing a hover
+// card (role headline: DRep voting power + delegators, SPO ticker, plus when it
+// was last active), with a trailing "+N" for the actors that did not fit.
+// Shared by the RecentlyActiveCard (landing + discussions) and the home tile so
+// both look and behave identically.
+import Avatar from '@/components/Avatar.astro';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
+import type { ActiveFace } from '@/lib/forum/activeFaces.js';
+
+interface Props {
+  faces: ActiveFace[];
+  /** Total distinct active gov actors; the "+N" tail is whatever exceeds the faces shown. */
+  actorCount: number;
+  /** When set, the "+N" tail is a link (home tile points it at /discussions). */
+  moreHref?: string | null;
+}
+const { faces, actorCount, moreHref = null } = Astro.props;
+// A dual DRep+SPO counts once in actorCount, so this can never go negative.
+const moreCount = Math.max(0, actorCount - faces.length);
+const fmtInt = (n: number) => n.toLocaleString('en-US');
+---
+
+<span class="af" role="list">
+  {faces.map((f) => (
+    <span class="af__item" role="listitem">
+      <a
+        class="af__face"
+        href={f.href}
+        aria-label={f.role ? `Profile of ${f.author.displayName}, ${f.role}` : `Profile of ${f.author.displayName}`}
+      >
+        <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} size={AVATAR_SIZE.rowLead} />
+        <span class="af__pop" aria-hidden="true">
+          <span class="af__card">
+            <span class="af__head">
+              <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} size={44} />
+              <span class="af__id">
+                <span class="af__name">{f.author.displayName}</span>
+                {f.role && <span class="af__role">{f.role}</span>}
+              </span>
+            </span>
+            <span class="af__stats">
+              <span class="af__stat"><span class="af__dot"></span>Active {f.lastActive}</span>
+              {f.votingPower && <span class="af__stat"><b>{f.votingPower}</b> voting power</span>}
+              {f.delegators != null && (
+                <span class="af__stat"><b>{fmtInt(f.delegators)}</b> {f.delegators === 1 ? 'delegator' : 'delegators'}</span>
+              )}
+              {f.ticker && <span class="af__stat">Pool <b>{f.ticker}</b></span>}
+            </span>
+            <span class="af__cta">View profile</span>
+          </span>
+        </span>
+      </a>
+    </span>
+  ))}
+  {moreCount > 0 && (
+    <span class="af__item" role="listitem">
+      {moreHref ? (
+        <a class="af__face af__face--more" href={moreHref} aria-label={`${moreCount} more active`}>+{moreCount}</a>
+      ) : (
+        <span class="af__face af__face--more" aria-hidden="true">+{moreCount}</span>
+      )}
+    </span>
+  )}
+</span>
+
+<style>
+  .af { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; row-gap: 0.5rem; }
+  .af__item { display: flex; }
+  .af__item + .af__item { margin-left: -10px; }
+  .af__face {
+    position: relative; z-index: 1;
+    display: inline-flex; border-radius: 50%;
+    background: var(--surface); box-shadow: 0 0 0 2px var(--surface);
+    transition: transform 0.15s ease; text-decoration: none;
+  }
+  a.af__face:hover, a.af__face:focus-visible { z-index: 30; transform: translateY(-3px); }
+  .af__face--more {
+    width: 40px; height: 40px; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    color: var(--accent); font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+
+  /* Hover card. The wrapper reaches down to the avatar (padding-bottom) so the
+     pointer can move onto the card without a hover gap. Vertical hover animation
+     lives on the wrapper, horizontal placement on the card, so the two never
+     fight; the card is centred by default and re-anchored at the row ends. */
+  .af__pop {
+    position: absolute; bottom: 100%; left: 50%;
+    padding-bottom: 10px; opacity: 0; pointer-events: none;
+    transform: translateY(6px); transition: opacity 0.12s ease, transform 0.12s ease;
+    z-index: 40;
+  }
+  .af__face:hover .af__pop, .af__face:focus-visible .af__pop {
+    opacity: 1; pointer-events: auto; transform: translateY(0);
+  }
+  .af__card {
+    display: block; width: 232px; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); padding: 0.85rem 0.9rem;
+  }
+  .af__item:nth-child(-n+2) .af__card { transform: translateX(-12px); }
+  .af__item:nth-last-child(-n+2) .af__card { transform: translateX(calc(-100% + 52px)); }
+
+  .af__head { display: flex; align-items: center; gap: 0.6rem; }
+  .af__id { display: flex; flex-direction: column; min-width: 0; gap: 0.15rem; }
+  .af__name {
+    font-size: 0.9rem; font-weight: 600; color: var(--fg);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .af__role {
+    align-self: flex-start;
+    font-size: 0.625rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+    padding: 0.1rem 0.4rem; border-radius: 999px;
+  }
+  .af__stats {
+    display: flex; flex-direction: column; gap: 0.3rem;
+    margin: 0.7rem 0 0; padding-top: 0.7rem; border-top: 1px solid var(--border);
+    font-size: 0.8125rem; color: var(--muted);
+  }
+  .af__stat { display: flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+  .af__stat b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .af__dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; flex: none; }
+  .af__cta { display: block; margin-top: 0.7rem; font-size: 0.8125rem; font-weight: 600; color: var(--accent); }
+</style>

@@ -1,44 +1,33 @@
 ---
 // "N DReps, M SPOs and K delegators active in the last 30 days on DRepTalk":
-// the DReps/SPOs seen most recently (faces) plus the role counts as the heading.
+// the full role counts as the heading over an overlapping row of the DReps/SPOs
+// seen most recently (see ActiveFaces for the faces and their hover cards).
 // Counts are passed in (not derived from the faces) because delegators have no
-// faces and the counts span the whole window, not just the ten shown. Renders
-// nothing when the label is null (no active DReps/SPOs).
-import AuthorIdentity from '@/components/AuthorIdentity.astro';
-import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
-import type { AuthorDescriptor } from '@/lib/forum/author.js';
+// faces and the counts span the whole window; the gov actors beyond the faces
+// fold into a "+N" tail. Renders nothing when the label is null.
+import ActiveFaces from '@/components/ActiveFaces.astro';
+import type { ActiveFace } from '@/lib/forum/activeFaces.js';
 import { activeLabel } from '@/lib/forum/view.js';
 
 interface Props {
-  authors: AuthorDescriptor[];
-  counts: { dreps: number; spos: number; delegators: number };
+  faces: ActiveFace[];
+  counts: { actors: number; dreps: number; spos: number; delegators: number };
 }
-const { authors, counts } = Astro.props;
+const { faces, counts } = Astro.props;
 const heading = activeLabel(counts);
 ---
 
 {heading && (
-  <section class="recently-active" aria-labelledby="recently-active-title">
-    <p class="recently-active__title" id="recently-active-title">{heading}</p>
-    <ul class="recently-active__list">
-      {authors.map((a) => (
-        <li class="recently-active__item">
-          <AuthorIdentity author={a} size={AVATAR_SIZE.card} />
-        </li>
-      ))}
-    </ul>
+  <section class="raf" aria-labelledby="raf-title">
+    <p class="raf__title" id="raf-title">{heading}</p>
+    <ActiveFaces faces={faces} actorCount={counts.actors} />
   </section>
 )}
 
 <style>
-  .recently-active { margin-top: 2.5rem; border-top: 1px solid var(--border); padding-top: 2rem; }
-  .recently-active__title {
-    font-size: 0.95rem; font-weight: 600; color: var(--fg); margin: 0 0 1rem;
+  .raf { margin-top: 2.5rem; border-top: 1px solid var(--border); padding-top: 2rem; }
+  .raf__title {
+    font-size: 0.95rem; font-weight: 600; color: var(--fg); margin: 0 0 1.25rem;
     font-variant-numeric: tabular-nums;
   }
-  .recently-active__list {
-    list-style: none; margin: 0; padding: 0;
-    display: flex; flex-wrap: wrap; gap: 0.6rem 1.4rem;
-  }
-  .recently-active__item { font-size: 0.875rem; min-width: 0; }
 </style>

@@ -8,14 +8,14 @@ import CategorySidebar from '@/components/CategorySidebar.astro';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { loadActivityFeed, parseActivityFilter, type ActivityFilter } from '@/lib/forum/activityFeed.js';
 import { getCategories } from '../../config/categories.js';
-import { cacheControlFor, parsePage, pageToOffset, SITE_ORIGIN, ACTIVE_WINDOW_MS } from '@/lib/forum/view.js';
+import { cacheControlFor, parsePage, pageToOffset, SITE_ORIGIN, ACTIVE_WINDOW_MS, CARD_FACE_LIMIT } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 // Segmented pill styles for the activity filter, shared with the governance-actions
 // list and /vote so the three controls stay identical.
 import '@/styles/list-controls.css';
-import { listActiveGovIds, countActiveByRole } from '@/lib/db/activeParticipants.js';
-import { loadAuthorIdentities } from '@/lib/forum/author.js';
+import { countActiveByRole } from '@/lib/db/activeParticipants.js';
+import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
@@ -29,11 +29,11 @@ const offset = pageToOffset(page, PAGE_SIZE);
 
 // Category stats and the activity page are independent; load them together.
 const cutoff = now - ACTIVE_WINDOW_MS;
-const [stats, feed, recentIds, activeCounts] = db
+const [stats, feed, activeFaces, activeCounts] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { filter, limit: PAGE_SIZE, offset, withParticipants: true }),
-      listActiveGovIds(db, cutoff, 10),
+      loadActiveFaces(db, cutoff, CARD_FACE_LIMIT, now),
       countActiveByRole(db, cutoff),
     ])
   : [
@@ -42,12 +42,6 @@ const [stats, feed, recentIds, activeCounts] = db
       [],
       { actors: 0, dreps: 0, spos: 0, delegators: 0 },
     ];
-
-// Hydrate the recently-active author ids into presentational descriptors using
-// the shared forum resolver (avatar, name, role badges, profile link), keeping
-// the query's recency order.
-const recentIdentities = db && recentIds.length ? await loadAuthorIdentities(db, recentIds) : null;
-const recentAuthors = recentIdentities ? recentIds.map((id) => recentIdentities.describe(id)) : [];
 
 // Tabs and pager keep the active filter; a filter change resets to page 1.
 const tabHref = (f: ActivityFilter) => `/discussions/?filter=${f}`;
@@ -88,7 +82,7 @@ const breadcrumbLd = {
     />
   </div>
 
-  <RecentlyActiveCard authors={recentAuthors} counts={activeCounts} />
+  <RecentlyActiveCard faces={activeFaces} counts={activeCounts} />
 </Layout>
 
 <style>

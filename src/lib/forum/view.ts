@@ -176,6 +176,12 @@ export function cacheControlForSynced(user: unknown | null): string {
 
 export const ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 export const DELEGATOR_MIN = 25;
+// Face cap for the full-width RecentlyActiveCard on the landing and discussions
+// pages. It wraps freely, so it can show more than the compact home tile.
+// Any active gov actors beyond this surface as a "+N more" tail on the card.
+export const CARD_FACE_LIMIT = 20;
+// Face cap for the compact discussions tile on the signed-in home dashboard.
+export const HOME_FACE_LIMIT = 10;
 
 /**
  * Label for the active-participant summary, e.g. "42 DReps, 8 SPOs and 137
