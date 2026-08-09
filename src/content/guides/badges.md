@@ -3,7 +3,7 @@ title: "Badges"
 description: "How achievement badges work on DRepTalk: earned automatically from your Cardano on-chain and forum activity, with bronze, silver, and gold tiers and a few hidden surprises."
 cardLabel: "Badges"
 category: "About DRepTalk"
-order: 3
+order: 4
 ---
 
 Badges recognize governance participation. They are earned automatically; there is

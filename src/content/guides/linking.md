@@ -3,7 +3,7 @@ title: "Linking to DReps, governance actions, and votes"
 description: "How to link to any Cardano DRep, governance action, or individual vote on DRepTalk using plain on-chain ids: no need to know the page's slug, DRepTalk resolves and redirects."
 cardLabel: "Linking to pages"
 category: "About DRepTalk"
-order: 4
+order: 5
 updated: 2026-08-02
 faqs:
   - q: "How do I link to a governance action without knowing its DRepTalk URL?"

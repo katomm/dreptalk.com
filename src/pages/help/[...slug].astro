@@ -5,16 +5,26 @@ export const prerender = false;
 import { getEntry, render } from 'astro:content';
 import HelpLayout from '@/layouts/HelpLayout.astro';
 import JsonLd from '@/components/JsonLd.astro';
+import ReleaseList from '@/components/ReleaseList.astro';
 import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
 import { buildArticleLd, buildFaqLd } from '@/lib/help/jsonld.js';
 import { ogCardVersion } from '@/lib/og/version.js';
+import { fetchReleases } from '@/lib/github/releases.js';
 
 const { slug } = Astro.params;
 const entry = slug ? await getEntry('guides', slug) : undefined;
 if (!entry) return new Response('Not found', { status: 404 });
 
-const { Content } = await render(entry);
 const d = entry.data;
+
+// Guides flagged with `showReleases` append the GitHub release listing below
+// their prose. Start the fetch before rendering the markdown so the GitHub
+// round-trip overlaps the render instead of adding to the response time.
+const releasesPromise = d.showReleases ? fetchReleases() : Promise.resolve([]);
+
+const { Content } = await render(entry);
+const now = Date.now();
+const releases = await releasesPromise;
 const origin = Astro.site?.origin ?? 'https://dreptalk.com';
 
 const breadcrumbLd = buildBreadcrumbLd(origin, [
@@ -31,4 +41,7 @@ const faqLd = buildFaqLd(d.faqs);
   {faqLd && <JsonLd data={faqLd} />}
 
   <Content />
+  {/* Rendered inside .prose on purpose: it aligns with the content column and
+      lets GlossaryTerms mark up the release summaries like the rest of the guide. */}
+  {d.showReleases && <ReleaseList releases={releases} now={now} />}
 </HelpLayout>

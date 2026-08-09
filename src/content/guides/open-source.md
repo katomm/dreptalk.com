@@ -3,7 +3,7 @@ title: "Open source"
 description: "DRepTalk is open source under the Apache 2.0 license. The full code is on GitHub and contributions are welcome."
 cardLabel: "Open source"
 category: "About DRepTalk"
-order: 1
+order: 2
 ---
 
 DRepTalk is open source, released under the **Apache 2.0** license.
@@ -20,8 +20,12 @@ would make the forum better? Open an issue or a pull request on
 feedback, and translations are just as valuable as code. If you are unsure where to
 start, open an issue describing what you have in mind and we will help you scope it.
 
+Curious what has shipped lately? See [what's new](/help/whats-new/) for every
+release, newest first.
+
 ## Related
 
+- [What's new](/help/whats-new/)
 - [Data freshness](/help/data-freshness/)
 - [Moderation](/help/moderation/)
 - [Signing in](/help/signing-in/)
