@@ -13,7 +13,7 @@ import { getActionVoters, getDrepVotingHistory, type ActionVoterRow } from '@/li
 import { getSelfDrepId } from '@/lib/db/users.js';
 import { orderVoteCandidates, buildPersonalizedRing } from '@/lib/hero/personalize.js';
 import { getDrepsByIds } from '@/lib/db/dreps.js';
-import { voterDescriptor, authorProfileHref, loadAuthorIdentities } from '@/lib/forum/author.js';
+import { voterDescriptor, authorProfileHref } from '@/lib/forum/author.js';
 import { heroRingSlots, HERO_RING_RADII } from '@/lib/hero/ring.js';
 import { loadActivityFeed } from '@/lib/forum/activityFeed.js';
 import {
@@ -30,11 +30,12 @@ import {
 import CompositionBar from '@/components/ga/CompositionBar.astro';
 import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
-import { cacheControlFor, formatRelativeTime, ACTIVE_WINDOW_MS } from '@/lib/forum/view.js';
+import { cacheControlFor, formatRelativeTime, ACTIVE_WINDOW_MS, CARD_FACE_LIMIT } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 import CategorySidebar from '@/components/CategorySidebar.astro';
-import { listActiveGovIds, countActiveByRole } from '@/lib/db/activeParticipants.js';
+import { countActiveByRole } from '@/lib/db/activeParticipants.js';
+import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 import { fetchLatestRelease } from '@/lib/github/latestRelease.js';
 
 const db = env.DB as D1Database | undefined;
@@ -65,12 +66,12 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 // the denominator for the hero card's vote-composition bar; it depends only on db,
 // so it rides this Promise.all instead of adding a serial round-trip later.
 const cutoff = now - ACTIVE_WINDOW_MS;
-const [stats, feed, votedHero, recentIds, activeDrepStake, activeCounts] = db
+const [stats, feed, votedHero, activeFaces, activeDrepStake, activeCounts] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 15, withParticipants: true }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
-      listActiveGovIds(db, cutoff, 10),
+      loadActiveFaces(db, cutoff, CARD_FACE_LIMIT, now),
       getActiveDrepStake(db),
       countActiveByRole(db, cutoff),
     ])
@@ -82,12 +83,6 @@ const [stats, feed, votedHero, recentIds, activeDrepStake, activeCounts] = db
       { total: 0, asOf: null },
       { actors: 0, dreps: 0, spos: 0, delegators: 0 },
     ];
-
-// Recently active DReps/SPOs for the list under the activity feed. Reuses the
-// shared forum author resolver (avatar, name, role badges, profile link) and
-// keeps the query's recency order.
-const recentIdentities = db && recentIds.length ? await loadAuthorIdentities(db, recentIds) : null;
-const recentAuthors = recentIdentities ? recentIds.map((id) => recentIdentities.describe(id)) : [];
 
 // Personalized hero for a logged-in DRep: center on an action they voted on and
 // pin their own avatar into the ring. Only DReps reach this, so the extra reads
@@ -499,7 +494,7 @@ const heroFeatures = [
     </div>
   </section>
 
-  <RecentlyActiveCard authors={recentAuthors} counts={activeCounts} />
+  <RecentlyActiveCard faces={activeFaces} counts={activeCounts} />
 </Layout>
 
 <style>
