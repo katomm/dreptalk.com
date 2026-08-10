@@ -7,7 +7,10 @@
 
 import { fetchWithTimeout, type FetchWithTimeoutInit } from '@/lib/http/fetchWithTimeout.js';
 
-const RELEASES_URL = 'https://api.github.com/repos/katomm/dreptalk.com/releases/latest';
+// Base REST path for this repo's releases; the banner appends "/latest", the
+// listing fetches the collection.
+export const GITHUB_RELEASES_URL = 'https://api.github.com/repos/katomm/dreptalk.com/releases';
+const LATEST_RELEASE_URL = `${GITHUB_RELEASES_URL}/latest`;
 
 // Below this many milliseconds a release is treated as current; past it the
 // right side is dropped so an abandoned-looking banner never lingers.
@@ -21,13 +24,33 @@ export interface LatestRelease {
   publishedAtMs: number;
 }
 
-// Only the fields we consume from GitHub's release payload.
-interface GitHubReleasePayload {
+// Only the fields we consume from GitHub's release payload. Shared with the
+// release listing, which extends it with draft/prerelease.
+export interface GitHubReleasePayload {
   tag_name?: string;
   name?: string;
   body?: string;
   html_url?: string;
   published_at?: string;
+}
+
+/**
+ * Shared request setup for this repo's GitHub release calls: a short timeout, the
+ * required User-Agent, and Cloudflare edge caching so a slow or down GitHub never
+ * blocks render (the origin is hit at most about once per hour per colo).
+ */
+export function githubReleaseFetchInit(): FetchWithTimeoutInit & {
+  cf: { cacheTtl: number; cacheEverything: boolean };
+} {
+  return {
+    timeoutMs: 3000,
+    headers: {
+      // GitHub rejects requests without a User-Agent.
+      'User-Agent': 'dreptalk.com',
+      Accept: 'application/vnd.github+json',
+    },
+    cf: { cacheTtl: 3600, cacheEverything: true },
+  };
 }
 
 /**
@@ -54,6 +77,15 @@ export function releaseTitle(name: string, tag: string): string {
 export function releaseSummary(body: string): string {
   const clean = cleanProse(summaryBlock(body ?? ''));
   return clean ? firstSentence(clean) : '';
+}
+
+/**
+ * The whole cleaned summary paragraph (not just the first sentence). Used by the
+ * roomier release listing, where there is space for the full recap. Same source
+ * and fallbacks as releaseSummary; returns "" when there is no prose.
+ */
+export function releaseSummaryFull(body: string): string {
+  return cleanProse(summaryBlock(body ?? ''));
 }
 
 /**
@@ -86,17 +118,7 @@ export function parseRelease(raw: GitHubReleasePayload, nowMs: number): LatestRe
  */
 export async function fetchLatestRelease(nowMs: number): Promise<LatestRelease | null> {
   try {
-    const init: FetchWithTimeoutInit & { cf?: { cacheTtl: number; cacheEverything: boolean } } = {
-      timeoutMs: 3000,
-      headers: {
-        // GitHub rejects requests without a User-Agent.
-        'User-Agent': 'dreptalk.com',
-        Accept: 'application/vnd.github+json',
-      },
-      // Cache at the Cloudflare edge; a slow or down GitHub then never blocks render.
-      cf: { cacheTtl: 3600, cacheEverything: true },
-    };
-    const res = await fetchWithTimeout(RELEASES_URL, init);
+    const res = await fetchWithTimeout(LATEST_RELEASE_URL, githubReleaseFetchInit());
     if (!res.ok) return null;
     const raw = (await res.json()) as GitHubReleasePayload;
     return parseRelease(raw, nowMs);

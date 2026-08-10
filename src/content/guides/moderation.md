@@ -3,7 +3,7 @@ title: "Moderation"
 description: "How moderation works on DRepTalk: community flagging today, with appointed moderators a possibility later."
 cardLabel: "Moderation"
 category: "About DRepTalk"
-order: 2
+order: 3
 ---
 
 DRepTalk keeps moderation light and transparent. There are no appointed

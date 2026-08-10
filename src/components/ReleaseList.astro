@@ -1,0 +1,98 @@
+---
+// The release listing for the "What's new" guide: every GitHub release, newest
+// first, each with its version, title, full summary paragraph, date and a link to
+// the notes. Renders nothing when the list is empty (GitHub slow or down), so the
+// guide's own prose still stands on its own.
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import type { ReleaseItem } from '@/lib/github/releases.js';
+
+interface Props {
+  releases: ReleaseItem[];
+  now: number;
+}
+
+const { releases, now } = Astro.props;
+---
+
+{
+  releases.length > 0 && (
+    <ol class="releases" aria-label="DRepTalk releases, newest first">
+      {releases.map((r) => (
+        <li class="release">
+          <div class="release__head">
+            <span class="release__pill">{r.version}</span>
+            {r.title && <span class="release__title">{r.title}</span>}
+          </div>
+          {r.summary && <p class="release__summary">{r.summary}</p>}
+          <div class="release__foot">
+            <span class="release__date">Released {formatRelativeTime(r.publishedAtMs, now)}</span>
+            <a class="release__link" href={r.url} rel="noopener" target="_blank">
+              View release notes
+            </a>
+          </div>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+<style>
+  .releases {
+    list-style: none;
+    margin: 1.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+  }
+  .release {
+    margin: 0;
+    padding: 0 0 1.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .release:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+  .release__head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .release__pill {
+    flex-shrink: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    line-height: 1.5;
+  }
+  .release__title {
+    font-weight: 600;
+    font-size: 1.05rem;
+    color: var(--fg);
+  }
+  .release__summary {
+    margin: 0.7rem 0 0;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .release__foot {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+    margin-top: 0.9rem;
+  }
+  .release__date {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .release__link {
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+</style>

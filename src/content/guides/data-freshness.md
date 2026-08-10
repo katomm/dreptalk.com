@@ -3,7 +3,7 @@ title: "Data freshness"
 description: "How often DRepTalk refreshes Cardano on-chain values: governance tallies, DRep profiles, and vote badges. Cached, not live."
 cardLabel: "Data freshness"
 category: "About DRepTalk"
-order: 5
+order: 6
 ---
 
 DRepTalk reads on-chain data (governance tallies and status, DRep profiles, vote badges)

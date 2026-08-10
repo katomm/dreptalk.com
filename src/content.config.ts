@@ -12,6 +12,8 @@ const guides = defineCollection({
     category: z.enum(CATEGORY_ORDER),
     order: z.number(),
     featured: z.boolean().default(false),
+    // When set, the guide renders the GitHub release listing below its content.
+    showReleases: z.boolean().default(false),
     updated: z.coerce.date().optional(),
     faqs: z.array(z.object({ q: z.string(), a: z.string() })).optional(),
   }),
