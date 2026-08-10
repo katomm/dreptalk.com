@@ -2,6 +2,8 @@
 // Personal notifications inbox: merges the recipient's personal rows (reply,
 // mention) with the broadcast governance activity (gov_created, gov_status),
 // newest first, capped at 50 rows. Session-gated, no pagination in Phase 1.
+// Opening the inbox marks everything read (the header bell clears with this
+// render), while the unread highlighting still shows the pre-visit state.
 // The filterable, time-grouped list itself renders in the NotificationsInbox
 // island; this page only assembles the serializable items.
 export const prerender = false;
@@ -11,7 +13,7 @@ import NotificationSettings from '@/components/NotificationSettings.tsx';
 import TelegramSettings from '@/components/TelegramSettings.tsx';
 import NotificationsInbox from '@/components/NotificationsInbox.tsx';
 import { runtimeEnv } from '@/lib/api/response';
-import { getNotificationsPage, getNotifSeenAt } from '@/lib/db/notifications';
+import { getNotificationsPage, getNotifSeenAt, markAllRead } from '@/lib/db/notifications';
 import { listChannels, getPrefs, NOTIFICATION_EVENT_TYPES } from '@/lib/db/notificationChannels';
 import { getUserById } from '@/lib/db/users.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels';
@@ -66,8 +68,9 @@ let telegramPrefs = allPrefsEnabled;
 // default-on and harmless).
 let showDrepStats = false;
 if (db) {
-  // Read the cursor BEFORE anything else so unread highlighting reflects the
-  // state the user is coming from, not the state after this page marks it seen.
+  // Read the cursor (and the personal rows' read state) BEFORE marking, so
+  // unread highlighting reflects the state the user is coming from, not the
+  // state after this page marks everything seen.
   const [seenAt, personal, gov, channelRows, pPrefs, tPrefs, account] = await Promise.all([
     getNotifSeenAt(db, user.id),
     getNotificationsPage(db, user.id, 30),
@@ -110,6 +113,12 @@ if (db) {
     loadAuthorIdentities(db, personal.map((n) => n.actor_id)),
     getDrepsByIds(db, [...delegationDrepIds]),
     getGovernanceActionSlugsByIds(db, [...voteEventGaIds]),
+    // Opening the inbox counts as reading it: mark everything read so the
+    // header bell clears on this very render (the layout queries the count
+    // after this frontmatter runs). Safe to batch with the reads above, since
+    // the unread flags below are computed from seenAt and the personal rows
+    // fetched before this point.
+    markAllRead(db, user.id, Date.now()),
   ]);
 
   const personalItems: InboxItem[] = personal.flatMap((n): InboxItem[] => {
@@ -234,9 +243,8 @@ if (db) {
       // Unread is decided by detection time, the same value the header badge
       // counts on (govThreadsSinceSql). createdAt is the on-chain submission
       // time and can predate the seen cursor for an action discovered just
-      // now, which would leave the badge counting a row nothing here marks
-      // unread, so "Mark all as read" stayed disabled and the badge stuck.
-      // The row still renders (and sorts) at its true submission date.
+      // now, which would make the badge count a row this page never shows as
+      // unread. The row still renders (and sorts) at its true submission date.
       unread: (e.notifiedAt ?? e.createdAt) > seenAt,
       actorName: null,
       actorHref: null,
@@ -251,7 +259,6 @@ if (db) {
 }
 
 const now = Date.now();
-const unreadCount = items.filter((r) => r.unread).length;
 ---
 <Layout title="Notifications" noindex wide>
   <div class="notif-head">
@@ -260,13 +267,6 @@ const unreadCount = items.filter((r) => r.unread).length;
       <p class="notif-sub">Stay up to date with what matters to you.</p>
     </div>
     <div class="notif-head__actions">
-      {/* Always rendered so the mechanism stays discoverable; disabled when
-          there is nothing unread. */}
-      <form method="post" action="/api/notifications/read">
-        <button class="notif-markread" type="submit" disabled={unreadCount === 0}>
-          Mark all as read
-        </button>
-      </form>
       <a class="notif-settingslink" href="#notification-settings">Notification settings</a>
       {/* Push notifications are set up here but only work on a signed-in device,
           so this is the natural place to find the pairing page from. */}
@@ -329,22 +329,6 @@ const unreadCount = items.filter((r) => r.unread).length;
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
-  }
-  .notif-markread {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--accent);
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 0.4rem;
-    padding: 0.4rem 0.75rem;
-    cursor: pointer;
-  }
-  .notif-markread:hover:not(:disabled) { background: var(--surface); }
-  .notif-markread:disabled {
-    color: var(--muted);
-    cursor: default;
-    opacity: 0.7;
   }
   .notif-settingslink {
     font-size: 0.8125rem;
