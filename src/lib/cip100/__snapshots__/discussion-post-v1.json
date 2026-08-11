@@ -1,0 +1,82 @@
+{
+  "@context": [
+    {
+      "@language": "en-us",
+      "CIP100": "https://github.com/cardano-foundation/CIPs/blob/master/CIP-0100/README.md#",
+      "hashAlgorithm": "CIP100:hashAlgorithm",
+      "body": {
+        "@id": "CIP100:body",
+        "@context": {
+          "references": {
+            "@id": "CIP100:references",
+            "@container": "@set",
+            "@context": {
+              "GovernanceMetadata": "CIP100:GovernanceMetadataReference",
+              "Other": "CIP100:OtherReference",
+              "label": "CIP100:reference-label",
+              "uri": "CIP100:reference-uri"
+            }
+          },
+          "comment": "CIP100:comment",
+          "externalUpdates": {
+            "@id": "CIP100:externalUpdates",
+            "@context": {
+              "title": "CIP100:update-title",
+              "uri": "CIP100:update-uri"
+            }
+          }
+        }
+      },
+      "authors": {
+        "@id": "CIP100:authors",
+        "@container": "@set",
+        "@context": {
+          "did": "@id",
+          "name": "http://xmlns.com/foaf/0.1/name",
+          "witness": {
+            "@id": "CIP100:witness",
+            "@context": {
+              "witnessAlgorithm": "CIP100:witnessAlgorithm",
+              "publicKey": "CIP100:publicKey",
+              "signature": "CIP100:signature"
+            }
+          }
+        }
+      }
+    },
+    "https://dreptalk.com/cip100/context/v1.jsonld"
+  ],
+  "hashAlgorithm": "blake2b-256",
+  "authors": [],
+  "body": {
+    "@type": "DiscussionPost",
+    "postId": "6f1c9a8e-2b77-4c31-9a0e-1d2f3c4b5a60",
+    "version": 1,
+    "postedAt": "2025-08-05T09:12:44Z",
+    "network": "mainnet",
+    "forum": "https://dreptalk.com/",
+    "thread": "https://dreptalk.com/cip100/topic/2c4d6e80-11aa-4f2b-8c93-77e0a1b2c3d4.json",
+    "postedBy": {
+      "handle": "Tommy"
+    },
+    "comment": "A statement worth citing.",
+    "externalUpdates": [
+      {
+        "title": "Versions of this post",
+        "uri": "https://dreptalk.com/cip100/post/6f1c9a8e-2b77-4c31-9a0e-1d2f3c4b5a60.json"
+      }
+    ],
+    "references": [
+      {
+        "@type": "Other",
+        "label": "Post permalink",
+        "uri": "https://dreptalk.com/t/should-we-fund-x-a1b2/#post-6f1c9a8e-2b77-4c31-9a0e-1d2f3c4b5a60"
+      },
+      {
+        "@type": "Other",
+        "label": "Discussion",
+        "uri": "https://dreptalk.com/t/should-we-fund-x-a1b2/"
+      }
+    ]
+  }
+}
