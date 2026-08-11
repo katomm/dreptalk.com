@@ -19,6 +19,7 @@ export const GET: APIRoute = async ({ site }) => {
     { path: '/' },
     { path: '/register-drep/' },
     { path: '/badges/' },
+    { path: '/brand/' },
     { path: '/help/' },
     ...(await getCollection('guides')).map((g) => ({
       path: `/help/${g.id}/`,
