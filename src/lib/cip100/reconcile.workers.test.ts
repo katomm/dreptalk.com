@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, createPost, editPost } from '../db/forum.js';
-import { getHeadDoc, listPostVersions, findStalePostIds } from '../db/cip100.js';
+import { getHeadDoc, listPostVersions, findStalePostIds, insertDoc, getDocBody } from '../db/cip100.js';
 import { reconcilePostDocs } from './reconcile.js';
 import { EDIT_GRACE_MS } from '../forum/editPolicy.js';
 
@@ -112,5 +112,53 @@ describe('reconcilePostDocs', () => {
     const { firstPost } = await seedTopic('r9');
     await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?').bind(T, firstPost.id).run();
     expect((await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE })).status).toBe('skipped');
+  });
+
+  it('rebuilds against the new head after a lost version race', async () => {
+    const { firstPost } = await seedTopic('r10');
+    await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });
+    const v1 = await getHeadDoc(db(), firstPost.id);
+    await editPost(db(), {
+      postId: firstPost.id, authorId: AUTHOR, bodyMd: 'a racing edit',
+      bodyHtml: '<p>a racing edit</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+    });
+    // Simulate a writer that already took version 2 before this reconcile runs.
+    // That occupies the (post_id, version) slot the reconciler would otherwise
+    // build for.
+    const racingHash = 'b'.repeat(64);
+    const racing = await insertDoc(db(), {
+      hash: racingHash, body: '{"racing":true}', postId: firstPost.id, topicId: firstPost.topic_id,
+      version: 2, prevHash: v1?.hash ?? null, sourceEditedAt: AFTER_GRACE + 2000, createdAt: AFTER_GRACE + 2500,
+    });
+    expect(racing).toBe('inserted');
+
+    const res = await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE + 3000 });
+    // A lost race must still converge to a linear chain, not fail and not fork:
+    // the reconciler rebuilds against whatever the current head is.
+    expect(res.status).toBe('created');
+    const head = await getHeadDoc(db(), firstPost.id);
+    expect(head?.version).toBe(3);
+    expect(head?.prevHash).toBe(racingHash);
+  });
+
+  it('omits inReplyTo when the parent snapshot postdates the reply', async () => {
+    const { topic, firstPost } = await seedTopic('r11');
+    const reply = await createPost(db(), {
+      topicId: topic.id, authorId: AUTHOR, bodyMd: 'a backfilled reply',
+      bodyHtml: '<p>a backfilled reply</p>', now: T + 1000, parentPostId: firstPost.id,
+    });
+    // Reconcile only the parent, producing its one and only snapshot after the
+    // reply was already written. That is the backfill situation the guard
+    // exists for: the parent's head does not predate the reply.
+    await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });
+    const parentHead = await getHeadDoc(db(), firstPost.id);
+    expect(parentHead?.createdAt).toBeGreaterThan(reply.created_at);
+
+    const res = await reconcilePostDocs(db(), reply.id, { ...OPTS, now: AFTER_GRACE + 1000 });
+    expect(res.status).toBe('created');
+    const body = await getDocBody(db(), res.hash as string);
+    const doc = JSON.parse(body as string) as { body: { inReplyToPostId?: string; inReplyTo?: string } };
+    expect(doc.body.inReplyToPostId).toBe(firstPost.id);
+    expect('inReplyTo' in doc.body).toBe(false);
   });
 });
