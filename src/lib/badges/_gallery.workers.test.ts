@@ -70,6 +70,45 @@ describe('badge gallery', () => {
     expect(ids).not.toContain('proposer');
   });
 
+  it('leaves imported vote rationales out of the progress bars', async () => {
+    // A bar that counts posts the engine refuses to count fills to its goal and
+    // then never unlocks, so both sides must apply the same exclusion.
+    await env.DB
+      .prepare(
+        `INSERT INTO governance_actions (id, type, anchor_status, status, created_at, last_synced_at, topic_id)
+         VALUES ('ga-rat', 'InfoAction', 'no-anchor', 'active', ?, ?, 't-rat')`,
+      )
+      .bind(NOW, NOW)
+      .run();
+    await env.DB
+      .prepare(
+        `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
+         VALUES ('t-rat', 'general', 'u1', 'system', 't', 'slug-t-rat', 0, ?, ?)`,
+      )
+      .bind(NOW, NOW)
+      .run();
+    await env.DB
+      .prepare('INSERT INTO users (id, drep_id, created_at, last_verified_at) VALUES (?, ?, ?, ?)')
+      .bind('u1', 'drep1', NOW, NOW)
+      .run();
+    for (let i = 0; i < 12; i++) {
+      await env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, up_count, created_at, source)
+           VALUES (?, 't-rat', 'u1', 'b', '<p>b</p>', 20, ?, 'vote_rationale')`,
+        )
+        .bind(`p-rat-${i}`, NOW)
+        .run();
+    }
+
+    const gallery = await buildBadgeGallery(env.DB, { role: 'drep', id: 'drep1', userId: 'u1' });
+    const progressOf = (id: string) => [...gallery.earned, ...gallery.inProgress].find((t) => t.badge.id === id)?.progress;
+    expect(progressOf('regular')).toEqual({ current: 0, goal: 10 });
+    expect(progressOf('on-the-record')).toEqual({ current: 0, goal: 5 });
+    expect(progressOf('well-said')).toEqual({ current: 0, goal: 10 });
+    expect(progressOf('crowd-favorite')).toEqual({ current: 0, goal: 10 });
+  });
+
   it('ranks the showcase by rarity, then recency', () => {
     const tile = (id: string, awardedAt: number): BadgeTileModel => ({
       badge: { id, name: id, description: '', category: 'drep' },

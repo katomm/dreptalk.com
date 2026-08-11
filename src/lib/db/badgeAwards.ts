@@ -61,6 +61,20 @@ export async function getSubjectAwards(
   return (res.results ?? []).map(rowToAward);
 }
 
+/**
+ * Posts that count toward forum and crossover badges. Vote rationales are
+ * ingested from chain rather than written on the forum, so they never earn
+ * forum badges. The awarding engine and the live progress counters MUST apply
+ * this identically: when they drift, a progress bar fills to its goal on posts
+ * the engine refuses to count and the badge never unlocks.
+ *
+ * `alias` is the posts table alias used by the query, empty for an unaliased one.
+ */
+export const countablePostSql = (alias = ''): string => {
+  const p = alias ? `${alias}.` : '';
+  return `${p}deleted = 0 AND ${p}hidden = 0 AND (${p}source IS NULL OR ${p}source != 'vote_rationale')`;
+};
+
 // Live counters the gallery shows progress bars for; everything else (streaks,
 // one-off events, registry badges) renders without a bar.
 export interface BadgeCounters {
@@ -103,7 +117,7 @@ export async function loadBadgeCounters(db: D1Database, drepId: string, userId: 
              FROM posts p
              JOIN governance_actions g ON g.topic_id = p.topic_id
              JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ?1 AND v.voter_role = 'DRep'
-             WHERE p.author_id = ?2 AND p.deleted = 0 AND p.hidden = 0
+             WHERE p.author_id = ?2 AND ${countablePostSql('p')}
              GROUP BY g.id, v.block_time`,
           )
           .bind(drepId, userId)
@@ -113,7 +127,7 @@ export async function loadBadgeCounters(db: D1Database, drepId: string, userId: 
       ? db
           .prepare(
             `SELECT COUNT(*) AS n, COALESCE(SUM(up_count), 0) AS ups, COALESCE(MAX(up_count), 0) AS maxup
-             FROM posts WHERE author_id = ? AND deleted = 0 AND hidden = 0`,
+             FROM posts WHERE author_id = ? AND ${countablePostSql()}`,
           )
           .bind(userId)
           .first<{ n: number; ups: number; maxup: number }>()
@@ -129,7 +143,7 @@ export async function loadBadgeCounters(db: D1Database, drepId: string, userId: 
           .prepare(
             `SELECT COUNT(DISTINCT p.topic_id) AS n FROM posts p
              JOIN governance_actions g ON g.topic_id = p.topic_id
-             WHERE p.author_id = ? AND p.deleted = 0 AND p.hidden = 0`,
+             WHERE p.author_id = ? AND ${countablePostSql('p')}`,
           )
           .bind(userId)
           .first<{ n: number }>()

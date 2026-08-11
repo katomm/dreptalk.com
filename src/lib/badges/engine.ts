@@ -12,7 +12,14 @@
 import { BADGES } from '../../../config/badges.js';
 import { EPOCH_LENGTH_SECONDS, epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
-import { applyAwards, getAllAwards, refreshBadgeHolderCounts, type BadgeAward, type BadgeSubjectType } from '../db/badgeAwards.js';
+import {
+  applyAwards,
+  type BadgeAward,
+  type BadgeSubjectType,
+  countablePostSql,
+  getAllAwards,
+  refreshBadgeHolderCounts,
+} from '../db/badgeAwards.js';
 
 export interface BadgeRunResult {
   /** Awards the current data justifies (including already-awarded ones). */
@@ -270,8 +277,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
   const postAgg = await all<{ id: string; n: number; ups: number; maxup: number }>(
     db,
     `SELECT author_id AS id, COUNT(*) AS n, COALESCE(SUM(up_count), 0) AS ups, COALESCE(MAX(up_count), 0) AS maxup
-     FROM posts WHERE deleted = 0 AND hidden = 0 AND author_id != ?1
-       AND (source IS NULL OR source != 'vote_rationale')
+     FROM posts WHERE author_id != ?1 AND ${countablePostSql()}
      GROUP BY author_id`,
     GOV_SYNC_AUTHOR,
   );
@@ -296,8 +302,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     `SELECT DISTINCT t.author_id AS id FROM topics t
      WHERE t.deleted = 0 AND t.source = 'user'
        AND (SELECT COUNT(*) FROM posts p
-            WHERE p.topic_id = t.id AND p.author_id != t.author_id AND p.deleted = 0 AND p.hidden = 0
-              AND (p.source IS NULL OR p.source != 'vote_rationale')) >= 5`,
+            WHERE p.topic_id = t.id AND p.author_id != t.author_id AND ${countablePostSql('p')}) >= 5`,
   );
   for (const row of sparked) award('user', row.id, 'sparked-a-debate');
 
@@ -305,8 +310,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
   const postEpochs = await all<{ id: string; ep: number }>(
     db,
     `SELECT author_id AS id, ${epochSql('created_at / 1000')} AS ep
-     FROM posts WHERE deleted = 0 AND hidden = 0 AND author_id != ?3
-       AND (source IS NULL OR source != 'vote_rationale')
+     FROM posts WHERE author_id != ?3 AND ${countablePostSql()}
      GROUP BY author_id, ep`,
     anchorSec,
     anchorEpoch,
@@ -324,8 +328,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     db,
     `SELECT p.author_id AS id, COUNT(DISTINCT p.topic_id) AS n
      FROM posts p JOIN governance_actions g ON g.topic_id = p.topic_id
-     WHERE p.deleted = 0 AND p.hidden = 0 AND p.author_id != ?1
-       AND (p.source IS NULL OR p.source != 'vote_rationale')
+     WHERE p.author_id != ?1 AND ${countablePostSql('p')}
      GROUP BY p.author_id`,
     GOV_SYNC_AUTHOR,
   );
@@ -334,8 +337,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
   const necromancer = await all<{ id: string }>(
     db,
     `SELECT DISTINCT p.author_id AS id FROM posts p
-     WHERE p.deleted = 0 AND p.hidden = 0 AND p.author_id != ?1
-       AND (p.source IS NULL OR p.source != 'vote_rationale')
+     WHERE p.author_id != ?1 AND ${countablePostSql('p')}
        AND (SELECT MAX(p2.created_at) FROM posts p2
             WHERE p2.topic_id = p.topic_id AND p2.created_at < p.created_at AND p2.deleted = 0)
            < p.created_at - ${NECRO_DORMANT_MS}`,
@@ -347,8 +349,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     db,
     `SELECT DISTINCT p.author_id AS id FROM posts p
      JOIN topics t ON t.id = p.topic_id
-     WHERE t.post_count >= 100 AND p.deleted = 0 AND p.hidden = 0 AND p.author_id != ?1
-       AND (p.source IS NULL OR p.source != 'vote_rationale')`,
+     WHERE t.post_count >= 100 AND p.author_id != ?1 AND ${countablePostSql('p')}`,
     GOV_SYNC_AUTHOR,
   );
   for (const row of century) award('user', row.id, 'century-thread');
@@ -356,8 +357,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
   const boundary = await all<{ id: string }>(
     db,
     `SELECT DISTINCT author_id AS id FROM posts
-     WHERE deleted = 0 AND hidden = 0 AND author_id != ?1
-       AND (source IS NULL OR source != 'vote_rationale')
+     WHERE author_id != ?1 AND ${countablePostSql()}
        AND ((created_at / 1000 - ?2) % ${EPOCH_LENGTH_SECONDS} <= ${BOUNDARY_WINDOW_SECONDS}
             OR (created_at / 1000 - ?2) % ${EPOCH_LENGTH_SECONDS} >= ${EPOCH_LENGTH_SECONDS - BOUNDARY_WINDOW_SECONDS})`,
     GOV_SYNC_AUTHOR,
@@ -380,8 +380,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
      JOIN users u ON u.id = p.author_id AND u.drep_id IS NOT NULL
      JOIN governance_actions g ON g.topic_id = p.topic_id
      JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = u.drep_id AND v.voter_role = 'DRep'
-     WHERE p.deleted = 0 AND p.hidden = 0
-       AND (p.source IS NULL OR p.source != 'vote_rationale')
+     WHERE ${countablePostSql('p')}
      GROUP BY u.drep_id, g.id, v.block_time`,
   );
   const crossByDrep = new Map<string, { actions: number; rationale: number; deliberated: number }>();
