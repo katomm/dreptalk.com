@@ -62,7 +62,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
     return () => window.removeEventListener(EDIT_EVENT, onEdit);
   }, [mode]);
 
-  // The floating "Quote reply" button lives in server-rendered post markup; it
+  // The floating "Quote reply" button lives in server-rendered post markup, it
   // hands the selected passage here via a window event. Quoting never touches
   // replyTo (stacked quotes can come from several posts, so there is no single
   // thread parent) and is refused while editing or submitting.
