@@ -211,58 +211,78 @@ export function ensureLinkTarget(html: string): string {
   });
 }
 
-// Middle-truncate a gov action id for display: keep the readable prefix and a
-// short distinctive tail, e.g. "gov_action1fda...ccn9gc".
-function shortenGovActionId(id: string): string {
+// Middle-truncate any on-chain id for display: keep a readable prefix and a
+// short distinctive tail, e.g. "gov_action1fda...ccn9gc" or "addr1qxy...9k2f0h".
+function shortenChainId(id: string): string {
   return `${id.slice(0, 14)}...${id.slice(-6)}`;
 }
 
-// Copy-to-clipboard button, identical markup to CopyButton.astro so the global
-// delegated listener (Layout.astro) handles it. The full id goes into data-copy;
-// the id charset is [0-9a-z], so it is safe to interpolate unescaped.
-function govActionCopyButton(id: string): string {
-  return (
-    `<button type="button" class="copy-btn" data-copy="${id}" aria-label="Copy governance action id" title="Copy governance action id">` +
-    '<svg class="copy-btn__copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>' +
-    '<svg class="copy-btn__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>' +
-    '</button>'
-  );
+// Build the chip for a single matched identifier, or null to leave it as text.
+// Routing by shape (see the rationale-linkify design doc): gov actions (bech32,
+// <64hex>#<index>, and CIP-129 hex of length 66 or 68) link to the native /ga/
+// resolver; payment addresses link out to the explorer.cardano.org switcher;
+// DReps link to the native profile. The <64hex>#<index> form is linked via its
+// CIP-129 hex equivalent (index as hex byte(s)), since the '#' is a URL fragment
+// delimiter that the /ga/ route does not decode. Everything else returns null.
+function chainIdLink(id: string): string | null {
+  let href: string;
+  let external = false;
+  if (/^gov_action1[0-9a-z]{59}$/.test(id) || /^[0-9a-f]{66}(?:[0-9a-f]{2})?$/.test(id)) {
+    href = `/ga/${id}/`;
+  } else if (/^[0-9a-f]{64}#[0-9]{1,6}$/.test(id)) {
+    const [hash, index] = id.split('#');
+    let indexHex = Number(index).toString(16);
+    if (indexHex.length % 2) indexHex = `0${indexHex}`; // CIP-129 needs whole bytes
+    href = `/ga/${hash}${indexHex}/`;
+  } else if (/^drep(?:_script)?1[0-9a-z]+$/.test(id)) {
+    href = `/dreps/${id}/`;
+  } else {
+    const addr = /^addr(_test)?1[0-9a-z]+$/.exec(id);
+    if (!addr) return null;
+    href = `https://explorer.cardano.org/${addr[1] ? 'preprod/' : ''}address/${id}`;
+    external = true;
+  }
+  const rel = external ? 'noopener noreferrer nofollow' : 'noopener';
+  return `<a class="chainid" href="${href}" rel="${rel}" title="${id}">${shortenChainId(id)}</a>`;
 }
 
-// A gov action id, or any tag. gov_action1 + 59 bech32 chars is a fixed 70-char
-// token (CIP-129: 32-byte tx hash + 1-byte index). The a/code/pre tags are
-// tracked separately so ids inside them (link text, code) are left untouched.
-const GOV_ACTION_TOKEN = /<\/?(?:a|code|pre)\b[^>]*>|<[^>]*>|gov_action1[0-9a-z]{59}/gi;
+// Tags (tracked for skip depth) plus every linkable identifier form. Bech32 ids
+// carry non-alphanumeric boundaries so a mid-word match is impossible; the
+// variable-length drep/addr forms also bound the tail. The two hex gov forms use
+// hex boundaries so a 64-hex is never a slice of a longer run: <64hex>#<index>,
+// and CIP-129 hex of length 66 or 68 (bare 64-hex and length 70+ do not match).
+const CHAIN_ID_TOKEN =
+  /<\/?(?:a|code|pre)\b[^>]*>|<[^>]*>|(?<![0-9a-z])gov_action1[0-9a-z]{59}|(?<![0-9a-z])drep(?:_script)?1[0-9a-z]{45,60}(?![0-9a-z])|(?<![0-9a-z])addr(?:_test)?1[0-9a-z]{50,110}(?![0-9a-z])|(?<![0-9a-f])[0-9a-f]{64}#[0-9]{1,6}|(?<![0-9a-f])[0-9a-f]{66}(?:[0-9a-f]{2})?(?![0-9a-f])/gi;
 
 /**
- * Display-time pass: turn each gov_action1... id in already-sanitized stored
- * HTML into a compact chip, i.e. a middle-truncated link to /ga/<id>/ plus a
- * copy button carrying the full id. Ids inside a tag (its attributes) or inside
- * <a>/<code>/<pre> are left as-is, so we never nest a link or corrupt an href.
- * Idempotent per render; runs at display time so it also covers already-stored
- * rationales without a re-render.
+ * Display-time pass: turn each on-chain identifier in already-sanitized stored
+ * HTML into a compact `.chainid` chip. Gov actions and DReps link to their native
+ * DRepTalk pages, payment addresses link to the explorer.cardano.org switcher.
+ * Ids inside a tag's attributes or inside <a>/<code>/<pre> are left as-is, so we
+ * never nest a link or corrupt an href. Idempotent per render (a second pass sees
+ * the ids inside the chip's own <a> and skips them). No database access: routing
+ * is purely by the shape of the string.
  */
-export function linkifyGovActionIds(html: string): string {
+export function linkifyChainIds(html: string): string {
   let skipDepth = 0; // inside <a>/<code>/<pre>: leave ids untouched
-  return html.replace(GOV_ACTION_TOKEN, (token: string): string => {
+  return html.replace(CHAIN_ID_TOKEN, (token: string): string => {
     if (token.charCodeAt(0) === 60 /* '<' */) {
       const tag = /^<(\/?)(?:a|code|pre)\b/i.exec(token);
       if (tag) skipDepth = tag[1] ? Math.max(0, skipDepth - 1) : skipDepth + 1;
       return token;
     }
     if (skipDepth > 0) return token;
-    const id = token.toLowerCase();
-    return `<a class="chainid" href="/ga/${id}/" rel="noopener" title="${id}">${shortenGovActionId(id)}</a>${govActionCopyButton(id)}`;
+    return chainIdLink(token.toLowerCase()) ?? token;
   });
 }
 
 /**
  * Final display-time enhancement applied to stored rationale/post HTML before it
- * is set as innerHTML: link gov action ids into copyable chips, then ensure all
+ * is set as innerHTML: link on-chain identifiers into chips, then ensure all
  * links open in a new tab.
  */
 export function enhanceStoredHtml(html: string): string {
-  return ensureLinkTarget(linkifyGovActionIds(html));
+  return ensureLinkTarget(linkifyChainIds(html));
 }
 
 /**

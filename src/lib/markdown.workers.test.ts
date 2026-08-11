@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { enhanceStoredHtml, ensureLinkTarget, linkifyGovActionIds, renderMarkdown } from './markdown';
+import { enhanceStoredHtml, ensureLinkTarget, linkifyChainIds, renderMarkdown } from './markdown';
 
 // Helpers for negative assertions.
 function assertInert(html: string, label: string): void {
@@ -356,47 +356,117 @@ describe('mentions', () => {
   });
 });
 
-describe('linkifyGovActionIds', () => {
+describe('linkifyChainIds', () => {
   const ID = 'gov_action1fdatlfcdnzzcw5x9pnt9r42v992nqw65zze57s8tyk0jll78eyusqccn9gc';
+  const TXHASH = 'defbf15b06092718adf4befeab982e03d2966b9caeef93c19e470549ef75ea49';
+  const DREP = 'drep1y2200we9c904un36tzaearntzzl63snffuul9qsk0te4utqfkke0w';
+  const MAINNET_ADDR =
+    'addr1qx2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgse35a3x';
+  const TESTNET_ADDR =
+    'addr_test1qz2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3n0d3vllmyqwsx5wktcd8cc3sq835lu7drv2xwl2wywfgs68faae';
 
-  it('turns a bare gov action id into a linked, copyable chip', () => {
-    const out = linkifyGovActionIds(`<td>${ID}</td>`);
+  it('turns a bare gov action id into a linked chip with no copy button', () => {
+    const out = linkifyChainIds(`<td>${ID}</td>`);
     expect(out).toContain('class="chainid"');
     expect(out).toContain(`href="/ga/${ID}/"`);
-    // Middle-truncated display text, full value only in href/title/data-copy.
+    // Middle-truncated display text, full value only in href/title.
     expect(out).toContain('>gov_action1fda...ccn9gc</a>');
-    // The copy button carries the FULL id so it stays fully copyable.
-    expect(out).toContain(`data-copy="${ID}"`);
+    expect(out).not.toContain('copy-btn');
+    expect(out).not.toContain('data-copy');
+  });
+
+  it('links the <64hex>#<index> gov form to /ga/ via its CIP-129 hex form', () => {
+    const out = linkifyChainIds(`<p>see ${TXHASH}#0 for details</p>`);
+    expect(out).toContain('class="chainid"');
+    expect(out).toContain(`href="/ga/${TXHASH}00/"`);
+    // Display keeps the readable #index form, only the href is hex.
+    expect(out).toContain(`title="${TXHASH}#0"`);
+    expect(out).not.toContain('copy-btn');
+  });
+
+  it('encodes a non-zero gov index as a CIP-129 hex byte (22 -> 16)', () => {
+    const out = linkifyChainIds(`<p>${TXHASH}#22 here</p>`);
+    expect(out).toContain(`href="/ga/${TXHASH}16/"`);
+    expect(out).toContain(`title="${TXHASH}#22"`);
+  });
+
+  it('links a CIP-129 hex gov id (66 chars, one index byte) to /ga/', () => {
+    const cip = `${TXHASH}00`; // 66 hex, index byte 00
+    const out = linkifyChainIds(`<p>action ${cip} here</p>`);
+    expect(out).toContain(`href="/ga/${cip}/"`);
+  });
+
+  it('leaves a bare 64-hex hash as plain text (not a gov id, too ambiguous)', () => {
+    const out = linkifyChainIds(`<p>tx ${TXHASH} was submitted</p>`);
+    expect(out).not.toContain('class="chainid"');
+  });
+
+  it('does not mistake a longer hex blob (128 chars) for a CIP-129 id', () => {
+    const long = `${TXHASH}${TXHASH}`; // 128 hex
+    const out = linkifyChainIds(`<p>${long}</p>`);
+    expect(out).not.toContain('class="chainid"');
+  });
+
+  it('links a mainnet addr1 to the explorer.cardano.org switcher', () => {
+    const out = linkifyChainIds(`<p>funds to ${MAINNET_ADDR} soon</p>`);
+    expect(out).toContain(`href="https://explorer.cardano.org/address/${MAINNET_ADDR}"`);
+    expect(out).toContain('rel="noopener noreferrer nofollow"');
+    expect(out).toContain('class="chainid"');
+  });
+
+  it('scopes a testnet addr_test1 to the preprod switcher path', () => {
+    const out = linkifyChainIds(`<p>to ${TESTNET_ADDR} on testnet</p>`);
+    expect(out).toContain(`href="https://explorer.cardano.org/preprod/address/${TESTNET_ADDR}"`);
+  });
+
+  it('links a drep id to its DRepTalk profile', () => {
+    const out = linkifyChainIds(`<p>delegate to ${DREP} today</p>`);
+    expect(out).toContain(`href="/dreps/${DREP}/"`);
+    expect(out).toContain('rel="noopener"');
+    expect(out).not.toContain('copy-btn');
+  });
+
+  it('leaves a stake1 address as plain text (no switcher deeplink type)', () => {
+    const stake = 'stake1uyehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gh6ffgw';
+    const out = linkifyChainIds(`<p>rewards to ${stake}</p>`);
+    expect(out).not.toContain('class="chainid"');
   });
 
   it('leaves an id inside a link href untouched (no corruption, no chip)', () => {
-    const out = linkifyGovActionIds(`<a href="https://gov.tools/x/${ID}">see</a>`);
+    const out = linkifyChainIds(`<a href="https://gov.tools/x/${ID}">see</a>`);
     expect(out).toBe(`<a href="https://gov.tools/x/${ID}">see</a>`);
     expect(out).not.toContain('class="chainid"');
   });
 
   it('leaves an id that is a link text untouched (never nests a link)', () => {
-    const out = linkifyGovActionIds(`<a href="/t/x/">${ID}</a>`);
+    const out = linkifyChainIds(`<a href="/t/x/">${ID}</a>`);
     expect(out).not.toContain('class="chainid"');
   });
 
   it('leaves ids inside <code> and <pre> untouched', () => {
-    expect(linkifyGovActionIds(`<code>${ID}</code>`)).not.toContain('class="chainid"');
-    expect(linkifyGovActionIds(`<pre>${ID}</pre>`)).not.toContain('class="chainid"');
+    expect(linkifyChainIds(`<code>${ID}</code>`)).not.toContain('class="chainid"');
+    expect(linkifyChainIds(`<pre>${ID}</pre>`)).not.toContain('class="chainid"');
   });
 
   it('does not treat <article> as an <a> boundary', () => {
-    const out = linkifyGovActionIds(`<article>${ID}</article>`);
+    const out = linkifyChainIds(`<article>${ID}</article>`);
     expect(out).toContain('class="chainid"');
   });
 
   it('chips every id in a paragraph with multiple ids', () => {
-    const out = linkifyGovActionIds(`<p>${ID} and ${ID}</p>`);
+    const out = linkifyChainIds(`<p>${ID} and ${ID}</p>`);
     expect(out.match(/class="chainid"/g)).toHaveLength(2);
   });
 
+  it('is idempotent: a second pass does not double-linkify', () => {
+    const once = linkifyChainIds(`<p>${ID} and ${MAINNET_ADDR}</p>`);
+    const twice = linkifyChainIds(once);
+    expect(twice).toEqual(once);
+    expect(twice.match(/class="chainid"/g)).toHaveLength(2);
+  });
+
   it('leaves content without an id unchanged', () => {
-    expect(linkifyGovActionIds('<p>no ids here</p>')).toBe('<p>no ids here</p>');
+    expect(linkifyChainIds('<p>no ids here</p>')).toBe('<p>no ids here</p>');
   });
 });
 
@@ -407,7 +477,7 @@ describe('enhanceStoredHtml', () => {
     const out = enhanceStoredHtml(`<td>${ID}</td>`);
     expect(out).toContain('class="chainid"');
     expect(out).toContain('target="_blank"');
-    expect(out).toContain(`data-copy="${ID}"`);
+    expect(out).not.toContain('copy-btn');
   });
 
   it('still adds target to ordinary markdown links', () => {

@@ -1,9 +1,9 @@
 ---
-// Resolver for a governance action id. Rationale chips (see linkifyGovActionIds
-// in src/lib/markdown.ts) link here with the raw gov_action1... bech32 id so the
-// display-time transform stays free of any DB lookup. Resolution happens on
-// click: redirect to the action's /t/<slug>/ page, or fall back to search when
-// the action is not on DRepTalk.
+// Resolver for a governance action id. Rationale chips (see linkifyChainIds in
+// src/lib/markdown.ts) link here with the raw gov_action1... bech32 id, the
+// <64hex>#<index> form, or CIP-129 hex, so the display-time transform stays free
+// of any DB lookup. Resolution happens on click: redirect to the action's
+// /t/<slug>/ page, or fall back to search when the action is not on DRepTalk.
 export const prerender = false;
 
 import { env } from 'cloudflare:workers';

@@ -331,12 +331,10 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
 
     <script>
       // One delegated copy-to-clipboard listener for every .copy-btn[data-copy]
-      // on the page: the SSR CopyButton (src/components/CopyButton.astro) and the
-      // gov action id chips injected into rationale HTML at display time
-      // (linkifyGovActionIds in src/lib/markdown.ts). Global here so a chip works
-      // even on pages that render no CopyButton of their own. Bundled once; the
-      // strict CSP forbids inline handlers. React CopyButton islands set their own
-      // onClick and carry no data-copy, so they are ignored.
+      // on the page, i.e. the SSR CopyButton (src/components/CopyButton.astro).
+      // Global here so a button works even on pages that mount it in a fragment.
+      // Bundled once; the strict CSP forbids inline handlers. React CopyButton
+      // islands set their own onClick and carry no data-copy, so they are ignored.
       document.addEventListener('click', (event) => {
         const btn = (event.target as Element | null)?.closest<HTMLButtonElement>('.copy-btn[data-copy]');
         const value = btn?.dataset.copy;
