@@ -6,6 +6,7 @@
 import PostArticle from '@/components/PostArticle.astro';
 import TopicStatsBar from '@/components/TopicStatsBar.astro';
 import Composer from '@/components/Composer.tsx';
+import QuoteSelection from '@/components/QuoteSelection.tsx';
 import type { Topic, ThreadPage } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
@@ -160,6 +161,7 @@ const notVoted = (author: AuthorDescriptor) =>
       </>
     )}
     <Composer client:load mode="post" topicId={topic.id} />
+    <QuoteSelection client:load />
   </section>
 )}
 
