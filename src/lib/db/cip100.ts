@@ -151,9 +151,13 @@ export async function purgeDeletedDocs(db: D1Database, now: number): Promise<num
 }
 
 /** Stamps a deletion time on rows that were flagged without one (manual SQL).
- *  The value is an upper bound, not the real moment, see the spec section 11.
- *  Topics are stamped first, so a post tombstone inside a deleted thread can
- *  fall back to its thread's timestamp instead of having none. */
+ *  Both topics.deleted_at and posts.deleted_at are stamped, for every row that
+ *  was flagged deleted without a timestamp. The value is an upper bound, the
+ *  time the deletion was recorded, not the real moment, see the spec section
+ *  11. It exists so a tombstone always has a timestamp available, including
+ *  for posts inside a thread that was deleted as a whole: the version index
+ *  reads the post's deleted_at and falls back to the topic's when the post
+ *  has none, which only works if both columns are actually stamped. */
 export async function stampMissingDeletedAt(db: D1Database, now: number): Promise<number> {
   const [topics, posts] = await db.batch([
     db.prepare('UPDATE topics SET deleted_at = ? WHERE deleted = 1 AND deleted_at IS NULL').bind(now),
