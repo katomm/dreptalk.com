@@ -64,7 +64,12 @@ const changedVoteColor = changedVote ? TONE_COLORS[voteTone(changedVote)] : null
 const changedVoteHref = author.drepId ? `?tab=positions#voter-${author.drepId}` : '?tab=positions';
 ---
 
-<article style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`} id={`post-${post.id}`}>
+<article
+  style={`padding:${compact ? '1rem 0 0' : '1.25rem 0'};`}
+  id={`post-${post.id}`}
+  data-post-id={post.id}
+  data-post-author={author.displayName}
+>
   <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
     <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.card} mandate={mandate} />
     {!isVoteRationale && (authorVote ? <VoteBadge vote={authorVote.vote} /> : authorHasNotVoted && <VoteBadge hasNotVoted />)}
