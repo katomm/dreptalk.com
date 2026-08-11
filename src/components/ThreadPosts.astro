@@ -6,10 +6,12 @@
 import PostArticle from '@/components/PostArticle.astro';
 import TopicStatsBar from '@/components/TopicStatsBar.astro';
 import Composer from '@/components/Composer.tsx';
+import QuoteSelection from '@/components/QuoteSelection.tsx';
 import type { Topic, ThreadPage } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import type { SessionUser } from '@/lib/forum/postVisibility.js';
+import { isWriter } from '@/lib/auth/roles.js';
 
 interface Props {
   topic: Topic;
@@ -54,8 +56,10 @@ const mandateFor = (post: { proposer_grant_id: string | null }) =>
   post.proposer_grant_id ? mandates.get(post.proposer_grant_id) : undefined;
 
 // One gate for both write affordances: the composer section and the per-post
-// Reply buttons (signed in, topic not locked; the server enforces writer roles).
-const canParticipate = !!user && !topic.locked;
+// Reply buttons. Writers only: signed-in read-only accounts (plain members,
+// delegators) are refused writes server-side, so they must not see the
+// composer or Reply buttons.
+const canParticipate = !!user && isWriter(user.roles) && !topic.locked;
 
 // Governance threads live behind the discussion tab; plain threads paginate at the root.
 const pageQueryPrefix = isGovernanceTopic ? '?tab=discussion&page=' : '?page=';
@@ -157,6 +161,7 @@ const notVoted = (author: AuthorDescriptor) =>
       </>
     )}
     <Composer client:load mode="post" topicId={topic.id} />
+    <QuoteSelection client:load />
   </section>
 )}
 

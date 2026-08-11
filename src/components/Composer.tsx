@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { submitComposer, submitEdit } from '@/lib/forum/composer.js';
 import { REPLY_EVENT, type ReplyEventDetail } from '@/lib/forum/replyEvent.js';
 import { EDIT_EVENT, type EditEventDetail } from '@/lib/forum/editEvent.js';
+import { QUOTE_EVENT, type QuoteEventDetail } from '@/lib/forum/quoteEvent.js';
+import { buildQuoteBlock, appendQuote } from '@/lib/forum/quoteFormat.js';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor.js';
 
 interface ComposerProps {
@@ -19,6 +21,9 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
   const [replyTo, setReplyTo] = useState<ReplyEventDetail | null>(null);
   // Post being edited, set by a post's Edit button. Mutually exclusive with replyTo.
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  // Shown briefly after a quote is appended. Fixed-position so it is visible even
+  // when the user is scrolled up at the post they quoted.
+  const [quoteToast, setQuoteToast] = useState(false);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -56,6 +61,36 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
     window.addEventListener(EDIT_EVENT, onEdit);
     return () => window.removeEventListener(EDIT_EVENT, onEdit);
   }, [mode]);
+
+  // The floating "Quote reply" button lives in server-rendered post markup, it
+  // hands the selected passage here via a window event. Quoting never touches
+  // replyTo (stacked quotes can come from several posts, so there is no single
+  // thread parent) and is refused while editing or submitting.
+  useEffect(() => {
+    if (mode !== 'post') return;
+    const onQuote = (e: Event) => {
+      const detail = (e as CustomEvent<QuoteEventDetail>).detail;
+      if (!detail?.postId || !detail.text) return;
+      if (editingPostId || submitting) return;
+      const block = buildQuoteBlock({ author: detail.author, href: detail.href, text: detail.text });
+      const result = appendQuote(bodyMd, block, 20000);
+      if (!result.ok) {
+        setError('That quote would make the reply too long.');
+        return;
+      }
+      setBodyMd(result.value);
+      setQuoteToast(true);
+    };
+    window.addEventListener(QUOTE_EVENT, onQuote);
+    return () => window.removeEventListener(QUOTE_EVENT, onQuote);
+  }, [mode, editingPostId, submitting, bodyMd]);
+
+  // Auto-dismiss the confirmation.
+  useEffect(() => {
+    if (!quoteToast) return;
+    const t = setTimeout(() => setQuoteToast(false), 4000);
+    return () => clearTimeout(t);
+  }, [quoteToast]);
 
   const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -104,7 +139,54 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
   };
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+    <form
+      ref={formRef}
+      onSubmit={handleSubmit}
+      data-composer-state={editingPostId ? 'edit' : submitting ? 'submitting' : 'reply'}
+      style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
+    >
+      {quoteToast && (
+        <div
+          role="status"
+          style={{
+            position: 'fixed',
+            left: '50%',
+            bottom: '1.5rem',
+            transform: 'translateX(-50%)',
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            padding: '0.5rem 0.875rem',
+            borderRadius: '0.5rem',
+            background: 'var(--fg)',
+            color: 'var(--bg)',
+            fontSize: '0.8125rem',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.28)',
+          }}
+        >
+          <span>Added to your reply</span>
+          <button
+            type="button"
+            onClick={() => {
+              setQuoteToast(false);
+              formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              editorRef.current?.focusAtEnd();
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--bg)',
+              textDecoration: 'underline',
+              cursor: 'pointer',
+              padding: 0,
+              font: 'inherit',
+            }}
+          >
+            Jump to reply
+          </button>
+        </div>
+      )}
       {editingPostId && (
         <div
           style={{

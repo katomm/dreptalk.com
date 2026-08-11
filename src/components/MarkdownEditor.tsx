@@ -100,6 +100,7 @@ function ToolbarButton({ title, path, disabled, onClick }: { title: string; path
 
 export interface MarkdownEditorHandle {
   focus(): void;
+  focusAtEnd(): void;
 }
 
 export interface MarkdownEditorProps {
@@ -149,6 +150,18 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       setShowPreview(false);
       // Defer to after the edit-mode re-render so the textarea exists.
       requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    focusAtEnd() {
+      setShowPreview(false);
+      // Defer to after any re-render so the textarea exists, then drop the caret
+      // at the end of the text.
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+      });
     },
   }), []);
 
