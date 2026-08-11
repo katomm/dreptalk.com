@@ -70,9 +70,19 @@ export default function QuoteSelection() {
       const postId = article.getAttribute('data-post-id') ?? '';
       if (!postId) return clear();
       const author = article.getAttribute('data-post-author') ?? '';
+      // Build the permalink from safe parts only: the routing-controlled
+      // pathname, the post hash, and the whitelisted tab/page params rebuilt
+      // through URLSearchParams, which percent-encodes values. This drops any
+      // other query string, so a crafted URL cannot smuggle Markdown-breaking
+      // characters (like a stray ")") into the attribution link target.
       const u = new URL(window.location.href);
-      u.hash = `post-${postId}`;
-      const href = u.pathname + u.search + u.hash;
+      const safeParams = new URLSearchParams();
+      for (const key of ['tab', 'page']) {
+        const value = u.searchParams.get(key);
+        if (value) safeParams.set(key, value);
+      }
+      const query = safeParams.toString();
+      const href = `${u.pathname}${query ? `?${query}` : ''}#post-${postId}`;
 
       const rect = range.getBoundingClientRect();
       setButton({

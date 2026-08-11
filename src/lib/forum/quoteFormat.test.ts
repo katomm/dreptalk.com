@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeMarkdownLinkLabel, buildQuoteBlock, appendQuote } from './quoteFormat.js';
+import { escapeMarkdownLinkLabel, escapeQuotedText, buildQuoteBlock, appendQuote } from './quoteFormat.js';
 
 describe('escapeMarkdownLinkLabel', () => {
   it('escapes backslash and square brackets', () => {
@@ -8,6 +8,23 @@ describe('escapeMarkdownLinkLabel', () => {
   });
   it('collapses newlines to spaces and trims', () => {
     expect(escapeMarkdownLinkLabel('  line1\nline2  ')).toBe('line1 line2');
+  });
+});
+
+describe('escapeQuotedText', () => {
+  it('escapes backslash and square brackets so a link cannot form', () => {
+    expect(escapeQuotedText('[label](http://evil.example)')).toBe('\\[label\\](http://evil.example)');
+    expect(escapeQuotedText('a\\b')).toBe('a\\\\b');
+  });
+  it('escapes "<" so raw HTML tags and angle autolinks cannot form', () => {
+    expect(escapeQuotedText('<a href="http://evil.example">cardano.org</a>')).toBe(
+      '\\<a href="http://evil.example">cardano.org\\</a>',
+    );
+    expect(escapeQuotedText('<http://evil.example>')).toBe('\\<http://evil.example>');
+  });
+  it('leaves plain prose and its newlines untouched', () => {
+    expect(escapeQuotedText('Article 5 (2) applies')).toBe('Article 5 (2) applies');
+    expect(escapeQuotedText('one\ntwo')).toBe('one\ntwo');
   });
 });
 
@@ -23,6 +40,10 @@ describe('buildQuoteBlock', () => {
   it('adds a quote level to lines that are already quoted (no toggle)', () => {
     const out = buildQuoteBlock({ author: 'A', href: '/t/x#post-1', text: '> nested' });
     expect(out).toBe('[A](/t/x#post-1) wrote:\n\n> > nested\n\n');
+  });
+  it('escapes link syntax in the quoted text so it cannot become a link', () => {
+    const out = buildQuoteBlock({ author: 'A', href: '/t/x#post-1', text: '[cardano.org](http://evil.example)' });
+    expect(out).toBe('[A](/t/x#post-1) wrote:\n\n> \\[cardano.org\\](http://evil.example)\n\n');
   });
 });
 
