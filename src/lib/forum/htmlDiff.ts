@@ -396,6 +396,16 @@ function diffNode(oldNode: HtmlNode, newNode: HtmlNode, counts: Counts, parentTa
 /** Diffs two sanitized post bodies into marked HTML plus word-level change stats. */
 export function richDiff(oldHtml: string, newHtml: string): RichDiff {
   if (oldHtml === newHtml) {
+    // The one path that would otherwise hand back stored HTML the parser never saw.
+    // Not exploitable today, no writer can get a script tag into body_html, but it is
+    // reachable: for a post whose stored body is malformed, every other version pair
+    // degrades and this one alone would render the raw body. Parse purely to validate,
+    // then return the original string, never a re-serialization of it.
+    try {
+      parseSanitizedHtml(newHtml);
+    } catch {
+      return { html: '', added: 0, removed: 0, changed: false, degraded: true };
+    }
     return { html: newHtml, added: 0, removed: 0, changed: false, degraded: false };
   }
   const counts: Counts = { added: 0, removed: 0 };

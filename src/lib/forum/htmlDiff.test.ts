@@ -309,6 +309,17 @@ describe('richDiff', () => {
     expect(r.html).toBe('');
   });
 
+  it('degrades on an identical pair of bodies the parser cannot read', () => {
+    // Two identical versions short-circuit before any parsing, which used to be the
+    // only path that returned stored HTML unvalidated. For a post with a malformed
+    // body that meant every version pair degraded except this one, which quietly
+    // rendered the raw body instead.
+    const broken = '<p>broken <img src=x onerror=alert(1)></p>';
+    const r = diff(broken, broken);
+    expect(r).toMatchObject({ degraded: true, added: 0, removed: 0 });
+    expect(r.html).toBe('');
+  });
+
   it('never reports degraded for input the parser accepts', () => {
     for (const [a, b] of [
       ['<p>a</p>', '<p>b</p>'],
