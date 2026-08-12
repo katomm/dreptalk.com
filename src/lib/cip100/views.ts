@@ -33,16 +33,20 @@ function tombstone(postId: string, deletedAt: number | null, hashes: string[]): 
 export async function buildVersionIndex(db: D1Database, postId: string, origin: string): Promise<ViewResult> {
   const post = await db
     .prepare(
-      `SELECT p.id, p.deleted, p.deleted_at, t.slug AS topic_slug, t.id AS topic_id,
+      `SELECT p.id, p.deleted, p.deleted_at, p.hidden, t.slug AS topic_slug, t.id AS topic_id,
               t.deleted AS topic_deleted, t.deleted_at AS topic_deleted_at
          FROM posts p JOIN topics t ON t.id = p.topic_id WHERE p.id = ?`,
     )
     .bind(postId)
     .first<{
-      id: string; deleted: number; deleted_at: number | null; topic_slug: string;
+      id: string; deleted: number; deleted_at: number | null; hidden: number; topic_slug: string;
       topic_id: string; topic_deleted: number; topic_deleted_at: number | null;
     }>();
   if (!post) return { status: 404, body: null };
+  // Hidden by community flags: 404, never the tombstone. A tombstone states a
+  // deletion, and hiding is a different, reversible state. Checked before the
+  // version list is read, so a hidden post's hashes are not handed out either.
+  if (post.hidden === 1) return { status: 404, body: null };
 
   const versions = await listPostVersions(db, postId);
   if (versions.length === 0) return { status: 404, body: null };
@@ -123,13 +127,13 @@ export async function buildThreadManifest(
         await db
           .prepare(
             `SELECT p.id, p.author_id, p.parent_post_id, p.created_at, p.edited_at,
-                    p.deleted, p.deleted_at
+                    p.deleted, p.deleted_at, p.hidden
                FROM posts p WHERE p.topic_id = ? ORDER BY p.created_at`,
           )
           .bind(topicId)
           .all<{
             id: string; author_id: string; parent_post_id: string | null; created_at: number;
-            edited_at: number | null; deleted: number; deleted_at: number | null;
+            edited_at: number | null; deleted: number; deleted_at: number | null; hidden: number;
           }>()
       ).results ?? [];
 
@@ -137,13 +141,18 @@ export async function buildThreadManifest(
   // thread would otherwise issue hundreds of queries to render one manifest.
   const identities = await loadAuthorIdentities(
     db,
-    rows.filter((r) => r.deleted !== 1 && byPost.has(r.id)).map((r) => r.author_id),
+    rows.filter((r) => r.deleted !== 1 && r.hidden !== 1 && byPost.has(r.id)).map((r) => r.author_id),
   );
 
   const posts: Array<Record<string, unknown>> = [];
   for (const row of rows) {
     const versions = byPost.get(row.id);
     if (!versions) continue;
+    // A post hidden by community flags is omitted entirely, exactly like a post
+    // that was never in scope. No tombstone: that would say "deleted" about a
+    // reversible state, and listing the entry at all would republish the
+    // handle, profile and permalink of a post the thread page withholds.
+    if (row.hidden === 1) continue;
     const hashes = versions.map((v) => v.hash);
     if (row.deleted === 1) {
       posts.push(tombstone(row.id, row.deleted_at, hashes));

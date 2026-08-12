@@ -5,12 +5,14 @@ import { describe, it, expect, vi } from 'vitest';
 
 const KNOWN = 'a'.repeat(64);
 const DELETED = 'b'.repeat(64);
+const HIDDEN = 'd'.repeat(64);
 const BODY = '{"hashAlgorithm":"blake2b-256"}';
 
 const { fakeDb } = vi.hoisted(() => {
-  const rows: Record<string, { body: string | null; gone: number }> = {
-    ['a'.repeat(64)]: { body: '{"hashAlgorithm":"blake2b-256"}', gone: 0 },
-    ['b'.repeat(64)]: { body: null, gone: 1 },
+  const rows: Record<string, { body: string | null; state: string }> = {
+    ['a'.repeat(64)]: { body: '{"hashAlgorithm":"blake2b-256"}', state: 'available' },
+    ['b'.repeat(64)]: { body: null, state: 'gone' },
+    ['d'.repeat(64)]: { body: '{"hashAlgorithm":"blake2b-256"}', state: 'hidden' },
   };
   return {
     fakeDb: {
@@ -58,6 +60,14 @@ describe('GET /cip100/<hash>.json', () => {
   it('answers 410 for a deleted document even when the ETag matches', async () => {
     const res = await call(DELETED, { 'if-none-match': `"${DELETED}"` });
     expect(res.status).toBe(410);
+  });
+
+  it('404s a hidden post rather than claiming it is gone', async () => {
+    // 410 is terminal and belongs to deletion. Hiding is reversible, so the
+    // answer must not tell a consumer to stop asking.
+    const res = await call(HIDDEN, { 'if-none-match': `"${HIDDEN}"` });
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain('hashAlgorithm');
   });
 
   it('404s an unknown hash', async () => {

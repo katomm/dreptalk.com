@@ -30,6 +30,7 @@ interface PostRow {
   created_at: number;
   edited_at: number | null;
   deleted: number;
+  hidden: number;
   source: string | null;
   topic_slug: string;
   topic_source: string;
@@ -42,7 +43,7 @@ async function loadPost(db: D1Database, postId: string): Promise<PostRow | null>
   return db
     .prepare(
       `SELECT p.id, p.topic_id, p.author_id, p.body_md, p.parent_post_id, p.created_at,
-              p.edited_at, p.deleted, p.source,
+              p.edited_at, p.deleted, p.hidden, p.source,
               t.slug AS topic_slug, t.source AS topic_source, t.deleted AS topic_deleted,
               (SELECT proposal_id FROM governance_actions WHERE topic_id = t.id) AS proposal_id,
               (SELECT id FROM posts WHERE topic_id = t.id AND parent_post_id IS NULL
@@ -59,6 +60,11 @@ async function loadPost(db: D1Database, postId: string): Promise<PostRow | null>
  *  request path can never disagree about what is emitted. */
 function outOfScope(post: PostRow, now: number): boolean {
   if (post.deleted === 1 || post.topic_deleted === 1) return true;
+  // Hidden by community flags: the thread page replaces the body with a notice,
+  // so publishing the same text to a permanent address would hand out exactly
+  // what the forum withholds. Reversible, unlike deletion, so a post whose
+  // flags are withdrawn becomes a candidate again on the next run.
+  if (post.hidden === 1) return true;
   // Vote rationale cross-posts reference the existing /vote-rationale/ document.
   if (post.source === 'vote_rationale') return true;
   // The opening post of a governance topic mirrors on-chain content that

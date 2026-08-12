@@ -114,6 +114,14 @@ describe('reconcilePostDocs', () => {
     expect((await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE })).status).toBe('skipped');
   });
 
+  it('emits nothing for a post hidden by community flags', async () => {
+    const { firstPost } = await seedTopic('r13');
+    await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(firstPost.id).run();
+    const res = await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });
+    expect(res.status).toBe('skipped');
+    expect(await getHeadDoc(db(), firstPost.id)).toBeNull();
+  });
+
   it('rebuilds against the new head after a lost version race', async () => {
     const { firstPost } = await seedTopic('r10');
     await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });

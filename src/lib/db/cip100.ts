@@ -52,25 +52,38 @@ export async function insertDoc(db: D1Database, rec: InsertDocInput): Promise<In
   return existing?.hash === rec.hash ? 'duplicate' : 'conflict';
 }
 
-/** Bytes plus liveness for one hash. `gone` is true once the post or its topic
- *  is flagged deleted, whether or not the purge sweep has run yet. */
+/**
+ * Serving state of one document.
+ * - `gone`: the post or its topic is flagged deleted. Terminal, and the erasure
+ *   path, so the route answers 410.
+ * - `hidden`: the post is hidden by community flags. Reversible, so the route
+ *   answers 404. A 410 would claim a permanent erasure that has not happened.
+ * - `available`: serve the bytes.
+ */
+export type DocServeState = 'available' | 'gone' | 'hidden';
+
+/** Bytes plus serving state for one hash, both read from the live post and
+ *  topic flags, whether or not the purge sweep has run yet. Deletion wins over
+ *  hiding: a post that is both is gone. */
 export async function getDocForServe(
   db: D1Database,
   hash: string,
-): Promise<{ body: string | null; gone: boolean } | null> {
+): Promise<{ body: string | null; state: DocServeState } | null> {
   const row = await db
     .prepare(
       `SELECT d.body AS body,
-              CASE WHEN p.deleted = 1 OR COALESCE(t.deleted, 0) = 1 THEN 1 ELSE 0 END AS gone
+              CASE WHEN p.deleted = 1 OR COALESCE(t.deleted, 0) = 1 THEN 'gone'
+                   WHEN p.hidden = 1 THEN 'hidden'
+                   ELSE 'available' END AS state
          FROM cip100_docs d
          JOIN posts p ON p.id = d.post_id
          LEFT JOIN topics t ON t.id = d.topic_id
         WHERE d.hash = ?`,
     )
     .bind(hash)
-    .first<{ body: string | null; gone: number }>();
+    .first<{ body: string | null; state: DocServeState }>();
   if (!row) return null;
-  return { body: row.body, gone: row.gone === 1 };
+  return { body: row.body, state: row.state };
 }
 
 export async function getHeadDoc(db: D1Database, postId: string): Promise<Cip100DocRow | null> {
@@ -218,6 +231,7 @@ export async function findStalePostIds(db: D1Database, graceCutoff: number, limi
                 ON h.post_id = p.id
                AND h.version = (SELECT MAX(version) FROM cip100_docs WHERE post_id = p.id)
         WHERE p.deleted = 0 AND t.deleted = 0
+          AND p.hidden = 0
           AND (
                (h.hash IS NULL AND p.created_at <= ?)
             OR (p.edited_at IS NOT NULL AND p.edited_at > COALESCE(h.source_edited_at, 0))

@@ -28,12 +28,17 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   const doc = await getDocForServe(db, hash);
   if (!doc) return new Response('Not found', { status: 404 });
 
-  // The deletion check runs BEFORE the ETag comparison. A deleted document's
-  // ETag always matches (a hash never changes), so comparing first would serve
-  // "nothing changed" forever instead of the tombstone.
-  if (doc.gone || doc.body === null) {
+  // Both availability checks run BEFORE the ETag comparison. An unavailable
+  // document's ETag always matches (a hash never changes), so comparing first
+  // would serve "nothing changed" forever instead of the tombstone.
+  if (doc.state === 'gone' || doc.body === null) {
     return new Response('Gone', { status: 410, headers: { 'cache-control': GONE_CACHE } });
   }
+  // A post hidden by community flags answers 404, not 410: 410 is terminal and
+  // is the erasure path for deletions, which are permanent, while a flag can be
+  // withdrawn and the document served again. Not cached either, for the same
+  // reason.
+  if (doc.state === 'hidden') return new Response('Not found', { status: 404 });
 
   const etag = `"${hash}"`;
   if (request.headers.get('if-none-match') === etag) {

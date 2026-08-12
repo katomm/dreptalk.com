@@ -30,7 +30,7 @@ describe('cip100 store', () => {
     });
     expect(ok).toBe('inserted');
     const served = await getDocForServe(db(), 'a'.repeat(64));
-    expect(served).toEqual({ body: '{"x":1}', gone: false });
+    expect(served).toEqual({ body: '{"x":1}', state: 'available' });
     expect((await getHeadDoc(db(), postId))?.version).toBe(1);
   });
 
@@ -58,9 +58,24 @@ describe('cip100 store', () => {
       version: 1, prevHash: null, sourceEditedAt: null, createdAt: T,
     });
     await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?').bind(T, postId).run();
-    expect(await getDocForServe(db(), 'e'.repeat(64))).toEqual({ body: '{"x":5}', gone: true });
+    expect(await getDocForServe(db(), 'e'.repeat(64))).toEqual({ body: '{"x":5}', state: 'gone' });
     expect(await purgeDeletedDocs(db(), T)).toBe(1);
-    expect(await getDocForServe(db(), 'e'.repeat(64))).toEqual({ body: null, gone: true });
+    expect(await getDocForServe(db(), 'e'.repeat(64))).toEqual({ body: null, state: 'gone' });
+  });
+
+  it('reports a hidden post as hidden, not gone, and keeps its bytes', async () => {
+    const { topicId, postId } = await seedPost('a8');
+    await insertDoc(db(), {
+      hash: '9'.repeat(64), body: '{"x":8}', postId, topicId,
+      version: 1, prevHash: null, sourceEditedAt: null, createdAt: T,
+    });
+    await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(postId).run();
+    expect(await getDocForServe(db(), '9'.repeat(64))).toEqual({ body: '{"x":8}', state: 'hidden' });
+    // Hiding is not an erasure: the sweep must leave the bytes alone, or
+    // withdrawing a flag could never restore the document.
+    expect(await purgeDeletedDocs(db(), T)).toBe(0);
+    // And it must not hold a slot in the reconcile batch while it is hidden.
+    expect(await findStalePostIds(db(), T + 1, 10)).not.toContain(postId);
   });
 
   it('finds a post whose head is behind the post', async () => {

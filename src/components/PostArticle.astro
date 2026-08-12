@@ -45,6 +45,11 @@ const { post, author, authorVote, authorHasNotVoted = false, user, flagged, view
 
 const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
 
+// A hidden post's version index answers 404 for as long as it is hidden, and
+// the action row still renders for its author and for moderators, so the Cite
+// affordance goes with it. It comes back when the flags are withdrawn.
+const showCite = citable && !post.hidden;
+
 const isVoteRationale = post.source === 'vote_rationale';
 
 // For vote_rationale posts: the badge color uses the same tone logic as the positions tab.
@@ -133,7 +138,7 @@ const changedVoteHref = author.drepId ? `?tab=positions#voter-${author.drepId}` 
       canReply={canReply}
       canEdit={canEdit && !topicLocked && !isVoteRationale}
       authorName={author.displayName}
-      citable={citable}
+      citable={showCite}
     />
   )}
 </article>

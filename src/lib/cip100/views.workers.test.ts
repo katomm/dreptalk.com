@@ -5,6 +5,7 @@
 import { it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, createPost } from '../db/forum.js';
+import { getDocForServe, getHeadDoc } from '../db/cip100.js';
 import { reconcilePostDocs } from './reconcile.js';
 import { buildVersionIndex, buildThreadManifest } from './views.js';
 import { EDIT_GRACE_MS } from '../forum/editPolicy.js';
@@ -113,6 +114,32 @@ it('410s a deleted thread', async () => {
   });
   await db().prepare('UPDATE topics SET deleted = 1, deleted_at = ? WHERE id = ?').bind(T + 5, topic.id).run();
   expect((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).status).toBe(410);
+});
+
+it('withholds a post hidden after its document was emitted, and serves it again once un-hidden', async () => {
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-views', title: 'Manifest hidden',
+    bodyMd: 'opening', bodyHtml: '<p>opening</p>', now: T, rand: 'v4',
+  });
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
+  const head = await getHeadDoc(db(), firstPost.id);
+  const hash = head?.hash as string;
+
+  await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(firstPost.id).run();
+  // 404 on both mutable documents, never a tombstone: hiding is not deletion.
+  expect((await buildVersionIndex(db(), firstPost.id, ORIGIN)).status).toBe(404);
+  const hiddenManifest = JSON.parse((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).body as string);
+  expect(hiddenManifest.posts).toEqual([]);
+  expect(JSON.stringify(hiddenManifest)).not.toContain(firstPost.id);
+  expect((await getDocForServe(db(), hash))?.state).toBe('hidden');
+
+  // Withdrawing the flags restores all three surfaces. Nothing was destroyed,
+  // which is the whole difference between hiding and deleting.
+  await db().prepare('UPDATE posts SET hidden = 0 WHERE id = ?').bind(firstPost.id).run();
+  expect((await buildVersionIndex(db(), firstPost.id, ORIGIN)).status).toBe(200);
+  const backManifest = JSON.parse((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).body as string);
+  expect(backManifest.posts.map((p: { postId: string }) => p.postId)).toEqual([firstPost.id]);
+  expect(await getDocForServe(db(), hash)).toEqual({ body: expect.any(String), state: 'available' });
 });
 
 it('serves an empty posts array for a thread with no eligible posts', async () => {
