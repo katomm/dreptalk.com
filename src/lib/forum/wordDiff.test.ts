@@ -26,6 +26,27 @@ describe('wordDiff', () => {
   it('handles an empty old text as pure insertion', () => {
     expect(wordDiff('', 'new')).toEqual([{ type: 'add', text: 'new' }]);
   });
+
+  it('handles fully disjoint input with no shared tokens', () => {
+    expect(wordDiff('abcdef', 'xyzuvw')).toEqual([
+      { type: 'del', text: 'abcdef' },
+      { type: 'add', text: 'xyzuvw' },
+    ]);
+  });
+
+  it('handles pure prefix insertion', () => {
+    expect(wordDiff('remove', 'added remove')).toEqual([
+      { type: 'add', text: 'added ' },
+      { type: 'same', text: 'remove' },
+    ]);
+  });
+
+  it('handles pure suffix deletion', () => {
+    expect(wordDiff('keep delete', 'keep')).toEqual([
+      { type: 'same', text: 'keep' },
+      { type: 'del', text: ' delete' },
+    ]);
+  });
 });
 
 describe('similarity', () => {
@@ -43,5 +64,14 @@ describe('similarity', () => {
 
   it('scores two empty strings as 1', () => {
     expect(similarity('', '')).toBe(1);
+  });
+
+  it('scores one empty side as 0', () => {
+    expect(similarity('', 'word')).toBe(0);
+    expect(similarity('word', '')).toBe(0);
+  });
+
+  it('handles repeated words via multiset intersection', () => {
+    expect(similarity('a a b', 'a c')).toBe(1 / 3);
   });
 });
