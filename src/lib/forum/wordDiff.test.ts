@@ -72,6 +72,6 @@ describe('similarity', () => {
   });
 
   it('handles repeated words via multiset intersection', () => {
-    expect(similarity('a a b', 'a c')).toBe(1 / 3);
+    expect(similarity('a a b', 'a a c')).toBe(2 / 3);
   });
 });
