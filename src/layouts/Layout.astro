@@ -170,6 +170,11 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         data-cf-beacon={JSON.stringify({ token: analyticsToken })}
       ></script>
     )}
+    {/* Named slot for page-specific head elements that must live in <head> and
+        cannot go through the default slot (which renders inside <main>), e.g.
+        a discovery <link rel="alternate">. Empty on every page that does not
+        pass one. */}
+    <slot name="head" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>

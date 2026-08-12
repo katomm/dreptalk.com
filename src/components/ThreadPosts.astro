@@ -31,6 +31,9 @@ interface Props {
   startIndex?: number;
   /** Grant id -> "for <name>" mandate label, resolved once for the whole page. */
   mandates: Map<string, string>;
+  /** Post ids that have an emitted CIP-100 document, driving the per-post Cite
+      link. Absent posts get no link rather than one that would 404. */
+  citablePostIds: Set<string>;
 }
 
 const {
@@ -48,6 +51,7 @@ const {
   now,
   startIndex,
   mandates,
+  citablePostIds,
 } = Astro.props;
 
 // Each post carries its own persisted proposer_grant_id (stamped at write
@@ -108,6 +112,7 @@ const notVoted = (author: AuthorDescriptor) =>
           now={now}
           postNumber={startIndex !== undefined ? startIndex + i + 1 : undefined}
           mandate={mandateFor(post)}
+          citable={citablePostIds.has(post.id)}
         />
         {children.length > 0 && (
           <div class="thread-replies">
@@ -127,6 +132,7 @@ const notVoted = (author: AuthorDescriptor) =>
                   now={now}
                   compact
                   mandate={mandateFor(child)}
+                  citable={citablePostIds.has(child.id)}
                 />
               );
             })}

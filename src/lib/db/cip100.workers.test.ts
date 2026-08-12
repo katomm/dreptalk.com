@@ -3,10 +3,10 @@
 // UNIQUE constraint and the deletion joins behave exactly as in production.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { createTopic } from './forum.js';
+import { createTopic, createPost } from './forum.js';
 import {
   getDocForServe, getHeadDoc, insertDoc, touchSourceEditedAt,
-  listPostVersions, purgeDeletedDocs, findStalePostIds,
+  listPostVersions, purgeDeletedDocs, findStalePostIds, listPostIdsWithDocs,
 } from './cip100.js';
 
 const db = () => env.DB;
@@ -86,5 +86,21 @@ describe('cip100 store', () => {
       });
     }
     expect((await listPostVersions(db(), postId)).map((v) => v.version)).toEqual([1, 2]);
+  });
+
+  it('lists only the post ids in a thread that have a document', async () => {
+    const { topicId, postId: openingId } = await seedPost('a7');
+    const reply = await createPost(db(), {
+      topicId, authorId: AUTHOR, bodyMd: 'reply', bodyHtml: '<p>reply</p>', now: T,
+    });
+    await insertDoc(db(), {
+      hash: 'g'.repeat(64), body: '{"x":7}', postId: openingId, topicId,
+      version: 1, prevHash: null, sourceEditedAt: null, createdAt: T,
+    });
+    // The reply has no document yet (still in its grace window): it must be
+    // absent from the set, never optimistically included.
+    const ids = await listPostIdsWithDocs(db(), topicId);
+    expect(ids.has(openingId)).toBe(true);
+    expect(ids.has(reply.id)).toBe(false);
   });
 });

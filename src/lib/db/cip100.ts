@@ -154,6 +154,19 @@ export async function listThreadDocs(
   }));
 }
 
+/** The post ids in one thread that have at least one document, regardless of
+ *  whether the bytes have since been purged (a tombstoned post still serves a
+ *  200). Drives the Cite affordance: a post without a document has no version
+ *  index at all, and a visible link leading to a 404 would be worse than no
+ *  link. One indexed read per thread render. */
+export async function listPostIdsWithDocs(db: D1Database, topicId: string): Promise<Set<string>> {
+  const res = await db
+    .prepare('SELECT DISTINCT post_id FROM cip100_docs WHERE topic_id = ?')
+    .bind(topicId)
+    .all<{ post_id: string }>();
+  return new Set((res.results ?? []).map((r) => r.post_id));
+}
+
 /** Erasure: drops the bytes of every document whose post or topic is flagged
  *  deleted. Idempotent, and safe to run on every cron tick. */
 export async function purgeDeletedDocs(db: D1Database, now: number): Promise<number> {
