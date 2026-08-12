@@ -1,6 +1,8 @@
 // Minimal line-level diff (LCS) for the post edit-history modal. No dependency:
 // the version pairs are short markdown bodies, so an O(n*m) table is fine.
 
+import { similarity, wordDiff, type WordOp } from './wordDiff.js';
+
 export type DiffOp = { type: 'same' | 'add' | 'del'; line: string };
 
 /** Diffs two texts line by line. Removed lines (from old) come before added (from new). */
@@ -37,4 +39,52 @@ export function lineDiff(oldText: string, newText: string): DiffOp[] {
   while (i < n) ops.push({ type: 'del', line: a[i++] });
   while (j < m) ops.push({ type: 'add', line: b[j++] });
   return ops;
+}
+
+export type DiffLine = { type: 'same' | 'add' | 'del'; parts: WordOp[] };
+
+// Pairing threshold shared with the rich diff: below this, two lines are a
+// replacement rather than a rewrite and are shown as whole-line changes.
+const SIMILAR_ENOUGH = 0.3;
+
+const whole = (op: DiffOp): DiffLine => ({ type: op.type, parts: [{ type: op.type, text: op.line }] });
+
+/**
+ * lineDiff, plus a word pass inside each contiguous changed run. Deleted and
+ * inserted lines in a run are zipped by position, and a zipped pair is word
+ * diffed only when it is similar enough to be a rewrite. Leftover lines on
+ * either side stay whole-line changes.
+ */
+export function lineDiffWithWords(oldText: string, newText: string): DiffLine[] {
+  const ops = lineDiff(oldText, newText);
+  const out: DiffLine[] = [];
+
+  let i = 0;
+  while (i < ops.length) {
+    if (ops[i].type === 'same') {
+      out.push({ type: 'same', parts: [{ type: 'same', text: ops[i].line }] });
+      i++;
+      continue;
+    }
+    const start = i;
+    while (i < ops.length && ops[i].type !== 'same') i++;
+    const run = ops.slice(start, i);
+    const dels = run.filter((op) => op.type === 'del');
+    const adds = run.filter((op) => op.type === 'add');
+
+    const pairs = Math.min(dels.length, adds.length);
+    for (let k = 0; k < pairs; k++) {
+      if (similarity(dels[k].line, adds[k].line) >= SIMILAR_ENOUGH) {
+        const parts = wordDiff(dels[k].line, adds[k].line);
+        out.push({ type: 'del', parts: parts.filter((p) => p.type !== 'add') });
+        out.push({ type: 'add', parts: parts.filter((p) => p.type !== 'del') });
+      } else {
+        out.push(whole(dels[k]));
+        out.push(whole(adds[k]));
+      }
+    }
+    for (let k = pairs; k < dels.length; k++) out.push(whole(dels[k]));
+    for (let k = pairs; k < adds.length; k++) out.push(whole(adds[k]));
+  }
+  return out;
 }

@@ -18,8 +18,8 @@ import { similarity } from './wordDiff.js';
 /** One output position: a pair, an old-only node, or a new-only node. */
 export type Slot = { old: number | null; new: number | null };
 
-// Below this, two nodes are a replacement rather than a rewrite. A later task gives
-// the markdown source view its own similarity threshold to match this one.
+// Below this, two nodes are a replacement rather than a rewrite. The markdown source
+// diff (lineDiffWithWords in lineDiff.ts) uses the same threshold for its line pairing.
 const SIMILAR_ENOUGH = 0.3;
 
 const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
