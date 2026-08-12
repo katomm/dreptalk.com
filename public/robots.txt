@@ -22,3 +22,4 @@ User-agent: meta-externalagent
 Disallow: /
 
 Sitemap: https://dreptalk.com/sitemap.xml
+Sitemap: https://dreptalk.com/sitemap-cip100.xml

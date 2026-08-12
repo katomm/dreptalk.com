@@ -10,6 +10,8 @@ import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.
 import { isDatabaseUnavailable, serviceUnavailableResponse } from './lib/http/serviceUnavailable.js';
 import { pageCacheKey, isCacheableRequest, isCacheableResponse } from './lib/http/pageCache.js';
 import { currentNetwork } from './lib/api/response.js';
+import { buildServiceDescription } from './lib/cip100/service.js';
+import { originForNetwork } from './lib/cip100/origin.js';
 
 export const onRequest = defineMiddleware(async (context, next) => {
   // Canonical host: permanently redirect www to the apex so clients and search
@@ -20,6 +22,22 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (url.hostname === 'www.dreptalk.com') {
     url.hostname = 'dreptalk.com';
     return context.redirect(url.toString(), 301);
+  }
+
+  // RFC 8615 service description for the CIP-100 documents. Served here rather
+  // than as a page, because a dot-directory under src/pages is not a reliable
+  // route path. No session read and no cache lookup needed for it.
+  if (url.pathname === '/.well-known/cip-100.json') {
+    const network = currentNetwork().network === 'preprod' ? 'preprod' : 'mainnet';
+    const res = new Response(buildServiceDescription(originForNetwork(network), network), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'public, max-age=3600',
+      },
+    });
+    applySecurityHeaders(res.headers);
+    return res;
   }
 
   // Cross-origin browser writes are rejected site-wide before any work

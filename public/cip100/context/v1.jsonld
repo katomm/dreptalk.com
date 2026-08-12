@@ -1,0 +1,48 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "dt": "https://dreptalk.com/cip100/context/v1#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+
+    "DiscussionPost": "dt:DiscussionPost",
+    "DiscussionThread": "dt:DiscussionThread",
+    "DiscussionPostVersions": "dt:DiscussionPostVersions",
+
+    "postId": "dt:postId",
+    "topicId": "dt:topicId",
+    "version": { "@id": "dt:version", "@type": "xsd:integer" },
+    "postedAt": { "@id": "dt:postedAt", "@type": "xsd:dateTime" },
+    "revisedAt": { "@id": "dt:revisedAt", "@type": "xsd:dateTime" },
+    "createdAt": { "@id": "dt:createdAt", "@type": "xsd:dateTime" },
+    "deletedAt": { "@id": "dt:deletedAt", "@type": "xsd:dateTime" },
+
+    "thread": { "@id": "dt:thread", "@type": "@id" },
+    "inReplyTo": { "@id": "dt:inReplyTo", "@type": "@id" },
+    "inReplyToPostId": "dt:inReplyToPostId",
+    "revisionOf": { "@id": "dt:revisionOf", "@type": "@id" },
+    "discussion": { "@id": "dt:discussion", "@type": "@id" },
+    "permalink": { "@id": "dt:permalink", "@type": "@id" },
+    "forum": { "@id": "dt:forum", "@type": "@id" },
+    "publisher": { "@id": "dt:publisher", "@type": "@id" },
+
+    "governanceActionId": "dt:governanceActionId",
+    "network": "dt:network",
+    "status": "dt:status",
+    "title": "dt:title",
+    "hash": "dt:hash",
+    "uri": { "@id": "dt:uri", "@type": "@id" },
+    "current": "dt:current",
+    "versions": { "@id": "dt:versions", "@container": "@list" },
+    "posts": { "@id": "dt:posts", "@container": "@list" },
+
+    "postedBy": {
+      "@id": "dt:postedBy",
+      "@context": {
+        "handle": "dt:handle",
+        "profile": { "@id": "dt:profile", "@type": "@id" },
+        "drepId": "dt:drepId",
+        "poolId": "dt:poolId"
+      }
+    }
+  }
+}
