@@ -180,7 +180,6 @@ const notVoted = (author: AuthorDescriptor) =>
 <script>
   import { dispatchReply } from '@/lib/forum/replyEvent.ts';
   import { dispatchEdit } from '@/lib/forum/editEvent.ts';
-  import { openHistoryModal } from '@/lib/forum/postHistory.ts';
 
   // Land on the post named in the URL hash (a fresh reply after the composer
   // reload, or a shared permalink). After the composer's reload the browser
@@ -247,9 +246,17 @@ const notVoted = (author: AuthorDescriptor) =>
 
     const historyLink = target.closest('[data-history]');
     if (historyLink) {
-      // Enhance the marker link into an inline modal; fall back to the href on error.
+      // Enhance the marker link into an inline modal, and fall back to the href on
+      // error. The modal pulls in the whole diff engine, so it is imported here on
+      // the click rather than at module scope: most readers never open it.
       e.preventDefault();
-      void openHistoryModal(historyLink.getAttribute('data-history') ?? '');
+      const postId = historyLink.getAttribute('data-history') ?? '';
+      const href = historyLink.getAttribute('href');
+      import('@/lib/forum/postHistory.ts')
+        .then((mod) => mod.openHistoryModal(postId))
+        .catch(() => {
+          if (href) window.location.href = href;
+        });
       return;
     }
 

@@ -1,50 +1,79 @@
 // src/lib/forum/postHistory.ts
 // Progressive-enhancement edit-history modal. The "(edited)" marker is a real
-// link to /posts/<id>/history (zero-JS fallback); when JS is present this opens
-// an inline <dialog> that pages through the changes (Newer/Older buttons or the
-// arrow keys), showing a line diff of the markdown source for each. No
-// framework: one <dialog> built on demand and removed on close.
+// link to /posts/<id>/history (zero-JS fallback), and when JS is present this opens
+// an inline <dialog> comparing any two versions. Two views: a rich diff of the
+// rendered body (default) and a word-highlighted diff of the markdown source.
 //
-// XSS invariant: the modal is assembled with innerHTML, so every value
-// interpolated into that template MUST be either a safe constant, a formatted
-// date (fmt), or HTML-escaped user text (esc, applied to every diff line). The
-// raw user markdown (bodyMd) and the stored bodyHtml are NEVER injected into the
-// modal unescaped: we only ever show the ESCAPED diff of bodyMd. If you add a
-// field here, escape it. (The full rendered bodyHtml is shown only on the SSR
-// history page via set:html, the codebase's established sanitized-HTML path.)
+// XSS invariant: the modal is assembled with innerHTML. The only HTML injected from
+// stored content is richDiff output. Its inputs are body_html values sanitized at
+// write time by renderMarkdown, it preserves only the elements and attributes present
+// in that input, and the only things it adds are <span> wrappers around changed word
+// runs and the fixed diff classes listed in DIFF_CLASSES. The source view's markup is
+// built here, not stored: renderSourceDiff escapes every word of bodyMd before
+// wrapping it, so nothing from bodyMd reaches innerHTML unescaped. Every other value
+// interpolated into this template MUST be a safe constant, a formatted date, or
+// HTML-escaped user text.
+//
+// The diff runs over stored body_html, not over enhanceStoredHtml(body_html): the
+// display-time pass emits markup outside the parser grammar this safety argument
+// rests on. A diffed post can therefore show a chain id as plain text where the live
+// post shows it as a link.
 
-import { lineDiff, type DiffOp } from './lineDiff.js';
+import { richDiff } from './htmlDiff.js';
+import { clampVersionPair, formatVersionTime, statText, versionLabel } from './historyView.js';
+import { lineDiffWithWords } from './lineDiff.js';
 
 interface Version {
   bodyMd: string;
   bodyHtml: string;
-  at: number;
+  createdAt: number;
   current: boolean;
 }
 
-function fmt(at: number): string {
-  // Locale-aware absolute time; the thread already shows relative time elsewhere.
-  return new Date(at).toLocaleString();
+// Text-content escaping only: covers everywhere this module uses it today. An
+// attribute value would also need quotes escaped, which this does not do.
+const esc = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** Escaped markdown source with word-level markers. Never trusts bodyMd as HTML. */
+function renderSourceDiff(oldMd: string, newMd: string): string {
+  return lineDiffWithWords(oldMd, newMd)
+    .map((line) => {
+      const sign = line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' ';
+      const cls =
+        line.type === 'add' ? ' class="diff-line-add"' : line.type === 'del' ? ' class="diff-line-del"' : '';
+      const body = line.parts
+        .map((p) => (p.type === 'same' ? esc(p.text) : `<span class="diff-${p.type}">${esc(p.text)}</span>`))
+        .join('');
+      return `<div${cls}><span style="opacity:0.5">${sign} </span>${body || '&nbsp;'}</div>`;
+    })
+    .join('');
 }
 
-function renderDiff(ops: DiffOp[]): string {
-  // Escapes text; colors add/del. Returned as an HTML string for the diff pane.
-  const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const rows = ops.map((op) => {
-    const sign = op.type === 'add' ? '+' : op.type === 'del' ? '-' : ' ';
-    const color =
-      op.type === 'add'
-        ? 'background:color-mix(in srgb, #16a34a 16%, transparent);'
-        : op.type === 'del'
-          ? 'background:color-mix(in srgb, #dc2626 16%, transparent);'
-          : '';
-    return `<div style="white-space:pre-wrap;${color}"><span style="opacity:0.5">${sign} </span>${esc(op.line) || '&nbsp;'}</div>`;
-  });
-  return rows.join('');
+// The dialog carries all of its styling inline, so these two need it as well or the
+// feature's headline control renders as raw browser chrome in an otherwise styled
+// surface. The values are the site's segmented pill (.seg / .seg__btn in
+// list-controls.css) written out inline rather than a new look invented here, since
+// that stylesheet is not loaded on a topic page and nothing else in this dialog
+// depends on a class.
+const VIEW_GROUP_STYLE =
+  'display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden;';
+// Rendered is disabled while a diff is degraded, and a disabled control must not
+// still read as clickable: dimmed with a default cursor, the same treatment .btn
+// gives every disabled variant in global.css.
+const viewButtonStyle = (pressed: boolean, disabled = false): string =>
+  `border:none;font-size:0.8125rem;font-weight:600;line-height:1.4;padding:0.35rem 0.75rem;background:${pressed ? 'var(--accent)' : 'transparent'};color:${pressed ? 'var(--accent-fg)' : 'var(--muted)'};${disabled ? 'opacity:0.55;cursor:not-allowed;' : 'cursor:pointer;'}`;
+
+// Maps a focused control to a selector that finds its replacement after the next
+// render, since assigning innerHTML discards the old DOM element entirely.
+function controlSelector(el: HTMLElement): string | null {
+  if (el.matches('[data-close]')) return '[data-close]';
+  if (el.matches('[data-from]')) return '[data-from]';
+  if (el.matches('[data-to]')) return '[data-to]';
+  const view = el.getAttribute('data-view');
+  return view ? `[data-view="${view}"]` : null;
 }
 
-/** Fetches a post's history and opens the diff modal. Errors are swallowed (the link still works). */
 export async function openHistoryModal(postId: string): Promise<void> {
   let versions: Version[];
   try {
@@ -57,56 +86,117 @@ export async function openHistoryModal(postId: string): Promise<void> {
     return;
   }
 
+  const count = versions.length;
+  let pair = clampVersionPair(null, null, count);
+  if (!pair) return;
+  let view: 'rich' | 'source' = 'rich';
+
   const dialog = document.createElement('dialog');
+  // Script-focusable as a fallback target once a render has no specific control to
+  // restore focus to, without joining the tab order.
+  dialog.tabIndex = -1;
   dialog.style.cssText =
     'max-width:min(48rem,92vw);width:100%;border:1px solid var(--border);border-radius:0.5rem;background:var(--surface);color:var(--fg);padding:0;';
 
-  // versions[0] is the current body; each later entry is an older revision. A
-  // "change" is the diff from one version to the next-older one, so there are
-  // versions.length - 1 changes. Open on the most recent change (index 0) and let
-  // the reader page through with Newer/Older or the arrow keys.
-  const changeCount = versions.length - 1;
-  let current = 0;
+  const label = (i: number): string => versionLabel(i, count, versions[i].current);
 
-  const navButton = (label: string, attr: string, disabled: boolean): string =>
-    `<button type="button" ${attr} ${disabled ? 'disabled' : ''} style="background:none;border:1px solid var(--border);border-radius:0.375rem;padding:0.25rem 0.625rem;font:inherit;font-size:0.8125rem;color:${disabled ? 'var(--muted)' : 'var(--fg)'};opacity:${disabled ? '0.5' : '1'};cursor:${disabled ? 'default' : 'pointer'};">${label}</button>`;
+  // from must stay strictly older than to. Only the from side disables options: it
+  // still reads as "older than the target" in the markup. The to side stays fully
+  // selectable, clampVersionPair pushes from out of the way if the reader picks a to
+  // that would invert the pair, disabling it here would just make that push
+  // unreachable from the UI (and at the initial from=1, to=0 pair, every to option
+  // but the current one would start out disabled).
+  const optionsFor = (which: 'from' | 'to', current: { from: number; to: number }): string =>
+    versions
+      .map((_, i) => {
+        const disabled = which === 'from' && i <= current.to;
+        return `<option value="${i}"${i === (which === 'from' ? current.from : current.to) ? ' selected' : ''}${disabled ? ' disabled' : ''}>${label(i)}</option>`;
+      })
+      .join('');
 
   const render = (): void => {
-    const newer = versions[current];
-    const older = versions[current + 1];
-    const diffHtml = renderDiff(lineDiff(older.bodyMd, newer.bodyMd));
+    // innerHTML below discards every control and rebuilds them fresh, including
+    // whichever one the reader was just using. Record it now, by selector rather
+    // than by reference, so it can be found again in the replacement markup.
+    const active = document.activeElement;
+    const focusSelector =
+      active instanceof HTMLElement && dialog.contains(active) ? controlSelector(active) : null;
+
+    const { from, to } = pair as { from: number; to: number };
+    const diff = richDiff(versions[from].bodyHtml, versions[to].bodyHtml);
+    // A body the parser refused. The source view needs no parser, so it still works.
+    const showSource = view === 'source' || diff.degraded;
+    const notice = diff.degraded
+      ? '<p style="color:var(--muted);font-size:0.8125rem;margin:0 0 0.75rem;">A rendered diff is not available for these versions. Showing the markdown source instead.</p>'
+      : '';
+    const pane = showSource
+      ? `${notice}<div class="diff-source">${renderSourceDiff(versions[from].bodyMd, versions[to].bodyMd)}</div>`
+      : `<div class="prose">${diff.html}</div>`;
+    const stat = diff.degraded ? '' : ` &middot; ${statText(diff.added, diff.removed, diff.changed)}`;
+
     dialog.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:1rem 1.25rem;border-bottom:1px solid var(--border);">
         <strong style="font-size:0.95rem;">Edit history</strong>
         <button type="button" data-close aria-label="Close" style="background:none;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;line-height:1;">&#10005;</button>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);">
-        ${navButton('&larr; Newer', 'data-prev', current === 0)}
-        <span style="font-size:0.8125rem;color:var(--muted);text-align:center;">Change ${current + 1} of ${changeCount} &middot; ${fmt(newer.at)}${newer.current ? ' (current)' : ''}</span>
-        ${navButton('Older &rarr;', 'data-next', current === changeCount - 1)}
-      </div>
-      <div style="padding:1rem 1.25rem;">
-        <div style="font-family:ui-monospace,monospace;font-size:0.8125rem;line-height:1.5;border:1px solid var(--border);border-radius:0.375rem;padding:0.75rem;overflow:auto;max-height:60vh;">
-          ${diffHtml || '<em style="color:var(--muted)">No earlier version.</em>'}
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.75rem;padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);font-size:0.8125rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <label>Compare <select data-from>${optionsFor('from', pair as { from: number; to: number })}</select></label>
+          <label>to <select data-to>${optionsFor('to', pair as { from: number; to: number })}</select></label>
         </div>
-      </div>`;
-    dialog.querySelector('[data-close]')?.addEventListener('click', () => dialog.close());
-    dialog.querySelector('[data-prev]')?.addEventListener('click', () => go(current - 1));
-    dialog.querySelector('[data-next]')?.addEventListener('click', () => go(current + 1));
-  };
+        <span style="color:var(--muted);">${esc(formatVersionTime(versions[to].createdAt))}${stat}</span>
+        <div style="${VIEW_GROUP_STYLE}">
+          <button type="button" data-view="rich" aria-pressed="${!showSource}" ${diff.degraded ? 'disabled' : ''} style="${viewButtonStyle(!showSource, diff.degraded)}">Rendered</button>
+          <button type="button" data-view="source" aria-pressed="${showSource}" style="${viewButtonStyle(showSource)}">Source</button>
+        </div>
+      </div>
+      <div style="padding:1rem 1.25rem;max-height:60vh;overflow:auto;">${pane}</div>`;
 
-  const go = (next: number): void => {
-    const clamped = Math.max(0, Math.min(changeCount - 1, next));
-    if (clamped !== current) {
-      current = clamped;
+    dialog.querySelector('[data-close]')?.addEventListener('click', () => dialog.close());
+    dialog.querySelector('[data-from]')?.addEventListener('change', (e) => {
+      pair = clampVersionPair((e.target as HTMLSelectElement).value, pair?.to, count);
       render();
+    });
+    dialog.querySelector('[data-to]')?.addEventListener('change', (e) => {
+      pair = clampVersionPair(pair?.from, (e.target as HTMLSelectElement).value, count);
+      render();
+    });
+    for (const btn of dialog.querySelectorAll('[data-view]')) {
+      btn.addEventListener('click', () => {
+        view = btn.getAttribute('data-view') === 'source' ? 'source' : 'rich';
+        render();
+      });
+    }
+
+    // Restore focus to the replacement of whatever control had it, or to the dialog
+    // itself when nothing specific did. The dialog fallback matters as much as the
+    // specific one: some browsers move focus to document.body once the previously
+    // focused element leaves the DOM, and body is not a descendant of dialog, so the
+    // keydown listener below would stop receiving events after the very first render
+    // it was not attached for. Skipped on the first render, before showModal has run
+    // (dialog.open is still false then), so this does not fight showModal's own
+    // initial-focus algorithm.
+    if (dialog.open) {
+      const next = focusSelector ? dialog.querySelector<HTMLElement>(focusSelector) : null;
+      // A disabled element silently refuses focus (e.g. Rendered flips disabled when
+      // a diff becomes degraded), which would defeat the fallback below it exists for.
+      (next && !next.hasAttribute('disabled') ? next : dialog).focus();
     }
   };
 
-  // Arrow keys page through changes. Attached once: render() only swaps innerHTML.
+  // Arrow keys step the compared pair one version older or newer, keeping them adjacent.
   dialog.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowLeft') go(current - 1);
-    else if (e.key === 'ArrowRight') go(current + 1);
+    if ((e.target as HTMLElement)?.tagName === 'SELECT') return;
+    if (!pair) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault(); // stop the overflow pane from scrolling under the step
+      pair = clampVersionPair(pair.to, pair.to - 1, count);
+      render();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      pair = clampVersionPair(pair.from + 1, pair.from, count);
+      render();
+    }
   });
 
   render();

@@ -1568,3 +1568,118 @@ a.ninbox__actor:hover { text-decoration: underline; }
 @keyframes ptr-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ==========================================================================
+   Edit-history diff markers (modal and /posts/<id>/history)
+   ========================================================================== */
+:root {
+  --diff-add-bg: #dcfce7;
+  --diff-add-strong: #86efac;
+  --diff-del-bg: #fee2e2;
+  --diff-del-strong: #fca5a5;
+  --diff-meta-bg: #fef3c7;
+}
+html[data-theme='dark'] {
+  --diff-add-bg: #14311f;
+  --diff-add-strong: #1f5c34;
+  --diff-del-bg: #3a1618;
+  --diff-del-strong: #6b2427;
+  --diff-meta-bg: #3a2f11;
+}
+
+/* Inline runs of changed words. */
+span.diff-add,
+span.diff-del,
+span.diff-meta {
+  border-radius: 0.125rem;
+  padding: 0 0.125rem;
+}
+.diff-add {
+  background: var(--diff-add-strong);
+}
+.diff-del {
+  background: var(--diff-del-strong);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--fg) 40%, transparent);
+}
+/* A change that leaves the visible text alone: formatting, or a link that now
+   points somewhere else. Underlined rather than filled, so it does not read as
+   written or deleted text. */
+.diff-meta {
+  background: var(--diff-meta-bg);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+
+/* Whole-element markers. No display property: each element keeps its own. */
+.diff-block-add {
+  background: var(--diff-add-bg);
+}
+.diff-block-del {
+  background: var(--diff-del-bg);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--fg) 30%, transparent);
+}
+
+/* Elements that can carry a left accent without disturbing their layout. */
+p.diff-block-add,
+h1.diff-block-add,
+h2.diff-block-add,
+h3.diff-block-add,
+h4.diff-block-add,
+blockquote.diff-block-add,
+pre.diff-block-add,
+p.diff-block-del,
+h1.diff-block-del,
+h2.diff-block-del,
+h3.diff-block-del,
+h4.diff-block-del,
+blockquote.diff-block-del,
+pre.diff-block-del {
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  padding-left: 0.625rem;
+}
+p.diff-block-add,
+h1.diff-block-add,
+h2.diff-block-add,
+h3.diff-block-add,
+h4.diff-block-add,
+blockquote.diff-block-add,
+pre.diff-block-add {
+  border-left-color: var(--diff-add-strong);
+}
+p.diff-block-del,
+h1.diff-block-del,
+h2.diff-block-del,
+h3.diff-block-del,
+h4.diff-block-del,
+blockquote.diff-block-del,
+pre.diff-block-del {
+  border-left-color: var(--diff-del-strong);
+}
+
+/* Table rows keep table layout, so the tint goes on their cells. */
+tr.diff-block-add > td,
+tr.diff-block-add > th {
+  background: var(--diff-add-bg);
+}
+tr.diff-block-del > td,
+tr.diff-block-del > th {
+  background: var(--diff-del-bg);
+  text-decoration: line-through;
+}
+
+.diff-source {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-source .diff-line-add {
+  background: var(--diff-add-bg);
+}
+.diff-source .diff-line-del {
+  background: var(--diff-del-bg);
+}

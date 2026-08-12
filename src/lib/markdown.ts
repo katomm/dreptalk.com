@@ -27,6 +27,7 @@ import { Marked } from 'marked';
 // not hoist them and a named `{ FilterXSS }` import resolves to undefined. The default
 // export is the module.exports object with FilterXSS attached, so reach it through that.
 import xssModule from 'xss';
+import { ALLOWED_TAGS } from './sanitizedHtmlGrammar.js';
 
 const { FilterXSS } = xssModule as unknown as typeof import('xss');
 
@@ -103,39 +104,6 @@ function mentionExtension(mentions: ReadonlyMap<string, MentionLink>) {
 // Shared instance for the common no-mentions path; mention-aware calls build
 // their own instance in renderMarkdown with the extension closed over the map.
 const plainMarked = new Marked();
-
-// Strict allowlist: structural/text tags only, no presentational attributes.
-// Attributes not listed are stripped automatically by the sanitizer.
-// GFM table tags (table, thead, tbody, tr, th, td) are included so that
-// tables in CIP-108 rationale markdown render correctly.
-const ALLOWED_TAGS: Record<string, string[]> = {
-  p: [],
-  br: [],
-  h1: [],
-  h2: [],
-  h3: [],
-  h4: [],
-  strong: [],
-  em: [],
-  del: [],
-  blockquote: [],
-  code: [],
-  pre: [],
-  ul: [],
-  ol: [],
-  li: [],
-  // href is kept; rel will be force-injected by injectRel below.
-  // target, name, class, id, style, on* are all omitted and therefore stripped.
-  a: ['href', 'rel'],
-  hr: [],
-  // GFM tables: no attributes allowed (marked emits align as style= which we strip).
-  table: [],
-  thead: [],
-  tbody: [],
-  tr: [],
-  th: [],
-  td: [],
-};
 
 const sanitizer = new FilterXSS({
   whiteList: ALLOWED_TAGS,
