@@ -4,9 +4,9 @@
 // tombstone must replace the whole body, and deletedAt must never be invented.
 import { it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { createTopic } from '../db/forum.js';
+import { createTopic, createPost } from '../db/forum.js';
 import { reconcilePostDocs } from './reconcile.js';
-import { buildVersionIndex } from './views.js';
+import { buildVersionIndex, buildThreadManifest } from './views.js';
 import { EDIT_GRACE_MS } from '../forum/editPolicy.js';
 
 const db = () => env.DB;
@@ -63,4 +63,63 @@ it('omits deletedAt when the flag was set without a timestamp', async () => {
 
 it('404s an unknown post', async () => {
   expect((await buildVersionIndex(db(), 'no-such-post', ORIGIN)).status).toBe(404);
+});
+
+it('lists posts in thread order with flat readable keys', async () => {
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-manifest', title: 'Manifest order',
+    bodyMd: 'opening', bodyHtml: '<p>opening</p>', now: T, rand: 'm1',
+  });
+  const replyPostedAt = T + 1000;
+  const reply = await createPost(db(), {
+    topicId: topic.id, authorId: 'test-author-manifest', bodyMd: 'reply',
+    bodyHtml: '<p>reply</p>', now: replyPostedAt, parentPostId: firstPost.id,
+  });
+  // Reconcile strictly past the reply's own grace window, not just
+  // AFTER_GRACE (which is exactly at the reply's boundary, still in grace
+  // per isWithinGrace's <=, and would silently skip its document).
+  const afterReplyGrace = replyPostedAt + EDIT_GRACE_MS + 1000;
+  for (const id of [firstPost.id, reply.id]) {
+    await reconcilePostDocs(db(), id, { origin: ORIGIN, network: 'mainnet', now: afterReplyGrace });
+  }
+  const doc = JSON.parse((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).body as string);
+  expect(doc.title).toBe('Manifest order');
+  expect(doc.discussion).toBe(`${ORIGIN}/t/${topic.slug}/`);
+  expect(doc.posts.map((p: { postId: string }) => p.postId)).toEqual([firstPost.id, reply.id]);
+  expect(doc.posts[1].inReplyToPostId).toBe(firstPost.id);
+  // The manifest must name its network, or a consumer cannot tell a preprod
+  // thread from a mainnet one.
+  expect(doc.network).toBe('mainnet');
+  expect(JSON.stringify(doc)).not.toContain('reaction');
+});
+
+it('tombstones a deleted post and drops its identity', async () => {
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-manifest', title: 'Manifest tombstone',
+    bodyMd: 'opening', bodyHtml: '<p>opening</p>', now: T, rand: 'm2',
+  });
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
+  await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?').bind(T + 5, firstPost.id).run();
+  const doc = JSON.parse((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).body as string);
+  expect(doc.posts[0].status).toBe('deleted');
+  expect('postedBy' in doc.posts[0]).toBe(false);
+  expect('permalink' in doc.posts[0]).toBe(false);
+});
+
+it('410s a deleted thread', async () => {
+  const { topic } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-manifest', title: 'Manifest gone',
+    bodyMd: 'opening', bodyHtml: '<p>opening</p>', now: T, rand: 'm3',
+  });
+  await db().prepare('UPDATE topics SET deleted = 1, deleted_at = ? WHERE id = ?').bind(T + 5, topic.id).run();
+  expect((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).status).toBe(410);
+});
+
+it('serves an empty posts array for a thread with no eligible posts', async () => {
+  const { topic } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-manifest', title: 'Manifest empty',
+    bodyMd: 'opening', bodyHtml: '<p>opening</p>', source: 'governance', now: T, rand: 'm4',
+  });
+  const doc = JSON.parse((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).body as string);
+  expect(doc.posts).toEqual([]);
 });
