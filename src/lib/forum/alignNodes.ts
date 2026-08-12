@@ -13,7 +13,7 @@
 
 import type { HtmlNode } from './htmlNodes.js';
 import { nodeText } from './htmlNodes.js';
-import { similarity } from './wordDiff.js';
+import { LCS_CELL_BUDGET, similarity } from './wordDiff.js';
 
 /** One output position: a pair, an old-only node, or a new-only node. */
 export type Slot = { old: number | null; new: number | null };
@@ -80,6 +80,31 @@ function pairGap(
   return slots;
 }
 
+/**
+ * The over-budget fallback: pair index k with index k and nothing cleverer. Two nodes
+ * that could not stand in for each other (a paragraph against a list item, or two
+ * different void tags) come out as an old-only slot followed by a new-only one, which
+ * also keeps the pairs safe for the renderer, since it only ever descends into a pair
+ * of the same kind and tag.
+ */
+function pairByPosition(oldNodes: HtmlNode[], newNodes: HtmlNode[]): Slot[] {
+  const interchangeable = (a: HtmlNode, b: HtmlNode): boolean => {
+    if (a.kind === 'text' && b.kind === 'text') return true;
+    if (a.kind === 'element' && b.kind === 'element') return a.tag === b.tag;
+    return a.kind === 'void' && b.kind === 'void' && a.tag === b.tag;
+  };
+
+  const slots: Slot[] = [];
+  const shared = Math.min(oldNodes.length, newNodes.length);
+  for (let k = 0; k < shared; k++) {
+    if (interchangeable(oldNodes[k], newNodes[k])) slots.push({ old: k, new: k });
+    else slots.push({ old: k, new: null }, { old: null, new: k });
+  }
+  for (let k = shared; k < oldNodes.length; k++) slots.push({ old: k, new: null });
+  for (let k = shared; k < newNodes.length; k++) slots.push({ old: null, new: k });
+  return slots;
+}
+
 const isIgnorable = (node: HtmlNode): boolean => node.kind === 'text' && node.ignorable;
 
 /**
@@ -122,6 +147,15 @@ function alignContent(oldNodes: HtmlNode[], newNodes: HtmlNode[]): Slot[] {
   const b = newNodes.map(strictKey);
   const n = a.length;
   const m = b.length;
+
+  // The same table, and the same exposure, as wordDiff: a 20,000 character body can
+  // hold thousands of list items or table rows, and this table is quadratic in that
+  // count. Over the budget (see LCS_CELL_BUDGET) it is not built at all and the two
+  // lists pair by position instead, which is cheap, keeps both sides monotonic and
+  // covers every index exactly once. Positions whose nodes could not stand in for
+  // each other come out as an old-only plus a new-only slot, the shape a rejected
+  // pair already takes everywhere else.
+  if ((n + 1) * (m + 1) > LCS_CELL_BUDGET) return pairByPosition(oldNodes, newNodes);
 
   const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) {

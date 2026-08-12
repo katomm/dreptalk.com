@@ -1,7 +1,8 @@
 // Minimal line-level diff (LCS) for the post edit-history modal. No dependency:
-// the version pairs are short markdown bodies, so an O(n*m) table is fine.
+// the version pairs are markdown bodies capped at 20,000 characters, small enough
+// for an O(n*m) table up to the shared cell budget, past which it degrades.
 
-import { similarity, wordDiff, type WordOp } from './wordDiff.js';
+import { LCS_CELL_BUDGET, similarity, wordDiff, type WordOp } from './wordDiff.js';
 
 export type DiffOp = { type: 'same' | 'add' | 'del'; line: string };
 
@@ -11,6 +12,18 @@ export function lineDiff(oldText: string, newText: string): DiffOp[] {
   const b = newText.split('\n');
   const n = a.length;
   const m = b.length;
+
+  // Same quadratic table and same exposure as wordDiff, one level up: a body of
+  // nothing but newlines is 20,000 lines within the length limit, which is 400
+  // million cells. Over the budget (see LCS_CELL_BUDGET) every old line is reported
+  // removed and every new line added, and lineDiffWithWords still zips that run by
+  // position, so a reader keeps a line by line view.
+  if ((n + 1) * (m + 1) > LCS_CELL_BUDGET) {
+    return [
+      ...a.map((line): DiffOp => ({ type: 'del', line })),
+      ...b.map((line): DiffOp => ({ type: 'add', line })),
+    ];
+  }
 
   // lcs[i][j] = length of the longest common subsequence of a[i:] and b[j:].
   const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));

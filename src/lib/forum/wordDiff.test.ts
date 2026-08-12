@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { wordDiff, similarity } from './wordDiff.js';
+import { LCS_CELL_BUDGET, wordDiff, similarity } from './wordDiff.js';
+
+const words = (count: number, prefix: string): string =>
+  Array.from({ length: count }, (_, i) => `${prefix}${i}`).join(' ');
 
 describe('wordDiff', () => {
   it('marks identical text as all same', () => {
@@ -45,6 +48,32 @@ describe('wordDiff', () => {
     expect(wordDiff('keep delete', 'keep')).toEqual([
       { type: 'same', text: 'keep' },
       { type: 'del', text: ' delete' },
+    ]);
+  });
+
+  it('returns a whole replacement instead of allocating an over-budget table', () => {
+    // Sized just past the budget, never anywhere near the 3 GB a 20,000 character
+    // paragraph of short tokens would ask for: the point is the shape of the answer,
+    // and the table this asserts is not built could not be built in a test either.
+    // Tokens alternate word and whitespace, so a word count of just over
+    // sqrt(budget)/2 puts (n+1)*(m+1) over the line.
+    const side = Math.ceil(Math.sqrt(LCS_CELL_BUDGET) / 2) + 1;
+    const a = words(side, 'old');
+    const b = words(side, 'new');
+    expect(wordDiff(a, b)).toEqual([
+      { type: 'del', text: a },
+      { type: 'add', text: b },
+    ]);
+  });
+
+  it('still word diffs a long pair that stays inside the budget', () => {
+    // 300 words is 599 tokens a side, about 360,000 cells, so the guard must not fire
+    // on anything a person would actually write in one paragraph.
+    const body = words(300, 'word');
+    expect(wordDiff(`${body} tail`, `${body} changed`)).toEqual([
+      { type: 'same', text: `${body} ` },
+      { type: 'del', text: 'tail' },
+      { type: 'add', text: 'changed' },
     ]);
   });
 });

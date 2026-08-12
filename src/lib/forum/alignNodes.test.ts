@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { alignNodes } from './alignNodes.js';
 import type { HtmlNode } from './htmlNodes.js';
 import { parseSanitizedHtml } from './htmlNodes.js';
+import { LCS_CELL_BUDGET } from './wordDiff.js';
 
 const p = (html: string) => parseSanitizedHtml(html);
 
@@ -123,6 +124,46 @@ describe('alignNodes', () => {
 
   it('reports every node as old-only when the new list is empty', () => {
     expect(alignNodes(p('<p>a</p>'), [])).toEqual([{ old: 0, new: null }]);
+  });
+});
+
+describe('alignNodes over the LCS cell budget', () => {
+  // A 20,000 character body can hold thousands of list items, and the matcher's table
+  // is quadratic in that count, so past the budget it pairs by position instead. Sized
+  // just over the line, so the table this asserts is never built is never built here
+  // either. The two cases differ in a way a count-only assertion could not see: with a
+  // node inserted at the front, a table would anchor every surviving item one position
+  // to the right, while position pairing lines index k up with index k and reports the
+  // extra node at the end.
+  const item = (text: string): HtmlNode => ({
+    kind: 'element',
+    tag: 'li',
+    attrs: {},
+    children: [{ kind: 'text', text, ignorable: false }],
+  });
+  const list = (count: number, from = 0): HtmlNode[] =>
+    Array.from({ length: count }, (_, i) => item(`item ${i + from}`));
+
+  it('pairs by position once the table would be too large', () => {
+    const side = Math.ceil(Math.sqrt(LCS_CELL_BUDGET));
+    const oldNodes = list(side);
+    const newNodes = [item('inserted'), ...list(side)];
+    const slots = alignNodes(oldNodes, newNodes);
+
+    expect(slots).toHaveLength(side + 1);
+    expect(slots[0]).toEqual({ old: 0, new: 0 });
+    expect(slots[side - 1]).toEqual({ old: side - 1, new: side - 1 });
+    expect(slots[side]).toEqual({ old: null, new: side });
+  });
+
+  it('still anchors by content for a list that stays inside the budget', () => {
+    const oldNodes = list(40);
+    const newNodes = [item('inserted'), ...list(40)];
+    const slots = alignNodes(oldNodes, newNodes);
+
+    expect(slots[0]).toEqual({ old: null, new: 0 });
+    expect(slots[1]).toEqual({ old: 0, new: 1 });
+    expect(slots).toHaveLength(41);
   });
 });
 

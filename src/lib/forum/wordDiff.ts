@@ -4,6 +4,28 @@
 
 export type WordOp = { type: 'same' | 'add' | 'del'; text: string };
 
+/**
+ * Cell budget for every LCS table in the diff engine, shared with alignNodes and
+ * lineDiff. A table is (n+1) by (m+1) numbers, measured at exactly 8 bytes per cell
+ * in V8, so this caps one table at about 15 MB.
+ *
+ * It has to be capped. Tokens include whitespace runs, so the 20,000 character body
+ * limit (src/lib/forum/handlers.ts) allows 20,000 tokens in a single paragraph, which
+ * is 400 million cells, about 3 GB. A Workers isolate dies at 128 MB, and the history
+ * page is a public unauthenticated URL, so that is an isolate kill rather than even a
+ * 500, and the same call runs in the reader's browser in the history modal. Measured
+ * on ordinary prose the table alone is 32 MB at 8,000 characters and 168 MB at 20,000,
+ * so a budget that only catches the worst case would still let an ordinary long post
+ * take the page down.
+ *
+ * 2 million cells is about 1,400 tokens per side, roughly 700 words or 4,200
+ * characters of prose in one paragraph, far beyond what anyone writes without a
+ * paragraph break. Over the budget the pair degrades to a whole replacement, which is
+ * the shape the 0.3 similarity rule already produces for text too dissimilar to word
+ * diff, so every caller and the CSS already handle it.
+ */
+export const LCS_CELL_BUDGET = 2_000_000;
+
 function tokenize(text: string): string[] {
   return text.match(/\s+|[^\s]+/g) ?? [];
 }
@@ -14,6 +36,14 @@ export function wordDiff(oldText: string, newText: string): WordOp[] {
   const b = tokenize(newText);
   const n = a.length;
   const m = b.length;
+
+  // Over budget: build no table at all and return the pair as one whole replacement.
+  if ((n + 1) * (m + 1) > LCS_CELL_BUDGET) {
+    const replacement: WordOp[] = [];
+    if (oldText !== '') replacement.push({ type: 'del', text: oldText });
+    if (newText !== '') replacement.push({ type: 'add', text: newText });
+    return replacement;
+  }
 
   const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) {
