@@ -22,7 +22,8 @@ function serialize(doc: unknown): string {
 function tombstone(postId: string, deletedAt: number | null, hashes: string[]): Record<string, unknown> {
   const t: Record<string, unknown> = { postId, status: 'deleted' };
   // Omitted rather than invented when the flag was set without a timestamp.
-  if (deletedAt) t.deletedAt = isoSeconds(deletedAt);
+  // Checked against null, not truthiness: epoch zero is a real timestamp.
+  if (deletedAt !== null) t.deletedAt = isoSeconds(deletedAt);
   t.versions = hashes;
   return t;
 }

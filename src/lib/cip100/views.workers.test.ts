@@ -41,6 +41,12 @@ it('replaces the whole body with a tombstone once deleted', async () => {
   expect(doc.versions).toHaveLength(1);
   expect(JSON.stringify(doc)).not.toContain('postedBy');
   expect('permalink' in doc).toBe(false);
+  expect('thread' in doc).toBe(false);
+  // The exact key set, not just the fields we happened to name, so a newly
+  // leaked field fails this test whether or not anyone thought to name it.
+  expect(Object.keys(doc).sort()).toEqual(
+    ['@context', '@type', 'deletedAt', 'postId', 'status', 'versions'].sort(),
+  );
 });
 
 it('omits deletedAt when the flag was set without a timestamp', async () => {

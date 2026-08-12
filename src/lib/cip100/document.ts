@@ -89,7 +89,7 @@ export function buildDiscussionPostDoc(input: DiscussionPostDocInput): BuiltCip1
     version: input.version,
     postedAt: isoSeconds(input.postedAt),
   };
-  if (input.revisedAt) body.revisedAt = isoSeconds(input.revisedAt);
+  if (input.revisedAt !== null) body.revisedAt = isoSeconds(input.revisedAt);
   body.network = input.network;
   body.forum = `${origin}/`;
   body.thread = `${origin}/cip100/topic/${input.topicId}.json`;
