@@ -84,16 +84,20 @@ describe('alignNodes', () => {
     const newNodes = p('<p>a</p><p>c changed</p><p>d</p>');
     const slots = alignNodes(oldNodes, newNodes);
     const numeric = (a: number, b: number) => a - b;
+    // .filter((s) => s.old !== null) narrows the predicate, not the mapped array: TS
+    // does not carry that through a later .map. Filtering after mapping, with a type
+    // guard, narrows the array itself to number[] so numeric's plain signature holds.
+    const isNumber = (n: number | null): n is number => n !== null;
     expect(
       slots
-        .filter((s) => s.old !== null)
         .map((s) => s.old)
+        .filter(isNumber)
         .sort(numeric),
     ).toEqual([0, 1, 2]);
     expect(
       slots
-        .filter((s) => s.new !== null)
         .map((s) => s.new)
+        .filter(isNumber)
         .sort(numeric),
     ).toEqual([0, 1, 2]);
   });

@@ -71,9 +71,10 @@ function diffClass(name: string): string {
 // text to compare). This one is only ever invoked when there is no choice to make, so
 // matching same-tag voids here is correct and intentionally not the same rule.
 function canPairAsSoleCandidate(a: HtmlNode, b: HtmlNode): boolean {
-  if (a.kind !== b.kind) return false;
-  if (a.kind === 'text') return true;
-  return a.tag === b.tag;
+  if (a.kind === 'text' && b.kind === 'text') return true;
+  if (a.kind === 'element' && b.kind === 'element') return a.tag === b.tag;
+  if (a.kind === 'void' && b.kind === 'void') return a.tag === b.tag;
+  return false;
 }
 
 // Wraps the changed core of a word-diff or whole-node text run in a marker span,
@@ -104,12 +105,24 @@ function markWhole(node: HtmlNode, kind: 'add' | 'del'): string {
 // renderMarkdown passes raw HTML blocks through largely unchecked, so a stored body
 // can already hold text that never belonged directly inside one of these to begin
 // with (`<ul>alpha<li>x</li></ul>`), and the diff must not compound that by adding a
-// <span>, which is not legal content there either. Inside a table specifically, a
-// browser's HTML parser foster-parents anything that is not table markup out of the
-// table entirely, so wrapping such text would risk the marked words rendering before
-// the table rather than inside it. blockquote is deliberately not in this list: its
-// content model tolerates a span child, this is only about the strict list and table
+// <span>, which is not legal content there either. The two families of tags here fail
+// differently in a browser: inside table, thead, tbody or tr, the HTML parser
+// foster-parents anything that is not table markup out of the table entirely, so a
+// wrapped span there would risk the marked words rendering before the table rather
+// than inside it. Inside ul or ol a browser is more forgiving and keeps a stray span
+// right where it was written, so nothing relocates, it would just be invalid content
+// model rather than a rendering hazard. Both are still refused here: the module's own
+// invariant is no wrapper outside a text node, not "no wrapper unless the browser
+// happens to tolerate it". blockquote is deliberately not in this list: its content
+// model tolerates a span child, this is only about the strict list and table
 // containers whose only legal element child is li, tr, thead or tbody.
+//
+// The word is still counted on either side of this guard (see the two call sites
+// below): a reader who sees "edited" with a count is told something happened even
+// where the module declines to show what. Leaving it uncounted was the other option
+// on the table, and was rejected because a reader seeing "edited" with no marks and
+// a zero count has been told nothing changed at all, which is worse than an accurate
+// count with no visible marker to match it.
 const NO_SPAN_PARENTS: ReadonlySet<string> = new Set(['ul', 'ol', 'table', 'thead', 'tbody', 'tr']);
 
 function diffText(oldText: string, newText: string, counts: Counts, parentTag: string | null): string {
@@ -138,8 +151,16 @@ function findWholeReplacement(
 ): { node: HtmlNode; between: string[] } | null {
   const between: string[] = [];
   let j = i + 1;
-  while (j < slots.length && slots[j].old === null && slots[j].new !== null) {
-    const candidate = newNodes[slots[j].new];
+  while (j < slots.length) {
+    // Read into locals so TypeScript can narrow newIndex through the checks below:
+    // slots[j].new stays a `number | null` property access even right after a
+    // `!== null` check on the same expression, since j is a mutable loop variable
+    // and slots is a plain array, nothing ties the checked value to the one read a
+    // moment later. A local const does not have that problem.
+    const slot = slots[j];
+    const newIndex = slot.new;
+    if (slot.old !== null || newIndex === null) break;
+    const candidate = newNodes[newIndex];
     if (candidate.kind === 'text' && candidate.ignorable) {
       between.push(candidate.text);
       j++;
@@ -197,26 +218,37 @@ function diffNodeLists(oldNodes: HtmlNode[], newNodes: HtmlNode[], counts: Count
   const slots = alignNodes(oldNodes, newNodes);
   const out: string[] = [];
   for (let i = 0; i < slots.length; i++) {
+    // Read into locals so TypeScript can narrow them through the checks below: after
+    // eliminating "both sides present" and "new side present", what remains is not
+    // "old side present" as a matter of the Slot type, only "new side absent", since
+    // Slot does not itself forbid a slot with both sides null (alignNodes guarantees
+    // that at runtime, but the type does not encode it). The explicit oldIndex ===
+    // null check further down covers that case rather than asserting it away.
     const slot = slots[i];
-    if (slot.old !== null && slot.new !== null) {
-      out.push(diffNode(oldNodes[slot.old], newNodes[slot.new], counts, parentTag));
+    const oldIndex = slot.old;
+    const newIndex = slot.new;
+    if (oldIndex !== null && newIndex !== null) {
+      out.push(diffNode(oldNodes[oldIndex], newNodes[newIndex], counts, parentTag));
       continue;
     }
-    if (slot.old === null && slot.new !== null) {
-      const node = newNodes[slot.new];
-      if (node.kind === 'text' && parentTag !== null && NO_SPAN_PARENTS.has(parentTag)) {
-        out.push(node.text); // already-invalid content in this position; show the new value unmarked
-        continue;
-      }
+    if (newIndex !== null) {
+      const node = newNodes[newIndex];
       counts.added += countWords(nodeText(node));
-      out.push(markWhole(node, 'add'));
+      if (node.kind === 'text' && parentTag !== null && NO_SPAN_PARENTS.has(parentTag)) {
+        out.push(node.text); // already-invalid content in this position; show the new value unmarked, still counted
+      } else {
+        out.push(markWhole(node, 'add'));
+      }
       continue;
+    }
+    if (oldIndex === null) {
+      continue; // both sides null: alignNodes never actually produces this, nothing to do if it did
     }
 
-    // old-only: slot.old !== null && slot.new === null
-    const oldNode = oldNodes[slot.old];
+    const oldNode = oldNodes[oldIndex];
     if (oldNode.kind === 'text' && parentTag !== null && NO_SPAN_PARENTS.has(parentTag)) {
-      continue; // dropped entirely; there is nothing valid to show it as
+      counts.removed += countWords(nodeText(oldNode));
+      continue; // dropped from the markup; see NO_SPAN_PARENTS, still counted
     }
 
     // A whole-node deletion immediately followed by a whole-node insertion (only

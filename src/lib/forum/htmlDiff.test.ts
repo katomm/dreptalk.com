@@ -184,6 +184,20 @@ describe('richDiff', () => {
     expect(table.html).toContain('beta');
   });
 
+  it('still counts a word lost or gained even where the marker is withheld', () => {
+    // The chosen trade for NO_SPAN_PARENTS is structure over highlighting, not
+    // structure over honesty: a reader who sees "edited" with no marks and a zero
+    // count has been told nothing happened. The count stays accurate even though the
+    // word itself is not pointed at.
+    const removed = diff('<ul>alpha<li>x</li></ul>', '<ul><li>x</li></ul>');
+    expect(removed.html).not.toContain('<span');
+    expect(removed).toMatchObject({ changed: true, added: 0, removed: 1 });
+
+    const added = diff('<ul><li>x</li></ul>', '<ul>alpha<li>x</li></ul>');
+    expect(added.html).not.toContain('<span');
+    expect(added).toMatchObject({ changed: true, added: 1, removed: 0 });
+  });
+
   it('word-diffs a lone paragraph rewritten to unrelated words, with no sibling to make it ambiguous', () => {
     // Pins one half of the single-candidate pairing's sibling-dependent asymmetry
     // documented in diffNodeLists: with no sibling, this is the only candidate on
