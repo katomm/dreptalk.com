@@ -38,6 +38,43 @@ it('purges bytes and stamps a missing deletion time', async () => {
   expect(row?.deleted_at).toBe(AFTER_GRACE + 60_000);
 });
 
+it('keeps permanently out-of-scope posts from starving the batch', async () => {
+  // The batch is bounded and ordered by created_at, so a candidate that can
+  // never be satisfied is not merely wasted work: it holds its slot on every
+  // run. Seed more of them than fit in one batch, all older than one ordinary
+  // post, which is the state that used to stop every later post from ever
+  // getting a document.
+  const LIMIT = 3;
+  const OLD = T - 1_000_000;
+  for (let i = 0; i < LIMIT - 1; i++) {
+    // Governance opening post: mirrors on-chain content, never emitted.
+    await createTopic(db(), {
+      categorySlug: 'general', authorId: 'test-author-cron', title: `Cron starve gov ${i}`,
+      bodyMd: 'body', bodyHtml: '<p>body</p>', source: 'governance', now: OLD, rand: `s${i}`,
+    });
+  }
+  // Vote-rationale cross-post: references its own on-chain document, never emitted.
+  const rationale = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-cron', title: 'Cron starve rationale',
+    bodyMd: 'body', bodyHtml: '<p>body</p>', now: OLD, rand: 'sr',
+  });
+  await db().prepare("UPDATE posts SET source = 'vote_rationale' WHERE id = ?").bind(rationale.firstPost.id).run();
+
+  const { firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-cron', title: 'Cron starve ordinary',
+    bodyMd: 'body', bodyHtml: '<p>body</p>', now: OLD + 1000, rand: 'so',
+  });
+
+  const res = await runCip100Sync(db(), {
+    origin: 'https://dreptalk.com', network: 'mainnet', now: AFTER_GRACE, limit: LIMIT,
+  });
+  expect((await getHeadDoc(db(), firstPost.id))?.version).toBe(1);
+  expect(res.reconciled).toBeGreaterThan(0);
+  // And the unsatisfiable ones are gone from the candidate set entirely, rather
+  // than being fetched and then skipped one by one.
+  expect(res.skipped).toBe(0);
+});
+
 it('stamps a manually deleted topic too, so its post tombstones can date themselves', async () => {
   const { topic } = await createTopic(db(), {
     categorySlug: 'general', authorId: 'test-author-cron', title: 'Cron topic purge',

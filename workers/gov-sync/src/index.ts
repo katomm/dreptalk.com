@@ -339,7 +339,7 @@ async function runGovernanceSync(env: Env, phase: PhaseFn, opts: { heavy: boolea
       now,
       limit: 200,
     });
-    console.log(`[cip100] purged=${r.purged} reconciled=${r.reconciled} failed=${r.failed}`);
+    console.log(`[cip100] purged=${r.purged} reconciled=${r.reconciled} skipped=${r.skipped} failed=${r.failed}`);
     return { items: r.reconciled, failed: r.failed };
   });
 }
