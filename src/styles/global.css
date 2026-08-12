@@ -1669,13 +1669,6 @@ tr.diff-block-del > th {
   background: var(--diff-del-bg);
   text-decoration: line-through;
 }
-/* Cells marked directly must not lose their own padding to the inline rule. */
-td.diff-add,
-td.diff-del,
-th.diff-add,
-th.diff-del {
-  padding: revert;
-}
 
 .diff-source {
   font-family: var(--font-mono);
