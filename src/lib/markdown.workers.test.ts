@@ -29,6 +29,21 @@ function assertInert(html: string, label: string): void {
   expect(html, `${label}: no <embed`).not.toMatch(/<embed/i);
 }
 
+// Text parked inside a quoted attribute value is inert: it is a string, not
+// markup. Blanking those values keeps the negative assertions focused on the
+// markup structure, where a surviving handler would actually be live.
+function stripAttrValues(html: string): string {
+  return html.replace(/"[^"]*"/g, '""');
+}
+
+// A tag boundary is only trustworthy when every attribute quote is closed: an
+// odd count means some '>' is being read as the end of the tag by one reader
+// and as attribute text by another.
+function expectBalancedQuotes(html: string, label: string): void {
+  const quotes = (html.match(/"/g) ?? []).length;
+  expect(quotes % 2, `${label}: unbalanced attribute quotes`).toBe(0);
+}
+
 describe('renderMarkdown - security (negative cases)', () => {
   it('strips raw <script> tags and their body text', () => {
     const out = renderMarkdown('<script>alert(1)</script>');
@@ -298,6 +313,66 @@ describe('ensureLinkTarget', () => {
 
   it('does not touch content without links', () => {
     expect(ensureLinkTarget('<p>Hello world</p>')).toBe('<p>Hello world</p>');
+  });
+});
+
+// A '>' inside an <a> attribute value used to desync the tag-boundary regexes:
+// the rel/target passes matched up to the first '>' instead of the end of the
+// tag, so text that the sanitizer had safely parked inside an attribute value
+// was promoted back into live markup. Verified in a browser: the promoted
+// <img> became a real element and its onerror handler ran.
+describe('">" inside an <a> attribute value (tag boundary)', () => {
+  it('escapes < and > in a passed-through href so the tag cannot be split', () => {
+    const out = renderMarkdown('<a href="/x<img src=1 onerror=alert(2)>">click</a>');
+    assertInert(stripAttrValues(out), 'gt inside href');
+    expectBalancedQuotes(out, 'gt inside href');
+    // The <img> text stays parked in the href value, escaped, never markup.
+    expect(out).toContain('&lt;img');
+    expect(out).not.toContain('<img');
+    expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
+  });
+
+  it('does not promote attribute text into a live element when the > comes first', () => {
+    const out = renderMarkdown('<a href="/x><img src=1 onerror=alert(3)>">click</a>');
+    assertInert(stripAttrValues(out), 'gt before injected tag');
+    expectBalancedQuotes(out, 'gt before injected tag');
+    expect(out).not.toContain('<img');
+    // The injected rel must sit inside the tag, not inside the href value.
+    expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
+    expect(out).not.toMatch(/href="[^"]* rel="/);
+  });
+
+  it('normalizes a single-quoted href the same way', () => {
+    const out = renderMarkdown("<a href='/x><img src=1 onerror=alert(6)>'>c</a>");
+    assertInert(stripAttrValues(out), 'single quoted href');
+    expectBalancedQuotes(out, 'single quoted href');
+    expect(out).not.toContain('<img');
+  });
+
+  it('does not double-encode an ampersand in an ordinary query string', () => {
+    const out = renderMarkdown('[text](https://example.com/a?x=1&y=2)');
+    expect(out).toContain('href="https://example.com/a?x=1&y=2"');
+    expect(out).not.toContain('&amp;amp;');
+  });
+
+  it('keeps rel on an external link whose href contains a >', () => {
+    const out = renderMarkdown('<a href="https://example.com/x>y">c</a>');
+    expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
+    expect(out).toContain('&gt;y');
+  });
+
+  it('leaves a > that is already parked inside a stored href alone at display time', () => {
+    // Shape the sanitizer stores when the source link already carried a rel:
+    // quote balanced and inert, so ensureLinkTarget must not split it open.
+    const stored = '<a rel="noopener noreferrer nofollow ugc" href="/y><img src=1 onerror=alert(5)>">c</a>';
+    const out = ensureLinkTarget(stored);
+    expect(out).toContain('href="/y><img src=1 onerror=alert(5)>"');
+    expect(out).not.toMatch(/href="\/y" *target/);
+  });
+
+  it('adds target after the full attribute list when an href contains a >', () => {
+    const out = ensureLinkTarget('<a href="/a>b">click</a>');
+    expect(out).toBe('<a href="/a>b" target="_blank">click</a>');
   });
 });
 
