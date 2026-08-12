@@ -5,7 +5,7 @@
 import { it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, createPost } from '../db/forum.js';
-import { getDocForServe, getHeadDoc } from '../db/cip100.js';
+import { getDocBody, getDocForServe, getHeadDoc } from '../db/cip100.js';
 import { reconcilePostDocs } from './reconcile.js';
 import { buildVersionIndex, buildThreadManifest } from './views.js';
 import { EDIT_GRACE_MS } from '../forum/editPolicy.js';
@@ -140,6 +140,73 @@ it('withholds a post hidden after its document was emitted, and serves it again 
   const backManifest = JSON.parse((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).body as string);
   expect(backManifest.posts.map((p: { postId: string }) => p.postId)).toEqual([firstPost.id]);
   expect(await getDocForServe(db(), hash)).toEqual({ body: expect.any(String), state: 'available' });
+});
+
+// The only place a role writes into immutable bytes: a wrong profile URL here
+// is published forever. Every other test uses a bare author id with no users
+// row, so profile stays null and the id-form URL is never built.
+it('carries the right postedBy for a DRep, an SPO and an author with neither', async () => {
+  await db()
+    .prepare(
+      `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at, slug, name)
+       VALUES ('drep1role', 'registered', 1, 0, 0, 'role-drep', 'Role DRep')`,
+    )
+    .run();
+  await db()
+    .prepare("INSERT INTO pools (pool_id, ticker, name) VALUES ('pool1role', 'ROLE', 'Role Pool')")
+    .run();
+  for (const [id, col, value] of [
+    ['user-role-drep', 'drep_id', 'drep1role'],
+    ['user-role-spo', 'pool_id', 'pool1role'],
+    ['user-role-delegator', 'stake_addr', 'stake_test1role'],
+  ] as const) {
+    await db()
+      .prepare(`INSERT INTO users (id, ${col}, created_at, last_verified_at) VALUES (?, ?, 0, 0)`)
+      .bind(id, value)
+      .run();
+  }
+
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'user-role-drep', title: 'Manifest roles',
+    bodyMd: 'drep post', bodyHtml: '<p>drep post</p>', now: T, rand: 'v5',
+  });
+  const spoPost = await createPost(db(), {
+    topicId: topic.id, authorId: 'user-role-spo', bodyMd: 'spo post',
+    bodyHtml: '<p>spo post</p>', now: T + 1000,
+  });
+  const plainPost = await createPost(db(), {
+    topicId: topic.id, authorId: 'user-role-delegator', bodyMd: 'delegator post',
+    bodyHtml: '<p>delegator post</p>', now: T + 2000,
+  });
+
+  const at = T + 2000 + EDIT_GRACE_MS + 1000;
+  const emitted: Record<string, { handle: string; profile?: string; drepId?: string; poolId?: string }> = {};
+  for (const id of [firstPost.id, spoPost.id, plainPost.id]) {
+    const res = await reconcilePostDocs(db(), id, { origin: ORIGIN, network: 'mainnet', now: at });
+    expect(res.status).toBe('created');
+    const doc = JSON.parse((await getDocBody(db(), res.hash as string)) as string);
+    emitted[id] = doc.body.postedBy;
+  }
+
+  const manifest = JSON.parse((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).body as string);
+  const listed: Record<string, { handle: string; profile?: string; drepId?: string; poolId?: string }> =
+    Object.fromEntries(manifest.posts.map((p: { postId: string; postedBy: unknown }) => [p.postId, p.postedBy]));
+
+  // The emitted document and the manifest must agree, or a consumer reading
+  // one and verifying against the other sees a contradiction.
+  for (const [postId, expected] of [
+    [firstPost.id, { handle: 'Role DRep', profile: `${ORIGIN}/dreps/drep1role/`, drepId: 'drep1role' }],
+    [spoPost.id, { handle: 'Role Pool', profile: `${ORIGIN}/spos/pool1role/`, poolId: 'pool1role' }],
+  ] as const) {
+    expect(emitted[postId]).toEqual(expected);
+    expect(listed[postId]).toEqual(expected);
+  }
+
+  // An author with neither omits the fields rather than emitting null, and the
+  // slug is never used: ids cannot change, slugs can.
+  expect(Object.keys(emitted[plainPost.id])).toEqual(['handle']);
+  expect(Object.keys(listed[plainPost.id])).toEqual(['handle']);
+  expect(JSON.stringify(manifest)).not.toContain('role-drep');
 });
 
 it('serves an empty posts array for a thread with no eligible posts', async () => {
