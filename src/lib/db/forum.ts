@@ -267,23 +267,50 @@ export async function createTopic(
 }
 
 /**
- * Statements that move a topic's post date: stamp the earliest (system) post
- * with `postedAt`, then set the topic's created_at to it and recompute
- * last_post_at from the live posts. Used by the governance backfill to set the
- * post date to the on-chain submission time. Recomputing (instead of assigning)
- * last_post_at makes replied topics keep their reply-driven ordering and makes
- * a reply that raced the caller's candidate read harmless by construction; a
- * reply is always later than the system post, so it is never the earliest-post
- * subquery's match either. Returned in execution order for one db.batch, so the
- * move is atomic; callers may append related statements to the same batch.
+ * Identifies a topic's opening post: the top-level post whose author is the
+ * topic's own author, which is exactly how createTopic writes the pair. For a
+ * governance topic that is the mirror post gov-sync wrote, since the sync
+ * authors the topic and its opening post as GOV_SYNC_AUTHOR. Expects the posts
+ * table aliased `p` and the topics table aliased `t`.
+ *
+ * Authorship identifies it, ordering does not. A governance topic's opening
+ * post is dated at the action's on-chain submission time, while a vote
+ * rationale cross-post is dated at its on-chain vote time, and a cross-post is
+ * top-level too. Preprod holds governance topics where the cross-post is the
+ * older of the two, so picking the oldest post landed on a DRep's rationale:
+ * the title backfill then overwrote the DRep's own words with the action
+ * abstract, and the post-date backfill stamped the submission time onto it.
+ * Under this rule no post by another author can be picked, whatever its date.
+ */
+const OPENING_POST_MATCH = 'p.author_id = t.author_id AND p.parent_post_id IS NULL';
+
+/**
+ * Selects a topic's opening post id, bound to the topic id. The ORDER BY only
+ * keeps the pick deterministic if an author ever holds more than one top-level
+ * post in their own topic. The opening post is the earliest of them.
+ */
+const OPENING_POST_SQL = `SELECT p.id FROM posts p
+     JOIN topics t ON t.id = p.topic_id
+     WHERE p.topic_id = ? AND ${OPENING_POST_MATCH}
+     ORDER BY p.created_at ASC LIMIT 1`;
+
+/**
+ * Statements that move a topic's post date: stamp the opening post with
+ * `postedAt`, then set the topic's created_at to it and recompute last_post_at
+ * from the live posts. Used by the governance backfill to set the post date to
+ * the on-chain submission time. Recomputing (instead of assigning) last_post_at
+ * makes replied topics keep their reply-driven ordering and makes a reply that
+ * raced the caller's candidate read harmless by construction. Returned in
+ * execution order for one db.batch, so the move is atomic. Callers may append
+ * related statements to the same batch.
  */
 export function buildTopicPostedAtStatements(db: D1Database, topicId: string, postedAt: number): D1PreparedStatement[] {
   return [
-    // Stamps only the earliest (system) post; never a later reply.
+    // Stamps only the opening post, never another post in the topic. See
+    // OPENING_POST_SQL: ordering cannot identify it, a vote-rationale
+    // cross-post can be older.
     db
-      .prepare(
-        'UPDATE posts SET created_at = ? WHERE id = (SELECT id FROM posts WHERE topic_id = ? ORDER BY created_at ASC LIMIT 1)',
-      )
+      .prepare(`UPDATE posts SET created_at = ? WHERE id = (${OPENING_POST_SQL})`)
       .bind(postedAt, topicId),
     // Runs after the stamp above (batch order), so the recompute sees it. The
     // COALESCE keeps a postless topic (not possible for governance topics, but
@@ -305,7 +332,8 @@ export function buildTopicPostedAtStatements(db: D1Database, topicId: string, po
  * opening post) is fetched successfully later. The slug is intentionally left
  * unchanged so existing links stay valid, and title_edited_at is NOT set (this is
  * a system correction, not a human edit). The post update targets only the
- * earliest top-level post, so a racing reply (always later) is never affected.
+ * opening post (see OPENING_POST_SQL), so no reply and no vote-rationale
+ * cross-post can have its body overwritten with the action's abstract.
  */
 export async function setGovTopicTitleAndBody(
   db: D1Database,
@@ -314,10 +342,7 @@ export async function setGovTopicTitleAndBody(
   await db.batch([
     db.prepare('UPDATE topics SET title = ? WHERE id = ?').bind(args.title, args.topicId),
     db
-      .prepare(
-        `UPDATE posts SET body_md = ?, body_html = ?
-         WHERE id = (SELECT id FROM posts WHERE topic_id = ? AND parent_post_id IS NULL ORDER BY created_at ASC LIMIT 1)`,
-      )
+      .prepare(`UPDATE posts SET body_md = ?, body_html = ? WHERE id = (${OPENING_POST_SQL})`)
       .bind(args.bodyMd, args.bodyHtml, args.topicId),
   ]);
 }
@@ -910,10 +935,10 @@ export async function getThreadPage(
       .prepare(
         `SELECT
            (SELECT COUNT(DISTINCT author_id) FROM posts WHERE topic_id = ?1 AND deleted = 0) AS participants,
-           p.up_count, p.down_count
+           p.id AS opening_post_id, p.up_count, p.down_count
          FROM posts p
-         WHERE p.topic_id = ?1 AND p.deleted = 0
-           AND (p.source IS NULL OR p.source != 'vote_rationale')
+         JOIN topics t ON t.id = p.topic_id
+         WHERE p.topic_id = ?1 AND p.deleted = 0 AND ${OPENING_POST_MATCH}
          ORDER BY p.created_at ASC
          LIMIT 1`,
       )
@@ -932,18 +957,19 @@ export async function getThreadPage(
   }
 
   const statsRow = statsRes.results?.[0] as
-    | { participants: number; up_count: number; down_count: number }
+    | { participants: number; opening_post_id: string; up_count: number; down_count: number }
     | undefined;
   const stats: TopicStats | null = statsRow
     ? { participants: statsRow.participants, supporting: statsRow.up_count, opposing: statsRow.down_count }
     : null;
 
-  // The opening post is the earliest post that is NOT a frozen vote rationale.
-  // A rationale is dated at its vote time, while a governance topic's opening
-  // post is dated at the on-chain submission epoch start; a vote cast before
-  // that epoch boundary (preprod test data) would otherwise sort first and
-  // steal the opening-post role, the system identity, and the meta excerpt.
-  const opening = offset === 0 ? (topLevel.find((p) => p.source !== 'vote_rationale') ?? null) : null;
+  // The opening post is the one the stats row already identified by authorship
+  // (OPENING_POST_MATCH), so the header strip's counts and the post that renders
+  // as the opener can never disagree. Matching on date would hand the role, the
+  // system identity and the meta excerpt to whichever post happens to be oldest,
+  // and a vote-rationale cross-post is dated at its vote time and can be older.
+  const opening =
+    offset === 0 && statsRow ? (topLevel.find((p) => p.id === statsRow.opening_post_id) ?? null) : null;
 
   return {
     topLevel,

@@ -11,7 +11,11 @@ import {
   getTopicsByIds,
   createPost,
   getPostsByAuthor,
+  buildTopicPostedAtStatements,
+  setGovTopicTitleAndBody,
 } from './forum.js';
+import { upsertVoteRationalePost } from './voteRationalePost.js';
+import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 
 const db = () => env.DB;
 
@@ -746,6 +750,116 @@ describe('getThreadPage pagination', () => {
 
     const posts = await topLevelPosts(topic.id);
     expect(posts.some(p => p.id === firstPost.id)).toBe(false);
+  });
+});
+
+// ---- governance backfills target the mirror post ----------------------------
+
+// Both gov-sync backfills must write to a governance topic's mirror post: the
+// opening post the sync itself wrote. Identifying it as the topic's oldest post
+// is wrong, because a vote-rationale cross-post is dated at its on-chain vote
+// time and can predate the mirror post's date. The timestamps below are the
+// shape of a real preprod topic ("Motion of No Confidence (Test Proposal)"),
+// where the rationale is the older of the two top-level posts.
+const MIRROR_AT = 1_783_209_600_000;
+const RATIONALE_AT = 1_782_473_700_000;
+
+async function govTopicWithEarlierRationale(suffix: string) {
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'governance',
+    authorId: GOV_SYNC_AUTHOR,
+    title: `Motion of No Confidence (${suffix})`,
+    bodyMd: 'Abstract unavailable',
+    bodyHtml: '<p>Abstract unavailable</p>',
+    source: 'governance',
+    now: MIRROR_AT,
+    postedAt: MIRROR_AT,
+    rand: suffix,
+  });
+
+  const rationaleAuthor = `drep-${suffix}`;
+  await upsertVoteRationalePost(db(), {
+    topicId: topic.id,
+    authorId: rationaleAuthor,
+    vote: 'no',
+    bodyMd: 'I voted no because the committee still has work to finish.',
+    bodyHtml: '<p>I voted no because the committee still has work to finish.</p>',
+    now: RATIONALE_AT,
+  });
+
+  const rationale = await db()
+    .prepare(`SELECT id FROM posts WHERE topic_id = ? AND source = 'vote_rationale'`)
+    .bind(topic.id)
+    .first<{ id: string }>();
+
+  return { topic, mirrorPostId: firstPost.id, rationalePostId: rationale!.id };
+}
+
+const readPost = (id: string) =>
+  db()
+    .prepare('SELECT body_md, created_at FROM posts WHERE id = ?')
+    .bind(id)
+    .first<{ body_md: string; created_at: number }>();
+
+describe('setGovTopicTitleAndBody', () => {
+  it('rewrites the mirror post, not an older vote-rationale cross-post', async () => {
+    const { topic, mirrorPostId, rationalePostId } = await govTopicWithEarlierRationale('gmb1');
+
+    await setGovTopicTitleAndBody(db(), {
+      topicId: topic.id,
+      title: 'Motion of No Confidence',
+      bodyMd: 'The real abstract, fetched on retry.',
+      bodyHtml: '<p>The real abstract, fetched on retry.</p>',
+    });
+
+    expect((await readPost(mirrorPostId))!.body_md).toBe('The real abstract, fetched on retry.');
+    // The DRep's own words must survive the backfill untouched.
+    expect((await readPost(rationalePostId))!.body_md).toBe(
+      'I voted no because the committee still has work to finish.',
+    );
+  });
+});
+
+describe('buildTopicPostedAtStatements', () => {
+  it('stamps the mirror post, not an older vote-rationale cross-post', async () => {
+    const { topic, mirrorPostId, rationalePostId } = await govTopicWithEarlierRationale('gmb2');
+    const submittedAt = 1_782_000_000_000;
+
+    await db().batch(buildTopicPostedAtStatements(db(), topic.id, submittedAt));
+
+    expect((await readPost(mirrorPostId))!.created_at).toBe(submittedAt);
+    // The cross-post keeps its on-chain vote time.
+    expect((await readPost(rationalePostId))!.created_at).toBe(RATIONALE_AT);
+  });
+
+  it('moves the topic date and recomputes last_post_at from the live posts', async () => {
+    const { topic } = await govTopicWithEarlierRationale('gmb3');
+    const submittedAt = 1_782_000_000_000;
+
+    await db().batch(buildTopicPostedAtStatements(db(), topic.id, submittedAt));
+
+    const row = await db()
+      .prepare('SELECT created_at, last_post_at FROM topics WHERE id = ?')
+      .bind(topic.id)
+      .first<{ created_at: number; last_post_at: number }>();
+    expect(row!.created_at).toBe(submittedAt);
+    // Newest live post wins: the rationale, which outlives the stamped mirror post.
+    expect(row!.last_post_at).toBe(RATIONALE_AT);
+  });
+});
+
+describe('getThreadPage opening post', () => {
+  it('picks the mirror post as opener even when a cross-post is older', async () => {
+    const { topic, mirrorPostId, rationalePostId } = await govTopicWithEarlierRationale('gmb4');
+
+    const page = await getThreadPage(db(), topic.id);
+
+    // The rationale sorts first on the page, but the opener is the mirror post:
+    // the opener carries the system identity and loses its Reply button, so a
+    // DRep's post taking the role would misattribute it.
+    expect(page.topLevel[0].id).toBe(rationalePostId);
+    expect(page.openingPost?.id).toBe(mirrorPostId);
+    expect(page.stats?.participants).toBe(2);
   });
 });
 
