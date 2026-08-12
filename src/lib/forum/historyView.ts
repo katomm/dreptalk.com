@@ -31,9 +31,21 @@ export function versionLabel(index: number, count: number, current: boolean): st
   return current ? 'Current' : `Version ${count - index}`;
 }
 
-/** One fixed locale on both surfaces, so the SSR page and the modal read the same. */
+/**
+ * One fixed locale and a pinned UTC zone, so the SSR page (a Worker, always UTC) and the
+ * modal (the reader's browser, almost never UTC) print the identical string. Without the
+ * pinned zone, toLocaleString falls back to the host environment's zone and the two
+ * surfaces disagree, including on the date near midnight, which is exactly what this
+ * module exists to prevent. The trailing "UTC" marker keeps a reader from assuming the
+ * time shown is their own local time.
+ */
 export function formatVersionTime(at: number): string {
-  return new Date(at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  const formatted = new Date(at).toLocaleString('en-GB', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  });
+  return `${formatted} UTC`;
 }
 
 /** The change summary. Word counts, or a plain phrase when no words moved. */

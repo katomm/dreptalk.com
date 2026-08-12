@@ -29,6 +29,18 @@ describe('clampVersionPair', () => {
     expect(clampVersionPair('abc', '-4', 3)).toEqual({ from: 1, to: 0 });
     expect(clampVersionPair('99', '99', 3)).toEqual({ from: 2, to: 1 });
   });
+
+  it('treats undefined as absent, taking the null-fallback path', () => {
+    // Number(undefined) is NaN, so this exercises the `?? ` fallback branch.
+    expect(clampVersionPair(undefined, undefined, 3)).toEqual({ from: 1, to: 0 });
+  });
+
+  it('treats the empty string as the numeric value zero, not as absent', () => {
+    // Number('') is 0, a valid index, so this takes the direct-value branch rather
+    // than the null-fallback one. It lands on the same answer as undefined here only
+    // because the outer clamp happens to raise both to the same result.
+    expect(clampVersionPair('', '', 3)).toEqual({ from: 1, to: 0 });
+  });
 });
 
 describe('versionLabel', () => {
@@ -39,6 +51,12 @@ describe('versionLabel', () => {
   it('numbers older versions oldest-first', () => {
     expect(versionLabel(1, 3, false)).toBe('Version 2');
     expect(versionLabel(2, 3, false)).toBe('Version 1');
+  });
+
+  it('numbers correctly in the middle of a larger range', () => {
+    expect(versionLabel(1, 10, false)).toBe('Version 9');
+    expect(versionLabel(5, 10, false)).toBe('Version 5');
+    expect(versionLabel(9, 10, false)).toBe('Version 1');
   });
 });
 
@@ -59,5 +77,24 @@ describe('statText', () => {
 describe('formatVersionTime', () => {
   it('formats identically regardless of the host locale', () => {
     expect(formatVersionTime(Date.UTC(2026, 7, 12, 14, 31))).toMatch(/12 Aug 2026/);
+  });
+
+  it('formats identically regardless of the host time zone', () => {
+    // Near midnight UTC, so an unpinned zone would roll the date over in negative-offset
+    // zones. That date flip is exactly the cross-surface disagreement this guards against.
+    const at = Date.UTC(2026, 7, 12, 23, 31);
+    const originalTz = process.env.TZ;
+    try {
+      process.env.TZ = 'America/Los_Angeles';
+      const west = formatVersionTime(at);
+
+      process.env.TZ = 'Pacific/Auckland';
+      const east = formatVersionTime(at);
+
+      expect(west).toBe(east);
+      expect(west).toBe('12 Aug 2026, 23:31 UTC');
+    } finally {
+      process.env.TZ = originalTz;
+    }
   });
 });
