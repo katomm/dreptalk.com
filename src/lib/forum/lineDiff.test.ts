@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { lineDiff, lineDiffWithWords } from './lineDiff.js';
+import { LCS_CELL_BUDGET } from './wordDiff.js';
 
 describe('lineDiff', () => {
   it('marks identical text as all same', () => {
@@ -30,6 +31,17 @@ describe('lineDiff', () => {
       { type: 'del', line: 'hello' },
       { type: 'add', line: 'world' },
     ]);
+  });
+
+  it('reports identical text over the budget as unchanged, not as a replacement', () => {
+    // Sized just past the cell budget, where the table is skipped. Identical text
+    // must not take the over-budget path at all, or an untouched body comes back with
+    // every line removed and added again.
+    const lines = Math.ceil(Math.sqrt(LCS_CELL_BUDGET));
+    const text = Array.from({ length: lines }, (_, i) => `line ${i}`).join('\n');
+    const ops = lineDiff(text, text);
+    expect(ops).toHaveLength(lines);
+    expect(ops.every((op) => op.type === 'same')).toBe(true);
   });
 });
 

@@ -66,6 +66,15 @@ describe('wordDiff', () => {
     ]);
   });
 
+  it('reports identical text over the budget as unchanged, not as a replacement', () => {
+    // The budget check must never see identical text. An untouched paragraph of 708
+    // words or more sits over the budget, and returning it as a whole deletion plus a
+    // whole addition renders a paragraph nobody edited struck through and re-added,
+    // with every one of its words counted twice in the header.
+    const long = words(Math.ceil(Math.sqrt(LCS_CELL_BUDGET) / 2) + 1, 'word');
+    expect(wordDiff(long, long)).toEqual([{ type: 'same', text: long }]);
+  });
+
   it('still word diffs a long pair that stays inside the budget', () => {
     // 300 words is 599 tokens a side, about 360,000 cells, so the guard must not fire
     // on anything a person would actually write in one paragraph.

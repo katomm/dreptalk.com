@@ -13,6 +13,11 @@ export function lineDiff(oldText: string, newText: string): DiffOp[] {
   const n = a.length;
   const m = b.length;
 
+  // Ahead of the budget check, same reason as in wordDiff: identical text needs no
+  // table at any size, and without this an untouched body over the budget would
+  // report every one of its lines removed and added back.
+  if (oldText === newText) return a.map((line): DiffOp => ({ type: 'same', line }));
+
   // Same quadratic table and same exposure as wordDiff, one level up: a body of
   // nothing but newlines is 20,000 lines within the length limit, which is 400
   // million cells. Over the budget (see LCS_CELL_BUDGET) every old line is reported

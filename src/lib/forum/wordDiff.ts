@@ -32,6 +32,13 @@ function tokenize(text: string): string[] {
 
 /** Diffs two texts word by word. Adjacent ops of the same type are merged. */
 export function wordDiff(oldText: string, newText: string): WordOp[] {
+  // Before the budget check, not after: identical text is the one case where the
+  // table is never needed whatever its size. Without this, an untouched paragraph
+  // over the budget comes back as a whole deletion plus a whole addition, so a long
+  // paragraph nobody edited renders struck through and re-added, and the header
+  // counts every one of its words twice.
+  if (oldText === newText) return oldText === '' ? [] : [{ type: 'same', text: oldText }];
+
   const a = tokenize(oldText);
   const b = tokenize(newText);
   const n = a.length;
