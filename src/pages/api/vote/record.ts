@@ -125,7 +125,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
           } else {
             // Opt-out, or a re-vote with the box unchecked: ensure no stale
             // cross-post is left standing in the discussion.
-            await removeVoteRationalePost(db, { topicId, authorId: user.id });
+            await removeVoteRationalePost(db, { topicId, authorId: user.id, now: nowMs });
           }
           await upsertActionRationale(db, {
             gaId, voterId: drepId, bodyHtml: renderMarkdown(canonical),

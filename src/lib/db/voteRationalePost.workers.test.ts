@@ -99,8 +99,13 @@ describe('upsertVoteRationalePost', () => {
     expect(await rationaleEvents(topicId, authorId)).toHaveLength(1);
 
     // Opt-out on a re-vote withdraws the cross-post; its feed event goes too.
-    await removeVoteRationalePost(env.DB, { topicId, authorId });
+    await removeVoteRationalePost(env.DB, { topicId, authorId, now: 1500 });
     expect(await rationaleEvents(topicId, authorId)).toHaveLength(0);
+    const removed = await env.DB.prepare(
+      `SELECT deleted, deleted_at FROM posts WHERE topic_id = ? AND author_id = ? AND source = 'vote_rationale'`,
+    ).bind(topicId, authorId).first<{ deleted: number; deleted_at: number }>();
+    expect(removed?.deleted).toBe(1);
+    expect(removed?.deleted_at).toBe(1500);
 
     // Re-voting with the box ticked again revives the post and re-surfaces it.
     await upsertVoteRationalePost(env.DB, {

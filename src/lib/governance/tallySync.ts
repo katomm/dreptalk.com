@@ -624,10 +624,12 @@ export const PENDING_VOTE_TTL_SEC = 6 * 3600;
 /**
  * Flags optimistic votes that never appeared on chain. Call after the
  * authoritative vote sync, so any vote that DID land has already cleared its
- * pending marker via upsertVotes.
+ * pending marker via upsertVotes. This file works in unix seconds throughout,
+ * so the millisecond deletion stamp is derived from the same nowSeconds rather
+ * than a separate Date.now() call, keeping the whole path deterministic.
  */
 export async function reconcilePendingVotes(db: D1Database, nowSeconds: number): Promise<number> {
-  return markStalePendingVotesFailed(db, nowSeconds - PENDING_VOTE_TTL_SEC);
+  return markStalePendingVotesFailed(db, nowSeconds - PENDING_VOTE_TTL_SEC, nowSeconds * 1000);
 }
 
 export interface VoteBackfillResult { actions: number; votes: number; failed: number; }

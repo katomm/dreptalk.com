@@ -91,7 +91,7 @@ export async function upsertVoteRationalePost(
 // Positions tab (action_rationale).
 export async function removeVoteRationalePost(
   db: D1Database,
-  rec: { topicId: string; authorId: string },
+  rec: { topicId: string; authorId: string; now: number },
 ): Promise<void> {
   const existing = await db
     .prepare(
@@ -102,7 +102,7 @@ export async function removeVoteRationalePost(
     .first<{ id: string }>();
   if (!existing) return;
   await db.batch([
-    db.prepare(`UPDATE posts SET deleted = 1 WHERE id = ?`).bind(existing.id),
+    db.prepare(`UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?`).bind(rec.now, existing.id),
     db.prepare(`UPDATE topics SET post_count = MAX(post_count - 1, 0) WHERE id = ?`).bind(rec.topicId),
     // Withdraw the feed event too; ref_post_id is unique to this cross-post.
     db.prepare(`DELETE FROM activity WHERE type = 'reply_created' AND ref_post_id = ?`).bind(existing.id),

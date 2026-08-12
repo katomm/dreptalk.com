@@ -31,6 +31,8 @@ import {
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillThresholdSnapshots, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
+import { runCip100Sync } from '../../../src/lib/cip100/cron.js';
+import { originForNetwork } from '../../../src/lib/cip100/origin.js';
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
 import { syncCommitteeVoteMeta } from '../../../src/lib/governance/committeeMetaSync.js';
 import { backfillVoteHistorySweep } from '../../../src/lib/governance/voteHistoryBackfill.js';
@@ -326,6 +328,20 @@ async function runGovernanceSync(env: Env, phase: PhaseFn, opts: { heavy: boolea
       return { items: res.resolved, failed: res.failed };
     });
   }
+
+  // CIP-100 documents: erasure sweep plus a bounded reconcile batch. Cheap
+  // enough for every tick, and running it often keeps the citable state close
+  // to the live state.
+  await phase('cip100', async () => {
+    const r = await runCip100Sync(env.DB, {
+      origin: originForNetwork(network),
+      network,
+      now,
+      limit: 200,
+    });
+    console.log(`[cip100] purged=${r.purged} reconciled=${r.reconciled} failed=${r.failed}`);
+    return { items: r.reconciled, failed: r.failed };
+  });
 }
 
 // Refresh the per-post vote lists (active actions only). Every 20 min: vote lists
