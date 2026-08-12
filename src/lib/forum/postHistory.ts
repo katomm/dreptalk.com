@@ -1,17 +1,18 @@
 // src/lib/forum/postHistory.ts
 // Progressive-enhancement edit-history modal. The "(edited)" marker is a real
-// link to /posts/<id>/history (zero-JS fallback); when JS is present this opens
+// link to /posts/<id>/history (zero-JS fallback), and when JS is present this opens
 // an inline <dialog> comparing any two versions. Two views: a rich diff of the
 // rendered body (default) and a word-highlighted diff of the markdown source.
 //
-// XSS invariant: the modal is assembled with innerHTML. The only HTML injected is
-// richDiff output. Its inputs are body_html values sanitized at write time by
-// renderMarkdown, it preserves only the elements and attributes present in that
-// input, and the only things it adds are <span> wrappers around changed word runs
-// and the fixed diff classes listed in DIFF_CLASSES. Every other value interpolated
-// into this template MUST be a safe constant, a formatted date, or HTML-escaped user
-// text. The markdown source (bodyMd) is never injected as HTML: the source view
-// escapes every word before marking it.
+// XSS invariant: the modal is assembled with innerHTML. The only HTML injected from
+// stored content is richDiff output. Its inputs are body_html values sanitized at
+// write time by renderMarkdown, it preserves only the elements and attributes present
+// in that input, and the only things it adds are <span> wrappers around changed word
+// runs and the fixed diff classes listed in DIFF_CLASSES. The source view's markup is
+// built here, not stored: renderSourceDiff escapes every word of bodyMd before
+// wrapping it, so nothing from bodyMd reaches innerHTML unescaped. Every other value
+// interpolated into this template MUST be a safe constant, a formatted date, or
+// HTML-escaped user text.
 //
 // The diff runs over stored body_html, not over enhanceStoredHtml(body_html): the
 // display-time pass emits markup outside the parser grammar this safety argument
@@ -29,6 +30,8 @@ interface Version {
   current: boolean;
 }
 
+// Text-content escaping only: covers everywhere this module uses it today. An
+// attribute value would also need quotes escaped, which this does not do.
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -45,6 +48,16 @@ function renderSourceDiff(oldMd: string, newMd: string): string {
       return `<div${cls}><span style="opacity:0.5">${sign} </span>${body || '&nbsp;'}</div>`;
     })
     .join('');
+}
+
+// Maps a focused control to a selector that finds its replacement after the next
+// render, since assigning innerHTML discards the old DOM element entirely.
+function controlSelector(el: HTMLElement): string | null {
+  if (el.matches('[data-close]')) return '[data-close]';
+  if (el.matches('[data-from]')) return '[data-from]';
+  if (el.matches('[data-to]')) return '[data-to]';
+  const view = el.getAttribute('data-view');
+  return view ? `[data-view="${view}"]` : null;
 }
 
 export async function openHistoryModal(postId: string): Promise<void> {
@@ -65,21 +78,36 @@ export async function openHistoryModal(postId: string): Promise<void> {
   let view: 'rich' | 'source' = 'rich';
 
   const dialog = document.createElement('dialog');
+  // Script-focusable as a fallback target once a render has no specific control to
+  // restore focus to, without joining the tab order.
+  dialog.tabIndex = -1;
   dialog.style.cssText =
     'max-width:min(48rem,92vw);width:100%;border:1px solid var(--border);border-radius:0.5rem;background:var(--surface);color:var(--fg);padding:0;';
 
   const label = (i: number): string => versionLabel(i, count, versions[i].current);
 
-  // from must stay strictly older than to, so each select disables the other's side.
+  // from must stay strictly older than to. Only the from side disables options: it
+  // still reads as "older than the target" in the markup. The to side stays fully
+  // selectable, clampVersionPair pushes from out of the way if the reader picks a to
+  // that would invert the pair, disabling it here would just make that push
+  // unreachable from the UI (and at the initial from=1, to=0 pair, every to option
+  // but the current one would start out disabled).
   const optionsFor = (which: 'from' | 'to', current: { from: number; to: number }): string =>
     versions
       .map((_, i) => {
-        const disabled = which === 'from' ? i <= current.to : i >= current.from;
+        const disabled = which === 'from' && i <= current.to;
         return `<option value="${i}"${i === (which === 'from' ? current.from : current.to) ? ' selected' : ''}${disabled ? ' disabled' : ''}>${label(i)}</option>`;
       })
       .join('');
 
   const render = (): void => {
+    // innerHTML below discards every control and rebuilds them fresh, including
+    // whichever one the reader was just using. Record it now, by selector rather
+    // than by reference, so it can be found again in the replacement markup.
+    const active = document.activeElement;
+    const focusSelector =
+      active instanceof HTMLElement && dialog.contains(active) ? controlSelector(active) : null;
+
     const { from, to } = pair as { from: number; to: number };
     const diff = richDiff(versions[from].bodyHtml, versions[to].bodyHtml);
     // A body the parser refused. The source view needs no parser, so it still works.
@@ -125,6 +153,21 @@ export async function openHistoryModal(postId: string): Promise<void> {
         render();
       });
     }
+
+    // Restore focus to the replacement of whatever control had it, or to the dialog
+    // itself when nothing specific did. The dialog fallback matters as much as the
+    // specific one: some browsers move focus to document.body once the previously
+    // focused element leaves the DOM, and body is not a descendant of dialog, so the
+    // keydown listener below would stop receiving events after the very first render
+    // it was not attached for. Skipped on the first render, before showModal has run
+    // (dialog.open is still false then), so this does not fight showModal's own
+    // initial-focus algorithm.
+    if (dialog.open) {
+      const next = focusSelector ? dialog.querySelector<HTMLElement>(focusSelector) : null;
+      // A disabled element silently refuses focus (e.g. Rendered flips disabled when
+      // a diff becomes degraded), which would defeat the fallback below it exists for.
+      (next && !next.hasAttribute('disabled') ? next : dialog).focus();
+    }
   };
 
   // Arrow keys step the compared pair one version older or newer, keeping them adjacent.
@@ -132,9 +175,11 @@ export async function openHistoryModal(postId: string): Promise<void> {
     if ((e.target as HTMLElement)?.tagName === 'SELECT') return;
     if (!pair) return;
     if (e.key === 'ArrowLeft') {
+      e.preventDefault(); // stop the overflow pane from scrolling under the step
       pair = clampVersionPair(pair.to, pair.to - 1, count);
       render();
     } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
       pair = clampVersionPair(pair.from + 1, pair.from, count);
       render();
     }
