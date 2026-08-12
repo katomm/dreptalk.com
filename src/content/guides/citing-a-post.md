@@ -29,11 +29,10 @@ opens the post's version list: a small document listing every version of
 that post, each with its own permanent address. Link to one version, and the
 text behind that address stays exactly what it was when you linked it.
 
-A brand-new post is not citable the instant you publish it. Posts stay
-quietly editable for a short window right after posting, and the first
-citable version is created once that window has passed. The Cite action
-appears on the post a short while after posting, not instantly, so if you
-just posted something you want to cite, give it a few minutes.
+Posts stay quietly editable for a grace window right after posting, and the
+Cite action does not appear until that window has closed. A post you just
+wrote will not have it yet: it appears a little later on its own, so there
+is no need to sit and wait for it.
 
 ## What the address proves, and what it does not
 
