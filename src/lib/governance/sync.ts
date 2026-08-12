@@ -362,7 +362,11 @@ export async function backfillGovTopicSubmittedAt(deps: SubmittedAtBackfillDeps)
   let updated = 0;
   for (const c of candidates) {
     const submittedAtMs = c.submittedAt ?? epochStartMs(c.submittedEpoch, cfg);
-    if (c.createdAt === submittedAtMs) continue;
+    // Both have to be at the target, not just the topic. An earlier run that
+    // stamped a vote-rationale cross-post instead of the opening post moved the
+    // topic to the target and left the opening post behind, and a topic-only
+    // guard would then read as "already correct" and never repair it.
+    if (c.createdAt === submittedAtMs && c.openingPostAt === submittedAtMs) continue;
     corrections.push(
       ...buildTopicPostedAtStatements(db, c.topicId, submittedAtMs),
       buildSetGovCreatedEventDate(db, c.topicId, submittedAtMs),

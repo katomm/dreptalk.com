@@ -817,6 +817,112 @@ describe('submission-date post stamping and backfill', () => {
     expect(r2.updated).toBe(0);
   });
 
+  // The live preprod shape: a vote-rationale cross-post is dated at its on-chain
+  // vote time, after the submission but before the fallback date the opening post
+  // was stamped with, so it is neither the oldest nor the newest post.
+  const RATIONALE_SUB_MS = EPOCH_200_MS + 244_191_000;
+  const RATIONALE_MS = EPOCH_200_MS + 500_000_000;
+  const STALE_OPENING_MS = EPOCH_200_MS + 900_000_000;
+
+  async function seedTopicWithRationale(
+    topicId: string,
+    slug: string,
+    proposalId: string,
+    dates: { topicAt: number; openingAt: number; rationaleAt: number },
+  ) {
+    await env.DB.batch([
+      env.DB
+        .prepare(
+          `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at)
+           VALUES (?, 'governance-actions', 'gov-sync', 'governance', 'With Rationale', ?, 2, ?, ?)`,
+        )
+        .bind(topicId, slug, dates.rationaleAt, dates.topicAt),
+      env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+           VALUES (?, ?, 'gov-sync', 'abstract', '<p>abstract</p>', ?)`,
+        )
+        .bind(`${topicId}-opening`, topicId, dates.openingAt),
+      env.DB
+        .prepare(
+          `INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at, source, vote)
+           VALUES (?, ?, 'drep-user-bf', 'My rationale', '<p>My rationale</p>', ?, 'vote_rationale', 'yes')`,
+        )
+        .bind(`${topicId}-rationale`, topicId, dates.rationaleAt),
+      buildInsertGovernanceAction(env.DB, {
+        id: `bf-action-${topicId}`,
+        proposalId,
+        type: 'InfoAction',
+        title: null,
+        abstract: null,
+        rationaleHtml: null,
+        anchorUrl: null,
+        anchorHash: null,
+        anchorStatus: 'no-anchor',
+        returnAddress: null,
+        deposit: null,
+        submittedEpoch: 200,
+        submittedAt: RATIONALE_SUB_MS,
+        expiryEpoch: null,
+        metaVersion: META_EXTRACT_VERSION,
+        topicId,
+        now: EPOCH_200_MS,
+      }),
+    ]);
+  }
+
+  const postDates = async (topicId: string) => {
+    const rows = await env.DB
+      .prepare('SELECT id, created_at FROM posts WHERE topic_id = ?')
+      .bind(topicId)
+      .all<{ id: string; created_at: number }>();
+    return new Map((rows.results ?? []).map((r) => [r.id, r.created_at]));
+  };
+
+  it('stamps the opening post, never a vote-rationale cross-post', async () => {
+    const topicId = 'bf-topic-rat';
+    await seedTopicWithRationale(topicId, 'with-rationale-bf7', 'gov_action1bf7', {
+      topicAt: STALE_OPENING_MS,
+      openingAt: STALE_OPENING_MS,
+      rationaleAt: RATIONALE_MS,
+    });
+
+    const r1 = await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+    expect(r1.updated).toBeGreaterThanOrEqual(1);
+
+    const dates = await postDates(topicId);
+    expect(dates.get(`${topicId}-opening`)).toBe(RATIONALE_SUB_MS);
+    // The cross-post keeps its on-chain vote time.
+    expect(dates.get(`${topicId}-rationale`)).toBe(RATIONALE_MS);
+
+    const topic = await env.DB
+      .prepare('SELECT created_at AS tc, last_post_at AS tl FROM topics WHERE id = ?')
+      .bind(topicId)
+      .first<{ tc: number; tl: number }>();
+    expect(topic).toEqual({ tc: RATIONALE_SUB_MS, tl: RATIONALE_MS });
+  });
+
+  it('repairs an opening post an earlier run left behind at the topic target', async () => {
+    // What the bug leaves in the database: the cross-post got stamped, so the
+    // topic reads as already corrected while the opening post kept a stale date.
+    // A guard that only compares the topic date would never revisit this.
+    const topicId = 'bf-topic-rat-left';
+    await seedTopicWithRationale(topicId, 'with-rationale-bf8', 'gov_action1bf8', {
+      topicAt: RATIONALE_SUB_MS,
+      openingAt: STALE_OPENING_MS,
+      rationaleAt: RATIONALE_SUB_MS,
+    });
+
+    const r1 = await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+    expect(r1.updated).toBeGreaterThanOrEqual(1);
+
+    const dates = await postDates(topicId);
+    expect(dates.get(`${topicId}-opening`)).toBe(RATIONALE_SUB_MS);
+
+    const r2 = await backfillGovTopicSubmittedAt({ db: env.DB, network: 'preprod', limit: 200 });
+    expect(r2.updated).toBe(0);
+  });
+
   it('corrects created_at and the system post on a replied topic but preserves last_post_at', async () => {
     // A replied topic must keep its reply-driven last_post_at (list ordering), while
     // the opening post and topic created_at still move to the exact submission time.

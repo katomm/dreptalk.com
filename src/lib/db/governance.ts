@@ -682,6 +682,13 @@ export interface GovTopicSubmittedAt {
   /** Exact on-chain submission time (unix ms), when the sync has stored it. */
   submittedAt: number | null;
   createdAt: number;
+  /**
+   * The opening (mirror) post's date, or null for a topic with no opening post.
+   * Read separately from the topic's own date because the two can disagree: a
+   * run that stamped a vote-rationale cross-post instead of the mirror post
+   * left the topic at its target while the mirror post kept the old date.
+   */
+  openingPostAt: number | null;
 }
 
 /**
@@ -699,7 +706,10 @@ export async function getGovTopicsForSubmittedAtBackfill(
     await db
       .prepare(
         `SELECT t.id AS topicId, ga.submitted_epoch AS submittedEpoch, ga.submitted_at AS submittedAt,
-                t.created_at AS createdAt
+                t.created_at AS createdAt,
+                (SELECT p.created_at FROM posts p
+                  WHERE p.topic_id = t.id AND p.author_id = t.author_id AND p.parent_post_id IS NULL
+                  ORDER BY p.created_at ASC LIMIT 1) AS openingPostAt
          FROM topics t
          JOIN governance_actions ga ON ga.topic_id = t.id
          WHERE t.source = 'governance' AND ga.submitted_epoch IS NOT NULL
