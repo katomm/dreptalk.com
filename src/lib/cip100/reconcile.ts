@@ -8,7 +8,7 @@ import { loadAuthorIdentity } from '../forum/author.js';
 import { isWithinGrace } from '../forum/editPolicy.js';
 import { getDocAtOrBefore, getDocBody, getHeadDoc, insertDoc, touchSourceEditedAt } from '../db/cip100.js';
 import { buildDiscussionPostDoc } from './document.js';
-import type { Cip100Network } from './origin.js';
+import { authorProfileUrl, type Cip100Network } from './origin.js';
 
 export interface ReconcileOptions {
   origin: string;
@@ -84,16 +84,7 @@ export async function reconcilePostDocs(
   if (!post || outOfScope(post, opts.now)) return { status: 'skipped' };
 
   const author = await loadAuthorIdentity(db, post.author_id);
-  // Profile links use the id form, not the slug form the UI prefers: slugs can
-  // be added or changed later, ids cannot, and the id URL always resolves (the
-  // profile route 301s to the canonical one). Immutable bytes take the stable
-  // form. Authors without a DRep or pool (CC members, delegators) get no
-  // profile field at all.
-  const profile = author.drepId
-    ? `${opts.origin}/dreps/${author.drepId}/`
-    : author.poolId
-      ? `${opts.origin}/spos/${author.poolId}/`
-      : null;
+  const profile = authorProfileUrl(opts.origin, author);
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const head = await getHeadDoc(db, postId);

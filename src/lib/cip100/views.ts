@@ -8,7 +8,7 @@ import { listPostVersions, listThreadDocs } from '../db/cip100.js';
 import { loadAuthorIdentities } from '../forum/author.js';
 import { extensionContextUrl } from './context.js';
 import { isoSeconds } from './document.js';
-import type { Cip100Network } from './origin.js';
+import { authorProfileUrl, type Cip100Network } from './origin.js';
 
 export interface ViewResult {
   status: 200 | 404 | 410;
@@ -159,11 +159,7 @@ export async function buildThreadManifest(
       continue;
     }
     const author = identities.describe(row.author_id);
-    const profile = author.drepId
-      ? `${origin}/dreps/${author.drepId}/`
-      : author.poolId
-        ? `${origin}/spos/${author.poolId}/`
-        : null;
+    const profile = authorProfileUrl(origin, author);
     const postedBy: Record<string, string> = { handle: author.displayName };
     if (profile) postedBy.profile = profile;
     if (author.drepId) postedBy.drepId = author.drepId;
