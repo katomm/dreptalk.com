@@ -29,7 +29,7 @@ export function buildServiceDescription(origin: string, network: Cip100Network):
       'Documents carry an empty authors array by design. Author identity is a claim by the publisher, not a cryptographic proof.',
     deletion:
       'Deleted posts return 410 Gone at every snapshot URL. Tombstones stay visible in the post version index and in the thread manifest. If you mirror these documents, poll the manifest and remove content that appears as deleted.',
-    documentation: `${origin}/help/linking/`,
+    documentation: `${origin}/help/citing-a-post/`,
   };
   return `${JSON.stringify(doc, null, 2)}\n`;
 }
