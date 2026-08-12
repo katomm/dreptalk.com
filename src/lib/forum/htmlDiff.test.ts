@@ -162,6 +162,43 @@ describe('richDiff', () => {
     expectValidDiffOutput(r.html);
   });
 
+  it('word-diffs a cell rewritten to words the old one did not share', () => {
+    // Cells pair by column, not by similarity. "80k" and "90k" share no words, so a
+    // similarity match rejects the pair and replaces the cell whole, which renders as
+    // a deleted cell beside an added one: a row with more cells than the header has
+    // columns. Every number, date or one-word status in a table lands here.
+    const r = diff(
+      '<table>\n<tbody>\n<tr>\n<td>Audit</td>\n<td>80k</td>\n</tr>\n</tbody>\n</table>',
+      '<table>\n<tbody>\n<tr>\n<td>Audit</td>\n<td>90k</td>\n</tr>\n</tbody>\n</table>',
+    );
+    expect(r.html).toContain('<span class="diff-del">80k</span>');
+    expect(r.html).toContain('<span class="diff-add">90k</span>');
+    expect(r.html).not.toContain('diff-block-del');
+    expect((r.html.match(/<td/g) ?? []).length).toBe(2);
+    expectValidDiffOutput(r.html);
+  });
+
+  it('shows an added column as one added cell', () => {
+    const r = diff(
+      '<table>\n<tbody>\n<tr>\n<td>a</td>\n</tr>\n</tbody>\n</table>',
+      '<table>\n<tbody>\n<tr>\n<td>a</td>\n<td>b</td>\n</tr>\n</tbody>\n</table>',
+    );
+    expect(r.html).toContain('<td class="diff-add">b</td>');
+    expect((r.html.match(/<td/g) ?? []).length).toBe(2);
+    expect(r).toMatchObject({ added: 1, removed: 0 });
+    expectValidDiffOutput(r.html);
+  });
+
+  it('shows a removed column as one deleted cell', () => {
+    const r = diff(
+      '<table>\n<tbody>\n<tr>\n<td>a</td>\n<td>b</td>\n</tr>\n</tbody>\n</table>',
+      '<table>\n<tbody>\n<tr>\n<td>a</td>\n</tr>\n</tbody>\n</table>',
+    );
+    expect(r.html).toContain('<td class="diff-del">b</td>');
+    expect(r).toMatchObject({ added: 0, removed: 1 });
+    expectValidDiffOutput(r.html);
+  });
+
   it('never emits a marker span as a direct child of a list or a table row', () => {
     // Raw HTML blocks pass through renderMarkdown largely unchecked, so a stored body
     // can already hold text that never belonged directly inside <ul> or <tr> to begin

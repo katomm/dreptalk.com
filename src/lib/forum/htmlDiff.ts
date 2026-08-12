@@ -183,7 +183,55 @@ function findWholeReplacement(
   return null;
 }
 
+// Cells inside one row, zipped by column. See the tr branch in diffNodeLists.
+function diffRowCells(oldNodes: HtmlNode[], newNodes: HtmlNode[], counts: Counts): string {
+  // tr is in NO_SPAN_PARENTS, so a text node directly inside the row never carries a
+  // marker: the new value is shown plain and the old one is dropped from the markup,
+  // both still counted, the same rule diffNodeLists applies elsewhere.
+  const added = (node: HtmlNode): string => {
+    counts.added += countWords(nodeText(node));
+    return node.kind === 'text' ? node.text : markWhole(node, 'add');
+  };
+  const removed = (node: HtmlNode): string => {
+    counts.removed += countWords(nodeText(node));
+    return node.kind === 'text' ? '' : markWhole(node, 'del');
+  };
+
+  const oldCells = oldNodes.filter(isContent);
+  const parts: string[] = [];
+  let column = 0;
+  for (const node of newNodes) {
+    if (node.kind === 'text' && node.ignorable) {
+      parts.push(node.text); // structural whitespace of the new tree, passed through
+      continue;
+    }
+    const oldCell = oldCells[column++];
+    if (oldCell && canPairAsSoleCandidate(oldCell, node)) {
+      parts.push(diffNode(oldCell, node, counts, 'tr'));
+      continue;
+    }
+    // A th where there was a td, or the row grew a column: no pair for this position.
+    if (oldCell) parts.push(removed(oldCell));
+    parts.push(added(node));
+  }
+  // A column the new row no longer has, shown as a trailing deleted cell.
+  for (; column < oldCells.length; column++) parts.push(removed(oldCells[column]));
+  return parts.join('');
+}
+
 function diffNodeLists(oldNodes: HtmlNode[], newNodes: HtmlNode[], counts: Counts, parentTag: string | null): string {
+  // Cells are positional: the nth cell of a row is the nth column whatever its text
+  // says, so inside a tr the pairing is a zip by index and nothing else. alignNodes
+  // would ask its own question instead, which is the wrong one here: rewriting a cell
+  // from "80k" to "90k" shares no words, lands under the 0.3 similarity threshold and
+  // comes back as a replacement, so the row renders a deleted cell next to an added
+  // one and the reader sees a stray extra column. Every number, date or one-word
+  // status in a table hits that. The fix belongs here rather than in alignNodes: this
+  // is a property of the container, and alignNodes has no parent context and no
+  // business knowing tag names, its contract is choosing among several textual
+  // candidates.
+  if (parentTag === 'tr') return diffRowCells(oldNodes, newNodes, counts);
+
   // A container with exactly one real (non-whitespace) child on each side, of
   // matching shape, is structurally unambiguous: there is no other candidate on
   // either side it could be weighed against. alignNodes' similarity threshold exists
