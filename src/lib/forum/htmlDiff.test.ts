@@ -3,15 +3,70 @@ import { DIFF_CLASSES } from '../sanitizedHtmlGrammar.js';
 import { richDiff } from './htmlDiff.js';
 import { parseSanitizedHtml } from './htmlNodes.js';
 
+// Content model for the handful of tags whose children are structurally restricted.
+// Everywhere else (p, li, td, th, inline tags, the diff spans themselves) any child
+// is accepted here: that looseness is already covered by the tag/attribute check
+// below, this table only encodes what parseSanitizedHtml does not, the shape of
+// nesting. Void tags (br, hr) never open a scope.
+const CONTENT_MODEL: Readonly<Record<string, ReadonlySet<string>>> = {
+  ul: new Set(['li']),
+  ol: new Set(['li']),
+  table: new Set(['thead', 'tbody']),
+  thead: new Set(['tr']),
+  tbody: new Set(['tr']),
+  tr: new Set(['th', 'td']),
+};
+const VOID_TAGS = new Set(['br', 'hr']);
+
+/**
+ * A small stack-based scan of the raw diff output, independent of the production
+ * parser, so it can assert what that parser deliberately does not check: the content
+ * model. parseSanitizedHtml only verifies that tags and attributes are individually
+ * legal and that open and close tags match, so `<ul><span class="diff-add">x</span>
+ * <li>a</li></ul>` parses cleanly even though no browser agrees a <span> belongs
+ * directly inside a <ul>. This walks the tag stream itself and asserts, for every
+ * tag with a restricted content model, that only its allowed children (and
+ * whitespace) appear directly inside it.
+ */
+function assertValidContentModel(html: string): void {
+  const TOKEN = /<\/([a-z0-9]+)>|<([a-z0-9]+)(?:\s+[a-z-]+="[^"]*")*\s*>/gi;
+  const stack: string[] = [];
+  let cursor = 0;
+  let m = TOKEN.exec(html);
+  const checkText = (text: string): void => {
+    const parent = stack[stack.length - 1];
+    if (parent && CONTENT_MODEL[parent]) expect(text.trim()).toBe('');
+  };
+  while (m) {
+    if (m.index > cursor) checkText(html.slice(cursor, m.index));
+    cursor = m.index + m[0].length;
+    const closing = m[1]?.toLowerCase();
+    const opening = m[2]?.toLowerCase();
+    if (closing) {
+      stack.pop();
+    } else if (opening) {
+      const parent = stack[stack.length - 1];
+      if (parent && CONTENT_MODEL[parent]) {
+        expect(CONTENT_MODEL[parent].has(opening)).toBe(true);
+      }
+      if (!VOID_TAGS.has(opening)) stack.push(opening);
+    }
+    m = TOKEN.exec(html);
+  }
+  if (cursor < html.length) checkText(html.slice(cursor));
+}
+
 /**
  * The output grammar is the input grammar plus span[class=<diff class>] plus a diff
- * class on any allowed element. Assert that, then strip the additions and require the
- * remainder to be valid input-grammar HTML.
+ * class on any allowed element. Assert that, assert the content model holds for the
+ * marked output as-is, then strip the additions and require the remainder to be
+ * valid input-grammar HTML.
  */
 function expectValidDiffOutput(html: string): void {
   for (const m of html.matchAll(/class="([^"]*)"/g)) {
     expect(DIFF_CLASSES.has(m[1])).toBe(true);
   }
+  assertValidContentModel(html);
   let bare = html;
   let previous: string;
   do {
@@ -107,6 +162,66 @@ describe('richDiff', () => {
     expectValidDiffOutput(r.html);
   });
 
+  it('never emits a marker span as a direct child of a list or a table row', () => {
+    // Raw HTML blocks pass through renderMarkdown largely unchecked, so a stored body
+    // can already hold text that never belonged directly inside <ul> or <tr> to begin
+    // with. That pre-existing invalidity is not this module's to fix, which is why
+    // this test does not call expectValidDiffOutput: its content model check would
+    // (correctly) reject these fixtures on that basis alone, span or no span, so it
+    // cannot distinguish the two. What diffing must not do is compound the existing
+    // problem by adding a <span>, which is not legal content there either, and inside
+    // a table a browser foster-parents it out entirely, moving the marked words to
+    // before the table on the rendered page.
+    const list = diff('<ul>alpha<li>x</li></ul>', '<ul>beta<li>x</li></ul>');
+    expect(list.html).not.toContain('<span');
+    expect(list.html).toContain('beta');
+
+    const table = diff(
+      '<table><tbody><tr>alpha<td>x</td></tr></tbody></table>',
+      '<table><tbody><tr>beta<td>x</td></tr></tbody></table>',
+    );
+    expect(table.html).not.toContain('<span');
+    expect(table.html).toContain('beta');
+  });
+
+  it('word-diffs a lone paragraph rewritten to unrelated words, with no sibling to make it ambiguous', () => {
+    // Pins one half of the single-candidate pairing's sibling-dependent asymmetry
+    // documented in diffNodeLists: with no sibling, this is the only candidate on
+    // each side, so it is paired and word-diffed even though the two texts share no
+    // words at all.
+    const r = diff('<p>Alpha beta gamma</p>', '<p>Totally unrelated words</p>');
+    expect(r.html).not.toContain('diff-block-del');
+    expect(r.html).not.toContain('diff-block-add');
+    expect(r.html).toContain('<span class="diff-del">');
+    expect(r.html).toContain('<span class="diff-add">');
+  });
+
+  it('replaces the same rewritten paragraph whole once a sibling makes the pairing ambiguous', () => {
+    // The other half of the asymmetry: same rewrite, but now there are two children
+    // on each side, so alignNodes runs its own multi-candidate similarity match
+    // instead, and rejects the 0%-overlap pair, replacing the paragraph whole.
+    const r = diff(
+      '<p>Alpha beta gamma</p>\n<p>unchanged</p>',
+      '<p>Totally unrelated words</p>\n<p>unchanged</p>',
+    );
+    expect(r.html).toContain('diff-block-del');
+    expect(r.html).toContain('diff-block-add');
+  });
+
+  it('does not count words for a block tag swap with identical text', () => {
+    const r = diff('<h2>t</h2>', '<h3>t</h3>');
+    expect(r).toMatchObject({ added: 0, removed: 0 });
+    expect(r.html).toContain('diff-block-del');
+    expect(r.html).toContain('diff-block-add');
+  });
+
+  it('does not count words for a list type swap with identical items', () => {
+    const r = diff('<ul>\n<li>a</li>\n<li>b</li>\n</ul>', '<ol>\n<li>a</li>\n<li>b</li>\n</ol>');
+    expect(r).toMatchObject({ added: 0, removed: 0 });
+    expect(r.html).toContain('diff-block-del');
+    expect(r.html).toContain('diff-block-add');
+  });
+
   it('handles an empty old body as pure insertion', () => {
     const r = diff('', '<p>first</p>');
     expect(r.html).toContain('<p class="diff-block-add">first</p>');
@@ -155,6 +270,26 @@ describe('richDiff invariants', () => {
       const back = richDiff(b, a);
       expect(forward.added).toBe(back.removed);
       expect(forward.removed).toBe(back.added);
+    }
+  });
+});
+
+describe('expectValidDiffOutput content model', () => {
+  it('rejects a marker span or a foreign block as a direct child of a list or a table', () => {
+    // These four are hand-built, not real richDiff output: a reviewer fed them to the
+    // pre-strengthening version of this helper, which stripped spans and checked
+    // tags and attributes only, and all four passed silently. That is why the earlier
+    // span-inside-a-list bug went unnoticed. Exercised directly against the helper so
+    // its own strength is pinned independently of whatever richDiff happens to
+    // produce today.
+    const badExamples = [
+      '<ul><span class="diff-add">orphan</span><li>a</li></ul>',
+      '<table><tbody><tr><span class="diff-del">x</span><td>a</td></tr></tbody></table>',
+      '<ol><span class="diff-add">not an li</span></ol>',
+      '<ul><p class="diff-block-add">a p inside a ul</p></ul>',
+    ];
+    for (const html of badExamples) {
+      expect(() => expectValidDiffOutput(html)).toThrow();
     }
   });
 });
