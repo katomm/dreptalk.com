@@ -1,6 +1,6 @@
 ---
 title: "Citing a post so it stays verifiable"
-description: "Every post on DRepTalk has a permanent, verifiable version you can cite in a vote rationale or anywhere else, so the quote cannot silently change later."
+description: "Posts on DRepTalk have a permanent, verifiable version you can cite in a vote rationale or anywhere else, so the quote cannot silently change later."
 cardLabel: "Citing a post"
 category: "About DRepTalk"
 order: 6
@@ -17,10 +17,13 @@ faqs:
 ---
 
 When you quote a forum post in a vote rationale, or link to it from anywhere
-off DRepTalk, the quote should still say the same thing next year. Every
-public post on DRepTalk gets a permanent, verifiable version for exactly
-that: an address whose content cannot change underneath it, so the quote you
-cited cannot be silently rewritten later.
+off DRepTalk, the quote should still say the same thing next year. Public
+posts on DRepTalk get a permanent, verifiable version for exactly that: an
+address whose content cannot change underneath it, so the quote you cited
+cannot be silently rewritten later. A vote rationale posted through DRepTalk
+already has its own permanent document, so it does not get a second one, and
+the same is true of the opening post of a governance action, which is the
+on-chain text of the action itself.
 
 ## Getting a citable link
 

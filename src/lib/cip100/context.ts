@@ -46,7 +46,14 @@ export const CIP100_INLINE_CONTEXT = {
 } as const;
 
 /** Path of the versioned extension context. A new term means a v2 file, so
- *  documents already emitted keep the meaning they were built with. */
+ *  documents already emitted keep the meaning they were built with.
+ *
+ *  The served file is public/cip100/context/v1.jsonld, one static file for both
+ *  networks. Its `dt` vocabulary IRI is the mainnet URL on purpose, including
+ *  in the copy preprod serves: a vocabulary has one global identity, and a term
+ *  must mean the same thing whichever network a document came from. It is the
+ *  only deliberate mainnet URL in this feature. Every other absolute URL is
+ *  built from originForNetwork and must stay that way. */
 export const EXTENSION_CONTEXT_PATH = '/cip100/context/v1.jsonld';
 
 export function extensionContextUrl(origin: string): string {

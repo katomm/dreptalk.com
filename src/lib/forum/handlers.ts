@@ -527,6 +527,11 @@ export interface EditPostInput {
  * Edits the caller's own post body. Same writer gate as posting; rate-limited;
  * validates length; re-renders+sanitizes markdown. Ownership, hidden, and topic
  * lock/delete checks live in editPost (domain errors mapped via editError).
+ *
+ * Reconciles the post's CIP-100 documents twice, before and after the write:
+ * once to freeze the text that was publicly visible until now, once to publish
+ * the edited text as the next version. Both are best effort and never fail the
+ * edit, see emitCip100.
  */
 export async function handleEditPost(input: EditPostInput): Promise<HandlerResult> {
   try {
