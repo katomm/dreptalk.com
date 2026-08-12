@@ -50,6 +50,17 @@ function renderSourceDiff(oldMd: string, newMd: string): string {
     .join('');
 }
 
+// The dialog carries all of its styling inline, so these two need it as well or the
+// feature's headline control renders as raw browser chrome in an otherwise styled
+// surface. The values are the site's segmented pill (.seg / .seg__btn in
+// list-controls.css) written out inline rather than a new look invented here, since
+// that stylesheet is not loaded on a topic page and nothing else in this dialog
+// depends on a class.
+const VIEW_GROUP_STYLE =
+  'display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden;';
+const viewButtonStyle = (pressed: boolean): string =>
+  `border:none;font-size:0.8125rem;font-weight:600;line-height:1.4;padding:0.35rem 0.75rem;cursor:pointer;background:${pressed ? 'var(--accent)' : 'transparent'};color:${pressed ? 'var(--accent-fg)' : 'var(--muted)'};`;
+
 // Maps a focused control to a selector that finds its replacement after the next
 // render, since assigning innerHTML discards the old DOM element entirely.
 function controlSelector(el: HTMLElement): string | null {
@@ -131,9 +142,9 @@ export async function openHistoryModal(postId: string): Promise<void> {
           <label>to <select data-to>${optionsFor('to', pair as { from: number; to: number })}</select></label>
         </div>
         <span style="color:var(--muted);">${esc(formatVersionTime(versions[to].createdAt))}${stat}</span>
-        <div>
-          <button type="button" data-view="rich" aria-pressed="${!showSource}" ${diff.degraded ? 'disabled' : ''}>Rendered</button>
-          <button type="button" data-view="source" aria-pressed="${showSource}">Source</button>
+        <div style="${VIEW_GROUP_STYLE}">
+          <button type="button" data-view="rich" aria-pressed="${!showSource}" ${diff.degraded ? 'disabled' : ''} style="${viewButtonStyle(!showSource)}">Rendered</button>
+          <button type="button" data-view="source" aria-pressed="${showSource}" style="${viewButtonStyle(showSource)}">Source</button>
         </div>
       </div>
       <div style="padding:1rem 1.25rem;max-height:60vh;overflow:auto;">${pane}</div>`;
