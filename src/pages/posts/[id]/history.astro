@@ -34,15 +34,17 @@ if (notFound) {
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
-const versions = history?.versions ?? [];
+// Gated on the same condition the template below uses to pick NotFound. A 404
+// response must not run diff work over a hidden post's bodies at all, not just
+// withhold the markup that shows it.
+const versions = notFound || !history ? [] : history.versions;
 const params = Astro.url.searchParams;
 const pair = clampVersionPair(params.get('from'), params.get('to'), versions.length);
 const diff = pair ? richDiff(versions[pair.from].bodyHtml, versions[pair.to].bodyHtml) : null;
 // A body the parser refused. The source view needs no parser, so it still works.
 const sourceView = params.get('view') === 'source' || !!diff?.degraded;
-const sourceLines = pair
-  ? lineDiffWithWords(versions[pair.from].bodyMd, versions[pair.to].bodyMd)
-  : [];
+const sourceLines =
+  sourceView && pair ? lineDiffWithWords(versions[pair.from].bodyMd, versions[pair.to].bodyMd) : [];
 ---
 
 {notFound || !history ? (
@@ -76,7 +78,7 @@ const sourceLines = pair
             to
             <select name="to">
               {versions.map((v, i) => (
-                <option value={i} selected={i === pair.to} disabled={i >= pair.from}>
+                <option value={i} selected={i === pair.to}>
                   {versionLabel(i, versions.length, v.current)}
                 </option>
               ))}
