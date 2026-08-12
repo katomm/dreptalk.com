@@ -6,6 +6,16 @@
 // throws instead of guessing. Keeping it strict is what lets the diff claim it never
 // widens the allowlist.
 //
+// The tokenizer below only matches well-formed markup: double-quoted attribute
+// values, tag names in the grammar's alphabet. Anything else at a given position,
+// an unquoted attribute, a hyphenated custom element, any malformed angle-bracket
+// sequence, simply fails to match there, and the regex resumes further along,
+// leaving the unmatched span to be swept up as plain text. That text can never
+// legitimately contain a raw '<': renderMarkdown escapes it to &lt;, which the
+// round-trip fixture 'a & b < c > d' exercises. So a raw '<' inside a text run is
+// proof the tokenizer skipped markup it could not parse, and pushText throws on it
+// rather than letting it round-trip untouched into serialized output.
+//
 // Structural whitespace: renderMarkdown puts newlines between list items, table rows
 // and blocks, so a two-item list arrives as five child nodes. Those text nodes are
 // layout, not content, and are flagged ignorable so the diff can skip them without
@@ -47,6 +57,7 @@ export function parseSanitizedHtml(html: string): HtmlNode[] {
     stack.length === 0 || STRUCTURAL_TAGS.has(stack[stack.length - 1].tag);
 
   const pushText = (text: string): void => {
+    if (text.includes('<')) throw new Error(`unparsed markup near ${JSON.stringify(text)}`);
     top().push({
       kind: 'text',
       text,

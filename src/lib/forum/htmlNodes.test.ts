@@ -82,6 +82,18 @@ describe('parseSanitizedHtml', () => {
     expect(() => parseSanitizedHtml('<p><em>x</p></em>')).toThrow(/mismatched/);
     expect(() => parseSanitizedHtml('<p>x')).toThrow(/mismatched/);
   });
+
+  it('throws on unparsed markup instead of passing it through as text', () => {
+    // Unquoted attribute value: the tokenizer only matches double-quoted values,
+    // so this fails to match as a tag and would otherwise fall into a text node.
+    expect(() => parseSanitizedHtml('<a href=/x>t</a>')).toThrow(/unparsed markup/);
+    // Tag name shape (hyphenated custom element) that also fails the tokenizer's
+    // tag-name alphabet, not just the allowlist.
+    expect(() => parseSanitizedHtml('<my-widget>x</my-widget>')).toThrow(/unparsed markup/);
+    // The concrete attack this guards against: an unquoted-attribute payload that
+    // would otherwise round-trip byte for byte into serialized output.
+    expect(() => parseSanitizedHtml('<img src=x onerror=alert(1)>')).toThrow(/unparsed markup/);
+  });
 });
 
 describe('round-trip over real renderMarkdown output', () => {
