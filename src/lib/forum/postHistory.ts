@@ -58,8 +58,11 @@ function renderSourceDiff(oldMd: string, newMd: string): string {
 // depends on a class.
 const VIEW_GROUP_STYLE =
   'display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden;';
-const viewButtonStyle = (pressed: boolean): string =>
-  `border:none;font-size:0.8125rem;font-weight:600;line-height:1.4;padding:0.35rem 0.75rem;cursor:pointer;background:${pressed ? 'var(--accent)' : 'transparent'};color:${pressed ? 'var(--accent-fg)' : 'var(--muted)'};`;
+// Rendered is disabled while a diff is degraded, and a disabled control must not
+// still read as clickable: dimmed with a default cursor, the same treatment .btn
+// gives every disabled variant in global.css.
+const viewButtonStyle = (pressed: boolean, disabled = false): string =>
+  `border:none;font-size:0.8125rem;font-weight:600;line-height:1.4;padding:0.35rem 0.75rem;background:${pressed ? 'var(--accent)' : 'transparent'};color:${pressed ? 'var(--accent-fg)' : 'var(--muted)'};${disabled ? 'opacity:0.55;cursor:not-allowed;' : 'cursor:pointer;'}`;
 
 // Maps a focused control to a selector that finds its replacement after the next
 // render, since assigning innerHTML discards the old DOM element entirely.
@@ -143,7 +146,7 @@ export async function openHistoryModal(postId: string): Promise<void> {
         </div>
         <span style="color:var(--muted);">${esc(formatVersionTime(versions[to].createdAt))}${stat}</span>
         <div style="${VIEW_GROUP_STYLE}">
-          <button type="button" data-view="rich" aria-pressed="${!showSource}" ${diff.degraded ? 'disabled' : ''} style="${viewButtonStyle(!showSource)}">Rendered</button>
+          <button type="button" data-view="rich" aria-pressed="${!showSource}" ${diff.degraded ? 'disabled' : ''} style="${viewButtonStyle(!showSource, diff.degraded)}">Rendered</button>
           <button type="button" data-view="source" aria-pressed="${showSource}" style="${viewButtonStyle(showSource)}">Source</button>
         </div>
       </div>
