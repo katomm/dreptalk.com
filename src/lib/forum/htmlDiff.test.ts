@@ -172,6 +172,11 @@ describe('richDiff', () => {
     // problem by adding a <span>, which is not legal content there either, and inside
     // a table a browser foster-parents it out entirely, moving the marked words to
     // before the table on the rendered page.
+    //
+    // alpha and beta share no words, so alignNodes never pairs them: both fixtures
+    // below exercise the old-only/new-only branches in diffNodeLists, not diffText's
+    // own NO_SPAN_PARENTS branch (that one only runs when alignNodes does pair the
+    // text, see the matched-path test further down).
     const list = diff('<ul>alpha<li>x</li></ul>', '<ul>beta<li>x</li></ul>');
     expect(list.html).not.toContain('<span');
     expect(list.html).toContain('beta');
@@ -189,6 +194,10 @@ describe('richDiff', () => {
     // structure over honesty: a reader who sees "edited" with no marks and a zero
     // count has been told nothing happened. The count stays accurate even though the
     // word itself is not pointed at.
+    //
+    // One side has no text node at all here, so these two also exercise the
+    // old-only/new-only branches, the same as the pair above, not diffText's own
+    // NO_SPAN_PARENTS branch.
     const removed = diff('<ul>alpha<li>x</li></ul>', '<ul><li>x</li></ul>');
     expect(removed.html).not.toContain('<span');
     expect(removed).toMatchObject({ changed: true, added: 0, removed: 1 });
@@ -196,6 +205,19 @@ describe('richDiff', () => {
     const added = diff('<ul><li>x</li></ul>', '<ul>alpha<li>x</li></ul>');
     expect(added.html).not.toContain('<span');
     expect(added).toMatchObject({ changed: true, added: 1, removed: 0 });
+  });
+
+  it('counts a changed word even where the marker is withheld, when alignNodes pairs the text', () => {
+    // Unlike the two tests above, "alpha bravo" and "alpha charlie" share one of two
+    // words, enough to clear alignNodes' 0.3 similarity threshold, so this time the
+    // text nodes land as a matched slot and go through diffText's own
+    // NO_SPAN_PARENTS branch, not diffNodeLists' old-only/new-only branches. That
+    // branch used to return the new text with no counting at all: a rewrite entirely
+    // inside a <ul> would report added: 0, removed: 0 despite a real word changing.
+    const r = diff('<ul>alpha bravo<li>x</li></ul>', '<ul>alpha charlie<li>x</li></ul>');
+    expect(r.html).not.toContain('<span');
+    expect(r.added).toBeGreaterThan(0);
+    expect(r.removed).toBeGreaterThan(0);
   });
 
   it('word-diffs a lone paragraph rewritten to unrelated words, with no sibling to make it ambiguous', () => {

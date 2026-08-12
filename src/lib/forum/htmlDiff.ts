@@ -117,17 +117,29 @@ function markWhole(node: HtmlNode, kind: 'add' | 'del'): string {
 // model tolerates a span child, this is only about the strict list and table
 // containers whose only legal element child is li, tr, thead or tbody.
 //
-// The word is still counted on either side of this guard (see the two call sites
-// below): a reader who sees "edited" with a count is told something happened even
-// where the module declines to show what. Leaving it uncounted was the other option
-// on the table, and was rejected because a reader seeing "edited" with no marks and
-// a zero count has been told nothing changed at all, which is worse than an accurate
-// count with no visible marker to match it.
+// The word is still counted at every call site that checks this guard (the old-only
+// and new-only branches in diffNodeLists, and diffText's own branch below for when
+// alignNodes pairs the old and new text directly): a reader who sees "edited" with a
+// count is told something happened even where the module declines to show what.
+// Leaving it uncounted was the other option on the table, and was rejected because a
+// reader seeing "edited" with no marks and a zero count has been told nothing changed
+// at all, which is worse than an accurate count with no visible marker to match it.
 const NO_SPAN_PARENTS: ReadonlySet<string> = new Set(['ul', 'ol', 'table', 'thead', 'tbody', 'tr']);
 
 function diffText(oldText: string, newText: string, counts: Counts, parentTag: string | null): string {
-  if (parentTag !== null && NO_SPAN_PARENTS.has(parentTag)) return newText;
-  return wordDiff(oldText, newText)
+  const ops = wordDiff(oldText, newText);
+  if (parentTag !== null && NO_SPAN_PARENTS.has(parentTag)) {
+    // Marking is withheld here, not counting: a span would break the container's
+    // content model (see NO_SPAN_PARENTS), but the words still changed and the
+    // header should say so. Walk the diff purely for its counts, same rule as
+    // everywhere else, and return the new text plain, no wrapping at all.
+    for (const op of ops) {
+      if (op.type === 'add') counts.added += countWords(op.text);
+      if (op.type === 'del') counts.removed += countWords(op.text);
+    }
+    return newText;
+  }
+  return ops
     .map((op) => {
       if (op.type === 'same') return op.text;
       if (op.type === 'add') counts.added += countWords(op.text);
