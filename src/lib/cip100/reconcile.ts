@@ -35,8 +35,8 @@ interface PostRow {
   topic_slug: string;
   topic_source: string;
   topic_deleted: number;
+  topic_author_id: string;
   proposal_id: string | null;
-  opening_post_id: string | null;
 }
 
 async function loadPost(db: D1Database, postId: string): Promise<PostRow | null> {
@@ -45,9 +45,8 @@ async function loadPost(db: D1Database, postId: string): Promise<PostRow | null>
       `SELECT p.id, p.topic_id, p.author_id, p.body_md, p.parent_post_id, p.created_at,
               p.edited_at, p.deleted, p.hidden, p.source,
               t.slug AS topic_slug, t.source AS topic_source, t.deleted AS topic_deleted,
-              (SELECT proposal_id FROM governance_actions WHERE topic_id = t.id) AS proposal_id,
-              (SELECT id FROM posts WHERE topic_id = t.id AND parent_post_id IS NULL
-                ORDER BY created_at ASC LIMIT 1) AS opening_post_id
+              t.author_id AS topic_author_id,
+              (SELECT proposal_id FROM governance_actions WHERE topic_id = t.id) AS proposal_id
          FROM posts p
          JOIN topics t ON t.id = p.topic_id
         WHERE p.id = ?`,
@@ -67,9 +66,13 @@ function outOfScope(post: PostRow, now: number): boolean {
   if (post.hidden === 1) return true;
   // Vote rationale cross-posts reference the existing /vote-rationale/ document.
   if (post.source === 'vote_rationale') return true;
-  // The opening post of a governance topic mirrors on-chain content that
-  // already has its own CIP-108 anchor.
-  if (post.topic_source === 'governance' && post.opening_post_id === post.id) return true;
+  // The sync-generated mirror post of a governance topic reproduces on-chain
+  // content that already has its own CIP-108 anchor. Identified by authorship,
+  // which is exact: the sync writes the topic and its mirror post with the same
+  // author id, and no human account holds that id. Identifying it as the oldest
+  // top-level post was wrong, because a vote-rationale cross-post is back-dated
+  // to its on-chain vote time and can therefore predate the mirror post.
+  if (post.topic_source === 'governance' && post.author_id === post.topic_author_id) return true;
   // Inside the grace window edits are silent and leave no trace in edited_at,
   // so no document may exist yet. See spec section 10.2.
   return isWithinGrace(post.created_at, now);

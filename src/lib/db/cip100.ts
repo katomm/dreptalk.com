@@ -223,10 +223,15 @@ export async function stampMissingDeletedAt(db: D1Database, now: number): Promis
  *
  * `outOfScope` in the reconciler stays authoritative about what is emitted:
  * this query only pre-filters the exclusions that can never be satisfied while
- * they hold. A vote-rationale cross-post and a governance opening post are out
- * of scope forever, so they would match the "no document yet" branch on every
- * run and occupy a slot in the bounded batch until the oldest `limit`
- * candidates were all unsatisfiable and no new post ever got a document again.
+ * they hold. A vote-rationale cross-post and a governance topic's sync-written
+ * mirror post are out of scope forever, so they would match the "no document
+ * yet" branch on every run and occupy a slot in the bounded batch until the
+ * oldest `limit` candidates were all unsatisfiable and no new post ever got a
+ * document again. The mirror post is matched on authorship, `p.author_id =
+ * t.author_id`, exactly as `outOfScope` does: the sync writes a governance
+ * topic and its mirror post with the same author id. Matching the oldest
+ * top-level post instead was wrong, because a rationale cross-post is
+ * back-dated to its on-chain vote time and can predate the mirror post.
  * A hidden post is the same shape of problem for as long as it is hidden, and
  * it re-enters the batch by itself once the flags are withdrawn. The grace
  * window is deliberately NOT pre-filtered as one of these: a post inside it
@@ -245,11 +250,7 @@ export async function findStalePostIds(db: D1Database, graceCutoff: number, limi
         WHERE p.deleted = 0 AND t.deleted = 0
           AND p.hidden = 0
           AND COALESCE(p.source, '') <> 'vote_rationale'
-          AND NOT (
-                t.source = 'governance'
-                AND p.id = (SELECT id FROM posts WHERE topic_id = t.id AND parent_post_id IS NULL
-                             ORDER BY created_at ASC LIMIT 1)
-              )
+          AND NOT (t.source = 'governance' AND p.author_id = t.author_id)
           AND (
                (h.hash IS NULL AND p.created_at <= ?)
             OR (p.edited_at IS NOT NULL AND p.edited_at > COALESCE(h.source_edited_at, 0))

@@ -8,6 +8,7 @@ import { createTopic, createPost, editPost } from '../db/forum.js';
 import { getHeadDoc, listPostVersions, findStalePostIds, insertDoc, getDocBody } from '../db/cip100.js';
 import { reconcilePostDocs } from './reconcile.js';
 import { EDIT_GRACE_MS } from '../forum/editPolicy.js';
+import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 
 const db = () => env.DB;
 const T = 1_700_000_000_000;
@@ -15,9 +16,13 @@ const AFTER_GRACE = T + EDIT_GRACE_MS + 1000;
 const AUTHOR = 'test-author-reconcile';
 const OPTS = { origin: 'https://dreptalk.com', network: 'mainnet' as const };
 
+// A governance topic is written by the sync, never by a person, and its mirror
+// post carries the same author id. Seeding it any other way would be a shape
+// production never produces, and the scope rule keys on exactly that authorship.
 async function seedTopic(suffix: string, source: 'user' | 'governance' = 'user') {
   return createTopic(db(), {
-    categorySlug: 'general', authorId: AUTHOR, title: `Reconcile ${suffix}`,
+    categorySlug: 'general', authorId: source === 'governance' ? GOV_SYNC_AUTHOR : AUTHOR,
+    title: `Reconcile ${suffix}`,
     bodyMd: 'opening body', bodyHtml: '<p>opening body</p>', source, now: T, rand: suffix,
   });
 }
@@ -89,10 +94,48 @@ describe('reconcilePostDocs', () => {
     expect((await getHeadDoc(db(), firstPost.id))?.version).toBe(2);
   });
 
-  it('skips the opening post of a governance topic', async () => {
+  it('skips the sync-written mirror post of a governance topic', async () => {
     const { firstPost } = await seedTopic('r7', 'governance');
     const res = await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });
     expect(res.status).toBe('skipped');
+  });
+
+  // Reproduces preprod topic c413598c. A vote-rationale cross-post is back-dated
+  // to its on-chain vote time, so it can be OLDER than the sync's own mirror
+  // post. While the mirror post was identified as the oldest top-level post,
+  // the rationale was picked instead and the mirror post was published as if a
+  // person had written it. Authorship does not depend on timestamps.
+  it('skips the mirror post even when a back-dated rationale post is older', async () => {
+    const MIRROR_AT = T + 500_000;
+    const { topic, firstPost: mirror } = await createTopic(db(), {
+      categorySlug: 'general', authorId: GOV_SYNC_AUTHOR, title: 'Reconcile r14',
+      bodyMd: '**On-chain governance action** (No Confidence)', bodyHtml: '<p>on-chain</p>',
+      source: 'governance', now: MIRROR_AT, rand: 'r14',
+    });
+    const rationale = await createPost(db(), {
+      topicId: topic.id, authorId: AUTHOR, bodyMd: 'my rationale',
+      bodyHtml: '<p>my rationale</p>', now: T,
+    });
+    await db().prepare("UPDATE posts SET source = 'vote_rationale' WHERE id = ?").bind(rationale.id).run();
+    // Guard on the fixture: the shape only reproduces the bug while the
+    // rationale really is the older top-level post.
+    expect(rationale.parent_post_id).toBeNull();
+    expect(rationale.created_at).toBeLessThan(mirror.created_at);
+
+    const at = MIRROR_AT + EDIT_GRACE_MS + 1000;
+    expect((await reconcilePostDocs(db(), mirror.id, { ...OPTS, now: at })).status).toBe('skipped');
+    // Not merely skipped: it must not occupy a slot in the bounded batch either.
+    expect(await findStalePostIds(db(), at - EDIT_GRACE_MS, 50)).not.toContain(mirror.id);
+
+    // The line this rule must not cross: a person's reply in the same governance
+    // topic is still emitted.
+    const replyAt = MIRROR_AT + 1000;
+    const reply = await createPost(db(), {
+      topicId: topic.id, authorId: AUTHOR, bodyMd: 'a human reply in a gov thread',
+      bodyHtml: '<p>a human reply in a gov thread</p>', now: replyAt, parentPostId: mirror.id,
+    });
+    const afterReplyGrace = replyAt + EDIT_GRACE_MS + 1000;
+    expect((await reconcilePostDocs(db(), reply.id, { ...OPTS, now: afterReplyGrace })).status).toBe('created');
   });
 
   it('emits a reply inside a governance topic', async () => {
