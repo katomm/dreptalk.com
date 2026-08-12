@@ -14,6 +14,8 @@ faqs:
     a: "That the text you are reading is the text that was published under that address. It does not prove who wrote it. Author identity on DRepTalk is the account that published the post, not a cryptographic signature."
   - q: "What happens if a post is deleted?"
     a: "Its versions stop being served and the address returns a Gone response. The version list keeps a record that the post existed and was deleted, without the author's identity."
+  - q: "Why does a citation answer not found instead of Gone?"
+    a: "Gone means the post was deleted and its versions are not coming back. Not found means the post is not available on the forum at the moment, which can change: if it returns, the same address serves the same text again."
 ---
 
 When you quote a forum post in a vote rationale, or link to it from anywhere
@@ -68,6 +70,12 @@ instead. The post's version list keeps a minimal record that the post
 existed and was deleted, but that record carries no author identity and
 none of the original text.
 
+A post can also be withheld from the forum for a time without being deleted,
+and while it is, its versions answer "not found" rather than Gone. That is
+the difference to read: Gone is final, while a version that answers "not
+found" is served again, unchanged and at the same address, if the post
+returns.
+
 ## For developers
 
 Anything that wants to fetch, verify, or mirror these documents can start at
@@ -102,6 +110,12 @@ published the post, not a cryptographic signature.
 Its versions stop being served and the address answers with a Gone
 response. The version list keeps a record that the post existed and was
 deleted, without the author's identity.
+
+### Why does a citation answer not found instead of Gone?
+
+Gone means the post was deleted and its versions are not coming back. Not
+found means the post is not available on the forum at the moment, which can
+change: if it returns, the same address serves the same text again.
 
 ## Related
 

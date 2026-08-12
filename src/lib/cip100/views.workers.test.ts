@@ -142,6 +142,40 @@ it('withholds a post hidden after its document was emitted, and serves it again 
   expect(await getDocForServe(db(), hash)).toEqual({ body: expect.any(String), state: 'available' });
 });
 
+it('still publishes the deletion record for a post that was hidden and then deleted', async () => {
+  // Hiding is recomputed only when someone flags or unflags, and nobody flags an
+  // invisible post, so a hidden post stays hidden and can then be deleted by
+  // hand. Deletion has to win on every surface, or the consumer holding the
+  // citation gets "gone, stop asking" from one and "no such thing" from another,
+  // and the deletion record the guide promises is never published.
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-views', title: 'Hidden then deleted',
+    bodyMd: 'opening', bodyHtml: '<p>opening</p>', now: T, rand: 'v6',
+  });
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
+  const hash = (await getHeadDoc(db(), firstPost.id))?.hash as string;
+  await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(firstPost.id).run();
+  await db()
+    .prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?')
+    .bind(T + 7, firstPost.id)
+    .run();
+
+  const index = await buildVersionIndex(db(), firstPost.id, ORIGIN);
+  expect(index.status).toBe(200);
+  const indexDoc = JSON.parse(index.body as string);
+  expect(indexDoc.status).toBe('deleted');
+  expect(indexDoc.versions).toHaveLength(1);
+  expect(JSON.stringify(indexDoc)).not.toContain('postedBy');
+
+  const manifest = JSON.parse((await buildThreadManifest(db(), topic.id, ORIGIN, 'mainnet')).body as string);
+  expect(manifest.posts).toHaveLength(1);
+  expect(manifest.posts[0].status).toBe('deleted');
+  expect('postedBy' in manifest.posts[0]).toBe(false);
+
+  // And the snapshot stays on the erasure path, not the reversible one.
+  expect((await getDocForServe(db(), hash))?.state).toBe('gone');
+});
+
 // The only place a role writes into immutable bytes: a wrong profile URL here
 // is published forever. Every other test uses a bare author id with no users
 // row, so profile stays null and the id-form URL is never built.

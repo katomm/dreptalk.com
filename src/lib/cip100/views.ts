@@ -43,15 +43,17 @@ export async function buildVersionIndex(db: D1Database, postId: string, origin: 
       topic_id: string; topic_deleted: number; topic_deleted_at: number | null;
     }>();
   if (!post) return { status: 404, body: null };
-  // Hidden by community flags: 404, never the tombstone. A tombstone states a
-  // deletion, and hiding is a different, reversible state. Checked before the
-  // version list is read, so a hidden post's hashes are not handed out either.
-  if (post.hidden === 1) return { status: 404, body: null };
 
   const versions = await listPostVersions(db, postId);
   if (versions.length === 0) return { status: 404, body: null };
 
   const context = extensionContextUrl(origin);
+  // Deletion is checked BEFORE hiding, matching getDocForServe: a post that is
+  // both is gone, on all three surfaces. A hidden post that is then deleted
+  // must still publish its deletion record, or a consumer holding the citation
+  // would be told "gone, stop asking" by the snapshot and "no such thing" here.
+  // The tombstone carries no author identity and no content, so publishing it
+  // for a post that was also hidden says nothing about moderation.
   if (post.deleted === 1 || post.topic_deleted === 1) {
     const at = post.deleted_at ?? post.topic_deleted_at ?? null;
     return {
@@ -63,6 +65,10 @@ export async function buildVersionIndex(db: D1Database, postId: string, origin: 
       }),
     };
   }
+  // Hidden and not deleted: 404, never the tombstone. A tombstone states a
+  // deletion, and hiding is a different, reversible state. The version list was
+  // read above but is not served, so a hidden post's hashes stay unpublished.
+  if (post.hidden === 1) return { status: 404, body: null };
 
   return {
     status: 200,
@@ -148,16 +154,20 @@ export async function buildThreadManifest(
   for (const row of rows) {
     const versions = byPost.get(row.id);
     if (!versions) continue;
-    // A post hidden by community flags is omitted entirely, exactly like a post
-    // that was never in scope. No tombstone: that would say "deleted" about a
-    // reversible state, and listing the entry at all would republish the
-    // handle, profile and permalink of a post the thread page withholds.
-    if (row.hidden === 1) continue;
     const hashes = versions.map((v) => v.hash);
+    // Deletion is checked BEFORE hiding, matching getDocForServe and the
+    // version index: a post that is both is gone, and its deletion record is
+    // published like any other. The tombstone carries no author identity and no
+    // content, so it says nothing about moderation.
     if (row.deleted === 1) {
       posts.push(tombstone(row.id, row.deleted_at, hashes));
       continue;
     }
+    // Hidden and not deleted: omitted entirely, exactly like a post that was
+    // never in scope. No tombstone, that would say "deleted" about a reversible
+    // state, and listing the entry at all would republish the handle, profile
+    // and permalink of a post the thread page withholds.
+    if (row.hidden === 1) continue;
     const author = identities.describe(row.author_id);
     const profile = authorProfileUrl(origin, author);
     const postedBy: Record<string, string> = { handle: author.displayName };
