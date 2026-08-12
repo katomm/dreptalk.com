@@ -1,8 +1,10 @@
 // Pairs two node lists into an ordered slot list the diff can walk once.
 //
 // Two stages. Stage one is an LCS on a strict key (tag plus normalized text), which
-// gives anchors that are certainly the same node. Stage two pairs leftovers by word
-// similarity, but only WITHIN a gap between two anchors. Letting stage two reach
+// gives anchors that are guaranteed to be a valid alignment, though not necessarily
+// the "true" pairing: identical repeated blocks anchor at whichever position the LCS
+// happens to pick. Stage two pairs leftovers by word similarity, but only WITHIN a
+// gap between two anchors. Letting stage two reach
 // across an anchor breaks monotonicity: given A,B against B,A it would pair both
 // nodes, the move would render as no change at all, and a renderer walking both
 // lists in order would emit nodes twice or out of order. Confining it to gaps keeps
@@ -16,8 +18,8 @@ import { similarity } from './wordDiff.js';
 /** One output position: a pair, an old-only node, or a new-only node. */
 export type Slot = { old: number | null; new: number | null };
 
-// Below this, two nodes are a replacement rather than a rewrite. Shared with the
-// markdown source view.
+// Below this, two nodes are a replacement rather than a rewrite. A later task gives
+// the markdown source view its own similarity threshold to match this one.
 const SIMILAR_ENOUGH = 0.3;
 
 const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
@@ -34,7 +36,11 @@ function sameShape(a: HtmlNode, b: HtmlNode): boolean {
   return a.kind === 'text';
 }
 
-/** Greedy left-to-right similarity pairing inside one gap. Stays monotonic. */
+/**
+ * Greedy left-to-right similarity pairing inside one gap. Stays monotonic. On a
+ * similarity tie between two candidates, the leftmost one wins: `>`, not `>=`, so a
+ * later equally-good candidate never overwrites an earlier one.
+ */
 function pairGap(
   oldNodes: HtmlNode[],
   newNodes: HtmlNode[],
@@ -53,7 +59,7 @@ function pairGap(
     for (let k = nj; k < newTo; k++) {
       if (!sameShape(oldNodes[oi], newNodes[k])) continue;
       const score = similarity(nodeText(oldNodes[oi]), nodeText(newNodes[k]));
-      if (score >= bestScore) {
+      if (score > bestScore) {
         bestScore = score;
         best = k;
       }
