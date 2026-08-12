@@ -13,6 +13,15 @@ describe('buildServiceDescription', () => {
     expect(doc.caching).toContain('immutable');
   });
 
+  // Both claims are published to integrators, so they are pinned here: they
+  // were false once and the guide had to be corrected alongside them.
+  it('does not claim every post is published, and tells mirrors to act on a disappearance', () => {
+    const doc = JSON.parse(buildServiceDescription('https://dreptalk.com', 'mainnet'));
+    expect(doc.description).not.toMatch(/every/i);
+    expect(doc.deletion).toMatch(/without a tombstone/);
+    expect(doc.deletion).toMatch(/stop serving/);
+  });
+
   it('follows the deployment origin', () => {
     const doc = JSON.parse(buildServiceDescription('https://preprod.dreptalk.com', 'preprod'));
     expect(doc.site).toBe('https://preprod.dreptalk.com/');

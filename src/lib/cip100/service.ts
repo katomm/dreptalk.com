@@ -11,7 +11,7 @@ export function buildServiceDescription(origin: string, network: Cip100Network):
     network,
     site: `${origin}/`,
     description:
-      'Public governance discussion. Every user-authored post is published as an immutable CIP-100 document so it can be cited and verified.',
+      'Public governance discussion. User-authored posts are published as immutable CIP-100 documents so they can be cited and verified. Not all of them are, so a post without a document is normal and not an error.',
     context: extensionContextUrl(origin),
     hashAlgorithm: 'blake2b-256',
     urlTemplates: {
@@ -28,7 +28,7 @@ export function buildServiceDescription(origin: string, network: Cip100Network):
     authors:
       'Documents carry an empty authors array by design. Author identity is a claim by the publisher, not a cryptographic proof.',
     deletion:
-      'Deleted posts return 410 Gone at every snapshot URL. Tombstones stay visible in the post version index and in the thread manifest. If you mirror these documents, poll the manifest and remove content that appears as deleted.',
+      'Deleted posts return 410 Gone at every snapshot URL. Tombstones stay visible in the post version index and in the thread manifest. If you mirror these documents, poll the manifest and remove content that appears as deleted. A post can also stop being listed in the manifest without a tombstone. Read that disappearance as the same instruction and stop serving that post.',
     documentation: `${origin}/help/citing-a-post/`,
   };
   return `${JSON.stringify(doc, null, 2)}\n`;
