@@ -1,16 +1,9 @@
----
-// Icon row for a profile's recognized platform links (see socialLinks.ts).
-// Monochrome brand glyphs (Simple Icons path data, CC0), one small round
-// button per link, the link's own label as the accessible name.
-import type { SocialLink } from '@/lib/dreps/socialLinks.js';
+// Monochrome brand glyph path data (Simple Icons, CC0) for the recognized
+// social platforms. 24x24 viewBox, fill currentColor. Shared by the Astro icon
+// row on public profiles and the React live preview so the two cannot drift.
+import type { SocialKind } from '@/lib/dreps/socialLinks.js';
 
-interface Props {
-  links: SocialLink[];
-}
-const { links } = Astro.props;
-
-// 24x24 viewBox, fill currentColor.
-const ICON_PATHS: Record<SocialLink['kind'], string> = {
+export const SOCIAL_ICON_PATHS: Record<SocialKind, string> = {
   x: 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z',
   bluesky:
     'M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8Z',
@@ -29,44 +22,3 @@ const ICON_PATHS: Record<SocialLink['kind'], string> = {
   instagram:
     'M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z',
 };
----
-
-{links.length > 0 && (
-  <ul class="slinks">
-    {links.map((l) => (
-      <li>
-        <a class="slinks__btn" href={l.uri} rel="nofollow noopener" target="_blank" aria-label={l.label} title={l.label}>
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
-            <path d={ICON_PATHS[l.kind]} />
-          </svg>
-        </a>
-      </li>
-    ))}
-  </ul>
-)}
-
-<style>
-  .slinks {
-    list-style: none;
-    padding: 0;
-    margin: 0.6rem 0 0;
-    display: flex;
-    gap: 0.45rem;
-    flex-wrap: wrap;
-  }
-  .slinks__btn {
-    display: grid;
-    place-items: center;
-    width: 1.9rem;
-    height: 1.9rem;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--muted);
-    transition: color 0.12s, border-color 0.12s;
-  }
-  .slinks__btn:hover {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-  }
-</style>

@@ -70,14 +70,18 @@ export interface SocialLink {
  * in the About section). At most one icon per platform: extra links to the
  * same platform (e.g. a second X link pointing at a specific tweet) fall back
  * into the About list so the header stays a single unambiguous glyph per site.
+ * The platforms that lost links this way come back as `overflowKinds` (unique,
+ * input order), so callers like the settings preview can explain the demotion.
  */
 export function splitSocialLinks(links: { label: string; uri: string }[]): {
   social: SocialLink[];
   rest: { label: string; uri: string }[];
+  overflowKinds: SocialKind[];
 } {
   const social: SocialLink[] = [];
   const rest: { label: string; uri: string }[] = [];
   const seenKinds = new Set<SocialKind>();
+  const overflow = new Set<SocialKind>();
   for (const link of links) {
     const kind = classifySocialLink(link.uri);
     if (kind && !seenKinds.has(kind)) {
@@ -85,8 +89,9 @@ export function splitSocialLinks(links: { label: string; uri: string }[]): {
       const label = link.label.trim().length > 0 ? link.label : SOCIAL_NAMES[kind];
       social.push({ kind, uri: link.uri, label });
     } else {
+      if (kind) overflow.add(kind);
       rest.push(link);
     }
   }
-  return { social, rest };
+  return { social, rest, overflowKinds: [...overflow] };
 }

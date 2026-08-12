@@ -1131,6 +1131,33 @@ main.container {
   }
 }
 
+/* Social link icon row (SocialLinkIcons.tsx). Global because the component is
+   server-rendered on the public profile and hydration-free in the settings
+   preview, so scoped/inline styles have no single home. */
+.slinks {
+  list-style: none;
+  padding: 0;
+  margin: 0.6rem 0 0;
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.slinks__btn {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  transition: color 0.12s, border-color 0.12s;
+}
+.slinks__btn:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
 /* Copy-to-clipboard icon button. Shared by the Astro CopyButton (SSR, driven by
    one delegated listener) and the React CopyButton island (own state). Both swap
    the clipboard icon for a check while the is-copied class is on. Sits inline

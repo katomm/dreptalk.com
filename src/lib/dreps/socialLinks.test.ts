@@ -30,7 +30,7 @@ describe('classifySocialLink', () => {
 
 describe('splitSocialLinks', () => {
   it('splits recognized links from the rest, preserving order and labels', () => {
-    const { social, rest } = splitSocialLinks([
+    const { social, rest, overflowKinds } = splitSocialLinks([
       { label: 'My site', uri: 'https://example.com/' },
       { label: '', uri: 'https://x.com/someone' },
       { label: 'Code', uri: 'https://github.com/someone' },
@@ -40,14 +40,15 @@ describe('splitSocialLinks', () => {
       { kind: 'github', uri: 'https://github.com/someone', label: 'Code' },
     ]);
     expect(rest).toEqual([{ label: 'My site', uri: 'https://example.com/' }]);
+    expect(overflowKinds).toEqual([]);
   });
 
   it('handles empty input', () => {
-    expect(splitSocialLinks([])).toEqual({ social: [], rest: [] });
+    expect(splitSocialLinks([])).toEqual({ social: [], rest: [], overflowKinds: [] });
   });
 
   it('keeps only the first link per platform in the icon row, rest go to About', () => {
-    const { social, rest } = splitSocialLinks([
+    const { social, rest, overflowKinds } = splitSocialLinks([
       { label: 'Profile', uri: 'https://x.com/someone' },
       { label: 'Pinned tweet', uri: 'https://x.com/someone/status/123' },
       { label: '', uri: 'https://bsky.app/profile/someone' },
@@ -63,5 +64,6 @@ describe('splitSocialLinks', () => {
       { label: 'Pinned tweet', uri: 'https://x.com/someone/status/123' },
       { label: 'Bsky highlight', uri: 'https://bsky.app/profile/someone/post/abc' },
     ]);
+    expect(overflowKinds).toEqual(['x', 'bluesky']);
   });
 });
