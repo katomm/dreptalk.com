@@ -6,7 +6,7 @@
 // this function, so there is one definition of what a post's documents are.
 import { loadAuthorIdentity } from '../forum/author.js';
 import { isWithinGrace } from '../forum/editPolicy.js';
-import { getDocBody, getHeadDoc, insertDoc, touchSourceEditedAt } from '../db/cip100.js';
+import { getDocAtOrBefore, getDocBody, getHeadDoc, insertDoc, touchSourceEditedAt } from '../db/cip100.js';
 import { buildDiscussionPostDoc } from './document.js';
 import type { Cip100Network } from './origin.js';
 
@@ -91,44 +91,15 @@ export async function reconcilePostDocs(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const head = await getHeadDoc(db, postId);
-
-    // A reply points at the parent's head as it exists now, which for a live
-    // emit is the version that was replied to. A backfill cannot know the
-    // historical one, and getHeadDoc then returns today's head, so only use it
-    // when this post has no document yet AND the parent's head predates the
-    // reply. Otherwise omit it and let inReplyToPostId carry the structure.
-    let parentDocHash: string | null = null;
-    if (post.parent_post_id) {
-      const parentHead = await getHeadDoc(db, post.parent_post_id);
-      if (parentHead && parentHead.createdAt <= post.created_at) parentDocHash = parentHead.hash;
-    }
-
-    const built = buildDiscussionPostDoc({
-      origin: opts.origin,
-      network: opts.network,
-      postId: post.id,
-      topicId: post.topic_id,
-      topicSlug: post.topic_slug,
-      version: (head?.version ?? 0) + 1,
-      postedAt: post.created_at,
-      revisedAt: post.edited_at,
-      governanceActionId: post.proposal_id,
-      parentPostId: post.parent_post_id,
-      parentDocHash,
-      prevHash: head?.hash ?? null,
-      postedBy: {
-        handle: author.displayName,
-        profile,
-        drepId: author.drepId ?? null,
-        poolId: author.poolId ?? null,
-      },
-      comment: post.body_md,
-    });
+    const nextVersion = (head?.version ?? 0) + 1;
+    const prevHash = head?.hash ?? null;
 
     // The no-op edit rule: editPost stamps edited_at even when the submitted
     // text is identical, so compare the content itself. Without this, every
     // such edit would publish a version whose only difference is its own
-    // version metadata.
+    // version metadata. Checked before building anything else, since the
+    // common case (edited_at bumped, content unchanged) never needs a new
+    // document at all.
     if (head) {
       const storedBody = await getDocBody(db, head.hash);
       if (storedBody) {
@@ -142,13 +113,48 @@ export async function reconcilePostDocs(
       }
     }
 
+    // A reply points at the parent version that was current when the reply
+    // was written, looked up by time rather than by the parent's current
+    // head. That is what makes the result deterministic: a later edit to the
+    // parent, or to the reply itself, must not change what an earlier reply
+    // version claims about the parent it was replying to. A null result is
+    // the backfill case where the parent's only known snapshot postdates the
+    // reply, and inReplyToPostId alone carries the structure.
+    let parentDocHash: string | null = null;
+    if (post.parent_post_id) {
+      const parentDoc = await getDocAtOrBefore(db, post.parent_post_id, post.created_at);
+      if (parentDoc) parentDocHash = parentDoc.hash;
+    }
+
+    const built = buildDiscussionPostDoc({
+      origin: opts.origin,
+      network: opts.network,
+      postId: post.id,
+      topicId: post.topic_id,
+      topicSlug: post.topic_slug,
+      version: nextVersion,
+      postedAt: post.created_at,
+      revisedAt: post.edited_at,
+      governanceActionId: post.proposal_id,
+      parentPostId: post.parent_post_id,
+      parentDocHash,
+      prevHash,
+      postedBy: {
+        handle: author.displayName,
+        profile,
+        drepId: author.drepId ?? null,
+        poolId: author.poolId ?? null,
+      },
+      comment: post.body_md,
+    });
+
     const result = await insertDoc(db, {
       hash: built.hash,
       body: built.body,
       postId: post.id,
       topicId: post.topic_id,
-      version: (head?.version ?? 0) + 1,
-      prevHash: head?.hash ?? null,
+      version: nextVersion,
+      prevHash,
       sourceEditedAt: post.edited_at,
       createdAt: opts.now,
     });

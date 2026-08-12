@@ -161,4 +161,58 @@ describe('reconcilePostDocs', () => {
     expect(doc.body.inReplyToPostId).toBe(firstPost.id);
     expect('inReplyTo' in doc.body).toBe(false);
   });
+
+  it('a later reply version still points at the parent snapshot it was written against', async () => {
+    const { topic, firstPost } = await seedTopic('r12');
+    // Parent v1: reconcile the opening post past its own grace window.
+    await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });
+    const parentV1 = await getHeadDoc(db(), firstPost.id);
+    expect(parentV1).not.toBeNull();
+
+    // The reply is created after parent v1 already exists.
+    const replyCreatedAt = AFTER_GRACE + 2000;
+    const reply = await createPost(db(), {
+      topicId: topic.id, authorId: AUTHOR, bodyMd: 'a reply to v1',
+      bodyHtml: '<p>a reply to v1</p>', now: replyCreatedAt, parentPostId: firstPost.id,
+    });
+    // Reply v1: reconcile strictly past the reply's own grace window (the
+    // boundary is inclusive, see the earlier grace-boundary fix).
+    const replyReconcile1At = replyCreatedAt + EDIT_GRACE_MS + 1000;
+    const res1 = await reconcilePostDocs(db(), reply.id, { ...OPTS, now: replyReconcile1At });
+    expect(res1.status).toBe('created');
+    const doc1 = JSON.parse((await getDocBody(db(), res1.hash as string)) as string) as {
+      body: { inReplyTo?: string };
+    };
+    expect(doc1.body.inReplyTo).toBe(`${OPTS.origin}/cip100/${parentV1?.hash}.json`);
+
+    // Edit the parent with genuinely different markdown, so parent v2 exists
+    // and is newer than the reply.
+    const editParentAt = replyReconcile1At + 1000;
+    await editPost(db(), {
+      postId: firstPost.id, authorId: AUTHOR, bodyMd: 'a genuinely different parent body',
+      bodyHtml: '<p>a genuinely different parent body</p>', now: editParentAt, sessionGrantId: null,
+    });
+    const reconcileParent2At = editParentAt + 1000;
+    await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: reconcileParent2At });
+    const parentV2 = await getHeadDoc(db(), firstPost.id);
+    expect(parentV2?.version).toBe(2);
+    expect(parentV2?.createdAt).toBeGreaterThan(reply.created_at);
+
+    // Edit the reply itself with genuinely different markdown and reconcile
+    // it again.
+    const editReplyAt = reconcileParent2At + 1000;
+    await editPost(db(), {
+      postId: reply.id, authorId: AUTHOR, bodyMd: 'a genuinely different reply body',
+      bodyHtml: '<p>a genuinely different reply body</p>', now: editReplyAt, sessionGrantId: null,
+    });
+    const reconcileReply2At = editReplyAt + 1000;
+    const res2 = await reconcilePostDocs(db(), reply.id, { ...OPTS, now: reconcileReply2At });
+    expect(res2.status).toBe('created');
+    const doc2 = JSON.parse((await getDocBody(db(), res2.hash as string)) as string) as {
+      body: { inReplyTo?: string };
+    };
+    // Reply v2 must still point at parent v1, the snapshot that existed when
+    // the reply was written, never at parent v2 which postdates the reply.
+    expect(doc2.body.inReplyTo).toBe(`${OPTS.origin}/cip100/${parentV1?.hash}.json`);
+  });
 });

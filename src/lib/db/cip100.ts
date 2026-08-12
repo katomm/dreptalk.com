@@ -91,6 +91,28 @@ export async function getHeadDoc(db: D1Database, postId: string): Promise<Cip100
   };
 }
 
+/** The document of `postId` that was current at `at`: its newest version
+ *  emitted at or before that moment. Returns null when none exists, which
+ *  is the backfill case where the parent's only snapshots postdate the
+ *  reply. Deterministic, so rebuilding a reply's document years later
+ *  still resolves the same parent snapshot. */
+export async function getDocAtOrBefore(
+  db: D1Database,
+  postId: string,
+  at: number,
+): Promise<{ hash: string; version: number; createdAt: number } | null> {
+  const row = await db
+    .prepare(
+      `SELECT hash, version, created_at FROM cip100_docs
+        WHERE post_id = ? AND created_at <= ?
+        ORDER BY version DESC, created_at DESC LIMIT 1`,
+    )
+    .bind(postId, at)
+    .first<{ hash: string; version: number; created_at: number }>();
+  if (!row) return null;
+  return { hash: row.hash, version: row.version, createdAt: row.created_at };
+}
+
 /** Returns the stored bytes for a hash without the liveness join. Used by the
  *  reconciler to compare the head's comment with a freshly built one. */
 export async function getDocBody(db: D1Database, hash: string): Promise<string | null> {
