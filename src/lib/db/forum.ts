@@ -774,8 +774,16 @@ export async function editTitle(
 export interface PostVersion {
   bodyMd: string;
   bodyHtml: string;
-  /** Current version: edited_at ?? created_at. Revision: replaced_at. */
-  at: number;
+  /**
+   * When this version was written. Derived, not stored: post_revisions holds
+   * replaced_at (when a version was superseded), so an archived version's creation
+   * time is the replacement time of the version below it.
+   *
+   * Caveat for the oldest version: an edit inside the grace window rewrites a body
+   * without archiving anything, so created_at is the best timestamp available for
+   * that text, not necessarily the moment it was written.
+   */
+  createdAt: number;
   current: boolean;
 }
 
@@ -821,12 +829,25 @@ export async function getPostHistory(db: D1Database, postId: string): Promise<Po
     | undefined;
   if (!post || post.deleted === 1) return null;
 
+  const revisions = (revRes.results ?? []) as {
+    body_md: string;
+    body_html: string;
+    replaced_at: number;
+  }[];
+
+  // Newest first. An archived version was created when the version below it was
+  // replaced, and the oldest falls back to the post's own created_at.
   const versions: PostVersion[] = [
-    { bodyMd: post.body_md, bodyHtml: post.body_html, at: post.edited_at ?? post.created_at, current: true },
-    ...((revRes.results ?? []) as { body_md: string; body_html: string; replaced_at: number }[]).map((r) => ({
+    {
+      bodyMd: post.body_md,
+      bodyHtml: post.body_html,
+      createdAt: post.edited_at ?? post.created_at,
+      current: true,
+    },
+    ...revisions.map((r, i) => ({
       bodyMd: r.body_md,
       bodyHtml: r.body_html,
-      at: r.replaced_at,
+      createdAt: i + 1 < revisions.length ? revisions[i + 1].replaced_at : post.created_at,
       current: false,
     })),
   ];

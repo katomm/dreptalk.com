@@ -18,13 +18,13 @@ import { lineDiff, type DiffOp } from './lineDiff.js';
 interface Version {
   bodyMd: string;
   bodyHtml: string;
-  at: number;
+  createdAt: number;
   current: boolean;
 }
 
-function fmt(at: number): string {
+function fmt(createdAt: number): string {
   // Locale-aware absolute time; the thread already shows relative time elsewhere.
-  return new Date(at).toLocaleString();
+  return new Date(createdAt).toLocaleString();
 }
 
 function renderDiff(ops: DiffOp[]): string {
@@ -82,7 +82,7 @@ export async function openHistoryModal(postId: string): Promise<void> {
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);">
         ${navButton('&larr; Newer', 'data-prev', current === 0)}
-        <span style="font-size:0.8125rem;color:var(--muted);text-align:center;">Change ${current + 1} of ${changeCount} &middot; ${fmt(newer.at)}${newer.current ? ' (current)' : ''}</span>
+        <span style="font-size:0.8125rem;color:var(--muted);text-align:center;">Change ${current + 1} of ${changeCount} &middot; ${fmt(newer.createdAt)}${newer.current ? ' (current)' : ''}</span>
         ${navButton('Older &rarr;', 'data-next', current === changeCount - 1)}
       </div>
       <div style="padding:1rem 1.25rem;">
