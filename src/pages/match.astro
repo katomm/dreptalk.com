@@ -9,6 +9,7 @@ import Layout from '@/layouts/Layout.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { loadMatchCandidates, loadMatchMatrix } from '@/lib/db/match.js';
+import { cacheControlForSynced } from '@/lib/forum/view.js';
 import { readableType } from '@/lib/governance/view.js';
 import {
   MATCH_THRESHOLDS,
@@ -50,7 +51,7 @@ const questions = selected.map((r) => ({
   slug: r.topic_slug,
 }));
 
-Astro.response.headers.set('Cache-Control', 'public, max-age=300');
+Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 ---
 
 <Layout

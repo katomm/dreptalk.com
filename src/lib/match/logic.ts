@@ -149,7 +149,10 @@ export function buildMatchDreps(
       };
       byDrep.set(row.drep_id, entry);
     }
-    const c = row.vote === 'Yes' ? 'Y' : row.vote === 'No' ? 'N' : row.vote === 'Abstain' ? 'A' : '-';
+    // Case-insensitive: synced votes are stored capitalized ("Yes"), but an
+    // optimistic just-cast vote is stored lowercase ("yes"), see voteStatement.ts.
+    const voteLower = row.vote.toLowerCase();
+    const c = voteLower === 'yes' ? 'Y' : voteLower === 'no' ? 'N' : voteLower === 'abstain' ? 'A' : '-';
     entry.votes[qi] = c;
     if (row.has_rationale) entry.rationales[qi] = '1';
   }

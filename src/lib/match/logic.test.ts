@@ -103,6 +103,16 @@ describe('buildMatchDreps', () => {
     expect(out[0].votes).toBe('Y-A');
     expect(out[0].rationales).toBe('100');
   });
+
+  it('maps a lowercase optimistic vote the same as its capitalized form', () => {
+    // recordLocalVote writes lowercase 'yes'/'no'/'abstain' for a pending
+    // optimistic vote, see voteStatement.ts and drepVotes.ts.
+    const gaIds = ['ga1'];
+    const rows = [matrixRow({ drep_id: 'drep1a', ga_id: 'ga1', vote: 'yes' })];
+    const out = buildMatchDreps(rows, gaIds, 1);
+    expect(out).toHaveLength(1);
+    expect(out[0].votes).toBe('Y');
+  });
 });
 
 function md(over: Partial<MatchDrep>): MatchDrep {

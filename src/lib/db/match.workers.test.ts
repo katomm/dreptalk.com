@@ -81,6 +81,24 @@ describe('loadMatchCandidates', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].ga_id).toBe(GA(2));
   });
+
+  it('counts a pending optimistic vote stored lowercase and surfaces it in the matrix', async () => {
+    // recordLocalVote writes lowercase 'yes'/'no'/'abstain' with local_status
+    // 'pending' until the authoritative sync overwrites it, see drepVotes.ts.
+    await seedAction(GA(1), { expiry: 500 });
+    await seedDrep('drep1a');
+    await seedDrep('drep1b');
+    await seedVote(GA(1), 'drep1a', 'yes', 'pending');
+    await seedVote(GA(1), 'drep1b', 'No');
+
+    const candidateRows = await loadMatchCandidates(DB(), 100);
+    expect(candidateRows).toHaveLength(1);
+    expect(candidateRows[0]).toMatchObject({ yes: 1, no: 1, abstain: 0 });
+
+    const matrixRows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000);
+    expect(matrixRows.map((r) => r.drep_id).sort()).toEqual(['drep1a', 'drep1b']);
+    expect(matrixRows.find((r) => r.drep_id === 'drep1a')).toMatchObject({ vote: 'yes' });
+  });
 });
 
 describe('loadMatchMatrix', () => {

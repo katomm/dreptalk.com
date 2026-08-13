@@ -35,9 +35,9 @@ export async function loadMatchCandidates(db: D1Database, poolWindow: number): P
                 COALESCE(ga.title, t.title) AS title,
                 ga.abstract AS abstract, t.slug AS topic_slug,
                 ga.expiry_epoch AS expiry_epoch,
-                SUM(CASE WHEN v.vote = 'Yes' THEN 1 ELSE 0 END) AS yes,
-                SUM(CASE WHEN v.vote = 'No' THEN 1 ELSE 0 END) AS no,
-                SUM(CASE WHEN v.vote = 'Abstain' THEN 1 ELSE 0 END) AS abstain
+                SUM(CASE WHEN lower(v.vote) = 'yes' THEN 1 ELSE 0 END) AS yes,
+                SUM(CASE WHEN lower(v.vote) = 'no' THEN 1 ELSE 0 END) AS no,
+                SUM(CASE WHEN lower(v.vote) = 'abstain' THEN 1 ELSE 0 END) AS abstain
            FROM governance_actions ga
            LEFT JOIN topics t ON t.id = ga.topic_id
            JOIN drep_votes v ON v.ga_id = ga.id AND v.voter_role = 'DRep' AND ${liveVoteSql('v')}
