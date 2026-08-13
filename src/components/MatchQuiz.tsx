@@ -87,7 +87,14 @@ export default function MatchQuiz({ network, questions, dreps }: Props) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: questions/dreps are SSR-rendered props, render-stable for the island's lifetime, this restore must run exactly once on mount
   useEffect(() => {
     const decoded = decodeShareFragment(window.location.hash);
-    if (!decoded || decoded.answers.length !== questions.length) return;
+    if (!decoded) return;
+    if (decoded.answers.length !== questions.length) {
+      // Well-formed fragment, but the question set has drifted in size since
+      // the link was shared (selectQuestions picks however many candidates
+      // qualify). Same notice as a fingerprint mismatch, not a silent no-op.
+      setStaleLink(true);
+      return;
+    }
     let cancelled = false;
     void setFingerprint(gaIds).then((fingerprint) => {
       if (cancelled) return;
