@@ -20,3 +20,7 @@ export const PROFILE_PATH =
 export const VOTE_PATH = 'M9 12l2 2 4-4 M5 7c0-1.1.9-2 2-2h10a2 2 0 0 1 2 2v12H5V7z M22 19H2';
 export const PENCIL_PATH =
   'M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z';
+// Target/bullseye glyph for the DRep match quiz entry points (home card,
+// dreps directory teaser).
+export const TARGET_PATH =
+  'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z M18 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0z M14 12a2 2 0 0 1-4 0 2 2 0 0 1 4 0z';
