@@ -35,7 +35,7 @@ export const MATCH_THRESHOLDS: Record<CardanoNetwork, MatchThresholds> = {
   },
   preprod: {
     poolWindow: 100,
-    maxQuestions: 8,
+    maxQuestions: 6,
     minQuestions: 4,
     minDecisiveVotes: 3,
     maxAbstainShare: 0.6,
