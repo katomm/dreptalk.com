@@ -88,4 +88,274 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300');
     max-width: 40rem;
     color: var(--muted);
   }
+
+  /* ==========================================================================
+     MatchQuiz island. Astro's scoped styles only reach elements written
+     directly in this template, not markup rendered by a React child, so every
+     rule the island needs goes through :global() here. Visual language mirrors
+     .home-card (borders, radius, spacing) and .drep-stat / .drep-table (muted
+     labels, tabular figures), reusing the same design tokens.
+     ========================================================================== */
+  :global(.match-quiz) {
+    max-width: 42rem;
+  }
+  :global(.match-panel) {
+    padding: 1.5rem 1.75rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  :global(.match-notice) {
+    margin: 0 0 1.25rem;
+  }
+  :global(.match-notice:last-child) {
+    margin-bottom: 0;
+  }
+
+  /* Intro screen */
+  :global(.match-intro__lede) {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    line-height: 1.6;
+    color: var(--fg);
+  }
+  :global(.match-intro__privacy) {
+    margin: 0 0 1rem;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  :global(.match-intro__how) {
+    margin: 0 0 1.5rem;
+    font-size: 0.9375rem;
+  }
+  :global(.match-intro__start) {
+    width: 100%;
+  }
+  @media (min-width: 480px) {
+    :global(.match-intro__start) {
+      width: auto;
+    }
+  }
+
+  /* Quiz screen */
+  :global(.match-progress) {
+    margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  :global(.match-badge) {
+    display: inline-flex;
+    align-items: center;
+    margin: 0 0 0.6rem;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+  }
+  :global(.match-question__title) {
+    margin: 0 0 0.75rem;
+    font-size: 1.15rem;
+    line-height: 1.4;
+  }
+  :global(.match-question__abstract) {
+    margin: 0;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--muted);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+  }
+  :global(.match-question__abstract--full) {
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+    overflow: visible;
+  }
+  :global(.match-showmore) {
+    margin: 0.4rem 0 0;
+    padding: 0;
+    background: none;
+    border: none;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  :global(.match-showmore:hover) {
+    text-decoration: underline;
+  }
+  :global(.match-answers) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 1.5rem 0 1.5rem;
+  }
+  :global(.match-answer) {
+    flex: 1 1 7rem;
+  }
+  :global(.match-nav) {
+    display: flex;
+    justify-content: flex-start;
+  }
+  :global(.match-gate__msg) {
+    margin: 0 0 0.75rem;
+  }
+
+  /* Results screen */
+  :global(.match-results__heading) {
+    margin: 0 0 0.25rem;
+    font-size: 1.35rem;
+  }
+  :global(.match-results__sub) {
+    margin: 0 0 1.25rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  :global(.match-noresults) {
+    margin: 0 0 1.25rem;
+  }
+  :global(.match-results__list) {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  :global(.match-row) {
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+  }
+  :global(.match-row__main) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  :global(.match-row__avatar) {
+    position: relative;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--avatar-ground);
+    border: 1px solid var(--border);
+  }
+  :global(.match-row__avatar svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  :global(.match-row__avatarimg) {
+    position: absolute;
+    inset: 0;
+    background-color: var(--surface);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+  :global(.match-row__info) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  :global(.match-row__name) {
+    font-weight: 700;
+    color: var(--fg);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :global(.match-row__name:hover) {
+    text-decoration: underline;
+  }
+  :global(.match-row__meta) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  :global(.match-row__dot) {
+    opacity: 0.6;
+  }
+  :global(.match-row__pct) {
+    flex-shrink: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  :global(.match-row__actions) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+  :global(.match-row__breakdown) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--border);
+  }
+  :global(.match-row__q) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.6rem;
+    font-size: 0.875rem;
+  }
+  :global(.match-row__qtitle) {
+    flex: 1 1 100%;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  :global(.match-row__qyou),
+  :global(.match-row__qthem) {
+    color: var(--muted);
+  }
+  :global(.match-row__rationale) {
+    color: var(--accent);
+  }
+  :global(.match-showall) {
+    margin: 0 0 1.5rem;
+  }
+  :global(.match-share) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0 0 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+  :global(.match-share__caption) {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  :global(.match-disclosure) {
+    margin: 0 0 1.5rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  :global(.match-startover) {
+    display: flex;
+    justify-content: flex-start;
+  }
 </style>
