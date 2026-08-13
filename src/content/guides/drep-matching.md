@@ -30,7 +30,7 @@ answers, so only share it with people you are fine seeing them.
 
 The question pool starts from the 100 most recently completed governance
 actions that received at least one DRep vote. Completed means voting has
-ended, whether the action was ratified, enacted, dropped, or expired. Actions
+ended, whether the action was ratified, enacted, dropped, expired, or closed. Actions
 still in their voting window are never used, since their outcome and vote
 counts are not final yet.
 
