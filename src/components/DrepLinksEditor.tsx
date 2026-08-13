@@ -20,6 +20,17 @@ interface DrepLinksEditorProps {
 // on each input overrides the base width.
 const inputStyle: CSSProperties = { ...baseInputStyle, fontSize: '0.9375rem' };
 
+// Icon buttons at the row's end (move up/down, remove) share this style.
+const rowButtonStyle: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: 'var(--muted)',
+  cursor: 'pointer',
+  lineHeight: 0,
+  padding: '0 0.25rem',
+  flexShrink: 0,
+};
+
 export default function DrepLinksEditor({ value, onChange, disabled, max = 10 }: DrepLinksEditorProps) {
   function update(i: number, patch: Partial<ProfileLink>) {
     onChange(value.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -29,6 +40,16 @@ export default function DrepLinksEditor({ value, onChange, disabled, max = 10 }:
   }
   function add() {
     if (value.length < max) onChange([...value, { label: '', uri: '' }]);
+  }
+  // Swaps a row with its neighbor. The order is meaningful on the profile:
+  // links render in this order, and the first link per platform becomes the
+  // header icon.
+  function move(i: number, delta: -1 | 1) {
+    const j = i + delta;
+    if (j < 0 || j >= value.length) return;
+    const next = [...value];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
   }
 
   return (
@@ -55,13 +76,33 @@ export default function DrepLinksEditor({ value, onChange, disabled, max = 10 }:
             style={{ ...inputStyle, flex: 1, minWidth: 0 }}
             aria-label={`Link ${i + 1} URL`}
           />
+          {(
+            [
+              { delta: -1, dir: 'up', path: 'm18 15-6-6-6 6', atEdge: i === 0 },
+              { delta: 1, dir: 'down', path: 'm6 9 6 6 6-6', atEdge: i === value.length - 1 },
+            ] as const
+          ).map(({ delta, dir, path, atEdge }) => (
+            <button
+              key={dir}
+              type="button"
+              onClick={() => move(i, delta)}
+              disabled={disabled || atEdge}
+              aria-label={`Move link ${i + 1} ${dir}`}
+              title={`Move ${dir}`}
+              style={{ ...rowButtonStyle, opacity: atEdge ? 0.35 : 1 }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d={path} />
+              </svg>
+            </button>
+          ))}
           <button
             type="button"
             onClick={() => remove(i)}
             disabled={disabled}
             aria-label={`Remove link ${i + 1}`}
             title="Remove link"
-            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', lineHeight: 0, padding: '0 0.25rem', flexShrink: 0 }}
+            style={rowButtonStyle}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" />

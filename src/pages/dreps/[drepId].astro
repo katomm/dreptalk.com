@@ -17,7 +17,7 @@ import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory.js';
 import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
 import { splitSocialLinks } from '@/lib/dreps/socialLinks.js';
-import SocialLinkIcons from '@/components/SocialLinkIcons.astro';
+import SocialLinkIcons from '@/components/SocialLinkIcons.tsx';
 import { getUserByDrepId, getSelfDrepId } from '@/lib/db/users.js';
 import { getPostsByAuthor } from '@/lib/db/forum.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';

@@ -90,7 +90,10 @@ export default function DrepProfileFields({ value, onChange, disabled, idPrefix,
 
       <div>
         <span style={labelStyle}>Links</span>
-        <span style={helpStyle}>Add links to your website, social profiles, or other relevant pages.</span>
+        <span style={helpStyle}>
+          Add links to your website, social profiles, or other relevant pages. They appear on your
+          profile in this order, and links to known platforms show as icons at the top.
+        </span>
         <DrepLinksEditor value={value.links} onChange={(links) => set('links', links)} disabled={disabled} />
       </div>
 

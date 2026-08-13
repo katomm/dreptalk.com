@@ -1,12 +1,16 @@
 // Live preview of how a DRep profile will look once saved. Mirrors the public
-// profile page (src/pages/dreps/[drepId].astro): avatar, name, bio, named
-// links (host fallback for an empty label), motivations, qualifications, and
-// payment address. doNotList is not shown, matching the public page. Driven by
-// the in-progress form value so it updates as the DRep edits.
+// profile page (src/pages/dreps/[drepId].astro): avatar, name, recognized
+// social links as an icon row in the header (one per platform, first wins),
+// bio, the remaining named links as text (host fallback for an empty label),
+// motivations, qualifications, and payment address. doNotList is not shown,
+// matching the public page. Driven by the in-progress form value so it updates
+// as the DRep edits.
 import type { CSSProperties } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import type { DrepProfileValue } from '@/components/DrepProfileFields.js';
-import { linkDisplayLabel } from '@/lib/dreps/linkLabel.js';
+import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
+import { splitSocialLinks, SOCIAL_NAMES } from '@/lib/dreps/socialLinks.js';
+import SocialLinkIcons from '@/components/SocialLinkIcons.js';
 import { identiconDataUri } from '@/lib/identity/identicon.js';
 
 interface DrepProfilePreviewProps {
@@ -57,7 +61,15 @@ const bodyText: CSSProperties = {
 };
 
 export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewProps) {
-  const links = value.links.filter((l) => l.uri.trim());
+  // Same pipeline as the public profile: trim + drop empty rows, collapse
+  // duplicate URIs, then lift the first link per recognized platform into the
+  // header icon row while the rest stay text links. overflowKinds (platforms
+  // whose extra links were demoted to text) drives the ordering hint below.
+  const links = value.links
+    .map((l) => ({ label: l.label, uri: l.uri.trim() }))
+    .filter((l) => l.uri);
+  const { social, rest, overflowKinds } = splitSocialLinks(dedupeLinks(links));
+  const overflowPlatforms = overflowKinds.map((k) => SOCIAL_NAMES[k]);
   const avatarSrc = value.image?.url
     ? value.image.url
     : identiconDataUri(seed, AVATAR_SIZE);
@@ -86,15 +98,17 @@ export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewPr
           </div>
         </div>
 
+        <SocialLinkIcons links={social} />
+
         {value.bio.trim() && <p style={bodyText}>{value.bio}</p>}
 
-        {links.length > 0 && (
+        {rest.length > 0 && (
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-            {links.map((l, i) => (
+            {rest.map((l, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: preview rows have no stable id; order is the identity
               <li key={i} style={{ fontSize: '0.9375rem' }}>
-                {isHttpHref(l.uri.trim()) ? (
-                  <a href={l.uri.trim()} rel="nofollow noopener" target="_blank" style={{ color: 'var(--accent)' }}>
+                {isHttpHref(l.uri) ? (
+                  <a href={l.uri} rel="nofollow noopener" target="_blank" style={{ color: 'var(--accent)' }}>
                     {linkDisplayLabel(l)}
                   </a>
                 ) : (
@@ -129,6 +143,14 @@ export default function DrepProfilePreview({ value, seed }: DrepProfilePreviewPr
           </p>
         )}
       </div>
+
+      {overflowPlatforms.length > 0 && (
+        <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', lineHeight: 1.5, color: 'var(--muted)' }}>
+          You have more than one {overflowPlatforms.join(' and ')} link. Only the first shows as an
+          icon at the top of your profile, the others appear with your text links below. Use the
+          arrows next to your links to change which one comes first.
+        </p>
+      )}
 
       <div
         style={{
