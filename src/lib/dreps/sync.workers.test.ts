@@ -675,6 +675,116 @@ describe('stored-avatar preservation', () => {
   });
 });
 
+// Anchor URLs minted by our own registration flow point back at this site
+// (<origin>/drep/<hash>.json). Fetching them over HTTP from the sync Worker is a
+// same-zone subrequest that Cloudflare's loop prevention routes to a blackhole
+// origin (504 after a long timeout), so the sync must read the stored body from
+// the drep_metadata table instead and never issue the HTTP fetch.
+describe('self-hosted anchors', () => {
+  it('resolves a dreptalk.com-hosted anchor from D1 without an HTTP fetch', async () => {
+    const id = 'drep1-selfhosted-main';
+    // Host the document the way the registration flow does.
+    await putDrepMetadata(env.DB, { drepId: id, body: profileJson, hash: profileHash, name: 'Alice DRep', createdAt: 1000 });
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([
+        [id, infoRow(id, { meta_url: `https://dreptalk.com/drep/${profileHash}.json`, meta_hash: profileHash })],
+      ]),
+    });
+    const fetcher = countingProfileFetch();
+
+    const result = await syncDreps({ koios, db: env.DB, fetchImpl: fetcher.fetchImpl, now: NOW });
+
+    expect(fetcher.calls()).toBe(0); // the HTTP fetch would blackhole; must not happen
+    expect(result).toMatchObject({ total: 1, updated: 1, failed: 0 });
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.anchorStatus).toBe('ok');
+    expect(stored!.name).toBe('Alice DRep');
+    expect(stored!.bio).toBe('Champion of the test suite.');
+    expect(stored!.profileExtractVersion).toBe(PROFILE_EXTRACT_VERSION);
+  });
+
+  it('resolves a preprod.dreptalk.com-hosted anchor from D1 without an HTTP fetch', async () => {
+    const id = 'drep1-selfhosted-preprod';
+    await putDrepMetadata(env.DB, { drepId: id, body: profileJson, hash: profileHash, name: 'Alice DRep', createdAt: 1000 });
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([
+        [id, infoRow(id, { meta_url: `https://preprod.dreptalk.com/drep/${profileHash}.json`, meta_hash: profileHash })],
+      ]),
+    });
+    const fetcher = countingProfileFetch();
+
+    await syncDreps({ koios, db: env.DB, fetchImpl: fetcher.fetchImpl, now: NOW });
+
+    expect(fetcher.calls()).toBe(0);
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.anchorStatus).toBe('ok');
+    expect(stored!.name).toBe('Alice DRep');
+  });
+
+  it('records fetch-failed when the self-hosted document is missing from D1', async () => {
+    // No putDrepMetadata: the row the URL points at does not exist, exactly what
+    // the HTTP route's 404 would mean.
+    const id = 'drep1-selfhosted-missing';
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([
+        [id, infoRow(id, { meta_url: `https://dreptalk.com/drep/${profileHash}.json`, meta_hash: profileHash })],
+      ]),
+    });
+    const fetcher = countingProfileFetch();
+
+    const result = await syncDreps({ koios, db: env.DB, fetchImpl: fetcher.fetchImpl, now: NOW });
+
+    expect(fetcher.calls()).toBe(0);
+    expect(result.failed).toBe(0); // tolerated like any non-ok anchor, not a crash
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.anchorStatus).toBe('fetch-failed');
+    expect(stored!.name).toBeNull();
+  });
+
+  it('records hash-mismatch when the stored body does not hash to the on-chain anchor', async () => {
+    // The URL filename addresses a stored row, but the on-chain meta_hash is a
+    // different value: the same integrity pipeline as a fetched doc must reject it.
+    const id = 'drep1-selfhosted-mismatch';
+    await putDrepMetadata(env.DB, { drepId: id, body: profileJson, hash: profileHash, name: 'Alice DRep', createdAt: 1000 });
+    const otherHash = 'e'.repeat(64);
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([
+        [id, infoRow(id, { meta_url: `https://dreptalk.com/drep/${profileHash}.json`, meta_hash: otherHash })],
+      ]),
+    });
+    const fetcher = countingProfileFetch();
+
+    await syncDreps({ koios, db: env.DB, fetchImpl: fetcher.fetchImpl, now: NOW });
+
+    expect(fetcher.calls()).toBe(0);
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.anchorStatus).toBe('hash-mismatch');
+    expect(stored!.name).toBeNull();
+  });
+
+  it('still fetches foreign URLs whose path merely looks like a hosted document', async () => {
+    const id = 'drep1-foreign-lookalike';
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([
+        [id, infoRow(id, { meta_url: `https://example.com/drep/${profileHash}.json`, meta_hash: profileHash })],
+      ]),
+    });
+    const fetcher = countingProfileFetch();
+
+    await syncDreps({ koios, db: env.DB, fetchImpl: fetcher.fetchImpl, now: NOW });
+
+    expect(fetcher.calls()).toBe(1); // foreign host: normal HTTP path, unchanged
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.anchorStatus).toBe('ok');
+    expect(stored!.name).toBe('Alice DRep');
+  });
+});
+
 // The delegator headcount now rides along on the same /drep_info row the chain
 // sync already fetches (Koios's live_delegator_count), so there is no separate
 // delegator-count phase: the count and its synced_at land with the profile write.

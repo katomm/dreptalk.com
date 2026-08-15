@@ -16,8 +16,11 @@ import {
 } from '../db/dreps.js';
 import { assignSlugs } from './slug.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
-import { gcDrepMetadata } from '../db/drepMetadata.js';
-import { fetchAnchorDoc, extractCip119Profile, PROFILE_EXTRACT_VERSION } from '../governance/metadata.js';
+import { gcDrepMetadata, getDrepMetadataByHash } from '../db/drepMetadata.js';
+import {
+  fetchAnchorDoc, verifyAnchorDoc, extractCip119Profile, PROFILE_EXTRACT_VERSION,
+  type AnchorDocResult,
+} from '../governance/metadata.js';
 import { ingestDataUriAvatar, type ImageDownscaler } from './avatarStore.js';
 
 // Koios paginates drep_list at 1000 rows; page through by incrementing offset.
@@ -97,6 +100,50 @@ type ResolvedProfile = Pick<
   Drep,
   'name' | 'bio' | 'imageUrl' | 'imageContentHash' | 'imageStoredUrl' | 'links' | 'motivations' | 'qualifications' | 'paymentAddress' | 'doNotList' | 'anchorUrl' | 'anchorHash' | 'anchorStatus' | 'profileExtractVersion'
 >;
+
+// Anchor URLs minted by our own registration flow point back at this site
+// (<origin>/drep/<blake2b-256-hex>.json, see drepMetadataHandler.ts). Fetching
+// one over HTTP from the sync Worker is a same-zone subrequest: Cloudflare's
+// loop prevention bypasses the Worker and connects to the placeholder origin
+// DNS record, a blackhole that times out as a 504. These documents therefore
+// must be read straight from the drep_metadata table, never over HTTP.
+const SELF_HOSTED_PATH_RE = /^\/drep\/([0-9a-f]{64})\.json$/;
+
+/**
+ * Returns the content hash from a self-hosted anchor URL, or null for any
+ * foreign URL. Matches dreptalk.com and every subdomain (preprod.dreptalk.com),
+ * since same-zone loop prevention affects all hosts on the zone.
+ */
+function selfHostedAnchorHash(rawUrl: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  const host = url.hostname.toLowerCase();
+  if (host !== 'dreptalk.com' && !host.endsWith('.dreptalk.com')) return null;
+  const m = SELF_HOSTED_PATH_RE.exec(url.pathname);
+  return m ? m[1] : null;
+}
+
+/**
+ * Resolves a self-hosted anchor by reading the stored body from D1 and running
+ * it through the same hash verification + parse pipeline as a fetched document.
+ * A missing row maps to 'fetch-failed', exactly what the serving route's 404
+ * would mean. The lookup key is the hash in the URL filename (how the route
+ * addresses the row); verification is against the on-chain anchorHash.
+ */
+async function readSelfHostedAnchor(
+  db: D1Database,
+  urlHash: string,
+  anchorHash: string,
+): Promise<AnchorDocResult> {
+  const row = await getDrepMetadataByHash(db, urlHash);
+  if (!row) return { status: 'fetch-failed', doc: null };
+  return verifyAnchorDoc(new TextEncoder().encode(row.body), anchorHash);
+}
 
 /** Splits an array into fixed-size chunks. */
 function chunk<T>(items: T[], size: number): T[][] {
@@ -183,9 +230,15 @@ async function resolveProfile(
     // When the per-run anchor budget is spent the fetch is skipped and the
     // status recorded as 'deferred'; the non-ok handling below preserves the
     // profile, and the next run retries (only 'ok' rows take the reuse path).
-    const result = canFetch
-      ? await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl })
-      : { status: 'deferred' as const, doc: null };
+    // Self-hosted anchors are read from D1 instead of over HTTP (a same-zone
+    // fetch would blackhole, see selfHostedAnchorHash); the D1 read still
+    // counts against the anchor budget since it does the same per-DRep work.
+    const selfHostedHash = canFetch ? selfHostedAnchorHash(metaUrl) : null;
+    const result = !canFetch
+      ? { status: 'deferred' as const, doc: null }
+      : selfHostedHash
+        ? await readSelfHostedAnchor(deps.db, selfHostedHash, metaHash)
+        : await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl });
     if (result.status === 'ok') {
       const cip119 = extractCip119Profile(result.doc);
       // Inline base64 avatar: decode and store it in R2 now, since it is

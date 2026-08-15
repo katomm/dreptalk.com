@@ -402,6 +402,16 @@ export async function fetchAnchorDoc(
     clearTimeout(timer);
   }
 
+  return verifyAnchorDoc(bytes, anchorHash);
+}
+
+/**
+ * Verifies raw document bytes against the on-chain blake2b-256 anchor hash and
+ * parses them as JSON. Shared by fetchAnchorDoc and the self-hosted short
+ * circuit in the dreps sync, so a body read straight from D1 passes the exact
+ * same integrity pipeline as a fetched one. The returned doc is untrusted.
+ */
+export function verifyAnchorDoc(bytes: Uint8Array, anchorHash: string): AnchorDocResult {
   // Mandatory integrity check: the document must hash to the on-chain anchor hash.
   const want = anchorHash.trim().toLowerCase();
   const rawMatches = bytesToHex(blake2b256(bytes)).toLowerCase() === want;
