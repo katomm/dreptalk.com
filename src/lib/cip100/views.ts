@@ -8,7 +8,7 @@ import { listPostVersions, listThreadDocs, loadPostedByClaims } from '../db/cip1
 import { earliestActiveDeletion } from '../db/postErasure.js';
 import { EXTENSION_CONTEXT_URL } from './context.js';
 import { isoSeconds } from './document.js';
-import type { Cip100Network } from './origin.js';
+import { postVersionsUrl, snapshotUrl, threadManifestUrl, type Cip100Network } from './origin.js';
 
 export interface ViewResult {
   status: 200 | 404 | 410;
@@ -122,13 +122,13 @@ export async function buildVersionIndex(db: D1Database, postId: string, origin: 
       '@type': 'DiscussionPostVersions',
       postId,
       status: 'published',
-      thread: `${origin}/cip100/topic/${state.topicId}.json`,
+      thread: threadManifestUrl(origin, state.topicId),
       permalink: `${origin}/t/${state.topicSlug}/#post-${postId}`,
       current: versions[versions.length - 1].hash,
       versions: versions.map((v) => ({
         version: v.version,
         hash: v.hash,
-        uri: `${origin}/cip100/${v.hash}.json`,
+        uri: snapshotUrl(origin, v.hash),
         createdAt: isoSeconds(v.createdAt),
       })),
     }),
@@ -192,13 +192,13 @@ export async function buildCitationView(db: D1Database, postId: string, origin: 
     status: 200,
     topicTitle: state.topicTitle,
     permalink: `/t/${state.topicSlug}/#post-${postId}`,
-    indexUri: `${origin}/cip100/post/${postId}.json`,
+    indexUri: postVersionsUrl(origin, postId),
     handle: claim?.handle ?? null,
     profile: claim?.profile ?? null,
     versions: versions
       .map((v) => ({
         version: v.version,
-        uri: `${origin}/cip100/${v.hash}.json`,
+        uri: snapshotUrl(origin, v.hash),
         createdAt: v.createdAt,
         current: v.hash === head.hash,
       }))
@@ -301,7 +301,7 @@ export async function buildThreadManifest(
     // key. Inside a snapshot the term is inReplyTo and carries a snapshot URL.
     if (row.parent_post_id) entry.inReplyToPostId = row.parent_post_id;
     entry.current = hashes[hashes.length - 1];
-    entry.uri = `${origin}/cip100/${hashes[hashes.length - 1]}.json`;
+    entry.uri = snapshotUrl(origin, hashes[hashes.length - 1]);
     entry.versions = hashes;
     posts.push(entry);
   }

@@ -8,7 +8,7 @@
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { CIP100_INLINE_CONTEXT, EXTENSION_CONTEXT_URL } from './context.js';
-import type { Cip100Network } from './origin.js';
+import { postVersionsUrl, snapshotUrl, threadManifestUrl, type Cip100Network } from './origin.js';
 
 const TEXT_ENCODER = new TextEncoder();
 
@@ -53,7 +53,7 @@ export function isoSeconds(ms: number): string {
 
 export function buildDiscussionPostDoc(input: DiscussionPostDocInput): BuiltCip100Doc {
   const { origin } = input;
-  const snapshot = (hash: string) => `${origin}/cip100/${hash}.json`;
+  const snapshot = (hash: string) => snapshotUrl(origin, hash);
   const threadUrl = `${origin}/t/${input.topicSlug}/`;
   const permalink = `${threadUrl}#post-${input.postId}`;
 
@@ -91,7 +91,7 @@ export function buildDiscussionPostDoc(input: DiscussionPostDocInput): BuiltCip1
   if (input.revisedAt !== null) body.revisedAt = isoSeconds(input.revisedAt);
   body.network = input.network;
   body.forum = `${origin}/`;
-  body.thread = `${origin}/cip100/topic/${input.topicId}.json`;
+  body.thread = threadManifestUrl(origin, input.topicId);
   if (input.governanceActionId) body.governanceActionId = input.governanceActionId;
   if (input.parentPostId) body.inReplyToPostId = input.parentPostId;
   if (input.parentDocHash) body.inReplyTo = snapshot(input.parentDocHash);
@@ -99,7 +99,7 @@ export function buildDiscussionPostDoc(input: DiscussionPostDocInput): BuiltCip1
   body.postedBy = postedBy;
   body.comment = input.comment;
   body.externalUpdates = [
-    { title: 'Versions of this post', uri: `${origin}/cip100/post/${input.postId}.json` },
+    { title: 'Versions of this post', uri: postVersionsUrl(origin, input.postId) },
   ];
   body.references = references;
 

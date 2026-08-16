@@ -54,7 +54,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { isWriter } from '@/lib/auth/roles.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { listPostIdsWithDocs } from '@/lib/db/cip100.js';
-import { originForNetwork } from '@/lib/cip100/origin.js';
+import { originForNetwork, threadManifestUrl } from '@/lib/cip100/origin.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { parseGaTab } from '@/lib/governance/tab.js';
@@ -172,7 +172,7 @@ const network = currentNetwork().network;
 const cip100Origin = originForNetwork(network === 'preprod' ? 'preprod' : 'mainnet');
 // Not notFound: a deleted topic's manifest answers 410, so a 404 page must not
 // hint at it either.
-const cip100ManifestUrl = !notFound && topic ? `${cip100Origin}/cip100/topic/${topic.id}.json` : null;
+const cip100ManifestUrl = !notFound && topic ? threadManifestUrl(cip100Origin, topic.id) : null;
 if (cip100ManifestUrl) {
   Astro.response.headers.set('Link', `<${cip100ManifestUrl}>; rel="alternate"; type="application/ld+json"`);
 }

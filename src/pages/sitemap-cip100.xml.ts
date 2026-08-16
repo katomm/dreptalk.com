@@ -6,7 +6,7 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { currentNetwork } from '@/lib/api/response';
-import { originForNetwork } from '@/lib/cip100/origin';
+import { originForNetwork, threadManifestUrl } from '@/lib/cip100/origin';
 import { corsHeaders } from '@/lib/cip100/cors';
 
 export const prerender = false;
@@ -34,7 +34,7 @@ export const GET: APIRoute = async () => {
   const urls = rows
     .map(
       (r) =>
-        `  <url><loc>${origin}/cip100/topic/${r.id}.json</loc><lastmod>${new Date(r.last_post_at).toISOString()}</lastmod></url>`,
+        `  <url><loc>${threadManifestUrl(origin, r.id)}</loc><lastmod>${new Date(r.last_post_at).toISOString()}</lastmod></url>`,
     )
     .join('\n');
 
