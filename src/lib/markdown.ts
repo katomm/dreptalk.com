@@ -29,7 +29,7 @@ import { Marked } from 'marked';
 import xssModule from 'xss';
 import { ALLOWED_TAGS } from './sanitizedHtmlGrammar.js';
 
-const { FilterXSS } = xssModule as unknown as typeof import('xss');
+const { FilterXSS, escapeAttrValue } = xssModule as unknown as typeof import('xss');
 
 /** Rendering info for one resolved mention slug. */
 export interface MentionLink {
@@ -135,7 +135,14 @@ const sanitizer = new FilterXSS({
       const secondChar = normalized[1];
       const isInternalPath = normalized.startsWith('/') && secondChar !== '/' && secondChar !== '\\';
       if (normalized.startsWith('http://') || normalized.startsWith('https://') || isInternalPath) {
-        return `href="${value}"`;
+        // Escape the value for attribute context ('"' to &quot;, '<' to &lt;,
+        // '>' to &gt;, '&' left alone so query strings are not double encoded).
+        // Returning a string from this hook bypasses the escaping the library
+        // would otherwise apply, and raw HTML like <a href="/x><b onmouseover=1>">
+        // reaches here with a '>' still in the value: emitting that unescaped
+        // produces a tag whose boundary no longer matches where it looks like it
+        // ends, which the rel/target passes below then splice apart.
+        return `href="${escapeAttrValue(value)}"`;
       }
       // Neutralize: emit an inert empty href so the <a> element is preserved for
       // its text content but carries no navigable destination.
@@ -148,13 +155,23 @@ const sanitizer = new FilterXSS({
   },
 });
 
+// One <a ...> opening tag, quote aware: a '>' inside a quoted attribute value
+// does not end the tag. A plain [^>]* would stop at that first '>' and splice
+// the injected rel/target into the middle of an attribute value, which shifts
+// the real tag boundary and turns text the sanitizer had parked inside an
+// attribute back into live markup. Each quote has exactly one possible partner,
+// so the alternation stays linear. A tag with an unbalanced quote (only
+// reachable via HTML stored before the escaping above) matches nothing and is
+// left untouched rather than corrupted further.
+const OPEN_A_TAG = /<a(\s(?:[^>"']|"[^"]*"|'[^']*')*)?>/gi;
+
 /**
  * Post-process: inject rel="noopener noreferrer nofollow ugc" into any <a>
  * tag that does not already have it (i.e. links that had no rel in the source).
  * The onTagAttr hook above handles links that DID have a rel attribute.
  */
 function injectRel(html: string): string {
-  return html.replace(/<a(\s[^>]*)?>/gi, (match: string, attrs: string | undefined): string => {
+  return html.replace(OPEN_A_TAG, (match: string, attrs: string | undefined): string => {
     if (attrs && /\brel\s*=/i.test(attrs)) {
       // rel already present (set by onTagAttr).
       return match;
@@ -172,7 +189,7 @@ function injectRel(html: string): string {
  * keep their existing rel (set by injectRel at write time).
  */
 export function ensureLinkTarget(html: string): string {
-  return html.replace(/<a(\s[^>]*)?>/gi, (match: string, attrs: string | undefined): string => {
+  return html.replace(OPEN_A_TAG, (match: string, attrs: string | undefined): string => {
     const attrStr = attrs ?? '';
     if (/\btarget\s*=/i.test(attrStr)) return match;
     return `<a${attrStr} target="_blank">`;
