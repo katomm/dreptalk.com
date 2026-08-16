@@ -4,7 +4,8 @@
 // Keyed by the topic slug (the on-chain ga_id contains '#', so it is not
 // URL-safe). A synced governance action renders the action card; any other topic
 // renders the discussion card. An unknown slug 404s and the page keeps the site
-// default image.
+// default image, and so does a deleted thread: getTopicBySlug filters those out,
+// which keeps the card from outliving the thread it describes.
 import type { APIRoute } from 'astro';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { epochStartMs } from '@/lib/config/network.js';

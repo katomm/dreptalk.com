@@ -90,7 +90,8 @@ if (slug && db) {
 
 const topic = slug && db ? await getTopicBySlug(db, slug) : null;
 
-const notFound = !topic || topic.deleted;
+// getTopicBySlug already filters deleted threads, so a null is the whole gate.
+const notFound = !topic;
 if (notFound) {
   Astro.response.status = 404;
   Astro.response.headers.set('Cache-Control', 'no-store');
@@ -143,7 +144,7 @@ const topicAuthor: AuthorDescriptor = topic
 // Related topics for user topics only, shown as a slim section below the thread
 // (governance topics keep their own GaSidebar). Same category, most recent first.
 let relatedTopics: { title: string; slug: string; replies: number; lastPostAt: number }[] = [];
-if (db && topic && !topic.deleted && !isGovernanceTopic) {
+if (db && topic && !isGovernanceTopic) {
   const related = await getRelatedTopics(db, topic.category_slug, topic.id, { limit: 5 });
   relatedTopics = related.map((r) => ({
     title: r.title,
