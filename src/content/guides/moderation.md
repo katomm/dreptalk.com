@@ -25,7 +25,8 @@ Hiding and deleting are different, and the difference is not cosmetic. A
 hidden post is out of sight but still stored, and it comes back unchanged if
 the flags are withdrawn. A deleted post leaves the forum at once, and once 30
 days have passed its text is erased: the post itself, every earlier version
-of it, and its entry in the search index.
+of it, and its entry in the search index. Deletion is not a member action:
+only the site operator deletes a post, on request or to deal with abuse.
 
 The 30 days exist so that abusive content can still be dealt with after it
 has been taken down. Anything that has to be kept on record needs to stay

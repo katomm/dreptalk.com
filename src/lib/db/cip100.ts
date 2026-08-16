@@ -82,7 +82,7 @@ export async function insertDoc(db: D1Database, rec: InsertDocInput): Promise<In
 export type DocServeState = 'available' | 'gone' | 'hidden';
 
 /** Bytes plus serving state for one hash, both read from the live post and
- *  topic flags, whether or not the purge sweep has run yet. Deletion wins over
+ *  topic flags, whether or not the erasure sweep has run yet. Deletion wins over
  *  hiding: a post that is both is gone. */
 export async function getDocForServe(
   db: D1Database,
@@ -219,7 +219,7 @@ export async function loadPostedByClaims(
 }
 
 /** The post ids in one thread that have at least one document, regardless of
- *  whether the bytes have since been purged (a tombstoned post still serves a
+ *  whether the bytes have since been erased (a tombstoned post still serves a
  *  200). Drives the Cite affordance: a post without a document has no version
  *  index at all, and a visible link leading to a 404 would be worse than no
  *  link. One indexed read per thread render. */

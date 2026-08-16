@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, createPost } from './forum.js';
-import { erasePostContent } from './postErasure.js';
+import { erasePostContent, runPostErasureSweep, POST_ERASURE_RETENTION_MS } from './postErasure.js';
 
 const db = () => env.DB;
 const T = 1_700_000_000_000;
@@ -184,8 +184,6 @@ describe('erasePostContent', () => {
     });
   });
 });
-
-import { runPostErasureSweep, POST_ERASURE_RETENTION_MS } from './postErasure.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 

@@ -4,6 +4,15 @@
 // lives in goes through here: the live bodies, the archived revisions, and the
 // emitted CIP-100 bytes.
 //
+// This path only reacts to the deleted flag. It does not care who set it, and
+// there are three writers of `posts.deleted = 1`, not two: manual SQL,
+// removeVoteRationalePost, and reapFailedVoteArtifacts (src/lib/db/drepVotes.ts),
+// which the reconcile-pending gov-sync phase runs on any optimistic vote still
+// pending PENDING_VOTE_TTL_SEC after submission. That third writer erases a
+// cross-post whose vote never confirmed on chain, and nothing revives it once
+// reaped. See section 4 of the design spec for why that is the intended
+// outcome, not a gap.
+//
 // The search index is deliberately not written. posts_fts is an external
 // content table whose posts_fts_au trigger (migration 0019) fires on a real
 // change to body_md, removes the old tokens with the correct old values and
@@ -172,6 +181,11 @@ const EXPIRED_CANDIDATES = `
  * costs storage.
  */
 export async function stampMissingDeletedAt(db: D1Database, now: number): Promise<number> {
+  // meta.changes is safe here, unlike in erasePostContent above: posts_fts_au
+  // and topics_fts_au (migration 0019) are scoped AFTER UPDATE OF body_md and
+  // AFTER UPDATE OF title respectively, so an update that only touches
+  // deleted_at never fires them and meta.changes counts nothing but this
+  // statement's own rows.
   const [topics, posts] = await db.batch([
     db.prepare('UPDATE topics SET deleted_at = ? WHERE deleted = 1 AND deleted_at IS NULL').bind(now),
     db.prepare('UPDATE posts SET deleted_at = ? WHERE deleted = 1 AND deleted_at IS NULL').bind(now),
@@ -190,12 +204,6 @@ export interface PostErasureSweepResult {
   remaining: number;
 }
 
-/**
- * Finds posts past their retention window and erases them, one batch each.
- *
- * Runs as the `post-erasure` gov-sync phase, before the `cip100` phase, because
- * the tombstones that phase renders read the timestamps stamped here.
- */
 /**
  * The deletion time that governs a post: the earliest one whose flag is
  * actually set, or null when neither is.
@@ -218,6 +226,15 @@ export function earliestActiveDeletion(
   return Math.min(postDeletedAt, topicDeletedAt);
 }
 
+/**
+ * Finds posts past their retention window and erases them, one batch each.
+ *
+ * Runs as the `post-erasure` gov-sync phase, before the `cip100` phase. The
+ * order is not load-bearing: the two phases operate on disjoint row sets, this
+ * one erases text past its retention window and cip100 reconciles documents for
+ * posts still in scope, so either could run first without changing what the
+ * other does.
+ */
 export async function runPostErasureSweep(
   db: D1Database,
   opts: { now: number; limit: number; retentionMs?: number },

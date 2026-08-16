@@ -331,8 +331,8 @@ async function runGovernanceSync(env: Env, phase: PhaseFn, opts: { heavy: boolea
   }
 
   // Erasure: a deleted post's text is removed from every store it lives in once
-  // its retention window has passed. Runs before the cip100 phase because it
-  // stamps the deletion timestamps that phase's tombstones read.
+  // its retention window has passed. Runs before the cip100 phase, but the
+  // order is not load-bearing: the two phases operate on disjoint row sets.
   await phase('post-erasure', async () => {
     const r = await runPostErasureSweep(env.DB, { now, limit: 200 });
     // Logged only when there is something to say, but `remaining` and `failed`
