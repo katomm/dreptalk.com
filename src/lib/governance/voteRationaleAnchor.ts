@@ -8,6 +8,7 @@
 // verified by hash in fetchAnchorDoc, then sanitized and rendered here before it
 // is ever stored.
 import { fetchAnchorDoc, jsonLdValue } from './metadata.js';
+import { fetchOrReadAnchorDoc } from './selfHostedDocs.js';
 import { sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
 import { MAX_VOTE_RATIONALE } from './voteRationale.js';
@@ -69,9 +70,13 @@ export function extractVoteRationaleComment(doc: unknown): string | null {
 export async function fetchVoteRationale(
   anchorUrl: string,
   anchorHash: string,
-  deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  deps: { db?: D1Database; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<VoteRationaleFetch> {
-  const res = await fetchAnchorDoc(anchorUrl, anchorHash, deps);
+  // With a db, self-hosted anchor URLs are read from D1 instead of over HTTP
+  // (a same-zone fetch would blackhole, see selfHostedDocs.ts).
+  const res = deps.db
+    ? await fetchOrReadAnchorDoc(deps.db, anchorUrl, anchorHash, deps)
+    : await fetchAnchorDoc(anchorUrl, anchorHash, deps);
   if (res.status !== 'ok') return { status: 'failed' };
   const text = extractVoteRationaleComment(res.doc);
   return text ? { status: 'ok', bodyHtml: renderMarkdown(text) } : { status: 'empty' };

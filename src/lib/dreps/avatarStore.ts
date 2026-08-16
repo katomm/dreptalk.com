@@ -8,6 +8,7 @@
 // the pass.
 import { bytesToHex } from '../crypto/hex.js';
 import { readBodyLimited } from '../http/bodyLimit.js';
+import { isSelfZoneUrl, selfHostedRef } from '../governance/selfHostedDocs.js';
 import {
   listDrepsNeedingAvatar,
   setDrepImageStored,
@@ -236,6 +237,21 @@ export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarSto
   const failedIds: string[] = [];
   for (const row of rows) {
     try {
+      // A self-zone image URL can never be fetched from a Worker (the same-zone
+      // subrequest blackholes at the placeholder origin). An /api/avatar/<hash>
+      // URL, minted by our own upload flow, means the bytes are ALREADY in this
+      // bucket: adopt the hash directly. Any other self-zone URL fails
+      // immediately instead of hanging through a doomed fetch.
+      if (isSelfZoneUrl(row.imageUrl)) {
+        const ref = selfHostedRef(row.imageUrl);
+        if (ref?.kind === 'avatar' && (await deps.bucket.head(AVATAR_KEY_PREFIX + ref.hash))) {
+          await setDrepImageStored(deps.db, row.drepId, ref.hash, row.imageUrl);
+          stored++;
+        } else {
+          failedIds.push(row.drepId);
+        }
+        continue;
+      }
       const img = await fetchValidatedImage(row.imageUrl, fetchImpl);
       if (!img) {
         failedIds.push(row.drepId);

@@ -380,3 +380,48 @@ it('gc keeps objects referenced via extraReferenced', async () => {
   const obj = await b.get(`${AVATAR_KEY_PREFIX}poolhash1`);
   expect(obj).not.toBeNull();
 });
+
+// Image URLs pointing at our own zone can never be fetched from a Worker (the
+// same-zone subrequest blackholes at the placeholder origin). A self-hosted
+// /api/avatar/<hash> URL means the bytes are ALREADY in our R2 bucket, so the
+// pass adopts the hash directly; any other self-zone URL fails immediately.
+describe('storeDrepAvatars self-hosted image URLs', () => {
+  const throwingFetch: typeof fetch = async (input) => {
+    throw new Error('HTTP fetch attempted: ' + String(input));
+  };
+
+  it('adopts an /api/avatar/<hash> URL from R2 without any HTTP fetch', async () => {
+    const hash = await sha256Of(PNG_BYTES);
+    await bucket().put(AVATAR_KEY_PREFIX + hash, PNG_BYTES, { httpMetadata: { contentType: 'image/png' } });
+    const url = `https://dreptalk.com/api/avatar/${hash}`;
+    await upsertDrep(db(), { ...BASE, drepId: 'st-self-adopt', imageUrl: url });
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl: throwingFetch });
+
+    expect(r).toMatchObject({ stored: 1, failed: 0 });
+    const row = await getDrepById(db(), 'st-self-adopt');
+    expect(row!.imageContentHash).toBe(hash);
+    expect(row!.imageStoredUrl).toBe(url);
+  });
+
+  it('fails an /api/avatar/<hash> URL whose object is missing, without HTTP', async () => {
+    const url = `https://dreptalk.com/api/avatar/${'c'.repeat(64)}`;
+    await upsertDrep(db(), { ...BASE, drepId: 'st-self-missing', imageUrl: url });
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl: throwingFetch });
+
+    expect(r).toMatchObject({ stored: 0, failed: 1 });
+    const row = await getDrepById(db(), 'st-self-missing');
+    expect(row!.imageContentHash).toBeNull();
+    expect(row!.imageFetchFailedAt).not.toBeNull();
+  });
+
+  it('fails any other self-zone image URL immediately, without HTTP', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-self-other', imageUrl: 'https://preprod.dreptalk.com/logo.png' });
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl: throwingFetch });
+
+    expect(r).toMatchObject({ stored: 0, failed: 1 });
+    expect((await getDrepById(db(), 'st-self-other'))!.imageFetchFailedAt).not.toBeNull();
+  });
+});

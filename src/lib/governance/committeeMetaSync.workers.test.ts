@@ -4,6 +4,7 @@ import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { syncCommitteeVoteMeta } from './committeeMetaSync.js';
 import { getAllCcMemberNames } from '../db/ccMemberName.js';
+import { putVoteRationale } from '../db/voteRationale.js';
 
 const db = () => env.DB;
 const hashHex = (s: string) => bytesToHex(blake2b256(new TextEncoder().encode(s)));
@@ -47,5 +48,25 @@ describe('syncCommitteeVoteMeta', () => {
     const r2 = await syncCommitteeVoteMeta({ db: db(), now: 1000, fetchImpl });
     expect(r2.fetched).toBe(0); // already resolved (status ok), not refetched
     expect(calls).toBe(1);
+  });
+});
+
+// CC vote anchors on our own zone must come from D1, never same-zone HTTP.
+describe('syncCommitteeVoteMeta self-hosted anchors', () => {
+  it('resolves a dreptalk-hosted CC anchor from the vote_rationale table without HTTP', async () => {
+    const doc = JSON.stringify({ authors: [{ name: 'Self Hosted Council' }], body: { comment: 'CC agrees.' } });
+    const hash = hashHex(doc);
+    await putVoteRationale(db(), { hash, body: doc, drepId: 'ccSelf1', gaId: 'gaSelf', createdAt: 1000 });
+    await seedCcVote('gaSelf', 'ccSelf1', 'HOTSELF', `https://dreptalk.com/vote-rationale/${hash}.json`, hash, 4321);
+    const throwingFetch: typeof fetch = async (input) => {
+      throw new Error('HTTP fetch attempted: ' + String(input));
+    };
+
+    const r = await syncCommitteeVoteMeta({ db: db(), now: 999, fetchImpl: throwingFetch });
+
+    expect(r).toMatchObject({ ok: 1, named: 1, failed: 0 });
+    const rat = await db().prepare(`SELECT body_html, status FROM action_rationale WHERE ga_id='gaSelf' AND voter_id='ccSelf1'`).first<{ body_html: string; status: string }>();
+    expect(rat?.status).toBe('ok');
+    expect(rat?.body_html).toContain('CC agrees');
   });
 });
