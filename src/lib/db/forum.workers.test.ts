@@ -242,6 +242,21 @@ describe('getTopicBySlug', () => {
     const result = await getTopicBySlug(db(), 'definitely-does-not-exist-xyz');
     expect(result).toBeNull();
   });
+
+  it('returns null for a deleted topic', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general',
+      authorId: AUTHOR,
+      title: 'Deleted Topic',
+      bodyMd: 'body',
+      bodyHtml: '<p>body</p>',
+      now: T1,
+      rand: 'r011',
+    });
+    await db().prepare('UPDATE topics SET deleted = 1 WHERE id = ?').bind(topic.id).run();
+
+    expect(await getTopicBySlug(db(), topic.slug)).toBeNull();
+  });
 });
 
 // ---- getTopicsByCategory ----------------------------------------------------

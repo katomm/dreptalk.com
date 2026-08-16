@@ -348,12 +348,15 @@ export async function setGovTopicTitleAndBody(
 }
 
 /**
- * Returns the topic for the given slug, or null if not found.
+ * Returns the live topic for the given slug, or null if it is unknown or
+ * deleted. Every caller treats a deleted thread as gone, so the gate lives here
+ * rather than in each of them: a slug lookup that skipped it would keep serving
+ * the thread's title and opening post from routes that only test for null.
  * Parameterized SELECT.
  */
 export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topic | null> {
   const row = await db
-    .prepare('SELECT * FROM topics WHERE slug = ?')
+    .prepare('SELECT * FROM topics WHERE slug = ? AND deleted = 0')
     .bind(slug)
     .first<TopicRow>();
   return row ? rowToTopic(row) : null;
