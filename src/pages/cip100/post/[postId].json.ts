@@ -8,15 +8,15 @@ import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { buildVersionIndex } from '@/lib/cip100/views';
 import { originForNetwork } from '@/lib/cip100/origin';
 import { corsHeaders, corsPreflight } from '@/lib/cip100/cors';
+import { isForumId } from '@/lib/validation/input';
 
 export const prerender = false;
-const UUID_RE = /^[0-9a-f-]{36}$/i;
 
 export const OPTIONS: APIRoute = () => corsPreflight();
 
 export const GET: APIRoute = async ({ params, locals }) => {
   const postId = params.postId ?? '';
-  if (!UUID_RE.test(postId)) return new Response('Not found', { status: 404, headers: corsHeaders() });
+  if (!isForumId(postId)) return new Response('Not found', { status: 404, headers: corsHeaders() });
 
   const env = runtimeEnv(locals as App.Locals);
   const db = env.DB as D1Database | undefined;

@@ -28,27 +28,31 @@ interface DocVersion {
  * flagged post loses its identity on both the moment the flag is set.
  */
 type IndexState =
-  | { kind: 'missing' }
-  | { kind: 'hidden' }
+  // Unknown post, no documents, or hidden. One kind for all three on purpose:
+  // both surfaces have to answer "not found" to hiding, so collapsing them here
+  // enforces that rather than asking every caller to remember it.
+  | { kind: 'absent' }
   | { kind: 'deleted'; deletedAt: number | null; versions: DocVersion[] }
   | { kind: 'published'; topicId: string; topicSlug: string; topicTitle: string; versions: DocVersion[] };
 
 async function loadIndexState(db: D1Database, postId: string): Promise<IndexState> {
-  const post = await db
-    .prepare(
-      `SELECT p.id, p.deleted, p.deleted_at, p.hidden, t.slug AS topic_slug, t.id AS topic_id,
-              t.title AS topic_title, t.deleted AS topic_deleted, t.deleted_at AS topic_deleted_at
-         FROM posts p JOIN topics t ON t.id = p.topic_id WHERE p.id = ?`,
-    )
-    .bind(postId)
-    .first<{
-      id: string; deleted: number; deleted_at: number | null; hidden: number; topic_slug: string;
-      topic_id: string; topic_title: string; topic_deleted: number; topic_deleted_at: number | null;
-    }>();
-  if (!post) return { kind: 'missing' };
-
-  const versions = await listPostVersions(db, postId);
-  if (versions.length === 0) return { kind: 'missing' };
+  // Two independent reads: the version list is keyed on postId alone, so it
+  // does not wait on the flag row.
+  const [post, versions] = await Promise.all([
+    db
+      .prepare(
+        `SELECT p.id, p.deleted, p.deleted_at, p.hidden, t.slug AS topic_slug, t.id AS topic_id,
+                t.title AS topic_title, t.deleted AS topic_deleted, t.deleted_at AS topic_deleted_at
+           FROM posts p JOIN topics t ON t.id = p.topic_id WHERE p.id = ?`,
+      )
+      .bind(postId)
+      .first<{
+        id: string; deleted: number; deleted_at: number | null; hidden: number; topic_slug: string;
+        topic_id: string; topic_title: string; topic_deleted: number; topic_deleted_at: number | null;
+      }>(),
+    listPostVersions(db, postId),
+  ]);
+  if (!post || versions.length === 0) return { kind: 'absent' };
 
   // Deletion is checked BEFORE hiding, matching getDocForServe: a post that is
   // both is gone, on all surfaces. A hidden post that is then deleted must
@@ -69,7 +73,7 @@ async function loadIndexState(db: D1Database, postId: string): Promise<IndexStat
   // Hidden and not deleted: never the tombstone. A tombstone states a deletion,
   // and hiding is a different, reversible state. The version list was read
   // above but is dropped here, so a hidden post's hashes stay unpublished.
-  if (post.hidden === 1) return { kind: 'hidden' };
+  if (post.hidden === 1) return { kind: 'absent' };
 
   return {
     kind: 'published',
@@ -97,15 +101,13 @@ function tombstone(postId: string, deletedAt: number | null, hashes: string[]): 
 
 export async function buildVersionIndex(db: D1Database, postId: string, origin: string): Promise<ViewResult> {
   const state = await loadIndexState(db, postId);
-  const context = EXTENSION_CONTEXT_URL;
-
-  if (state.kind === 'missing' || state.kind === 'hidden') return { status: 404, body: null };
+  if (state.kind === 'absent') return { status: 404, body: null };
 
   if (state.kind === 'deleted') {
     return {
       status: 200,
       body: serialize({
-        '@context': context,
+        '@context': EXTENSION_CONTEXT_URL,
         '@type': 'DiscussionPostVersions',
         ...tombstone(postId, state.deletedAt, state.versions.map((v) => v.hash)),
       }),
@@ -116,7 +118,7 @@ export async function buildVersionIndex(db: D1Database, postId: string, origin: 
   return {
     status: 200,
     body: serialize({
-      '@context': context,
+      '@context': EXTENSION_CONTEXT_URL,
       '@type': 'DiscussionPostVersions',
       postId,
       status: 'published',
@@ -136,11 +138,13 @@ export async function buildVersionIndex(db: D1Database, postId: string, origin: 
 /** One published version, as the citation page lists it. */
 export interface CitationVersion {
   version: number;
-  hash: string;
   /** Permanent address of exactly these bytes. */
   uri: string;
   /** Emit time in epoch milliseconds, formatted for display by the page. */
   createdAt: number;
+  /** The head, i.e. the version a reader citing the post today should link to.
+   *  Decided here rather than left to the template to re-derive from ordering. */
+  current: boolean;
 }
 
 /**
@@ -152,28 +156,28 @@ export interface CitationVersion {
  */
 export type CitationView =
   | { status: 404 }
-  | { status: 410; postId: string; deletedAt: number | null; versionCount: number }
+  | { status: 410; deletedAt: number | null; versionCount: number }
   | {
       status: 200;
-      postId: string;
       topicTitle: string;
-      topicSlug: string;
+      /** Site-relative link back to the post, not the absolute form the JSON
+       *  publishes: a reader on preprod or a dev host stays on their own host. */
+      permalink: string;
       /** The JSON version index this page is the readable form of. */
       indexUri: string;
       /** Author identity frozen into the head document, not resolved live, so
        *  the page and the documents it lists can never name different authors. */
       handle: string | null;
       profile: string | null;
-      current: string;
       /** Newest first: the version a reader most likely wants to cite is on top. */
       versions: CitationVersion[];
     };
 
 export async function buildCitationView(db: D1Database, postId: string, origin: string): Promise<CitationView> {
   const state = await loadIndexState(db, postId);
-  if (state.kind === 'missing' || state.kind === 'hidden') return { status: 404 };
+  if (state.kind === 'absent') return { status: 404 };
   if (state.kind === 'deleted') {
-    return { status: 410, postId, deletedAt: state.deletedAt, versionCount: state.versions.length };
+    return { status: 410, deletedAt: state.deletedAt, versionCount: state.versions.length };
   }
 
   const { versions } = state;
@@ -186,19 +190,17 @@ export async function buildCitationView(db: D1Database, postId: string, origin: 
 
   return {
     status: 200,
-    postId,
     topicTitle: state.topicTitle,
-    topicSlug: state.topicSlug,
+    permalink: `/t/${state.topicSlug}/#post-${postId}`,
     indexUri: `${origin}/cip100/post/${postId}.json`,
     handle: claim?.handle ?? null,
     profile: claim?.profile ?? null,
-    current: head.hash,
     versions: versions
       .map((v) => ({
         version: v.version,
-        hash: v.hash,
         uri: `${origin}/cip100/${v.hash}.json`,
         createdAt: v.createdAt,
+        current: v.hash === head.hash,
       }))
       .reverse(),
   };

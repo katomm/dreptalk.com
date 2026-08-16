@@ -32,9 +32,10 @@ on-chain text of the action itself.
 ## Getting a citable link
 
 Open the **Cite** action in a post's action row, next to Reply and Edit. It
-opens the post's version list: a small document listing every version of
-that post, each with its own permanent address. Link to one version, and the
-text behind that address stays exactly what it was when you linked it.
+opens the post's version list: a page listing every version of that post,
+newest first, each with its own permanent address you can copy. Link to one
+version, and the text behind that address stays exactly what it was when you
+linked it.
 
 Posts stay quietly editable for a grace window right after posting, and the
 Cite action does not appear until that window has closed. A post you just

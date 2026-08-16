@@ -286,15 +286,16 @@ it('lists versions newest first, marks the current one, and names post and autho
   const view = await buildCitationView(db(), firstPost.id, ORIGIN);
   if (view.status !== 200) throw new Error(`expected 200, got ${view.status}`);
   expect(view.topicTitle).toBe('Citation page');
-  expect(view.topicSlug).toBe(topic.slug);
+  // Site-relative, so a reader on preprod or a dev host is not sent to mainnet.
+  expect(view.permalink).toBe(`/t/${topic.slug}/#post-${firstPost.id}`);
   // The handle comes from the head document, not from a live profile read, so
   // the page and the documents it lists can never name different authors.
   expect(view.handle).toBe('Cite Author');
   expect(view.indexUri).toBe(`${ORIGIN}/cip100/post/${firstPost.id}.json`);
-  // Newest first: the version a reader most likely wants to cite is on top.
+  // Newest first, and only the head is flagged current: the template renders
+  // the flag rather than re-deriving "current" from the ordering.
   expect(view.versions.map((v) => v.version)).toEqual([2, 1]);
-  expect(view.current).toBe(view.versions[0].hash);
-  expect(view.versions[0].uri).toBe(`${ORIGIN}/cip100/${view.versions[0].hash}.json`);
+  expect(view.versions.map((v) => v.current)).toEqual([true, false]);
 
   // The page and the JSON are two renderings of one read. If they ever listed
   // different addresses, citing from the page would be citing something else.
@@ -302,7 +303,7 @@ it('lists versions newest first, marks the current one, and names post and autho
   expect(view.versions.map((v) => v.uri)).toEqual(
     index.versions.map((v: { uri: string }) => v.uri).reverse(),
   );
-  expect(view.current).toBe(index.current);
+  expect(view.versions[0].uri).toBe(`${ORIGIN}/cip100/${index.current}.json`);
 });
 
 it('410s a deleted post and shows nothing but the tombstone', async () => {
@@ -320,7 +321,7 @@ it('410s a deleted post and shows nothing but the tombstone', async () => {
   // The exact key set, not just the fields we happened to name: no title, no
   // author, no hashes, so a newly leaked field fails this whether or not
   // anyone thought to name it.
-  expect(Object.keys(view).sort()).toEqual(['deletedAt', 'postId', 'status', 'versionCount'].sort());
+  expect(Object.keys(view).sort()).toEqual(['deletedAt', 'status', 'versionCount'].sort());
 });
 
 it('leaves deletedAt null when the flag was set without a timestamp', async () => {
