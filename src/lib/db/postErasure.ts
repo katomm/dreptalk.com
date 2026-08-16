@@ -196,6 +196,28 @@ export interface PostErasureSweepResult {
  * Runs as the `post-erasure` gov-sync phase, before the `cip100` phase, because
  * the tombstones that phase renders read the timestamps stamped here.
  */
+/**
+ * The deletion time that governs a post: the earliest one whose flag is
+ * actually set, or null when neither is.
+ *
+ * This is the TypeScript form of what the sweep's candidate query computes in
+ * SQL with `MIN(ts)` over the two UNION branches. Both exist because two
+ * surfaces need the same answer: the sweep decides when to erase, and the
+ * CIP-100 tombstone publishes when the post was deleted. If they disagree, an
+ * observer sees the bytes vanish on a date the tombstone does not claim.
+ *
+ * A timestamp is only read when its own flag is set, for the same reason as in
+ * the query: deleted_at is not cleared on every path that clears the flag.
+ */
+export function earliestActiveDeletion(
+  postDeletedAt: number | null,
+  topicDeletedAt: number | null,
+): number | null {
+  if (postDeletedAt === null) return topicDeletedAt;
+  if (topicDeletedAt === null) return postDeletedAt;
+  return Math.min(postDeletedAt, topicDeletedAt);
+}
+
 export async function runPostErasureSweep(
   db: D1Database,
   opts: { now: number; limit: number; retentionMs?: number },
