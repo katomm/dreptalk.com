@@ -183,8 +183,11 @@ async function resolveProfile(
     // When the per-run anchor budget is spent the fetch is skipped and the
     // status recorded as 'deferred'; the non-ok handling below preserves the
     // profile, and the next run retries (only 'ok' rows take the reuse path).
+    // Self-hosted anchors are read from D1 instead of over HTTP (fetchAnchorDoc
+    // short-circuits them when db is present); the D1 read still counts against
+    // the anchor budget since it does the same per-DRep work.
     const result = canFetch
-      ? await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl })
+      ? await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl, db: deps.db })
       : { status: 'deferred' as const, doc: null };
     if (result.status === 'ok') {
       const cip119 = extractCip119Profile(result.doc);

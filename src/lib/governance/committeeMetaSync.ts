@@ -62,7 +62,8 @@ export async function syncCommitteeVoteMeta(deps: {
   let failed = 0;
   for (const [i, job] of jobs.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((r) => setTimeout(r, paceMs));
-    const res = await fetchAnchorDoc(job.anchorUrl, job.anchorHash, { fetchImpl });
+    // db enables the self-hosted D1 short circuit for dreptalk-hosted anchors.
+    const res = await fetchAnchorDoc(job.anchorUrl, job.anchorHash, { fetchImpl, db });
     const createdAt = job.blockTime != null ? job.blockTime * 1000 : now;
     if (res.status !== 'ok') {
       await upsertActionRationale(db, { gaId: job.gaId, voterId: job.voterId, bodyHtml: null, source: 'onchain', anchorUrl: job.anchorUrl, status: 'failed', createdAt, now });

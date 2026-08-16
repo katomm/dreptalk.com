@@ -32,3 +32,26 @@ describe('storePoolAvatars', () => {
     expect(res.failed).toBeGreaterThanOrEqual(1);
   });
 });
+
+// A self-zone logo URL can never be fetched from a Worker (same-zone
+// subrequests blackhole at the placeholder origin): it must fail fast in
+// fetchValidatedImage instead of hanging through a doomed download.
+describe('storePoolAvatars self-zone logo URLs', () => {
+  it('fails a dreptalk-hosted logo URL without any HTTP fetch', async () => {
+    await upsertPoolMeta(env.DB, {
+      poolId: 'pool1selfzone', poolHash: 'cc', ticker: null, name: null, homepage: null,
+      description: null, metaUrl: null, metaHash: null,
+      imageUrl: `https://dreptalk.com/api/avatar/${'a'.repeat(64)}`, syncedAt: 1,
+    });
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return new Response(onePngByte, { status: 200, headers: { 'content-type': 'image/png' } });
+    }) as unknown as typeof fetch;
+
+    const res = await storePoolAvatars({ db: env.DB, bucket: env.AVATARS, fetchImpl });
+
+    expect(calls).toBe(0);
+    expect(res.failed).toBeGreaterThanOrEqual(1);
+  });
+});

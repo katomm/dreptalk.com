@@ -69,7 +69,7 @@ export function extractVoteRationaleComment(doc: unknown): string | null {
 export async function fetchVoteRationale(
   anchorUrl: string,
   anchorHash: string,
-  deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  deps: { db?: D1Database; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<VoteRationaleFetch> {
   const res = await fetchAnchorDoc(anchorUrl, anchorHash, deps);
   if (res.status !== 'ok') return { status: 'failed' };

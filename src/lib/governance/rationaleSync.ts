@@ -33,7 +33,8 @@ export async function syncVoteRationales(deps: {
   let failed = 0;
   for (const [i, job] of jobs.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((r) => setTimeout(r, paceMs));
-    const res = await fetchVoteRationale(job.anchorUrl, job.anchorHash, { fetchImpl });
+    // db enables the self-hosted D1 short circuit for dreptalk-hosted anchors.
+    const res = await fetchVoteRationale(job.anchorUrl, job.anchorHash, { db, fetchImpl });
     const createdAt = job.blockTime != null ? job.blockTime * 1000 : now;
     await upsertActionRationale(db, {
       gaId: job.gaId, voterId: job.voterId,

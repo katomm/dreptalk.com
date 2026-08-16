@@ -16,6 +16,7 @@ import { bytesToHex, HEX_HASH_256_RE } from '../crypto/hex.js';
 import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
 import { isCardanoPaymentAddress } from '../cardano/identity.js';
+import { selfHostedRef, readSelfHostedBody } from './selfHostedDocs.js';
 
 // Upper bound on the anchor document we download and hash-verify. Real mainnet
 // CIP-108 proposals reach ~1.2MB because the rationale can embed long markdown
@@ -350,6 +351,9 @@ export type AnchorDocResult =
   | { status: 'ok'; doc: unknown }
   | { status: Exclude<AnchorStatus, 'ok'>; doc: null };
 
+// Shared encoder for hash checks; stateless, so one instance serves all calls.
+const TEXT_ENCODER = new TextEncoder();
+
 /**
  * Fetches, verifies, and parses an on-chain anchor, returning the raw JSON doc.
  *
@@ -358,15 +362,29 @@ export type AnchorDocResult =
  * by both the CIP-108 governance-action path and the CIP-119 DRep-profile path.
  * It performs no field extraction: the returned doc is untrusted.
  *
+ * Anchor URLs on our own zone never go over HTTP (a same-zone Worker fetch
+ * blackholes, see selfHostedDocs.ts): with `db` present, hosted documents are
+ * read from D1 and verified through the same pipeline; anything else self-zone
+ * maps to 'fetch-failed' immediately, which is all the doomed fetch could ever
+ * produce, minus the timeout.
+ *
  * @param anchorUrl  on-chain anchor URL (untrusted)
  * @param anchorHash on-chain blake2b-256 hash, hex (untrusted but authoritative)
- * @param deps       injectable fetch + timeout for testing
+ * @param deps       injectable fetch + timeout for testing, plus the D1 handle
+ *                   for self-hosted document reads
  */
 export async function fetchAnchorDoc(
   anchorUrl: string,
   anchorHash: string,
-  deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  deps: { fetchImpl?: typeof fetch; timeoutMs?: number; db?: D1Database } = {},
 ): Promise<AnchorDocResult> {
+  const self = selfHostedRef(anchorUrl);
+  if (self) {
+    const body = deps.db ? await readSelfHostedBody(deps.db, self) : null;
+    if (body == null) return { status: 'fetch-failed', doc: null };
+    return verifyAnchorDoc(TEXT_ENCODER.encode(body), anchorHash);
+  }
+
   const fetchImpl = deps.fetchImpl ?? fetch;
   const timeoutMs = deps.timeoutMs ?? ANCHOR_FETCH_TIMEOUT_MS;
 
@@ -402,6 +420,16 @@ export async function fetchAnchorDoc(
     clearTimeout(timer);
   }
 
+  return verifyAnchorDoc(bytes, anchorHash);
+}
+
+/**
+ * Verifies raw document bytes against the on-chain blake2b-256 anchor hash and
+ * parses them as JSON. Shared by fetchAnchorDoc and the self-hosted short
+ * circuit in the dreps sync, so a body read straight from D1 passes the exact
+ * same integrity pipeline as a fetched one. The returned doc is untrusted.
+ */
+export function verifyAnchorDoc(bytes: Uint8Array, anchorHash: string): AnchorDocResult {
   // Mandatory integrity check: the document must hash to the on-chain anchor hash.
   const want = anchorHash.trim().toLowerCase();
   const rawMatches = bytesToHex(blake2b256(bytes)).toLowerCase() === want;
@@ -433,9 +461,8 @@ export async function fetchAnchorDoc(
 // tools emit; JSON.stringify preserves key insertion order from the parse, so a
 // whitespace-only reformat round-trips to the exact anchored bytes.
 function matchesReserialized(doc: unknown, want: string): boolean {
-  const enc = new TextEncoder();
   for (const serialized of [JSON.stringify(doc), JSON.stringify(doc, null, 2), JSON.stringify(doc, null, 4)]) {
-    if (serialized && bytesToHex(blake2b256(enc.encode(serialized))).toLowerCase() === want) return true;
+    if (serialized && bytesToHex(blake2b256(TEXT_ENCODER.encode(serialized))).toLowerCase() === want) return true;
   }
   return false;
 }
@@ -450,7 +477,7 @@ function matchesReserialized(doc: unknown, want: string): boolean {
 export async function fetchAnchorMetadata(
   anchorUrl: string,
   anchorHash: string,
-  deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  deps: { fetchImpl?: typeof fetch; timeoutMs?: number; db?: D1Database } = {},
 ): Promise<AnchorResult> {
   const result = await fetchAnchorDoc(anchorUrl, anchorHash, deps);
   if (result.status !== 'ok') return { status: result.status, metadata: null };

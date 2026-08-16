@@ -83,6 +83,22 @@ export async function getDrepMetadataByHash(
 
 
 /**
+ * Returns only the body for a hash, or null. Same lookup semantics as
+ * getDrepMetadataByHash, without shipping the unused columns; used by the
+ * self-hosted anchor short circuit, which needs nothing but the bytes.
+ */
+export async function getDrepMetadataBodyByHash(
+  db: D1Database,
+  hash: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare('SELECT body FROM drep_metadata WHERE hash = ? LIMIT 1')
+    .bind(hash)
+    .first<{ body: string }>();
+  return row?.body ?? null;
+}
+
+/**
  * Garbage-collects hosted DRep metadata that is no longer wanted: rows older
  * than the cutoff whose drep id is not currently registered AND whose hash is
  * not a current on-chain anchor. This removes junk written for self-generated
