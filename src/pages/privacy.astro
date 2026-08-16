@@ -6,7 +6,7 @@ import { getLegalInfo } from '@/lib/legal';
 export const prerender = false;
 
 const legal = getLegalInfo();
-const lastUpdated = '1 August 2026';
+const lastUpdated = '16 August 2026';
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 <Layout
