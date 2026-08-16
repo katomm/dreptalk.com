@@ -6,8 +6,9 @@ import { env } from 'cloudflare:test';
 import { createTopic, createPost } from './forum.js';
 import {
   getDocForServe, getHeadDoc, insertDoc, touchSourceEditedAt,
-  listPostVersions, purgeDeletedDocs, findStalePostIds, listPostIdsWithDocs,
+  listPostVersions, findStalePostIds, listPostIdsWithDocs,
 } from './cip100.js';
+import { erasePostContent } from './postErasure.js';
 
 const db = () => env.DB;
 const T = 1_700_000_000_000;
@@ -68,15 +69,16 @@ describe('cip100 store', () => {
     expect(await insertDoc(db(), { ...base, hash: 'd'.repeat(64), body: '{"x":4}' })).toBe('conflict');
   });
 
-  it('serves gone for a deleted post and purges its bytes', async () => {
+  it('serves gone for a deleted post and erases its bytes', async () => {
     const { topicId, postId } = await seedPost('a4');
     await insertDoc(db(), {
       hash: 'e'.repeat(64), body: '{"x":5}', postId, topicId,
       version: 1, prevHash: null, sourceEditedAt: null, createdAt: T, guard: GUARD,
     });
     await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?').bind(T, postId).run();
+    // Gone is derived from the live flag, so it is true before the bytes go.
     expect(await getDocForServe(db(), 'e'.repeat(64))).toEqual({ body: '{"x":5}', state: 'gone' });
-    expect(await purgeDeletedDocs(db(), T)).toBe(1);
+    expect((await erasePostContent(db(), postId, { now: T, cutoff: T })).docs).toBe(1);
     expect(await getDocForServe(db(), 'e'.repeat(64))).toEqual({ body: null, state: 'gone' });
   });
 
@@ -88,9 +90,9 @@ describe('cip100 store', () => {
     });
     await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(postId).run();
     expect(await getDocForServe(db(), '9'.repeat(64))).toEqual({ body: '{"x":8}', state: 'hidden' });
-    // Hiding is not an erasure: the sweep must leave the bytes alone, or
+    // Hiding is not an erasure: the erasure path must leave the bytes alone, or
     // withdrawing a flag could never restore the document.
-    expect(await purgeDeletedDocs(db(), T)).toBe(0);
+    expect((await erasePostContent(db(), postId, { now: T, cutoff: T })).docs).toBe(0);
     // And it must not hold a slot in the reconcile batch while it is hidden.
     expect(await findStalePostIds(db(), T + 1, 10)).not.toContain(postId);
   });

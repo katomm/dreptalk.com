@@ -9,7 +9,6 @@
 // change to body_md, removes the old tokens with the correct old values and
 // indexes the new ones, inside the same transaction. Writing to posts_fts by
 // hand here would be the bug, not the fix.
-import { stampMissingDeletedAt } from './cip100.js';
 
 /**
  * How long a deleted post keeps its text so that abuse can still be dealt with.
@@ -160,6 +159,25 @@ const EXPIRED_CANDIDATES = `
    WHERE p.body_md <> '' OR p.body_html <> ''
       OR EXISTS (SELECT 1 FROM post_revisions r WHERE r.post_id = p.id)
       OR EXISTS (SELECT 1 FROM cip100_docs d2 WHERE d2.post_id = p.id AND d2.body IS NOT NULL)`;
+
+/**
+ * Stamps a deletion time on any row flagged deleted without one. Manual SQL
+ * (`UPDATE posts SET deleted = 1 WHERE ...`) is how most real deletions happen,
+ * and this is what lets such a deletion join the lifecycle without the person
+ * typing it having to know the lifecycle exists.
+ *
+ * The stamp is an upper bound, not the true deletion time, which is why an
+ * already-deleted backlog gets a fresh window rather than being erased at once.
+ * Erasing on a guessed date destroys text nobody promised to destroy, waiting
+ * costs storage.
+ */
+export async function stampMissingDeletedAt(db: D1Database, now: number): Promise<number> {
+  const [topics, posts] = await db.batch([
+    db.prepare('UPDATE topics SET deleted_at = ? WHERE deleted = 1 AND deleted_at IS NULL').bind(now),
+    db.prepare('UPDATE posts SET deleted_at = ? WHERE deleted = 1 AND deleted_at IS NULL').bind(now),
+  ]);
+  return (topics.meta?.changes ?? 0) + (posts.meta?.changes ?? 0);
+}
 
 export interface PostErasureSweepResult {
   /** Deletion timestamps written for rows flagged without one. */

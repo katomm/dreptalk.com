@@ -3,7 +3,10 @@
 // D1 access for emitted CIP-100 documents. Every write to cip100_docs goes
 // through here, and every read that serves bytes joins the live posts/topics
 // deleted flags, so a manual `UPDATE posts SET deleted = 1` takes effect
-// immediately without any other step.
+// immediately without any other step. Erasing the bytes afterwards is not this
+// module's job: it belongs to the one central erasure path in
+// src/lib/db/postErasure.ts, which erases the post's own bodies, its revisions
+// and these documents in a single batch.
 
 export interface Cip100DocRow {
   hash: string;
@@ -226,40 +229,6 @@ export async function listPostIdsWithDocs(db: D1Database, topicId: string): Prom
     .bind(topicId)
     .all<{ post_id: string }>();
   return new Set((res.results ?? []).map((r) => r.post_id));
-}
-
-/** Erasure: drops the bytes of every document whose post or topic is flagged
- *  deleted. Idempotent, and safe to run on every cron tick. */
-export async function purgeDeletedDocs(db: D1Database, now: number): Promise<number> {
-  const res = await db
-    .prepare(
-      `UPDATE cip100_docs SET body = NULL, deleted_at = ?
-        WHERE body IS NOT NULL
-          AND post_id IN (
-            SELECT p.id FROM posts p
-              LEFT JOIN topics t ON t.id = p.topic_id
-             WHERE p.deleted = 1 OR COALESCE(t.deleted, 0) = 1
-          )`,
-    )
-    .bind(now)
-    .run();
-  return res.meta?.changes ?? 0;
-}
-
-/** Stamps a deletion time on rows that were flagged without one (manual SQL).
- *  Both topics.deleted_at and posts.deleted_at are stamped, for every row that
- *  was flagged deleted without a timestamp. The value is an upper bound, the
- *  time the deletion was recorded, not the real moment, see the spec section
- *  11. It exists so a tombstone always has a timestamp available, including
- *  for posts inside a thread that was deleted as a whole: the version index
- *  reads the post's deleted_at and falls back to the topic's when the post
- *  has none, which only works if both columns are actually stamped. */
-export async function stampMissingDeletedAt(db: D1Database, now: number): Promise<number> {
-  const [topics, posts] = await db.batch([
-    db.prepare('UPDATE topics SET deleted_at = ? WHERE deleted = 1 AND deleted_at IS NULL').bind(now),
-    db.prepare('UPDATE posts SET deleted_at = ? WHERE deleted = 1 AND deleted_at IS NULL').bind(now),
-  ]);
-  return (topics.meta?.changes ?? 0) + (posts.meta?.changes ?? 0);
 }
 
 /**
