@@ -114,9 +114,9 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
   {citable && (
     <a
       class="post-action"
-      href={`/cip100/post/${post.id}.json`}
-      rel="alternate nofollow"
-      title="The citable, verifiable version of this post"
+      href={`/cite/${post.id}/`}
+      rel="nofollow"
+      title="Permanent addresses for every version of this post"
     >
       Cite
     </a>

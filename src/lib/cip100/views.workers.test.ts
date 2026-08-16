@@ -4,10 +4,10 @@
 // tombstone must replace the whole body, and deletedAt must never be invented.
 import { it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { createTopic, createPost } from '../db/forum.js';
+import { createTopic, createPost, editPost } from '../db/forum.js';
 import { getDocBody, getDocForServe, getHeadDoc } from '../db/cip100.js';
 import { reconcilePostDocs } from './reconcile.js';
-import { buildVersionIndex, buildThreadManifest } from './views.js';
+import { buildVersionIndex, buildThreadManifest, buildCitationView } from './views.js';
 import { isoSeconds } from './document.js';
 import { EDIT_GRACE_MS } from '../forum/editPolicy.js';
 
@@ -262,6 +262,97 @@ it('carries the right postedBy for a DRep, an SPO and an author with neither', a
   expect(Object.keys(emitted[plainPost.id])).toEqual(['handle']);
   expect(Object.keys(listed[plainPost.id])).toEqual(['handle']);
   expect(JSON.stringify(manifest)).not.toContain('role-drep');
+});
+
+// The citation page at /cite/<postId>/ is the readable form of the version
+// index. It shares one live read with the JSON, so these tests pin what the
+// page adds on top: the ordering a reader sees, the identity it names, and the
+// fact that a deleted post says less here than the JSON tombstone does, not more.
+it('lists versions newest first, marks the current one, and names post and author', async () => {
+  await db()
+    .prepare("INSERT INTO users (id, display_name, created_at, last_verified_at) VALUES ('user-cite', 'Cite Author', 0, 0)")
+    .run();
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'user-cite', title: 'Citation page',
+    bodyMd: 'first body', bodyHtml: '<p>first body</p>', now: T, rand: 'cv1',
+  });
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
+  await editPost(db(), {
+    postId: firstPost.id, authorId: 'user-cite', bodyMd: 'a genuinely different body',
+    bodyHtml: '<p>a genuinely different body</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+  });
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE + 3000 });
+
+  const view = await buildCitationView(db(), firstPost.id, ORIGIN);
+  if (view.status !== 200) throw new Error(`expected 200, got ${view.status}`);
+  expect(view.topicTitle).toBe('Citation page');
+  expect(view.topicSlug).toBe(topic.slug);
+  // The handle comes from the head document, not from a live profile read, so
+  // the page and the documents it lists can never name different authors.
+  expect(view.handle).toBe('Cite Author');
+  expect(view.indexUri).toBe(`${ORIGIN}/cip100/post/${firstPost.id}.json`);
+  // Newest first: the version a reader most likely wants to cite is on top.
+  expect(view.versions.map((v) => v.version)).toEqual([2, 1]);
+  expect(view.current).toBe(view.versions[0].hash);
+  expect(view.versions[0].uri).toBe(`${ORIGIN}/cip100/${view.versions[0].hash}.json`);
+
+  // The page and the JSON are two renderings of one read. If they ever listed
+  // different addresses, citing from the page would be citing something else.
+  const index = JSON.parse((await buildVersionIndex(db(), firstPost.id, ORIGIN)).body as string);
+  expect(view.versions.map((v) => v.uri)).toEqual(
+    index.versions.map((v: { uri: string }) => v.uri).reverse(),
+  );
+  expect(view.current).toBe(index.current);
+});
+
+it('410s a deleted post and shows nothing but the tombstone', async () => {
+  const { firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-views', title: 'Citation deleted',
+    bodyMd: 'body', bodyHtml: '<p>body</p>', now: T, rand: 'cv2',
+  });
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
+  await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?').bind(T + 99, firstPost.id).run();
+
+  const view = await buildCitationView(db(), firstPost.id, ORIGIN);
+  if (view.status !== 410) throw new Error(`expected 410, got ${view.status}`);
+  expect(view.deletedAt).toBe(T + 99);
+  expect(view.versionCount).toBe(1);
+  // The exact key set, not just the fields we happened to name: no title, no
+  // author, no hashes, so a newly leaked field fails this whether or not
+  // anyone thought to name it.
+  expect(Object.keys(view).sort()).toEqual(['deletedAt', 'postId', 'status', 'versionCount'].sort());
+});
+
+it('leaves deletedAt null when the flag was set without a timestamp', async () => {
+  const { firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-views', title: 'Citation deleted no ts',
+    bodyMd: 'body', bodyHtml: '<p>body</p>', now: T, rand: 'cv3',
+  });
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
+  await db().prepare('UPDATE posts SET deleted = 1 WHERE id = ?').bind(firstPost.id).run();
+
+  const view = await buildCitationView(db(), firstPost.id, ORIGIN);
+  if (view.status !== 410) throw new Error(`expected 410, got ${view.status}`);
+  // Null, never a stand-in date: the page omits the sentence rather than
+  // stating a deletion time nobody recorded.
+  expect(view.deletedAt).toBeNull();
+});
+
+it('404s a hidden post, an unknown post and a post with no documents', async () => {
+  const { firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-views', title: 'Citation hidden',
+    bodyMd: 'body', bodyHtml: '<p>body</p>', now: T, rand: 'cv4',
+  });
+  // No documents emitted yet: nothing to cite, and no page.
+  expect((await buildCitationView(db(), firstPost.id, ORIGIN)).status).toBe(404);
+
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
+  await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(firstPost.id).run();
+  // 404, never 410: hiding is reversible, and a Gone answer would claim a
+  // permanent erasure that has not happened.
+  expect((await buildCitationView(db(), firstPost.id, ORIGIN)).status).toBe(404);
+
+  expect((await buildCitationView(db(), 'no-such-post', ORIGIN)).status).toBe(404);
 });
 
 it('serves an empty posts array for a thread with no eligible posts', async () => {

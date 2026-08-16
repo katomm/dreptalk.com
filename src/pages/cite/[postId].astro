@@ -1,0 +1,220 @@
+---
+// src/pages/cite/[postId].astro
+// GET /cite/<postId>/
+// The readable form of a post's version index. The Cite action in a post's
+// action row points here rather than straight at /cip100/post/<id>.json: the
+// JSON is the right answer for a machine and a dead end for a person, who lands
+// in raw bytes with nothing telling them what the address is for.
+//
+// Same state, same flags, same live read as the JSON (buildCitationView shares
+// loadIndexState with buildVersionIndex), so the two can never disagree about
+// whether a post is gone. Only the statuses differ: a deleted post answers 410
+// here and 200-with-tombstone there, because a mirroring consumer has to be
+// able to read the deletion record while a reader just needs to be told.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import CopyButton from '@/components/CopyButton.astro';
+import { currentNetwork } from '@/lib/api/response.js';
+import { buildCitationView } from '@/lib/cip100/views.js';
+import { originForNetwork } from '@/lib/cip100/origin.js';
+import { formatVersionTime } from '@/lib/forum/historyView.js';
+import { env } from 'cloudflare:workers';
+
+const postId = Astro.params.postId ?? '';
+const db = env.DB as D1Database | undefined;
+// Same shape gate as /cip100/post/<postId>.json: post ids are UUIDs, so anything
+// else is answered without touching D1 at all.
+const wellFormed = /^[0-9a-f-]{36}$/i.test(postId);
+
+// Not Astro.site: astro.config.mjs hardcodes site to the mainnet apex and the
+// preprod build does not override it, so the published addresses would claim
+// mainnet URLs on a page served from preprod. Every URL in this feature comes
+// from originForNetwork.
+const origin = originForNetwork(currentNetwork().network === 'preprod' ? 'preprod' : 'mainnet');
+
+const view = db && wellFormed ? await buildCitationView(db, postId, origin) : ({ status: 404 } as const);
+
+Astro.response.status = view.status;
+if (view.status !== 200) {
+  // Deletion and hiding both take effect on the next request, so neither answer
+  // may be held in a cache that would keep serving the old one.
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+if (view.status === 200) {
+  // Discovery for anything that follows headers instead of parsing HTML, the
+  // same shape the thread page uses for its manifest.
+  Astro.response.headers.set('Link', `<${view.indexUri}>; rel="alternate"; type="application/ld+json"`);
+}
+
+const deletedOn = view.status === 410 && view.deletedAt !== null ? formatVersionTime(view.deletedAt) : null;
+---
+
+{view.status === 404 ? (
+  <NotFound noun="Citation" />
+) : view.status === 410 ? (
+  <Layout
+    title="Post deleted - DRepTalk"
+    description="This post was deleted. Its published versions are no longer served."
+    noindex={true}
+    readingWidth={true}
+  >
+    <h1 class="cite-title">This post was deleted</h1>
+    {/* The tombstone, and nothing more: that the post existed and was deleted.
+        No author, no thread, no text, matching the JSON tombstone exactly. */}
+    <p class="cite-lead">
+      A post existed at this address and has since been deleted.
+      {deletedOn && <> It was deleted on {deletedOn}.</>}
+      {' '}
+      {view.versionCount === 1
+        ? 'The one version that had been published is no longer served, and a citation pointing at it now answers with a Gone response.'
+        : `All ${view.versionCount} versions that had been published are no longer served, and a citation pointing at any of them now answers with a Gone response.`}
+    </p>
+    <p class="cite-lead">
+      Gone is final. A version that answers "not found" instead is a different
+      case, and it can come back. <a href="/help/citing-a-post/">Citing a post</a> explains both.
+    </p>
+  </Layout>
+) : (
+  <Layout
+    title={`Cite a post - ${view.topicTitle} - DRepTalk`}
+    description="Permanent, verifiable addresses for every version of this post."
+    noindex={true}
+    readingWidth={true}
+  >
+    <link rel="alternate" type="application/ld+json" href={view.indexUri} slot="head" />
+
+    <nav class="cite-crumbs">
+      <a href="/">DRepTalk</a>
+      <span aria-hidden="true">/</span>
+      <a href={`/t/${view.topicSlug}/#post-${view.postId}`}>{view.topicTitle}</a>
+    </nav>
+
+    <h1 class="cite-title">Cite this post</h1>
+
+    <p class="cite-lead">
+      {view.handle && (
+        <>
+          The post by{' '}
+          {view.profile ? <a href={view.profile}>{view.handle}</a> : <strong>{view.handle}</strong>}
+          {' '}in{' '}
+        </>
+      )}
+      {!view.handle && <>The post in </>}
+      <a href={`/t/${view.topicSlug}/#post-${view.postId}`}>{view.topicTitle}</a>.
+      {' '}
+      Each version below has its own permanent address. Link to one, and the text
+      behind that link cannot change afterwards.
+      {' '}
+      <a href="/help/citing-a-post/">What the address proves</a>.
+    </p>
+
+    <ol class="cite-versions">
+      {view.versions.map((v) => (
+        <li class={`cite-version${v.hash === view.current ? ' cite-version--current' : ''}`}>
+          <div class="cite-version__head">
+            <span class="cite-version__label">
+              {v.hash === view.current ? 'Current version' : `Version ${v.version}`}
+            </span>
+            {v.hash === view.current && <span class="cite-version__badge">Cite this one</span>}
+            <span class="cite-version__date">{formatVersionTime(v.createdAt)}</span>
+          </div>
+          <div class="cite-version__uri">
+            <a class="chainid" href={v.uri}>{v.uri}</a>
+            <CopyButton value={v.uri} label={`Copy the address of ${v.hash === view.current ? 'the current version' : `version ${v.version}`}`} />
+          </div>
+        </li>
+      ))}
+    </ol>
+
+    <p class="cite-foot">
+      This page as data: <a href={view.indexUri} rel="alternate nofollow">the version index in JSON</a>,
+      which is what an integrator follows. Nothing on this page is new information,
+      it is the same list in a form meant to be read.
+    </p>
+  </Layout>
+)}
+
+<style>
+  .cite-crumbs {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+  .cite-crumbs span {
+    margin: 0 0.375rem;
+  }
+  .cite-title {
+    margin: 0 0 0.75rem;
+    line-height: 1.3;
+    font-size: 1.375rem;
+  }
+  .cite-lead {
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0 0 1.5rem;
+  }
+  .cite-versions {
+    list-style: none;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .cite-version {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    padding: 0.75rem 0.9rem;
+  }
+  .cite-version--current {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  }
+  .cite-version__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+  }
+  .cite-version__label {
+    font-weight: 600;
+    font-size: 0.9375rem;
+  }
+  .cite-version__badge {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+    border-radius: 999px;
+    padding: 0.05rem 0.4rem;
+  }
+  .cite-version__date {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .cite-version__uri {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  /* The address is the point of the page, so it wraps rather than truncating:
+     a reader checking a citation by eye needs to see all of it. */
+  .cite-version__uri .chainid {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .cite-foot {
+    font-size: 0.875rem;
+    color: var(--muted);
+    line-height: 1.6;
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+    margin: 0;
+  }
+</style>
