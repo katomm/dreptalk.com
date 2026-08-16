@@ -35,9 +35,10 @@ interface Props {
   postNumber?: number;
   /** Co-proposer mandate label for this post's persisted proposer_grant_id, or null/absent for a personal post. */
   mandate?: string | null;
-  /** Whether this post has an emitted CIP-100 document, i.e. /cip100/post/<id>.json
-      actually resolves. Drives the Cite affordance in PostActions, defaults to
-      false so a caller that forgets to pass it never shows a link that 404s. */
+  /** Whether this post has an emitted CIP-100 document, i.e. /cite/<id>/ and the
+      /cip100/post/<id>.json behind it actually resolve. Drives the Cite
+      affordance in PostActions, defaults to false so a caller that forgets to
+      pass it never shows a link that 404s. */
   citable?: boolean;
 }
 

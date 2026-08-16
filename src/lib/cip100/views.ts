@@ -15,6 +15,75 @@ export interface ViewResult {
   body: string | null;
 }
 
+interface DocVersion {
+  hash: string;
+  version: number;
+  createdAt: number;
+}
+
+/**
+ * What the live post and topic flags say about one post's versions. Both the
+ * JSON version index and the human citation page derive from this single read,
+ * so the two surfaces can never disagree about whether a post is gone: a
+ * flagged post loses its identity on both the moment the flag is set.
+ */
+type IndexState =
+  // Unknown post, no documents, or hidden. One kind for all three on purpose:
+  // both surfaces have to answer "not found" to hiding, so collapsing them here
+  // enforces that rather than asking every caller to remember it.
+  | { kind: 'absent' }
+  | { kind: 'deleted'; deletedAt: number | null; versions: DocVersion[] }
+  | { kind: 'published'; topicId: string; topicSlug: string; topicTitle: string; versions: DocVersion[] };
+
+async function loadIndexState(db: D1Database, postId: string): Promise<IndexState> {
+  // Two independent reads: the version list is keyed on postId alone, so it
+  // does not wait on the flag row.
+  const [post, versions] = await Promise.all([
+    db
+      .prepare(
+        `SELECT p.id, p.deleted, p.deleted_at, p.hidden, t.slug AS topic_slug, t.id AS topic_id,
+                t.title AS topic_title, t.deleted AS topic_deleted, t.deleted_at AS topic_deleted_at
+           FROM posts p JOIN topics t ON t.id = p.topic_id WHERE p.id = ?`,
+      )
+      .bind(postId)
+      .first<{
+        id: string; deleted: number; deleted_at: number | null; hidden: number; topic_slug: string;
+        topic_id: string; topic_title: string; topic_deleted: number; topic_deleted_at: number | null;
+      }>(),
+    listPostVersions(db, postId),
+  ]);
+  if (!post || versions.length === 0) return { kind: 'absent' };
+
+  // Deletion is checked BEFORE hiding, matching getDocForServe: a post that is
+  // both is gone, on all surfaces. A hidden post that is then deleted must
+  // still publish its deletion record, or a consumer holding the citation would
+  // be told "gone, stop asking" by the snapshot and "no such thing" here. The
+  // tombstone carries no author identity and no content, so publishing it for a
+  // post that was also hidden says nothing about moderation.
+  if (post.deleted === 1 || post.topic_deleted === 1) {
+    return {
+      kind: 'deleted',
+      deletedAt: earliestActiveDeletion(
+        post.deleted === 1 ? post.deleted_at : null,
+        post.topic_deleted === 1 ? post.topic_deleted_at : null,
+      ),
+      versions,
+    };
+  }
+  // Hidden and not deleted: never the tombstone. A tombstone states a deletion,
+  // and hiding is a different, reversible state. The version list was read
+  // above but is dropped here, so a hidden post's hashes stay unpublished.
+  if (post.hidden === 1) return { kind: 'absent' };
+
+  return {
+    kind: 'published',
+    topicId: post.topic_id,
+    topicSlug: post.topic_slug,
+    topicTitle: post.topic_title,
+    versions,
+  };
+}
+
 function serialize(doc: unknown): string {
   return `${JSON.stringify(doc, null, 2)}\n`;
 }
@@ -31,57 +100,30 @@ function tombstone(postId: string, deletedAt: number | null, hashes: string[]): 
 }
 
 export async function buildVersionIndex(db: D1Database, postId: string, origin: string): Promise<ViewResult> {
-  const post = await db
-    .prepare(
-      `SELECT p.id, p.deleted, p.deleted_at, p.hidden, t.slug AS topic_slug, t.id AS topic_id,
-              t.deleted AS topic_deleted, t.deleted_at AS topic_deleted_at
-         FROM posts p JOIN topics t ON t.id = p.topic_id WHERE p.id = ?`,
-    )
-    .bind(postId)
-    .first<{
-      id: string; deleted: number; deleted_at: number | null; hidden: number; topic_slug: string;
-      topic_id: string; topic_deleted: number; topic_deleted_at: number | null;
-    }>();
-  if (!post) return { status: 404, body: null };
+  const state = await loadIndexState(db, postId);
+  if (state.kind === 'absent') return { status: 404, body: null };
 
-  const versions = await listPostVersions(db, postId);
-  if (versions.length === 0) return { status: 404, body: null };
-
-  const context = EXTENSION_CONTEXT_URL;
-  // Deletion is checked BEFORE hiding, matching getDocForServe: a post that is
-  // both is gone, on all three surfaces. A hidden post that is then deleted
-  // must still publish its deletion record, or a consumer holding the citation
-  // would be told "gone, stop asking" by the snapshot and "no such thing" here.
-  // The tombstone carries no author identity and no content, so publishing it
-  // for a post that was also hidden says nothing about moderation.
-  if (post.deleted === 1 || post.topic_deleted === 1) {
-    const at = earliestActiveDeletion(
-      post.deleted === 1 ? post.deleted_at : null,
-      post.topic_deleted === 1 ? post.topic_deleted_at : null,
-    );
+  if (state.kind === 'deleted') {
     return {
       status: 200,
       body: serialize({
-        '@context': context,
+        '@context': EXTENSION_CONTEXT_URL,
         '@type': 'DiscussionPostVersions',
-        ...tombstone(postId, at, versions.map((v) => v.hash)),
+        ...tombstone(postId, state.deletedAt, state.versions.map((v) => v.hash)),
       }),
     };
   }
-  // Hidden and not deleted: 404, never the tombstone. A tombstone states a
-  // deletion, and hiding is a different, reversible state. The version list was
-  // read above but is not served, so a hidden post's hashes stay unpublished.
-  if (post.hidden === 1) return { status: 404, body: null };
 
+  const { versions } = state;
   return {
     status: 200,
     body: serialize({
-      '@context': context,
+      '@context': EXTENSION_CONTEXT_URL,
       '@type': 'DiscussionPostVersions',
       postId,
       status: 'published',
-      thread: `${origin}/cip100/topic/${post.topic_id}.json`,
-      permalink: `${origin}/t/${post.topic_slug}/#post-${postId}`,
+      thread: `${origin}/cip100/topic/${state.topicId}.json`,
+      permalink: `${origin}/t/${state.topicSlug}/#post-${postId}`,
       current: versions[versions.length - 1].hash,
       versions: versions.map((v) => ({
         version: v.version,
@@ -90,6 +132,77 @@ export async function buildVersionIndex(db: D1Database, postId: string, origin: 
         createdAt: isoSeconds(v.createdAt),
       })),
     }),
+  };
+}
+
+/** One published version, as the citation page lists it. */
+export interface CitationVersion {
+  version: number;
+  /** Permanent address of exactly these bytes. */
+  uri: string;
+  /** Emit time in epoch milliseconds, formatted for display by the page. */
+  createdAt: number;
+  /** The head, i.e. the version a reader citing the post today should link to.
+   *  Decided here rather than left to the template to re-derive from ordering. */
+  current: boolean;
+}
+
+/**
+ * The same state the JSON version index publishes, shaped for the human page at
+ * /cite/<postId>/. The statuses differ from the JSON on purpose: a deleted post
+ * answers 410 here, because a page is asking a reader to look at something,
+ * while the JSON answers 200 with a tombstone body that a mirroring consumer
+ * has to be able to read.
+ */
+export type CitationView =
+  | { status: 404 }
+  | { status: 410; deletedAt: number | null; versionCount: number }
+  | {
+      status: 200;
+      topicTitle: string;
+      /** Site-relative link back to the post, not the absolute form the JSON
+       *  publishes: a reader on preprod or a dev host stays on their own host. */
+      permalink: string;
+      /** The JSON version index this page is the readable form of. */
+      indexUri: string;
+      /** Author identity frozen into the head document, not resolved live, so
+       *  the page and the documents it lists can never name different authors. */
+      handle: string | null;
+      profile: string | null;
+      /** Newest first: the version a reader most likely wants to cite is on top. */
+      versions: CitationVersion[];
+    };
+
+export async function buildCitationView(db: D1Database, postId: string, origin: string): Promise<CitationView> {
+  const state = await loadIndexState(db, postId);
+  if (state.kind === 'absent') return { status: 404 };
+  if (state.kind === 'deleted') {
+    return { status: 410, deletedAt: state.deletedAt, versionCount: state.versions.length };
+  }
+
+  const { versions } = state;
+  const head = versions[versions.length - 1];
+  // One read for the head document only, the same claim the thread manifest
+  // shows. A published post always has document bytes (they are erased only
+  // along the deletion path, which took the 410 branch above), but a missing
+  // claim degrades to no attribution rather than to an error.
+  const claim = (await loadPostedByClaims(db, [head.hash])).get(head.hash);
+
+  return {
+    status: 200,
+    topicTitle: state.topicTitle,
+    permalink: `/t/${state.topicSlug}/#post-${postId}`,
+    indexUri: `${origin}/cip100/post/${postId}.json`,
+    handle: claim?.handle ?? null,
+    profile: claim?.profile ?? null,
+    versions: versions
+      .map((v) => ({
+        version: v.version,
+        uri: `${origin}/cip100/${v.hash}.json`,
+        createdAt: v.createdAt,
+        current: v.hash === head.hash,
+      }))
+      .reverse(),
   };
 }
 

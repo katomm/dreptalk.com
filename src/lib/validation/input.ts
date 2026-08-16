@@ -33,6 +33,17 @@ export function isHexExact(s: string, exactLen: number): boolean {
   return s.length === exactLen && HEX_RE.test(s);
 }
 
+// Post and topic ids are UUIDs (crypto.randomUUID in src/lib/db/forum.ts), so a
+// route parameter of any other shape can be refused without touching D1. One
+// definition, because every public route carrying such an id gates on it and a
+// per-route copy is a rule that has to be found by grep when it changes.
+const FORUM_ID_RE = /^[0-9a-f-]{36}$/i;
+
+/** True when `s` has the shape of a forum post or topic id. */
+export function isForumId(s: string): boolean {
+  return FORUM_ID_RE.test(s);
+}
+
 // A code point is a control character if it is a C0 control (0 to 31), DEL (127),
 // or a C1 control (128 to 159). Comparing by code point keeps this source
 // ASCII-only and avoids embedding literal control bytes.
