@@ -57,6 +57,17 @@ describe('getPostHistory', () => {
     expect(h?.versions.map((v) => v.createdAt)).toEqual([t2, t1, t0]);
   });
 
+  it('returns null for a live post inside a deleted topic', async () => {
+    const postId = await newPost();
+    const { topic_id: topicId } = (await db()
+      .prepare('SELECT topic_id FROM posts WHERE id = ?')
+      .bind(postId)
+      .first()) as { topic_id: string };
+    await db().prepare('UPDATE topics SET deleted = 1 WHERE id = ?').bind(topicId).run();
+
+    expect(await getPostHistory(db(), postId)).toBeNull();
+  });
+
   it('reports created_at for a post that was never edited', async () => {
     const postId = await newPost(NOW);
     const h = await getPostHistory(db(), postId);

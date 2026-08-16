@@ -825,15 +825,16 @@ export interface PostHistory {
 /**
  * Returns a post's full version history (current body + every archived revision,
  * newest first) plus the fields the history view and its hidden-gate need.
- * Returns null when the post is missing or deleted. Public callers apply the
- * hidden-post visibility gate (a hidden post's history is author/moderator only).
+ * Returns null when the post is missing or deleted, or when its topic is deleted
+ * (the whole thread is gone, so its history goes with it). Public callers apply
+ * the hidden-post visibility gate (a hidden post's history is author/moderator only).
  */
 export async function getPostHistory(db: D1Database, postId: string): Promise<PostHistory | null> {
   const [postRes, revRes] = await db.batch([
     db
       .prepare(
         `SELECT p.body_md, p.body_html, p.edited_at, p.created_at, p.hidden, p.author_id, p.deleted,
-                p.topic_id, t.slug AS topic_slug, t.title AS topic_title
+                p.topic_id, t.slug AS topic_slug, t.title AS topic_title, t.deleted AS topic_deleted
          FROM posts p JOIN topics t ON t.id = p.topic_id
          WHERE p.id = ?`,
       )
@@ -849,10 +850,12 @@ export async function getPostHistory(db: D1Database, postId: string): Promise<Po
     | {
         body_md: string; body_html: string; edited_at: number | null; created_at: number;
         hidden: number; author_id: string; deleted: number;
-        topic_id: string; topic_slug: string; topic_title: string;
+        topic_id: string; topic_slug: string; topic_title: string; topic_deleted: number;
       }
     | undefined;
-  if (!post || post.deleted === 1) return null;
+  // A live post in a deleted thread stays readable in the posts table, so the
+  // topic's flag has to gate the history too, as every other read path does.
+  if (!post || post.deleted === 1 || post.topic_deleted === 1) return null;
 
   const revisions = (revRes.results ?? []) as {
     body_md: string;
