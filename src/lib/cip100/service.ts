@@ -45,7 +45,7 @@ export function buildServiceDescription(origin: string, network: Cip100Network):
     deletion:
       'Deleted posts return 410 Gone at every snapshot URL. Tombstones stay visible in the post version index and in the thread manifest. If you mirror these documents, poll the manifest and remove content that appears as deleted. A post can also stop being listed in the manifest without a tombstone. Read that disappearance as the same instruction and stop serving that post. A whole thread can go too: when the manifest itself answers 410, stop serving every post it used to list.',
     erasure:
-      'A 410 means the bytes are gone from this origin and are not coming back. It does not describe what the forum keeps in its own database for its own purposes.',
+      'A 410 means this origin no longer serves the snapshot and it will not become available again. Erasure is a separate, later step: the forum keeps its own copy of a deleted post for 30 days so that abuse can still be dealt with, then erases the post body, every earlier version of it, its search index entry and these document bytes.',
     documentation: `${origin}/help/citing-a-post/`,
   };
   return `${JSON.stringify(doc, null, 2)}\n`;

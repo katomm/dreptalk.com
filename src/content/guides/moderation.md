@@ -19,6 +19,18 @@ automatically hidden from the forum. No single person can take a post down on
 their own: it always takes three independent flags, so one bad actor cannot
 silence a discussion.
 
+## Hidden is not deleted
+
+Hiding and deleting are different, and the difference is not cosmetic. A
+hidden post is out of sight but still stored, and it comes back unchanged if
+the flags are withdrawn. A deleted post leaves the forum at once, and once 30
+days have passed its text is erased: the post itself, every earlier version
+of it, and its entry in the search index.
+
+The 30 days exist so that abusive content can still be dealt with after it
+has been taken down. Anything that has to be kept on record needs to stay
+hidden rather than be deleted, because erasure is not reversible.
+
 ## Looking ahead
 
 Appointed moderators with additional tools are a possibility for the future,

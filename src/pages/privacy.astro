@@ -132,7 +132,12 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     <h2>Retention</h2>
     <p>
       Account data is kept while your account is active. Public content remains part of
-      the forum record unless you or a moderator removes it. Connection and security
+      the forum record until it is removed. When a post is deleted it disappears from the
+      forum at once, and once 30 days have passed its text is erased from our database,
+      along with every earlier version of it and its search index entry. The 30 days exist
+      so that abuse reports about a removed post can still be dealt with. Backups held by
+      our hosting provider are overwritten on their own schedule and are not used to
+      restore deleted content. Connection and security
       logs are kept only briefly. Data written to the public Cardano blockchain (for
       example a DRep registration you submit) is outside our control and cannot be
       deleted by us.
