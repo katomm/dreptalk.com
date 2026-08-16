@@ -12,6 +12,30 @@ export function originForNetwork(network: Cip100Network): string {
   return resolveNetwork(network).siteOrigin;
 }
 
+// The three published CIP-100 address forms, in one place for the same reason
+// authorProfileUrl below is: a snapshot URL is hashed into immutable bytes, and
+// a second copy of the shape that drifts by one character publishes a citation
+// that resolves nowhere. The emitter, the two mutable views, the thread page,
+// the sitemap and the discovery document all build them from here.
+//
+// Each takes the origin explicitly rather than resolving it: the emitter runs
+// on the cron with the network passed in, not on a request.
+
+/** Immutable snapshot of one version, addressed by its own content hash. */
+export function snapshotUrl(origin: string, hash: string): string {
+  return `${origin}/cip100/${hash}.json`;
+}
+
+/** A post's version index: mutable, stable, what every snapshot points back at. */
+export function postVersionsUrl(origin: string, postId: string): string {
+  return `${origin}/cip100/post/${postId}.json`;
+}
+
+/** A thread's manifest, keyed by topic id rather than slug: slugs can change. */
+export function threadManifestUrl(origin: string, topicId: string): string {
+  return `${origin}/cip100/topic/${topicId}.json`;
+}
+
 /**
  * Profile link for a document author, or null when there is nothing to link.
  * Uses the id form, not the slug form the UI prefers: slugs can be added or

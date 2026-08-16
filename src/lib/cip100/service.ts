@@ -3,7 +3,7 @@
 // listing. The loudest external feedback so far was "prepare API
 // documentation", so discoverability is the adoption blocker, not the format.
 import { EXTENSION_CONTEXT_URL } from './context.js';
-import type { Cip100Network } from './origin.js';
+import { postVersionsUrl, snapshotUrl, threadManifestUrl, type Cip100Network } from './origin.js';
 
 export function buildServiceDescription(origin: string, network: Cip100Network): string {
   const doc = {
@@ -15,9 +15,12 @@ export function buildServiceDescription(origin: string, network: Cip100Network):
     context: EXTENSION_CONTEXT_URL,
     hashAlgorithm: 'blake2b-256',
     urlTemplates: {
-      snapshot: `${origin}/cip100/{hash}.json`,
-      postVersions: `${origin}/cip100/post/{postId}.json`,
-      thread: `${origin}/cip100/topic/{topicId}.json`,
+      // Built by the same functions that build real addresses, with the
+      // placeholder standing in for the id. What we advertise here therefore
+      // cannot drift from what we actually serve.
+      snapshot: snapshotUrl(origin, '{hash}'),
+      postVersions: postVersionsUrl(origin, '{postId}'),
+      thread: threadManifestUrl(origin, '{topicId}'),
       governanceActionRedirect: `${origin}/ga/{governanceActionId}`,
     },
     sitemap: `${origin}/sitemap-cip100.xml`,
