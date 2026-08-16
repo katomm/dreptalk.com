@@ -318,4 +318,15 @@ describe('runPostErasureSweep', () => {
     expect((await runPostErasureSweep(db(), { now: T + 400 * DAY, limit: 50 })).erased).toBe(0);
     expect(await ftsHits(postId)).toBe(1);
   });
+
+  it('ships the partial indexes the sweep is written for', async () => {
+    const rows = await db()
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?)`)
+      .bind('idx_posts_deleted_sweep', 'idx_topics_deleted_sweep')
+      .all<{ name: string }>();
+    expect((rows.results ?? []).map((r) => r.name).sort()).toEqual([
+      'idx_posts_deleted_sweep',
+      'idx_topics_deleted_sweep',
+    ]);
+  });
 });
