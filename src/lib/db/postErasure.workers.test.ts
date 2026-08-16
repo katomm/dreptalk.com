@@ -184,3 +184,138 @@ describe('erasePostContent', () => {
     });
   });
 });
+
+import { runPostErasureSweep, POST_ERASURE_RETENTION_MS } from './postErasure.js';
+
+const DAY = 24 * 60 * 60 * 1000;
+
+describe('runPostErasureSweep', () => {
+  it('leaves a post deleted 29 days ago and erases one deleted 31 days ago', async () => {
+    const young = await seedTopic('s1');
+    const old = await seedTopic('s2');
+    await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?')
+      .bind(T - 29 * DAY, young.postId).run();
+    await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?')
+      .bind(T - 31 * DAY, old.postId).run();
+
+    const res = await runPostErasureSweep(db(), { now: T, limit: 50 });
+
+    expect(res.erased).toBe(1);
+    expect(await ftsHits(old.postId)).toBe(0);
+    expect(await ftsHits(young.postId)).toBe(1);
+  });
+
+  // The window is 30 days and the constant is the only definition of it.
+  it('uses POST_ERASURE_RETENTION_MS as the default window', async () => {
+    const { postId } = await seedTopic('s3');
+    await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?')
+      .bind(T - POST_ERASURE_RETENTION_MS - 1, postId).run();
+
+    expect((await runPostErasureSweep(db(), { now: T, limit: 50 })).erased).toBe(1);
+  });
+
+  it('erases a post in a deleted topic on the topic clock, not the post clock', async () => {
+    const { topicId, postId } = await seedTopic('s4');
+    await db().prepare('UPDATE topics SET deleted = 1, deleted_at = ? WHERE id = ?')
+      .bind(T - 31 * DAY, topicId).run();
+
+    expect((await runPostErasureSweep(db(), { now: T, limit: 50 })).erased).toBe(1);
+    expect(await ftsHits(postId)).toBe(0);
+  });
+
+  // A deletion typed by hand carries no timestamp. The sweep stamps it, which
+  // starts its window now, so it is erasable one full window later and never in
+  // the same run.
+  it('stamps an unstamped deletion, does not erase it in the same run, and erases it after the window', async () => {
+    const { postId } = await seedTopic('s5');
+    await db().prepare('UPDATE posts SET deleted = 1 WHERE id = ?').bind(postId).run();
+
+    const first = await runPostErasureSweep(db(), { now: T, limit: 50 });
+    expect(first.stamped).toBeGreaterThan(0);
+    expect(first.erased).toBe(0);
+    expect(await ftsHits(postId)).toBe(1);
+
+    const stamp = await db().prepare('SELECT deleted_at FROM posts WHERE id = ?')
+      .bind(postId).first<{ deleted_at: number }>();
+    expect(stamp?.deleted_at).toBe(T);
+
+    const later = await runPostErasureSweep(db(), { now: T + 31 * DAY, limit: 50 });
+    expect(later.erased).toBe(1);
+    expect(await ftsHits(postId)).toBe(0);
+  });
+
+  // deleted_at is not authoritative on a row whose flag is not set. A revived
+  // cross-post keeps its old timestamp today, so reading it through a COALESCE
+  // would let a thread deleted this morning erase its posts at once.
+  it('ignores a stale deleted_at on a post that is no longer deleted', async () => {
+    const { topicId, postId } = await seedTopic('s6');
+    // Deleted long ago, then revived: flag cleared, timestamp left behind.
+    await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?')
+      .bind(T - 400 * DAY, postId).run();
+    await db().prepare('UPDATE posts SET deleted = 0 WHERE id = ?').bind(postId).run();
+    // Now the thread is deleted, today.
+    await db().prepare('UPDATE topics SET deleted = 1, deleted_at = ? WHERE id = ?')
+      .bind(T, topicId).run();
+
+    expect((await runPostErasureSweep(db(), { now: T, limit: 50 })).erased).toBe(0);
+    expect(await ftsHits(postId)).toBe(1);
+
+    // And it does become erasable a window after the thread deletion.
+    expect((await runPostErasureSweep(db(), { now: T + 31 * DAY, limit: 50 })).erased).toBe(1);
+  });
+
+  // The topic half of stampMissingDeletedAt has no other test now that the cron
+  // test covering it has moved. Without this, that statement could be dropped
+  // and nothing would go red.
+  it('stamps a manually deleted topic and erases its posts a window later', async () => {
+    const { topicId, postId } = await seedTopic('s5b');
+    await db().prepare('UPDATE topics SET deleted = 1 WHERE id = ?').bind(topicId).run();
+
+    const first = await runPostErasureSweep(db(), { now: T, limit: 50 });
+    expect(first.erased).toBe(0);
+    const stamp = await db().prepare('SELECT deleted_at FROM topics WHERE id = ?')
+      .bind(topicId).first<{ deleted_at: number }>();
+    expect(stamp?.deleted_at).toBe(T);
+    expect(await ftsHits(postId)).toBe(1);
+
+    expect((await runPostErasureSweep(db(), { now: T + 31 * DAY, limit: 50 })).erased).toBe(1);
+    expect(await ftsHits(postId)).toBe(0);
+  });
+
+  it('respects the limit and reports the remaining backlog', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const { postId } = await seedTopic(`s7${i}`);
+      await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?')
+        .bind(T - 31 * DAY, postId).run();
+      ids.push(postId);
+    }
+
+    const first = await runPostErasureSweep(db(), { now: T, limit: 2 });
+    expect(first.erased).toBe(2);
+    expect(first.remaining).toBe(1);
+
+    const second = await runPostErasureSweep(db(), { now: T, limit: 2 });
+    expect(second.erased).toBe(1);
+    expect(second.remaining).toBe(0);
+  });
+
+  it('does not select an already erased post again', async () => {
+    const { postId } = await seedTopic('s8');
+    await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?')
+      .bind(T - 31 * DAY, postId).run();
+
+    expect((await runPostErasureSweep(db(), { now: T, limit: 50 })).erased).toBe(1);
+    const again = await runPostErasureSweep(db(), { now: T, limit: 50 });
+    expect(again.erased).toBe(0);
+    expect(again.remaining).toBe(0);
+  });
+
+  it('leaves a hidden but undeleted post out of the sweep entirely', async () => {
+    const { postId } = await seedTopic('s9');
+    await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(postId).run();
+
+    expect((await runPostErasureSweep(db(), { now: T + 400 * DAY, limit: 50 })).erased).toBe(0);
+    expect(await ftsHits(postId)).toBe(1);
+  });
+});

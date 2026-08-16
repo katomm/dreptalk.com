@@ -9,6 +9,7 @@
 // change to body_md, removes the old tokens with the correct old values and
 // indexes the new ones, inside the same transaction. Writing to posts_fts by
 // hand here would be the bug, not the fix.
+import { stampMissingDeletedAt } from './cip100.js';
 
 /**
  * How long a deleted post keeps its text so that abuse can still be dealt with.
@@ -115,4 +116,106 @@ export async function erasePostContent(
     revisions: revisions.results.length,
     docs: docs.results.length,
   };
+}
+
+// Posts whose retention window has passed and that still hold text somewhere.
+//
+// Two UNION branches rather than one OR with a COALESCE over both timestamps,
+// for correctness before speed. deleted_at is not cleared on revive, so a
+// cross-post that was opted out and opted back in carries a stale timestamp.
+// Reading that value through a COALESCE would let a thread deleted this morning
+// qualify its posts for erasure at once. Pairing each flag with its own table's
+// timestamp makes that impossible rather than merely guarded against.
+//
+// It is also the same semantics as taking the earlier of the two clocks:
+// MIN(a, b) <= cutoff and (a <= cutoff OR b <= cutoff) are the same predicate.
+// Earlier is correct, because the content has been unreachable since the first
+// of the two deletions and a later thread deletion must not extend a post's
+// retention.
+//
+// A NULL timestamp is never selected: NULL <= ? is NULL, so a row flagged but
+// not yet stamped waits for the stamp above.
+//
+// The final OR block is what keeps an erased post out of the set. Without it an
+// erased post would keep matching the deleted-and-expired predicate forever and
+// the sweep would rewrite the same rows every tick. It also makes the sweep
+// self-healing: if a revision or a document ever appears after an erasure, the
+// post is picked up again.
+// UNION ALL plus MIN, rather than a plain UNION, so the earliest active
+// deletion time survives as a sort key. Taking the minimum is the same
+// predicate as either branch qualifying, and it is the timestamp the CIP-100
+// tombstone publishes, so the two cannot disagree about when a post was
+// deleted.
+const EXPIRED_CANDIDATES = `
+  WITH expired AS (
+    SELECT p.id AS id, p.deleted_at AS ts FROM posts p
+     WHERE p.deleted = 1 AND p.deleted_at <= ?1
+    UNION ALL
+    SELECT p.id, t.deleted_at FROM posts p JOIN topics t ON t.id = p.topic_id
+     WHERE t.deleted = 1 AND t.deleted_at <= ?1
+  ),
+  due AS (SELECT id, MIN(ts) AS ts FROM expired GROUP BY id)
+  SELECT p.id AS id, d.ts AS ts
+    FROM posts p JOIN due d ON d.id = p.id
+   WHERE p.body_md <> '' OR p.body_html <> ''
+      OR EXISTS (SELECT 1 FROM post_revisions r WHERE r.post_id = p.id)
+      OR EXISTS (SELECT 1 FROM cip100_docs d2 WHERE d2.post_id = p.id AND d2.body IS NOT NULL)`;
+
+export interface PostErasureSweepResult {
+  /** Deletion timestamps written for rows flagged without one. */
+  stamped: number;
+  /** Posts whose text was actually removed this run. */
+  erased: number;
+  /** Posts whose batch threw. Logged with their ids and retried next run. */
+  failed: number;
+  /** Candidates still waiting after this run, so a backlog that is not draining is visible. */
+  remaining: number;
+}
+
+/**
+ * Finds posts past their retention window and erases them, one batch each.
+ *
+ * Runs as the `post-erasure` gov-sync phase, before the `cip100` phase, because
+ * the tombstones that phase renders read the timestamps stamped here.
+ */
+export async function runPostErasureSweep(
+  db: D1Database,
+  opts: { now: number; limit: number; retentionMs?: number },
+): Promise<PostErasureSweepResult> {
+  const cutoff = opts.now - (opts.retentionMs ?? POST_ERASURE_RETENTION_MS);
+
+  const stamped = await stampMissingDeletedAt(db, opts.now);
+
+  // Longest overdue first, not oldest post first. With a backlog, the erasures
+  // that have been owed the longest are the ones to clear.
+  const rows = await db
+    .prepare(`${EXPIRED_CANDIDATES} ORDER BY d.ts LIMIT ?2`)
+    .bind(cutoff, opts.limit)
+    .all<{ id: string; ts: number }>();
+
+  let erased = 0;
+  let failed = 0;
+  for (const row of rows.results ?? []) {
+    // Fail soft, per post. Ordering is deterministic, so one row that always
+    // throws would otherwise take the whole sweep down with it on every run and
+    // block every erasure behind it forever. The same shape as the cip100
+    // reconcile loop, for the same reason. The failure stays visible through
+    // `failed` and through a `remaining` that stops falling.
+    try {
+      const res = await erasePostContent(db, row.id, { now: opts.now, cutoff });
+      if (res.bodies > 0 || res.revisions > 0 || res.docs > 0) erased++;
+    } catch (err) {
+      failed++;
+      console.error(`[post-erasure] failed for post ${row.id}:`, err);
+    }
+  }
+
+  // Counted after the erasures, so it is the true backlog rather than a
+  // pre-count of what this run was about to do.
+  const rest = await db
+    .prepare(`SELECT COUNT(*) AS n FROM (${EXPIRED_CANDIDATES})`)
+    .bind(cutoff)
+    .first<{ n: number }>();
+
+  return { stamped, erased, failed, remaining: rest?.n ?? 0 };
 }
