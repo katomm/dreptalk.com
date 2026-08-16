@@ -39,6 +39,14 @@ describe('buildDiscussionPostDoc', () => {
     expect(doc.authors).toEqual([]);
   });
 
+  // A consumer filtering governance metadata by document type reads the top
+  // level. Typing the body instead would hide the post from it.
+  it('types the document, not the body', () => {
+    const doc = JSON.parse(buildDiscussionPostDoc(BASE).body);
+    expect(doc['@type']).toBe('DiscussionPost');
+    expect('@type' in doc.body).toBe(false);
+  });
+
   it('omits optional fields instead of emitting null', () => {
     const doc = JSON.parse(buildDiscussionPostDoc(BASE).body);
     expect('revisedAt' in doc.body).toBe(false);

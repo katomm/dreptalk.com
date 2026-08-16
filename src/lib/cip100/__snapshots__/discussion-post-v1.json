@@ -46,10 +46,10 @@
     },
     "https://dreptalk.com/cip100/context/v1.jsonld"
   ],
+  "@type": "DiscussionPost",
   "hashAlgorithm": "blake2b-256",
   "authors": [],
   "body": {
-    "@type": "DiscussionPost",
     "postId": "6f1c9a8e-2b77-4c31-9a0e-1d2f3c4b5a60",
     "version": 1,
     "postedAt": "2025-08-05T09:12:44Z",

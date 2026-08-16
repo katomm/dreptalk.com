@@ -21,6 +21,13 @@ export function buildServiceDescription(origin: string, network: Cip100Network):
       governanceActionRedirect: `${origin}/ga/{governanceActionId}`,
     },
     sitemap: `${origin}/sitemap-cip100.xml`,
+    // Every document carries its type at the top level, so a consumer can route
+    // on it without inspecting the body first.
+    documentTypes: {
+      snapshot: 'DiscussionPost',
+      postVersions: 'DiscussionPostVersions',
+      thread: 'DiscussionThread',
+    },
     verification:
       'Download the snapshot and hash the exact bytes with blake2b-256. No canonicalization is applied or expected.',
     caching:

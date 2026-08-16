@@ -84,7 +84,6 @@ export function buildDiscussionPostDoc(input: DiscussionPostDocInput): BuiltCip1
   // Key order is the serialization contract. Assign in exactly this order and
   // never reorder without treating it as a format change.
   const body: Record<string, unknown> = {
-    '@type': 'DiscussionPost',
     postId: input.postId,
     version: input.version,
     postedAt: isoSeconds(input.postedAt),
@@ -104,8 +103,13 @@ export function buildDiscussionPostDoc(input: DiscussionPostDocInput): BuiltCip1
   ];
   body.references = references;
 
+  // `@type` sits at the document level, not inside `body`, so a consumer that
+  // filters governance metadata by document type sees the post. That is where
+  // the version index and the thread manifest carry theirs too, and where the
+  // CIP-100 extensions currently in review put it.
   const doc = {
     '@context': [CIP100_INLINE_CONTEXT, extensionContextUrl(origin)],
+    '@type': 'DiscussionPost',
     hashAlgorithm: 'blake2b-256',
     authors: [] as unknown[],
     body,

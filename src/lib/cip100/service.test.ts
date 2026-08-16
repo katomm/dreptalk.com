@@ -9,6 +9,7 @@ describe('buildServiceDescription', () => {
     expect(doc.urlTemplates.snapshot).toBe('https://dreptalk.com/cip100/{hash}.json');
     expect(doc.urlTemplates.thread).toBe('https://dreptalk.com/cip100/topic/{topicId}.json');
     expect(doc.hashAlgorithm).toBe('blake2b-256');
+    expect(doc.documentTypes.snapshot).toBe('DiscussionPost');
     expect(doc.deletion).toContain('410');
     expect(doc.caching).toContain('immutable');
   });
