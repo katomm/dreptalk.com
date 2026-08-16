@@ -28,6 +28,19 @@ describe('buildServiceDescription', () => {
     expect(doc.documentClasses.postVersions).toMatch(/not a CIP-100 document/);
   });
 
+  // The erasure field is published to integrators and was wrong once: it said a
+  // 410 meant the bytes were already gone, while they are stored for the rest
+  // of the retention window. Pinned so it cannot drift back.
+  it('states the erasure contract without confusing it with availability', () => {
+    const doc = JSON.parse(buildServiceDescription('https://dreptalk.com', 'mainnet'));
+    // A 410 is about serving, not about storage.
+    expect(doc.erasure).toMatch(/no longer serves/);
+    expect(doc.erasure).not.toMatch(/bytes are gone/);
+    // And the window is stated as a floor, never as a deadline.
+    expect(doc.erasure).toContain('30 days');
+    expect(doc.erasure).not.toMatch(/within 30 days/);
+  });
+
   it('follows the deployment origin, with the vocabulary as the one exception', () => {
     const doc = JSON.parse(buildServiceDescription('https://preprod.dreptalk.com', 'preprod'));
     expect(doc.site).toBe('https://preprod.dreptalk.com/');

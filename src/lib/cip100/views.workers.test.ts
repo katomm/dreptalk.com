@@ -8,6 +8,7 @@ import { createTopic, createPost } from '../db/forum.js';
 import { getDocBody, getDocForServe, getHeadDoc } from '../db/cip100.js';
 import { reconcilePostDocs } from './reconcile.js';
 import { buildVersionIndex, buildThreadManifest } from './views.js';
+import { isoSeconds } from './document.js';
 import { EDIT_GRACE_MS } from '../forum/editPolicy.js';
 
 const db = () => env.DB;
@@ -60,6 +61,26 @@ it('omits deletedAt when the flag was set without a timestamp', async () => {
   const doc = JSON.parse((await buildVersionIndex(db(), firstPost.id, ORIGIN)).body as string);
   expect(doc.status).toBe('deleted');
   expect('deletedAt' in doc).toBe(false);
+});
+
+it('dates a tombstone from the earliest active deletion, not the post one', async () => {
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'general', authorId: 'test-author-views', title: 'Tombstone date',
+    bodyMd: 'body', bodyHtml: '<p>body</p>', now: T, rand: 'td1',
+  });
+  await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
+  // Thread deleted first, post flagged nineteen days later.
+  const THREAD_AT = T;
+  const POST_AT = T + 19 * 24 * 60 * 60 * 1000;
+  await db().prepare('UPDATE topics SET deleted = 1, deleted_at = ? WHERE id = ?')
+    .bind(THREAD_AT, topic.id).run();
+  await db().prepare('UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?')
+    .bind(POST_AT, firstPost.id).run();
+
+  const res = await buildVersionIndex(db(), firstPost.id, ORIGIN);
+  const doc = JSON.parse(res.body as string);
+  // The retention sweep uses the thread's date, so the published one must match.
+  expect(doc.deletedAt).toBe(isoSeconds(THREAD_AT));
 });
 
 it('404s an unknown post', async () => {

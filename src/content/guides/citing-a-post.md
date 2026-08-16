@@ -4,7 +4,7 @@ description: "Posts on DRepTalk have a permanent, verifiable version you can cit
 cardLabel: "Citing a post"
 category: "About DRepTalk"
 order: 6
-updated: 2026-08-11
+updated: 2026-08-16
 faqs:
   - q: "How do I cite a DRepTalk post so the quote cannot change?"
     a: "Use the Cite action on the post. It opens the post's version list, where each version has its own permanent address. Link to a version and the text behind that link can never change, because the address is derived from the content itself."
@@ -14,6 +14,8 @@ faqs:
     a: "That the text you are reading is the text that was published under that address. It does not prove who wrote it. Author identity on DRepTalk is the account that published the post, not a cryptographic signature."
   - q: "What happens if a post is deleted?"
     a: "Its versions stop being served and the address returns a Gone response. The version list keeps a record that the post existed and was deleted, without the author's identity."
+  - q: "Is a deleted post's text really gone?"
+    a: "The versions stop being served at once. The forum keeps its own copy for 30 days so that abuse can still be dealt with, and erases it after that: the post, every earlier version of it and its search entry."
   - q: "Why does a citation answer not found instead of Gone?"
     a: "Gone means the post was deleted and its versions are not coming back. Not found means the post is not available on the forum at the moment, which can change: if it returns, the same address serves the same text again."
 ---
@@ -76,6 +78,12 @@ the difference to read: Gone is final, while a version that answers "not
 found" is served again, unchanged and at the same address, if the post
 returns.
 
+Being unavailable and being erased are two different moments. The versions
+stop being served the moment the post is deleted. The text itself is kept for
+30 days after that, so that abuse can still be dealt with, and is erased once
+those 30 days have passed, along with every earlier version and the search
+entry.
+
 ## For developers
 
 Anything that wants to fetch, verify, or mirror these documents can start at
@@ -91,10 +99,12 @@ manifest are not. They are our own JSON-LD, meant for finding and following
 documents, and validating them against the CIP-100 schema will report them as
 broken when they are simply a different thing.
 
-A deleted version stops being served, and the bytes behind that address are
-discarded here. What the forum keeps in its own database, so that moderation
-and abuse handling still work, is a separate question this page does not
-answer.
+A deleted version stops being served straight away, and erasing the bytes
+behind that address is a separate, later step. The text is kept for 30 days
+so that abuse can still be dealt with, and is erased after that: the post
+body, every earlier version of it, its search index entry and the document
+bytes themselves. Deleting a whole thread erases every post in it the same
+way, though the thread's title stays in its address.
 
 ## Frequently asked questions
 
@@ -121,6 +131,12 @@ published the post, not a cryptographic signature.
 Its versions stop being served and the address answers with a Gone
 response. The version list keeps a record that the post existed and was
 deleted, without the author's identity.
+
+### Is a deleted post's text really gone?
+
+The versions stop being served at once. The forum keeps its own copy for 30
+days so that abuse can still be dealt with, and erases it after that: the
+post, every earlier version of it and its search entry.
 
 ### Why does a citation answer not found instead of Gone?
 

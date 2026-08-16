@@ -6,7 +6,7 @@ import { getLegalInfo } from '@/lib/legal';
 export const prerender = false;
 
 const legal = getLegalInfo();
-const lastUpdated = '1 August 2026';
+const lastUpdated = '16 August 2026';
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 <Layout
@@ -132,7 +132,14 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     <h2>Retention</h2>
     <p>
       Account data is kept while your account is active. Public content remains part of
-      the forum record unless you or a moderator removes it. Connection and security
+      the forum record until it is removed. When a post is deleted it disappears from the
+      forum at once, and once 30 days have passed its text is erased from our database,
+      along with every earlier version of it and its search index entry. If a whole thread
+      is deleted, this erases every post in it, but the thread's title is not erased: it
+      stays in the thread's web address and in our search index indefinitely. The 30 days
+      exist so that abuse reports about a removed post can still be dealt with. Backups held
+      by our hosting provider are overwritten on their own schedule and are not used to
+      restore deleted content. Connection and security
       logs are kept only briefly. Data written to the public Cardano blockchain (for
       example a DRep registration you submit) is outside our control and cannot be
       deleted by us.
@@ -153,7 +160,7 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     <p>We do not use automated decision-making or profiling within the meaning of Art. 22 GDPR.</p>
 
     <h2>Changes to this policy</h2>
-    <p>We may update this policy; the current version is always available on this page.</p>
+    <p>We may update this policy. The current version is always available on this page.</p>
   </article>
 
   <style>

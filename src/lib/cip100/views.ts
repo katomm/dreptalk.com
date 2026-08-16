@@ -5,6 +5,7 @@
 // propagate with no extra step: a flagged post loses its identity everywhere
 // the moment the flag is set.
 import { listPostVersions, listThreadDocs, loadPostedByClaims } from '../db/cip100.js';
+import { earliestActiveDeletion } from '../db/postErasure.js';
 import { EXTENSION_CONTEXT_URL } from './context.js';
 import { isoSeconds } from './document.js';
 import type { Cip100Network } from './origin.js';
@@ -54,7 +55,10 @@ export async function buildVersionIndex(db: D1Database, postId: string, origin: 
   // The tombstone carries no author identity and no content, so publishing it
   // for a post that was also hidden says nothing about moderation.
   if (post.deleted === 1 || post.topic_deleted === 1) {
-    const at = post.deleted_at ?? post.topic_deleted_at ?? null;
+    const at = earliestActiveDeletion(
+      post.deleted === 1 ? post.deleted_at : null,
+      post.topic_deleted === 1 ? post.topic_deleted_at : null,
+    );
     return {
       status: 200,
       body: serialize({
