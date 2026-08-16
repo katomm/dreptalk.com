@@ -35,10 +35,14 @@ export async function upsertVoteRationalePost(
     if (existing.deleted) {
       // Reviving a previously removed cross-post (opted out earlier, or removed
       // by the 0046 migration): bring it back into the thread AND re-count it, so
-      // the "shown in the thread iff counted" invariant holds.
+      // the "shown in the thread iff counted" invariant holds. deleted_at is
+      // cleared with the flag, so the column never describes a state the row is
+      // not in. The erasure sweep does not depend on that, it pairs each flag
+      // with its own timestamp, but the next query written against this column
+      // would.
       await db.batch([
         db
-          .prepare(`UPDATE posts SET body_md = ?, body_html = ?, vote = ?, edited_at = ?, deleted = 0 WHERE id = ?`)
+          .prepare(`UPDATE posts SET body_md = ?, body_html = ?, vote = ?, edited_at = ?, deleted = 0, deleted_at = NULL WHERE id = ?`)
           .bind(rec.bodyMd, rec.bodyHtml, rec.vote, rec.now, existing.id),
         db
           .prepare(`UPDATE topics SET post_count = post_count + 1, last_post_at = ? WHERE id = ?`)
@@ -91,7 +95,7 @@ export async function upsertVoteRationalePost(
 // Positions tab (action_rationale).
 export async function removeVoteRationalePost(
   db: D1Database,
-  rec: { topicId: string; authorId: string },
+  rec: { topicId: string; authorId: string; now: number },
 ): Promise<void> {
   const existing = await db
     .prepare(
@@ -102,7 +106,7 @@ export async function removeVoteRationalePost(
     .first<{ id: string }>();
   if (!existing) return;
   await db.batch([
-    db.prepare(`UPDATE posts SET deleted = 1 WHERE id = ?`).bind(existing.id),
+    db.prepare(`UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?`).bind(rec.now, existing.id),
     db.prepare(`UPDATE topics SET post_count = MAX(post_count - 1, 0) WHERE id = ?`).bind(rec.topicId),
     // Withdraw the feed event too; ref_post_id is unique to this cross-post.
     db.prepare(`DELETE FROM activity WHERE type = 'reply_created' AND ref_post_id = ?`).bind(existing.id),

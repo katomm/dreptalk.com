@@ -35,11 +35,20 @@ interface Props {
   postNumber?: number;
   /** Co-proposer mandate label for this post's persisted proposer_grant_id, or null/absent for a personal post. */
   mandate?: string | null;
+  /** Whether this post has an emitted CIP-100 document, i.e. /cip100/post/<id>.json
+      actually resolves. Drives the Cite affordance in PostActions, defaults to
+      false so a caller that forgets to pass it never shows a link that 404s. */
+  citable?: boolean;
 }
 
-const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber, mandate } = Astro.props;
+const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber, mandate, citable = false } = Astro.props;
 
 const { canSeeContent, canFlag, canReact, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
+
+// A hidden post's version index answers 404 for as long as it is hidden, and
+// the action row still renders for its author and for moderators, so the Cite
+// affordance goes with it. It comes back when the flags are withdrawn.
+const showCite = citable && !post.hidden;
 
 const isVoteRationale = post.source === 'vote_rationale';
 
@@ -129,6 +138,7 @@ const changedVoteHref = author.drepId ? `?tab=positions#voter-${author.drepId}` 
       canReply={canReply}
       canEdit={canEdit && !topicLocked && !isVoteRationale}
       authorName={author.displayName}
+      citable={showCite}
     />
   )}
 </article>

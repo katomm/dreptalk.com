@@ -99,8 +99,13 @@ describe('upsertVoteRationalePost', () => {
     expect(await rationaleEvents(topicId, authorId)).toHaveLength(1);
 
     // Opt-out on a re-vote withdraws the cross-post; its feed event goes too.
-    await removeVoteRationalePost(env.DB, { topicId, authorId });
+    await removeVoteRationalePost(env.DB, { topicId, authorId, now: 1500 });
     expect(await rationaleEvents(topicId, authorId)).toHaveLength(0);
+    const removed = await env.DB.prepare(
+      `SELECT deleted, deleted_at FROM posts WHERE topic_id = ? AND author_id = ? AND source = 'vote_rationale'`,
+    ).bind(topicId, authorId).first<{ deleted: number; deleted_at: number }>();
+    expect(removed?.deleted).toBe(1);
+    expect(removed?.deleted_at).toBe(1500);
 
     // Re-voting with the box ticked again revives the post and re-surfaces it.
     await upsertVoteRationalePost(env.DB, {
@@ -108,5 +113,36 @@ describe('upsertVoteRationalePost', () => {
       bodyMd: 'Reason again', bodyHtml: '<p>Reason again</p>', now: 3000,
     });
     expect(await rationaleEvents(topicId, authorId)).toHaveLength(1);
+  });
+
+  it('clears deleted_at when a cross-post is revived', async () => {
+    const topicId = 'test-topic-vrp-revive';
+    const authorId = 'user-vrp-revive';
+    const T = 1_700_000_000_000;
+    const read = () =>
+      env.DB.prepare(
+        `SELECT deleted, deleted_at FROM posts
+          WHERE topic_id = ? AND author_id = ? AND source = 'vote_rationale'`,
+      )
+        .bind(topicId, authorId)
+        .first<{ deleted: number; deleted_at: number | null }>();
+
+    await upsertVoteRationalePost(env.DB, {
+      topicId, authorId, vote: 'yes', bodyMd: 'first', bodyHtml: '<p>first</p>', now: T,
+    });
+    await removeVoteRationalePost(env.DB, { topicId, authorId, now: T });
+
+    const gone = await read();
+    expect(gone?.deleted).toBe(1);
+    expect(gone?.deleted_at).toBe(T);
+
+    await upsertVoteRationalePost(env.DB, {
+      topicId, authorId, vote: 'no', bodyMd: 'second', bodyHtml: '<p>second</p>', now: T + 1000,
+    });
+
+    const back = await read();
+    expect(back?.deleted).toBe(0);
+    // The column must not describe a state the row is not in.
+    expect(back?.deleted_at).toBeNull();
   });
 });

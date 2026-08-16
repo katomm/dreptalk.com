@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, deactivateDreps, effectiveDrepStatus, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
+import { bindCountingDb } from './__tests__/bindCountingDb.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
 
@@ -180,6 +181,23 @@ describe('getDrepsByIds', () => {
     const result = await getDrepsByIds(db(), ['drep1-none-a', 'drep1-none-b']);
     expect(result).toBeInstanceOf(Map);
     expect(result.size).toBe(0);
+  });
+
+  it('stays under the D1 100-bind cap and still finds dreps beyond the first chunk', async () => {
+    // Three real DReps placed at the END of a 203-id lookup, so they land past
+    // the first chunk boundary. A single IN (...) would bind 203 parameters:
+    // production D1 rejects that, miniflare does not, hence the bind counter.
+    // The CIP-100 thread manifest is the unbounded caller.
+    const real = ['drep1-bindcap-a', 'drep1-bindcap-b', 'drep1-bindcap-c'];
+    for (const drepId of real) await upsertDrep(db(), { ...BASE_ARGS, drepId });
+    const missing = Array.from({ length: 200 }, (_, i) => `drep1-bindcap-missing-${i}`);
+
+    const counted = bindCountingDb(db());
+    const found = await getDrepsByIds(counted.db, [...missing, ...real]);
+
+    expect(found.size).toBe(3);
+    for (const id of real) expect(found.get(id)?.drepId).toBe(id);
+    expect(counted.maxBinds()).toBeLessThanOrEqual(100);
   });
 });
 

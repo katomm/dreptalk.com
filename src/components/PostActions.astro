@@ -29,9 +29,13 @@ interface Props {
   canEdit?: boolean;
   /** Author display name, echoed in the composer's "Replying to" chip. */
   authorName?: string;
+  /** Whether this post has an emitted CIP-100 document to link to. Defaults to
+      false: a caller that forgets to pass it gets no link rather than a link
+      that 404s, since a post without a document has no version index at all. */
+  citable?: boolean;
 }
 
-const { post, canReact, canFlag, isOwnPost, flagged, viewerReaction, canReply = false, canEdit = false, authorName = '' } = Astro.props;
+const { post, canReact, canFlag, isOwnPost, flagged, viewerReaction, canReply = false, canEdit = false, authorName = '', citable = false } = Astro.props;
 const disabledReason = isOwnPost ? 'You cannot react to your own posts' : undefined;
 // vote_rationale posts are frozen: the edit affordance is never shown,
 // regardless of what the caller passes for canEdit. Flag stays available.
@@ -107,6 +111,16 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
       initialHidden={post.hidden}
     />
   )}
+  {citable && (
+    <a
+      class="post-action"
+      href={`/cip100/post/${post.id}.json`}
+      rel="alternate nofollow"
+      title="The citable, verifiable version of this post"
+    >
+      Cite
+    </a>
+  )}
 </div>
 
 <style>
@@ -124,6 +138,10 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
     font: inherit;
     font-size: 0.8125rem;
     color: var(--muted);
+    /* The class is shared by <button> actions and the Cite <a>. Buttons never
+       have an underline, so this keeps the anchor visually identical to them
+       instead of the browser's default link underline. */
+    text-decoration: none;
   }
   .post-action:hover {
     color: var(--fg);

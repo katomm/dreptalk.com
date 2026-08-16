@@ -15,6 +15,9 @@ import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { toBase64Url } from '../crypto/base64url.js';
 import { notifyReply, notifyMentions } from '../notifications/notify.js';
 import { extractMentionSlugs, resolveMentions } from './mentions.js';
+import { reconcilePostDocs } from '../cip100/reconcile.js';
+import { originForNetwork } from '../cip100/origin.js';
+import { currentNetwork } from '../api/response.js';
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -483,6 +486,22 @@ export const handleClearReaction = (input: ReactPostInput): Promise<HandlerResul
 // handleEditPost / handleEditTitle (owner edits; grace window + revisions)
 // ---------------------------------------------------------------------------
 
+/** Reconciles a post's CIP-100 documents without ever failing the caller. A
+ *  swallowed failure is not a lost document: the gov-sync cron finds the post
+ *  stale (posts.edited_at ahead of the head's source_edited_at) and reconciles
+ *  it on the next run. */
+async function emitCip100(db: D1Database, postId: string, now: number): Promise<void> {
+  try {
+    const network = currentNetwork().network === 'preprod' ? 'preprod' : 'mainnet';
+    await reconcilePostDocs(db, postId, { origin: originForNetwork(network), network, now });
+  } catch (err) {
+    // Never fails the write: the cron repairs it. Logged with the post id all
+    // the same, or a permanently reproducible emit failure stays invisible
+    // behind a repair loop that quietly retries it forever.
+    console.error(`[cip100] emit failed for post ${postId}:`, err);
+  }
+}
+
 /** Maps editPost/editTitle domain errors to HTTP results. */
 function editError(err: unknown): HandlerResult {
   const msg = err instanceof Error ? err.message : '';
@@ -511,6 +530,11 @@ export interface EditPostInput {
  * Edits the caller's own post body. Same writer gate as posting; rate-limited;
  * validates length; re-renders+sanitizes markdown. Ownership, hidden, and topic
  * lock/delete checks live in editPost (domain errors mapped via editError).
+ *
+ * Reconciles the post's CIP-100 documents twice, before and after the write:
+ * once to freeze the text that was publicly visible until now, once to publish
+ * the edited text as the next version. Both are best effort and never fail the
+ * edit, see emitCip100.
  */
 export async function handleEditPost(input: EditPostInput): Promise<HandlerResult> {
   try {
@@ -532,6 +556,14 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
     const { mentions } = await resolveBodyMentions(db, bodyMd);
     const bodyHtml = renderMarkdown(bodyMd, { mentions });
 
+    // Freeze what is about to be overwritten. A post whose grace window has
+    // closed but which the cron has not reached yet has no document, and
+    // editPost replaces body_md in place, so the text that was publicly visible
+    // until now would otherwise never become a version. In every other case this
+    // is a no-op: inside the grace window the post is out of scope, and with a
+    // current head the reconciler returns 'unchanged'.
+    await emitCip100(db, postId, now);
+
     try {
       const { edited } = await editPost(db, {
         postId,
@@ -541,6 +573,9 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
         now,
         sessionGrantId: user.grantId ?? null,
       });
+      // Publish the edited text as the next version. Its own try/catch, not the
+      // notification one, so a notification failure cannot skip the emit.
+      await emitCip100(db, postId, now);
       return { status: 200, json: { ok: true, edited } };
     } catch (err) {
       return editError(err);

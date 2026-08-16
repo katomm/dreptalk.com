@@ -367,7 +367,7 @@ describe('local vote record + reconcile', () => {
 
   it('marks stale pending votes failed', async () => {
     await recordLocalVote(env.DB, { gaId, drepId, voterHex: null, vote: 'no', metaUrl: null, txHash: 'tx2', now: 1000 });
-    const n = await markStalePendingVotesFailed(env.DB, 5000); // cutoff after synced_at=1000
+    const n = await markStalePendingVotesFailed(env.DB, 5000, 6000); // cutoff after synced_at=1000
     expect(n).toBe(1);
     const v = await getViewerVote(env.DB, gaId, drepId);
     expect(v?.local_status).toBe('failed');
@@ -380,7 +380,7 @@ describe('local vote record + reconcile', () => {
     expect((await getVotesByGaId(env.DB, 'gaFail')).has('drepFail')).toBe(true);
     expect(await countDrepVotes(env.DB, 'drepFail')).toBe(1);
 
-    await markStalePendingVotesFailed(env.DB, 5000);
+    await markStalePendingVotesFailed(env.DB, 5000, 6000);
 
     // Gone from every public read once reconciled to failed...
     expect((await getVotesByGaId(env.DB, 'gaFail')).has('drepFail')).toBe(false);
@@ -410,12 +410,13 @@ describe('local vote record + reconcile', () => {
 
     const before = (await env.DB.prepare('SELECT post_count FROM topics WHERE id = ?').bind(topic.id).first<{ post_count: number }>())?.post_count ?? 0;
 
-    await markStalePendingVotesFailed(env.DB, 5000);
+    await markStalePendingVotesFailed(env.DB, 5000, 6000);
 
     const rat = await env.DB.prepare(`SELECT COUNT(*) AS n FROM action_rationale WHERE ga_id = 'gaReap' AND voter_id = 'drepReap'`).first<{ n: number }>();
     expect(rat?.n).toBe(0); // dreptalk rationale deleted
-    const post = await env.DB.prepare(`SELECT deleted FROM posts WHERE topic_id = ? AND author_id = 'userReap' AND source = 'vote_rationale'`).bind(topic.id).first<{ deleted: number }>();
+    const post = await env.DB.prepare(`SELECT deleted, deleted_at FROM posts WHERE topic_id = ? AND author_id = 'userReap' AND source = 'vote_rationale'`).bind(topic.id).first<{ deleted: number; deleted_at: number }>();
     expect(post?.deleted).toBe(1); // cross-post soft-deleted
+    expect(post?.deleted_at).toBe(6000); // stamped with the reconcile's own clock, not the sweep cutoff
     const after = (await env.DB.prepare('SELECT post_count FROM topics WHERE id = ?').bind(topic.id).first<{ post_count: number }>())?.post_count ?? 0;
     expect(after).toBe(before - 1); // topic count kept in step
   });

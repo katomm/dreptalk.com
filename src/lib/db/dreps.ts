@@ -3,7 +3,7 @@
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 // Stores on-chain DRep status and CIP-119 profile data synced from Koios.
 
-import { sqlPlaceholders } from './sql.js';
+import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { computeVotingPowerDelta } from '../dreps/votingPowerTrend.js';
 import { buildJobInsert } from './fanoutJobs.js';
@@ -255,24 +255,25 @@ export async function getDrepByIdOrSlug(db: D1Database, key: string): Promise<Dr
 }
 
 /**
- * Fetches multiple dreps by id in a single query (no N+1).
- * Builds a parameterized IN clause from the id list.
+ * Fetches multiple dreps by id in one batched round-trip (no N+1).
+ * Chunked to D1's 100-bind cap, like getUsersByIds and getPoolsByIds: the
+ * CIP-100 thread manifest passes one id per non-deleted post in a whole topic,
+ * unpaginated, so the list is unbounded and can exceed a single IN clause.
  * Returns an empty Map for empty input without querying D1.
  */
 export async function getDrepsByIds(db: D1Database, ids: string[]): Promise<Map<string, Drep>> {
   if (ids.length === 0) return new Map();
 
-  const placeholders = sqlPlaceholders(ids);
-  const rows = (
-    await db
-      .prepare(`SELECT * FROM dreps WHERE drep_id IN (${placeholders})`)
-      .bind(...ids)
-      .all<DrepRow>()
-  ).results ?? [];
+  const stmts = chunked(ids, D1_MAX_BINDS).map((chunk) =>
+    db.prepare(`SELECT * FROM dreps WHERE drep_id IN (${sqlPlaceholders(chunk)})`).bind(...chunk),
+  );
+  const batched = await db.batch<DrepRow>(stmts);
 
   const result = new Map<string, Drep>();
-  for (const row of rows) {
-    result.set(row.drep_id, rowToDrep(row));
+  for (const res of batched) {
+    for (const row of res.results ?? []) {
+      result.set(row.drep_id, rowToDrep(row));
+    }
   }
   return result;
 }

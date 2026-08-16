@@ -31,6 +31,9 @@ import {
   refreshTrendingScores,
 } from '../../../src/lib/governance/sync.js';
 import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, backfillThresholdSnapshots, backfillFinalizedVotes, backfillVoteMetaHashes, backfillGovStatusTimes, reconcilePendingVotes } from '../../../src/lib/governance/tallySync.js';
+import { runCip100Sync } from '../../../src/lib/cip100/cron.js';
+import { originForNetwork } from '../../../src/lib/cip100/origin.js';
+import { runPostErasureSweep } from '../../../src/lib/db/postErasure.js';
 import { syncVoteRationales } from '../../../src/lib/governance/rationaleSync.js';
 import { syncCommitteeVoteMeta } from '../../../src/lib/governance/committeeMetaSync.js';
 import { backfillVoteHistorySweep } from '../../../src/lib/governance/voteHistoryBackfill.js';
@@ -326,6 +329,35 @@ async function runGovernanceSync(env: Env, phase: PhaseFn, opts: { heavy: boolea
       return { items: res.resolved, failed: res.failed };
     });
   }
+
+  // Erasure: a deleted post's text is removed from every store it lives in once
+  // its retention window has passed. Runs before the cip100 phase, but the
+  // order is not load-bearing: the two phases operate on disjoint row sets.
+  await phase('post-erasure', async () => {
+    const r = await runPostErasureSweep(env.DB, { now, limit: 200 });
+    // Logged only when there is something to say, but `remaining` and `failed`
+    // are always part of it: a backlog that is not draining has to be visible
+    // rather than reading as a quiet run.
+    if (r.stamped > 0 || r.erased > 0 || r.failed > 0 || r.remaining > 0) {
+      console.log(
+        `[post-erasure] stamped=${r.stamped} erased=${r.erased} failed=${r.failed} remaining=${r.remaining}`,
+      );
+    }
+    return { items: r.erased, failed: r.failed };
+  });
+
+  // CIP-100 documents: a bounded reconcile batch. Cheap enough for every tick,
+  // and running it often keeps the citable state close to the live state.
+  await phase('cip100', async () => {
+    const r = await runCip100Sync(env.DB, {
+      origin: originForNetwork(network),
+      network,
+      now,
+      limit: 200,
+    });
+    console.log(`[cip100] reconciled=${r.reconciled} skipped=${r.skipped} failed=${r.failed}`);
+    return { items: r.reconciled, failed: r.failed };
+  });
 }
 
 // Refresh the per-post vote lists (active actions only). Every 20 min: vote lists

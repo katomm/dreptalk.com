@@ -53,6 +53,8 @@ import { loadMandates } from '@/lib/forum/mandate.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { isWriter } from '@/lib/auth/roles.js';
 import { currentNetwork } from '@/lib/api/response.js';
+import { listPostIdsWithDocs } from '@/lib/db/cip100.js';
+import { originForNetwork } from '@/lib/cip100/origin.js';
 import { getCategory } from '../../../config/categories.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { parseGaTab } from '@/lib/governance/tab.js';
@@ -105,6 +107,11 @@ const thread: ThreadPage = topic && db
 // Every post on the page (top-level and replies) for the batched lookups below.
 const pagePosts = [...thread.topLevel, ...[...thread.childrenByParent.values()].flat()];
 
+// Post ids on this page that have an emitted CIP-100 document, i.e. are safe to
+// show a Cite link for. A post inside its edit grace window, or one the cron
+// has not reached yet, has no version index at all: a visible link would 404.
+const citablePostIds = topic && db ? await listPostIdsWithDocs(db, topic.id) : new Set<string>();
+
 const category = topic ? getCategory(topic.category_slug) : undefined;
 
 // Resolve author identities for the topic header and every post on this page in
@@ -153,6 +160,21 @@ if (!notFound) {
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
 const network = currentNetwork().network;
+
+// CIP-100 discovery, layer 1: the thread manifest. A per-post alternate is not
+// possible, posts have no pages of their own, they live at /t/<slug>/#post-<id>.
+// The page carries one canonical alternate, and this same URL is also set as an
+// HTTP Link header so a consumer can find it with a HEAD request and no HTML
+// parsing. Not siteOrigin: astro.config.mjs hardcodes site to the mainnet apex
+// and the preprod build does not override it, so Astro.site would publish
+// mainnet URLs from a page served on preprod (see sitemap-cip100.xml.ts).
+const cip100Origin = originForNetwork(network === 'preprod' ? 'preprod' : 'mainnet');
+// Not notFound: a deleted topic's manifest answers 410, so a 404 page must not
+// hint at it either.
+const cip100ManifestUrl = !notFound && topic ? `${cip100Origin}/cip100/topic/${topic.id}.json` : null;
+if (cip100ManifestUrl) {
+  Astro.response.headers.set('Link', `<${cip100ManifestUrl}>; rel="alternate"; type="application/ld+json"`);
+}
 
 const user = Astro.locals.user;
 
@@ -539,6 +561,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     wide={isGovernanceTopic}
     readingWidth={!isGovernanceTopic}
   >
+    {cip100ManifestUrl && (
+      <link rel="alternate" type="application/ld+json" href={cip100ManifestUrl} slot="head" />
+    )}
     {discussionLd && <JsonLd data={discussionLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
 
@@ -607,6 +632,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 nextPage={nextPage}
                 now={now}
                 mandates={mandates}
+                citablePostIds={citablePostIds}
               />
             ) : tab === 'positions' ? (
               <GaPositions
@@ -734,6 +760,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           now={now}
           startIndex={offset}
           mandates={mandates}
+          citablePostIds={citablePostIds}
         />
         {relatedTopics.length > 0 && (
           <section class="thread-related">

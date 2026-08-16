@@ -34,6 +34,14 @@
 /icons/*
   Cache-Control: public, max-age=31536000, immutable
 
+# The CIP-100 extension context: versioned URL, so the bytes never change. A new
+# term means a v1 -> v2 file, and documents keep the version they were built
+# with. Static Assets would otherwise serve .jsonld without a useful type.
+/cip100/context/*
+  Content-Type: application/ld+json; charset=utf-8
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+
 # Hand-edited script with a stable filename, so it cannot be immutable: an edit
 # would not propagate to returning visitors. Cap at one hour with revalidation
 # instead, which still removes most of the per-navigation roundtrips.

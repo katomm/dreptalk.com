@@ -578,7 +578,7 @@ export async function getViewerVote(db: D1Database, gaId: string, drepId: string
  * posts by a user whose drep_id is the failed voter, so a real vote's artifacts
  * are safe. Idempotent: a second pass over the same failed vote is a no-op.
  */
-async function reapFailedVoteArtifacts(db: D1Database, gaId: string, voterId: string): Promise<void> {
+async function reapFailedVoteArtifacts(db: D1Database, gaId: string, voterId: string, now: number): Promise<void> {
   // 1. The optimistic Positions-tab rationale (only the client-written kind).
   await db
     .prepare(`DELETE FROM action_rationale WHERE ga_id = ? AND voter_id = ? AND source = 'dreptalk'`)
@@ -601,7 +601,7 @@ async function reapFailedVoteArtifacts(db: D1Database, gaId: string, voterId: st
   ).results ?? [];
   for (const p of posts) {
     await db.batch([
-      db.prepare(`UPDATE posts SET deleted = 1 WHERE id = ?`).bind(p.id),
+      db.prepare(`UPDATE posts SET deleted = 1, deleted_at = ? WHERE id = ?`).bind(now, p.id),
       db.prepare(`UPDATE topics SET post_count = MAX(post_count - 1, 0) WHERE id = ?`).bind(p.topic_id),
     ]);
   }
@@ -613,8 +613,10 @@ async function reapFailedVoteArtifacts(db: D1Database, gaId: string, voterId: st
  * the authoritative sync, so its tx failed or rolled back: mark it 'failed' (kept
  * for the voter's own panel and audit, but hidden from every public vote read)
  * and reap the optimistic rationale + cross-post it left behind. Returns rows changed.
+ * `now` (milliseconds) stamps deleted_at on any reaped cross-post, matching the
+ * unit every other forum write uses, distinct from the seconds-based cutoff.
  */
-export async function markStalePendingVotesFailed(db: D1Database, cutoffSeconds: number): Promise<number> {
+export async function markStalePendingVotesFailed(db: D1Database, cutoffSeconds: number, now: number): Promise<number> {
   // Capture which votes will fail before the UPDATE, so their artifacts can be reaped.
   const stale = (
     await db
@@ -630,7 +632,7 @@ export async function markStalePendingVotesFailed(db: D1Database, cutoffSeconds:
     .run();
 
   for (const v of stale) {
-    await reapFailedVoteArtifacts(db, v.ga_id, v.voter_id);
+    await reapFailedVoteArtifacts(db, v.ga_id, v.voter_id, now);
   }
   return stale.length;
 }

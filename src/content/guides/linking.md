@@ -4,7 +4,7 @@ description: "How to link to any Cardano DRep, governance action, or individual 
 cardLabel: "Linking to pages"
 category: "About DRepTalk"
 order: 5
-updated: 2026-08-11
+updated: 2026-08-12
 faqs:
   - q: "How do I link to a governance action without knowing its DRepTalk URL?"
     a: "Put the action's id after dreptalk.com/ga/, for example dreptalk.com/ga/gov_action1xyz. DRepTalk resolves the id and redirects to the action's page. The bech32 gov_action1 form and the hex forms used by explorers both work."
@@ -102,6 +102,11 @@ Two properties make this safe to render unconditionally:
 Each deployment serves one network, so use ids from the network that
 deployment covers.
 
+A plain link like this is enough when a click is all you need. If your tool
+instead needs to quote a post's exact words in a way that stays verifiable
+even after the post is edited, see [Citing a post](/help/citing-a-post/):
+every public post has its own permanent, content-addressed version for that.
+
 If you want a logo or a badge to go with the link, the [brand
 page](/brand/) has ready-made snippets and the colors and marks to use.
 
@@ -138,4 +143,5 @@ chain, so the link is always valid.
 
 - [Understanding a governance action page](/help/understanding-a-governance-action/)
 - [Promoting your DRep](/help/promoting-your-drep/)
+- [Citing a post](/help/citing-a-post/)
 - [Data freshness](/help/data-freshness/)
