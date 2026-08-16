@@ -704,24 +704,8 @@ describe('self-hosted anchors', () => {
     expect(stored!.profileExtractVersion).toBe(PROFILE_EXTRACT_VERSION);
   });
 
-  it('resolves a preprod.dreptalk.com-hosted anchor from D1 without an HTTP fetch', async () => {
-    const id = 'drep1-selfhosted-preprod';
-    await putDrepMetadata(env.DB, { drepId: id, body: profileJson, hash: profileHash, name: 'Alice DRep', createdAt: 1000 });
-    const { koios } = fakeKoios({
-      pages: [[listRow(id)]],
-      infoById: new Map([
-        [id, infoRow(id, { meta_url: `https://preprod.dreptalk.com/drep/${profileHash}.json`, meta_hash: profileHash })],
-      ]),
-    });
-    const fetcher = countingProfileFetch();
-
-    await syncDreps({ koios, db: env.DB, fetchImpl: fetcher.fetchImpl, now: NOW });
-
-    expect(fetcher.calls()).toBe(0);
-    const stored = await getDrepById(env.DB, id);
-    expect(stored!.anchorStatus).toBe('ok');
-    expect(stored!.name).toBe('Alice DRep');
-  });
+  // The subdomain (preprod.dreptalk.com) and lookalike-host axes are pinned by
+  // the pure URL tests in selfHostedDocs.test.ts; no duplicate integration runs.
 
   it('records fetch-failed when the self-hosted document is missing from D1', async () => {
     // No putDrepMetadata: the row the URL points at does not exist, exactly what

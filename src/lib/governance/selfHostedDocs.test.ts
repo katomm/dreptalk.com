@@ -55,11 +55,12 @@ describe('selfHostedRef', () => {
     expect(selfHostedRef('not a url')).toBeNull();
   });
 
-  it('returns null for self-zone paths that are not hosted documents', () => {
-    expect(selfHostedRef('https://dreptalk.com/')).toBeNull();
-    expect(selfHostedRef('https://dreptalk.com/logo.png')).toBeNull();
-    expect(selfHostedRef(`https://dreptalk.com/drep/${HASH}`)).toBeNull(); // no .json
-    expect(selfHostedRef(`https://dreptalk.com/drep/${'A'.repeat(64)}.json`)).toBeNull(); // uppercase
-    expect(selfHostedRef(`https://dreptalk.com/drep/${'a'.repeat(63)}.json`)).toBeNull(); // short
+  it("classifies self-zone paths that are not hosted documents as 'other'", () => {
+    // 'other' still means "never fetch this", there is just nothing to read.
+    expect(selfHostedRef('https://dreptalk.com/')).toEqual({ kind: 'other' });
+    expect(selfHostedRef('https://dreptalk.com/logo.png')).toEqual({ kind: 'other' });
+    expect(selfHostedRef(`https://dreptalk.com/drep/${HASH}`)).toEqual({ kind: 'other' }); // no .json
+    expect(selfHostedRef(`https://dreptalk.com/drep/${'A'.repeat(64)}.json`)).toEqual({ kind: 'other' }); // uppercase
+    expect(selfHostedRef(`https://dreptalk.com/drep/${'a'.repeat(63)}.json`)).toEqual({ kind: 'other' }); // short
   });
 });

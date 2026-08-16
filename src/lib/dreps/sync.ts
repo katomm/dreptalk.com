@@ -17,8 +17,7 @@ import {
 import { assignSlugs } from './slug.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { gcDrepMetadata } from '../db/drepMetadata.js';
-import { extractCip119Profile, PROFILE_EXTRACT_VERSION } from '../governance/metadata.js';
-import { fetchOrReadAnchorDoc } from '../governance/selfHostedDocs.js';
+import { fetchAnchorDoc, extractCip119Profile, PROFILE_EXTRACT_VERSION } from '../governance/metadata.js';
 import { ingestDataUriAvatar, type ImageDownscaler } from './avatarStore.js';
 
 // Koios paginates drep_list at 1000 rows; page through by incrementing offset.
@@ -184,11 +183,11 @@ async function resolveProfile(
     // When the per-run anchor budget is spent the fetch is skipped and the
     // status recorded as 'deferred'; the non-ok handling below preserves the
     // profile, and the next run retries (only 'ok' rows take the reuse path).
-    // Self-hosted anchors are read from D1 instead of over HTTP (a same-zone
-    // fetch would blackhole, see selfHostedDocs.ts); the D1 read still counts
-    // against the anchor budget since it does the same per-DRep work.
+    // Self-hosted anchors are read from D1 instead of over HTTP (fetchAnchorDoc
+    // short-circuits them when db is present); the D1 read still counts against
+    // the anchor budget since it does the same per-DRep work.
     const result = canFetch
-      ? await fetchOrReadAnchorDoc(deps.db, metaUrl, metaHash, { fetchImpl: deps.fetchImpl })
+      ? await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl, db: deps.db })
       : { status: 'deferred' as const, doc: null };
     if (result.status === 'ok') {
       const cip119 = extractCip119Profile(result.doc);

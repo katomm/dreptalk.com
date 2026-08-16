@@ -22,14 +22,12 @@ describe('handleVoteRationale', () => {
     const stored = await getVoteRationaleBody(env.DB, hash);
     expect(stored && JSON.parse(stored).body.comment).toBe('Because it strengthens the treasury.');
 
-    // Roundtrip: the bytes we host must verify against the hash we returned when
-    // run through the very verifier every consumer uses. This is the guard that a
-    // cgov-class hash/format mismatch can never originate on our own side.
-    const bytes = new TextEncoder().encode(stored as string);
-    const verified = await fetchVoteRationale(url, hash, {
-      fetchImpl: (async () =>
-        new Response(bytes, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch,
-    });
+    // Roundtrip: the document we host must verify against the hash we returned
+    // when run through the very resolver every consumer uses. The URL is on our
+    // own zone, so the resolver reads the stored body from D1 (never HTTP),
+    // exactly as in production. This is the guard that a cgov-class hash/format
+    // mismatch can never originate on our own side.
+    const verified = await fetchVoteRationale(url, hash, { db: env.DB });
     expect(verified.status).toBe('ok');
   });
 

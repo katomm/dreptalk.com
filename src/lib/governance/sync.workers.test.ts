@@ -4,6 +4,7 @@ import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmitte
 import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
 import { activityInsert } from '../db/activity.js';
+import { putVoteRationale } from '../db/voteRationale.js';
 import { createTopic, getOpeningPostBody } from '../db/forum.js';
 import type { ProposalListRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
@@ -1126,5 +1127,72 @@ describe('refreshTrendingScores', () => {
     expect(r.updated).toBe(1); // only the live, non-deleted, topic-backed one is scored
     expect(await scoreOf('t-live')).not.toBeNull();
     expect(await scoreOf('t-del')).toBeNull();
+  });
+});
+
+// Governance-action anchors are on-chain, submitter-controlled URLs and can
+// point at our own zone. A same-zone Worker fetch blackholes at the placeholder
+// origin, so self-zone anchors must never go over HTTP: hosted-document paths
+// resolve from D1, everything else fails fast.
+describe('syncGovernanceActions self-hosted anchors', () => {
+  function countingFetch() {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return new Response('not found', { status: 404 });
+    }) as unknown as typeof fetch;
+    return { fetchImpl, calls: () => calls };
+  }
+  const proposal = (id: string, tx: string, metaUrl: string, metaHash: string): ProposalListRow => ({
+    proposal_id: id,
+    proposal_tx_hash: tx,
+    proposal_index: 0,
+    proposal_type: 'InfoAction',
+    deposit: null,
+    return_address: null,
+    proposed_epoch: 210,
+    expiration: null,
+    meta_url: metaUrl,
+    meta_hash: metaHash,
+  });
+
+  it('reads a dreptalk-hosted anchor document from D1 without HTTP', async () => {
+    const doc = JSON.stringify({ body: { title: 'Hosted GA Title', abstract: 'Abstract.', rationale: 'R.' } });
+    const hash = bytesToHex(blake2b256(new TextEncoder().encode(doc)));
+    await putVoteRationale(env.DB, { hash, body: doc, drepId: 'drep1gaself', gaId: 'seed', createdAt: 1000 });
+    const fetcher = countingFetch();
+    let n = 0;
+
+    await syncGovernanceActions({
+      koios: fakeKoios([proposal('gov_action1selfok', 'cc'.repeat(32), `https://dreptalk.com/vote-rationale/${hash}.json`, hash)]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_000_000,
+      rand: () => `sh${n++}`,
+      fetchImpl: fetcher.fetchImpl,
+    });
+
+    expect(fetcher.calls()).toBe(0);
+    const ga = await env.DB.prepare(`SELECT anchor_status, title FROM governance_actions WHERE id = ?`).bind(`${'cc'.repeat(32)}#0`).first<{ anchor_status: string; title: string }>();
+    expect(ga?.anchor_status).toBe('ok');
+    expect(ga?.title).toBe('Hosted GA Title');
+  });
+
+  it('fails a self-zone anchor with no hosted document fast, without HTTP', async () => {
+    const fetcher = countingFetch();
+    let n = 0;
+
+    await syncGovernanceActions({
+      koios: fakeKoios([proposal('gov_action1selffail', 'dd'.repeat(32), 'https://dreptalk.com/some-page.json', 'e'.repeat(64))]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_000_000,
+      rand: () => `sf${n++}`,
+      fetchImpl: fetcher.fetchImpl,
+    });
+
+    expect(fetcher.calls()).toBe(0);
+    const ga = await env.DB.prepare(`SELECT anchor_status FROM governance_actions WHERE id = ?`).bind(`${'dd'.repeat(32)}#0`).first<{ anchor_status: string }>();
+    expect(ga?.anchor_status).toBe('fetch-failed');
   });
 });

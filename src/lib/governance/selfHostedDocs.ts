@@ -1,33 +1,47 @@
 /// <reference types="@cloudflare/workers-types" />
-// Self-hosted document short circuit.
+// Self-hosted URL classification and document reads.
 //
 // URLs minted by our own flows point back at this site: CIP-119 profile docs at
 // /drep/<hash>.json (drepMetadataHandler), vote rationales at
 // /vote-rationale/<hash>.json (voteRationaleHandler), and uploaded avatars at
-// /api/avatar/<hash> (drepImageHandler). Fetching any of them from a Worker is a
-// same-zone subrequest: Cloudflare's loop prevention bypasses our Worker and
-// connects to the placeholder origin DNS record, a blackhole that times out as a
-// 504. Every consumer that resolves such URLs must therefore read the content
-// from its store (D1 or R2) instead of HTTP. This module centralizes the URL
-// detection and the D1-backed anchor-document read.
+// /api/avatar/<hash> (drepImageHandler). Fetching ANY URL on our own zone from
+// a Worker is a same-zone subrequest: Cloudflare's loop prevention bypasses our
+// Worker and connects to the placeholder origin DNS record, a blackhole that
+// times out as a 504. So self-zone content must always come from its store (D1
+// or R2), and a self-zone URL with no readable store must fail fast rather than
+// hang through a doomed fetch. fetchAnchorDoc (metadata.ts) applies this to
+// every anchor consumer; the avatar passes apply it to image URLs.
 
-import { verifyAnchorDoc, fetchAnchorDoc, type AnchorDocResult } from './metadata.js';
-import { getDrepMetadataByHash } from '../db/drepMetadata.js';
+import { HEX_64_SOURCE } from '../crypto/hex.js';
+import { SITE_ORIGIN } from '../forum/view.js';
+import { getDrepMetadataBodyByHash } from '../db/drepMetadata.js';
 import { getVoteRationaleBody } from '../db/voteRationale.js';
 
 export type SelfHostedRef =
   | { kind: 'drep-metadata'; hash: string }
   | { kind: 'vote-rationale'; hash: string }
-  | { kind: 'avatar'; hash: string };
+  | { kind: 'avatar'; hash: string }
+  /** On our zone, but not one of the hosted-content paths: nothing to read. */
+  | { kind: 'other' };
+
+// One source for "which host is ours": the canonical site origin. The suffix
+// match covers every subdomain (preprod.dreptalk.com, www), since same-zone
+// loop prevention affects all hosts on the zone.
+const ZONE_HOST = new URL(SITE_ORIGIN).hostname;
 
 // Path shapes mirror the serving routes exactly (lowercase 64-hex, like their
 // HASH_RE): a URL the route would 404 must resolve the same way here.
-const DREP_DOC_RE = /^\/drep\/([0-9a-f]{64})\.json$/;
-const VOTE_RATIONALE_RE = /^\/vote-rationale\/([0-9a-f]{64})\.json$/;
-const AVATAR_RE = /^\/api\/avatar\/([0-9a-f]{64})$/;
+const DREP_DOC_RE = new RegExp(`^/drep/(${HEX_64_SOURCE})\\.json$`);
+const VOTE_RATIONALE_RE = new RegExp(`^/vote-rationale/(${HEX_64_SOURCE})\\.json$`);
+const AVATAR_RE = new RegExp(`^/api/avatar/(${HEX_64_SOURCE})$`);
 
-/** Parses an http(s) URL on our own zone (any host), or null. */
-function selfZoneUrl(rawUrl: string): URL | null {
+/**
+ * Classifies a URL on our own zone, or returns null for any foreign URL.
+ * Matches both http and https (broken plain-http registrations exist on
+ * chain). Self-zone URLs that are not a hosted-content path classify as
+ * 'other', so callers can fail fast instead of fetching.
+ */
+export function selfHostedRef(rawUrl: string): SelfHostedRef | null {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -36,28 +50,7 @@ function selfZoneUrl(rawUrl: string): URL | null {
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
   const host = url.hostname.toLowerCase();
-  if (host !== 'dreptalk.com' && !host.endsWith('.dreptalk.com')) return null;
-  return url;
-}
-
-/**
- * Whether the URL points at our own zone at all, regardless of path. Consumers
- * use this to fail fast on self-zone URLs that carry no readable content (the
- * doomed same-zone fetch would only hang and 504).
- */
-export function isSelfZoneUrl(rawUrl: string): boolean {
-  return selfZoneUrl(rawUrl) != null;
-}
-
-/**
- * Classifies a URL as one of our own hosted-content endpoints, or null for any
- * foreign URL. Matches dreptalk.com and every subdomain (preprod.dreptalk.com),
- * since same-zone loop prevention affects all hosts on the zone, and both http
- * and https (broken plain-http registrations exist on chain).
- */
-export function selfHostedRef(rawUrl: string): SelfHostedRef | null {
-  const url = selfZoneUrl(rawUrl);
-  if (!url) return null;
+  if (host !== ZONE_HOST && !host.endsWith(`.${ZONE_HOST}`)) return null;
 
   let m = DREP_DOC_RE.exec(url.pathname);
   if (m) return { kind: 'drep-metadata', hash: m[1] };
@@ -65,35 +58,16 @@ export function selfHostedRef(rawUrl: string): SelfHostedRef | null {
   if (m) return { kind: 'vote-rationale', hash: m[1] };
   m = AVATAR_RE.exec(url.pathname);
   if (m) return { kind: 'avatar', hash: m[1] };
-  return null;
+  return { kind: 'other' };
 }
 
 /**
- * Resolves an anchor document: self-hosted URLs are read from their D1 table
- * and run through the same hash verification + parse pipeline as a fetched
- * document, foreign URLs go through fetchAnchorDoc unchanged.
- *
- * A self-hosted URL with no readable document (row missing, or an /api/avatar
- * URL, which holds image bytes rather than a JSON document) maps to
- * 'fetch-failed', exactly what the serving route's 404 would mean. The lookup
- * key is the hash in the URL path (how the route addresses the content);
- * verification is against the on-chain anchorHash.
+ * Reads the stored body for a self-hosted document ref from D1, or null when
+ * there is nothing to read: row missing (= the serving route's 404), an avatar
+ * ref (image bytes, not a JSON document), or an unrecognized self-zone path.
  */
-export async function fetchOrReadAnchorDoc(
-  db: D1Database,
-  anchorUrl: string,
-  anchorHash: string,
-  deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<AnchorDocResult> {
-  const ref = selfHostedRef(anchorUrl);
-  if (!ref) return fetchAnchorDoc(anchorUrl, anchorHash, deps);
-
-  const body =
-    ref.kind === 'drep-metadata'
-      ? ((await getDrepMetadataByHash(db, ref.hash))?.body ?? null)
-      : ref.kind === 'vote-rationale'
-        ? await getVoteRationaleBody(db, ref.hash)
-        : null;
-  if (body == null) return { status: 'fetch-failed', doc: null };
-  return verifyAnchorDoc(new TextEncoder().encode(body), anchorHash);
+export async function readSelfHostedBody(db: D1Database, ref: SelfHostedRef): Promise<string | null> {
+  if (ref.kind === 'drep-metadata') return getDrepMetadataBodyByHash(db, ref.hash);
+  if (ref.kind === 'vote-rationale') return getVoteRationaleBody(db, ref.hash);
+  return null;
 }

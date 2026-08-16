@@ -118,7 +118,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
       // Fetch + verify the off-chain anchor when present; tolerate failures.
       const anchor =
         p.meta_url && p.meta_hash
-          ? await fetchAnchorMetadata(p.meta_url, p.meta_hash, { fetchImpl })
+          ? await fetchAnchorMetadata(p.meta_url, p.meta_hash, { fetchImpl, db })
           : { status: 'no-anchor' as const, metadata: null };
 
       const meta = anchor.metadata;
@@ -296,7 +296,7 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
       continue;
     }
     try {
-      const result = await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl });
+      const result = await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl, db });
       if (result.status !== 'ok') {
         // Anchor unreachable or failed integrity check: do not bump version,
         // count the failed attempt, and leave the row for the next run to retry

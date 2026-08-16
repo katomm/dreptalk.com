@@ -43,14 +43,12 @@ describe('handleDrepMetadata: content-addressed hosting', () => {
     expect(row!.hash).toBe(json.hash);
     expect(row!.name).toBe('Fixture DRep');
 
-    // Roundtrip: the hosted bytes must verify against the returned hash through
-    // the same anchor verifier syncDreps uses, so our own registration can never
-    // commit a hash/format mismatch.
-    const bytes = new TextEncoder().encode(row!.body as string);
-    const verified = await fetchAnchorMetadata(json.url, json.hash, {
-      fetchImpl: (async () =>
-        new Response(bytes, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch,
-    });
+    // Roundtrip: the hosted document must verify against the returned hash
+    // through the same anchor resolver syncDreps uses. The URL is on our own
+    // zone, so the resolver reads the stored body from D1 (never HTTP), exactly
+    // as in production. This guards that our own registration can never commit
+    // a hash/format mismatch.
+    const verified = await fetchAnchorMetadata(json.url, json.hash, { db: env.DB });
     expect(verified.status).toBe('ok');
   });
 
