@@ -114,4 +114,35 @@ describe('upsertVoteRationalePost', () => {
     });
     expect(await rationaleEvents(topicId, authorId)).toHaveLength(1);
   });
+
+  it('clears deleted_at when a cross-post is revived', async () => {
+    const topicId = 'test-topic-vrp-revive';
+    const authorId = 'user-vrp-revive';
+    const T = 1_700_000_000_000;
+    const read = () =>
+      env.DB.prepare(
+        `SELECT deleted, deleted_at FROM posts
+          WHERE topic_id = ? AND author_id = ? AND source = 'vote_rationale'`,
+      )
+        .bind(topicId, authorId)
+        .first<{ deleted: number; deleted_at: number | null }>();
+
+    await upsertVoteRationalePost(env.DB, {
+      topicId, authorId, vote: 'yes', bodyMd: 'first', bodyHtml: '<p>first</p>', now: T,
+    });
+    await removeVoteRationalePost(env.DB, { topicId, authorId, now: T });
+
+    const gone = await read();
+    expect(gone?.deleted).toBe(1);
+    expect(gone?.deleted_at).toBe(T);
+
+    await upsertVoteRationalePost(env.DB, {
+      topicId, authorId, vote: 'no', bodyMd: 'second', bodyHtml: '<p>second</p>', now: T + 1000,
+    });
+
+    const back = await read();
+    expect(back?.deleted).toBe(0);
+    // The column must not describe a state the row is not in.
+    expect(back?.deleted_at).toBeNull();
+  });
 });
