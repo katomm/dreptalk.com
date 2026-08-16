@@ -21,11 +21,20 @@ describe('buildServiceDescription', () => {
     expect(doc.description).not.toMatch(/every/i);
     expect(doc.deletion).toMatch(/without a tombstone/);
     expect(doc.deletion).toMatch(/stop serving/);
+    // A thread can vanish as a whole, and a mirror needs to be told what that
+    // means for the posts it already holds.
+    expect(doc.deletion).toMatch(/manifest itself answers 410/);
+    // Only the snapshot is a CIP-100 document. The other two are ours.
+    expect(doc.documentClasses.postVersions).toMatch(/not a CIP-100 document/);
   });
 
-  it('follows the deployment origin', () => {
+  it('follows the deployment origin, with the vocabulary as the one exception', () => {
     const doc = JSON.parse(buildServiceDescription('https://preprod.dreptalk.com', 'preprod'));
     expect(doc.site).toBe('https://preprod.dreptalk.com/');
-    expect(JSON.stringify(doc)).not.toContain('//dreptalk.com');
+    // The context is the shared vocabulary, not content of this deployment, so
+    // it stays on the canonical domain. Everything else follows the network.
+    expect(doc.context).toBe('https://dreptalk.com/cip100/context/v1.jsonld');
+    const { context, ...rest } = doc;
+    expect(JSON.stringify(rest)).not.toContain('//dreptalk.com');
   });
 });

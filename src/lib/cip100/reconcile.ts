@@ -83,13 +83,20 @@ export async function reconcilePostDocs(
   postId: string,
   opts: ReconcileOptions,
 ): Promise<ReconcileResult> {
-  const post = await loadPost(db, postId);
-  if (!post || outOfScope(post, opts.now)) return { status: 'skipped' };
-
-  const author = await loadAuthorIdentity(db, post.author_id);
-  const profile = authorProfileUrl(opts.origin, author);
-
   for (let attempt = 0; attempt < 2; attempt++) {
+    // Reloaded on every attempt, not once before the loop. A conflict means
+    // another writer just published a version, and the usual reason is an edit
+    // that landed after this attempt read the post. Rebuilding from the stale
+    // row would publish the OLD text as the newest version: the chain stays
+    // linear, the content marches backwards, and the wrong snapshot is citable
+    // forever. The scope check is repeated for the same reason, since the post
+    // may have been deleted or hidden in the meantime.
+    const post = await loadPost(db, postId);
+    if (!post || outOfScope(post, opts.now)) return { status: 'skipped' };
+
+    const author = await loadAuthorIdentity(db, post.author_id);
+    const profile = authorProfileUrl(opts.origin, author);
+
     const head = await getHeadDoc(db, postId);
     const nextVersion = (head?.version ?? 0) + 1;
     const prevHash = head?.hash ?? null;
@@ -157,11 +164,14 @@ export async function reconcilePostDocs(
       prevHash,
       sourceEditedAt: post.edited_at,
       createdAt: opts.now,
+      guard: { bodyMd: post.body_md, editedAt: post.edited_at },
     });
     if (result === 'inserted') return { status: 'created', hash: built.hash };
     if (result === 'duplicate') return { status: 'unchanged', hash: built.hash };
-    // 'conflict': another writer took this version number. Loop once to rebuild
-    // against the new head, then leave it to the next cron run.
+    // 'conflict': another writer took this version number.
+    // 'stale': the post was edited while this document was being built.
+    // Both mean the same thing here, loop once with freshly read state, then
+    // leave it to the next cron run rather than spinning.
   }
   return { status: 'conflict' };
 }

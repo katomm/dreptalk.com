@@ -85,6 +85,17 @@ manifest, how to verify a document against its address, and what a deletion
 looks like to something mirroring the documents. It is a short pointer, not
 a full reference.
 
+One distinction worth knowing before you write a parser: the version itself is
+a CIP-100 governance metadata document. The version list and the thread
+manifest are not. They are our own JSON-LD, meant for finding and following
+documents, and validating them against the CIP-100 schema will report them as
+broken when they are simply a different thing.
+
+A deleted version stops being served, and the bytes behind that address are
+discarded here. What the forum keeps in its own database, so that moderation
+and abuse handling still work, is a separate question this page does not
+answer.
+
 ## Frequently asked questions
 
 ### How do I cite a post so the quote cannot change?

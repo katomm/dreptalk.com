@@ -24,32 +24,48 @@ export interface InsertDocInput {
   prevHash: string | null;
   sourceEditedAt: number | null;
   createdAt: number;
+  /** The post state these bytes were serialized from. The insert only happens
+   *  while the post still holds exactly this, so an edit that lands between
+   *  building and writing can never be published as the older text. */
+  guard: { bodyMd: string; editedAt: number | null };
 }
 
 /** 'inserted' on a new row, 'duplicate' when these exact bytes already exist,
- *  'conflict' when another writer already took this version number. */
-export type InsertDocResult = 'inserted' | 'duplicate' | 'conflict';
+ *  'conflict' when another writer already took this version number, 'stale'
+ *  when the post changed while the document was being built. */
+export type InsertDocResult = 'inserted' | 'duplicate' | 'conflict' | 'stale';
 
 export async function insertDoc(db: D1Database, rec: InsertDocInput): Promise<InsertDocResult> {
+  // The WHERE EXISTS makes this a compare-and-insert in a single statement,
+  // which is the only atomic primitive available here (D1 has no interactive
+  // transaction). Without it a document built from a post state that has since
+  // been edited would still be written, and an immutable snapshot carrying
+  // superseded text is not repairable afterwards.
+  //
   // INSERT OR IGNORE swallows both the hash PK and the (post_id, version)
-  // UNIQUE, so the caller cannot tell them apart from the statement alone.
-  // Re-reading tells us which one it was: same hash means an identical
-  // document is already stored (harmless), anything else means we lost a race
-  // for this version number and must rebuild against the new head.
+  // UNIQUE, so a zero-change result has three possible causes. Re-reading the
+  // slot tells them apart: same hash means these exact bytes are already
+  // stored, a different hash means another writer took this version number,
+  // and an empty slot means the guard rejected the write.
   const res = await db
     .prepare(
       `INSERT OR IGNORE INTO cip100_docs
          (hash, body, post_id, topic_id, version, prev_hash, source_edited_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE EXISTS (SELECT 1 FROM posts WHERE id = ? AND body_md = ? AND edited_at IS ?)`,
     )
-    .bind(rec.hash, rec.body, rec.postId, rec.topicId, rec.version, rec.prevHash, rec.sourceEditedAt, rec.createdAt)
+    .bind(
+      rec.hash, rec.body, rec.postId, rec.topicId, rec.version, rec.prevHash, rec.sourceEditedAt, rec.createdAt,
+      rec.postId, rec.guard.bodyMd, rec.guard.editedAt,
+    )
     .run();
   if ((res.meta?.changes ?? 0) > 0) return 'inserted';
   const existing = await db
     .prepare('SELECT hash FROM cip100_docs WHERE post_id = ? AND version = ?')
     .bind(rec.postId, rec.version)
     .first<{ hash: string }>();
-  return existing?.hash === rec.hash ? 'duplicate' : 'conflict';
+  if (!existing) return 'stale';
+  return existing.hash === rec.hash ? 'duplicate' : 'conflict';
 }
 
 /**
@@ -165,6 +181,38 @@ export async function listThreadDocs(
   return (res.results ?? []).map((r) => ({
     hash: r.hash, postId: r.post_id, version: r.version, createdAt: r.created_at,
   }));
+}
+
+/**
+ * The `postedBy` claim frozen into each of the given documents, keyed by hash.
+ * The manifest uses it instead of resolving identity live, so a manifest entry
+ * and the snapshot it points at can never disagree about who published a post.
+ * Only head documents are ever passed in, and the bodies are parsed and thrown
+ * away, so the cost is one read per manifest render rather than per version.
+ * Purged (deleted) documents have no body and simply do not appear.
+ */
+export async function loadPostedByClaims(
+  db: D1Database,
+  hashes: string[],
+): Promise<Map<string, Record<string, string>>> {
+  const out = new Map<string, Record<string, string>>();
+  // D1 caps a statement at 100 bound parameters.
+  for (let i = 0; i < hashes.length; i += 100) {
+    const chunk = hashes.slice(i, i + 100);
+    if (chunk.length === 0) continue;
+    const res = await db
+      .prepare(
+        `SELECT hash, body FROM cip100_docs
+          WHERE body IS NOT NULL AND hash IN (${chunk.map(() => '?').join(',')})`,
+      )
+      .bind(...chunk)
+      .all<{ hash: string; body: string }>();
+    for (const row of res.results ?? []) {
+      const parsed = JSON.parse(row.body) as { body?: { postedBy?: Record<string, string> } };
+      if (parsed.body?.postedBy) out.set(row.hash, parsed.body.postedBy);
+    }
+  }
+  return out;
 }
 
 /** The post ids in one thread that have at least one document, regardless of

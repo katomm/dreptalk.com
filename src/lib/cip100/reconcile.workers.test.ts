@@ -180,6 +180,7 @@ describe('reconcilePostDocs', () => {
     const racing = await insertDoc(db(), {
       hash: racingHash, body: '{"racing":true}', postId: firstPost.id, topicId: firstPost.topic_id,
       version: 2, prevHash: v1?.hash ?? null, sourceEditedAt: AFTER_GRACE + 2000, createdAt: AFTER_GRACE + 2500,
+      guard: { bodyMd: 'a racing edit', editedAt: AFTER_GRACE + 2000 },
     });
     expect(racing).toBe('inserted');
 
@@ -190,6 +191,61 @@ describe('reconcilePostDocs', () => {
     const head = await getHeadDoc(db(), firstPost.id);
     expect(head?.version).toBe(3);
     expect(head?.prevHash).toBe(racingHash);
+  });
+
+  // The dangerous race is not a taken version slot, it is an edit that lands
+  // between reading the post and writing the document. The reconciler would
+  // otherwise publish the pre-edit text as the newest version, and an immutable
+  // snapshot carrying superseded text cannot be repaired. Interleaved for real:
+  // the edit fires from inside the head read, after the post was loaded.
+  it('never publishes pre-edit text when an edit lands mid-build', async () => {
+    const { firstPost } = await seedTopic('r10b');
+    await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });
+    // A first edit, so the reconcile below has real work and reaches the insert
+    // rather than stopping at the no-op rule.
+    await editPost(db(), {
+      postId: firstPost.id, authorId: AUTHOR, bodyMd: 'the edit that lost',
+      bodyHtml: '<p>the edit that lost</p>', now: AFTER_GRACE + 1000, sessionGrantId: null,
+    });
+
+    let fired = false;
+    const racing = new Proxy(db(), {
+      get(target, prop, receiver) {
+        if (prop !== 'prepare') return Reflect.get(target, prop, receiver);
+        return (sql: string) => {
+          const stmt = target.prepare(sql);
+          if (fired || !sql.includes('ORDER BY version DESC')) return stmt;
+          fired = true;
+          return new Proxy(stmt, {
+            get(sTarget, sProp, sReceiver) {
+              if (sProp !== 'bind') return Reflect.get(sTarget, sProp, sReceiver);
+              return (...args: unknown[]) => {
+                const bound = sTarget.bind(...args);
+                return new Proxy(bound, {
+                  get(bTarget, bProp, bReceiver) {
+                    if (bProp !== 'first') return Reflect.get(bTarget, bProp, bReceiver);
+                    return async () => {
+                      await editPost(db(), {
+                        postId: firstPost.id, authorId: AUTHOR, bodyMd: 'the edit that won',
+                        bodyHtml: '<p>the edit that won</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+                      });
+                      return bTarget.first();
+                    };
+                  },
+                });
+              };
+            },
+          });
+        };
+      },
+    }) as D1Database;
+
+    const res = await reconcilePostDocs(racing, firstPost.id, { ...OPTS, now: AFTER_GRACE + 3000 });
+    expect(res.status).toBe('created');
+    const head = await getHeadDoc(db(), firstPost.id);
+    expect(head?.version).toBe(2);
+    const body = JSON.parse((await getDocBody(db(), head?.hash ?? '')) ?? '{}');
+    expect(body.body.comment).toBe('the edit that won');
   });
 
   it('omits inReplyTo when the parent snapshot postdates the reply', async () => {

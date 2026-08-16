@@ -27,7 +27,7 @@ const { fakeDb } = vi.hoisted(() => {
 
 vi.mock('cloudflare:workers', () => ({ env: { DB: fakeDb } }));
 
-import { GET } from '../[hash].json.js';
+import { GET, OPTIONS } from '../[hash].json.js';
 
 const call = (hash: string, headers: Record<string, string> = {}) =>
   GET({
@@ -57,6 +57,15 @@ describe('GET /cip100/<hash>.json', () => {
     expect(await res.text()).toBe('');
   });
 
+  it('honours weak tags, tag lists and the wildcard', async () => {
+    // Caches and proxies send all three forms. Comparing the raw header against
+    // one quoted tag would turn a free 304 into a full re-download.
+    for (const header of [`W/"${KNOWN}"`, `"x", W/"${KNOWN}"`, '*']) {
+      expect((await call(KNOWN, { 'if-none-match': header })).status).toBe(304);
+    }
+    expect((await call(KNOWN, { 'if-none-match': '"someone-elses-tag"' })).status).toBe(200);
+  });
+
   it('answers 410 for a deleted document even when the ETag matches', async () => {
     const res = await call(DELETED, { 'if-none-match': `"${DELETED}"` });
     expect(res.status).toBe(410);
@@ -76,5 +85,29 @@ describe('GET /cip100/<hash>.json', () => {
 
   it('404s a malformed hash', async () => {
     expect((await call('nope')).status).toBe(404);
+  });
+
+  // These documents exist to be read by somebody else's tool, and a browser
+  // client that cannot read the status cannot tell a 404 from a dead network.
+  it('allows cross-origin reads on every answer, including the error ones', async () => {
+    for (const res of [await call(KNOWN), await call(DELETED), await call(HIDDEN), await call('nope')]) {
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    }
+  });
+
+  it('exposes the ETag to script, or revalidation is impossible cross-origin', async () => {
+    const res = await call(KNOWN);
+    expect(res.headers.get('access-control-expose-headers')).toBe('ETag');
+    expect((await call(KNOWN, { 'if-none-match': `"${KNOWN}"` })).headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  it('answers the preflight that If-None-Match triggers', async () => {
+    // If-None-Match is not CORS-safelisted, so a conditional cross-origin
+    // request is preceded by an OPTIONS. Without this the whole
+    // revalidate-instead-of-immutable design is unusable from a browser.
+    const res = await OPTIONS({} as never);
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-allow-headers')).toContain('If-None-Match');
+    expect(res.headers.get('access-control-allow-methods')).toContain('GET');
   });
 });

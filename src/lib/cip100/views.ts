@@ -4,11 +4,10 @@
 // Both are built live from D1 on every request, which is what makes deletion
 // propagate with no extra step: a flagged post loses its identity everywhere
 // the moment the flag is set.
-import { listPostVersions, listThreadDocs } from '../db/cip100.js';
-import { loadAuthorIdentities } from '../forum/author.js';
-import { extensionContextUrl } from './context.js';
+import { listPostVersions, listThreadDocs, loadPostedByClaims } from '../db/cip100.js';
+import { EXTENSION_CONTEXT_URL } from './context.js';
 import { isoSeconds } from './document.js';
-import { authorProfileUrl, type Cip100Network } from './origin.js';
+import type { Cip100Network } from './origin.js';
 
 export interface ViewResult {
   status: 200 | 404 | 410;
@@ -47,7 +46,7 @@ export async function buildVersionIndex(db: D1Database, postId: string, origin: 
   const versions = await listPostVersions(db, postId);
   if (versions.length === 0) return { status: 404, body: null };
 
-  const context = extensionContextUrl(origin);
+  const context = EXTENSION_CONTEXT_URL;
   // Deletion is checked BEFORE hiding, matching getDocForServe: a post that is
   // both is gone, on all three surfaces. A hidden post that is then deleted
   // must still publish its deletion record, or a consumer holding the citation
@@ -143,12 +142,13 @@ export async function buildThreadManifest(
           }>()
       ).results ?? [];
 
-  // One batched identity read for the whole thread, not one per post: a long
-  // thread would otherwise issue hundreds of queries to render one manifest.
-  const identities = await loadAuthorIdentities(
-    db,
-    rows.filter((r) => r.deleted !== 1 && r.hidden !== 1 && byPost.has(r.id)).map((r) => r.author_id),
-  );
+  // Identity comes from the documents themselves, not from a live profile read.
+  // A snapshot freezes `postedBy` at emit time, so resolving it again here would
+  // let the manifest and the snapshot it points at claim different authors for
+  // the same post the moment somebody changes their display name. One batched
+  // read of the head documents, never one per post.
+  const heads = [...byPost.values()].map((v) => v[v.length - 1].hash);
+  const claims = await loadPostedByClaims(db, heads);
 
   const posts: Array<Record<string, unknown>> = [];
   for (const row of rows) {
@@ -168,12 +168,7 @@ export async function buildThreadManifest(
     // state, and listing the entry at all would republish the handle, profile
     // and permalink of a post the thread page withholds.
     if (row.hidden === 1) continue;
-    const author = identities.describe(row.author_id);
-    const profile = authorProfileUrl(origin, author);
-    const postedBy: Record<string, string> = { handle: author.displayName };
-    if (profile) postedBy.profile = profile;
-    if (author.drepId) postedBy.drepId = author.drepId;
-    if (author.poolId) postedBy.poolId = author.poolId;
+    const postedBy = claims.get(hashes[hashes.length - 1]);
 
     const entry: Record<string, unknown> = {
       postId: row.id,
@@ -184,7 +179,7 @@ export async function buildThreadManifest(
     // would be a real (if absurd) value and must not be silently dropped.
     if (row.edited_at !== null) entry.revisedAt = isoSeconds(row.edited_at);
     entry.permalink = `${origin}/t/${topic.slug}/#post-${row.id}`;
-    entry.postedBy = postedBy;
+    if (postedBy) entry.postedBy = postedBy;
     // The id form, not a URL: inside one manifest the id is the useful join
     // key. Inside a snapshot the term is inReplyTo and carries a snapshot URL.
     if (row.parent_post_id) entry.inReplyToPostId = row.parent_post_id;
@@ -195,7 +190,7 @@ export async function buildThreadManifest(
   }
 
   const doc: Record<string, unknown> = {
-    '@context': extensionContextUrl(origin),
+    '@context': EXTENSION_CONTEXT_URL,
     '@type': 'DiscussionThread',
     topicId: topic.id,
     title: topic.title,

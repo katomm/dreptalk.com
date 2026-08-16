@@ -77,10 +77,14 @@ describe('buildDiscussionPostDoc', () => {
     });
   });
 
-  it('uses the deployment origin everywhere', () => {
+  it('uses the deployment origin for every URL except the shared vocabulary', () => {
     const { body } = buildDiscussionPostDoc({ ...BASE, origin: 'https://preprod.dreptalk.com', network: 'preprod' });
-    expect(body).not.toContain('https://dreptalk.com');
-    expect(JSON.parse(body).body.network).toBe('preprod');
+    const doc = JSON.parse(body);
+    // The vocabulary has one global identity and must keep resolving even if
+    // preprod is retired, so it is the canonical URL on every network.
+    expect(doc['@context'][1]).toBe('https://dreptalk.com/cip100/context/v1.jsonld');
+    expect(JSON.stringify(doc.body)).not.toContain('https://dreptalk.com');
+    expect(doc.body.network).toBe('preprod');
   });
 
   // The golden file. Vitest writes __snapshots__/discussion-post-v1.json on the

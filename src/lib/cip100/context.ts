@@ -46,16 +46,18 @@ export const CIP100_INLINE_CONTEXT = {
 } as const;
 
 /** Path of the versioned extension context. A new term means a v2 file, so
- *  documents already emitted keep the meaning they were built with.
- *
- *  The served file is public/cip100/context/v1.jsonld, one static file for both
- *  networks. Its `dt` vocabulary IRI is the mainnet URL on purpose, including
- *  in the copy preprod serves: a vocabulary has one global identity, and a term
- *  must mean the same thing whichever network a document came from. It is the
- *  only deliberate mainnet URL in this feature. Every other absolute URL is
- *  built from originForNetwork and must stay that way. */
+ *  documents already emitted keep the meaning they were built with. */
 export const EXTENSION_CONTEXT_PATH = '/cip100/context/v1.jsonld';
 
-export function extensionContextUrl(origin: string): string {
-  return `${origin}${EXTENSION_CONTEXT_PATH}`;
-}
+/** The one canonical URL of the extension context, on the mainnet domain for
+ *  every network.
+ *
+ *  This is the deliberate exception to "every absolute URL comes from
+ *  originForNetwork". Content URLs identify a document on one network and must
+ *  never point at the other. A vocabulary is not content: it has one global
+ *  identity, its `dt` IRIs already resolve to dreptalk.com, and the file is
+ *  byte-identical on both networks. Pointing preprod documents at
+ *  preprod.dreptalk.com would make immutable bytes depend on a test deployment
+ *  that may be reset or retired, and their terms would stop resolving the day
+ *  it goes away. */
+export const EXTENSION_CONTEXT_URL = `https://dreptalk.com${EXTENSION_CONTEXT_PATH}`;

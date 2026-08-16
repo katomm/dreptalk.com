@@ -40,6 +40,7 @@
 /cip100/context/*
   Content-Type: application/ld+json; charset=utf-8
   Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
 
 # Hand-edited script with a stable filename, so it cannot be immutable: an edit
 # would not propagate to returning visitors. Cap at one hour with revalidation

@@ -494,8 +494,11 @@ async function emitCip100(db: D1Database, postId: string, now: number): Promise<
   try {
     const network = currentNetwork().network === 'preprod' ? 'preprod' : 'mainnet';
     await reconcilePostDocs(db, postId, { origin: originForNetwork(network), network, now });
-  } catch {
-    // Intentionally ignored, the cron repairs it.
+  } catch (err) {
+    // Never fails the write: the cron repairs it. Logged with the post id all
+    // the same, or a permanently reproducible emit failure stays invisible
+    // behind a repair loop that quietly retries it forever.
+    console.error(`[cip100] emit failed for post ${postId}:`, err);
   }
 }
 

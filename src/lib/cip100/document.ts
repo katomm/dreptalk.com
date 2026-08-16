@@ -7,7 +7,7 @@
 // and the cron race safely and what makes the fixed-vector test possible.
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
-import { CIP100_INLINE_CONTEXT, extensionContextUrl } from './context.js';
+import { CIP100_INLINE_CONTEXT, EXTENSION_CONTEXT_URL } from './context.js';
 import type { Cip100Network } from './origin.js';
 
 const TEXT_ENCODER = new TextEncoder();
@@ -108,7 +108,7 @@ export function buildDiscussionPostDoc(input: DiscussionPostDocInput): BuiltCip1
   // the version index and the thread manifest carry theirs too, and where the
   // CIP-100 extensions currently in review put it.
   const doc = {
-    '@context': [CIP100_INLINE_CONTEXT, extensionContextUrl(origin)],
+    '@context': [CIP100_INLINE_CONTEXT, EXTENSION_CONTEXT_URL],
     '@type': 'DiscussionPost',
     hashAlgorithm: 'blake2b-256',
     authors: [] as unknown[],

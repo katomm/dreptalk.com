@@ -39,9 +39,16 @@ export async function runCip100Sync(
       // Counted and logged, not swallowed: a batch that is all skips would
       // otherwise read as "nothing to do" while no post gets a document.
       else if (res.status === 'skipped') skipped++;
-      else if (res.status === 'conflict') failed++;
-    } catch {
+      else if (res.status === 'conflict') {
+        failed++;
+        // A conflict survives two attempts only under sustained concurrent
+        // writes to one post. Named here so it is visible if it ever becomes
+        // the norm rather than the exception.
+        console.warn(`[cip100] gave up on post ${id} after a version conflict`);
+      }
+    } catch (err) {
       failed++;
+      console.error(`[cip100] reconcile failed for post ${id}:`, err);
     }
   }
   return { purged, reconciled, skipped, failed };

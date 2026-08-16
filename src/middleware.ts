@@ -12,6 +12,7 @@ import { pageCacheKey, isCacheableRequest, isCacheableResponse } from './lib/htt
 import { currentNetwork } from './lib/api/response.js';
 import { buildServiceDescription } from './lib/cip100/service.js';
 import { originForNetwork } from './lib/cip100/origin.js';
+import { corsHeaders } from './lib/cip100/cors.js';
 
 export const onRequest = defineMiddleware(async (context, next) => {
   // Canonical host: permanently redirect www to the apex so clients and search
@@ -31,10 +32,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
     const network = currentNetwork().network === 'preprod' ? 'preprod' : 'mainnet';
     const res = new Response(buildServiceDescription(originForNetwork(network), network), {
       status: 200,
-      headers: {
+      headers: corsHeaders({
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'public, max-age=3600',
-      },
+      }),
     });
     applySecurityHeaders(res.headers);
     return res;
