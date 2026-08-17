@@ -276,6 +276,27 @@ describe('dispatchWebPush', () => {
     });
   });
 
+  it('names the cast choice in a single DRep-vote lead when the payload carries it', async () => {
+    await seedUser('alice');
+    await addWebpushChannel('alice', 100);
+    // Raw insert: fanout writes vote payloads verbatim, insertNotifications has no payload param.
+    await db()
+      .prepare(
+        `INSERT INTO notifications (id, recipient_id, type, payload, created_at)
+         VALUES ('nvote1', 'alice', 'delegator_drep_voted', ?, 200)`,
+      )
+      .bind(JSON.stringify({ sourceTime: 150, gaId: 'gaX', title: 'Reduce fees', vote: 'Yes' }))
+      .run();
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    const result = await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    expect(result).toEqual({ sent: 1, pruned: 0, skipped: 0 });
+    const payload = JSON.parse(calls[0].payload);
+    expect(payload.title).toBe('Reduce fees');
+    expect(payload.body).toBe('Your DRep voted Yes');
+  });
+
   it('leads with the newest item and "(+N more)" for a small mixed bundle', async () => {
     await seedTopic('g1');
     await addWebpushChannel('alice', 100);

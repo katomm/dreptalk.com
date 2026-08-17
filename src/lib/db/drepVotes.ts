@@ -89,7 +89,8 @@ export function buildVoteUpsertStatements(
  * `now` is unix milliseconds; source_time / created_at are seconds. When a vote
  * has no block_time, the observed second is used for both source_time and the
  * event_key and payload.sourceTimeApprox is set. `title` is a best-effort action
- * title for the payload.
+ * title for the payload; the cast choice rides along as payload.vote so the
+ * notification can say what was voted, not just that a vote happened.
  */
 export function classifyVoteJobs(
   db: D1Database,
@@ -115,7 +116,7 @@ export function classifyVoteJobs(
     const sourceTime = v.blockTime ?? observedAtSec;
     const prefix = kind === 'voted' ? 'drep-vote' : 'drep-revote';
     const eventType: FanoutEventType = kind === 'voted' ? 'delegator_drep_voted' : 'delegator_drep_re_voted';
-    const payload: Record<string, unknown> = { sourceTime, gaId, title };
+    const payload: Record<string, unknown> = { sourceTime, gaId, title, vote: v.vote };
     if (approx) payload.sourceTimeApprox = true;
 
     stmts.push(

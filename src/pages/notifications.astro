@@ -160,7 +160,16 @@ if (db) {
       const p = parseDrepEventPayload(n.payload);
       if (!p) return [];
       const actionTitle = p.title ?? 'a governance action';
-      const verbPhrase = n.type === 'delegator_drep_voted' ? 'voted on' : 'changed a vote on';
+      // With the cast choice in the payload the row says "voted Yes on"; rows
+      // written before the choice was recorded keep the bare phrasing.
+      const verbPhrase =
+        n.type === 'delegator_drep_voted'
+          ? p.vote
+            ? `voted ${p.vote} on`
+            : 'voted on'
+          : p.vote
+            ? `changed a vote to ${p.vote} on`
+            : 'changed a vote on';
       const slug = p.gaId ? gaSlugs.get(p.gaId) : null;
       return [
         {

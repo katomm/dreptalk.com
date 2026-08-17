@@ -2,7 +2,7 @@
 // (delegator_drep_voted / delegator_drep_re_voted / delegator_drep_status_changed).
 // Mirrors parseDelegationChangePayload's shape-validating, never-throws pattern
 // so a malformed row is dropped at render time rather than crashing the inbox.
-// Vote events (Task 3, src/lib/db/drepVotes.ts) write { sourceTime, gaId, title };
+// Vote events (Task 3, src/lib/db/drepVotes.ts) write { sourceTime, gaId, title, vote };
 // status events (Task 4, src/lib/db/dreps.ts) write
 // { sourceTime, drepId, from: {effective,status}, to: {effective,status} }.
 // The two shapes never both apply to the same row, so this parser dispatches on
@@ -18,6 +18,8 @@ export interface DrepEventPayload {
   drepId?: string;
   gaId?: string;
   title?: string;
+  /** The cast choice (Yes/No/Abstain); absent on rows written before it was recorded. */
+  vote?: string;
   from?: DrepEventState;
   to?: DrepEventState;
 }
@@ -46,7 +48,13 @@ export function parseDrepEventPayload(payload: string | null): DrepEventPayload 
   const gaId = (parsed as { gaId?: unknown }).gaId;
   if (typeof gaId === 'string') {
     const title = (parsed as { title?: unknown }).title;
-    return { sourceTime, gaId, ...(typeof title === 'string' ? { title } : {}) };
+    const vote = (parsed as { vote?: unknown }).vote;
+    return {
+      sourceTime,
+      gaId,
+      ...(typeof title === 'string' ? { title } : {}),
+      ...(typeof vote === 'string' && vote !== '' ? { vote } : {}),
+    };
   }
 
   const drepId = (parsed as { drepId?: unknown }).drepId;
