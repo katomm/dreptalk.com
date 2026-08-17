@@ -248,7 +248,7 @@ const CHOICE_COLORS: Record<VoteChoice, string> = {
 };
 
 export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
-  const { wallets, selected, setSelected } = useCardanoWallets();
+  const { wallets, selected, setSelected } = useCardanoWallets({ preferCip95: true });
   const [selections, setSelections] = useState<Record<string, VoteChoice>>({});
   const [expanded, setExpanded] = useState(false);
   const [sharedRationale, setSharedRationale] = useState('');
@@ -702,7 +702,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
               </p>
             ) : phase.status === 'idle' || phase.status === 'connecting' || phase.status === 'checking' || (phase.status === 'error' && !phase.identity) ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} label="Signing wallet" />
+                <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} label="Signing wallet" requiresCip95 />
                 {phase.status === 'error' && !phase.identity && (
                   <div className="callout callout--error" role="alert">
                     <div className="callout__body">{phase.message}</div>

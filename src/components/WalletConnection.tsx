@@ -18,6 +18,14 @@ interface WalletConnectionProps {
   label?: string;
   /** Optional helper line under the row; omitted when not provided. */
   note?: string;
+  /**
+   * Set by flows that need the CIP-95 extension (registering, voting, editing
+   * or retiring a DRep). The selection already prefers a CIP-95 wallet, so this
+   * only shows when none of the installed wallets can do it or the user picked
+   * an incapable one on purpose. Saying so here beats letting them click
+   * through to the failure.
+   */
+  requiresCip95?: boolean;
 }
 
 const cardStyle: CSSProperties = {
@@ -56,12 +64,14 @@ function monogram(name: string): string {
   return (name.trim()[0] ?? '?').toUpperCase();
 }
 
-export default function WalletConnection({ wallets, selected, onSelect, disabled, label = 'Connected wallet', note }: WalletConnectionProps) {
+export default function WalletConnection({ wallets, selected, onSelect, disabled, label = 'Connected wallet', note, requiresCip95 = false }: WalletConnectionProps) {
   const [changing, setChanging] = useState(false);
   const current = wallets.find((w) => w.key === selected) ?? wallets[0];
   const canChange = wallets.length > 1;
 
   if (!current) return null;
+
+  const missingCip95 = requiresCip95 && !current.supportsCip95;
 
   return (
     <div style={cardStyle}>
@@ -102,6 +112,22 @@ export default function WalletConnection({ wallets, selected, onSelect, disabled
             disabled={disabled}
             hideLabel
           />
+        </div>
+      )}
+
+      {missingCip95 && (
+        <div className="callout callout--warning" role="status" style={{ marginTop: '0.875rem' }}>
+          <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <div className="callout__body">
+            {current.name} does not support CIP-95, which this action requires.{' '}
+            {canChange
+              ? 'Choose another wallet above.'
+              : 'Use a DRep-capable wallet such as Eternl, Lace or Typhon.'}
+          </div>
         </div>
       )}
 

@@ -56,7 +56,7 @@ export default function DrepSettings({
   initialPaymentAddress,
   initialDoNotList,
 }: DrepSettingsProps) {
-  const { wallets, selected, setSelected } = useCardanoWallets();
+  const { wallets, selected, setSelected } = useCardanoWallets({ preferCip95: true });
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
 
   // Caches the enabled CIP-30 api between actions (enable() is idempotent but
@@ -229,7 +229,7 @@ export default function DrepSettings({
   return (
     <div style={{ maxWidth: '60rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
       <div style={{ maxWidth: '32rem' }}>
-        <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} note="This wallet will be used to sign your on-chain metadata update." />
+        <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} requiresCip95 note="This wallet will be used to sign your on-chain metadata update." />
       </div>
 
       <form
