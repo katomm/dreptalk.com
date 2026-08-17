@@ -281,9 +281,13 @@ export async function getDrepsByIds(db: D1Database, ids: string[]): Promise<Map<
 /**
  * Profile path segments (slug when assigned, else drep id) of DReps indexable
  * per the SEO quality-gate: has on-chain metadata (name/bio) or has authored a
- * forum post. A recorded vote alone does not qualify (see isIndexableProfile):
- * nameless vote-only profiles are thin and never rank, so they are kept out of
- * the sitemap. This WHERE must mirror isIndexableProfile in dreps/profile.ts.
+ * forum post that is still reachable. A recorded vote alone does not qualify
+ * (see isIndexableProfile): nameless vote-only profiles are thin and never rank,
+ * so they are kept out of the sitemap. A post whose thread was deleted does not
+ * qualify either, which keeps this in step with the profile page: it counts
+ * posts through getPostsByAuthor, which drops deleted threads, so without the
+ * topic join the sitemap would list a profile the page itself marks noindex.
+ * This WHERE must mirror isIndexableProfile in dreps/profile.ts.
  * Used by the sitemap and the per-profile robots gate.
  */
 export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
@@ -294,7 +298,8 @@ export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
          WHERE d.name IS NOT NULL OR d.bio IS NOT NULL
             OR EXISTS (
               SELECT 1 FROM users u JOIN posts p ON p.author_id = u.id
-              WHERE u.drep_id = d.drep_id AND p.deleted = 0 AND p.hidden = 0
+                JOIN topics t ON t.id = p.topic_id
+              WHERE u.drep_id = d.drep_id AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0
             )`,
       )
       .all<{ drep_id: string }>()

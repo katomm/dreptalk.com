@@ -954,8 +954,9 @@ export interface RelatedActionRow {
 /**
  * Other governance actions from the same proposer (return_address) for the
  * detail-page sidebar, most recent first, excluding the current action. Only
- * actions that have a forum topic (so they are linkable). Returns [] when the
- * action has no proposer, since a null return_address relates to nothing.
+ * actions that have a live forum topic (so they are linkable): a deleted thread
+ * would render a row pointing at a 404. Returns [] when the action has no
+ * proposer, since a null return_address relates to nothing.
  *
  * Type is deliberately not a relatedness signal: with only seven action types,
  * two actions sharing a type (say, two unrelated treasury withdrawals) say
@@ -973,7 +974,7 @@ export async function getRelatedActions(
         `SELECT g.id AS id, g.title AS title, g.type AS type, g.status AS status, t.slug AS topic_slug
          FROM governance_actions g
          JOIN topics t ON t.id = g.topic_id
-         WHERE g.return_address = ? AND g.id != ?
+         WHERE g.return_address = ? AND g.id != ? AND t.deleted = 0
          ORDER BY g.submitted_epoch DESC
          LIMIT ?`,
       )

@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, deactivateDreps, effectiveDrepStatus, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
+import { createTopic } from './forum.js';
 import { bindCountingDb } from './__tests__/bindCountingDb.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { upsertVotes } from './drepVotes.js';
@@ -209,6 +210,38 @@ describe('listIndexableDrepIds', () => {
     const ids = await listIndexableDrepIds(db());
     expect(ids).toContain('drep1named');
     expect(ids).not.toContain('drep1thin');
+  });
+
+  it('excludes a DRep whose only post sits in a deleted topic', async () => {
+    // The post survives its thread's deletion in the posts table, but it is no
+    // longer reachable anywhere, so it cannot be what makes the profile worth
+    // indexing. Mirrors the t.deleted = 0 gate every other read path applies.
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1gone', name: null, bio: null });
+    await db()
+      .prepare(`INSERT INTO users (id, drep_id, created_at, last_verified_at) VALUES (?, ?, 0, 0)`)
+      .bind('user-gone', 'drep1gone')
+      .run();
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general', authorId: 'user-gone', title: 'Doomed thread',
+      bodyMd: 'body', bodyHtml: '<p>body</p>', now: NOW, rand: 'idx1',
+    });
+    await db().prepare('UPDATE topics SET deleted = 1 WHERE id = ?').bind(topic.id).run();
+
+    expect(await listIndexableDrepIds(db())).not.toContain('drep1gone');
+  });
+
+  it('includes a DRep whose post sits in a live topic', async () => {
+    await upsertDrep(db(), { ...BASE_ARGS, drepId: 'drep1poster', name: null, bio: null });
+    await db()
+      .prepare(`INSERT INTO users (id, drep_id, created_at, last_verified_at) VALUES (?, ?, 0, 0)`)
+      .bind('user-poster', 'drep1poster')
+      .run();
+    await createTopic(db(), {
+      categorySlug: 'general', authorId: 'user-poster', title: 'Live thread',
+      bodyMd: 'body', bodyHtml: '<p>body</p>', now: NOW, rand: 'idx2',
+    });
+
+    expect(await listIndexableDrepIds(db())).toContain('drep1poster');
   });
 
   it('excludes a DRep that has on-chain votes but no metadata (thin, vote-only)', async () => {
