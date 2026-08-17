@@ -144,7 +144,16 @@ async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<Pendin
     case 'delegator_drep_voted':
     case 'delegator_drep_re_voted': {
       const p = parseDrepEventPayload(row.payload);
-      const verb = row.type === 'delegator_drep_voted' ? 'Your DRep voted' : 'Your DRep changed a vote';
+      // Newer payloads carry the cast choice, so the message can say "voted Yes"
+      // instead of just "voted"; older rows fall back to the bare verb.
+      const verb =
+        row.type === 'delegator_drep_voted'
+          ? p?.vote
+            ? `Your DRep voted ${p.vote}`
+            : 'Your DRep voted'
+          : p?.vote
+            ? `Your DRep changed a vote to ${p.vote}`
+            : 'Your DRep changed a vote';
       const slug = p?.gaId ? (await getGovernanceActionSlugsByIds(db, [p.gaId])).get(p.gaId) : null;
       const href = slug ? `/t/${slug}/` : INBOX_PATH;
       // With the action known it is the subject (title); otherwise the verb leads.

@@ -12,6 +12,16 @@ describe('parseDrepEventPayload', () => {
     expect(parseDrepEventPayload(raw)).toEqual({ sourceTime: 1_700_000_000, gaId: 'ga1abc' });
   });
 
+  it('parses the cast choice when the payload carries one', () => {
+    const raw = JSON.stringify({ sourceTime: 1_700_000_000, gaId: 'ga1abc', title: 'Reduce fees', vote: 'Yes' });
+    expect(parseDrepEventPayload(raw)).toEqual({ sourceTime: 1_700_000_000, gaId: 'ga1abc', title: 'Reduce fees', vote: 'Yes' });
+  });
+
+  it('omits a non-string or empty vote from the result', () => {
+    expect(parseDrepEventPayload(JSON.stringify({ sourceTime: 1, gaId: 'ga1', vote: 7 }))).toEqual({ sourceTime: 1, gaId: 'ga1' });
+    expect(parseDrepEventPayload(JSON.stringify({ sourceTime: 1, gaId: 'ga1', vote: '' }))).toEqual({ sourceTime: 1, gaId: 'ga1' });
+  });
+
   it('parses a valid vote-event payload with extra fields ignored (sourceTimeApprox)', () => {
     const raw = JSON.stringify({ sourceTime: 1_700_000_000, gaId: 'ga1abc', title: 'Reduce fees', sourceTimeApprox: true });
     expect(parseDrepEventPayload(raw)).toEqual({ sourceTime: 1_700_000_000, gaId: 'ga1abc', title: 'Reduce fees' });

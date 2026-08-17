@@ -176,7 +176,7 @@ describe('upsertVotes delegator fan-out jobs', () => {
     expect(jobs[0].subject_id).toBe('drepF');
     expect(jobs[0].source_time).toBe(1_700_000_100);
     const payload = JSON.parse(jobs[0].payload);
-    expect(payload).toMatchObject({ sourceTime: 1_700_000_100, gaId: 'gaVote', title: 'Vote Action' });
+    expect(payload).toMatchObject({ sourceTime: 1_700_000_100, gaId: 'gaVote', title: 'Vote Action', vote: 'Yes' });
     expect(payload.sourceTimeApprox).toBeUndefined();
   });
 
@@ -228,6 +228,8 @@ describe('upsertVotes delegator fan-out jobs', () => {
     expect(jobs).toHaveLength(1);
     expect(jobs[0].event_type).toBe('delegator_drep_re_voted');
     expect(jobs[0].event_key).toBe('drep-revote:drepF:gaC:2000');
+    // The payload carries the NEW choice, so the notification can name it.
+    expect(JSON.parse(jobs[0].payload).vote).toBe('Yes');
   });
 
   it('(d) an anchor-only change (same vote) emits NO job', async () => {
