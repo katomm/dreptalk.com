@@ -25,6 +25,7 @@ import {
   getActionIdsMissingOnchainPayload,
   updateActionOnchainPayload,
   getLatestActionWithVotes,
+  getGovernanceActionSlugsByIds,
   type NewGovernanceAction,
 } from './governance.js';
 import { getAllTopicsByCategory } from './forum.js';
@@ -275,6 +276,42 @@ describe('getAllGovernanceActions', () => {
     const ids = all.map((x) => x.id);
     expect(ids).toContain(a.id);
     expect(ids).toContain(b.id);
+  });
+});
+
+describe('getGovernanceActionSlugsByIds', () => {
+  it('resolves the slug for an action with a live topic', async () => {
+    await seedGovRow({ topicId: 'slug-live', actionId: 'ga-slug-live' });
+
+    const map = await getGovernanceActionSlugsByIds(db(), ['ga-slug-live']);
+
+    expect(map.get('ga-slug-live')).toBe('slug-slug-live');
+  });
+
+  it('resolves no slug for an action whose topic is deleted', async () => {
+    // The notification stays in the inbox, it just stops linking into a 404.
+    await seedGovRow({ topicId: 'slug-gone', actionId: 'ga-slug-gone', deleted: 1 });
+
+    const map = await getGovernanceActionSlugsByIds(db(), ['ga-slug-gone']);
+
+    expect(map.get('ga-slug-gone')).toBeNull();
+  });
+
+  it('keeps an entry for an action that has no topic at all', async () => {
+    // The null-slug contract the callers rely on: every requested id is present,
+    // so a topicless action is distinguishable from an id that does not exist.
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, anchor_status, status, topic_id, created_at, last_synced_at)
+         VALUES ('ga-no-topic', 'InfoAction', 'no-anchor', 'active', NULL, ?, ?)`,
+      )
+      .bind(NOW, NOW)
+      .run();
+
+    const map = await getGovernanceActionSlugsByIds(db(), ['ga-no-topic']);
+
+    expect(map.has('ga-no-topic')).toBe(true);
+    expect(map.get('ga-no-topic')).toBeNull();
   });
 });
 

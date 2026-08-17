@@ -495,7 +495,9 @@ const SLUG_CHUNK = 100;
 
 /**
  * Batch-resolves each governance-action id to its forum-topic slug (null when
- * the action has no topic yet), for hydrating notification links in one pass
+ * the action has no topic yet, or when that topic was deleted: the notification
+ * keeps its place in the inbox and simply stops linking into a 404), for
+ * hydrating notification links in one pass
  * (no N+1 per row). Used by the notifications inbox to link delegator DRep-vote
  * events to their action's thread (there is no standalone /ga/<id> route).
  */
@@ -510,8 +512,11 @@ export async function getGovernanceActionSlugsByIds(
     const rows = (
       await db
         .prepare(
+          // The deleted filter belongs in the ON, not the WHERE: it must null the
+          // slug, not drop the row, so a deleted thread reads the same as no
+          // thread and every requested id still comes back in the map.
           `SELECT g.id AS id, t.slug AS slug FROM governance_actions g
-           LEFT JOIN topics t ON t.id = g.topic_id
+           LEFT JOIN topics t ON t.id = g.topic_id AND t.deleted = 0
            WHERE g.id IN (${sqlPlaceholders(chunk)})`,
         )
         .bind(...chunk)
