@@ -308,6 +308,10 @@ describe('syncDreps', () => {
     expect(goodRow!.anchorStatus).toBe('no-anchor');
   });
 
+  // Writes 1003 DRep rows through D1, by far the heaviest case in this file: it
+  // finishes in well under a second locally but has timed out at the default 5s
+  // on a loaded CI runner, so it gets room rather than reporting a red build for
+  // being slow. A real hang still fails, just later.
   it('paginates: a full page followed by a short page enumerates both', async () => {
     // A full page of exactly 1000 ids forces a second drepList call.
     const fullPage: DrepListRow[] = [];
@@ -336,7 +340,7 @@ describe('syncDreps', () => {
     // Spot-check one id from each page made it into D1.
     expect(await getDrepById(env.DB, 'drep1-page-a-0')).not.toBeNull();
     expect(await getDrepById(env.DB, 'drep1-page-b-2')).not.toBeNull();
-  });
+  }, 30_000);
 
   it('garbage-collects hosted metadata for unregistered drep ids, keeping registered ones', async () => {
     const reg = 'drep1-gc-registered';
