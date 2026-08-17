@@ -15,12 +15,13 @@ async function seedRow(o: {
   returnAddress: string | null;
   submittedEpoch: number | null;
   status?: string;
+  deleted?: boolean;
 }): Promise<void> {
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO topics (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at, deleted)
-       VALUES (?, 'governance-actions', 'gov-sync', 'governance', ?, ?, 1, ?, ?, 0)`,
-    ).bind(o.topicId, `Title ${o.topicId}`, o.topicSlug, NOW, NOW),
+       VALUES (?, 'governance-actions', 'gov-sync', 'governance', ?, ?, 1, ?, ?, ?)`,
+    ).bind(o.topicId, `Title ${o.topicId}`, o.topicSlug, NOW, NOW, o.deleted ? 1 : 0),
     env.DB.prepare(
       `INSERT INTO governance_actions
          (id, type, status, return_address, submitted_epoch, topic_id, created_at, last_synced_at)
@@ -86,6 +87,23 @@ describe('getRelatedActions', () => {
 
     // Newest first: P2 (epoch 541) before P1 (epoch 540).
     expect(ids.indexOf('P2')).toBeLessThan(ids.indexOf('P1'));
+  });
+
+  it('excludes an action whose topic is deleted', async () => {
+    // The row would otherwise render a link straight into a 404: the thread page
+    // is gone, so the action must not appear in the related list either.
+    await seedRow({ actionId: 'D0', topicId: 'd0-topic', topicSlug: 'd0', type: 'InfoAction', returnAddress: 'stakeDDD', submittedEpoch: 600 });
+    await seedRow({ actionId: 'D1', topicId: 'd1-topic', topicSlug: 'd1', type: 'InfoAction', returnAddress: 'stakeDDD', submittedEpoch: 601, deleted: true });
+    await seedRow({ actionId: 'D2', topicId: 'd2-topic', topicSlug: 'd2', type: 'InfoAction', returnAddress: 'stakeDDD', submittedEpoch: 602 });
+
+    const results = await getRelatedActions(env.DB, {
+      excludeId: 'D0',
+      returnAddress: 'stakeDDD',
+    });
+
+    const ids = results.map((r) => r.id);
+    expect(ids).toContain('D2');
+    expect(ids).not.toContain('D1');
   });
 
   it('exposes the topic slug for linking', async () => {
