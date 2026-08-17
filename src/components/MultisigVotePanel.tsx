@@ -135,7 +135,7 @@ function ProgressLine({ pending }: { pending: PendingState }) {
 }
 
 export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, pendingId }: MultisigVotePanelProps) {
-  const { wallets, selected, setSelected } = useCardanoWallets();
+  const { wallets, selected, setSelected } = useCardanoWallets({ preferCip95: true });
   const enabledApiRef = useRef<EnabledWalletApi | null>(null);
 
   // Shared error surface.

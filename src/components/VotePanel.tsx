@@ -211,7 +211,7 @@ function AnchorInfo({
 }
 
 export default function VotePanel({ gaId, network, initialViewerVote, topicSlug }: VotePanelProps) {
-  const { wallets, selected, setSelected } = useCardanoWallets();
+  const { wallets, selected, setSelected } = useCardanoWallets({ preferCip95: true });
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
 
   // Cached CIP-30 api: avoids a second enable() IPC round trip on submit,
@@ -502,6 +502,7 @@ export default function VotePanel({ gaId, network, initialViewerVote, topicSlug 
                     onSelect={setSelected}
                     disabled={busy}
                     label="Signing wallet"
+                    requiresCip95
                   />
                   <button
                     type="button"

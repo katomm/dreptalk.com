@@ -27,7 +27,7 @@ export interface DrepRetireProps {
 }
 
 export default function DrepRetire({ network = 'preprod', expectedDrepId }: DrepRetireProps) {
-  const { wallets, selected, setSelected } = useCardanoWallets();
+  const { wallets, selected, setSelected } = useCardanoWallets({ preferCip95: true });
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
   const [confirmRetire, setConfirmRetire] = useState(false);
 
@@ -161,6 +161,7 @@ export default function DrepRetire({ network = 'preprod', expectedDrepId }: Drep
             selected={selected}
             onSelect={setSelected}
             disabled={busy}
+            requiresCip95
             note="This wallet will sign the deregistration; it must be the one you signed in with."
           />
 

@@ -59,7 +59,7 @@ interface DRepServiceProps {
 }
 
 export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
-  const { wallets, selected, setSelected } = useCardanoWallets();
+  const { wallets, selected, setSelected } = useCardanoWallets({ preferCip95: true });
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
 
   // Stores the CIP-30 api object returned by enable() during the connect step
@@ -362,6 +362,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
                 onSelect={setSelected}
                 disabled={busy}
                 label="Signing wallet"
+                requiresCip95
               />
               <button
                 type="button"

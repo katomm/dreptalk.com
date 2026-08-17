@@ -133,3 +133,65 @@ describe('chooseSelectedWallet', () => {
     expect(chooseSelectedWallet('typhon', 'eternl', found('lace', 'eternl'), true)).toBe('eternl');
   });
 });
+
+describe('chooseSelectedWallet on a CIP-95 flow', () => {
+  // Brave ships a native Cardano provider that cannot do CIP-95 and, being part
+  // of the browser, injects before any extension. Every case below is that
+  // browser: 'brave' leads the list, 'eternl' is the capable wallet behind it.
+  const mixed = [
+    { key: 'brave', supportsCip95: false },
+    { key: 'eternl', supportsCip95: true },
+  ];
+
+  it('skips a first-found wallet that cannot do CIP-95', () => {
+    expect(chooseSelectedWallet('', null, mixed, false, true)).toBe('eternl');
+  });
+
+  it('still takes the first wallet when no wallet advertises CIP-95', () => {
+    const noneCapable = [
+      { key: 'brave', supportsCip95: false },
+      { key: 'other', supportsCip95: false },
+    ];
+    expect(chooseSelectedWallet('', null, noneCapable, false, true)).toBe('brave');
+  });
+
+  it('drops a remembered wallet that cannot do CIP-95', () => {
+    // Remembered from an earlier plain login, which needs no CIP-95. On this
+    // flow it is a dead end, so the capable wallet wins instead.
+    expect(chooseSelectedWallet('', 'brave', mixed, false, true)).toBe('eternl');
+  });
+
+  it('keeps a remembered wallet that can do CIP-95', () => {
+    const twoCapable = [
+      { key: 'lace', supportsCip95: true },
+      { key: 'eternl', supportsCip95: true },
+    ];
+    expect(chooseSelectedWallet('', 'eternl', twoCapable, false, true)).toBe('eternl');
+  });
+
+  it('never overrules a wallet the user picked themselves', () => {
+    // Picking an incapable wallet is the user's call; the connect step explains
+    // the CIP-95 requirement rather than the selection silently jumping away.
+    expect(chooseSelectedWallet('brave', null, mixed, true, true)).toBe('brave');
+  });
+
+  it('replaces the provisional pick once the capable wallet injects late', () => {
+    // The race that makes this bite: the native provider is there first, so the
+    // first scan can only select it. The scan that finally sees Eternl must
+    // correct that, otherwise whoever injected fastest keeps the flow hostage.
+    const firstScan = chooseSelectedWallet('', null, [{ key: 'brave', supportsCip95: false }], false, true);
+    expect(firstScan).toBe('brave');
+    expect(chooseSelectedWallet(firstScan, null, mixed, false, true)).toBe('eternl');
+  });
+
+  it('leaves the selection alone once it is already capable', () => {
+    // Stability: repeated scans must not bounce between two capable wallets.
+    expect(chooseSelectedWallet('eternl', null, mixed, false, true)).toBe('eternl');
+  });
+
+  it('does not prefer CIP-95 on flows that do not ask for it', () => {
+    // Plain CIP-30 flows (linking a stake wallet, redeeming an invite) keep the
+    // first-found default.
+    expect(chooseSelectedWallet('', null, mixed, false, false)).toBe('brave');
+  });
+});
