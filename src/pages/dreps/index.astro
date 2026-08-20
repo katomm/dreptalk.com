@@ -9,6 +9,7 @@ import DrepConcentration from '@/components/DrepConcentration.tsx';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
 import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import DrepSelfCard from '@/components/DrepSelfCard.astro';
+import DrepTrendChip from '@/components/DrepTrendChip.astro';
 import Pager from '@/components/Pager.astro';
 import { listDreps, listDrepsForConcentration, getDrepRanking, type DrepRanking } from '@/lib/db/dreps.js';
 import { getSelfDrepId } from '@/lib/db/users.js';
@@ -17,7 +18,7 @@ import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { influencePct } from '@/lib/dreps/profile.js';
-import { computeVotingPowerDelta, formatTrendDelta } from '@/lib/dreps/votingPowerTrend.js';
+import { computeVotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
 import { parsePage, pageToOffset, cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
@@ -199,7 +200,6 @@ const selfDescriptor = selfRanking ? drepDescriptor(selfRanking.drep) : null;
 const selfDelta = selfRanking
   ? computeVotingPowerDelta(selfRanking.drep.votingPowerSnapshot, selfRanking.drep.votingPowerPrev)
   : null;
-const selfDeltaDisplay = formatTrendDelta(selfDelta);
 function selfStandingLine(r: DrepRanking): string {
   const n = (v: number): string => v.toLocaleString('en-US');
   if (r.rank != null)
@@ -257,16 +257,7 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
         <span class="drep-self-power">{formatAdaCompact(selfRanking!.drep.votingPower)}</span>
       )}
       {selfDelta && (
-        <span class={`drep-trend drep-trend--${selfDelta.direction}`} title={deltaTitle(selfDelta.direction)}>
-          <span class="drep-trend__main">
-            {selfDelta.direction === 'flat' ? (
-              <span class="drep-trend__flat" aria-hidden="true"></span>
-            ) : (
-              <span class="drep-trend__arrow" aria-hidden="true">{selfDelta.direction === 'up' ? '▲' : '▼'}</span>
-            )}
-            {selfDeltaDisplay && <span class="drep-trend__pct">{selfDeltaDisplay.pct ?? selfDeltaDisplay.ada}</span>}
-          </span>
-        </span>
+        <DrepTrendChip delta={selfDelta} flatBar title={deltaTitle(selfDelta.direction)} showAda={false} />
       )}
     </DrepSelfCard>
   )}
@@ -302,9 +293,6 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
           const descriptor = drepDescriptor(d);
           const pct = influencePct(d.votingPower, totalActivePower);
           const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
-          // The percent leads, or the amount alone when the baseline was too
-          // small for a percent to say anything.
-          const display = formatTrendDelta(delta);
           const cred = credentialHexFor(d);
           const rank = listOffset + i + 1;
           const isSelf = selfDrepId != null && d.drepId === selfDrepId;
@@ -333,21 +321,7 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
                 </div>
               </td>
               <td class="drep-table__trend">
-                {delta && (
-                  <span class={`drep-trend drep-trend--${delta.direction}`} title={deltaTitle(delta.direction)}>
-                    <span class="drep-trend__main">
-                      {delta.direction === 'flat' ? (
-                        <span class="drep-trend__flat" aria-hidden="true"></span>
-                      ) : (
-                        <span class="drep-trend__arrow" aria-hidden="true">{delta.direction === 'up' ? '▲' : '▼'}</span>
-                      )}
-                      {display && <span class="drep-trend__pct">{display.pct ?? display.ada}</span>}
-                    </span>
-                    {delta.direction !== 'flat' && display?.pct != null && (
-                      <span class="drep-trend__ada">({display.ada})</span>
-                    )}
-                  </span>
-                )}
+                {delta && <DrepTrendChip delta={delta} flatBar parens title={deltaTitle(delta.direction)} />}
               </td>
               <td class="drep-table__delegators">
                 {d.delegatorCount != null ? d.delegatorCount.toLocaleString('en-US') : 'n/a'}

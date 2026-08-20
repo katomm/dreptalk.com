@@ -1,0 +1,43 @@
+---
+// The per-epoch voting-power delta chip: an arrow (or a neutral bar when flat)
+// with the relative change, and the absolute change on a second line. Shared by
+// the DRep directory and /dreps/movers, on both the pinned self-card and the
+// list rows, so the four places that show a delta agree on the markup and on
+// what the percent falls back to. Styles are global (.drep-trend in
+// global.css) because the surrounding pages size and align the chip themselves.
+import { formatTrendDelta, type VotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
+
+interface Props {
+  /** The delta to render. Nothing is rendered when it is null. */
+  delta: VotingPowerDelta | null;
+  /** Show a neutral bar instead of an arrow when nothing moved. */
+  flatBar?: boolean;
+  /** Tooltip for the chip, e.g. "Voting power up since the previous epoch". */
+  title?: string;
+  /** Wrap the absolute change in parentheses (the directory table's variant). */
+  parens?: boolean;
+  /** Render the absolute change at all. Off where the row has no space for it. */
+  showAda?: boolean;
+}
+const { delta, flatBar = false, title, parens = false, showAda = true } = Astro.props;
+
+// The percent leads, or the amount alone when the baseline was too small for a
+// percent to say anything. In that fallback the amount is already the primary
+// label, so the second line would just repeat it. A flat delta has nothing to
+// put there either.
+const display = formatTrendDelta(delta);
+const ada = showAda && display?.pct != null && delta?.direction !== 'flat' ? display.ada : null;
+---
+{delta && (
+  <span class={`drep-trend drep-trend--${delta.direction}`} title={title}>
+    <span class="drep-trend__main">
+      {delta.direction === 'flat' && flatBar ? (
+        <span class="drep-trend__flat" aria-hidden="true"></span>
+      ) : (
+        <span class="drep-trend__arrow" aria-hidden="true">{delta.direction === 'up' ? '▲' : '▼'}</span>
+      )}
+      {display && <span class="drep-trend__pct">{display.pct ?? display.ada}</span>}
+    </span>
+    {ada && <span class="drep-trend__ada">{parens ? `(${ada})` : ada}</span>}
+  </span>
+)}
