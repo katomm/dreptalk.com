@@ -151,6 +151,18 @@ describe('formatDrepStatsSummary', () => {
     expect(text).toBe('Epoch 574: voting power 0 ₳, 2 delegators (+1)');
   });
 
+  it('names the baseline instead of an absurd percent when power grew off dust', () => {
+    const text = formatDrepStatsSummary({
+      epoch: 650,
+      drepId: 'drep1abc',
+      power: '805900000000',
+      powerPrev: '6300000',
+      delegators: null,
+      delegatorsPrev: null,
+    });
+    expect(text).toBe('Epoch 650: voting power 805.9K ₳ (up from 6.3 ₳)');
+  });
+
   it('shows a negative count delta', () => {
     const text = formatDrepStatsSummary({
       epoch: 573,

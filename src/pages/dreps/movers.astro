@@ -8,7 +8,7 @@ import DrepSelfCard from '@/components/DrepSelfCard.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { listVotingPowerMovers, getDrepMoverStanding, type Drep } from '@/lib/db/dreps.js';
 import { getSelfDrepId } from '@/lib/db/users.js';
-import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
+import { computeVotingPowerDelta, formatTrendDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { cacheControlForSynced, formatAdaCompact } from '@/lib/forum/view.js';
 import { drepDescriptor } from '@/lib/forum/author.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -44,6 +44,7 @@ const selfDescriptor = selfStandingData ? drepDescriptor(selfStandingData.drep) 
 const selfDelta = selfStandingData
   ? computeVotingPowerDelta(selfStandingData.drep.votingPowerSnapshot, selfStandingData.drep.votingPowerPrev)
   : null;
+const selfDeltaDisplay = formatTrendDelta(selfDelta);
 const selfStanding: string | null = selfStandingData
   ? selfStandingData.direction === 'flat' || selfStandingData.rank == null
     ? 'No change in voting power this epoch'
@@ -111,9 +112,9 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
         <span class={`drep-trend drep-trend--${selfDelta.direction}`}>
           <span class="drep-trend__main">
             <span class="drep-trend__arrow" aria-hidden="true">{selfDelta.direction === 'up' ? '▲' : '▼'}</span>
-            {selfDelta.pct != null && <span class="drep-trend__pct">{formatTrendPct(selfDelta.pct)}</span>}
+            {selfDeltaDisplay && <span class="drep-trend__pct">{selfDeltaDisplay.pct ?? selfDeltaDisplay.ada}</span>}
           </span>
-          <span class="drep-trend__ada">{formatAdaCompact(absLovelace(selfDelta.deltaLovelace))}</span>
+          {selfDeltaDisplay?.pct != null && <span class="drep-trend__ada">{selfDeltaDisplay.ada}</span>}
         </span>
       ) : (
         <span class="movers-self-flat">Unchanged</span>
@@ -138,6 +139,9 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
               {col.items.map((d, i) => {
                 const descriptor = drepDescriptor(d);
                 const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
+                // The percent leads, or the amount alone when the baseline was
+                // too small for a percent to say anything.
+                const display = formatTrendDelta(delta);
                 return (
                   <li class="movers-row">
                     <span class="movers-rank">{i + 1}</span>
@@ -150,9 +154,9 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
                       <span class={`drep-trend drep-trend--${delta.direction}`}>
                         <span class="drep-trend__main">
                           <span class="drep-trend__arrow" aria-hidden="true">{delta.direction === 'up' ? '▲' : '▼'}</span>
-                          {delta.pct != null && <span class="drep-trend__pct">{formatTrendPct(delta.pct)}</span>}
+                          {display && <span class="drep-trend__pct">{display.pct ?? display.ada}</span>}
                         </span>
-                        <span class="drep-trend__ada">{formatAdaCompact(absLovelace(delta.deltaLovelace))}</span>
+                        {display?.pct != null && <span class="drep-trend__ada">{display.ada}</span>}
                       </span>
                     )}
                   </li>

@@ -17,7 +17,7 @@ import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { influencePct } from '@/lib/dreps/profile.js';
-import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
+import { computeVotingPowerDelta, formatTrendDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
 import { parsePage, pageToOffset, cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
@@ -199,6 +199,7 @@ const selfDescriptor = selfRanking ? drepDescriptor(selfRanking.drep) : null;
 const selfDelta = selfRanking
   ? computeVotingPowerDelta(selfRanking.drep.votingPowerSnapshot, selfRanking.drep.votingPowerPrev)
   : null;
+const selfDeltaDisplay = formatTrendDelta(selfDelta);
 function selfStandingLine(r: DrepRanking): string {
   const n = (v: number): string => v.toLocaleString('en-US');
   if (r.rank != null)
@@ -263,7 +264,7 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
             ) : (
               <span class="drep-trend__arrow" aria-hidden="true">{selfDelta.direction === 'up' ? '▲' : '▼'}</span>
             )}
-            {selfDelta.pct != null && <span class="drep-trend__pct">{formatTrendPct(selfDelta.pct)}</span>}
+            {selfDeltaDisplay && <span class="drep-trend__pct">{selfDeltaDisplay.pct ?? selfDeltaDisplay.ada}</span>}
           </span>
         </span>
       )}
@@ -301,6 +302,9 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
           const descriptor = drepDescriptor(d);
           const pct = influencePct(d.votingPower, totalActivePower);
           const delta = computeVotingPowerDelta(d.votingPowerSnapshot, d.votingPowerPrev);
+          // The percent leads, or the amount alone when the baseline was too
+          // small for a percent to say anything.
+          const display = formatTrendDelta(delta);
           const cred = credentialHexFor(d);
           const rank = listOffset + i + 1;
           const isSelf = selfDrepId != null && d.drepId === selfDrepId;
@@ -337,10 +341,10 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
                       ) : (
                         <span class="drep-trend__arrow" aria-hidden="true">{delta.direction === 'up' ? '▲' : '▼'}</span>
                       )}
-                      {delta.pct != null && <span class="drep-trend__pct">{formatTrendPct(delta.pct)}</span>}
+                      {display && <span class="drep-trend__pct">{display.pct ?? display.ada}</span>}
                     </span>
-                    {delta.direction !== 'flat' && (
-                      <span class="drep-trend__ada">({formatAdaCompact(absLovelace(delta.deltaLovelace))})</span>
+                    {delta.direction !== 'flat' && display?.pct != null && (
+                      <span class="drep-trend__ada">({display.ada})</span>
                     )}
                   </span>
                 )}

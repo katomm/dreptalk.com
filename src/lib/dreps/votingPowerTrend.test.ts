@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { computeVotingPowerDelta, formatTrendPct, absLovelace, buildPowerChart } from './votingPowerTrend.js';
+import {
+  computeVotingPowerDelta,
+  formatTrendPct,
+  formatTrendDelta,
+  pctIsMeaningful,
+  PCT_DISPLAY_CAP,
+  absLovelace,
+  buildPowerChart,
+} from './votingPowerTrend.js';
 
 describe('computeVotingPowerDelta', () => {
   it('reports a gain with positive percent and signed lovelace', () => {
@@ -55,6 +63,55 @@ describe('formatTrendPct', () => {
   it('renders a tiny nonzero change as <0.1%', () => {
     expect(formatTrendPct(0.03)).toBe('<0.1%');
     expect(formatTrendPct(-0.04)).toBe('<0.1%');
+  });
+});
+
+describe('formatTrendDelta', () => {
+  const delta = (snapshot: string, prev: string) => computeVotingPowerDelta(snapshot, prev);
+
+  it('offers both labels for an ordinary move', () => {
+    expect(formatTrendDelta(delta('1100000000', '1000000000'))).toEqual({ pct: '10.0%', ada: '100 ₳' });
+    expect(formatTrendDelta(delta('900000000', '1000000000'))).toEqual({ pct: '10.0%', ada: '100 ₳' });
+    expect(formatTrendDelta(delta('1000000000', '1000000000'))).toEqual({ pct: '0%', ada: '0 ₳' });
+  });
+
+  it('keeps the percent just below the cap', () => {
+    const d = { direction: 'up' as const, pct: PCT_DISPLAY_CAP - 0.1, deltaLovelace: '999900000000' };
+    expect(formatTrendDelta(d)).toEqual({ pct: '999.9%', ada: '999.9K ₳' });
+  });
+
+  it('drops the percent at and beyond the cap', () => {
+    const d = { direction: 'up' as const, pct: PCT_DISPLAY_CAP, deltaLovelace: '1000000000000' };
+    expect(formatTrendDelta(d)).toEqual({ pct: null, ada: '1M ₳' });
+  });
+
+  it('drops the percent for a near-zero baseline', () => {
+    // 6.3 ₳ grows to 805.9K ₳: the percent is true and useless.
+    expect(formatTrendDelta(delta('805900000000', '6300000'))).toEqual({ pct: null, ada: '805.9K ₳' });
+  });
+
+  it('drops the percent when there is none to begin with', () => {
+    expect(formatTrendDelta(delta('500000000', '0'))).toEqual({ pct: null, ada: '500 ₳' });
+  });
+
+  it('returns null when nothing moved and no percent exists', () => {
+    expect(formatTrendDelta(delta('0', '0'))).toBeNull();
+  });
+
+  it('passes a missing delta straight through, so callers need no null guard', () => {
+    expect(formatTrendDelta(null)).toBeNull();
+    expect(formatTrendDelta(delta('1000', null as unknown as string))).toBeNull();
+  });
+});
+
+describe('pctIsMeaningful', () => {
+  it('accepts percents below the cap and rejects the rest', () => {
+    expect(pctIsMeaningful(0)).toBe(true);
+    expect(pctIsMeaningful(-99.9)).toBe(true);
+    expect(pctIsMeaningful(PCT_DISPLAY_CAP - 0.1)).toBe(true);
+    expect(pctIsMeaningful(PCT_DISPLAY_CAP)).toBe(false);
+    expect(pctIsMeaningful(12363734.7)).toBe(false);
+    expect(pctIsMeaningful(null)).toBe(false);
   });
 });
 
