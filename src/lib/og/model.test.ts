@@ -261,6 +261,17 @@ describe('moversCardModel', () => {
     expect(m.gainers[0].ada).toBe('140 ₳');
   });
 
+  it('shows no percent when the baseline was too small for one to mean anything', () => {
+    // 6.3 ₳ to 805.9K ₳: the card leads with the amount instead of six digits of percent.
+    const m = moversCardModel({
+      epoch: 643,
+      gainers: [{ ...gain, snapshot: '805900000000', prev: '6300000' }],
+      losers: [],
+    });
+    expect(m.gainers[0].pct).toBeNull();
+    expect(m.gainers[0].ada).toBe('805.9K ₳');
+  });
+
   it('renders an html card that includes both columns and the movers data', () => {
     const html = moversCardHtml(moversCardModel({ epoch: 643, gainers: [gain], losers: [loss] }));
     expect(html).toContain('Movers of the epoch');

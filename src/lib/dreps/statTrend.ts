@@ -30,7 +30,12 @@ function direction(delta: number): 'up' | 'down' | 'flat' {
   return delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
 }
 
-/** Relative change of two positive quantities, or null when the base is non-positive. */
+/**
+ * Relative change of two positive quantities, or null when the base is
+ * non-positive. No PCT_DISPLAY_CAP here on purpose: these are sums across every
+ * DRep, so the baseline cannot realistically start from dust the way a single
+ * freshly registered DRep's can.
+ */
 function pctTrend(current: number, previous: number): StatTrend | null {
   if (!(previous > 0)) return null;
   const pct = ((current - previous) / previous) * 100;

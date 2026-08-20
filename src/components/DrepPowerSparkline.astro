@@ -4,7 +4,8 @@
 // header, and the whole-window change in the footer. No client JS; renders nothing
 // when there are fewer than two snapshots. Colored by the latest step (gain green,
 // loss red); the footer total is colored independently of the header.
-import { buildPowerChart, computeVotingPowerDelta, formatTrendPct, absLovelace } from '@/lib/dreps/votingPowerTrend.js';
+import { buildPowerChart, computeVotingPowerDelta, formatTrendDelta } from '@/lib/dreps/votingPowerTrend.js';
+import type { VotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { formatAdaCompact } from '@/lib/forum/view.js';
 
 interface Props {
@@ -20,11 +21,15 @@ const lastAmount = series.length >= 1 ? series[series.length - 1].amount : null;
 const prevAmount = series.length >= 2 ? series[series.length - 2].amount : null;
 const delta = computeVotingPowerDelta(lastAmount, prevAmount);
 const dir = delta?.direction ?? 'flat';
+// The percent leads, unless the baseline was too small for one to mean anything
+// (a DRep's first epochs after registration), and then the amount does.
+const deltaDisplay = formatTrendDelta(delta);
 
 // Net change across the whole window (first vs last), a muted secondary so the
 // multi-epoch span is never read as the single-epoch step. Only with 3+ points.
 const firstAmount = series.length >= 1 ? series[0].amount : null;
 const spanDelta = series.length >= 3 ? computeVotingPowerDelta(lastAmount, firstAmount) : null;
+const spanDisplay = formatTrendDelta(spanDelta);
 
 const firstEpoch = series[0]?.epoch;
 const lastEpoch = series[series.length - 1]?.epoch;
@@ -33,12 +38,13 @@ const arrow = (d: 'up' | 'down' | 'flat'): string => (d === 'up' ? '▲' : d ===
 const adaTick = (lovelace: number): string => formatAdaCompact(String(Math.round(lovelace))) ?? '';
 
 // The absolute change moves to the hover so the card surfaces only the percent.
-// Flat carries no magnitude worth showing.
-const hoverText = (d: ReturnType<typeof computeVotingPowerDelta>, label: string): string | undefined => {
-  if (!d) return undefined;
+// Nothing to hover when the card already shows the amount itself, and flat
+// carries no magnitude worth showing.
+const hoverText = (d: VotingPowerDelta | null, label: string): string | undefined => {
+  const display = formatTrendDelta(d);
+  if (!d || display?.pct == null) return undefined;
   if (d.direction === 'flat') return `No change ${label}`;
-  const word = d.direction === 'up' ? 'Up' : 'Down';
-  return `${word} ${formatAdaCompact(absLovelace(d.deltaLovelace)) ?? '0 ₳'} ${label}`;
+  return `${d.direction === 'up' ? 'Up' : 'Down'} ${display.ada} ${label}`;
 };
 ---
 
@@ -52,10 +58,10 @@ const hoverText = (d: ReturnType<typeof computeVotingPowerDelta>, label: string)
         </svg>
       </span>
       <span class="vptrend__title">Voting power trend</span>
-      {delta && (
+      {deltaDisplay && (
         <span class="vptrend__delta" title={hoverText(delta, 'since last epoch')}>
           {dir !== 'flat' && <span class="vptrend__arrow" aria-hidden="true">{arrow(dir)}</span>}
-          {delta.pct != null && <span class="vptrend__pct">{formatTrendPct(delta.pct)}</span>}
+          <span class="vptrend__pct">{deltaDisplay.pct ?? deltaDisplay.ada}</span>
           <span class="vptrend__label">vs last epoch</span>
         </span>
       )}
@@ -87,11 +93,11 @@ const hoverText = (d: ReturnType<typeof computeVotingPowerDelta>, label: string)
       <text class="vptrend__xlabel" x={chart.plot.x + chart.plot.w} y={chart.height - 8} text-anchor="end">Epoch {lastEpoch}</text>
     </svg>
 
-    {spanDelta && (
+    {spanDelta && spanDisplay && (
       <footer class="vptrend__foot">
         <span class={`vptrend__total vptrend__total--${spanDelta.direction}`} title={hoverText(spanDelta, `over ${series.length} epochs`)}>
           {spanDelta.direction !== 'flat' && <span class="vptrend__arrow" aria-hidden="true">{arrow(spanDelta.direction)}</span>}
-          {spanDelta.pct != null && <span>{formatTrendPct(spanDelta.pct)}</span>}
+          <span>{spanDisplay.pct ?? spanDisplay.ada}</span>
           <span class="vptrend__label">over {series.length} epochs</span>
         </span>
       </footer>

@@ -6,7 +6,7 @@
 import { epochCountdown, headlineComposition, readableType, statusBadge } from '../governance/view.js';
 import type { RowVotingInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
-import { computeVotingPowerDelta, formatTrendPct, absLovelace } from '../dreps/votingPowerTrend.js';
+import { computeVotingPowerDelta, formatTrendDelta } from '../dreps/votingPowerTrend.js';
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
 import { getCategory } from '../../../config/categories.js';
@@ -312,11 +312,11 @@ export interface MoversCardModel {
 // uses, so the card and the page always agree. Name is clamped because each column
 // gets roughly half the canvas beside the figure.
 function moverRow(m: MoverInput): MoverRow {
-  const delta = computeVotingPowerDelta(m.snapshot, m.prev);
+  const display = formatTrendDelta(computeVotingPowerDelta(m.snapshot, m.prev));
   return {
     name: clamp(m.name, 22),
-    pct: delta?.pct != null ? formatTrendPct(delta.pct) : null,
-    ada: delta ? (formatAdaCompact(absLovelace(delta.deltaLovelace)) ?? '') : '',
+    pct: display?.pct ?? null,
+    ada: display?.ada ?? '',
   };
 }
 

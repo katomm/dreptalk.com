@@ -742,6 +742,8 @@ main.container {
 .drep-power__fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 
 /* Trend column: per-epoch change, arrow + relative % over the absolute change.
+   A DRep whose baseline was near zero shows the absolute amount on the main line
+   instead (a percent off dust is noise), and then carries no second line.
    Direction drives the color via --c-pos / --c-neg; flat shows a neutral bar (a
    CSS rule, never a typographic dash). Hidden on mobile (the profile page carries
    the full trend there). */

@@ -6,6 +6,7 @@
 // churn, so "any change" would fire for everyone every epoch.
 
 import { formatAdaCompact } from '../format/ada.js';
+import { pctIsMeaningful } from '../dreps/votingPowerTrend.js';
 
 /** Fire when the epoch-over-epoch voting power moved at least this percent. */
 export const POWER_TRIGGER_PCT = 1;
@@ -139,13 +140,20 @@ export function formatDrepStatsDetail(p: DrepStatsPayload): string {
   const power = formatAdaCompact(p.power);
   if (power !== null) {
     let delta = '';
-    if (ev.powerDeltaPct !== null) {
-      delta = ` (${ev.powerDeltaPct >= 0 ? '+' : ''}${ev.powerDeltaPct.toFixed(1)}%)`;
-    } else {
+    if (ev.powerDeltaPct === null) {
       // "new" only when power actually appeared: zero staying zero (the count
       // part triggered the digest) is not new.
       const cur = toNumber(p.power);
       if (toNumber(p.powerPrev) === 0 && cur !== null && cur > 0) delta = ' (new)';
+    } else if (pctIsMeaningful(ev.powerDeltaPct)) {
+      // Signed here, unlike the site's chips, because a sentence carries no arrow.
+      delta = ` (${ev.powerDeltaPct >= 0 ? '+' : ''}${ev.powerDeltaPct.toFixed(1)}%)`;
+    } else {
+      // Growth off a near-empty baseline: a five-digit percent tells the DRep
+      // nothing, so name where they came from instead. Only gains land here, a
+      // loss cannot pass -100%. The current amount already leads the line.
+      const from = formatAdaCompact(p.powerPrev);
+      if (from !== null) delta = ` (up from ${from})`;
     }
     parts.push(`voting power ${power}${delta}`);
   }

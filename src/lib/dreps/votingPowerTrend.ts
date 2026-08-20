@@ -1,6 +1,9 @@
 // Pure helpers for the DRep voting-power trend: the per-epoch delta shown as a
-// chip in the directory list, and the small SSR sparkline on the profile page.
-// No I/O, no DOM; everything here is deterministic and unit-tested.
+// chip in the directory list, the small SSR sparkline on the profile page, and
+// the shared rule for when a percentage is worth showing at all, which the epoch
+// digest applies to its own wording. No I/O, no DOM; everything here is
+// deterministic and unit-tested.
+import { formatAdaCompact } from '../format/ada.js';
 
 export interface VotingPowerDelta {
   /** Whether the latest snapshot rose, fell, or held versus the previous epoch. */
@@ -55,6 +58,44 @@ export function formatTrendPct(pct: number): string {
   if (abs === 0) return '0%';
   if (abs < 0.1) return '<0.1%';
   return `${abs.toFixed(1)}%`;
+}
+
+/**
+ * Above this relative change a percentage stops informing. A DRep whose first
+ * snapshot caught them at their own few ₳ before any delegation arrived shows
+ * five- or six-digit percentages forever after, which reads as a broken widget
+ * rather than as growth. Only gains can cross it: a loss bottoms out at -100%.
+ */
+export const PCT_DISPLAY_CAP = 1000;
+
+/** Whether a percent is worth putting in front of a reader, see {@link PCT_DISPLAY_CAP}. */
+export function pctIsMeaningful(pct: number | null): pct is number {
+  return pct !== null && Math.abs(pct) < PCT_DISPLAY_CAP;
+}
+
+export interface TrendDisplay {
+  /**
+   * The relative change, or null when it would be meaningless: no previous
+   * snapshot to divide by, or a figure past {@link PCT_DISPLAY_CAP}.
+   */
+  pct: string | null;
+  /** The absolute change, which is always available. */
+  ada: string;
+}
+
+/**
+ * Both labels for a delta, unsigned (the sign rides on the delta's direction).
+ * Callers lead with {@link TrendDisplay.pct} and fall back to the amount, which
+ * for a young DRep is the honest and the more encouraging half of the same fact
+ * anyway. Null when nothing moved and no percent exists, which has nothing to
+ * show at all.
+ */
+export function formatTrendDelta(delta: VotingPowerDelta | null): TrendDisplay | null {
+  if (!delta) return null;
+  const ada = formatAdaCompact(absLovelace(delta.deltaLovelace));
+  if (ada === null) return null;
+  if (pctIsMeaningful(delta.pct)) return { pct: formatTrendPct(delta.pct), ada };
+  return delta.direction === 'flat' ? null : { pct: null, ada };
 }
 
 /**
