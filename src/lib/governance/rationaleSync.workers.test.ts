@@ -27,6 +27,22 @@ describe('syncVoteRationales', () => {
     const map = await getActionRationales(env.DB, GA);
     expect(map.get('drep1whale')?.bodyHtml).toContain('Synced rationale');
   });
+
+  it('renders an SPO vote rationale into action_rationale', async () => {
+    const ga = `${'f'.repeat(64)}#0`;
+    const spoBody = JSON.stringify({ body: { comment: 'Pool operator rationale' } });
+    const hash = hashOf(spoBody);
+    await env.DB
+      .prepare(`INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, vote, meta_url, meta_hash, block_time, synced_at, voted_power) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .bind(ga, 'SPO', 'pool1whale', 'no', 'https://x/spo.json', hash, 1700000000, 1700000100, 60_000_000_000_000)
+      .run();
+    const fetchImpl = (async () => new Response(spoBody, { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    const r = await syncVoteRationales({ db: env.DB, now: 1_800_000_000_000, fetchImpl, limit: 10 });
+    expect(r.ok).toBe(1);
+    const map = await getActionRationales(env.DB, ga);
+    expect(map.get('pool1whale')?.bodyHtml).toContain('Pool operator rationale');
+    expect(map.get('pool1whale')?.voterRole).toBe('SPO');
+  });
 });
 
 // Vote anchors pointing at our own zone must be read from D1 instead of HTTP:

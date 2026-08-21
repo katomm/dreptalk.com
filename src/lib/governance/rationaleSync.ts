@@ -1,11 +1,11 @@
 /// <reference types="@cloudflare/workers-types" />
 // Vote-rationale ingestion: fetch + verify + render rationales for above-threshold
-// DRep votes that do not have a rendered row yet, and store them for the Positions
-// tab. Bounded per run (limit) and paced, so the 20-min cron stays lean.
+// DRep and SPO votes that do not have a rendered row yet, and store them for the
+// Positions tab. Bounded per run (limit) and paced, so the 20-min cron stays lean.
 import { getRationaleFetchQueue, upsertActionRationale } from '../db/actionRationale.js';
 import { fetchVoteRationale } from './voteRationaleAnchor.js';
 
-// Fetch rationales for DReps with at least 10,000 ADA of voting power. Set low
+// Fetch rationales for voters with at least 10,000 ADA of voting power. Set low
 // enough to cover small-but-active DReps who write thoughtful rationales, while
 // still skipping dust-weight voters. Below this line only a few hundred anchored
 // votes exist site-wide, so the gate mostly bounds ongoing fetches, not backlog.
