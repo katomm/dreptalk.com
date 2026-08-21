@@ -1,11 +1,12 @@
 # CIP-179 surveys in DRepTalk — MVP
 
-> **Status: design for review**, opened as its own PR so the shape can be
-> discussed before any code exists (the thread is katomm/dreptalk.com#379).
-> Like the earlier `docs/specs/` documents, it is deleted in the PR that lands
-> the last increment. Paths are read against `f967e48` on the DRepTalk side and
-> Tessera's `backend/server/src/http.ts` of 2026-08-21 — re-check before relying
-> on them.
+> **Status: design for review.** Pushed as the first commit of the feature
+> branch so the shape can be discussed before any code exists (the thread is
+> katomm/dreptalk.com#379); the increments land on the same branch behind it.
+> Like the earlier `docs/specs/` documents, it is deleted by the last increment.
+> Paths are read against `f967e48` on the DRepTalk side and Tessera's
+> `backend/server/src/http.ts` of 2026-08-21 — re-check before relying on
+> them.
 
 ## Progress
 
@@ -128,7 +129,12 @@ chain and come back through the index.
   `slot`) — two primary-key reads, no new index, no change to any existing
   payload. Decided 2026-08-21. `/api/responded` as it exists cannot tell a
   *replacement* response from the one it supersedes, and the interop sequence's
-  step 6 is a replacement.
+  step 6 is a replacement. There is no fallback: increment 7 waits for it.
+
+**Where the work pauses.** Increments 1–5 need nothing from Tessera beyond
+what the preprod backend already serves. Increment 6 needs a fresh
+DRep-eligible open survey (data, not code) and increment 7 needs the route
+above, so the branch stops after increment 5 until both exist.
 
 **DRepTalk side.**
 
@@ -502,8 +508,3 @@ reads Tessera — otherwise a reviewer reads it as the design both sides rejecte
   a different admission rule. Raise the thread-per-survey decision, the
   admission rule and the no-nav-link choice in #379 before increment 3 rather
   than discovering them in review.
-- If `GET /api/responses/{txHash}` slips past increment 7, the interim settle
-  rule is `/api/responded` plus "snapshot `fetchedAt` later than the row's
-  `created_at` by a margin" (Tessera's refresh walks from three days below its
-  cursor to the tip each run, so a snapshot taken after the tx confirmed holds
-  it); a replacement is then observable only through the response count.
