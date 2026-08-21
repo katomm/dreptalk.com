@@ -12,16 +12,6 @@
 
 _(one line per completed increment; record deviations here)_
 
-## Open
-
-- **Admission rule.** Which surveys get a thread: all, DRep-eligible only, or
-  DRep-eligible *and* linked by an imported governance action. Asked the
-  maintainer 2026-08-21 after his message mentioned paging `filter=linked`
-  against imported actions as his "admission-gate discovery". Increment 3 keeps
-  the predicate in one function so any answer is a one-line change; the choice
-  decides which preprod survey the acceptance run must use (linked →
-  `1200298ce…:0`, which must then be DRep-eligible and still open).
-
 ---
 
 ## 1. What is being built, and why a category
@@ -43,20 +33,38 @@ label 17 itself was rejected by both sides and stays rejected. DRepTalk reads
 surveys from Tessera's HTTP API and caches them, exactly as it already caches
 governance data read from Koios.
 
-**A survey is a first-class thread in its own category, not a sub-element of a
-governance action.** Surveys stand alone: a survey is complete and valid on its
-own, and most have no governance action attached at all. Linkage is a discovery
-relationship an action opts into through its CIP-108 anchor — it changes nothing
-about who may respond or how the survey is counted.
+**DRepTalk admits a survey when it is DRep-eligible *and* linked by a governance
+action DRepTalk has imported** (maintainer's decision, 2026-08-21). Linkage is a
+discovery relationship an action opts into through its CIP-108 anchor: it
+changes nothing about who may respond or how a survey is counted, so the gate is
+a DRepTalk editorial policy about what belongs on a Cardano governance forum,
+never a claim about the survey.
 
-The relation is also N-to-1, not 1-to-1: an action's anchor names *at most one*
-survey through `body.cip179`, while a survey may be linked by several actions.
-So the rejected alternative — surveys living under the thread of the action that
-links them — fails twice over. It has nowhere to put the majority of surveys,
-which link to no action, and it has to pick one host arbitrarily for a survey
-that three actions point at. (An admission rule that only *admits* linked
-surveys does not change this: it narrows which surveys get a thread, not where
-a thread lives.)
+**An admitted survey is a first-class thread in its own category, not a
+sub-element of the action that links it.** The gate makes the obvious
+alternative — render the survey as a card on the linking action's thread and
+open no topic at all — genuinely cheaper than it was: no new category, no new
+`CategoryKind`, no new `topics.source`, no `topic_id`. Three things still argue
+against it:
+
+- The relation is N-to-1, not 1-to-1: an action's anchor names *at most one*
+  survey through `body.cip179`, while a survey may be linked by several actions.
+  Card-on-the-action renders that survey in several places with no canonical
+  one, so `/s/<ref>` has no single destination and its discussion has no single
+  home.
+- A survey and an action are different objects to discuss. The questions asked,
+  and how a DRep reads them, is not the debate about the action's merits; one
+  thread for both merges two conversations that happen to share a deadline.
+- **The gate is policy, and policy moves.** It is DRepTalk's rule about what to
+  show, not a property of surveys — the same maintainer described gating as "a
+  policy layer deserving its own review". A data model that assumes every survey
+  has a host action has to be rebuilt the day a standalone DRep survey is worth
+  showing; a category costs one value in each of two unions and survives any
+  widening.
+
+The cost is honest and small: `CategoryKind` and `topics.source` each gain a
+value (§7), and the category ships to every network as static config
+(increment 4).
 
 **What this MVP has to prove:** a DRep signed into DRepTalk on preprod can find
 an open, DRep-eligible CIP-179 survey, answer it, and see the answer land on
@@ -67,9 +75,9 @@ chain and come back through the index.
 **In.**
 
 - Preprod only.
-- gov-sync mirrors the admitted subset of Tessera's survey list into D1 —
-  DRepTalk's own knowledge of what exists, since SSR pages read only DRepTalk's
-  storage.
+- gov-sync mirrors the admitted surveys — DRep-eligible and linked by an
+  imported action — from Tessera's survey list into D1: DRepTalk's own knowledge
+  of what exists, since SSR pages read only DRepTalk's storage.
 - One auto-opened thread per admitted survey in a new `surveys` category,
   mirroring how governance actions become threads today.
 - Category listing and per-survey thread with the definition rendered, from D1
@@ -117,13 +125,18 @@ chain and come back through the index.
 **Tessera side.**
 
 - Backend: `https://tessera-backend-preprod.matthieu-pizenberg.workers.dev`.
-- Long-running DRep-eligible preprod surveys exist to build and test against
-  (`ccaa8baa…1547:0` is the DRep-eligible one recorded in `interop/preprod.md`;
-  it closes at the end of epoch 308, so a fresh one is needed for the run).
-- One linked survey for increment 5:
-  `1200298ce001b907801909c18e6a4d55eee587e1bc3c1d4b24cfc4662ecd2d23:0` — the
-  `<txHex>:<index>` form the API keys surveys by. If the admission rule is
-  "linked", it is also the acceptance survey and must be DRep-eligible and open.
+- **The acceptance survey, which the admission rule makes a compound object:**
+  DRep-eligible, linked by a real preprod governance action, and still open at
+  increment 6. Since CIP-179 requires a survey's `end_epoch` to equal its
+  linking action's expiry epoch, the two cannot be created independently — the
+  survey must exist first (the anchor names its ref) with its `end_epoch` set to
+  the epoch the not-yet-submitted action will expire at, and the action follows
+  carrying that anchor. `1200298ce001b907801909c18e6a4d55eee587e1bc3c1d4b24cfc4662ecd2d23:0`
+  is the known linked survey; if it is not DRep-eligible or has closed, a fresh
+  pair is the long-lead item of the whole plan and is worth starting before
+  increment 3. (`ccaa8baa…1547:0` from `interop/preprod.md` is DRep-eligible but
+  standalone, so under this rule DRepTalk never sees it — it is still useful for
+  testing the client and the widget in increments 2 and 6.)
 - `GET /api/responses/{txHash}` in Tessera before increment 7: the responses
   that transaction carried (`surveyKey`, `responseIndex`, `role`, `credential`,
   `slot`) — two primary-key reads, no new index, no change to any existing
@@ -152,7 +165,7 @@ above, so the branch stops after increment 5 until both exist.
 
 ```
 Tessera preprod backend
-  GET /api/surveys?filter=…&limit&cursor   discover: records, govLinks, responseCounts, tip
+  GET /api/surveys?filter=linked&limit&cursor  discover: records, govLinks, responseCounts, tip
   GET /api/surveys?refs=a:0,b:1,…          refresh what DRepTalk already holds (≤200 refs)
   GET /api/responded?credentials=key:<h>   settle pending local rows (≤20 credentials)
   GET /health                              network guard
@@ -309,10 +322,19 @@ numbering has historical duplicates at 0040/0041/0067/0073):
 `src/lib/surveys/sync.ts` mirrors `src/lib/governance/sync.ts`. One phase,
 three passes:
 
-1. **Discover.** Page `/api/surveys?filter=<per the admission rule>` to the
-   end, restarting from page one on `resync`. Admission is one predicate,
-   `admits(record, links, importedActionIds)`, so the Open question above is a
-   one-line change. For each admitted survey not yet held:
+1. **Discover.** Page `/api/surveys?filter=linked` to the end, restarting from
+   page one on `resync`. Tessera filters server-side, so DRepTalk pages the
+   linked set and never the archive. Admit a survey when its `eligibleRoles`
+   contains DRep **and** at least one of its `govLinks` names an action already
+   in `governance_actions.proposal_id`. `eligibleRoles` is fixed in the on-chain
+   definition, but the link half can turn true later — Tessera resolves a few
+   anchors per refresh, and an action DRepTalk has not yet imported arrives on
+   its own `*/5` run — so a survey that misses is simply admitted by a later
+   run, which is why the pass re-evaluates the whole linked set every time
+   rather than tracking what it has rejected. There is no status condition: a
+   closed linked survey still gets its thread, so the first run backfills the
+   linked archive (a handful, on preprod). For each admitted survey not yet
+   held:
    `createTopic({ categorySlug: 'surveys', authorId: GOV_SYNC_AUTHOR,
    source: 'survey', title, bodyMd, bodyHtml, postedAt: <survey block time>,
    batchWith: <insert the survey row> })` — the same atomic batch that keeps a
@@ -339,9 +361,10 @@ behind the `minute % 15` gate for heavy work). When `TESSERA_BACKEND_URL` is
 empty the phase is not registered at all, so mainnet's `/debug/sync` never
 shows it.
 
-*Done when:* a local sync creates one topic per admitted preprod survey,
-`/debug/sync` shows the phase with its item count, and a second run changes
-nothing.
+*Done when:* a local sync creates one topic per admitted preprod survey, a
+DRep-eligible standalone survey and a linked non-DRep survey are both correctly
+absent, `/debug/sync` shows the phase with its item count, and a second run
+changes nothing.
 
 ### 4 — Category and pages
 
@@ -373,9 +396,11 @@ category page shows the not-indexed state.
 ### 5 — Governance linkage, both directions
 
 On the survey card: *Linked by N governance actions*, each resolved through
-`governance_actions.proposal_id` to its own thread. On a governance action's
-thread: *Linked survey* — at most one, by construction — beside the existing
-`RelatedActionsCard`.
+`governance_actions.proposal_id` to its own thread. Under the admission rule N
+is never zero, so the section is unconditional there; the render still handles
+several links, which is the case the whole thread-per-survey shape exists for.
+On a governance action's thread: *Linked survey* — at most one, by construction,
+and absent on almost every action — beside the existing `RelatedActionsCard`.
 
 CIP-179 requires the survey's `end_epoch` to equal the action's expiry epoch for
 a link to be valid; Tessera enforces that before it reports a link, so DRepTalk
@@ -383,8 +408,8 @@ renders what it is given and re-checks nothing. Tessera's interop record is
 explicit that a link is a discovery relation, not evidence the proposer and the
 survey owner are one party: the label is "linked by", never "official".
 
-*Done when:* with a linked preprod survey present, both directions render; on a
-governance action with no link, the section does not appear.
+*Done when:* both directions render for the acceptance pair, and the section is
+absent on a governance action that links no survey — the common case.
 
 ### 6 — Answering
 
@@ -461,8 +486,15 @@ reads Tessera — otherwise a reviewer reads it as the design both sides rejecte
   are there when results rendering lands, and the natural home for reading them
   is the same sync phase (the artifact is immutable and content-addressed, so it
   is a one-time mirror).
-- **Admission rule: open** (see Open). The predicate is isolated so the answer
-  costs one line; the rest of the plan does not depend on it.
+- **Admission: DRep-eligible *and* linked by an imported action** (maintainer,
+  2026-08-21). Alternatives were every survey Tessera reports, or DRep-eligible
+  alone. The chosen rule keeps the forum to surveys that bear on Cardano
+  governance as DRepTalk already indexes it, and it is the cheapest to compute:
+  `filter=linked` narrows server-side and the rest is one join DRepTalk already
+  has an index for. What it costs is real — a DRep-eligible standalone survey is
+  invisible on DRepTalk, including one whose author expected a forum audience —
+  and it is a *policy*, so the data model deliberately does not encode it (§1):
+  widening later is an edit to one predicate, not a migration.
 - **`CategoryKind` gains `'survey'`** rather than reusing `'governance'` or
   `'discussion'`. Reusing either would make `isDiscussion()` — which drives
   category sort modes, the composer and topic creation — answer a question about
@@ -496,8 +528,9 @@ reads Tessera — otherwise a reviewer reads it as the design both sides rejecte
   with this vote", the label-17 payload attached to the vote transaction the
   existing `drepTx` path already builds — and even there it should ride with A:
   Tessera's verdict on a B-only response is `unknown` until the action's anchor
-  resolves, while A proves immediately. Deferred, not rejected; it moves up if
-  the admission rule is "linked".
+  resolves, while A proves immediately. Deferred, not rejected — and the
+  admission rule has now made it the natural next feature, since every survey
+  DRepTalk shows has an action a DRep can be voting on.
 - **Preprod gating by `TESSERA_BACKEND_URL` presence**, plus a `/health` network
   match. One switch, and it belongs to whoever deploys.
 
@@ -507,7 +540,13 @@ reads Tessera — otherwise a reviewer reads it as the design both sides rejecte
 - Widget bundle weight — measure the survey thread page before the PR. The
   sealed-encryption code splits into lazy chunks, so a public-survey page should
   not pay for it.
-- **The maintainer may want a different shape** — no `topics` rows at all, or
-  a different admission rule. This document is up for exactly that: the
-  thread-per-survey decision, the admission rule and the no-nav-link choice
-  are the things to settle on it before increment 3 starts.
+- **The acceptance pair is the long-lead item.** A DRep-eligible, linked, open
+  preprod survey needs a governance action submitted against it with matching
+  epochs (§3); nothing in increments 1–5 is blocked, but increment 6 cannot run
+  without it. Start it early.
+- **The narrowed rule reopens the presentation question, not the admission
+  one.** With every shown survey linked, "card on the linking action's thread,
+  no topic" is a smaller diff than a category; §1 argues it still loses on
+  N-to-1, on merging two conversations, and on encoding a policy into the
+  schema. Confirm with the maintainer before increment 3 — it is the last
+  decision that would invalidate the migration.
