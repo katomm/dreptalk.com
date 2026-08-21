@@ -485,10 +485,19 @@ reads Tessera — otherwise a reviewer reads it as the design both sides rejecte
   They render with a ref-derived title and an explicit "presentation document
   not loaded" note rather than blank prompts. Reversible: the published
   `cip-179/content` entry point fetches and hash-verifies in one call.
-- **Mechanism A only.** Mechanism B — the response bound to a governance vote
-  cast in the same transaction, which is *the* interesting shape for a DRep on a
-  linked action — needs the linked-action set and a combined vote+response
-  transaction. Deferred, not rejected.
+- **Mechanism A for the MVP; mechanism B later, for linked surveys.** A —
+  the DRep key hash in `required_signers` — is the proof that exists for every
+  survey at every moment, it is what the interop contract specifies, and it
+  costs one entry for a key the DRep wallet signs with anyway. B is not a
+  different way to prove the same thing: it proves the credential *by voting on
+  one of the survey's linked actions in the same transaction*, so it exists only
+  for a linked survey, only while the DRep is casting that vote, and never from
+  the survey thread. Its place is the vote panel — "answer the linked survey
+  with this vote", the label-17 payload attached to the vote transaction the
+  existing `drepTx` path already builds — and even there it should ride with A:
+  Tessera's verdict on a B-only response is `unknown` until the action's anchor
+  resolves, while A proves immediately. Deferred, not rejected; it moves up if
+  the admission rule is "linked".
 - **Preprod gating by `TESSERA_BACKEND_URL` presence**, plus a `/health` network
   match. One switch, and it belongs to whoever deploys.
 
