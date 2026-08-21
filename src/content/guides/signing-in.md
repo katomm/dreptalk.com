@@ -51,7 +51,9 @@ hot key you register once to your pool on-chain (CIP-151), so you never expose y
 pool cold key. Wallets cannot sign with a Calidus key yet, so you sign the challenge
 offline with [cardano-signer](https://github.com/gitmachtl/cardano-signer)
 and paste the result. We match your Calidus public key on-chain and confirm it belongs
-to a registered pool.
+to a registered pool. Note that the Calidus key only signs you in: casting your
+pool's vote on a governance action works differently and is covered in
+[Voting as an SPO](/help/voting-as-an-spo/).
 
 ## Constitutional Committee members
 
