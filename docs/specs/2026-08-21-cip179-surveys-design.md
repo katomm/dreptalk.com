@@ -229,8 +229,8 @@ Two published packages, both with a negligible dependency footprint:
 
 | Package | Why | Deps |
 | :-- | :-- | :-- |
-| `cip-179` | Types, `Role`, `fromJsonSafe` (from `cip-179/tally` — Tessera's `$bytes`/`$bigint` wire form), `METADATA_LABEL`, and `cip-179/evolution`'s `toTxMetadatum` for the write path | `@noble/hashes`; `@evolution-sdk/evolution` an **optional** peer, already a DRepTalk dependency at `^0.5.11` |
-| `cardano-tessera-respond` | The `<tessera-respond>` custom element | **none** — Solid, respond-core and the codec are bundled into the artifact |
+| `cip-179` (`0.3.0`) | Types, `Role`, `fromJsonSafe` (from `cip-179/tally` — Tessera's `$bytes`/`$bigint` wire form), `METADATA_LABEL`, and `cip-179/evolution`'s `toTxMetadatum` for the write path | `@noble/hashes`; `@evolution-sdk/evolution` an **optional** peer, already a DRepTalk dependency at `^0.5.11` |
+| `cardano-tessera-respond` (`0.1.3`) | The `<tessera-respond>` custom element | **none** — Solid, respond-core and the codec are bundled into the artifact |
 
 Nothing new enters the surface of the `npm audit --omit=dev --audit-level=high`
 gate CI runs on production dependencies.
@@ -240,8 +240,8 @@ what `cip-179/evolution` is built against before increment 6.
 
 ## 6. Increments
 
-Each ends in one commit — Conventional Commits, imperative subject — with
-`npm run preflight` green. It mirrors the CI `check` job gate for gate and in
+Each increment after the first ends in one commit — Conventional Commits,
+imperative subject — with `npm run preflight` green. It mirrors the CI `check` job gate for gate and in
 order: routed-pages guard, `typecheck`, `lint`, `test`, `build`, built-artifact
 guard, then `npm audit --omit=dev --audit-level=high` on production deps. The
 first three are the inner loop while working; preflight is what a commit is held
@@ -252,22 +252,15 @@ file under `src/pages` that is not underscore-prefixed, so a test for a route
 lives in a colocated `__tests__/` folder or it ships as a public production
 route. And the built artifact must stay free of `cloudflare:test` imports.
 
-### 1 — Fork, local preprod loop, and one upstream fix
+### 1 — Local preprod loop
 
-No product code. Fork, remote, branch. `npm install`,
+No product code and no commit: a checkpoint. `npm ci`,
 `npm run db:migrate:local`, `npm run db:seed:local`, `npm run dev`. Run a
-governance sync by hand (`npm run sync:dev`, then curl `/__scheduled`) and sign
-in with the preprod DRep wallet.
+governance sync by hand (`npm run sync:dev`, then curl `/__scheduled` with one
+of the three cron expressions from `src/lib/freshness.ts`) and sign in with the
+preprod DRep wallet.
 
-While there: `docs/development.md`'s local-trigger examples cite a `*/15`
-default and an hourly `0 * * * *` vote cron, but `workers/gov-sync/wrangler.toml`
-and `src/lib/freshness.ts` both say `*/5`, `*/20`, `0 */6`. The documented
-`?cron=0+*+*+*+*` matches no expression, so `resolveCronKind` runs nothing and
-logs an error. Fix it as a standalone `docs:` PR — a small, real bug, and a good
-first contact with the maintainer ahead of the feature PR.
-
-*Done when:* signed in locally as `drep` against preprod, able to post, and the
-docs PR is open.
+*Done when:* signed in locally as `drep` against preprod and able to post.
 
 ### 2 — Config and the Tessera client
 
@@ -451,7 +444,8 @@ on its own; a replacement response shows the same cycle again.
 Add a row to `src/lib/freshness.ts` **and** to
 `src/content/guides/data-freshness.md`; `freshness.table.test.ts` reads the
 markdown table and fails CI if the two disagree. Mention the feature in the
-README's stack section.
+README's stack section. Delete this document: its Decisions move into the PR
+description, and `docs/` keeps only the contributor-facing pair.
 
 PR against upstream `main`: `feat: index CIP-179 surveys and let DReps answer
 them`. The description should say surveys are read from Tessera's HTTP API,
@@ -505,6 +499,6 @@ reads Tessera — otherwise a reviewer reads it as the design both sides rejecte
   sealed-encryption code splits into lazy chunks, so a public-survey page should
   not pay for it.
 - **The maintainer may want a different shape** — no `topics` rows at all, or
-  a different admission rule. Raise the thread-per-survey decision, the
-  admission rule and the no-nav-link choice in #379 before increment 3 rather
-  than discovering them in review.
+  a different admission rule. This document is up for exactly that: the
+  thread-per-survey decision, the admission rule and the no-nav-link choice
+  are the things to settle on it before increment 3 starts.
