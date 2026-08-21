@@ -11,7 +11,7 @@ As a registered DRep you can vote on open governance actions directly on DRepTal
 
 ## Who can vote
 
-Voting is open to DReps whose registration is active on-chain, using a wallet that supports DRep features (Lace, Eternl, or Typhon work well). Reading governance actions and discussion is public and needs no wallet, but casting a vote requires you to be connected and recognized as an active DRep. SPOs, constitutional committee members, and direct voters do not vote through this flow.
+Voting is open to DReps whose registration is active on-chain, using a wallet that supports DRep features (Lace, Eternl, or Typhon work well). Reading governance actions and discussion is public and needs no wallet, but casting a vote requires you to be connected and recognized as an active DRep. SPOs, constitutional committee members, and direct voters do not vote through this flow. How a stake pool operator votes is covered in [Voting as an SPO](/help/voting-as-an-spo/).
 
 ## How to vote
 
