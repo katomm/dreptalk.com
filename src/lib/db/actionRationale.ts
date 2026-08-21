@@ -162,14 +162,16 @@ const MAX_ATTEMPTS = 4;
 const RETRY_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Above-threshold DRep votes that have an anchor (url + hash) and no successful
- * rationale row yet (or a failed one that is due for a retry). A row whose stored
- * anchor no longer matches the vote's current anchor is re-fetched too; the vote
- * write path already deletes such rows when it syncs a re-vote (see
- * archiveSupersededVotes), so this branch is a self-healing net for rows that
- * went stale some other way. A failed re-fetch updates anchor_url, so it then
- * falls under the bounded failed-retry branch instead of looping. Ordered by
- * power desc so the most significant voters render first. `minPower` is lovelace.
+ * Above-threshold DRep and SPO votes that have an anchor (url + hash) and no
+ * successful rationale row yet (or a failed one that is due for a retry). A row
+ * whose stored anchor no longer matches the vote's current anchor is re-fetched
+ * too; the vote write path already deletes such rows when it syncs a re-vote
+ * (see archiveSupersededVotes), so this branch is a self-healing net for rows
+ * that went stale some other way. A failed re-fetch updates anchor_url, so it
+ * then falls under the bounded failed-retry branch instead of looping. Ordered
+ * by power desc so the most significant voters render first. `minPower` is
+ * lovelace; DReps gate on their registered voting power, SPOs on the stake the
+ * vote itself carried (voted_power), since pools have no dreps row.
  */
 export async function getRationaleFetchQueue(
   db: D1Database,
@@ -184,12 +186,14 @@ export async function getRationaleFetchQueue(
     .prepare(
       `SELECT 1 AS hit
          FROM drep_votes v
-         JOIN dreps d ON d.drep_id = v.voter_id
+         LEFT JOIN dreps d ON d.drep_id = v.voter_id
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
-        WHERE v.voter_role = 'DRep'
-          AND v.meta_url IS NOT NULL AND v.meta_url != ''
+        WHERE v.meta_url IS NOT NULL AND v.meta_url != ''
           AND v.meta_hash IS NOT NULL AND v.meta_hash != ''
-          AND CAST(d.voting_power AS INTEGER) >= ?1
+          AND (
+            (v.voter_role = 'DRep' AND CAST(d.voting_power AS INTEGER) >= ?1)
+            OR (v.voter_role = 'SPO' AND v.voted_power >= ?1)
+          )
           AND (
             r.ga_id IS NULL
             OR (r.status = 'failed' AND r.attempts < ?2 AND r.fetched_at < ?3)
@@ -206,18 +210,20 @@ export async function getRationaleFetchQueue(
         `SELECT v.ga_id AS gaId, v.voter_id AS voterId, v.meta_url AS anchorUrl,
                 v.meta_hash AS anchorHash, v.block_time AS blockTime
          FROM drep_votes v
-         JOIN dreps d ON d.drep_id = v.voter_id
+         LEFT JOIN dreps d ON d.drep_id = v.voter_id
          LEFT JOIN action_rationale r ON r.ga_id = v.ga_id AND r.voter_id = v.voter_id
-         WHERE v.voter_role = 'DRep'
-           AND v.meta_url IS NOT NULL AND v.meta_url != ''
+         WHERE v.meta_url IS NOT NULL AND v.meta_url != ''
            AND v.meta_hash IS NOT NULL AND v.meta_hash != ''
-           AND CAST(d.voting_power AS INTEGER) >= ?1
+           AND (
+             (v.voter_role = 'DRep' AND CAST(d.voting_power AS INTEGER) >= ?1)
+             OR (v.voter_role = 'SPO' AND v.voted_power >= ?1)
+           )
            AND (
              r.ga_id IS NULL
              OR (r.status = 'failed' AND r.attempts < ?2 AND r.fetched_at < ?3)
              OR IFNULL(r.anchor_url, '') <> v.meta_url
            )
-         ORDER BY CAST(d.voting_power AS INTEGER) DESC, v.voter_id
+         ORDER BY CASE v.voter_role WHEN 'DRep' THEN CAST(d.voting_power AS INTEGER) ELSE v.voted_power END DESC, v.voter_id
          LIMIT ?4`,
       )
       .bind(opts.minPower, MAX_ATTEMPTS, now - RETRY_AFTER_MS, opts.limit)

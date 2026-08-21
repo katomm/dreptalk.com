@@ -48,9 +48,10 @@ const role = (roleParam === 'spo' ? 'spo' : roleParam === 'cc' ? 'cc' : 'drep') 
 // down, so it gets no rows here (voters/spoVoters only ever hold DRep/SPO rows).
 const activeVoters = role === 'spo' ? spoVoters : role === 'cc' ? [] : voters;
 
-// Action-wide rationale count (the map covers the whole action, not just this page).
-// The map also carries CC rationales (Task 5's join), so filter to DReps here.
+// Action-wide rationale counts (the map covers the whole action, not just this
+// page). The map also carries CC rationales (Task 5's join), so count per role.
 const withRationale = [...rationales.values()].filter((r) => r.voterRole === 'DRep').length;
+const spoWithRationale = [...rationales.values()].filter((r) => r.voterRole === 'SPO').length;
 
 // Action-wide count of voters who changed their vote, per role (the history map
 // covers the whole action too; each voter's entries all carry the same role).
@@ -126,13 +127,16 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
       {spoTotal === 0
         ? 'No SPO votes recorded for this action.'
         : `${spoTotal} SPO${spoTotal === 1 ? '' : 's'} voted`}
+      {spoWithRationale > 0 && (
+        <span class="ga-positions__count-rationale">{` · ${spoWithRationale} with a rationale`}</span>
+      )}
       {spoChanged > 0 && (
         <span class="ga-positions__count-changed">{` · ${spoChanged} changed their vote`}</span>
       )}
     </p>
   )}
 
-  {role === 'drep' && withRationale > 0 && (
+  {((role === 'drep' && withRationale > 0) || (role === 'spo' && spoWithRationale > 0)) && (
     <p class="ga-positions__hint">Open a row to read the rationale.</p>
   )}
 

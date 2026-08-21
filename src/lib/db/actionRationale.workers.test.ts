@@ -53,6 +53,25 @@ describe('action_rationale', () => {
     expect(jobs.find((j) => j.voterId === 'drep1okk')).toBeUndefined();
   });
 
+  it('enqueues SPO votes with an anchor, gated by the vote voted_power', async () => {
+    const ga = `${'7'.repeat(63)}e#0`;
+    const seedSpoVote = (poolId: string, votedPower: number | null) =>
+      env.DB
+        .prepare(`INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, vote, meta_url, meta_hash, block_time, synced_at, voted_power) VALUES (?,?,?,?,?,?,?,?,?)`)
+        .bind(ga, 'SPO', poolId, 'no', `https://x/${poolId}.json`, 'ee'.repeat(32), 1700000000, 1700000100, votedPower);
+    await env.DB.batch([
+      seedSpoVote('pool1big', 5_000_000_000_000),
+      seedSpoVote('pool1small', 10),
+      // Pool power not yet resolved: skipped until the vote sync fills it in.
+      seedSpoVote('pool1unresolved', null),
+    ]);
+    const jobs = await getRationaleFetchQueue(env.DB, { minPower: 1_000_000_000_000, limit: 50 });
+    const ids = jobs.map((j) => j.voterId);
+    expect(ids).toContain('pool1big');
+    expect(ids).not.toContain('pool1small');
+    expect(ids).not.toContain('pool1unresolved');
+  });
+
   it('queue returns above-threshold voters with an anchor and no ok row', async () => {
     const ga2 = `${'b'.repeat(64)}#0`;
     await env.DB.batch([
