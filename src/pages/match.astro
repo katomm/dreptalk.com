@@ -8,13 +8,14 @@ import MatchQuiz from '@/components/MatchQuiz.tsx';
 import Layout from '@/layouts/Layout.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
+import { excerptFromHtml } from '@/lib/forum/view.js';
+import { renderMarkdown } from '@/lib/markdown.js';
 import { loadMatchCandidates, loadMatchMatrix } from '@/lib/db/match.js';
 import { cacheControlForSynced } from '@/lib/forum/view.js';
 import { readableType } from '@/lib/governance/view.js';
 import {
   MATCH_THRESHOLDS,
   buildMatchDreps,
-  clampText,
   minAnsweredFor,
   selectQuestions,
 } from '@/lib/match/logic.js';
@@ -35,7 +36,7 @@ const selected = selectQuestions(
 
 const enough = selected.length >= thresholds.minQuestions;
 const gaIds = selected.map((r) => r.ga_id);
-const matrixRows = enough && db ? await loadMatchMatrix(db, gaIds, thresholds.powerCapLovelace) : [];
+const matrixRows = enough && db ? await loadMatchMatrix(db, gaIds, thresholds.powerCapLovelace, thresholds.powerFloorLovelace) : [];
 const dreps = buildMatchDreps(matrixRows, gaIds, minAnsweredFor(selected.length)).map((d) => ({
   ...d,
   // The dialog needs the credential to build the delegation certificate,
@@ -47,7 +48,8 @@ const questions = selected.map((r) => ({
   gaId: r.ga_id,
   title: r.title ?? '',
   typeLabel: readableType(r.type),
-  abstract: clampText(r.abstract, 1200),
+  // Abstracts are Markdown, the card shows a plain-text excerpt of the rendered form.
+  abstract: r.abstract ? excerptFromHtml(renderMarkdown(r.abstract), 1200) : '',
   slug: r.topic_slug,
 }));
 
@@ -190,6 +192,10 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
   }
   :global(.match-showmore:hover) {
     text-decoration: underline;
+  }
+  :global(.match-question__prompt) {
+    margin: 1rem 0 0.6rem;
+    font-weight: 600;
   }
   :global(.match-answers) {
     display: flex;

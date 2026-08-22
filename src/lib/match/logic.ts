@@ -21,17 +21,20 @@ export interface MatchThresholds {
   maxPerType: number;
   /** Ranking only shows DReps at or below this voting power (lovelace). */
   powerCapLovelace: number;
+  /** And at or above this one, so a DRep with next to no stake cannot top a tie. */
+  powerFloorLovelace: number;
 }
 
 export const MATCH_THRESHOLDS: Record<CardanoNetwork, MatchThresholds> = {
   mainnet: {
     poolWindow: 100,
-    maxQuestions: 15,
+    maxQuestions: 10,
     minQuestions: 5,
     minDecisiveVotes: 50,
     maxAbstainShare: 0.6,
-    maxPerType: 6,
+    maxPerType: 4,
     powerCapLovelace: 50_000_000_000_000,
+    powerFloorLovelace: 25_000_000_000,
   },
   preprod: {
     poolWindow: 100,
@@ -41,6 +44,7 @@ export const MATCH_THRESHOLDS: Record<CardanoNetwork, MatchThresholds> = {
     maxAbstainShare: 0.6,
     maxPerType: 4,
     powerCapLovelace: 50_000_000_000_000,
+    powerFloorLovelace: 1_000_000_000,
   },
 };
 
@@ -262,12 +266,4 @@ export function decodeShareFragment(hash: string): { fingerprint: string; answer
   const m = FRAGMENT_RE.exec(raw.slice(2));
   if (!m) return null;
   return { fingerprint: m[1], answers: [...m[2]] as UserAnswer[] };
-}
-
-/** Word-boundary text clamp for abstract excerpts in the island payload. */
-export function clampText(text: string | null, max: number): string {
-  if (!text) return '';
-  const t = text.trim();
-  if (t.length <= max) return t;
-  return `${t.slice(0, max).replace(/\s+\S*$/, '')}…`;
 }

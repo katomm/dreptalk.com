@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   MATCH_THRESHOLDS,
   buildMatchDreps,
-  clampText,
   decodeShareFragment,
   discriminativeScore,
   encodeShareFragment,
@@ -176,13 +175,5 @@ describe('share fragment', () => {
     expect(decodeShareFragment('#r=v2.abcd1234.yn')).toBeNull();
     expect(decodeShareFragment('#r=v1.abcd1234.yx')).toBeNull();
     expect(decodeShareFragment('#other=1')).toBeNull();
-  });
-});
-
-describe('clampText', () => {
-  it('trims to the cap on a word boundary with an ellipsis', () => {
-    expect(clampText('one two three', 8)).toBe('one two…');
-    expect(clampText('short', 100)).toBe('short');
-    expect(clampText(null, 10)).toBe('');
   });
 });
