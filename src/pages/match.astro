@@ -36,7 +36,7 @@ const selected = selectQuestions(
 
 const enough = selected.length >= thresholds.minQuestions;
 const gaIds = selected.map((r) => r.ga_id);
-const matrixRows = enough && db ? await loadMatchMatrix(db, gaIds, thresholds.powerCapLovelace) : [];
+const matrixRows = enough && db ? await loadMatchMatrix(db, gaIds, thresholds.powerCapLovelace, thresholds.powerFloorLovelace) : [];
 const dreps = buildMatchDreps(matrixRows, gaIds, minAnsweredFor(selected.length)).map((d) => ({
   ...d,
   // The dialog needs the credential to build the delegation certificate,

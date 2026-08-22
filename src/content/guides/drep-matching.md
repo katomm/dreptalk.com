@@ -68,7 +68,7 @@ A DRep shows up in your results only if all of the following are true:
 - They are currently registered and active.
 - Their on-chain metadata includes a public name.
 - They have not set the "do not list" flag on their profile.
-- Their voting power is at most 50 million ADA.
+- Their voting power is between 25,000 and 50 million ADA.
 - They voted on at least two thirds of the selected questions, which is 7
   out of 10 when the full set is used.
 
@@ -76,6 +76,11 @@ The 50 million ADA cap is deliberate. The largest DReps already have
 outsized influence and plenty of visibility. Find your DRep is meant to
 surface the long tail of smaller DReps whose views you might otherwise never
 come across, not to point you toward whoever already holds the most power.
+
+The 25,000 ADA floor is the counterpart at the other end. Smaller voting
+power ranks first when two DReps tie, so without a floor a DRep with next to
+no stake behind them could top the list. The floor keeps the ranking to DReps
+that at least some delegators already trust.
 
 ## How the match score is computed
 

@@ -95,7 +95,7 @@ describe('loadMatchCandidates', () => {
     expect(candidateRows).toHaveLength(1);
     expect(candidateRows[0]).toMatchObject({ yes: 1, no: 1, abstain: 0 });
 
-    const matrixRows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000);
+    const matrixRows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000, 25_000_000_000);
     expect(matrixRows.map((r) => r.drep_id).sort()).toEqual(['drep1a', 'drep1b']);
     expect(matrixRows.find((r) => r.drep_id === 'drep1a')).toMatchObject({ vote: 'yes' });
   });
@@ -114,7 +114,7 @@ describe('loadMatchMatrix', () => {
     }
     await seedRationale(GA(1), 'drep1ok');
 
-    const rows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000);
+    const rows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000, 25_000_000_000);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ drep_id: 'drep1ok', vote: 'Yes', has_rationale: 1 });
   });
@@ -125,16 +125,27 @@ describe('loadMatchMatrix', () => {
     await seedVote(GA(1), 'drep1edge', 'No');
     await seedRationale(GA(1), 'drep1edge', 'empty', '');
 
-    const rows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000);
+    const rows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000, 25_000_000_000);
     expect(rows).toHaveLength(1);
     expect(rows[0].has_rationale).toBe(0);
+  });
+
+  it('drops DReps below the power floor and keeps one exactly on it', async () => {
+    await seedAction(GA(1));
+    await seedDrep('drep1dust', { power: '24999000000' });
+    await seedDrep('drep1floor', { power: '25000000000' });
+    await seedVote(GA(1), 'drep1dust', 'Yes');
+    await seedVote(GA(1), 'drep1floor', 'Yes');
+
+    const rows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000, 25_000_000_000);
+    expect(rows.map((r) => r.drep_id)).toEqual(['drep1floor']);
   });
 
   it('excludes the special pseudo-DReps', async () => {
     await seedAction(GA(1));
     await seedDrep('drep_always_abstain');
     await seedVote(GA(1), 'drep_always_abstain', 'Abstain');
-    expect(await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000)).toHaveLength(0);
+    expect(await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000, 25_000_000_000)).toHaveLength(0);
   });
 
   it('uses only the latest vote when a re-vote is archived in history', async () => {
@@ -152,7 +163,7 @@ describe('loadMatchMatrix', () => {
       .bind(GA(1))
       .run();
 
-    const rows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000);
+    const rows = await loadMatchMatrix(DB(), [GA(1)], 50_000_000_000_000, 25_000_000_000);
     expect(rows).toHaveLength(1);
     expect(rows[0].vote).toBe('Yes');
   });

@@ -433,7 +433,7 @@ function ResultsScreen({
         </p>
       </div>
       <p className="match-disclosure">
-        Matches focus on active DReps with up to 50M ₳ voting power that voted on at least two
+        Matches focus on active DReps with 25K to 50M ₳ voting power that voted on at least two
         thirds of the questions. <a href="/help/drep-matching/">How matching works</a>
       </p>
       <div className="match-startover">

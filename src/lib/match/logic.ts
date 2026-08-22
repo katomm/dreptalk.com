@@ -21,6 +21,8 @@ export interface MatchThresholds {
   maxPerType: number;
   /** Ranking only shows DReps at or below this voting power (lovelace). */
   powerCapLovelace: number;
+  /** And at or above this one, so a DRep with next to no stake cannot top a tie. */
+  powerFloorLovelace: number;
 }
 
 export const MATCH_THRESHOLDS: Record<CardanoNetwork, MatchThresholds> = {
@@ -32,6 +34,7 @@ export const MATCH_THRESHOLDS: Record<CardanoNetwork, MatchThresholds> = {
     maxAbstainShare: 0.6,
     maxPerType: 4,
     powerCapLovelace: 50_000_000_000_000,
+    powerFloorLovelace: 25_000_000_000,
   },
   preprod: {
     poolWindow: 100,
@@ -41,6 +44,7 @@ export const MATCH_THRESHOLDS: Record<CardanoNetwork, MatchThresholds> = {
     maxAbstainShare: 0.6,
     maxPerType: 4,
     powerCapLovelace: 50_000_000_000_000,
+    powerFloorLovelace: 1_000_000_000,
   },
 };
 

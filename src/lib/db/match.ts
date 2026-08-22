@@ -56,13 +56,14 @@ export async function loadMatchCandidates(db: D1Database, poolWindow: number): P
  * Votes of eligible DReps for the selected questions, one row per vote.
  * Eligibility: active, named, listed (do_not_list honored on purpose, this
  * is a recommendation surface, unlike the plain directory listing), not a
- * pseudo-DRep, and at or below the power cap. The CAST spelling must stay
+ * pseudo-DRep, and with voting power between the floor and the cap. The CAST spelling must stay
  * textually identical to idx_dreps_voting_power_int.
  */
 export async function loadMatchMatrix(
   db: D1Database,
   gaIds: string[],
   powerCapLovelace: number,
+  powerFloorLovelace: number,
 ): Promise<MatrixVoteRow[]> {
   if (gaIds.length === 0) return [];
   const specials = [...SPECIAL_DREP_IDS];
@@ -87,9 +88,10 @@ export async function loadMatchMatrix(
             AND d.do_not_list = 0
             AND d.drep_id NOT IN (${sqlPlaceholders(specials)})
             AND d.voting_power IS NOT NULL
-            AND CAST(d.voting_power AS INTEGER) <= ?`,
+            AND CAST(d.voting_power AS INTEGER) <= ?
+            AND CAST(d.voting_power AS INTEGER) >= ?`,
       )
-      .bind(...gaIds, ...specials, powerCapLovelace)
+      .bind(...gaIds, ...specials, powerCapLovelace, powerFloorLovelace)
       .all<MatrixVoteRow>()
   ).results ?? [];
   return rows;
