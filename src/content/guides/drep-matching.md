@@ -4,7 +4,7 @@ description: "The full methodology behind Find your DRep: how questions are sele
 cardLabel: "How DRep matching works"
 category: "Start here"
 order: 6
-updated: 2026-08-13
+updated: 2026-08-22
 ---
 
 [Find your DRep](/match/) is a short quiz built entirely from completed
@@ -56,8 +56,8 @@ and a lopsided vote scores lowest. The closer the split, the better the
 question separates DReps who agree from DReps who do not.
 
 Questions are ordered by that score, from most evenly split to least. Ties
-go to the newer action. To keep the set varied, at most 6 questions may
-share the same governance action type. Up to 15 questions make the final
+go to the newer action. To keep the set varied, at most 4 questions may
+share the same governance action type. Up to 10 questions make the final
 set. If fewer than 5 qualifying actions are available, the quiz shows a
 not-enough-data notice instead of a short quiz.
 
@@ -69,8 +69,8 @@ A DRep shows up in your results only if all of the following are true:
 - Their on-chain metadata includes a public name.
 - They have not set the "do not list" flag on their profile.
 - Their voting power is at most 50 million ADA.
-- They voted on at least two thirds of the selected questions, which is 10
-  out of 15 when the full set is used.
+- They voted on at least two thirds of the selected questions, which is 7
+  out of 10 when the full set is used.
 
 The 50 million ADA cap is deliberate. The largest DReps already have
 outsized influence and plenty of visibility. Find your DRep is meant to
@@ -94,9 +94,9 @@ nor hurt the score.
 
 Two floors apply before a result appears:
 
-- You must answer at least two thirds of the questions, 10 out of 15, to
+- You must answer at least two thirds of the questions, 7 out of 10, to
   get a result at all.
-- A DRep must share at least 8 answered questions with you to be ranked. A
+- A DRep must share at least 5 answered questions with you to be ranked. A
   DRep who voted on very few of the questions you answered is excluded, since
   too small a shared set makes the percentage unreliable.
 

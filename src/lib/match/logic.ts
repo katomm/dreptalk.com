@@ -26,11 +26,11 @@ export interface MatchThresholds {
 export const MATCH_THRESHOLDS: Record<CardanoNetwork, MatchThresholds> = {
   mainnet: {
     poolWindow: 100,
-    maxQuestions: 15,
+    maxQuestions: 10,
     minQuestions: 5,
     minDecisiveVotes: 50,
     maxAbstainShare: 0.6,
-    maxPerType: 6,
+    maxPerType: 4,
     powerCapLovelace: 50_000_000_000_000,
   },
   preprod: {
@@ -262,12 +262,4 @@ export function decodeShareFragment(hash: string): { fingerprint: string; answer
   const m = FRAGMENT_RE.exec(raw.slice(2));
   if (!m) return null;
   return { fingerprint: m[1], answers: [...m[2]] as UserAnswer[] };
-}
-
-/** Word-boundary text clamp for abstract excerpts in the island payload. */
-export function clampText(text: string | null, max: number): string {
-  if (!text) return '';
-  const t = text.trim();
-  if (t.length <= max) return t;
-  return `${t.slice(0, max).replace(/\s+\S*$/, '')}…`;
 }

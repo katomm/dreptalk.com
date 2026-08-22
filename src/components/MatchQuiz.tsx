@@ -227,8 +227,9 @@ function IntroScreen({
         </div>
       )}
       <p className="match-intro__lede">
-        Answer {questionCount} statements drawn from real, completed Cardano governance votes. At
-        the end, see the DReps whose past votes line up most closely with your answers.
+        You will see {questionCount} real governance actions that Cardano DReps have already
+        voted on. For each one, say how you would have voted: Yes, No or Abstain. At the end,
+        see the DReps whose past votes line up most closely with your answers.
       </p>
       <p className="match-intro__privacy">
         <strong>Your answers never leave your device.</strong> Matching runs entirely in your
@@ -278,7 +279,7 @@ function QuizScreen({
         <div className="callout callout--warning match-notice" role="status">
           <div className="callout__body">
             <p className="match-gate__msg">
-              Answer at least {minAnswered} statements for a meaningful result. You have answered{' '}
+              Answer at least {minAnswered} governance actions for a meaningful result. You have answered{' '}
               {answeredCount} so far.
             </p>
             <button type="button" className="btn btn-primary" onClick={onJumpToSkipped}>
@@ -297,7 +298,7 @@ function QuizScreen({
   return (
     <section className="match-panel match-quiz-panel">
       <p className="match-progress">
-        Question {step + 1} of {questions.length}
+        Governance action {step + 1} of {questions.length}
       </p>
       <span className="match-badge">{q.typeLabel}</span>
       <h2 className="match-question__title">{q.title}</h2>
@@ -319,6 +320,7 @@ function QuizScreen({
           )}
         </>
       )}
+      <p className="match-question__prompt">How would you have voted on this governance action?</p>
       <div className="match-answers">
         <button type="button" className="btn btn-secondary match-answer" onClick={() => onAnswer('y')}>
           Yes
@@ -382,7 +384,7 @@ function ResultsScreen({
           <div className="callout__body">
             <p>
               No DRep shares enough answered questions with you yet to produce a reliable match.
-              Answer more statements to improve your odds.
+              Answer more of the governance actions to improve your odds.
             </p>
             <button type="button" className="btn btn-primary" onClick={onAnswerMore}>
               Answer more questions
