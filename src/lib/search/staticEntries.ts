@@ -28,6 +28,7 @@ export const STATIC_ENTRIES: readonly StaticEntry[] = [
   ...NAV_LINKS.map((l): StaticEntry => ({ group: 'Pages', label: l.label, href: l.href, keywords: PAGE_KEYWORDS[l.href.split('?')[0]] ?? '' })),
   { group: 'Pages', label: 'Help', href: '/help/', keywords: 'documentation guide faq guides' },
   { group: 'Pages', label: 'Glossary', href: '/glossary/', keywords: 'definitions terms vocabulary governance glossary' },
+  { group: 'Pages', label: 'Find your DRep', href: '/match/', keywords: 'match quiz find a drep delegate voting compare' },
 ];
 
 /** Case-insensitive label/keyword/description filter; empty query returns everything. */

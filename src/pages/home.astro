@@ -26,7 +26,7 @@ import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 import ActiveFaces from '@/components/ActiveFaces.astro';
 import { authorProfileHref } from '@/lib/forum/author';
 import { activeLabel, ACTIVE_WINDOW_MS, HOME_FACE_LIMIT } from '@/lib/forum/view';
-import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, VOTE_PATH } from '@/lib/forum/icons';
+import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, TARGET_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 
 const user = Astro.locals.user;
@@ -96,6 +96,7 @@ const icons = {
   settings: SETTINGS_PATH,
   bell: 'M10.268 21a2 2 0 0 0 3.464 0 M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.74 7.326',
   profile: PROFILE_PATH,
+  match: TARGET_PATH,
   discussions:
     'M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1',
 } as const;
@@ -164,6 +165,12 @@ const cards: HomeCard[] = [
               : 'Manage your DRepTalk account.',
         },
       ]),
+  {
+    title: 'Find your DRep',
+    href: '/match/',
+    icon: icons.match,
+    desc: 'Answer real governance questions and see which DReps vote like you.',
+  },
   {
     title: 'Notifications',
     href: '/notifications/',

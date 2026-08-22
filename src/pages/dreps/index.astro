@@ -251,6 +251,11 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
     <a href="/dreps/movers/">Movers of the epoch</a>
   </p>
 
+  <a class="drep-match-teaser" href="/match/">
+    <strong>Find your DRep</strong>
+    <span>Answer questions from real governance votes and see which DReps vote like you.</span>
+  </a>
+
   {selfDescriptor && selfStanding && (
     <DrepSelfCard descriptor={selfDescriptor} standing={selfStanding}>
       {selfRanking!.drep.votingPower != null && (
@@ -394,3 +399,33 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
 
   {dreps.length > 0 && <DrepActionsMenu client:idle network={network} />}
 </Layout>
+
+<style>
+  /* Quiet banner linking to the /match/ quiz, reusing the directory's stat-tile
+     tokens (border, radius, surface) so it reads as part of the page, not an ad. */
+  .drep-match-teaser {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.85rem 1rem;
+    margin: 0 0 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-decoration: none;
+    color: var(--fg);
+    transition: border-color 0.15s ease;
+  }
+  .drep-match-teaser:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .drep-match-teaser strong {
+    font-size: 0.9375rem;
+  }
+  .drep-match-teaser span {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+</style>

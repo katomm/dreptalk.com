@@ -35,6 +35,12 @@ yours. Each DRep profile shows their name, a bio describing their governance
 philosophy, and their activity: which actions they voted on and what
 rationales they published.
 
+Not sure where to start? [Find your DRep](/match/) asks how you would have
+voted on real, completed governance actions and ranks the DReps whose on-chain
+votes line up with your answers, each with a link to their written rationale
+where one exists. Matching runs in your browser, your answers never leave your
+device.
+
 A few things worth checking before you delegate:
 
 - **Activity.** Has this DRep voted recently? Missed votes reduce their
@@ -111,5 +117,6 @@ and get notified when they act. See
 ## Related
 
 - [Tracking your delegation](/help/for-delegators/)
+- [How DRep matching works](/help/drep-matching/)
 - [How to become a DRep](/help/become-a-drep/)
 - [Governance action types](/help/governance-action-types/)
