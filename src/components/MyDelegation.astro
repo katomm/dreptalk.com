@@ -135,7 +135,10 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
           ? 'You are not delegated to a DRep yet.'
           : 'Delegation tracking has not been set up yet. Sign in again to retry.'}
       </p>
-      <a href="/dreps/">Discover DReps</a>
+      <div class="mydel-onboarding__links">
+        {view.kind === 'none' && <a href="/match/">Find your DRep</a>}
+        <a href="/dreps/">Discover DReps</a>
+      </div>
     </div>
   )
 }
@@ -339,5 +342,10 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
   .mydel-onboarding p {
     margin: 0;
     color: var(--muted);
+  }
+  .mydel-onboarding__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.25rem;
   }
 </style>

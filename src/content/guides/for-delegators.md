@@ -86,7 +86,9 @@ consistently and explains their reasoning, you have confirmation that your
 voting power is in good hands. If they go quiet or you disagree with their
 positions, you can delegate elsewhere at any time: browse the [DRep
 directory](/dreps/), open a profile, and use the **Delegate** button. Your
-wallet signs the change, and your dashboard follows it.
+wallet signs the change, and your dashboard follows it. If you want a fresh
+starting point, [Find your DRep](/match/) ranks DReps by how their past votes
+line up with your own answers.
 
 ## Frequently asked questions
 
@@ -116,6 +118,7 @@ Typhon. Governance features like CIP-95 are not required for tracking.
 ## Related
 
 - [How to delegate to a DRep](/help/delegate-to-a-drep/)
+- [How DRep matching works](/help/drep-matching/)
 - [Signing in](/help/signing-in/)
 - [Pair a phone or tablet](/help/pair-a-device/)
 - [Understanding a governance action page](/help/understanding-a-governance-action/)
