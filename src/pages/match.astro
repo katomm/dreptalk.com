@@ -10,6 +10,7 @@ import { currentNetwork } from '@/lib/api/response';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { excerptFromHtml } from '@/lib/forum/view.js';
 import { renderMarkdown } from '@/lib/markdown.js';
+import { matchCardVersion } from '@/lib/og/matchCard.js';
 import { loadMatchCandidates, loadMatchMatrix } from '@/lib/db/match.js';
 import { cacheControlForSynced } from '@/lib/forum/view.js';
 import { readableType } from '@/lib/governance/view.js';
@@ -59,6 +60,7 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
 <Layout
   title="Find your DRep - DRepTalk"
   description="Answer questions from real Cardano governance votes and find a DRep who votes like you. Matching runs in your browser, your answers never leave your device."
+  ogImage={`/og/match.png?v=${matchCardVersion()}`}
 >
   <h1>Find your DRep</h1>
   {enough && dreps.length >= 3 ? (
