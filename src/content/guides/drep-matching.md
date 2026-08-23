@@ -4,7 +4,7 @@ description: "The full methodology behind Find your DRep: how questions are sele
 cardLabel: "How DRep matching works"
 category: "Start here"
 order: 6
-updated: 2026-08-22
+updated: 2026-08-23
 ---
 
 [Find your DRep](/match/) is a short quiz built entirely from completed
@@ -96,6 +96,12 @@ Your match percent with a DRep is the total points divided by the number of
 shared questions. Questions you skipped, and questions the DRep did not
 vote on at all, are excluded from that count entirely, they neither help
 nor hurt the score.
+
+Each result card prints that division underneath the percent, so 7.5 / 10
+reads as seven and a half points across ten shared questions. Because the
+denominator is the shared count and not the full question set, two DReps
+can land on the same percent from a different number of shared questions:
+7.5 out of 10 and 6 out of 8 are both 75 percent.
 
 Two floors apply before a result appears:
 
