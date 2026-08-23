@@ -130,7 +130,30 @@ describe('rankDreps', () => {
     // y-Y = 1, n-Y = 0, a-A = 1, s skipped. 2 of 3 shared = 67 percent
     const out = rankDreps(answers, [drep], 2);
     expect(out[0].shared).toBe(3);
+    expect(out[0].points).toBe(2);
     expect(out[0].matchPct).toBe(67);
+  });
+
+  it('reports the points behind the percent, halves included', () => {
+    const answers: UserAnswer[] = ['y', 'y', 'y', 'y'];
+    // Two exact, one abstain against a firm yes, one opposite: 2.5 of 4.
+    const out = rankDreps(answers, [md({ votes: 'YYAN', rationales: '0000' })], 2);
+    expect(out[0].points).toBe(2.5);
+    expect(out[0].shared).toBe(4);
+    expect(out[0].matchPct).toBe(63);
+  });
+
+  it('sends different shared counts to the same percent, which is why points ship with it', () => {
+    const answers: UserAnswer[] = ['y', 'y', 'y', 'y', 'y', 'y', 'y', 'y', 'y', 'y'];
+    // 7.5 of 10 and 6 of 8 are both 75 percent.
+    const ten = md({ drepId: 'drep1ten', votes: 'YYYYYYYANN', rationales: '0'.repeat(10) });
+    const eight = md({ drepId: 'drep1eight', votes: 'YYYYYYNN--', rationales: '0'.repeat(10) });
+    const out = rankDreps(answers, [ten, eight], 2);
+    expect(out.map((r) => r.matchPct)).toEqual([75, 75]);
+    expect(out.map((r) => [r.points, r.shared])).toEqual([
+      [7.5, 10],
+      [6, 8],
+    ]);
   });
 
   it('gives half points for abstain against a firm position, both directions', () => {

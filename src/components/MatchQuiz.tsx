@@ -60,6 +60,11 @@ function voteLabel(v: string): string {
   return 'Did not vote';
 }
 
+/** Points come in halves, so 7.5 keeps its half and 6 does not become 6.0. */
+function formatPoints(points: number): string {
+  return Number.isInteger(points) ? String(points) : points.toFixed(1);
+}
+
 /** Index of the first not-yet-answered question, or 0 when everything is answered. */
 function firstSkippedIndex(answers: readonly UserAnswer[]): number {
   const idx = answers.indexOf('s');
@@ -405,7 +410,10 @@ function ResultsScreen({
   return (
     <section className="match-panel match-results">
       <h2 className="match-results__heading">Your voting match</h2>
-      <p className="match-results__sub">Based only on past on-chain votes.</p>
+      <p className="match-results__sub">
+          Based only on past on-chain votes. Each percentage is the points a DRep scored across the
+          questions the two of you both answered, not out of the full set.
+        </p>
       <ol className="match-results__list">
         {visible.map((r) => (
           <ResultRow
@@ -502,7 +510,18 @@ function ResultRow({
             )}
           </span>
         </div>
-        <span className="match-row__pct">{ranked.matchPct}%</span>
+        <span
+          className="match-row__score"
+          title={`${formatPoints(ranked.points)} points out of ${ranked.shared} shared questions. Same position scores 1, an abstain against a firm yes or no scores 0.5, opposite positions score 0.`}
+        >
+          <span className="match-row__pct">{ranked.matchPct}%</span>
+          <span className="match-row__points" aria-hidden="true">
+            {formatPoints(ranked.points)} / {ranked.shared}
+          </span>
+          <span className="sr-only">
+            {formatPoints(ranked.points)} points out of {ranked.shared} shared questions
+          </span>
+        </span>
       </div>
       <div className="match-row__actions">
         <button

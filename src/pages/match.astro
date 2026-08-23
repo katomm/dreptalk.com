@@ -299,12 +299,27 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
   :global(.match-row__dot) {
     opacity: 0.6;
   }
-  :global(.match-row__pct) {
+  :global(.match-row__score) {
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.1rem;
+  }
+  :global(.match-row__pct) {
     font-size: 1.35rem;
     font-weight: 700;
+    line-height: 1.1;
     color: var(--accent);
     font-variant-numeric: tabular-nums;
+  }
+  /* The denominator of the percent, so two DReps landing on the same number
+     with a different shared count read as the arithmetic they are. */
+  :global(.match-row__points) {
+    font-size: 0.875rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   :global(.match-row__actions) {
     display: flex;

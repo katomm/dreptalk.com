@@ -185,6 +185,12 @@ export interface RankedDrep {
   drep: MatchDrep;
   /** Whole percent, also the primary sort key so ranking matches display. */
   matchPct: number;
+  /**
+   * Points scored, in halves, out of `shared`. Shown next to the percent
+   * because the percent alone reads as a share of the whole question set,
+   * which sends two DReps with different shared counts to the same number.
+   */
+  points: number;
   shared: number;
 }
 
@@ -216,7 +222,7 @@ export function rankDreps(
       points += POINTS[`${a}${v}`] ?? 0;
     }
     if (shared < minShared) continue;
-    ranked.push({ drep: d, matchPct: Math.round((points / shared) * 100), shared });
+    ranked.push({ drep: d, matchPct: Math.round((points / shared) * 100), points, shared });
   }
   ranked.sort(
     (x, y) =>
