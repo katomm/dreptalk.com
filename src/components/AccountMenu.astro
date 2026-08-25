@@ -1,7 +1,8 @@
 ---
 // Body of the signed-in account menu: identity header (avatar, name, shortened
-// id with a copy button) above Home, Settings, Profile (any account with one,
-// DRep or SPO), Devices and Log out.
+// id with a copy button; linked to the public profile when the account has
+// one) above Home, Settings, Profile (any account with one, DRep or SPO),
+// Devices and Log out.
 // Rendered by RoleEntry in both the desktop dropdown and the flat mobile list,
 // so the rows live here exactly once. The copy button is the only client JS,
 // shipped as a bundled script (the strict CSP forbids inline handlers).
@@ -24,6 +25,12 @@ const id = account.drepId ?? account.authorId;
 const seed = account.identiconSeed ?? account.authorId;
 const imageHash = account.imageHash ?? null;
 const profileHref = authorProfileHref(account);
+
+// The identity header links to the public profile when the account has one
+// (clicking your own name is a natural way to reach it); accounts without a
+// profile keep a plain, non-interactive header. The explicit Profile row below
+// stays either way for people who don't guess that the name is clickable.
+const IdentityTag = profileHref ? 'a' : 'div';
 
 // Path data per menu icon (24x24 stroke grid); the shared account-surface
 // icons come from the icons module, the menu-only ones live here.
@@ -52,11 +59,13 @@ const items = [
 
 <div class="account-menu">
   <div class="account-menu__head">
-    <Avatar seed={seed} imageHash={imageHash} size={AVATAR_SIZE.rowLead} />
-    <span class="account-menu__head-text">
-      <span class="account-menu__head-name">{name}</span>
-      <span class="account-menu__head-id" title={id}>{truncateIdMiddle(id)}</span>
-    </span>
+    <IdentityTag class="account-menu__head-identity" href={profileHref ?? undefined}>
+      <Avatar seed={seed} imageHash={imageHash} size={AVATAR_SIZE.rowLead} />
+      <span class="account-menu__head-text">
+        <span class="account-menu__head-name">{name}</span>
+        <span class="account-menu__head-id" title={id}>{truncateIdMiddle(id)}</span>
+      </span>
+    </IdentityTag>
     <CopyButton value={id} label="Copy your id" />
   </div>
   {items.map((item) => (
@@ -92,12 +101,22 @@ const items = [
     gap: 0.65rem;
     padding: 0.6rem 0.55rem 0.65rem;
   }
+  .account-menu__head-identity {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+    margin-right: auto;
+    text-decoration: none;
+  }
+  a.account-menu__head-identity:hover .account-menu__head-name {
+    color: var(--accent);
+  }
   .account-menu__head-text {
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
     min-width: 0;
-    margin-right: auto;
   }
   .account-menu__head-name {
     font-size: 0.9375rem;
