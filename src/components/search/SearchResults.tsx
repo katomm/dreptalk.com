@@ -284,7 +284,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
           {hasQuery && !error && scope === 'all' && (
             <>
               {data.governanceActions.length > 0 && (
-                <Group title="Governance" count={facetCount('governance')} onMore={() => changeScope('governance')}>
+                <Group title="Governance Actions" count={facetCount('governance')} onMore={() => changeScope('governance')}>
                   {data.governanceActions.slice(0, ALL_PREVIEW).map((ga) => (
                     <GaRow key={ga.href} ga={ga} />
                   ))}

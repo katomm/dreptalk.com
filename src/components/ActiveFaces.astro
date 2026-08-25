@@ -64,6 +64,26 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
   )}
 </span>
 
+<script>
+  // Touch devices have no hover: a tap used to navigate right away while the
+  // hover card only flashed. There, the first tap opens the card instead and a
+  // second tap (avatar or card) follows the link. Tapping anywhere else closes
+  // the open card. Hover-capable devices keep the CSS-only behavior below and
+  // this listener stays inert for them.
+  if (!window.matchMedia('(hover: hover)').matches) {
+    document.addEventListener('click', (e) => {
+      const face = e.target instanceof Element ? e.target.closest('a.af__face:not(.af__face--more)') : null;
+      for (const el of document.querySelectorAll('a.af__face.is-open')) {
+        if (el !== face) el.classList.remove('is-open');
+      }
+      if (face && !face.classList.contains('is-open')) {
+        e.preventDefault();
+        face.classList.add('is-open');
+      }
+    });
+  }
+</script>
+
 <style>
   .af { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; row-gap: 0.5rem; }
   .af__item { display: flex; }
@@ -74,7 +94,11 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
     background: var(--surface); box-shadow: 0 0 0 2px var(--surface);
     transition: transform 0.15s ease; text-decoration: none;
   }
-  a.af__face:hover, a.af__face:focus-visible { z-index: 30; transform: translateY(-3px); }
+  a.af__face:focus-visible { z-index: 30; transform: translateY(-3px); }
+  @media (hover: hover) {
+    a.af__face:hover { z-index: 30; transform: translateY(-3px); }
+  }
+  a.af__face.is-open { z-index: 30; }
   .af__face--more {
     width: 40px; height: 40px; align-items: center; justify-content: center;
     background: color-mix(in srgb, var(--accent) 12%, var(--surface));
@@ -97,12 +121,22 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
     transition: opacity 0.12s ease, transform 0.12s ease, display 0.12s allow-discrete;
     z-index: 40;
   }
-  .af__face:hover .af__pop, .af__face:focus-visible .af__pop {
+  .af__face:focus-visible .af__pop, .af__face.is-open .af__pop {
     display: block; opacity: 1; pointer-events: auto; transform: translateY(0);
   }
   @starting-style {
-    .af__face:hover .af__pop, .af__face:focus-visible .af__pop {
+    .af__face:focus-visible .af__pop, .af__face.is-open .af__pop {
       opacity: 0; transform: translateY(6px);
+    }
+  }
+  @media (hover: hover) {
+    .af__face:hover .af__pop {
+      display: block; opacity: 1; pointer-events: auto; transform: translateY(0);
+    }
+    @starting-style {
+      .af__face:hover .af__pop {
+        opacity: 0; transform: translateY(6px);
+      }
     }
   }
   .af__card {

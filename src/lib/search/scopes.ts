@@ -15,7 +15,7 @@ export const PAGE_SIZE = 20;
 export const SCOPE_LABELS: Record<Scope, string> = {
   all: 'All',
   forum: 'Discussions',
-  governance: 'Governance',
+  governance: 'Governance Actions',
   dreps: 'DReps',
   rationales: 'Rationales',
   help: 'Help',
