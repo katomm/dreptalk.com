@@ -375,17 +375,16 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
               Your vote will appear on-chain once the transaction is confirmed.
             </p>
-            {rationaleAnchor && phase.recorded && (
-              // No immediate share link here: the shareable vote page only
-              // becomes meaningful once the sync confirms the vote on chain,
-              // and the rationale_ready notification links to it then.
+            {/* No immediate share link here: the shareable vote page only
+                becomes meaningful once the sync confirms the vote on chain,
+                and the rationale_ready notification links to it then. The
+                unrecorded case cannot promise that notification (no pending
+                row exists for the sync to confirm), so it only points ahead. */}
+            {rationaleAnchor && (
               <p style={{ margin: '0.5rem 0 0', color: 'var(--muted)', fontSize: '0.875rem' }}>
-                We'll notify you once your vote is confirmed and your rationale is ready to share.
-              </p>
-            )}
-            {rationaleAnchor && !phase.recorded && (
-              <p style={{ margin: '0.5rem 0 0', color: 'var(--muted)', fontSize: '0.875rem' }}>
-                Your shareable rationale link will be available after the next sync.
+                {phase.recorded
+                  ? "We'll notify you once your vote is confirmed and your rationale is ready to share."
+                  : 'Your shareable rationale link will be available after the next sync.'}
               </p>
             )}
             {rationaleAnchor && (

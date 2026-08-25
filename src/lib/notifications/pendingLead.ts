@@ -17,6 +17,7 @@ import { getTopicsByIds } from '../db/forum.js';
 import { getGovernanceActionSlugsByIds } from '../db/governance.js';
 import { loadAuthorIdentity } from '../forum/author.js';
 import { statusBadge } from '../governance/view.js';
+import { voteStatementPath } from '../governance/voteStatement.js';
 import { parseDrepEventPayload } from '../delegation/notifyPayload.js';
 import { parseDrepStatsPayload, formatDrepStatsDetail } from './drepStats.js';
 import { drepPath } from '../dreps/profile.js';
@@ -190,7 +191,7 @@ async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<Pendin
       const p = parseDrepEventPayload(row.payload);
       if (!p?.gaId || !p.drepId) return null;
       const slug = (await getGovernanceActionSlugsByIds(db, [p.gaId])).get(p.gaId);
-      const href = slug ? `${drepPath({ drepId: p.drepId })}vote/${slug}/` : INBOX_PATH;
+      const href = slug ? voteStatementPath('drep', p.drepId, slug) : INBOX_PATH;
       return p.title
         ? { title: clip(p.title), body: 'Your rationale is ready to share', href }
         : { title: 'Your rationale is ready to share', body: 'Your vote is confirmed on chain', href };

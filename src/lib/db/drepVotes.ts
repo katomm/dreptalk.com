@@ -9,7 +9,7 @@ import {
   type ExistingVoteRow,
 } from './voteHistory.js';
 import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
-import { sqlPlaceholders } from './sql.js';
+import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 import { voteBucket } from '@/lib/governance/view.js';
 
 export interface VoteInput {
@@ -148,54 +148,68 @@ async function lookupActionTitle(db: D1Database, gaId: string): Promise<string |
 }
 
 /**
- * Rationale-ready notification INSERTs, keyed by voter id so the caller can
- * batch each statement with the chunk that flips its vote row. A vote
- * qualifies when it confirms a pending self-cast (the stored row still has a
+ * A DRep vote that confirms a pending self-cast (the stored row still has a
  * local_status, so it was cast through the site) and carries a rationale
- * anchor; the recipient is the active DRep account whose drep_id is the voter
- * (same semantics as the stats digest). Idempotent via the notifications
- * (recipient_id, event_key) partial unique index, so a re-synced confirmation
- * never double-notifies. `now` is unix milliseconds (created_at unit);
- * sourceTime follows the fan-out convention (block_time, else observed second).
+ * anchor: the trigger for the rationale-ready notification.
  */
-async function buildRationaleReadyInserts(
+function confirmsSelfCastRationale(v: VoteInput, existing: Map<string, ExistingVoteRow>): boolean {
+  return v.voterRole === 'DRep' && v.metaUrl != null && existing.get(v.voterId)?.local_status != null;
+}
+
+/**
+ * The active DRep accounts owning the given drep ids (same recipient semantics
+ * as the stats digest), as drepId -> user ids. Deduped and chunked under the
+ * D1 bind limit; users.drep_id is only non-uniquely indexed, so one DRep can
+ * map to several accounts.
+ */
+async function lookupRationaleReadyRecipients(db: D1Database, drepIds: string[]): Promise<Map<string, string[]>> {
+  const byDrep = new Map<string, string[]>();
+  for (const ids of chunked([...new Set(drepIds)], D1_MAX_BINDS)) {
+    const { results } = await db
+      .prepare(
+        `SELECT id, drep_id FROM users
+         WHERE drep_id IN (${sqlPlaceholders(ids)}) AND is_drep = 1 AND status = 'active'`,
+      )
+      .bind(...ids)
+      .all<{ id: string; drep_id: string }>();
+    for (const o of results) {
+      const list = byDrep.get(o.drep_id) ?? [];
+      list.push(o.id);
+      byDrep.set(o.drep_id, list);
+    }
+  }
+  return byDrep;
+}
+
+/**
+ * Rationale-ready notification INSERTs for one chunk, built beside the chunk's
+ * vote upserts (mirroring classifyVoteJobs) so each notification commits
+ * atomically with the write that clears its vote's local_status. Idempotent
+ * via the notifications (recipient_id, event_key) partial unique index, so a
+ * re-synced confirmation never double-notifies. `now` is unix milliseconds
+ * (the created_at unit); sourceTime follows the fan-out convention
+ * (block_time, else observed second). An empty recipients map (the option was
+ * off, or no account owns the voter) yields no statements.
+ */
+function buildRationaleReadyStatements(
   db: D1Database,
   gaId: string,
-  votes: VoteInput[],
+  chunk: VoteInput[],
   existing: Map<string, ExistingVoteRow>,
+  recipients: Map<string, string[]>,
   now: number,
   title: string | null,
-): Promise<Map<string, D1PreparedStatement[]>> {
-  const candidates = votes.filter(
-    (v) => v.voterRole === 'DRep' && v.metaUrl != null && existing.get(v.voterId)?.local_status != null,
-  );
-  const byVoter = new Map<string, D1PreparedStatement[]>();
-  if (candidates.length === 0) return byVoter;
-
-  const drepIds = candidates.map((v) => v.voterId);
-  const { results: owners } = await db
-    .prepare(
-      `SELECT id, drep_id FROM users
-       WHERE drep_id IN (${sqlPlaceholders(drepIds)}) AND is_drep = 1 AND status = 'active'`,
-    )
-    .bind(...drepIds)
-    .all<{ id: string; drep_id: string }>();
-  const ownersByDrep = new Map<string, string[]>();
-  for (const o of owners) {
-    const list = ownersByDrep.get(o.drep_id) ?? [];
-    list.push(o.id);
-    ownersByDrep.set(o.drep_id, list);
-  }
-
+): D1PreparedStatement[] {
   const observedAtSec = Math.floor(now / 1000);
-  for (const v of candidates) {
-    const recipients = ownersByDrep.get(v.voterId);
-    if (!recipients) continue;
+  const stmts: D1PreparedStatement[] = [];
+  for (const v of chunk) {
+    if (!confirmsSelfCastRationale(v, existing)) continue;
+    const owners = recipients.get(v.voterId);
+    if (!owners) continue;
     const sourceTime = v.blockTime ?? observedAtSec;
     const payload = JSON.stringify({ sourceTime, gaId, drepId: v.voterId, title, vote: v.vote });
-    byVoter.set(
-      v.voterId,
-      recipients.map((userId) =>
+    for (const userId of owners) {
+      stmts.push(
         db
           .prepare(
             `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
@@ -203,10 +217,10 @@ async function buildRationaleReadyInserts(
              ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
           )
           .bind(crypto.randomUUID(), userId, `rationale_ready:${v.voterId}:${gaId}:${sourceTime}`, payload, now),
-      ),
-    );
+      );
+    }
   }
-  return byVoter;
+  return stmts;
 }
 
 /**
@@ -239,20 +253,27 @@ export async function upsertVotes(
     ? await readChangedRationaleBodies(db, gaId, changed.map((c) => c.old.voter_id))
     : new Map<string, string | null>();
 
+  // Rationale-ready candidates decided up front: they gate the title fetch and
+  // the (single) recipients lookup, so a run with no confirming self-cast pays
+  // only an in-memory filter.
+  const rationaleCandidates = opts?.notifyRationaleReady
+    ? votes.filter((v) => confirmsSelfCastRationale(v, existing))
+    : [];
+  const rationaleRecipients =
+    rationaleCandidates.length > 0
+      ? await lookupRationaleReadyRecipients(db, rationaleCandidates.map((v) => v.voterId))
+      : new Map<string, string[]>();
+
   // Title only when we might emit an event (best-effort, one SELECT).
   const emitJobs = followedDrepIds != null && followedDrepIds.size > 0;
-  const title = emitJobs || opts?.notifyRationaleReady ? await lookupActionTitle(db, gaId) : null;
-
-  const rationaleReady = opts?.notifyRationaleReady
-    ? await buildRationaleReadyInserts(db, gaId, votes, existing, now, title)
-    : new Map<string, D1PreparedStatement[]>();
+  const title = emitJobs || rationaleCandidates.length > 0 ? await lookupActionTitle(db, gaId) : null;
 
   for (let i = 0; i < votes.length; i += UPSERT_CHUNK) {
     const chunk = votes.slice(i, i + UPSERT_CHUNK);
     const archiveStmts = buildArchiveStatements(db, gaId, chunk, existing, bodies, now);
     const voteStmts = buildVoteUpsertStatements(db, gaId, chunk, now);
     const jobStmts = emitJobs ? classifyVoteJobs(db, gaId, chunk, existing, followedDrepIds, now, title) : [];
-    const rationaleStmts = chunk.flatMap((v) => rationaleReady.get(v.voterId) ?? []);
+    const rationaleStmts = buildRationaleReadyStatements(db, gaId, chunk, existing, rationaleRecipients, now, title);
     await db.batch([...archiveStmts, ...voteStmts, ...jobStmts, ...rationaleStmts]);
   }
   return votes.length;
