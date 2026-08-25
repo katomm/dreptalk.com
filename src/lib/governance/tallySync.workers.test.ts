@@ -537,6 +537,30 @@ describe('syncGovernanceVotes', () => {
     expect(jobs.results).toHaveLength(1);
     expect(jobs.results[0].event_type).toBe('delegator_drep_voted');
   });
+
+  it('notifies the DRep account when the live sync confirms a pending self-cast with a rationale', async () => {
+    const a = await insertActive(400);
+    await db().prepare(
+      `INSERT INTO users (id, drep_id, is_drep, role, status, created_at, last_verified_at, notif_seen_at)
+       VALUES ('userSelfCast', 'drepSelfCast', 1, 'drep', 'active', 0, 0, 0)`,
+    ).run();
+    await recordLocalVote(db(), { gaId: a.id, drepId: 'drepSelfCast', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r.json', txHash: 'txSelf', now: NOW - 1000 });
+    const koios = {
+      async proposalVotes(pid: string, _limit?: number, offset?: number): Promise<ProposalVoteRow[]> {
+        return (offset ?? 0) === 0 && pid === a.proposalId
+          ? [{ voter_role: 'DRep', voter_id: 'drepSelfCast', voter_hex: null, vote: 'Yes', meta_url: 'https://host/r.json', block_time: 100 }]
+          : [];
+      },
+      poolInfoBatch: async () => [],
+    };
+
+    await syncGovernanceVotes({ koios, db: db(), now: NOW });
+
+    const rows = await db()
+      .prepare(`SELECT recipient_id FROM notifications WHERE type = 'rationale_ready'`)
+      .all<{ recipient_id: string }>();
+    expect(rows.results).toEqual([{ recipient_id: 'userSelfCast' }]);
+  });
 });
 
 describe('backfillVotedPower', () => {

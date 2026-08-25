@@ -2,11 +2,12 @@
 // (delegator_drep_voted / delegator_drep_re_voted / delegator_drep_status_changed).
 // Mirrors parseDelegationChangePayload's shape-validating, never-throws pattern
 // so a malformed row is dropped at render time rather than crashing the inbox.
-// Vote events (Task 3, src/lib/db/drepVotes.ts) write { sourceTime, gaId, title, vote };
-// status events (Task 4, src/lib/db/dreps.ts) write
+// Vote events (Task 3, src/lib/db/drepVotes.ts) write { sourceTime, gaId, title, vote },
+// rationale_ready rows add drepId to that shape; status events (Task 4,
+// src/lib/db/dreps.ts) write
 // { sourceTime, drepId, from: {effective,status}, to: {effective,status} }.
-// The two shapes never both apply to the same row, so this parser dispatches on
-// which discriminating field (gaId vs drepId) is present.
+// The shapes never both apply to the same row, so this parser dispatches on
+// gaId first, then drepId.
 
 export interface DrepEventState {
   effective: string;
@@ -49,9 +50,13 @@ export function parseDrepEventPayload(payload: string | null): DrepEventPayload 
   if (typeof gaId === 'string') {
     const title = (parsed as { title?: unknown }).title;
     const vote = (parsed as { vote?: unknown }).vote;
+    // rationale_ready rows carry the voter alongside the action, so the
+    // notification can link to the DRep's own vote page.
+    const voterDrepId = (parsed as { drepId?: unknown }).drepId;
     return {
       sourceTime,
       gaId,
+      ...(typeof voterDrepId === 'string' ? { drepId: voterDrepId } : {}),
       ...(typeof title === 'string' ? { title } : {}),
       ...(typeof vote === 'string' && vote !== '' ? { vote } : {}),
     };

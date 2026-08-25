@@ -40,6 +40,7 @@ const allEnabled = {
   drep_status: true,
   my_delegation: true,
   drep_stats: true,
+  rationale_ready: true,
 };
 
 describe('addChannel + listChannels + removeChannel', () => {
@@ -208,6 +209,7 @@ describe('getPendingCounts', () => {
       drepStatus: 0,
       myDelegation: 0,
       drepStats: 0,
+      rationaleReady: 0,
       devices: 0,
       total: 2,
     });
@@ -228,6 +230,7 @@ describe('getPendingCounts', () => {
       drepStatus: 0,
       myDelegation: 0,
       drepStats: 0,
+      rationaleReady: 0,
       devices: 0,
       total: 1,
     });
@@ -249,6 +252,7 @@ describe('getPendingCounts', () => {
       drepStatus: 0,
       myDelegation: 0,
       drepStats: 0,
+      rationaleReady: 0,
       devices: 0,
       total: 1,
     });
@@ -267,6 +271,7 @@ describe('getPendingCounts', () => {
       drepStatus: 0,
       myDelegation: 0,
       drepStats: 0,
+      rationaleReady: 0,
       devices: 0,
       total: 0,
     });
@@ -285,6 +290,7 @@ describe('getPendingCounts', () => {
       drepStatus: 0,
       myDelegation: 0,
       drepStats: 0,
+      rationaleReady: 0,
       devices: 0,
       total: 0,
     });
@@ -312,6 +318,7 @@ describe('getPendingCounts', () => {
       drepStatus: 0,
       myDelegation: 0,
       drepStats: 0,
+      rationaleReady: 0,
       devices: 1,
       total: 1,
     });
@@ -360,6 +367,21 @@ describe('getPendingCounts', () => {
 
     const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, my_delegation: false });
     expect(disabledCounts.myDelegation).toBe(0);
+    expect(disabledCounts.total).toBe(0);
+  });
+
+  it('counts rationale_ready for a shareable own-vote rationale, gated by its pref', async () => {
+    await insertNotifications(db(), [
+      { recipientId: 'alice', type: 'rationale_ready', actorId: null, topicId: null, postId: null, createdAt: 200 },
+      { recipientId: 'alice', type: 'rationale_ready', actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
+    ]);
+
+    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
+    expect(enabledCounts.rationaleReady).toBe(1);
+    expect(enabledCounts.total).toBe(1);
+
+    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, rationale_ready: false });
+    expect(disabledCounts.rationaleReady).toBe(0);
     expect(disabledCounts.total).toBe(0);
   });
 });

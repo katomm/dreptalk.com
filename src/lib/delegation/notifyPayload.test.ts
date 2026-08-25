@@ -27,6 +27,11 @@ describe('parseDrepEventPayload', () => {
     expect(parseDrepEventPayload(raw)).toEqual({ sourceTime: 1_700_000_000, gaId: 'ga1abc', title: 'Reduce fees' });
   });
 
+  it('carries drepId through a vote-event payload (rationale_ready rows link to the voter)', () => {
+    const raw = JSON.stringify({ sourceTime: 1_700_000_000, gaId: 'ga1abc', drepId: 'drep1xyz', title: 'Reduce fees', vote: 'Yes' });
+    expect(parseDrepEventPayload(raw)).toEqual({ sourceTime: 1_700_000_000, gaId: 'ga1abc', drepId: 'drep1xyz', title: 'Reduce fees', vote: 'Yes' });
+  });
+
   it('parses a valid status-event payload (drepId + from/to)', () => {
     const raw = JSON.stringify({
       sourceTime: 1_700_000_000,

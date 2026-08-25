@@ -29,14 +29,13 @@ type Phase =
   | { status: 'checking'; identity: DRepIdentity }
   | { status: 'form'; identity: DRepIdentity }
   | { status: 'submitting'; identity: DRepIdentity }
-  | { status: 'success'; txHash: string; recorded: boolean; drepId: string }
+  | { status: 'success'; txHash: string; recorded: boolean }
   | { status: 'error'; message: string; identity?: DRepIdentity };
 
 export interface VotePanelProps {
   gaId: string;
   network: CardanoNetwork;
   initialViewerVote: ViewerVoteRow | null;
-  topicSlug: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +209,7 @@ function AnchorInfo({
   );
 }
 
-export default function VotePanel({ gaId, network, initialViewerVote, topicSlug }: VotePanelProps) {
+export default function VotePanel({ gaId, network, initialViewerVote }: VotePanelProps) {
   const { wallets, selected, setSelected } = useCardanoWallets({ preferCip95: true });
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
 
@@ -335,7 +334,7 @@ export default function VotePanel({ gaId, network, initialViewerVote, topicSlug 
       // The vote is on chain: drop the draft eagerly so a crash right after
       // success cannot resurrect the already-submitted rationale.
       writeDraft(draftKey, null);
-      setPhase({ status: 'success', txHash, recorded, drepId: identity.drepId });
+      setPhase({ status: 'success', txHash, recorded });
     } catch (err) {
       const msg = expiredActionMessage(err) ?? readableError(err);
       setPhase({ status: 'error', message: msg, identity });
@@ -376,13 +375,16 @@ export default function VotePanel({ gaId, network, initialViewerVote, topicSlug 
             <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
               Your vote will appear on-chain once the transaction is confirmed.
             </p>
-            {rationaleAnchor && phase.recorded && phase.drepId && (
-              <p style={{ margin: '0.5rem 0 0' }}>
-                <a href={`/dreps/${phase.drepId}/vote/${topicSlug}/`}>Share your rationale</a>
+            {rationaleAnchor && phase.recorded && (
+              // No immediate share link here: the shareable vote page only
+              // becomes meaningful once the sync confirms the vote on chain,
+              // and the rationale_ready notification links to it then.
+              <p style={{ margin: '0.5rem 0 0', color: 'var(--muted)', fontSize: '0.875rem' }}>
+                We'll notify you once your vote is confirmed and your rationale is ready to share.
               </p>
             )}
             {rationaleAnchor && !phase.recorded && (
-              <p style={{ margin: '0.5rem 0 0', color: 'var(--muted)' }}>
+              <p style={{ margin: '0.5rem 0 0', color: 'var(--muted)', fontSize: '0.875rem' }}>
                 Your shareable rationale link will be available after the next sync.
               </p>
             )}
