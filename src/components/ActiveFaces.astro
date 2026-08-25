@@ -84,15 +84,26 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
   /* Hover card. The wrapper reaches down to the avatar (padding-bottom) so the
      pointer can move onto the card without a hover gap. Vertical hover animation
      lives on the wrapper, horizontal placement on the card, so the two never
-     fight; the card is centred by default and re-anchored at the row ends. */
+     fight; the card is centred by default and re-anchored at the row ends.
+     Hidden cards must be display: none, not just opacity: 0: an invisible card
+     still counts toward the page's scrollable overflow, and cards near the right
+     edge of the row made the whole page scroll sideways on narrow viewports.
+     The display transition (allow-discrete) plus @starting-style keep the fade
+     working; browsers without support just show the card without the fade. */
   .af__pop {
-    position: absolute; bottom: 100%; left: 50%;
+    display: none; position: absolute; bottom: 100%; left: 50%;
     padding-bottom: 10px; opacity: 0; pointer-events: none;
-    transform: translateY(6px); transition: opacity 0.12s ease, transform 0.12s ease;
+    transform: translateY(6px);
+    transition: opacity 0.12s ease, transform 0.12s ease, display 0.12s allow-discrete;
     z-index: 40;
   }
   .af__face:hover .af__pop, .af__face:focus-visible .af__pop {
-    opacity: 1; pointer-events: auto; transform: translateY(0);
+    display: block; opacity: 1; pointer-events: auto; transform: translateY(0);
+  }
+  @starting-style {
+    .af__face:hover .af__pop, .af__face:focus-visible .af__pop {
+      opacity: 0; transform: translateY(6px);
+    }
   }
   .af__card {
     display: block; width: 232px; transform: translateX(-50%);
