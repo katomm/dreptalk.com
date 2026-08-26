@@ -16,7 +16,7 @@ import { getVoteStatement } from '@/lib/db/voteRationale.js';
 import { getSupersededVotesFor } from '@/lib/db/voteHistory.js';
 import { drepPath, isCanonicalDrepParam } from '@/lib/dreps/profile.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
-import { isVoteStatementIndexable } from '@/lib/governance/voteStatement.js';
+import { isVoteStatementIndexable, positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 import { drepDescriptor } from '@/lib/forum/author.js';
 import { excerptFromHtml } from '@/lib/forum/view.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -50,7 +50,7 @@ const vote = drep && govAction && db
 // The voter and action both exist but there is no shareable vote here (no
 // on-chain rationale yet): send the visitor to the position row instead.
 if (drep && govAction && topic && !vote) {
-  return Astro.redirect(`/t/${topic.slug}/?tab=positions&voter=${drep.drepId}#voter-${drep.drepId}`, 302);
+  return Astro.redirect(`/t/${topic.slug}/${positionsVoterAnchor(drep.drepId)}`, 302);
 }
 
 const ready = !!(drep && db && topic && govAction && vote);

@@ -6,6 +6,23 @@ export function voteStatementPath(role: 'drep' | 'spo', voterKey: string, action
   return `/${base}/${voterKey}/vote/${actionSlug}/`;
 }
 
+/**
+ * Query+hash tail deep-linking one voter's row on an action's Positions tab:
+ * `?tab=positions[&role=…][&voter=<id>]#voter-<id>`. Callers prepend their own
+ * prefix (relative, absolute origin, or an actionHref). The voter= param and
+ * the #voter- hash must carry the same id: the tab resolves voter= to the page
+ * that currently renders the row (getActionVoterRank, the list reshuffles as
+ * votes arrive), the hash drives the scroll/expand/highlight on arrival. The
+ * CC list is unpaginated, so cc links omit voter= and keep the plain anchor;
+ * if the CC list ever paginates, add voter= here and resolve it like the
+ * other roles. Omitting role means the default DRep sub-section.
+ */
+export function positionsVoterAnchor(voterId: string, role?: 'spo' | 'cc'): string {
+  const rolePart = role ? `&role=${role}` : '';
+  const voterPart = role === 'cc' ? '' : `&voter=${voterId}`;
+  return `?tab=positions${rolePart}${voterPart}#voter-${voterId}`;
+}
+
 export function isVoteStatementIndexable(args: { hasMetadata: boolean; rationaleText: string }): boolean {
   return args.hasMetadata && args.rationaleText.trim().length >= MIN_INDEXABLE_RATIONALE_CHARS;
 }

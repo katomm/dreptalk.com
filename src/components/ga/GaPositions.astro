@@ -17,7 +17,7 @@ import type { CcPositionRow } from '@/lib/governance/ccPositions.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
-import { voteStatementPath } from '@/lib/governance/voteStatement.js';
+import { voteStatementPath, positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 
 interface Props {
   voters: ActionVoterRow[];
@@ -77,13 +77,10 @@ const drepHref = `/t/${slug}/?tab=positions&role=drep`;
 const spoHref = `/t/${slug}/?tab=positions&role=spo`;
 const ccHref = `/t/${slug}/?tab=positions&role=cc`;
 
-// Absolute base for per-vote share links. The link carries role plus a
-// voter= param that the tab resolves to whichever page renders the row at
-// open time (getActionVoterRank), so the link survives the list reshuffling
-// as new votes arrive. The #voter-<id> anchor drives the
-// scroll/expand/highlight on arrival.
+// Absolute origin for per-vote share links, so the copied link stands alone
+// off-site. Anchor-form links go through positionsVoterAnchor, which carries
+// the voter both as a resolvable page param and as the scroll anchor.
 const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
-const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}`;
 ---
 
 <div class="ga-positions">
@@ -165,7 +162,7 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}`;
         // empty for 'cc'), so the narrowed literal here is safe.
         const voteShareUrl = bodyHtml
           ? `${shareOrigin}${voteStatementPath(role === 'spo' ? 'spo' : 'drep', voterKey, slug)}`
-          : `${shareBase}&voter=${v.voter_id}#voter-${v.voter_id}`;
+          : `${shareOrigin}/t/${slug}/${positionsVoterAnchor(v.voter_id, role === 'spo' ? 'spo' : undefined)}`;
         // Identity, vote, and power render identically whether or not the row
         // expands; the power slot is always present (empty when unknown) so the
         // amount column lines up across every row. A late vote (cast after
@@ -234,7 +231,7 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}`;
         {ccRows.map((m) => {
           const seed = m.hotKeyHex ?? m.coldKeyHex;
           const shortKey = `${seed.slice(0, 8)}…${seed.slice(-4)}`;
-          const shareUrl = m.voterId ? `${shareOrigin}/t/${slug}/?tab=positions&role=cc#voter-${m.voterId}` : null;
+          const shareUrl = m.voterId ? `${shareOrigin}/t/${slug}/${positionsVoterAnchor(m.voterId, 'cc')}` : null;
           const lead = (
             <>
               <div class="ga-positions__identity cc-id">

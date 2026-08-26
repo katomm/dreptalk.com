@@ -4,6 +4,7 @@
 // lib/search/match.ts (never raw user input) and bound as a parameter.
 import { decodeBech32 } from '../crypto/bech32.js';
 import { drepPath } from '../dreps/profile.js';
+import { positionsVoterAnchor } from '../governance/voteStatement.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
 import { PAGE_SIZE } from '../search/scopes.js';
 import { pageToOffset } from '../forum/view.js';
@@ -382,10 +383,9 @@ const RATIONALE_SELECT = `
 
 function toRationaleHit(r: RationaleRow): RationaleHit {
   const cc = r.voter_role === 'ConstitutionalCommittee';
-  const role = cc ? '&role=cc' : r.voter_role === 'SPO' ? '&role=spo' : '';
-  const deep = cc ? '' : `&voter=${r.voter_id}`;
+  const role = cc ? ('cc' as const) : r.voter_role === 'SPO' ? ('spo' as const) : undefined;
   return {
-    href: `/t/${r.topic_slug}/?tab=positions${role}${deep}#voter-${r.voter_id}`,
+    href: `/t/${r.topic_slug}/${positionsVoterAnchor(r.voter_id, role)}`,
     voterId: r.voter_id,
     name: r.name,
     imageHash: cc ? null : r.image_content_hash, // CC members have no stored avatar, identicon renders from voterId

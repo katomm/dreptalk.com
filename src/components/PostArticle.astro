@@ -9,6 +9,7 @@ import { postViewerContext, type SessionUser } from '@/lib/forum/postVisibility.
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { voteTone, voteChangedSince, TONE_COLORS } from '@/lib/governance/view.js';
+import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
@@ -71,9 +72,7 @@ const anchorUrl =
 const currentVote = authorVote?.vote ?? null;
 const changedVote = isVoteRationale && voteChangedSince(post.vote, currentVote) ? currentVote : null;
 const changedVoteColor = changedVote ? TONE_COLORS[voteTone(changedVote)] : null;
-const changedVoteHref = author.drepId
-  ? `?tab=positions&voter=${author.drepId}#voter-${author.drepId}`
-  : '?tab=positions';
+const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?tab=positions';
 ---
 
 <article

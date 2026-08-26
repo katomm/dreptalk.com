@@ -427,9 +427,11 @@ export interface ActionVoterRow {
   block_time: number | null;
 }
 
-// Shared ORDER BY fragments for the action voter lists AND the rank lookup
-// below, so a voter= deep link can never disagree with the rendered order.
-const DREP_VOTERS_ORDER = '(d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id';
+// Shared ORDER BY fragments (aliases: v = drep_votes, d = dreps) for the
+// action voter lists, the rank lookup below, and the rationale-highlights
+// ranking (actionRationale.ts), so a voter= deep link and the highlight pick
+// can never disagree with the rendered order.
+export const DREP_VOTERS_ORDER = '(d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id';
 const SPO_VOTERS_ORDER = '(v.block_time IS NULL), v.block_time DESC, v.voter_id';
 
 /**

@@ -8,6 +8,7 @@ import EarlierVotes from '@/components/EarlierVotes.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
 import ShareButton from '@/components/ShareButton.astro';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
+import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 import { formatAdaCompact } from '@/lib/forum/view.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
@@ -40,10 +41,8 @@ const HERO_AVATAR_SIZE = 96;
 
 // The back link targets this voter's own position row on the action, so the
 // reveal-hash-target script auto-expands the rationale there: the reader lands
-// on the action and immediately sees this rationale exists in context. The
-// voter= param makes the tab resolve the page that actually renders the row
-// (the list is paginated and its composition shifts as votes arrive).
-const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=spo' : ''}&voter=${p.author.authorId}#voter-${p.author.authorId}`;
+// on the action and immediately sees this rationale exists in context.
+const backHref = `${p.actionHref}${positionsVoterAnchor(p.author.authorId, p.roleLabel === 'SPO' ? 'spo' : undefined)}`;
 ---
 <article class="vstmt">
   {p.pending && (
