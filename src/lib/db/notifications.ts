@@ -16,7 +16,10 @@ export interface NotificationInsert {
     | 'delegator_drep_re_voted'
     | 'delegator_drep_status_changed'
     // drep_stats rows are written by drepStatsDigest.ts with payload + event_key.
-    | 'drep_stats';
+    | 'drep_stats'
+    // rationale_ready rows are written by drepVotes.ts (upsertVotes) with
+    // payload + event_key when a pending self-cast with a rationale confirms.
+    | 'rationale_ready';
   actorId: string | null;
   topicId: string | null;
   postId: string | null;

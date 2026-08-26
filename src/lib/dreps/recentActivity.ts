@@ -4,6 +4,7 @@ import type { DrepVoteHistoryRow } from '../db/drepVotes.js';
 import type { AuthorPost } from '../db/forum.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { excerptFromHtml } from '../forum/view.js';
+import { positionsVoterAnchor } from '../governance/voteStatement.js';
 
 /**
  * One row of the recent-activity list. `ts` is unix ms across all kinds. `key`
@@ -41,7 +42,7 @@ export function buildRecentActivity(
     events.push({ kind: 'vote', ts, key: v.ga_id, vote: v.vote, title, href: actionHref, epoch: epochFromUnix(v.block_time, input.cfg) });
     if (v.rationale_html) {
       const href = v.topic_slug
-        ? `/t/${v.topic_slug}/?tab=positions#voter-${input.voterId}`
+        ? `/t/${v.topic_slug}/${positionsVoterAnchor(input.voterId)}`
         : actionHref;
       events.push({ kind: 'rationale', ts, key: v.ga_id, title, href });
     }

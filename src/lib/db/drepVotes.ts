@@ -9,6 +9,7 @@ import {
   type ExistingVoteRow,
 } from './voteHistory.js';
 import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
+import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 import { voteBucket } from '@/lib/governance/view.js';
 
 export interface VoteInput {
@@ -40,6 +41,13 @@ export interface UpsertVotesOptions {
    * does) to write votes without emitting any events.
    */
   followedDrepIds?: Set<string>;
+  /**
+   * When true, a DRep vote that confirms a pending self-cast (the stored row
+   * still carries a local_status) and has a rationale anchor also notifies the
+   * DRep's own account that the rationale is now shareable. Passed by the live
+   * sync only; the backfill re-writes long-decided votes and must never emit it.
+   */
+  notifyRationaleReady?: boolean;
 }
 
 /**
@@ -140,6 +148,82 @@ async function lookupActionTitle(db: D1Database, gaId: string): Promise<string |
 }
 
 /**
+ * A DRep vote that confirms a pending self-cast (the stored row still has a
+ * local_status, so it was cast through the site) and carries a rationale
+ * anchor: the trigger for the rationale-ready notification.
+ */
+function confirmsSelfCastRationale(v: VoteInput, existing: Map<string, ExistingVoteRow>): boolean {
+  return v.voterRole === 'DRep' && v.metaUrl != null && existing.get(v.voterId)?.local_status != null;
+}
+
+/**
+ * The active DRep accounts owning the given drep ids (same recipient semantics
+ * as the stats digest), as drepId -> user ids. Deduped and chunked under the
+ * D1 bind limit; users.drep_id is only non-uniquely indexed, so one DRep can
+ * map to several accounts.
+ */
+async function lookupRationaleReadyRecipients(db: D1Database, drepIds: string[]): Promise<Map<string, string[]>> {
+  const byDrep = new Map<string, string[]>();
+  for (const ids of chunked([...new Set(drepIds)], D1_MAX_BINDS)) {
+    const { results } = await db
+      .prepare(
+        `SELECT id, drep_id FROM users
+         WHERE drep_id IN (${sqlPlaceholders(ids)}) AND is_drep = 1 AND status = 'active'`,
+      )
+      .bind(...ids)
+      .all<{ id: string; drep_id: string }>();
+    for (const o of results) {
+      const list = byDrep.get(o.drep_id) ?? [];
+      list.push(o.id);
+      byDrep.set(o.drep_id, list);
+    }
+  }
+  return byDrep;
+}
+
+/**
+ * Rationale-ready notification INSERTs for one chunk, built beside the chunk's
+ * vote upserts (mirroring classifyVoteJobs) so each notification commits
+ * atomically with the write that clears its vote's local_status. Idempotent
+ * via the notifications (recipient_id, event_key) partial unique index, so a
+ * re-synced confirmation never double-notifies. `now` is unix milliseconds
+ * (the created_at unit); sourceTime follows the fan-out convention
+ * (block_time, else observed second). An empty recipients map (the option was
+ * off, or no account owns the voter) yields no statements.
+ */
+function buildRationaleReadyStatements(
+  db: D1Database,
+  gaId: string,
+  chunk: VoteInput[],
+  existing: Map<string, ExistingVoteRow>,
+  recipients: Map<string, string[]>,
+  now: number,
+  title: string | null,
+): D1PreparedStatement[] {
+  const observedAtSec = Math.floor(now / 1000);
+  const stmts: D1PreparedStatement[] = [];
+  for (const v of chunk) {
+    if (!confirmsSelfCastRationale(v, existing)) continue;
+    const owners = recipients.get(v.voterId);
+    if (!owners) continue;
+    const sourceTime = v.blockTime ?? observedAtSec;
+    const payload = JSON.stringify({ sourceTime, gaId, drepId: v.voterId, title, vote: v.vote });
+    for (const userId of owners) {
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
+             VALUES (?, ?, 'rationale_ready', ?, ?, ?)
+             ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
+          )
+          .bind(crypto.randomUUID(), userId, `rationale_ready:${v.voterId}:${gaId}:${sourceTime}`, payload, now),
+      );
+    }
+  }
+  return stmts;
+}
+
+/**
  * Upserts on-chain votes for one governance action (ON CONFLICT DO UPDATE on the
  * (ga_id, voter_id) primary key), chunked. For each chunk, the archive of any
  * rows the write supersedes, the vote upserts, and (when followedDrepIds is
@@ -169,16 +253,28 @@ export async function upsertVotes(
     ? await readChangedRationaleBodies(db, gaId, changed.map((c) => c.old.voter_id))
     : new Map<string, string | null>();
 
-  // Title only when we might emit a job (best-effort, one SELECT).
+  // Rationale-ready candidates decided up front: they gate the title fetch and
+  // the (single) recipients lookup, so a run with no confirming self-cast pays
+  // only an in-memory filter.
+  const rationaleCandidates = opts?.notifyRationaleReady
+    ? votes.filter((v) => confirmsSelfCastRationale(v, existing))
+    : [];
+  const rationaleRecipients =
+    rationaleCandidates.length > 0
+      ? await lookupRationaleReadyRecipients(db, rationaleCandidates.map((v) => v.voterId))
+      : new Map<string, string[]>();
+
+  // Title only when we might emit an event (best-effort, one SELECT).
   const emitJobs = followedDrepIds != null && followedDrepIds.size > 0;
-  const title = emitJobs ? await lookupActionTitle(db, gaId) : null;
+  const title = emitJobs || rationaleCandidates.length > 0 ? await lookupActionTitle(db, gaId) : null;
 
   for (let i = 0; i < votes.length; i += UPSERT_CHUNK) {
     const chunk = votes.slice(i, i + UPSERT_CHUNK);
     const archiveStmts = buildArchiveStatements(db, gaId, chunk, existing, bodies, now);
     const voteStmts = buildVoteUpsertStatements(db, gaId, chunk, now);
     const jobStmts = emitJobs ? classifyVoteJobs(db, gaId, chunk, existing, followedDrepIds, now, title) : [];
-    await db.batch([...archiveStmts, ...voteStmts, ...jobStmts]);
+    const rationaleStmts = buildRationaleReadyStatements(db, gaId, chunk, existing, rationaleRecipients, now, title);
+    await db.batch([...archiveStmts, ...voteStmts, ...jobStmts, ...rationaleStmts]);
   }
   return votes.length;
 }
@@ -331,6 +427,13 @@ export interface ActionVoterRow {
   block_time: number | null;
 }
 
+// Shared ORDER BY fragments (aliases: v = drep_votes, d = dreps) for the
+// action voter lists, the rank lookup below, and the rationale-highlights
+// ranking (actionRationale.ts), so a voter= deep link and the highlight pick
+// can never disagree with the rendered order.
+export const DREP_VOTERS_ORDER = '(d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id';
+const SPO_VOTERS_ORDER = '(v.block_time IS NULL), v.block_time DESC, v.voter_id';
+
 /**
  * DRep votes (role 'DRep') on one action, joined to dreps for identity + power,
  * ordered by voting power desc (unknown power last). Filtered by ga_id (the leading
@@ -353,7 +456,7 @@ export async function getActionVoters(
          LEFT JOIN dreps d ON d.drep_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'DRep'
            AND ${liveVoteSql('v')}
-         ORDER BY (d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id
+         ORDER BY ${DREP_VOTERS_ORDER}
          LIMIT ? OFFSET ?`,
       )
       .bind(gaId, limit, offset)
@@ -394,13 +497,42 @@ export async function getActionSpoVoters(
          FROM drep_votes v
          LEFT JOIN pools p ON p.pool_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'SPO' AND ${liveVoteSql('v')}
-         ORDER BY (v.block_time IS NULL), v.block_time DESC, v.voter_id
+         ORDER BY ${SPO_VOTERS_ORDER}
          LIMIT ? OFFSET ?`,
       )
       .bind(gaId, limit, offset)
       .all<ActionVoterRow>()
   ).results ?? [];
   return rows;
+}
+
+/**
+ * 0-based position of one voter in the action's ordered voter list, using the
+ * exact ORDER BY of getActionVoters / getActionSpoVoters (the shared fragments
+ * above). Null when the voter has no live vote in that role on the action.
+ * Lets the positions tab resolve a voter= deep link to the page that actually
+ * renders the row, instead of pinning a page number that rots as votes arrive.
+ */
+export async function getActionVoterRank(
+  db: D1Database,
+  gaId: string,
+  voterId: string,
+  role: 'DRep' | 'SPO',
+): Promise<number | null> {
+  const isDrep = role === 'DRep';
+  const row = await db
+    .prepare(
+      `SELECT rn FROM (
+         SELECT v.voter_id AS voter_id,
+                ROW_NUMBER() OVER (ORDER BY ${isDrep ? DREP_VOTERS_ORDER : SPO_VOTERS_ORDER}) AS rn
+         FROM drep_votes v
+         ${isDrep ? 'LEFT JOIN dreps d ON d.drep_id = v.voter_id' : ''}
+         WHERE v.ga_id = ? AND v.voter_role = ? AND ${liveVoteSql('v')}
+       ) WHERE voter_id = ?`,
+    )
+    .bind(gaId, role, voterId)
+    .first<{ rn: number }>();
+  return row ? row.rn - 1 : null;
 }
 
 /** Count of SPO votes (role 'SPO') on one action. */

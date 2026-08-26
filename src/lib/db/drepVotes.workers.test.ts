@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId, buildVoteUpsertStatements, classifyVoteJobs, getVoteTrendRows } from './drepVotes.js';
 import { loadExistingVotes } from './voteHistory.js';
+import { addChannel, getPrefs, getPendingCounts } from './notificationChannels.js';
+import { resolvePendingLead } from '../notifications/pendingLead.js';
 import { createTopic } from './forum.js';
 import { upsertActionRationale } from './actionRationale.js';
 import { upsertVoteRationalePost } from './voteRationalePost.js';
@@ -461,5 +463,138 @@ describe('getVoteTrendRows', () => {
     ], 1);
     const rows = await getVoteTrendRows(env.DB, ga);
     expect(rows.map((r) => r.voter_id)).toEqual(['d2', 'p1', 'd1']); // 100, 200, 300; CC excluded
+  });
+});
+
+describe('rationale-ready notification', () => {
+  async function seedDrepUser(id: string, drepId: string, status = 'active') {
+    await env.DB.prepare(
+      `INSERT INTO users (id, drep_id, is_drep, role, status, created_at, last_verified_at, notif_seen_at)
+       VALUES (?, ?, 1, 'drep', ?, 0, 0, 0)`,
+    ).bind(id, drepId, status).run();
+  }
+
+  async function rationaleReadyRows(recipientId: string) {
+    const { results } = await env.DB.prepare(
+      `SELECT recipient_id, type, event_key, payload, created_at FROM notifications
+       WHERE type = 'rationale_ready' AND recipient_id = ?`,
+    ).bind(recipientId).all<{ recipient_id: string; type: string; event_key: string; payload: string; created_at: number }>();
+    return results;
+  }
+
+  it('notifies the DRep account when its pending self-cast with a rationale confirms on chain', async () => {
+    await seedAction('gaRR1', 'Rationale Action', 600);
+    await seedDrepUser('userRR1', 'drepRR1');
+    await recordLocalVote(env.DB, { gaId: 'gaRR1', drepId: 'drepRR1', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r.json', txHash: 'tx1', now: 1_000 });
+    await upsertVotes(env.DB, 'gaRR1', [
+      { voterRole: 'DRep', voterId: 'drepRR1', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r.json', blockTime: 2_000 },
+    ], 5_000, { notifyRationaleReady: true });
+
+    const rows = await rationaleReadyRows('userRR1');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].event_key).toBe('rationale_ready:drepRR1:gaRR1:2000');
+    expect(rows[0].created_at).toBe(5_000);
+    expect(JSON.parse(rows[0].payload)).toMatchObject({
+      sourceTime: 2_000, gaId: 'gaRR1', drepId: 'drepRR1', title: 'Rationale Action', vote: 'Yes',
+    });
+  });
+
+  it('also fires for a pending row already marked failed that confirms late', async () => {
+    await seedAction('gaRR2', 'Late Action', 600);
+    await seedDrepUser('userRR2', 'drepRR2');
+    await recordLocalVote(env.DB, { gaId: 'gaRR2', drepId: 'drepRR2', voterHex: null, vote: 'No', metaUrl: 'https://host/r2.json', txHash: 'tx2', now: 1_000 });
+    await markStalePendingVotesFailed(env.DB, 2_000, 2_000_000);
+    await upsertVotes(env.DB, 'gaRR2', [
+      { voterRole: 'DRep', voterId: 'drepRR2', voterHex: null, vote: 'No', metaUrl: 'https://host/r2.json', blockTime: 3_000 },
+    ], 5_000, { notifyRationaleReady: true });
+
+    expect(await rationaleReadyRows('userRR2')).toHaveLength(1);
+  });
+
+  it('does not fire without the option (sync backfill path)', async () => {
+    await seedAction('gaRR3', 'Backfill Action', 600);
+    await seedDrepUser('userRR3', 'drepRR3');
+    await recordLocalVote(env.DB, { gaId: 'gaRR3', drepId: 'drepRR3', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r3.json', txHash: 'tx3', now: 1_000 });
+    await upsertVotes(env.DB, 'gaRR3', [
+      { voterRole: 'DRep', voterId: 'drepRR3', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r3.json', blockTime: 2_000 },
+    ], 5_000);
+
+    expect(await rationaleReadyRows('userRR3')).toHaveLength(0);
+  });
+
+  it('does not fire when the confirmed vote carries no rationale anchor', async () => {
+    await seedAction('gaRR4', 'Anchorless Action', 600);
+    await seedDrepUser('userRR4', 'drepRR4');
+    await recordLocalVote(env.DB, { gaId: 'gaRR4', drepId: 'drepRR4', voterHex: null, vote: 'Yes', metaUrl: null, txHash: 'tx4', now: 1_000 });
+    await upsertVotes(env.DB, 'gaRR4', [
+      { voterRole: 'DRep', voterId: 'drepRR4', voterHex: null, vote: 'Yes', blockTime: 2_000 },
+    ], 5_000, { notifyRationaleReady: true });
+
+    expect(await rationaleReadyRows('userRR4')).toHaveLength(0);
+  });
+
+  it('does not fire for a vote that was not cast through the site (no pending row)', async () => {
+    await seedAction('gaRR5', 'External Action', 600);
+    await seedDrepUser('userRR5', 'drepRR5');
+    await upsertVotes(env.DB, 'gaRR5', [
+      { voterRole: 'DRep', voterId: 'drepRR5', voterHex: null, vote: 'Yes', metaUrl: 'https://elsewhere/r.json', blockTime: 2_000 },
+    ], 5_000, { notifyRationaleReady: true });
+
+    expect(await rationaleReadyRows('userRR5')).toHaveLength(0);
+  });
+
+  it('does not fire again when the same confirmation re-syncs (event_key conflict)', async () => {
+    await seedAction('gaRR6', 'Rerun Action', 600);
+    await seedDrepUser('userRR6', 'drepRR6');
+    await env.DB.prepare(
+      `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
+       VALUES ('nRR6', 'userRR6', 'rationale_ready', 'rationale_ready:drepRR6:gaRR6:2000', '{}', 1)`,
+    ).run();
+    await recordLocalVote(env.DB, { gaId: 'gaRR6', drepId: 'drepRR6', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r6.json', txHash: 'tx6', now: 1_000 });
+    await upsertVotes(env.DB, 'gaRR6', [
+      { voterRole: 'DRep', voterId: 'drepRR6', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r6.json', blockTime: 2_000 },
+    ], 5_000, { notifyRationaleReady: true });
+
+    expect(await rationaleReadyRows('userRR6')).toHaveLength(1);
+  });
+
+  it('feeds counts and a deep-linked lead to the dispatcher', async () => {
+    await env.DB.prepare(
+      `INSERT INTO topics (id, category_slug, author_id, source, title, slug, deleted, last_post_at, created_at)
+       VALUES ('tRR8', 'governance', 'gov-sync', 'governance', 'Rationale Lead Action', 'rationale-lead-action', 0, 0, 0)`,
+    ).run();
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, decided_epoch, topic_id, created_at, last_synced_at)
+       VALUES ('gaRR8', 'InfoAction', 'Rationale Lead Action', 'voting', NULL, 'tRR8', 0, 0)`,
+    ).run();
+    await seedDrepUser('userRR8', 'drepRR8');
+    const channelId = await addChannel(env.DB, { userId: 'userRR8', channel: 'webpush', target: '{}', endpoint: 'https://push.example/rr8', now: 1_000 });
+    await recordLocalVote(env.DB, { gaId: 'gaRR8', drepId: 'drepRR8', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r8.json', txHash: 'tx8', now: 1_000 });
+    await upsertVotes(env.DB, 'gaRR8', [
+      { voterRole: 'DRep', voterId: 'drepRR8', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r8.json', blockTime: 2_000 },
+    ], 5_000, { notifyRationaleReady: true });
+
+    const row = (await env.DB.prepare('SELECT * FROM notification_channels WHERE id = ?').bind(channelId).first()) as never;
+    const prefs = await getPrefs(env.DB, 'userRR8', 'webpush');
+    const counts = await getPendingCounts(env.DB, row, prefs);
+    expect(counts.rationaleReady).toBe(1);
+
+    const lead = await resolvePendingLead(env.DB, row, prefs);
+    expect(lead).toEqual({
+      title: 'Rationale Lead Action',
+      body: 'Your rationale is ready to share',
+      href: '/dreps/drepRR8/vote/rationale-lead-action/',
+    });
+  });
+
+  it('is a no-op when no active DRep account matches the voter', async () => {
+    await seedAction('gaRR7', 'Unowned Action', 600);
+    await seedDrepUser('userRR7', 'drepRR7', 'disabled');
+    await recordLocalVote(env.DB, { gaId: 'gaRR7', drepId: 'drepRR7', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r7.json', txHash: 'tx7', now: 1_000 });
+    await upsertVotes(env.DB, 'gaRR7', [
+      { voterRole: 'DRep', voterId: 'drepRR7', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r7.json', blockTime: 2_000 },
+    ], 5_000, { notifyRationaleReady: true });
+
+    expect(await rationaleReadyRows('userRR7')).toHaveLength(0);
   });
 });

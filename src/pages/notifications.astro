@@ -25,6 +25,7 @@ import { getDrepsByIds } from '@/lib/db/dreps.js';
 import { getGovernanceActionSlugsByIds } from '@/lib/db/governance.js';
 import { loadAuthorIdentities, authorProfileHref } from '@/lib/forum/author.js';
 import { statusBadge, isTerminalStatus } from '@/lib/governance/view.js';
+import { voteStatementPath } from '@/lib/governance/voteStatement.js';
 import type { InboxItem } from '@/lib/notifications/inboxView.js';
 import { delegationLabel } from '@/lib/delegation/format.js';
 import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
@@ -104,7 +105,7 @@ if (db) {
   // skipped here too, since the row itself is dropped where it is parsed below.
   const voteEventGaIds = new Set<string>();
   for (const n of personal) {
-    if (n.type !== 'delegator_drep_voted' && n.type !== 'delegator_drep_re_voted') continue;
+    if (n.type !== 'delegator_drep_voted' && n.type !== 'delegator_drep_re_voted' && n.type !== 'rationale_ready') continue;
     const p = parseDrepEventPayload(n.payload);
     if (p?.gaId) voteEventGaIds.add(p.gaId);
   }
@@ -181,6 +182,25 @@ if (db) {
           verb: null,
           title: `Your DRep ${verbPhrase} ${actionTitle}`,
           href: slug ? `/t/${slug}/` : null,
+          pill: null,
+        },
+      ];
+    }
+    if (n.type === 'rationale_ready') {
+      const p = parseDrepEventPayload(n.payload);
+      if (!p?.gaId || !p.drepId) return [];
+      const actionTitle = p.title ?? 'a governance action';
+      const slug = gaSlugs.get(p.gaId);
+      return [
+        {
+          kind: 'rationale_ready' as const,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title: `Your rationale on ${actionTitle} is ready to share`,
+          href: slug ? voteStatementPath('drep', p.drepId, slug) : null,
           pill: null,
         },
       ];

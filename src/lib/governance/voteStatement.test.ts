@@ -1,12 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MIN_INDEXABLE_RATIONALE_CHARS, voteStatementPath, isVoteStatementIndexable, voteDisplay,
+  MIN_INDEXABLE_RATIONALE_CHARS, voteStatementPath, positionsVoterAnchor, isVoteStatementIndexable, voteDisplay,
 } from './voteStatement.js';
 
 describe('voteStatementPath', () => {
   it('builds role-scoped paths', () => {
     expect(voteStatementPath('drep', 'ada-1', 'fund-x')).toBe('/dreps/ada-1/vote/fund-x/');
     expect(voteStatementPath('spo', 'pool-1', 'fund-x')).toBe('/spos/pool-1/vote/fund-x/');
+  });
+});
+describe('positionsVoterAnchor', () => {
+  it('carries the voter both as resolvable param and as scroll anchor', () => {
+    expect(positionsVoterAnchor('drep1abc')).toBe('?tab=positions&voter=drep1abc#voter-drep1abc');
+    expect(positionsVoterAnchor('pool1abc', 'spo')).toBe('?tab=positions&role=spo&voter=pool1abc#voter-pool1abc');
+  });
+  it('omits voter= for the unpaginated CC list', () => {
+    expect(positionsVoterAnchor('cc1abc', 'cc')).toBe('?tab=positions&role=cc#voter-cc1abc');
   });
 });
 describe('isVoteStatementIndexable', () => {

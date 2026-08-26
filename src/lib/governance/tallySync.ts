@@ -603,7 +603,7 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
     try {
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
       await enrichVotedPower({ db, koios }, collected);
-      votes += await upsertVotes(db, ga.id, collected, now, { followedDrepIds });
+      votes += await upsertVotes(db, ga.id, collected, now, { followedDrepIds, notifyRationaleReady: true });
       await markVotesSynced(db, ga.id, now);
       if (capped) {
         console.warn(`[gov-votes] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; synced a capped prefix`);

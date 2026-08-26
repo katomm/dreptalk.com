@@ -72,9 +72,28 @@ describe('searchRationalesPage', () => {
       name: 'Alice',
       vote: 'Yes',
       actionTitle: 'Raise treasury cap',
-      href: '/t/raise-treasury/?tab=positions#voter-drep1alice',
+      href: '/t/raise-treasury/?tab=positions&voter=drep1alice#voter-drep1alice',
     });
     expect(res.hits[0].snippet).toContain('treasury');
+  });
+
+  it('links an SPO hit to the SPO sub-section with a voter deep link', async () => {
+    await seedTopic({ id: 't-gaspo', slug: 'spo-action', title: 'SPO Action' });
+    await seedGa({ id: 'gaspo', title: 'SPO Action', topicId: 't-gaspo' });
+    await db()
+      .prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, synced_at, block_time)
+         VALUES ('gaspo', 'SPO', 'pool1zeta', NULL, 'No', ?, 1700000000)`,
+      )
+      .bind(NOW)
+      .run();
+    await upsertActionRationale(db(), {
+      gaId: 'gaspo', voterId: 'pool1zeta', bodyHtml: '<p>Kappa pool concerns.</p>', source: 'onchain',
+      anchorUrl: 'https://x', status: 'ok', createdAt: NOW, now: NOW,
+    });
+
+    const res = await searchRationalesPage(db(), 'kappa*', 1);
+    expect(res.hits[0]?.href).toBe('/t/spo-action/?tab=positions&role=spo&voter=pool1zeta#voter-pool1zeta');
   });
 
   it('excludes non-ok rationales', async () => {

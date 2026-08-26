@@ -1,7 +1,7 @@
 // Workers test for getActionVoters + countActionVoters against a real miniflare D1 binding.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getActionVoters, countActionVoters } from './drepVotes.js';
+import { getActionVoters, countActionVoters, getActionSpoVoters, getActionVoterRank } from './drepVotes.js';
 
 const GA_ID = 'ga-action-voters-test';
 
@@ -93,5 +93,39 @@ describe('countActionVoters', () => {
     // but each describe block gets a fresh DB in miniflare so seed again to be safe.
     await seed();
     expect(await countActionVoters(env.DB, GA_ID)).toBe(3);
+  });
+});
+
+describe('getActionVoterRank', () => {
+  it('agrees with the getActionVoters ordering for every DRep voter', async () => {
+    await seed();
+    const rows = await getActionVoters(env.DB, GA_ID);
+    for (const [i, row] of rows.entries()) {
+      expect(await getActionVoterRank(env.DB, GA_ID, row.voter_id, 'DRep')).toBe(i);
+    }
+  });
+
+  it('agrees with the getActionSpoVoters ordering for every SPO voter', async () => {
+    const ga = 'ga-spo-rank-test';
+    // Distinct block_times plus one NULL (sorted last), matching the SPO list order.
+    await env.DB.prepare(
+      `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at) VALUES
+       (?, 'SPO', 'pool-old', null, 'Yes', 100, 1),
+       (?, 'SPO', 'pool-new', null, 'No', 200, 1),
+       (?, 'SPO', 'pool-untimed', null, 'Yes', NULL, 1)`,
+    ).bind(ga, ga, ga).run();
+
+    const rows = await getActionSpoVoters(env.DB, ga);
+    expect(rows.map((r) => r.voter_id)).toEqual(['pool-new', 'pool-old', 'pool-untimed']);
+    for (const [i, row] of rows.entries()) {
+      expect(await getActionVoterRank(env.DB, ga, row.voter_id, 'SPO')).toBe(i);
+    }
+  });
+
+  it('returns null for an unknown voter and for a role mismatch', async () => {
+    await seed();
+    expect(await getActionVoterRank(env.DB, GA_ID, 'drep-not-there', 'DRep')).toBeNull();
+    // 'drep-high' voted as a DRep, so asking for its SPO rank finds nothing.
+    expect(await getActionVoterRank(env.DB, GA_ID, 'drep-high', 'SPO')).toBeNull();
   });
 });

@@ -14,7 +14,7 @@ import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
 import { getVoteStatement } from '@/lib/db/voteRationale.js';
 import { getSupersededVotesFor } from '@/lib/db/voteHistory.js';
 import { poolPath, isCanonicalPoolParam, poolDisplayName } from '@/lib/pools/profile.js';
-import { isVoteStatementIndexable } from '@/lib/governance/voteStatement.js';
+import { isVoteStatementIndexable, positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import { excerptFromHtml } from '@/lib/forum/view.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -48,7 +48,7 @@ const vote = pool && govAction && db
 // The voter and action both exist but there is no shareable vote here (no
 // on-chain rationale yet): send the visitor to the position row instead.
 if (pool && govAction && topic && !vote) {
-  return Astro.redirect(`/t/${topic.slug}/?tab=positions&role=spo#voter-${pool.poolId}`, 302);
+  return Astro.redirect(`/t/${topic.slug}/${positionsVoterAnchor(pool.poolId, 'spo')}`, 302);
 }
 
 const ready = !!(pool && db && topic && govAction && vote);

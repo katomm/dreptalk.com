@@ -36,6 +36,7 @@ describe('NotificationPrefsMatrix', () => {
     );
     expect(html).not.toContain('As a DRep');
     expect(html).not.toContain('Voting power and delegators');
+    expect(html).not.toContain('Rationale ready to share');
   });
 
   it('shows the As a DRep group when showDrepStats is set', () => {
@@ -45,5 +46,6 @@ describe('NotificationPrefsMatrix', () => {
     expect(html).toContain('As a DRep');
     expect(html).toContain('Voting power and delegators');
     expect(html).toContain('Epoch summary of your own DRep statistics');
+    expect(html).toContain('Rationale ready to share');
   });
 });

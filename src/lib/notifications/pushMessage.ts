@@ -60,6 +60,9 @@ export function formatSummary(counts: PendingCounts): string {
   if (counts.drepStats > 0) {
     parts.push(`${counts.drepStats} DRep stats ${counts.drepStats === 1 ? 'update' : 'updates'}`);
   }
+  if (counts.rationaleReady > 0) {
+    parts.push(`${counts.rationaleReady} ${counts.rationaleReady === 1 ? 'rationale' : 'rationales'} ready to share`);
+  }
   if (counts.devices > 0) {
     parts.push(`${counts.devices} new ${counts.devices === 1 ? 'device' : 'devices'} paired`);
   }

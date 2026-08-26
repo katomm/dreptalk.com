@@ -45,7 +45,7 @@ describe('buildRecentActivity', () => {
     });
     expect(events.map((e) => e.kind)).toEqual(['vote', 'rationale']);
     expect(events[0].ts).toBe(events[1].ts);
-    expect(events[1]).toMatchObject({ href: '/t/some-action/?tab=positions#voter-drep1lucas' });
+    expect(events[1]).toMatchObject({ href: '/t/some-action/?tab=positions&voter=drep1lucas#voter-drep1lucas' });
   });
 
   it('marks topic starts vs comments and builds post anchors', () => {

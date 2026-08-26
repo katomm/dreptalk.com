@@ -8,6 +8,7 @@ import EarlierVotes from '@/components/EarlierVotes.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
 import ShareButton from '@/components/ShareButton.astro';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
+import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 import { formatAdaCompact } from '@/lib/forum/view.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
@@ -41,7 +42,7 @@ const HERO_AVATAR_SIZE = 96;
 // The back link targets this voter's own position row on the action, so the
 // reveal-hash-target script auto-expands the rationale there: the reader lands
 // on the action and immediately sees this rationale exists in context.
-const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=spo' : ''}#voter-${p.author.authorId}`;
+const backHref = `${p.actionHref}${positionsVoterAnchor(p.author.authorId, p.roleLabel === 'SPO' ? 'spo' : undefined)}`;
 ---
 <article class="vstmt">
   {p.pending && (
@@ -72,7 +73,7 @@ const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=
     {p.rawRationaleUrl && (
       <a class="btn btn-primary" href={p.rawRationaleUrl} rel="nofollow noopener" target="_blank">Raw rationale</a>
     )}
-    <a class="btn btn-secondary" href={backHref}>Back to action</a>
+    <a class="btn btn-secondary" href={backHref}>All votes on this action</a>
     <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={`How ${p.author.displayName} voted on ${p.actionTitle}`} ariaLabel="Share this rationale" />
   </div>
 </article>
