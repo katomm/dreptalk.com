@@ -205,3 +205,92 @@ export function buildPowerChart(values: number[], opts: PowerChartOptions = {}):
 
   return { width, height, plot, line, area, last: pts[pts.length - 1], yTicks };
 }
+
+/**
+ * Smallest y span an overlay ever shows, in the overlay's own unit. Sized for a
+ * delegator headcount: with four visible, a single delegator arriving takes a
+ * quarter of the plot height, which is a step you notice without it reading as a
+ * collapse or a doubling.
+ */
+export const DEFAULT_MIN_COUNT_SPAN = 4;
+
+export interface OverlaySeries {
+  /** Polyline "x,y x,y ..." over the plotted points, oldest first. */
+  line: string;
+  /** The newest plotted point, for the terminal dot. */
+  last: { x: number; y: number };
+  /** Value at the newest plotted point. */
+  lastValue: number;
+  /** Value at the oldest plotted point, so callers can label the drawn span. */
+  firstValue: number;
+  /** How many points were drawn. Fewer than the chart's when the series starts late. */
+  points: number;
+}
+
+/**
+ * A second series drawn over an existing {@link PowerChart}, on the same x grid
+ * but with its own y domain. Voting power (lovelace, ~10^15) and a delegator
+ * headcount (~10^3) share no scale: put the count on the power axis and it is a
+ * flat line on the floor, so the overlay maps its own min/max into the same plot
+ * rectangle and the caller labels it separately.
+ *
+ * `values` must be index-aligned with the series the chart was built from, one
+ * entry per epoch, null where no value was recorded. Only the run of consecutive
+ * values ending at the newest one is drawn: the delegator count exists only from
+ * the epoch the stamp started, and bridging a gap with a straight line would
+ * invent data. Returns null for fewer than two points (see buildPowerChart).
+ */
+export function buildOverlaySeries(
+  values: (number | null)[],
+  chart: PowerChart,
+  opts: { minSpanFrac?: number; minSpanAbs?: number } = {},
+): OverlaySeries | null {
+  if (values.length < 2) return null;
+
+  // Walk back from the newest entry while values keep coming, so a gap in the
+  // middle cuts the line rather than being interpolated across.
+  let start = values.length;
+  for (let i = values.length - 1; i >= 0; i--) {
+    const v = values[i];
+    if (v == null || !Number.isFinite(v)) break;
+    start = i;
+  }
+  const run = values.slice(start) as number[];
+  if (run.length < 2) return null;
+
+  const dataMin = Math.min(...run);
+  const dataMax = Math.max(...run);
+  const range = dataMax - dataMin;
+  const pad = range === 0 ? Math.max(Math.abs(dataMin), 1) * 0.1 : range * 0.12;
+  let lo = dataMin - pad;
+  let hi = dataMax + pad;
+
+  // Same headroom rule as the main chart: a headcount that barely moved should
+  // read as barely moved, not get stretched across the full plot height. A count
+  // also needs an absolute floor, which a ratio cannot give it: a DRep going from
+  // 8 delegators to 9 is a 12.5% move, and scaled by ratio alone that one person
+  // joining would climb the full height of the plot like a doubling of power.
+  const latest = run[run.length - 1];
+  const minSpan = Math.max(
+    Math.abs(latest) * (opts.minSpanFrac ?? 0.08),
+    opts.minSpanAbs ?? DEFAULT_MIN_COUNT_SPAN,
+  );
+  if (minSpan > hi - lo) {
+    const mid = (lo + hi) / 2;
+    lo = mid - minSpan / 2;
+    hi = mid + minSpan / 2;
+  }
+
+  const { plot } = chart;
+  const yFor = (v: number): number => round2(plot.y + plot.h * (1 - (v - lo) / (hi - lo)));
+  const xFor = (i: number): number => round2(plot.x + (plot.w * i) / (values.length - 1));
+
+  const pts = run.map((v, i) => ({ x: xFor(start + i), y: yFor(v) }));
+  return {
+    line: pts.map((p) => `${p.x},${p.y}`).join(' '),
+    last: pts[pts.length - 1],
+    lastValue: latest,
+    firstValue: run[0],
+    points: run.length,
+  };
+}

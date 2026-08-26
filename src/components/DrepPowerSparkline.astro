@@ -1,20 +1,30 @@
 ---
 // SSR voting-power trend card for a DRep profile: an area chart over the last few
 // epoch snapshots with gridlines and axis labels, the single-epoch delta in the
-// header, and the whole-window change in the footer. No client JS; renders nothing
-// when there are fewer than two snapshots. Colored by the latest step (gain green,
-// loss red); the footer total is colored independently of the header.
-import { buildPowerChart, computeVotingPowerDelta, formatTrendDelta } from '@/lib/dreps/votingPowerTrend.js';
+// header, and the whole-window change in the footer. A second dashed line carries
+// the delegator headcount on its own scale (see buildOverlaySeries). No client JS;
+// renders nothing when there are fewer than two snapshots. Colored by the latest
+// step (gain green, loss red); the footer total is colored independently of the
+// header, and the delegator line keeps the accent color in every state.
+import { buildOverlaySeries, buildPowerChart, computeVotingPowerDelta, formatTrendDelta } from '@/lib/dreps/votingPowerTrend.js';
 import type { VotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { formatAdaCompact } from '@/lib/forum/view.js';
 
 interface Props {
-  series: { epoch: number; amount: string }[];
+  series: { epoch: number; amount: string; delegatorCount?: number | null }[];
 }
 const { series } = Astro.props;
 
 const values = series.map((s) => Number(s.amount)).filter((n) => Number.isFinite(n));
 const chart = buildPowerChart(values, { width: 480, height: 180, padLeft: 4, padRight: 60, padTop: 18, padBottom: 30 });
+
+// Delegator headcount per epoch, index-aligned with the power series. Only stamped
+// from the epoch the count started being recorded, so the older entries are null
+// and the overlay draws the trailing run alone.
+const counts = series.map((s) => (typeof s.delegatorCount === 'number' ? s.delegatorCount : null));
+const overlay = chart ? buildOverlaySeries(counts, chart) : null;
+const delegatorChange = overlay ? overlay.lastValue - overlay.firstValue : 0;
+const fmtInt = (n: number) => n.toLocaleString('en-US');
 
 // Latest single-epoch step (matches the directory list chip): newest vs the one before.
 const lastAmount = series.length >= 1 ? series[series.length - 1].amount : null;
@@ -36,6 +46,25 @@ const lastEpoch = series[series.length - 1]?.epoch;
 
 const arrow = (d: 'up' | 'down' | 'flat'): string => (d === 'up' ? '▲' : d === 'down' ? '▼' : '');
 const adaTick = (lovelace: number): string => formatAdaCompact(String(Math.round(lovelace))) ?? '';
+
+// The delegator line gets its current value in the same label column as the power
+// axis, rather than a second axis of its own: two sets of gridlines on one small
+// card would suggest the lines can be read against each other, which they cannot.
+// One label per series, each at its own line's end.
+const LABEL_GAP = 13;
+const delLabelY = ((): number | null => {
+  if (!chart || !overlay) return null;
+  let y = overlay.last.y + 4;
+  // Nudge clear of a power tick label sitting at the same height, away from it, so
+  // the two numbers never overlap into an unreadable stack.
+  for (const t of chart.yTicks) {
+    const other = t.y + 4;
+    const gap = y - other;
+    if (Math.abs(gap) < LABEL_GAP) y = other + (gap === 0 ? (overlay.last.y <= t.y ? -LABEL_GAP : LABEL_GAP) : Math.sign(gap) * LABEL_GAP);
+  }
+  // Keep it inside the card whatever the nudge did.
+  return Math.min(Math.max(y, 12), chart.height - 12);
+})();
 
 // The absolute change moves to the hover so the card surfaces only the percent.
 // Nothing to hover when the card already shows the amount itself, and flat
@@ -71,7 +100,9 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
       class="vptrend__chart"
       viewBox={`0 0 ${chart.width} ${chart.height}`}
       role="img"
-      aria-label={`Voting power from epoch ${firstEpoch} to ${lastEpoch}`}
+      aria-label={overlay
+        ? `Voting power and delegator count from epoch ${firstEpoch} to ${lastEpoch}. Voting power ${adaTick(values[values.length - 1])}, delegators ${fmtInt(overlay.lastValue)}.`
+        : `Voting power from epoch ${firstEpoch} to ${lastEpoch}`}
     >
       <defs>
         <linearGradient id="vptrend-fill" x1="0" y1="0" x2="0" y2="1">
@@ -86,23 +117,50 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
       <polyline class="vptrend__line" points={chart.line} vector-effect="non-scaling-stroke" />
       <circle class="vptrend__dot-ring" cx={chart.last.x} cy={chart.last.y} r="5.5" />
       <circle class="vptrend__dot" cx={chart.last.x} cy={chart.last.y} r="3.5" />
+      {overlay && (
+        <>
+          <polyline class="vptrend__delline" points={overlay.line} vector-effect="non-scaling-stroke" />
+          <circle class="vptrend__deldot" cx={overlay.last.x} cy={overlay.last.y} r="2.75" />
+        </>
+      )}
       {chart.yTicks.map((t) => (
         <text class="vptrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{adaTick(t.value)}</text>
       ))}
+      {overlay && delLabelY != null && (
+        <text class="vptrend__dellabel" x={chart.plot.x + chart.plot.w + 8} y={delLabelY}>{fmtInt(overlay.lastValue)}</text>
+      )}
       <text class="vptrend__xlabel" x={chart.plot.x} y={chart.height - 8} text-anchor="start">Epoch {firstEpoch}</text>
       <text class="vptrend__xlabel" x={chart.plot.x + chart.plot.w} y={chart.height - 8} text-anchor="end">Epoch {lastEpoch}</text>
     </svg>
 
-    {spanDelta && spanDisplay && (
+    {(spanDelta && spanDisplay) || overlay ? (
       <footer class="vptrend__foot">
-        <span class={`vptrend__total vptrend__total--${spanDelta.direction}`} title={hoverText(spanDelta, `over ${series.length} epochs`)}>
-          {spanDelta.direction !== 'flat' && <span class="vptrend__arrow" aria-hidden="true">{arrow(spanDelta.direction)}</span>}
-          <span>{spanDisplay.pct ?? spanDisplay.ada}</span>
-          <span class="vptrend__label">over {series.length} epochs</span>
-        </span>
+        {spanDelta && spanDisplay && (
+          <span class={`vptrend__total vptrend__total--${spanDelta.direction}`} title={hoverText(spanDelta, `over ${series.length} epochs`)}>
+            {spanDelta.direction !== 'flat' && <span class="vptrend__arrow" aria-hidden="true">{arrow(spanDelta.direction)}</span>}
+            <span>{spanDisplay.pct ?? spanDisplay.ada}</span>
+            <span class="vptrend__label">over {series.length} epochs</span>
+          </span>
+        )}
+        {overlay && (
+          <span class="vptrend__legend" title={`Delegator count over the last ${overlay.points} epochs`}>
+            <span class="vptrend__swatch" aria-hidden="true"></span>
+            <span class="vptrend__label">Delegators</span>
+            {/* Narrow screens drop every in-chart label, so the count moves into
+                the legend there and is hidden here on wider ones. */}
+            <span class="vptrend__legend-value">{fmtInt(overlay.lastValue)}</span>
+            {delegatorChange !== 0 && (
+              <span class={`vptrend__legend-delta vptrend__legend-delta--${delegatorChange > 0 ? 'up' : 'down'}`}>
+                {delegatorChange > 0 ? '+' : '-'}{fmtInt(Math.abs(delegatorChange))}
+              </span>
+            )}
+            <span class="vptrend__label">over {overlay.points} epochs</span>
+          </span>
+        )}
       </footer>
-    )}
-  </section>
+    ) : null}
+
+</section>
 )}
 
 <style>
@@ -157,10 +215,25 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
   .vptrend__grid { stroke: var(--border); stroke-dasharray: 4 5; }
   .vptrend__ylabel,
   .vptrend__xlabel { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .vptrend__dellabel { fill: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
   .vptrend__area { fill: url(#vptrend-fill); }
   .vptrend__line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .vptrend__dot-ring { fill: var(--surface-2); }
   .vptrend__dot { fill: currentColor; }
+
+  /* The delegator series: dashed and thinner so it never competes with the power
+     line, and in the accent color rather than the card's gain/loss color, because
+     it is a different unit on a different scale and must not be read as part of
+     the same axis. */
+  .vptrend__delline {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 4;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  .vptrend__deldot { fill: var(--accent); }
 
   .vptrend__foot {
     border-top: 1px solid var(--border);
@@ -168,6 +241,11 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
     padding-top: 0.7rem;
     font-size: 0.8125rem;
     color: var(--muted);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem 1rem;
+    flex-wrap: wrap;
   }
   .vptrend__total {
     display: inline-flex;
@@ -179,11 +257,33 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
   .vptrend__total--down { color: var(--c-neg); }
   .vptrend__total--flat { color: var(--muted); }
 
+  /* Legend for the dashed series, doubling as its current value: the chart's own
+     axis labels belong to the power line, so the headcount is named here instead. */
+  .vptrend__legend {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  .vptrend__legend-value { display: none; color: var(--fg); font-weight: 650; }
+  .vptrend__swatch {
+    align-self: center;
+    width: 0.9rem;
+    height: 0;
+    border-top: 2px dashed var(--accent);
+    flex: none;
+  }
+  .vptrend__legend-delta--up { color: var(--c-pos); }
+  .vptrend__legend-delta--down { color: var(--c-neg); }
+
   /* Narrow screens: drop the in-chart axis labels (they scale down too far); the
      trend shape and the header/footer percentages stay. */
   @media (max-width: 560px) {
     .vptrend__ylabel,
-    .vptrend__xlabel { display: none; }
+    .vptrend__xlabel,
+    .vptrend__dellabel { display: none; }
+    .vptrend__legend-value { display: inline; }
     .vptrend__head { flex-wrap: wrap; }
     .vptrend__delta { margin-left: 2.7rem; flex-basis: 100%; }
   }

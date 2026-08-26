@@ -52,8 +52,8 @@ describe('syncDrepVotingPowerHistory', () => {
     expect(res.inserted).toBe(2);
 
     expect(await getDrepVotingPowerSeries(env.DB, 'drepA')).toEqual([
-      { epoch: 539, amount: '100' },
-      { epoch: 540, amount: '150' },
+      { epoch: 539, amount: '100', delegatorCount: null },
+      { epoch: 540, amount: '150', delegatorCount: null },
     ]);
     const row = await env.DB.prepare(
       'SELECT voting_power_snapshot AS s, voting_power_prev AS p, voting_power_snapshot_epoch AS e FROM dreps WHERE drep_id = ?',

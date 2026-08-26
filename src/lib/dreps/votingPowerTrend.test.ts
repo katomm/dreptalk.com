@@ -7,6 +7,7 @@ import {
   PCT_DISPLAY_CAP,
   absLovelace,
   buildPowerChart,
+  buildOverlaySeries,
 } from './votingPowerTrend.js';
 
 describe('computeVotingPowerDelta', () => {
@@ -201,5 +202,87 @@ describe('buildPowerChart', () => {
     const wideYs = wide.line.split(' ').map((p) => Number(p.split(',')[1]));
     expect(wide.yTicks).toHaveLength(1); // clamped -> single reference line
     expect(Math.max(...wideYs) - Math.min(...wideYs)).toBeLessThan(20);
+  });
+});
+
+describe('buildOverlaySeries', () => {
+  const chart = buildPowerChart([10, 20, 30, 40], {
+    width: 200,
+    height: 100,
+    padLeft: 0,
+    padRight: 0,
+    padTop: 0,
+    padBottom: 0,
+  })!;
+
+  it('returns null when fewer than two values are present', () => {
+    expect(buildOverlaySeries([null, null, null, 5], chart)).toBeNull();
+    expect(buildOverlaySeries([null], chart)).toBeNull();
+  });
+
+  it('draws only the trailing run and reports its span', () => {
+    const o = buildOverlaySeries([null, null, 100, 130], chart)!;
+    expect(o.points).toBe(2);
+    expect(o.firstValue).toBe(100);
+    expect(o.lastValue).toBe(130);
+    // Two points on a four-point grid: the run starts two thirds along the plot.
+    expect(o.line.split(' ').map((p) => p.split(',')[0])).toEqual(['133.33', '200']);
+  });
+
+  it('cuts the line at a gap instead of interpolating across it', () => {
+    const o = buildOverlaySeries([100, null, 120, 130], chart)!;
+    expect(o.points).toBe(2);
+    expect(o.firstValue).toBe(120);
+  });
+
+  it('scales to its own domain, not the chart values', () => {
+    // Counts three orders of magnitude below the power values still use the full
+    // plot height: lowest point at the bottom, highest at the top.
+    const o = buildOverlaySeries([100, 200, 300, 400], chart)!;
+    const ys = o.line.split(' ').map((p) => Number(p.split(',')[1]));
+    expect(ys[0]).toBeGreaterThan(ys[ys.length - 1]);
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(100);
+    expect(o.last).toEqual({ x: 200, y: ys[ys.length - 1] });
+  });
+
+  it('keeps a flat headcount off the edges', () => {
+    const o = buildOverlaySeries([50, 50, 50, 50], chart)!;
+    const ys = o.line.split(' ').map((p) => Number(p.split(',')[1]));
+    expect(new Set(ys).size).toBe(1);
+    expect(ys[0]).toBeCloseTo(50, 5);
+  });
+
+  it('does not stretch a one-delegator wiggle across the plot', () => {
+    const o = buildOverlaySeries([1000, 1001, 1000, 1001], chart)!;
+    const ys = o.line.split(' ').map((p) => Number(p.split(',')[1]));
+    // The 8% minimum span keeps a 0.1% move visually small.
+    expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(5);
+  });
+});
+
+describe('buildOverlaySeries small-count floor', () => {
+  const chart = buildPowerChart([10, 20], {
+    width: 200,
+    height: 100,
+    padLeft: 0,
+    padRight: 0,
+    padTop: 0,
+    padBottom: 0,
+  })!;
+
+  it('keeps one delegator joining a small DRep from filling the plot', () => {
+    const o = buildOverlaySeries([8, 9], chart)!;
+    const ys = o.line.split(' ').map((p) => Number(p.split(',')[1]));
+    const travelled = (Math.abs(ys[0] - ys[1]) / 100) * 100;
+    // One of four visible units: a clear step, not a cliff edge to edge.
+    expect(travelled).toBeGreaterThan(15);
+    expect(travelled).toBeLessThan(35);
+  });
+
+  it('lets a move larger than the floor scale naturally', () => {
+    const o = buildOverlaySeries([10, 40], chart)!;
+    const ys = o.line.split(' ').map((p) => Number(p.split(',')[1]));
+    expect(Math.abs(ys[0] - ys[1])).toBeGreaterThan(70);
   });
 });
