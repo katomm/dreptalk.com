@@ -41,7 +41,7 @@ export function buildRecentActivity(
     events.push({ kind: 'vote', ts, key: v.ga_id, vote: v.vote, title, href: actionHref, epoch: epochFromUnix(v.block_time, input.cfg) });
     if (v.rationale_html) {
       const href = v.topic_slug
-        ? `/t/${v.topic_slug}/?tab=positions#voter-${input.voterId}`
+        ? `/t/${v.topic_slug}/?tab=positions&voter=${input.voterId}#voter-${input.voterId}`
         : actionHref;
       events.push({ kind: 'rationale', ts, key: v.ga_id, title, href });
     }

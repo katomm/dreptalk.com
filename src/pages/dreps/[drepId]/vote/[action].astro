@@ -50,7 +50,7 @@ const vote = drep && govAction && db
 // The voter and action both exist but there is no shareable vote here (no
 // on-chain rationale yet): send the visitor to the position row instead.
 if (drep && govAction && topic && !vote) {
-  return Astro.redirect(`/t/${topic.slug}/?tab=positions#voter-${drep.drepId}`, 302);
+  return Astro.redirect(`/t/${topic.slug}/?tab=positions&voter=${drep.drepId}#voter-${drep.drepId}`, 302);
 }
 
 const ready = !!(drep && db && topic && govAction && vote);

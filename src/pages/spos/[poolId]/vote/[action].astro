@@ -48,7 +48,7 @@ const vote = pool && govAction && db
 // The voter and action both exist but there is no shareable vote here (no
 // on-chain rationale yet): send the visitor to the position row instead.
 if (pool && govAction && topic && !vote) {
-  return Astro.redirect(`/t/${topic.slug}/?tab=positions&role=spo#voter-${pool.poolId}`, 302);
+  return Astro.redirect(`/t/${topic.slug}/?tab=positions&role=spo&voter=${pool.poolId}#voter-${pool.poolId}`, 302);
 }
 
 const ready = !!(pool && db && topic && govAction && vote);

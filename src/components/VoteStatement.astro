@@ -40,8 +40,10 @@ const HERO_AVATAR_SIZE = 96;
 
 // The back link targets this voter's own position row on the action, so the
 // reveal-hash-target script auto-expands the rationale there: the reader lands
-// on the action and immediately sees this rationale exists in context.
-const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=spo' : ''}#voter-${p.author.authorId}`;
+// on the action and immediately sees this rationale exists in context. The
+// voter= param makes the tab resolve the page that actually renders the row
+// (the list is paginated and its composition shifts as votes arrive).
+const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=spo' : ''}&voter=${p.author.authorId}#voter-${p.author.authorId}`;
 ---
 <article class="vstmt">
   {p.pending && (
@@ -72,7 +74,7 @@ const backHref = `${p.actionHref}?tab=positions${p.roleLabel === 'SPO' ? '&role=
     {p.rawRationaleUrl && (
       <a class="btn btn-primary" href={p.rawRationaleUrl} rel="nofollow noopener" target="_blank">Raw rationale</a>
     )}
-    <a class="btn btn-secondary" href={backHref}>Back to action</a>
+    <a class="btn btn-secondary" href={backHref}>All votes on this action</a>
     <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={`How ${p.author.displayName} voted on ${p.actionTitle}`} ariaLabel="Share this rationale" />
   </div>
 </article>

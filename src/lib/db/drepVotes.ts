@@ -427,6 +427,11 @@ export interface ActionVoterRow {
   block_time: number | null;
 }
 
+// Shared ORDER BY fragments for the action voter lists AND the rank lookup
+// below, so a voter= deep link can never disagree with the rendered order.
+const DREP_VOTERS_ORDER = '(d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id';
+const SPO_VOTERS_ORDER = '(v.block_time IS NULL), v.block_time DESC, v.voter_id';
+
 /**
  * DRep votes (role 'DRep') on one action, joined to dreps for identity + power,
  * ordered by voting power desc (unknown power last). Filtered by ga_id (the leading
@@ -449,7 +454,7 @@ export async function getActionVoters(
          LEFT JOIN dreps d ON d.drep_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'DRep'
            AND ${liveVoteSql('v')}
-         ORDER BY (d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id
+         ORDER BY ${DREP_VOTERS_ORDER}
          LIMIT ? OFFSET ?`,
       )
       .bind(gaId, limit, offset)
@@ -490,13 +495,42 @@ export async function getActionSpoVoters(
          FROM drep_votes v
          LEFT JOIN pools p ON p.pool_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'SPO' AND ${liveVoteSql('v')}
-         ORDER BY (v.block_time IS NULL), v.block_time DESC, v.voter_id
+         ORDER BY ${SPO_VOTERS_ORDER}
          LIMIT ? OFFSET ?`,
       )
       .bind(gaId, limit, offset)
       .all<ActionVoterRow>()
   ).results ?? [];
   return rows;
+}
+
+/**
+ * 0-based position of one voter in the action's ordered voter list, using the
+ * exact ORDER BY of getActionVoters / getActionSpoVoters (the shared fragments
+ * above). Null when the voter has no live vote in that role on the action.
+ * Lets the positions tab resolve a voter= deep link to the page that actually
+ * renders the row, instead of pinning a page number that rots as votes arrive.
+ */
+export async function getActionVoterRank(
+  db: D1Database,
+  gaId: string,
+  voterId: string,
+  role: 'DRep' | 'SPO',
+): Promise<number | null> {
+  const isDrep = role === 'DRep';
+  const row = await db
+    .prepare(
+      `SELECT rn FROM (
+         SELECT v.voter_id AS voter_id,
+                ROW_NUMBER() OVER (ORDER BY ${isDrep ? DREP_VOTERS_ORDER : SPO_VOTERS_ORDER}) AS rn
+         FROM drep_votes v
+         ${isDrep ? 'LEFT JOIN dreps d ON d.drep_id = v.voter_id' : ''}
+         WHERE v.ga_id = ? AND v.voter_role = ? AND ${liveVoteSql('v')}
+       ) WHERE voter_id = ?`,
+    )
+    .bind(gaId, role, voterId)
+    .first<{ rn: number }>();
+  return row ? row.rn - 1 : null;
 }
 
 /** Count of SPO votes (role 'SPO') on one action. */

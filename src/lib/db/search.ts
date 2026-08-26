@@ -329,14 +329,14 @@ export interface ScopedResult<T> {
   total: number;
 }
 
-/** A vote-rationale hit: who said it (DRep or CC member), how they voted, on
- *  which action. The href deep-links to the voter's row on page 1 of the
- *  Positions tab, with role=cc appended for CC hits so the tab lands on the
- *  right sub-section. A voter on a later page opens the tab at page 1 without
- *  scrolling (the anchor is not rendered yet). Precise deep-paging is deferred
- *  (would need the voter's rank). */
+/** A vote-rationale hit: who said it (DRep, SPO or CC member), how they voted,
+ *  on which action. The href deep-links to the voter's row on the Positions
+ *  tab, with the role appended so the tab opens the right sub-section. For
+ *  paginated roles (DRep/SPO) it carries voter=<id>, which the tab resolves to
+ *  the page that actually renders the row (getActionVoterRank); the CC list is
+ *  unpaginated, so the plain anchor suffices there. */
 export interface RationaleHit {
-  href: string; // /t/<slug>?tab=positions[&role=cc]#voter-<voterId>
+  href: string; // /t/<slug>?tab=positions[&role=…][&voter=<voterId>]#voter-<voterId>
   voterId: string;
   name: string | null;
   imageHash: string | null;
@@ -382,8 +382,10 @@ const RATIONALE_SELECT = `
 
 function toRationaleHit(r: RationaleRow): RationaleHit {
   const cc = r.voter_role === 'ConstitutionalCommittee';
+  const role = cc ? '&role=cc' : r.voter_role === 'SPO' ? '&role=spo' : '';
+  const deep = cc ? '' : `&voter=${r.voter_id}`;
   return {
-    href: `/t/${r.topic_slug}/?tab=positions${cc ? '&role=cc' : ''}#voter-${r.voter_id}`,
+    href: `/t/${r.topic_slug}/?tab=positions${role}${deep}#voter-${r.voter_id}`,
     voterId: r.voter_id,
     name: r.name,
     imageHash: cc ? null : r.image_content_hash, // CC members have no stored avatar, identicon renders from voterId

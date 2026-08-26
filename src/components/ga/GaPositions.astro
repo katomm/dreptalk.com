@@ -77,11 +77,13 @@ const drepHref = `/t/${slug}/?tab=positions&role=drep`;
 const spoHref = `/t/${slug}/?tab=positions&role=spo`;
 const ccHref = `/t/${slug}/?tab=positions&role=cc`;
 
-// Absolute base for per-vote share links. The link keeps role and page so the
-// targeted row is actually rendered (a voter on page 3 is not on page 1), and
-// the #voter-<id> anchor drives the scroll/expand/highlight on arrival.
+// Absolute base for per-vote share links. The link carries role plus a
+// voter= param that the tab resolves to whichever page renders the row at
+// open time (getActionVoterRank), so the link survives the list reshuffling
+// as new votes arrive. The #voter-<id> anchor drives the
+// scroll/expand/highlight on arrival.
 const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
-const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${page}`;
+const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}`;
 ---
 
 <div class="ga-positions">
@@ -163,7 +165,7 @@ const shareBase = `${shareOrigin}/t/${slug}/?tab=positions&role=${role}&page=${p
         // empty for 'cc'), so the narrowed literal here is safe.
         const voteShareUrl = bodyHtml
           ? `${shareOrigin}${voteStatementPath(role === 'spo' ? 'spo' : 'drep', voterKey, slug)}`
-          : `${shareBase}#voter-${v.voter_id}`;
+          : `${shareBase}&voter=${v.voter_id}#voter-${v.voter_id}`;
         // Identity, vote, and power render identically whether or not the row
         // expands; the power slot is always present (empty when unknown) so the
         // amount column lines up across every row. A late vote (cast after

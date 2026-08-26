@@ -71,7 +71,9 @@ const anchorUrl =
 const currentVote = authorVote?.vote ?? null;
 const changedVote = isVoteRationale && voteChangedSince(post.vote, currentVote) ? currentVote : null;
 const changedVoteColor = changedVote ? TONE_COLORS[voteTone(changedVote)] : null;
-const changedVoteHref = author.drepId ? `?tab=positions#voter-${author.drepId}` : '?tab=positions';
+const changedVoteHref = author.drepId
+  ? `?tab=positions&voter=${author.drepId}#voter-${author.drepId}`
+  : '?tab=positions';
 ---
 
 <article
