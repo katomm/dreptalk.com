@@ -17,7 +17,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const card = data?.periods.find((c) => c.period.id === params.periodId);
   if (!db || !card) return new Response('Not found', { status: 404 });
 
-  const header = 'Epoch,Withdrawal,Amount (lovelace),Amount (ADA)';
+  const header = 'Epoch,Withdrawal,Amount (lovelace),Amount (ada)';
   const rows = card.windowWithdrawals.map((w) =>
     [
       String(w.enactedEpoch),

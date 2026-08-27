@@ -90,7 +90,7 @@ function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletAp
 type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
 
 // The Conway DRep registration deposit (drep_deposit protocol parameter), in
-// lovelace. Stable at 500 ADA on mainnet and preprod; changing it requires an
+// lovelace. Stable at 500 ada on mainnet and preprod; changing it requires an
 // on-chain governance action. Used only to size input selection; the SDK reads
 // the authoritative value from protocol parameters when balancing the tx.
 const DREP_DEPOSIT_LOVELACE = 500_000_000n;

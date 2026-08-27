@@ -147,7 +147,7 @@ export function formatRelativeTime(unixMs: number, nowMs: number): string {
 }
 
 /**
- * Whole ADA with the ₳ symbol and thousands separators (rounded; profiles never
+ * Whole ada with the ₳ symbol and thousands separators (rounded; profiles never
  * do exact accounting). Null is treated as 0. Thin wrapper over the canonical
  * {@link adaFull} that keeps the always-a-string, "0 ₳"-on-absent contract these
  * profile/directory views rely on.

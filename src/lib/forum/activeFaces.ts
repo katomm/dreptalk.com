@@ -15,7 +15,7 @@ export interface ActiveFace {
   lastActive: string;
   /** Primary role badge ("DRep" / "SPO"), or null. */
   role: string | null;
-  /** DRep voting power, already formatted (e.g. "12.5M ADA"), else null. */
+  /** DRep voting power, already formatted (e.g. "12.5M ada"), else null. */
   votingPower: string | null;
   /** DRep delegator count, else null. */
   delegators: number | null;

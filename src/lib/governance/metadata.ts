@@ -52,7 +52,7 @@ const MAX_TITLE_LEN = 300;
 // Abstract is the always-visible lede of a governance action (it is the fold line
 // above the collapsible rationale), so it must not be cut mid-sentence: most
 // mainnet abstracts run 1-2.5k chars. Rationale merges motivation + rationale and
-// is deposit-gated (100k ADA per action), so spam risk is negligible; the 100k cap
+// is deposit-gated (100k ada per action), so spam risk is negligible; the 100k cap
 // is purely a page-weight guard against the rare multi-hundred-KB outlier.
 const MAX_ABSTRACT_LEN = 4_000;
 const MAX_RATIONALE_LEN = 100_000;

@@ -120,7 +120,7 @@ export default function DelegateDialog({
         setPhase({
           status: 'error',
           message:
-            'This wallet has no registered stake key yet, so it cannot delegate voting power. Register your stake key first (for example by delegating your ADA to a stake pool in your wallet), then come back to delegate to a DRep.',
+            'This wallet has no registered stake key yet, so it cannot delegate voting power. Register your stake key first (for example by delegating your ada to a stake pool in your wallet), then come back to delegate to a DRep.',
         });
         return;
       }
