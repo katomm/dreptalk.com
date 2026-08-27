@@ -50,11 +50,16 @@ account, so you will always know if one was added.
 
 ## Undoing a pairing
 
-To remove a paired device, sign out on that device itself, or go to
-**Devices** and use **Sign out everywhere, including this device**, which
-ends every session at once, including the one you are using. Revocation can
-take a short moment to reach every device, because the change has to
-propagate to all of them rather than applying instantly everywhere.
+**Devices** lists every browser and phone signed in to your account, with
+the one you are reading on marked. Use **Sign out this device** on the row
+you no longer want, or **Sign out everywhere, including this device** to end
+every session at once. You can also just sign out on the device itself.
+Revocation can take a short moment to reach every device, because the change
+has to propagate to all of them rather than applying instantly everywhere.
+
+Sessions also end on their own: after 30 days without use, and after 90 days
+in any case, however often you visit. Signing in again takes one wallet
+signature, or one pairing code on a device without a wallet.
 
 ## What a paired device can do
 

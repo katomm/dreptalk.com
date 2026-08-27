@@ -145,7 +145,9 @@ describe('handleRedeemGrant: happy path', () => {
     expect(result.setCookie).toContain('dreptalk_session=');
 
     const token = /dreptalk_session=([^;]+)/.exec(result.setCookie!)![1];
-    const session = await getSession(env.SESSIONS, token);
+    // Same clock as the mint: the session carries an absolute lifetime cap, so
+    // reading a NOW-stamped session at wall-clock time would read it as expired.
+    const session = await getSession(env.SESSIONS, token, { now: NOW });
     expect(session).not.toBeNull();
     expect(session?.grantId).toBe(invite.grantId);
     expect(session?.actsFor).toEqual({ userId: invite.proposerUserId, stakeAddr: invite.proposerStakeAddr });

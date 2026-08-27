@@ -1015,7 +1015,9 @@ describe('handleVerify: co-proposer grant login fallback', () => {
 
     const cookie = result.setCookie!;
     const token = /dreptalk_session=([^;]+)/.exec(cookie)![1];
-    const session = await getSession(env.SESSIONS, token);
+    // Same clock as the login: sessions carry an absolute lifetime cap, so a
+    // NOW-stamped session read at wall-clock time would read as expired.
+    const session = await getSession(env.SESSIONS, token, { now: 1_700_000_000 });
     expect(session?.grantId).toBe('grant-fallback-1');
     expect(session?.actsFor).toEqual({ userId: 'proposer-user-1', stakeAddr: 'stake_test1proposerone' });
   });
@@ -1191,7 +1193,9 @@ describe('handleVerify: co-proposer grant login fallback', () => {
 
     const cookie = result.setCookie!;
     const token = /dreptalk_session=([^;]+)/.exec(cookie)![1];
-    const session = await getSession(env.SESSIONS, token);
+    // Same clock as the login: sessions carry an absolute lifetime cap, so a
+    // NOW-stamped session read at wall-clock time would read as expired.
+    const session = await getSession(env.SESSIONS, token, { now: 1_700_000_000 });
     expect(session?.grantId).toBeFalsy();
     expect(session?.actsFor).toBeFalsy();
   });

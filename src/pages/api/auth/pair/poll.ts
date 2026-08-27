@@ -7,6 +7,7 @@ import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { pollPairing, parseApproverRoles } from '@/lib/auth/pairing';
 import { rolesFromUser } from '@/lib/auth/roles';
 import { createSession, buildSessionCookie } from '@/lib/auth/session';
+import { sessionDeviceLabel } from '@/lib/auth/deviceLabel';
 import { sessionActivityHook } from '@/lib/auth/sessionActivity.js';
 import { getUserById } from '@/lib/db/users';
 import { insertNotifications } from '@/lib/db/notifications';
@@ -107,7 +108,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
       token = await createSession(
         sessionKv,
         { id: user.id, roles, drepId },
-        { onCreate: db ? sessionActivityHook(db) : undefined },
+        {
+          onCreate: db ? sessionActivityHook(db) : undefined,
+          label: sessionDeviceLabel(request.headers.get('user-agent')),
+        },
       );
     } catch {
       // The pairing was already consumed by the atomic claim above and cannot be

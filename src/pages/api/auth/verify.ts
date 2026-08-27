@@ -71,6 +71,7 @@ export const POST: APIRoute = async ({ request }) => {
         koios,
         network,
         secure,
+        userAgent: request.headers.get('user-agent'),
         // Defers the delegator login's post-login delegation resolve past the
         // response (see handlers.ts): `Astro.locals.runtime.ctx` was removed by
         // Adapter 13 / Astro 6 (see src/env.d.ts), this module export is its

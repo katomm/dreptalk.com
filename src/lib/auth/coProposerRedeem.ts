@@ -17,6 +17,7 @@ import { checkRewardAddressHeader } from './handlers.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
 import { lookupInviteByCode, redeemGrant } from '../db/proposerGrants.js';
 import { createSession, buildSessionCookie } from './session.js';
+import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
 import { rolesFromUser, normalizeSessionRoles } from './roles.js';
 import { isHex, sanitizeExternalText, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
@@ -99,6 +100,8 @@ export interface RedeemGrantInput {
   network: CardanoNetwork;
   now?: number;
   secure?: boolean;
+  // Raw User-Agent of the redeeming device, kept only as a coarse session label.
+  userAgent?: string | null;
 }
 
 /** Injected dependencies for handleRedeemGrant. All fields optional; defaults are the real implementations. */
@@ -244,7 +247,7 @@ async function handleRedeemGrantInternal(input: RedeemGrantInput, deps?: RedeemG
       grantId: invite.grantId,
       actsFor: { userId: res.proposerUserId, stakeAddr: res.proposerStakeAddr },
     },
-    { now: nowSec, onCreate: sessionActivityHook(db) },
+    { now: nowSec, onCreate: sessionActivityHook(db), label: sessionDeviceLabel(input.userAgent) },
   );
 
   return {
