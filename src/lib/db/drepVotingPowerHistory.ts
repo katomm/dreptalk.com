@@ -10,6 +10,18 @@ export interface VotingPowerHistoryRow {
   amount: string;
 }
 
+/**
+ * One point of a DRep's trend: the epoch snapshot plus the delegator headcount
+ * observed during that epoch. The count is NULL for every epoch captured before
+ * the stamp existed (and for a DRep Koios reported no count for), so consumers
+ * must treat the count series as shorter than the amount series.
+ */
+export interface DrepVotingPowerSeriesPoint {
+  epoch: number;
+  amount: string;
+  delegatorCount: number | null;
+}
+
 export interface VotingPowerEpochAggregate {
   epoch: number;
   /** DReps with a snapshot this epoch (special auto-voting ids excluded). */
@@ -104,16 +116,21 @@ export async function pruneVotingPowerHistoryBefore(db: D1Database, minEpoch: nu
 export async function getDrepVotingPowerSeries(
   db: D1Database,
   drepId: string,
-): Promise<{ epoch: number; amount: string }[]> {
+): Promise<DrepVotingPowerSeriesPoint[]> {
   const rows = (
     await db
       .prepare(
-        'SELECT epoch, amount FROM drep_voting_power_history WHERE drep_id = ? ORDER BY epoch ASC',
+        `SELECT epoch, amount, delegator_count FROM drep_voting_power_history
+          WHERE drep_id = ? ORDER BY epoch ASC`,
       )
       .bind(drepId)
-      .all<{ epoch: number; amount: string }>()
+      .all<{ epoch: number; amount: string; delegator_count: number | null }>()
   ).results ?? [];
-  return rows;
+  return rows.map((r) => ({
+    epoch: r.epoch,
+    amount: r.amount,
+    delegatorCount: r.delegator_count,
+  }));
 }
 
 /**

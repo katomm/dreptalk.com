@@ -54,7 +54,7 @@ describe('drep voting power history store', () => {
     await insertVotingPowerHistory(env.DB, [{ drepId: 'drepA', epoch: 540, amount: '999' }]);
 
     const series = await getDrepVotingPowerSeries(env.DB, 'drepA');
-    expect(series).toEqual([{ epoch: 540, amount: '150' }]);
+    expect(series).toEqual([{ epoch: 540, amount: '150', delegatorCount: null }]);
   });
 
   it('returns a per-drep series ordered by epoch ascending', async () => {
@@ -67,9 +67,25 @@ describe('drep voting power history store', () => {
 
     const series = await getDrepVotingPowerSeries(env.DB, 'drepA');
     expect(series).toEqual([
-      { epoch: 538, amount: '90' },
-      { epoch: 539, amount: '100' },
-      { epoch: 540, amount: '150' },
+      { epoch: 538, amount: '90', delegatorCount: null },
+      { epoch: 539, amount: '100', delegatorCount: null },
+      { epoch: 540, amount: '150', delegatorCount: null },
+    ]);
+  });
+
+  // The profile chart draws the headcount as a second line, so the series read has
+  // to carry the stamped count alongside the amount, null where none was stamped.
+  it('carries the stamped delegator count on the series', async () => {
+    await insertVotingPowerHistory(env.DB, [
+      { drepId: 'drepA', epoch: 539, amount: '90' },
+      { drepId: 'drepA', epoch: 540, amount: '150' },
+    ]);
+    await stampDelegatorCounts(env.DB, 540, new Map([['drepA', 12]]));
+
+    const series = await getDrepVotingPowerSeries(env.DB, 'drepA');
+    expect(series).toEqual([
+      { epoch: 539, amount: '90', delegatorCount: null },
+      { epoch: 540, amount: '150', delegatorCount: 12 },
     ]);
   });
 
@@ -82,7 +98,9 @@ describe('drep voting power history store', () => {
 
     const deleted = await pruneVotingPowerHistoryBefore(env.DB, 539);
     expect(deleted).toBe(2);
-    expect(await getDrepVotingPowerSeries(env.DB, 'drepA')).toEqual([{ epoch: 539, amount: '3' }]);
+    expect(await getDrepVotingPowerSeries(env.DB, 'drepA')).toEqual([
+      { epoch: 539, amount: '3', delegatorCount: null },
+    ]);
   });
 
   it('denormalizes the latest two snapshots onto the dreps row', async () => {
