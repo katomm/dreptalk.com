@@ -298,7 +298,7 @@ function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainCh
 /**
  * Sum of lovelace in a TreasuryWithdrawals on-chain payload, as raw bigint.
  * Mirrors decodeTreasury's amount parsing but keeps the exact lovelace total
- * (decodeTreasury only exposes a formatted ADA string). Returns 0n for any
+ * (decodeTreasury only exposes a formatted ada string). Returns 0n for any
  * non-treasury or malformed payload.
  */
 export function treasuryTotalLovelace(payload: unknown): bigint {

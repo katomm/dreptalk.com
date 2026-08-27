@@ -727,7 +727,7 @@ main.container {
    the line below (matches the directory mockup). Left-aligned under the header. */
 .drep-power { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; }
 .drep-power__ada { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* Two ADA renderings ship in the markup: the exact figure for desktop and an
+/* Two ada renderings ship in the markup: the exact figure for desktop and an
    abbreviated one (200k, 2.5M) swapped in on mobile. Toggled via CSS so the page
    stays SSR-only with no client JS. */
 .drep-power__ada-compact { display: none; }
@@ -808,7 +808,7 @@ main.container {
   }
 }
 
-/* Mobile: reclaim width for the DRep name. Slim power column (bar drops out, ADA
+/* Mobile: reclaim width for the DRep name. Slim power column (bar drops out, ada
    abbreviates, percentage stacks under the amount), the delegate quick-action
    hides, and the kebab grows to a 44px tap target. Placed after the base rules so
    it overrides them. */

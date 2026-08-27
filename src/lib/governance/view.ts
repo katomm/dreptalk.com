@@ -1,4 +1,4 @@
-// Pure presentation helpers for governance actions: readable type, ADA
+// Pure presentation helpers for governance actions: readable type, ada
 // formatting, status badges, epoch countdown, tally bars, and vote tones. No I/O;
 // all deterministic and unit-tested. Shared by the gov-sync first-post composer
 // and the thread header / list rows. Explorer links live in config/network.ts
@@ -8,7 +8,7 @@ import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import type { Body } from './thresholds.js';
 
-// Re-exported so governance components keep importing the ADA formatters from
+// Re-exported so governance components keep importing the ada formatters from
 // this view module; the implementations live in lib/format/ada.ts.
 export { formatAda, formatAdaCompact };
 
@@ -725,7 +725,7 @@ export function bodyComposition(
 }
 
 // Pre-formatted amounts behind a composition bar: Yes / No / Not voted, plus the
-// abstained stake shown as an excluded footnote. ADA (compact) for DRep/SPO, member
+// abstained stake shown as an excluded footnote. Compact ada for DRep/SPO, member
 // counts for CC. notVoted/abstainExcluded are "n/a" when their denominator is unknown.
 export interface CompositionAmounts {
   yes: string;

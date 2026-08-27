@@ -140,7 +140,7 @@ export default function DrepRetire({ network = 'preprod', expectedDrepId }: Drep
       <div>
         <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>Retire as DRep</p>
         <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
-          Retiring submits a deregistration certificate to the Cardano chain. Your 500 ADA deposit is
+          Retiring submits a deregistration certificate to the Cardano chain. Your 500 ada deposit is
           refunded once it confirms, and everyone who delegated their voting power to you loses that
           delegation. You can register again later.
         </p>

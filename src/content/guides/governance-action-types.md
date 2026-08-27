@@ -41,7 +41,7 @@ An info action records an on-chain opinion or signal without changing any ledger
 
 Three bodies participate in Cardano on-chain governance:
 
-- **DReps (Delegated Representatives):** Ada holders delegate their voting power to DReps, who cast votes on governance actions on their behalf. DReps vote on almost every action type.
+- **DReps (Delegated Representatives):** holders of ada delegate their voting power to DReps, who cast votes on governance actions on their behalf. DReps vote on almost every action type.
 - **SPOs (Stake Pool Operators):** SPOs vote to represent the interests of the network's block producers. They are required for no-confidence motions, constitutional committee changes, and hard forks. They also co-vote on security-relevant protocol parameter changes. How a pool casts its vote is covered in [Voting as an SPO](/help/voting-as-an-spo/).
 - **The Constitutional Committee:** A group of elected representatives who verify that proposed actions conform to the Cardano constitution. They vote on most action types, with two exceptions: no-confidence motions (where they have a conflict of interest) and updates to the constitutional committee or its threshold (where they are themselves the subject of the action).
 

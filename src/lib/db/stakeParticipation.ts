@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 // DRep stake participation: total active DRep voting power.
 // Lovelace fits SQLite INTEGER; the JS number is exact enough for the ratio and
-// the rounded "B/M ADA" display (we never do lovelace-exact accounting here).
+// the rounded "B/M ada" display (we never do lovelace-exact accounting here).
 
 /**
  * Total active-DRep voting power (lovelace) and the freshness of that cached

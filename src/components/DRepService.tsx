@@ -334,7 +334,7 @@ export default function DRepService({ network = 'preprod' }: DRepServiceProps) {
       {/* Note shown before the wallet prompt: this DOES cost a deposit + fee. */}
       <p style={{ maxWidth: '32rem', fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1.25rem' }}>
         Registering as a DRep is an on-chain transaction. Your wallet will ask you to
-        approve a refundable deposit of 500 ADA plus a small network fee. The deposit is
+        approve a refundable deposit of 500 ada plus a small network fee. The deposit is
         returned in full when you later retire. dreptalk.com never sees your keys; your
         wallet signs and submits everything.
       </p>
