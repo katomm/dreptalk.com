@@ -1,18 +1,31 @@
 ---
-// Devices: the desktop half of device pairing (approve a phone showing a
-// pairing code) plus the lost-device escape hatch (sign out everywhere).
-// Session-gated. There is no device inventory yet, so the page does not
-// promise to list or revoke individual devices, only to pair new ones and to
-// nuke all sessions at once.
+// Devices: the signed-in device list (one row per live session, each
+// revocable), the desktop half of device pairing (approve a phone showing a
+// pairing code), and the lost-device escape hatch (sign out everywhere).
+// Session-gated.
 export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import ApproveDevice from '@/components/ApproveDevice.tsx';
+import { runtimeEnv } from '@/lib/api/response';
+import { listSessionsForUser, parseSessionToken, sessionIdForToken } from '@/lib/auth/session';
+import { relativeTime } from '@/lib/notifications/inboxView';
 
 const user = Astro.locals.user;
 if (!user) {
   return Astro.redirect('/login/');
 }
+
+const sessionKv = runtimeEnv(Astro.locals).SESSIONS as KVNamespace | undefined;
+const sessions = sessionKv ? await listSessionsForUser(sessionKv, user.id) : [];
+// Which row is the browser rendering this page: the session list is keyed by
+// the token hash, so hashing the caller's own cookie identifies it.
+const ownToken = parseSessionToken(Astro.request.headers.get('Cookie'));
+const currentId = ownToken ? await sessionIdForToken(ownToken) : null;
+const nowMs = Date.now();
+// The revoke endpoint redirects back here with the outcome, since the strict
+// CSP rules out doing this in the page with script.
+const revoked = Astro.url.searchParams.get('revoked');
 ---
 <Layout
   title="Devices - DRepTalk"
@@ -27,10 +40,54 @@ if (!user) {
 
   <h1 style="margin:0 0 0.5rem;">Devices</h1>
   <p style="margin:0 0 1.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
-    Pair a device that has no Cardano wallet, such as a phone, by approving the code it shows.
+    Every browser and phone signed in to your account, and the codes to pair a new one.
   </p>
 
-  <ApproveDevice client:load />
+  {revoked === '1' && <p class="devices-flash">That device was signed out.</p>}
+  {revoked === '0' && <p class="devices-flash">That device was already signed out.</p>}
+
+  <section class="devices-list">
+    <h2 class="devices-list__title">Signed in</h2>
+    {sessions.length === 0 ? (
+      <p class="devices-note">No sessions to show. Reload the page if you just signed in.</p>
+    ) : (
+      <ul class="devices-list__items">
+        {sessions.map((session) => (
+          <li class="device">
+            <div class="device__text">
+              <span class="device__name">
+                {session.label ?? 'Unknown device'}
+                {session.id === currentId && <span class="device__badge">This device</span>}
+              </span>
+              <span class="device__meta">
+                Signed in {relativeTime(session.createdAt * 1000, nowMs)}
+                <span aria-hidden="true"> · </span>
+                Last used {relativeTime(session.lastSeen * 1000, nowMs)}
+              </span>
+            </div>
+            <form method="POST" action="/api/auth/sessions/revoke" class="device__form">
+              <input type="hidden" name="session_id" value={session.id} />
+              <button type="submit" class="btn btn-secondary device__revoke">
+                {session.id === currentId ? 'Sign out' : 'Sign out this device'}
+              </button>
+            </form>
+          </li>
+        ))}
+      </ul>
+    )}
+    <p class="devices-note">
+      Last used is rounded to the nearest few hours. Sessions end after 30 days without use, and after
+      90 days in any case.
+    </p>
+  </section>
+
+  <section class="devices-pair">
+    <h2 class="devices-pair__title">Pair a new device</h2>
+    <p class="devices-pair__body">
+      Pair a device that has no Cardano wallet, such as a phone, by approving the code it shows.
+    </p>
+    <ApproveDevice client:load />
+  </section>
 
   <section class="devices-danger">
     <h2 class="devices-danger__title">Lost or stolen device</h2>
@@ -43,10 +100,85 @@ if (!user) {
     </form>
   </section>
 
-  <p class="devices-note">Managing individual devices is not available yet.</p>
 </Layout>
 
 <style>
+  .devices-flash {
+    margin: 0 0 1rem;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 14px);
+    background: var(--surface);
+    font-size: 0.875rem;
+  }
+  .devices-list__title,
+  .devices-pair__title {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+  }
+  .devices-list__items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 14px);
+    background: var(--surface);
+  }
+  .device {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .device:last-child {
+    border-bottom: none;
+  }
+  .device__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 12rem;
+  }
+  .device__name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  .device__badge {
+    padding: 0.0625rem 0.4375rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .device__meta {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .device__form {
+    margin: 0;
+  }
+  .device__revoke {
+    font-size: 0.8125rem;
+    padding: 0.375rem 0.75rem;
+  }
+  .devices-pair {
+    margin-top: 2rem;
+  }
+  .devices-pair__body {
+    margin: 0 0 1rem;
+    max-width: 62ch;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
   .devices-danger {
     margin-top: 2rem;
     padding: 1.25rem;

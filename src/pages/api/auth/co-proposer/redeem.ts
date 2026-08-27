@@ -59,6 +59,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       // which splits the same way.
       now: Math.floor(now / 1000),
       secure,
+      userAgent: request.headers.get('user-agent'),
     });
 
     return jsonResponse(result.json, result.status, result.setCookie ? { 'set-cookie': result.setCookie } : undefined);

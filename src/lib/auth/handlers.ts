@@ -21,6 +21,7 @@ import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep 
 import type { KoiosClient } from './resolveRole.js';
 import { upsertUserFromAuth, type AuthRole, type User } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
+import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
 import { rolesFromUser, normalizeSessionRoles } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -131,6 +132,9 @@ export interface VerifyInput {
   network: CardanoNetwork;
   now?: number;
   secure?: boolean;
+  // Raw User-Agent of the logging-in device, kept only as a coarse label on
+  // the session so the device list can name it.
+  userAgent?: string | null;
   // Cloudflare execution context, when the adapter exposes one. Lets the
   // delegator login defer the delegation resolve past the response (zero
   // added login latency) instead of resolving it inline.
@@ -486,13 +490,13 @@ async function mintSessionResult(
     actsFor?: { userId: string; stakeAddr: string } | null;
   },
 ): Promise<VerifyResult> {
-  const { sessionKv, now, secure, db } = input;
+  const { sessionKv, now, secure, db, userAgent } = input;
   const roles = opts?.roles ?? rolesFromUser(user, modRole);
   const drepId = opts?.roles ? (opts.drepId ?? null) : user.drep_id;
   const token = await createSession(
     sessionKv,
     { id: user.id, roles, drepId, grantId: opts?.grantId ?? null, actsFor: opts?.actsFor ?? null },
-    { now, onCreate: sessionActivityHook(db) },
+    { now, onCreate: sessionActivityHook(db), label: sessionDeviceLabel(userAgent) },
   );
   return {
     status: 200,

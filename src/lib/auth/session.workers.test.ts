@@ -8,6 +8,9 @@ import {
   revokeSession,
   revokeAllForUser,
   revokeAllForGrant,
+  listSessionsForUser,
+  revokeSessionForUser,
+  sessionIdForToken,
   buildSessionCookie,
   clearSessionCookie,
   parseSessionToken,
@@ -354,5 +357,107 @@ describe('cookie helpers', () => {
 
   it('parseSessionToken returns null for an empty cookie header', () => {
     expect(parseSessionToken('')).toBeNull();
+  });
+});
+
+describe('absolute session lifetime', () => {
+  const DAY = 86_400;
+
+  it('keeps a session that is old but still under the cap', async () => {
+    const now = 1_700_000_000;
+    const token = await createSession(kv(), { id: 'user-cap-1', roles: [] }, { now });
+    const record = await getSession(kv(), token, { now: now + 89 * DAY });
+    expect(record).not.toBeNull();
+  });
+
+  it('rejects and deletes a session past the cap, however recently it was used', async () => {
+    const now = 1_700_000_000;
+    const token = await createSession(kv(), { id: 'user-cap-2', roles: [] }, { now });
+    // Keep it warm right up to the cap: the sliding renewal must not save it.
+    await getSession(kv(), token, { now: now + 89 * DAY });
+
+    expect(await getSession(kv(), token, { now: now + 91 * DAY })).toBeNull();
+    // Second call proves the record was deleted, not merely hidden.
+    expect(await getSession(kv(), token, { now: now + 91 * DAY })).toBeNull();
+    expect(await listSessionsForUser(kv(), 'user-cap-2', { now: now + 91 * DAY })).toEqual([]);
+  });
+});
+
+describe('onSlide callback', () => {
+  it('fires only when the sliding renewal writes, so the cookie is re-issued with it', async () => {
+    const now = 1_700_000_000;
+    const token = await createSession(kv(), { id: 'user-slide', roles: [] }, { now });
+
+    let slides = 0;
+    await getSession(kv(), token, { now: now + 60, onSlide: () => { slides += 1; } });
+    expect(slides).toBe(0);
+
+    await getSession(kv(), token, { now: now + 7 * 3600, onSlide: () => { slides += 1; } });
+    expect(slides).toBe(1);
+  });
+});
+
+describe('listSessionsForUser', () => {
+  it('lists every live session for the user, newest activity first', async () => {
+    const now = 1_700_000_000;
+    const first = await createSession(kv(), { id: 'user-list', roles: [] }, { now, label: 'Mac, Chrome' });
+    await createSession(kv(), { id: 'user-list', roles: [] }, { now: now + 10, label: 'iPhone, Safari' });
+    // Touch the older session so it becomes the most recently used one.
+    await getSession(kv(), first, { now: now + 7 * 3600 });
+
+    const sessions = await listSessionsForUser(kv(), 'user-list', { now: now + 7 * 3600 });
+    expect(sessions.map((s) => s.label)).toEqual(['Mac, Chrome', 'iPhone, Safari']);
+    expect(sessions[0].createdAt).toBe(now);
+    expect(sessions[0].lastSeen).toBe(now + 7 * 3600);
+  });
+
+  it('reports a null label for a session minted without a User-Agent', async () => {
+    const now = 1_700_000_000;
+    await createSession(kv(), { id: 'user-nolabel', roles: [] }, { now });
+    const sessions = await listSessionsForUser(kv(), 'user-nolabel', { now });
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].label).toBeNull();
+  });
+
+  it('returns an empty list for a user with no sessions', async () => {
+    expect(await listSessionsForUser(kv(), 'user-none')).toEqual([]);
+  });
+
+  it('drops a stale index entry whose record is gone', async () => {
+    const now = 1_700_000_000;
+    const token = await createSession(kv(), { id: 'user-stale', roles: [] }, { now });
+    // Delete the record directly, leaving the index entry behind.
+    await kv().delete(`sess:${await sessionIdForToken(token)}`);
+
+    expect(await listSessionsForUser(kv(), 'user-stale', { now })).toEqual([]);
+    expect(await kv().get('usess:user-stale')).toBeNull();
+  });
+});
+
+describe('revokeSessionForUser', () => {
+  it('revokes the caller own session and leaves their other devices signed in', async () => {
+    const now = 1_700_000_000;
+    const keep = await createSession(kv(), { id: 'user-rev', roles: [] }, { now });
+    const drop = await createSession(kv(), { id: 'user-rev', roles: [] }, { now });
+    const dropId = await sessionIdForToken(drop);
+
+    expect(await revokeSessionForUser(kv(), 'user-rev', dropId)).toBe(true);
+    expect(await getSession(kv(), drop, { now })).toBeNull();
+    expect(await getSession(kv(), keep, { now })).not.toBeNull();
+    expect(await listSessionsForUser(kv(), 'user-rev', { now })).toHaveLength(1);
+  });
+
+  it('refuses a session id belonging to another user', async () => {
+    const now = 1_700_000_000;
+    const victim = await createSession(kv(), { id: 'user-victim', roles: [] }, { now });
+    const victimId = await sessionIdForToken(victim);
+
+    expect(await revokeSessionForUser(kv(), 'user-attacker', victimId)).toBe(false);
+    expect(await getSession(kv(), victim, { now })).not.toBeNull();
+  });
+
+  it('refuses an unknown or malformed id without touching KV', async () => {
+    expect(await revokeSessionForUser(kv(), 'user-x', 'not-a-hash')).toBe(false);
+    expect(await revokeSessionForUser(kv(), 'user-x', 'a'.repeat(64))).toBe(false);
   });
 });

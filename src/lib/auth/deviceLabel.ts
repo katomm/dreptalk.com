@@ -51,3 +51,12 @@ export function describeUserAgent(userAgent: string | null): string {
 
   return userAgent.length > MAX_RAW_LEN ? `${userAgent.slice(0, MAX_RAW_LEN)}...` : userAgent;
 }
+
+/**
+ * The same description, shaped for storage on a session: null when the request
+ * carried no User-Agent, so the device list can say "Unknown device" itself
+ * rather than persisting that phrase as if it were a real label.
+ */
+export function sessionDeviceLabel(userAgent: string | null | undefined): string | null {
+  return userAgent ? describeUserAgent(userAgent) : null;
+}

@@ -13,6 +13,14 @@ import { bytesToHex } from '../crypto/hex.js';
 import { SLIDING_WINDOW_SEC } from './timing.js';
 
 const SESSION_TTL_SEC = 2_592_000; // 30 days
+/**
+ * Hard cap on a session's total life, measured from createdAt and never
+ * extended by activity. The sliding TTL above only bounds idle time, so
+ * without this a session touched every few weeks would live forever. A
+ * session that reaches the cap is deleted on its next use and the user signs
+ * in again with their wallet.
+ */
+const SESSION_ABSOLUTE_TTL_SEC = 7_776_000; // 90 days
 const SESSION_COOKIE_NAME = 'dreptalk_session';
 
 // ---------------------------------------------------------------------------
@@ -40,6 +48,22 @@ export interface SessionRecord {
    * created the grant) that the co-proposer is acting on behalf of.
    */
   actsFor?: { userId: string; stakeAddr: string } | null;
+  /**
+   * Human-readable device label derived from the User-Agent at mint time, for
+   * the device list on /devices. null when the mint path had no User-Agent or
+   * could not recognise it; undefined for sessions minted before this field
+   * existed.
+   */
+  label?: string | null;
+  createdAt: number;
+  lastSeen: number;
+}
+
+/** One row of the signed-in device list. */
+export interface SessionSummary {
+  /** The session's KV key hash: opaque id used to revoke this one session. */
+  id: string;
+  label: string | null;
   createdAt: number;
   lastSeen: number;
 }
@@ -106,6 +130,15 @@ async function pruneHashFromIndex(kv: KVNamespace, key: string, hash: string): P
   }
 }
 
+/**
+ * KV TTL for a sliding renewal: the idle window, shortened when the absolute
+ * cap would be reached first, so KV drops the record no later than the cap.
+ */
+function renewalTtl(record: SessionRecord, now: number): number {
+  const untilCap = record.createdAt + SESSION_ABSOLUTE_TTL_SEC - now;
+  return Math.max(60, Math.min(SESSION_TTL_SEC, untilCap));
+}
+
 // ---------------------------------------------------------------------------
 // Session lifecycle
 // ---------------------------------------------------------------------------
@@ -129,7 +162,7 @@ export async function createSession(
     grantId?: string | null;
     actsFor?: { userId: string; stakeAddr: string } | null;
   },
-  opts?: { now?: number; onCreate?: (userId: string) => void },
+  opts?: { now?: number; onCreate?: (userId: string) => void; label?: string | null },
 ): Promise<string> {
   const now = Math.floor(opts?.now ?? Date.now() / 1000);
   const rawBytes = new Uint8Array(32);
@@ -146,6 +179,7 @@ export async function createSession(
     // Store explicitly (null when absent) for the same reason as drepId above.
     grantId: user.grantId ?? null,
     actsFor: user.actsFor ?? null,
+    label: opts?.label ?? null,
     createdAt: now,
     lastSeen: now,
   };
@@ -180,7 +214,8 @@ export async function createSession(
 }
 
 /**
- * Retrieves a session record by token. Returns null if the token is unknown.
+ * Retrieves a session record by token. Returns null if the token is unknown
+ * or has passed the absolute lifetime cap (the record is deleted in that case).
  * Lazily refreshes lastSeen (and resets the TTL) at most once per 6 hours.
  *
  * @param kv - The SESSIONS KV namespace.
@@ -188,11 +223,15 @@ export async function createSession(
  * @param opts.now - Override for current Unix time in seconds.
  * @param opts.onRenew - Optional best-effort callback fired with the user id
  * when the sliding-window renewal fires. Never affects the returned record.
+ * @param opts.onSlide - Optional best-effort callback fired when the sliding
+ * renewal extends the record, so the caller can re-issue the cookie with a
+ * fresh Max-Age. Without it the browser would drop the cookie 30 days after
+ * the mint no matter how active the user was.
  */
 export async function getSession(
   kv: KVNamespace,
   token: string,
-  opts?: { now?: number; onRenew?: (userId: string) => void },
+  opts?: { now?: number; onRenew?: (userId: string) => void; onSlide?: () => void },
 ): Promise<SessionRecord | null> {
   try {
     const now = Math.floor(opts?.now ?? Date.now() / 1000);
@@ -202,27 +241,39 @@ export async function getSession(
 
     const record: SessionRecord = JSON.parse(raw) as SessionRecord;
 
+    // Absolute cap: a session past its total lifetime is dead even if it was
+    // used minutes ago. Deleted here rather than left to KV expiry, because the
+    // sliding renewal keeps pushing the KV TTL out.
+    if (now - record.createdAt > SESSION_ABSOLUTE_TTL_SEC) {
+      await deleteSessionByHash(kv, keyHash);
+      return null;
+    }
+
     // Lazy sliding renewal: refresh at most once per 6-hour window.
     if (now - record.lastSeen > SLIDING_WINDOW_SEC) {
       record.lastSeen = now;
+      // Never let the idle TTL outlive the absolute cap.
+      const ttl = renewalTtl(record, now);
       // Session re-put and index reads are independent (different keys): run concurrently.
       const [, indexRaw, gsessRaw] = await Promise.all([
-        kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC }),
+        kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: ttl }),
         kv.get(usessKey(record.userId)),
         record.grantId ? kv.get(gsessKey(record.grantId)) : Promise.resolve(null),
       ]);
       // Also refresh the per-user index TTL so it never expires before live sessions.
       if (indexRaw !== null) {
-        await kv.put(usessKey(record.userId), indexRaw, { expirationTtl: SESSION_TTL_SEC });
+        await kv.put(usessKey(record.userId), indexRaw, { expirationTtl: ttl });
       }
       // For grant-backed sessions, refresh the gsess index TTL too, else it
       // would expire 30 days after mint while the sliding session lives on,
       // and revokeAllForGrant would no longer find it.
       if (record.grantId && gsessRaw !== null) {
-        await kv.put(gsessKey(record.grantId), gsessRaw, { expirationTtl: SESSION_TTL_SEC });
+        await kv.put(gsessKey(record.grantId), gsessRaw, { expirationTtl: ttl });
       }
       // Best effort: piggyback the 6h renewal to refresh the D1 usage signal.
       try { opts?.onRenew?.(record.userId); } catch { /* activity tracking must never invalidate auth */ }
+      // Best effort: tell the caller to slide the cookie alongside the record.
+      try { opts?.onSlide?.(); } catch { /* cookie refresh must never invalidate auth */ }
     }
 
     return record;
@@ -240,7 +291,16 @@ export async function getSession(
  * @param token - The opaque bearer token to revoke.
  */
 export async function revokeSession(kv: KVNamespace, token: string): Promise<void> {
-  const keyHash = await sha256hex(token);
+  await deleteSessionByHash(kv, await sha256hex(token));
+}
+
+/**
+ * Deletes one session record by its key hash and prunes it from the per-user
+ * index (and the per-grant index for grant-backed sessions). Shared by
+ * revokeSession, the absolute-expiry path in getSession, and single-device
+ * revocation from the device list.
+ */
+async function deleteSessionByHash(kv: KVNamespace, keyHash: string): Promise<void> {
   // Read the record first so we know which user's (and grant's) index to prune.
   const raw = await kv.get(sessKey(keyHash));
   await kv.delete(sessKey(keyHash));
@@ -255,6 +315,88 @@ export async function revokeSession(kv: KVNamespace, token: string): Promise<voi
       // If we cannot parse the record the session key is already deleted; nothing more to do.
     }
   }
+}
+
+/**
+ * The list id of the session a token belongs to, so a caller holding the
+ * cookie can tell which row of the device list is the device in their hand.
+ * It is a hash: knowing it grants nothing, only the token authenticates.
+ *
+ * @param token - The opaque bearer token from the session cookie.
+ */
+export async function sessionIdForToken(token: string): Promise<string> {
+  return sha256hex(token);
+}
+
+/**
+ * Lists the caller's live sessions, newest activity first, for the device list
+ * on /devices. Entries whose record has expired between the index write and
+ * this read are skipped and pruned, so the list never shows a dead device.
+ *
+ * @param kv - The SESSIONS KV namespace.
+ * @param userId - The owner whose sessions are listed.
+ * @param opts.now - Override for current Unix time in seconds.
+ */
+export async function listSessionsForUser(
+  kv: KVNamespace,
+  userId: string,
+  opts?: { now?: number },
+): Promise<SessionSummary[]> {
+  const now = Math.floor(opts?.now ?? Date.now() / 1000);
+  const hashes = await readHashIndex(kv, userId);
+  const summaries: SessionSummary[] = [];
+  for (const hash of hashes) {
+    const raw = await kv.get(sessKey(hash));
+    if (raw === null) {
+      // The record expired or was revoked; drop the stale index entry.
+      await pruneHashFromIndex(kv, usessKey(userId), hash);
+      continue;
+    }
+    let record: SessionRecord;
+    try {
+      record = JSON.parse(raw) as SessionRecord;
+    } catch {
+      continue;
+    }
+    // Hide a session that has reached the absolute cap: its next use deletes it.
+    if (now - record.createdAt > SESSION_ABSOLUTE_TTL_SEC) continue;
+    summaries.push({
+      id: hash,
+      label: record.label ?? null,
+      createdAt: record.createdAt,
+      lastSeen: record.lastSeen,
+    });
+  }
+  return summaries.sort((a, b) => b.lastSeen - a.lastSeen);
+}
+
+/**
+ * Revokes one of the caller's own sessions by its opaque id from
+ * listSessionsForUser. Returns false when the id is unknown or belongs to
+ * another user, so a caller can answer 404 without leaking which it was.
+ *
+ * @param kv - The SESSIONS KV namespace.
+ * @param userId - The owner the session must belong to.
+ * @param sessionId - The session id (KV key hash) to revoke.
+ */
+export async function revokeSessionForUser(
+  kv: KVNamespace,
+  userId: string,
+  sessionId: string,
+): Promise<boolean> {
+  // Bound the id so a hostile value can never be turned into an arbitrary KV read.
+  if (!/^[0-9a-f]{64}$/.test(sessionId)) return false;
+  const raw = await kv.get(sessKey(sessionId));
+  if (raw === null) return false;
+  let record: SessionRecord;
+  try {
+    record = JSON.parse(raw) as SessionRecord;
+  } catch {
+    return false;
+  }
+  if (record.userId !== userId) return false;
+  await deleteSessionByHash(kv, sessionId);
+  return true;
 }
 
 /**

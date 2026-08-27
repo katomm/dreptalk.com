@@ -3,7 +3,7 @@
 // does not cover Worker-generated responses on Cloudflare Workers Static Assets).
 import { defineMiddleware } from 'astro:middleware';
 import { env, waitUntil } from 'cloudflare:workers';
-import { parseSessionToken, getSession } from './lib/auth/session.js';
+import { parseSessionToken, getSession, buildSessionCookie, clearSessionCookie } from './lib/auth/session.js';
 import { sessionActivityHook } from './lib/auth/sessionActivity.js';
 import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
@@ -72,12 +72,27 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   const sessionKv = env?.SESSIONS as KVNamespace | undefined;
 
+  // What to do with the session cookie after the render: leave it alone, slide
+  // it forward, or clear a dead one. Resolved into a Set-Cookie below.
+  let cookieAction: 'none' | 'slide' | 'clear' = 'none';
+  let sessionToken: string | null = null;
+
   if (sessionKv) {
     const cookieHeader = context.request.headers.get('Cookie');
     const token = parseSessionToken(cookieHeader);
     if (token) {
       const db = env?.DB as D1Database | undefined;
-      const record = await getSession(sessionKv, token, db ? { onRenew: sessionActivityHook(db) } : undefined);
+      // The record slides server-side every 6 hours, but the cookie carries a
+      // fixed Max-Age from the mint. Without re-issuing it here an active user
+      // is signed out exactly 30 days after signing in. onSlide fires on the
+      // same 6-hour cadence, so this costs one extra header twice a day.
+      sessionToken = token;
+      const record = await getSession(sessionKv, token, {
+        onRenew: db ? sessionActivityHook(db) : undefined,
+        onSlide: () => {
+          cookieAction = 'slide';
+        },
+      });
       if (record) {
         context.locals.user = {
           id: record.userId,
@@ -86,6 +101,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
           grantId: record.grantId ?? null,
           actsFor: record.actsFor ?? null,
         };
+      } else {
+        // Expired, revoked, or past the absolute lifetime cap: drop the dead
+        // cookie so the browser stops sending it for the next 30 days.
+        cookieAction = 'clear';
       }
     }
   }
@@ -105,6 +124,16 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   applySecurityHeaders(response.headers);
   relaxStyleSrc(response.headers);
+  // Never overwrite a cookie the route set itself: logout clears the session
+  // cookie in its own response, and re-issuing it here would undo the logout.
+  if (cookieAction !== 'none' && !response.headers.has('set-cookie')) {
+    response.headers.append(
+      'set-cookie',
+      cookieAction === 'clear' || sessionToken === null
+        ? clearSessionCookie()
+        : buildSessionCookie(sessionToken, { secure: url.protocol === 'https:' }),
+    );
+  }
   // Keep the preprod mirror (preprod.dreptalk.com) out of search indexes so it
   // never competes with mainnet or surfaces test data. currentNetwork() is the
   // single source of truth for the active network (and fails closed on an

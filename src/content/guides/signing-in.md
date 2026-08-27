@@ -4,7 +4,7 @@ description: "Who can sign in to DRepTalk and with which Cardano keys: DReps (CI
 cardLabel: "Signing in"
 category: "Start here"
 order: 4
-updated: 2026-08-02
+updated: 2026-08-27
 ---
 
 DRepTalk has no passwords and no accounts to create. You sign in with your Cardano
@@ -81,6 +81,17 @@ computer. See [Pair a phone or tablet](/help/pair-a-device/).
 A paired device is a normal signed-in device: it can read, post and comment,
 and it can receive push notifications. Voting still needs a wallet
 signature, so votes are cast from a computer.
+
+## How long you stay signed in
+
+You stay signed in on a device for 30 days after you last used it, and for
+90 days at most, however often you visit. After that the device asks for a
+new signature, or a new pairing code on a phone.
+
+Every signed-in device is listed under **Devices** in the account menu, with
+the one you are on marked. You can sign out a single device from there, or
+end every session at once if one is lost. See
+[Pair a phone or tablet](/help/pair-a-device/).
 
 ## What signing in does not do
 

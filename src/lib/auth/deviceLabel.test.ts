@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeUserAgent } from './deviceLabel.js';
+import { describeUserAgent, sessionDeviceLabel } from './deviceLabel.js';
 
 describe('describeUserAgent', () => {
   it('reports a missing User-Agent as an unknown device', () => {
@@ -68,5 +68,19 @@ describe('describeUserAgent', () => {
     expect(result.endsWith('...')).toBe(true);
     expect(result.length).toBe(63);
     expect(ua.startsWith(result.slice(0, -3))).toBe(true);
+  });
+});
+
+describe('sessionDeviceLabel', () => {
+  it('returns null for a request without a User-Agent', () => {
+    expect(sessionDeviceLabel(null)).toBeNull();
+    expect(sessionDeviceLabel(undefined)).toBeNull();
+    expect(sessionDeviceLabel('')).toBeNull();
+  });
+
+  it('describes a real User-Agent like the pairing screen does', () => {
+    const ua =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+    expect(sessionDeviceLabel(ua)).toBe('Safari on iOS');
   });
 });
