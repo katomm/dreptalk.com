@@ -10,6 +10,7 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
+import type { CompareCandidateRow, CompareAction } from '@/lib/db/governance.js';
 
 interface Props {
   action: GovernanceAction;
@@ -20,9 +21,17 @@ interface Props {
   params: ProtocolParams | null;
   /** Render time in ms, so an active action's trend stops at now, not its future expiry. */
   now: number;
+  /** The compared action's own trend data, or null when nothing is selected or eligible. */
+  compare: { action: CompareAction; trendRows: TrendVoteRow[]; ccVotes: CcVote[] } | null;
+  /** Actions of the same type the reader can pick to compare against. */
+  compareCandidates: CompareCandidateRow[];
+  /** The topic slug from the `?compare=` query param, or null when absent. */
+  compareSlug: string | null;
+  /** This action's own topic slug, for building the compare picker's links. */
+  slug: string;
 }
 
-const { action, network, trendRows, ccVotes, committee, params, now } = Astro.props;
+const { action, network, trendRows, ccVotes, committee, params, now, compare, compareCandidates, compareSlug, slug } = Astro.props;
 
 const noData = action.submittedEpoch == null;
 
@@ -122,7 +131,7 @@ if (!noData) {
   )}
 </div>
 
-<VotingTrendChart action={action} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} network={network} now={now} />
+<VotingTrendChart action={action} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} network={network} now={now} compare={compare} compareCandidates={compareCandidates} compareSlug={compareSlug} slug={slug} />
 
 <style>
   .history-wrap {
