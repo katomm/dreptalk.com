@@ -8,9 +8,19 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
-import { computeVoteTrendSeries, buildTrendChart, type TrendBodyInput } from '@/lib/governance/voteTrend.js';
+import {
+  computeVoteTrendSeries,
+  buildTrendChart,
+  buildCompareView,
+  buildHoverBands,
+  type TrendBodyInput,
+  type TrendBodyKey,
+  type CompareView,
+} from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
-import { fmtPctFine } from '@/lib/governance/view.js';
+import { fmtPctFine, isTerminalStatus } from '@/lib/governance/view.js';
+import type { CompareAction, CompareCandidateRow } from '@/lib/db/governance.js';
+import CompareActionPicker from './CompareActionPicker.astro';
 import { readThresholdSnapshot, evaluateThresholds } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope } from '@/lib/governance/onchain.js';
 import { resolveNetwork, type CardanoNetwork } from '@/lib/config/network.js';
@@ -24,9 +34,18 @@ interface Props {
   network: CardanoNetwork;
   /** Render time in ms, so an active action's trend stops at now, not its future expiry. */
   now: number;
+  /** This action's own topic slug, for the compare picker's links. */
+  slug: string;
+  /** The compared action's own trend data, or null when nothing is selected or eligible. */
+  compare: { action: CompareAction; trendRows: TrendVoteRow[]; ccVotes: CcVote[] } | null;
+  /** Actions the reader can pick to compare against. */
+  compareCandidates: CompareCandidateRow[];
+  /** The topic slug from the `?compare=` query param, or null when absent. */
+  compareSlug: string | null;
 }
 
-const { action, trendRows, ccVotes, committee, params, network, now } = Astro.props;
+const { action, trendRows, ccVotes, committee, params, network, now, slug, compare, compareCandidates, compareSlug } =
+  Astro.props;
 const cfg = resolveNetwork(network);
 
 const assembled = assembleTrendInputs({ action, trendRows, ccVotes, committee, cfg, nowSec: Math.floor(now / 1000) });
@@ -67,41 +86,247 @@ const inputs: TrendBodyInput[] = [
 
 // The series stops at the current epoch (lineEnd); the axis domain spans the full
 // window (end), so the deadline stays on the right with empty space after "now".
-const series = computeVoteTrendSeries(inputs, { start, end: lineEnd });
-const chart = buildTrendChart(series, { width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain: [start, end] });
+// Compare mode: both actions are re-based to seconds-since-their-own-window-start,
+// so day 0 of each voting window is the same x. Absolute dates would put two
+// actions from different months in disjoint parts of the axis and compare nothing.
+const own = computeVoteTrendSeries(inputs, { start, end: lineEnd });
+// Non-compare default. buildCompareView returns exactly this shape when nothing can
+// be overlaid, so the plain chart and the fallback can never drift apart.
+let view: CompareView = { series: own, compareSeries: [], domain: [start, end], markers: [], relative: false, droppedKeys: [] };
+
+if (compare) {
+  const ca = compare.action;
+  const cAssembled = assembleTrendInputs({
+    action: ca,
+    trendRows: compare.trendRows,
+    ccVotes: compare.ccVotes,
+    committee,
+    cfg,
+    nowSec: Math.floor(now / 1000),
+  });
+  const cInputs: TrendBodyInput[] = cAssembled.inputs.map((b) => ({
+    ...b,
+    // No threshold line for the compared action: its type may carry entirely
+    // different thresholds, and two dashed lines per colour is unreadable.
+    thresholdPct: null,
+    finalLabel:
+      b.key === 'CC'
+        ? (cAssembled.ccSize > 0 ? `${cAssembled.ccYesCount} of ${cAssembled.ccSize}` : fmtPctLabel(ca.ccYesPct))
+        : fmtPctLabel(b.key === 'DRep' ? ca.drepYesPct : ca.spoYesPct),
+    dashed: true,
+  }));
+  const cSeries = computeVoteTrendSeries(cInputs, { start: cAssembled.window.start, end: cAssembled.lineEnd });
+
+  // Every compare decision (body intersection, the two rebasing origins, the axis
+  // span, the Today gate) is a business rule, so it lives in the pure model where it
+  // is unit-tested, not inline here. isTerminalStatus stays on this side of the line:
+  // the model is told the answer, it never looks a status up.
+  view = buildCompareView(own, cSeries, {
+    start,
+    end,
+    lineEnd,
+    ownIsTerminal: isTerminalStatus(action.status),
+    compareStart: cAssembled.window.start,
+    compareEnd: cAssembled.window.end,
+  });
+}
+
+const { series, compareSeries, domain, markers, relative, droppedKeys } = view;
+// A compare was requested and resolved, but nothing could be overlaid.
+const compareEmpty = compare != null && !relative;
+// A compare was requested and the slug resolved to nothing eligible at all. Without
+// this the param sits in the URL while the page silently ignores it.
+const compareUnresolved = compareSlug != null && compare == null;
+
+const chart = buildTrendChart([...series, ...compareSeries], {
+  width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain, markers,
+});
 
 const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-cc)' };
 const dateLabel = (t: number): string =>
   new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const dayLabel = (t: number): string => (t <= 0 ? 'Day 0' : `Day ${Math.round(t / 86400)}`);
+const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
+
+// "Today" sits at an arbitrary x, so near either edge a middle anchor would push it
+// out of the 640-unit viewBox. Same clamp the x tick labels already use, with middle
+// kept for the interior where the label should straddle its own line.
+const EDGE = 18;
+const nowAnchor = (x: number, plotX: number, plotW: number): string =>
+  x <= plotX + EDGE ? 'start' : x >= plotX + plotW - EDGE ? 'end' : 'middle';
+
+// Bodies the intersection removed from THIS action's chart. Dropping them silently
+// would read as "this action had no SPO vote", which is a different claim entirely.
+const bodyList = (keys: TrendBodyKey[], sep: string): string =>
+  keys.length < 2 ? (keys[0] ?? '') : `${keys.slice(0, -1).join(', ')} ${sep} ${keys[keys.length - 1]}`;
+const droppedLead = `${bodyList(droppedKeys, 'and')} ${droppedKeys.length === 1 ? 'is' : 'are'} not shown,`;
+const droppedTail = ` has no ${bodyList(droppedKeys, 'or')} votes to compare against.`;
+// CSS-only hover readout: one hit band per day, each carrying every series' value at
+// that point, so a reader can see where the two curves stood on the same day instead of
+// only where they ended. Desktop only (see the media query), no client JavaScript.
+const DAY_SECONDS = 86_400;
+// buildTrendChart returns null when no body has usable support, and the whole section
+// is then skipped, so there is nothing to hover over either.
+const hoverBands = chart
+  ? buildHoverBands([...series, ...compareSeries], { plot: chart.plot, domain, step: DAY_SECONDS })
+  : [];
+// The readout sits beside its crosshair, so its key line and its text swap places
+// depending on which side of the plot the band falls on.
+const KEY_W = 14;
+const KEY_GAP = 4;
+const rowGeom = (band: { textX: number; anchor: 'start' | 'end' }) =>
+  band.anchor === 'end'
+    ? { keyX1: band.textX - KEY_W, keyX2: band.textX, textX: band.textX - KEY_W - KEY_GAP }
+    : { keyX1: band.textX, keyX2: band.textX + KEY_W, textX: band.textX + KEY_W + KEY_GAP };
+const bodyLabel = (key: TrendBodyKey): string => (key === 'CC' ? 'CC' : `${key}s`);
+
+const compareTitle = compare ? compare.action.title ?? compare.action.type : null;
+const chartLabel = relative && compareTitle
+  ? `Cumulative yes support per body over the voting window, overlaid with ${compareTitle}`
+  : 'Cumulative yes support per body over the voting window';
 ---
 
 {chart && (
   <section class="vtrend" aria-label="Voting trend over time">
     <h3 class="vtrend__title">Voting trend</h3>
-    <svg class="vtrend__chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="Cumulative yes support per body over the voting window">
+    <svg class="vtrend__chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={chartLabel}>
       {chart.yTicks.map((t) => (
         <>
           <line class="vtrend__grid" x1={chart.plot.x} y1={t.y} x2={chart.plot.x + chart.plot.w} y2={t.y} />
           <text class="vtrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{t.value}%</text>
         </>
       ))}
+      {chart.markers.map((m) => (
+        <>
+          <line class="vtrend__now" x1={m.x} y1={chart.plot.y} x2={m.x} y2={chart.plot.y + chart.plot.h} />
+          <text class="vtrend__xlabel" x={m.x} y={chart.plot.y - 6} text-anchor={nowAnchor(m.x, chart.plot.x, chart.plot.w)}>Today</text>
+        </>
+      ))}
       {chart.series.map((s) => (
         <>
-          {s.thresholdY != null && (
+          {!s.dashed && s.thresholdY != null && (
             <line class="vtrend__thr" style={`color:${COLORS[s.key]}`} x1={chart.plot.x} y1={s.thresholdY} x2={chart.plot.x + chart.plot.w} y2={s.thresholdY} />
           )}
-          <path class="vtrend__line" style={`color:${COLORS[s.key]}`} d={s.stepPath} vector-effect="non-scaling-stroke" />
+          <path
+            class:list={['vtrend__line', { 'vtrend__line--cmp': s.dashed }]}
+            style={`color:${COLORS[s.key]}`}
+            d={s.stepPath}
+            vector-effect="non-scaling-stroke"
+          />
+          {/* In compare mode the shorter action's line stops mid-plot, so both sides
+              need a terminator. The x test still keeps a line that reaches the right
+              edge dot-free, which is every line on the non-compare chart. */}
+          {(s.dashed || relative) && s.last.x < chart.plot.x + chart.plot.w - 1 && (
+            <circle class="vtrend__end" style={`color:${COLORS[s.key]}`} cx={s.last.x} cy={s.last.y} r="3" />
+          )}
         </>
       ))}
       {chart.xTicks.map((t) => (
-        <text class="vtrend__xlabel" x={t.x} y={chart.height - 10} text-anchor={t.x <= chart.plot.x + 1 ? 'start' : 'end'}>{dateLabel(t.t)}</text>
+        <text class="vtrend__xlabel" x={t.x} y={chart.height - 10} text-anchor={t.x <= chart.plot.x + 1 ? 'start' : 'end'}>{xLabel(t.t)}</text>
       ))}
+      {/* Last in the SVG on purpose: document order is the only z-order SVG has, and
+          the readout has to paint over the curves. aria-hidden because the same values
+          are hover-only, and forty focusable bands would wreck keyboard navigation. */}
+      <g class="vtrend__hover" aria-hidden="true">
+        {hoverBands.map((b) => (
+          <>
+            {/* fill and opacity are also presentation attributes, not only CSS. A
+                presentation attribute loses to any CSS rule, so the stylesheet still
+                governs, but if the stylesheet ever fails to reach the page the band
+                stays invisible instead of painting SVG's default black over the plot,
+                and the readouts stay hidden instead of all appearing at once. */}
+            <rect class="vtrend__band" fill="none" x={b.x} y={chart.plot.y} width={b.w} height={chart.plot.h} />
+            <g class="vtrend__read" opacity="0">
+              <line class="vtrend__cross" x1={b.lineX} y1={chart.plot.y} x2={b.lineX} y2={chart.plot.y + chart.plot.h} />
+              <text class="vtrend__readtitle" x={b.textX} y={chart.plot.y + 12} text-anchor={b.anchor}>{xLabel(b.t)}</text>
+              {b.samples.map((sample, i) => (
+                <>
+                  <line
+                    class:list={['vtrend__keyline', { 'vtrend__keyline--cmp': sample.dashed }]}
+                    style={`color:${COLORS[sample.key]}`}
+                    x1={rowGeom(b).keyX1}
+                    y1={chart.plot.y + 25 + i * 13}
+                    x2={rowGeom(b).keyX2}
+                    y2={chart.plot.y + 25 + i * 13}
+                  />
+                  <text
+                    class="vtrend__readrow"
+                    style={`color:${COLORS[sample.key]}`}
+                    x={rowGeom(b).textX}
+                    y={chart.plot.y + 29 + i * 13}
+                    text-anchor={b.anchor}
+                  >{bodyLabel(sample.key)} {fmtPctFine(sample.pct)}</text>
+                </>
+              ))}
+            </g>
+          </>
+        ))}
+      </g>
     </svg>
-    <ul class="vtrend__legend">
-      {chart.series.map((s) => (
-        <li class="vtrend__leg"><span class="vtrend__swatch" style={`background:${COLORS[s.key]}`}></span>{s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}</li>
-      ))}
-    </ul>
+    {relative && compare ? (
+      <div class="vtrend__legends">
+        <div class="vtrend__group">
+          <p class="vtrend__grouptitle">This action</p>
+          <ul class="vtrend__legend">
+            {chart.series.filter((s) => !s.dashed).map((s) => (
+              <li class="vtrend__leg">
+                <svg class="vtrend__key" viewBox="0 0 20 6" aria-hidden="true">
+                  <line class="vtrend__keyline" style={`color:${COLORS[s.key]}`} x1="0" y1="3" x2="20" y2="3" />
+                </svg>
+                {s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div class="vtrend__group">
+          <p class="vtrend__grouptitle">
+            Compared:{' '}
+            <a href={`/t/${compare.action.topicSlug}/`}>{compare.action.title ?? compare.action.type}</a>
+          </p>
+          <ul class="vtrend__legend">
+            {chart.series.filter((s) => s.dashed).map((s) => (
+              <li class="vtrend__leg">
+                <svg class="vtrend__key" viewBox="0 0 20 6" aria-hidden="true">
+                  <line class="vtrend__keyline vtrend__keyline--cmp" style={`color:${COLORS[s.key]}`} x1="0" y1="3" x2="20" y2="3" />
+                </svg>
+                {s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    ) : (
+      <ul class="vtrend__legend">
+        {chart.series.map((s) => (
+          <li class="vtrend__leg"><span class="vtrend__swatch" style={`background:${COLORS[s.key]}`}></span>{s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}</li>
+        ))}
+      </ul>
+    )}
+    {compareEmpty && compare && (
+      <p class="vtrend__cmpnote">
+        Nothing to overlay from{' '}
+        <a href={`/t/${compare.action.topicSlug}/`}>{compare.action.title ?? compare.action.type}</a>. It shares no
+        voting body with this action, or has no vote data this chart can draw.
+      </p>
+    )}
+    {compareUnresolved && (
+      <p class="vtrend__cmpnote">The comparison this link asks for is not available, so only this action is shown.</p>
+    )}
+    {relative && compare && droppedKeys.length > 0 && (
+      <p class="vtrend__cmpnote">
+        {droppedLead}{' '}
+        <a href={`/t/${compare.action.topicSlug}/`}>{compare.action.title ?? compare.action.type}</a>
+        {droppedTail}
+      </p>
+    )}
+    {relative && <p class="vtrend__cmpnote">Both curves start at day 0 of their own voting window.</p>}
+    <CompareActionPicker
+      slug={slug}
+      candidates={compareCandidates}
+      activeSlug={compareSlug}
+      activeTitle={compare?.action.title ?? null}
+      activeHref={compare ? `/t/${compare.action.topicSlug}/` : null}
+    />
   </section>
 )}
 
@@ -116,5 +341,38 @@ const dateLabel = (t: number): string =>
   .vtrend__legend { list-style: none; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0.5rem 0 0; padding: 0; font-size: 0.8125rem; color: var(--muted); }
   .vtrend__leg { display: inline-flex; align-items: center; gap: 0.4rem; font-variant-numeric: tabular-nums; }
   .vtrend__swatch { width: 0.7rem; height: 0.2rem; border-radius: 999px; display: inline-block; }
-  @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel { display: none; } }
+  .vtrend__line--cmp { stroke-width: 1.5; stroke-dasharray: 2 3; opacity: 0.55; }
+  .vtrend__end { fill: currentColor; opacity: 0.55; }
+  .vtrend__now { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.7; }
+  .vtrend__legends { display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; margin-top: 0.5rem; }
+  .vtrend__group { min-width: 0; overflow-wrap: anywhere; }
+  .vtrend__grouptitle { font-size: 0.75rem; font-weight: 700; color: var(--fg); margin: 0 0 0.2rem; }
+  .vtrend__key { width: 1.25rem; height: 0.375rem; flex-shrink: 0; }
+  .vtrend__keyline { stroke: currentColor; stroke-width: 2; }
+  .vtrend__keyline--cmp { stroke-width: 1.5; stroke-dasharray: 2 3; opacity: 0.55; }
+  .vtrend__cmpnote { font-size: 0.78rem; color: var(--muted); margin: 0.4rem 0 0; }
+  .vtrend__band { fill: transparent; pointer-events: none; }
+  .vtrend__read { opacity: 0; pointer-events: none; }
+  .vtrend__cross { stroke: var(--fg); stroke-width: 1; opacity: 0.35; }
+  /* Stroked halo in the surface colour so the readout stays legible where it crosses
+     a curve or a grid line. No background rect, whose width we cannot know server-side. */
+  .vtrend__readtitle, .vtrend__readrow {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    paint-order: stroke fill;
+    stroke: var(--surface);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+  .vtrend__readtitle { fill: var(--fg); font-weight: 700; }
+  .vtrend__readrow { fill: currentColor; }
+  /* Desktop only, and only where hovering is a real interaction. Touch devices get
+     nothing, which is why the bands stay inert outside this query. */
+  @media (hover: hover) and (min-width: 641px) {
+    .vtrend__band { pointer-events: all; }
+    .vtrend__band:hover + .vtrend__read { opacity: 1; }
+  }
+  /* .vtrend__now rides along: hiding only the label would leave an unexplained
+     dashed vertical line on narrow screens. */
+  @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel, .vtrend__now { display: none; } }
 </style>

@@ -22,11 +22,20 @@ import { getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
 import { resolveIdentifier } from '@/lib/db/search.js';
 import { loadViewerPostState, emptyViewerPostState } from '@/lib/forum/viewerPostState.js';
-import { getGovernanceActionByTopicId, getRelatedActions, type RelatedActionRow } from '@/lib/db/governance.js';
+import {
+  getGovernanceActionByTopicId,
+  getRelatedActions,
+  getCompareCandidates,
+  getCompareActionBySlug,
+  type RelatedActionRow,
+  type CompareCandidateRow,
+  type CompareAction,
+} from '@/lib/db/governance.js';
 import { headlineComposition, isSpoLedType, isCcEligible } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, type ActionVoterRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows, committeeEpochForAction } from '@/lib/db/committee.js';
+import type { CcVote } from '@/lib/koios/corrections.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { buildCcPositions, type CcPositionRow } from '@/lib/governance/ccPositions.js';
@@ -384,6 +393,24 @@ const trendRows = trend?.[0] ?? [];
 const ccVotes = trend?.[1] ?? [];
 const committee = trend?.[2] ?? { members: [], hotToCold: new Map() };
 
+// Voting-trend comparison: an optional second action drawn dotted over the same
+// chart. History tab only, so no other tab pays for these reads. The param is a
+// topic slug because action ids contain a `#index` suffix.
+const compareSlug = tab === 'history' ? Astro.url.searchParams.get('compare') : null;
+let compareCandidates: CompareCandidateRow[] = [];
+let compare: { action: CompareAction; trendRows: TrendVoteRow[]; ccVotes: CcVote[] } | null = null;
+if (db && govAction && tab === 'history') {
+  compareCandidates = await getCompareCandidates(db, { excludeId: govAction.id, type: govAction.type, limit: 6 });
+  if (compareSlug) {
+    const target = await getCompareActionBySlug(db, compareSlug);
+    // Comparing an action with itself would just double every line.
+    if (target && target.id !== govAction.id) {
+      const [rows, cc] = await Promise.all([getVoteTrendRows(db, target.id), getCommitteeVotes(db, target.id)]);
+      compare = { action: target, trendRows: rows, ccVotes: cc };
+    }
+  }
+}
+
 // CC segment on the Positions tab: the breakdown row per active committee member,
 // eligible at the same epoch the CC tally itself uses (committeeEpochForAction),
 // so the two never disagree. Reuses params.epoch and committee loaded above
@@ -671,7 +698,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />
             ) : tab === 'history' ? (
-              <GaHistory action={govAction} network={network} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} now={now} />
+              <GaHistory action={govAction} network={network} trendRows={trendRows} ccVotes={ccVotes} committee={committee} params={params} now={now} compare={compare} compareCandidates={compareCandidates} compareSlug={compareSlug} slug={topic.slug} />
             ) : (
               <>
                 <div class="ga-overview-block">

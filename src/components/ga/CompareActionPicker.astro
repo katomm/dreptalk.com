@@ -1,0 +1,69 @@
+---
+// Picker for the voting-trend comparison: a plain <details> of concluded actions,
+// same type first, each a link that sets ?compare=<slug> on the History tab. No
+// client JS, so the choice is a normal navigation and the resulting view is a
+// shareable URL.
+import type { CompareCandidateRow } from '@/lib/db/governance.js';
+
+interface Props {
+  slug: string;
+  candidates: CompareCandidateRow[];
+  /** Slug of the active comparison, or null. */
+  activeSlug: string | null;
+  /** Title of the active comparison, for the chip. */
+  activeTitle: string | null;
+  activeHref: string | null;
+}
+
+const { slug, candidates, activeSlug, activeTitle, activeHref } = Astro.props;
+const base = `/t/${slug}/?tab=history`;
+const hrefFor = (target: string): string => `${base}&compare=${encodeURIComponent(target)}`;
+const label = (c: CompareCandidateRow): string => c.title ?? c.type;
+---
+
+{(candidates.length > 0 || activeSlug) && (
+  <div class="vcmp">
+    {activeSlug && activeHref ? (
+      <p class="vcmp__active">
+        Compared with <a href={activeHref}>{activeTitle ?? activeSlug}</a>
+        <a class="vcmp__clear" href={base}>Clear</a>
+      </p>
+    ) : activeSlug ? (
+      /* The slug did not resolve, so there is nothing to name. The reader still needs
+         a way out of the stale ?compare= sitting in their URL. */
+      <p class="vcmp__active"><a href={base}>Clear comparison</a></p>
+    ) : null}
+    {candidates.length > 0 && (
+      <details class="vcmp__box">
+        <summary class="vcmp__summary">Compare with...</summary>
+        <ul class="vcmp__list">
+          {candidates.map((c) => (
+            <li>
+              <a
+                class:list={['vcmp__item', { 'vcmp__item--active': c.topic_slug === activeSlug }]}
+                href={hrefFor(c.topic_slug)}
+              >
+                <span class="vcmp__name">{label(c)}</span>
+                <span class="vcmp__type">{c.type}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </details>
+    )}
+  </div>
+)}
+
+<style>
+  .vcmp { margin-top: 0.75rem; }
+  .vcmp__active { font-size: 0.8125rem; color: var(--muted); margin: 0 0 0.5rem; }
+  .vcmp__clear { margin-left: 0.75rem; }
+  .vcmp__box { border: 1px solid var(--border); border-radius: 0.5rem; }
+  .vcmp__summary { cursor: pointer; padding: 0.5rem 0.75rem; font-size: 0.8125rem; font-weight: 600; color: var(--fg); }
+  .vcmp__list { list-style: none; margin: 0; padding: 0 0 0.25rem; }
+  .vcmp__item { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0.75rem; font-size: 0.8125rem; text-decoration: none; }
+  .vcmp__item:hover { background: var(--surface-2); }
+  .vcmp__item--active { font-weight: 700; }
+  .vcmp__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vcmp__type { color: var(--muted); flex-shrink: 0; }
+</style>

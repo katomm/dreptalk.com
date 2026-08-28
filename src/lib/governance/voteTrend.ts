@@ -21,6 +21,8 @@ export interface TrendSeries {
   thresholdPct: number | null;
   /** Legend value, e.g. "78%" or "5 of 7". */
   finalLabel: string;
+  /** Draw dotted instead of solid. Used for a compared action's overlay. */
+  dashed?: boolean;
 }
 
 export interface TrendChartOptions {
@@ -32,6 +34,8 @@ export interface TrendChartOptions {
   padBottom?: number;
   /** [tMin, tMax] unix seconds; defaults to the min/max t across all series. */
   domain?: [number, number];
+  /** Extra t values to project onto the x scale, e.g. a "today" marker. */
+  markers?: number[];
 }
 
 export interface TrendChartSeries {
@@ -40,6 +44,7 @@ export interface TrendChartSeries {
   thresholdY: number | null;
   last: { x: number; y: number };
   finalLabel: string;
+  dashed: boolean;
 }
 
 export interface TrendChart {
@@ -49,6 +54,7 @@ export interface TrendChart {
   series: TrendChartSeries[];
   yTicks: { value: number; y: number }[];
   xTicks: { t: number; x: number }[];
+  markers: { t: number; x: number }[];
 }
 
 function round2(n: number): number {
@@ -90,13 +96,20 @@ export function buildTrendChart(series: TrendSeries[], opts: TrendChartOptions =
       thresholdY: s.thresholdPct == null ? null : yFor(s.thresholdPct),
       last: pts[pts.length - 1],
       finalLabel: s.finalLabel,
+      dashed: s.dashed === true,
     };
   });
 
   const yTicks = [0, 25, 50, 75, 100].map((value) => ({ value, y: yFor(value) }));
   const xTicks = [tMin, tMax].map((t) => ({ t, x: xFor(t) }));
+  // Markers ride the same x scale as the series so a caller never re-derives it.
+  // Clamped, because a marker at "now" can sit a hair past a closed window.
+  const markers = (opts.markers ?? []).map((t) => ({
+    t,
+    x: xFor(Math.min(Math.max(t, tMin), tMax)),
+  }));
 
-  return { width, height, plot, series: chartSeries, yTicks, xTicks };
+  return { width, height, plot, series: chartSeries, yTicks, xTicks, markers };
 }
 
 export interface TrendVote {
@@ -113,6 +126,8 @@ export interface TrendBodyInput {
   finalPct: number | null;
   thresholdPct: number | null;
   finalLabel: string;
+  /** Marks this body as a compared action's overlay, drawn dotted. */
+  dashed?: boolean;
 }
 
 /**
@@ -144,7 +159,192 @@ export function computeVoteTrendSeries(
       points.push({ t, pct: round2((b.finalPct * cum) / total) });
     }
     points.push({ t: window.end, pct: round2(b.finalPct) });
-    out.push({ key: b.key, points, thresholdPct: b.thresholdPct, finalLabel: b.finalLabel });
+    out.push({ key: b.key, points, thresholdPct: b.thresholdPct, finalLabel: b.finalLabel, dashed: b.dashed });
   }
   return out;
+}
+
+/**
+ * Re-bases every series onto seconds-since-origin. Two actions with different
+ * calendar windows only become comparable once both start at t = 0, so the
+ * compare overlay shifts both sides instead of teaching the chart about time.
+ */
+export function toRelativeSeries(series: TrendSeries[], origin: number): TrendSeries[] {
+  return series.map((s) => ({
+    ...s,
+    points: s.points.map((p) => ({ t: p.t - origin, pct: p.pct })),
+  }));
+}
+
+/**
+ * Narrows both sides to the voting bodies they have in common. A lone dotted SPO
+ * line under an action that never had an SPO vote reads as this action's own data,
+ * so a body missing on either side is dropped from both.
+ */
+export function sharedTrendBodies(
+  own: TrendSeries[],
+  compare: TrendSeries[],
+): { own: TrendSeries[]; compare: TrendSeries[] } {
+  const ownKeys = new Set(own.map((s) => s.key));
+  const cmpKeys = new Set(compare.map((s) => s.key));
+  return {
+    own: own.filter((s) => cmpKeys.has(s.key)),
+    compare: compare.filter((s) => ownKeys.has(s.key)),
+  };
+}
+
+export interface CompareViewInput {
+  /** Own voting window in unix seconds, and where the own line stops. */
+  start: number;
+  end: number;
+  lineEnd: number;
+  /**
+   * Whether the own action's lifecycle is over. Passed in as a plain boolean on
+   * purpose: "voting is over" is defined by isTerminalStatus in the view layer, and
+   * this model never imports from the view or db layers to find that out.
+   */
+  ownIsTerminal: boolean;
+  /** The compared action's own voting window in unix seconds. */
+  compareStart: number;
+  compareEnd: number;
+}
+
+export interface CompareView {
+  /** The own action's series, re-based when an overlay is drawn. */
+  series: TrendSeries[];
+  /** The compared action's series, empty when nothing can be overlaid. */
+  compareSeries: TrendSeries[];
+  /** x domain for buildTrendChart: absolute seconds, or 0..span when relative. */
+  domain: [number, number];
+  /** "Today" marker positions on the same scale as domain. */
+  markers: number[];
+  /** True when both sides were re-based to seconds-since-their-own-window-start. */
+  relative: boolean;
+  /** Own bodies the intersection removed, so the view can say what vanished and why. */
+  droppedKeys: TrendBodyKey[];
+}
+
+/**
+ * The whole compare decision in one pure place: intersect the bodies, re-base each
+ * side by ITS OWN window start so day 0 of both windows is the same x, span the axis
+ * across whichever action ran longer, and place a "Today" marker only while the own
+ * action is genuinely still open. When nothing survives the intersection this returns
+ * exactly the non-compare shape, so the fallback cannot drift from the plain chart.
+ */
+export function buildCompareView(
+  own: TrendSeries[],
+  compare: TrendSeries[],
+  o: CompareViewInput,
+): CompareView {
+  const shared = sharedTrendBodies(own, compare);
+  if (shared.own.length === 0) {
+    return { series: own, compareSeries: [], domain: [o.start, o.end], markers: [], relative: false, droppedKeys: [] };
+  }
+  const keptKeys = new Set(shared.own.map((s) => s.key));
+  const ownSpan = o.end - o.start;
+  const cmpSpan = o.compareEnd - o.compareStart;
+  // The marker is gated on the lifecycle status, not on the shape of the data.
+  // `lineEnd < end` alone is a proxy for "still voting", and a proxy is what puts a
+  // "Today" label in the middle of a long-decided action.
+  const showNow = !o.ownIsTerminal && o.lineEnd < o.end;
+  return {
+    series: toRelativeSeries(shared.own, o.start),
+    compareSeries: toRelativeSeries(shared.compare, o.compareStart),
+    // Never clip the longer action: the axis spans whichever window ran longer.
+    domain: [0, Math.max(ownSpan, cmpSpan, 1)],
+    markers: showNow ? [o.lineEnd - o.start] : [],
+    relative: true,
+    droppedKeys: own.filter((s) => !keptKeys.has(s.key)).map((s) => s.key),
+  };
+}
+
+/**
+ * The value a step-after curve has at t: the last point at or before t, never an
+ * interpolation between two points. Support is committed at a vote instant, so
+ * between two votes the curve is flat and the honest reading is the older value.
+ */
+export function sampleSeriesAt(series: TrendSeries, t: number): number {
+  const pts = series.points;
+  if (pts.length === 0) return 0;
+  let pct = pts[0].pct;
+  for (const p of pts) {
+    if (p.t > t) break;
+    pct = p.pct;
+  }
+  return pct;
+}
+
+export interface HoverSample {
+  key: TrendBodyKey;
+  /** 0..100, the value every series has at this band's sample point. */
+  pct: number;
+  /** True for a compared action's series, so the row can be marked as such. */
+  dashed: boolean;
+}
+
+export interface HoverBand {
+  /** Hit area on the plot. Bands tile the plot width with no gap. */
+  x: number;
+  w: number;
+  /** Crosshair position: the sample point itself, not the band centre. */
+  lineX: number;
+  /** Domain value this band reads off, for the caller to label. */
+  t: number;
+  /** Where the readout text starts, and how it anchors, so it never leaves the plot. */
+  textX: number;
+  anchor: 'start' | 'end';
+  samples: HoverSample[];
+}
+
+export interface HoverBandOptions {
+  plot: { x: number; y: number; w: number; h: number };
+  domain: [number, number];
+  /** Seconds between sample points, e.g. one day. Coarsened when it would not fit. */
+  step: number;
+}
+
+/** Sample points beyond this would put more markup on the page than the readout is worth. */
+const MAX_HOVER_BANDS = 41;
+/** Gap in scale units between the crosshair and its readout text. */
+const READOUT_GAP = 6;
+
+/**
+ * Vertical hit areas for a CSS-only hover readout, one per sample point, each
+ * carrying every series' value at that point. Pure geometry plus sampling, so the
+ * component only has to render it: there is no client-side JavaScript involved.
+ */
+export function buildHoverBands(series: TrendSeries[], opts: HoverBandOptions): HoverBand[] {
+  const [tMin, tMax] = opts.domain;
+  const span = tMax - tMin;
+  if (series.length === 0 || span <= 0 || opts.step <= 0) return [];
+
+  // Coarsen rather than emit hundreds of bands: an unusually long window would
+  // otherwise put one group of markup per day on every page view.
+  let step = opts.step;
+  while (span / step > MAX_HOVER_BANDS - 1) step *= 2;
+
+  const ts: number[] = [];
+  for (let t = tMin; t < tMax; t += step) ts.push(t);
+  ts.push(tMax); // the closing edge, so the deadline itself is always readable
+
+  const xFor = (t: number): number => round2(opts.plot.x + (opts.plot.w * (t - tMin)) / span);
+  const mid = opts.plot.x + opts.plot.w / 2;
+
+  return ts.map((t, i) => {
+    const lineX = xFor(t);
+    // Each band owns the space up to the midpoint between it and its neighbours, so
+    // the nearest sample point is always the one under the cursor.
+    const left = i === 0 ? opts.plot.x : round2((xFor(ts[i - 1]) + lineX) / 2);
+    const right = i === ts.length - 1 ? opts.plot.x + opts.plot.w : round2((lineX + xFor(ts[i + 1])) / 2);
+    const anchor: 'start' | 'end' = lineX > mid ? 'end' : 'start';
+    return {
+      x: left,
+      w: round2(right - left),
+      lineX,
+      t,
+      textX: anchor === 'end' ? lineX - READOUT_GAP : lineX + READOUT_GAP,
+      anchor,
+      samples: series.map((s) => ({ key: s.key, pct: sampleSeriesAt(s, t), dashed: s.dashed === true })),
+    };
+  });
 }

@@ -5,6 +5,7 @@
 import { sqlPlaceholders } from './sql.js';
 import { TERMINAL_STATUSES, OPEN_STATUSES } from '../governance/view.js';
 import type { GovSort, GovStatus } from '../governance/sort.js';
+import { liveVoteSql } from './drepVotes.js';
 
 /** Returns the set of governance-action ids already stored, for the sync diff. */
 export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
@@ -986,6 +987,127 @@ export async function getRelatedActions(
       .bind(opts.returnAddress, opts.excludeId, limit)
       .all<RelatedActionRow>()
   ).results ?? [];
+}
+
+/** One pickable comparison target for the voting-trend overlay. */
+export interface CompareCandidateRow {
+  id: string;
+  title: string | null;
+  type: string;
+  topic_slug: string;
+}
+
+/**
+ * Binds for comparableActionSql, in the order its placeholders appear. Spread this
+ * into .bind() at the position the fragment sits in the statement.
+ */
+export const COMPARABLE_BINDS: readonly string[] = [...TERMINAL_STATUSES];
+
+/**
+ * The one definition of "this action can be compared against". Three halves, each
+ * mirroring something the chart actually needs:
+ * voting is over by the canonical lifecycle set (not a decided_epoch proxy, which
+ * is only a data field that happens to correlate), the action has at least one live,
+ * timestamped YES vote the trend can draw as a rising step, and at least one stored
+ * final pct for the curve to end on. computeVoteTrendSeries drops any body whose yes
+ * weight is zero or whose final pct is null, so without those last two an eligible
+ * action would render an empty overlay and a misleading note. CC votes carry no
+ * voted_power by design, so a CC-only trend is admitted explicitly rather than
+ * filtered out by a DRep-shaped gate. The picker query and the ?compare= resolver
+ * both build on this, so a hand-typed URL cannot reach an action the picker would
+ * not offer.
+ */
+export function comparableActionSql(alias = 'g'): string {
+  return `${alias}.status IN (${sqlPlaceholders(COMPARABLE_BINDS)})
+     AND (${alias}.drep_yes_pct IS NOT NULL OR ${alias}.spo_yes_pct IS NOT NULL OR ${alias}.cc_yes_pct IS NOT NULL)
+     AND EXISTS (
+       SELECT 1 FROM drep_votes v
+       WHERE v.ga_id = ${alias}.id
+         AND v.vote = 'Yes'
+         AND v.block_time IS NOT NULL
+         AND ${liveVoteSql('v')}
+         AND (v.voted_power IS NOT NULL OR v.voter_role = 'ConstitutionalCommittee')
+     )`;
+}
+
+/** Comparable actions, same type first, newest first within each group. */
+export async function getCompareCandidates(
+  db: D1Database,
+  opts: { excludeId: string; type: string; limit?: number },
+): Promise<CompareCandidateRow[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 6, 1), 20);
+  return (
+    await db
+      .prepare(
+        `SELECT g.id AS id, g.title AS title, g.type AS type, t.slug AS topic_slug
+         FROM governance_actions g
+         JOIN topics t ON t.id = g.topic_id
+         WHERE t.deleted = 0
+           AND g.id != ?
+           AND ${comparableActionSql('g')}
+         ORDER BY (g.type = ?) DESC, g.submitted_epoch DESC, g.id ASC
+         LIMIT ?`,
+      )
+      .bind(opts.excludeId, ...COMPARABLE_BINDS, opts.type, limit)
+      .all<CompareCandidateRow>()
+  ).results ?? [];
+}
+
+/** The fields the trend overlay needs from a compared action, plus its identity. */
+export interface CompareAction {
+  id: string;
+  title: string | null;
+  type: string;
+  topicSlug: string;
+  submittedEpoch: number | null;
+  expiryEpoch: number | null;
+  decidedEpoch: number | null;
+  drepYesPct: number | null;
+  spoYesPct: number | null;
+  ccYesPct: number | null;
+}
+
+/**
+ * Looks a comparison target up by topic slug, gated by the SAME eligibility rule the
+ * picker uses. The slug and not the action id, because ids carry a `#index` suffix
+ * that would have to be escaped in every href.
+ */
+export async function getCompareActionBySlug(db: D1Database, slug: string): Promise<CompareAction | null> {
+  const r = await db
+    .prepare(
+      `SELECT g.id, g.title, g.type, g.submitted_epoch, g.expiry_epoch, g.decided_epoch,
+              g.drep_yes_pct, g.spo_yes_pct, g.cc_yes_pct, t.slug AS topic_slug
+       FROM governance_actions g
+       JOIN topics t ON t.id = g.topic_id
+       WHERE t.slug = ? AND t.deleted = 0
+         AND ${comparableActionSql('g')}`,
+    )
+    .bind(slug, ...COMPARABLE_BINDS)
+    .first<{
+      id: string;
+      title: string | null;
+      type: string;
+      submitted_epoch: number | null;
+      expiry_epoch: number | null;
+      decided_epoch: number | null;
+      drep_yes_pct: number | null;
+      spo_yes_pct: number | null;
+      cc_yes_pct: number | null;
+      topic_slug: string;
+    }>();
+  if (!r) return null;
+  return {
+    id: r.id,
+    title: r.title,
+    type: r.type,
+    topicSlug: r.topic_slug,
+    submittedEpoch: r.submitted_epoch,
+    expiryEpoch: r.expiry_epoch,
+    decidedEpoch: r.decided_epoch,
+    drepYesPct: r.drep_yes_pct,
+    spoYesPct: r.spo_yes_pct,
+    ccYesPct: r.cc_yes_pct,
+  };
 }
 
 /** Updates an action's extracted metadata fields and bumps its meta_version. */
