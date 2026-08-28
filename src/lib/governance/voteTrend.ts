@@ -21,6 +21,8 @@ export interface TrendSeries {
   thresholdPct: number | null;
   /** Legend value, e.g. "78%" or "5 of 7". */
   finalLabel: string;
+  /** Draw dotted instead of solid. Used for a compared action's overlay. */
+  dashed?: boolean;
 }
 
 export interface TrendChartOptions {
@@ -32,6 +34,8 @@ export interface TrendChartOptions {
   padBottom?: number;
   /** [tMin, tMax] unix seconds; defaults to the min/max t across all series. */
   domain?: [number, number];
+  /** Extra t values to project onto the x scale, e.g. a "today" marker. */
+  markers?: number[];
 }
 
 export interface TrendChartSeries {
@@ -40,6 +44,7 @@ export interface TrendChartSeries {
   thresholdY: number | null;
   last: { x: number; y: number };
   finalLabel: string;
+  dashed: boolean;
 }
 
 export interface TrendChart {
@@ -49,6 +54,7 @@ export interface TrendChart {
   series: TrendChartSeries[];
   yTicks: { value: number; y: number }[];
   xTicks: { t: number; x: number }[];
+  markers: { t: number; x: number }[];
 }
 
 function round2(n: number): number {
@@ -90,13 +96,20 @@ export function buildTrendChart(series: TrendSeries[], opts: TrendChartOptions =
       thresholdY: s.thresholdPct == null ? null : yFor(s.thresholdPct),
       last: pts[pts.length - 1],
       finalLabel: s.finalLabel,
+      dashed: s.dashed === true,
     };
   });
 
   const yTicks = [0, 25, 50, 75, 100].map((value) => ({ value, y: yFor(value) }));
   const xTicks = [tMin, tMax].map((t) => ({ t, x: xFor(t) }));
+  // Markers ride the same x scale as the series so a caller never re-derives it.
+  // Clamped, because a marker at "now" can sit a hair past a closed window.
+  const markers = (opts.markers ?? []).map((t) => ({
+    t,
+    x: xFor(Math.min(Math.max(t, tMin), tMax)),
+  }));
 
-  return { width, height, plot, series: chartSeries, yTicks, xTicks };
+  return { width, height, plot, series: chartSeries, yTicks, xTicks, markers };
 }
 
 export interface TrendVote {
@@ -113,6 +126,8 @@ export interface TrendBodyInput {
   finalPct: number | null;
   thresholdPct: number | null;
   finalLabel: string;
+  /** Marks this body as a compared action's overlay, drawn dotted. */
+  dashed?: boolean;
 }
 
 /**
@@ -144,7 +159,36 @@ export function computeVoteTrendSeries(
       points.push({ t, pct: round2((b.finalPct * cum) / total) });
     }
     points.push({ t: window.end, pct: round2(b.finalPct) });
-    out.push({ key: b.key, points, thresholdPct: b.thresholdPct, finalLabel: b.finalLabel });
+    out.push({ key: b.key, points, thresholdPct: b.thresholdPct, finalLabel: b.finalLabel, dashed: b.dashed });
   }
   return out;
+}
+
+/**
+ * Re-bases every series onto seconds-since-origin. Two actions with different
+ * calendar windows only become comparable once both start at t = 0, so the
+ * compare overlay shifts both sides instead of teaching the chart about time.
+ */
+export function toRelativeSeries(series: TrendSeries[], origin: number): TrendSeries[] {
+  return series.map((s) => ({
+    ...s,
+    points: s.points.map((p) => ({ t: p.t - origin, pct: p.pct })),
+  }));
+}
+
+/**
+ * Narrows both sides to the voting bodies they have in common. A lone dotted SPO
+ * line under an action that never had an SPO vote reads as this action's own data,
+ * so a body missing on either side is dropped from both.
+ */
+export function sharedTrendBodies(
+  own: TrendSeries[],
+  compare: TrendSeries[],
+): { own: TrendSeries[]; compare: TrendSeries[] } {
+  const ownKeys = new Set(own.map((s) => s.key));
+  const cmpKeys = new Set(compare.map((s) => s.key));
+  return {
+    own: own.filter((s) => cmpKeys.has(s.key)),
+    compare: compare.filter((s) => ownKeys.has(s.key)),
+  };
 }

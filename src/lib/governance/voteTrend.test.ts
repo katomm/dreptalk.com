@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { buildTrendChart, type TrendSeries, computeVoteTrendSeries, type TrendBodyInput } from './voteTrend.js';
+import {
+  buildTrendChart,
+  type TrendSeries,
+  computeVoteTrendSeries,
+  type TrendBodyInput,
+  toRelativeSeries,
+  sharedTrendBodies,
+} from './voteTrend.js';
 
 const series = (over: Partial<TrendSeries> = {}): TrendSeries => ({
   key: 'DRep',
@@ -123,5 +130,112 @@ describe('computeVoteTrendSeries', () => {
       { key: 'DRep', yesVotes: [], finalPct: 40, thresholdPct: 67, finalLabel: '40%' },
       { key: 'SPO', yesVotes: [{ blockTime: 1200, weight: 5 }], finalPct: null, thresholdPct: 51, finalLabel: '' },
     ], window)).toEqual([]);
+  });
+});
+
+describe('toRelativeSeries', () => {
+  it('shifts every point so the origin becomes t = 0', () => {
+    const s = series({ points: [{ t: 1000, pct: 0 }, { t: 1600, pct: 50 }] });
+    const out = toRelativeSeries([s], 1000);
+    expect(out[0].points.map((p) => p.t)).toEqual([0, 600]);
+    expect(out[0].points.map((p) => p.pct)).toEqual([0, 50]);
+  });
+
+  it('keeps key, threshold, label and dashed flag intact', () => {
+    const s = series({ dashed: true });
+    const out = toRelativeSeries([s], 0);
+    expect(out[0].key).toBe('DRep');
+    expect(out[0].thresholdPct).toBe(67);
+    expect(out[0].finalLabel).toBe('80%');
+    expect(out[0].dashed).toBe(true);
+  });
+
+  it('does not mutate the input series', () => {
+    const s = series({ points: [{ t: 500, pct: 0 }, { t: 900, pct: 10 }] });
+    toRelativeSeries([s], 500);
+    expect(s.points[0].t).toBe(500);
+  });
+});
+
+describe('sharedTrendBodies', () => {
+  it('keeps only the bodies both sides have, on both sides', () => {
+    const own = [series({ key: 'DRep' }), series({ key: 'SPO' })];
+    const cmp = [series({ key: 'SPO' }), series({ key: 'CC' })];
+    const out = sharedTrendBodies(own, cmp);
+    expect(out.own.map((s) => s.key)).toEqual(['SPO']);
+    expect(out.compare.map((s) => s.key)).toEqual(['SPO']);
+  });
+
+  it('returns two empty lists when the sides have no body in common', () => {
+    const out = sharedTrendBodies([series({ key: 'DRep' })], [series({ key: 'SPO' })]);
+    expect(out.own).toEqual([]);
+    expect(out.compare).toEqual([]);
+  });
+
+  it('preserves the input order of the surviving series', () => {
+    const own = [series({ key: 'CC' }), series({ key: 'DRep' })];
+    const cmp = [series({ key: 'DRep' }), series({ key: 'CC' })];
+    expect(sharedTrendBodies(own, cmp).own.map((s) => s.key)).toEqual(['CC', 'DRep']);
+  });
+
+  it('is a no-op when both sides carry the same bodies', () => {
+    const own = [series({ key: 'DRep' }), series({ key: 'SPO' })];
+    const out = sharedTrendBodies(own, [series({ key: 'DRep' }), series({ key: 'SPO' })]);
+    expect(out.own).toHaveLength(2);
+  });
+});
+
+describe('computeVoteTrendSeries dashed', () => {
+  it('carries the dashed flag from the body input onto the series', () => {
+    const input: TrendBodyInput = {
+      key: 'DRep',
+      yesVotes: [{ blockTime: 50, weight: 10 }],
+      finalPct: 60,
+      thresholdPct: null,
+      finalLabel: '60%',
+      dashed: true,
+    };
+    const out = computeVoteTrendSeries([input], { start: 0, end: 100 });
+    expect(out[0].dashed).toBe(true);
+  });
+
+  it('leaves dashed undefined when the input does not set it', () => {
+    const input: TrendBodyInput = {
+      key: 'DRep',
+      yesVotes: [{ blockTime: 50, weight: 10 }],
+      finalPct: 60,
+      thresholdPct: null,
+      finalLabel: '60%',
+    };
+    expect(computeVoteTrendSeries([input], { start: 0, end: 100 })[0].dashed).toBeUndefined();
+  });
+});
+
+describe('buildTrendChart compare support', () => {
+  it('defaults dashed to false and carries an explicit true through', () => {
+    const c = buildTrendChart([series(), series({ key: 'SPO', dashed: true })], { domain: [0, 100] })!;
+    expect(c.series[0].dashed).toBe(false);
+    expect(c.series[1].dashed).toBe(true);
+  });
+
+  it('maps requested markers onto the same x scale as the series', () => {
+    const c = buildTrendChart([series()], {
+      width: 200, height: 100, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0,
+      domain: [0, 100], markers: [50],
+    })!;
+    expect(c.markers).toEqual([{ t: 50, x: 100 }]);
+  });
+
+  it('returns an empty marker list when none are requested', () => {
+    const c = buildTrendChart([series()], { domain: [0, 100] })!;
+    expect(c.markers).toEqual([]);
+  });
+
+  it('clamps a marker outside the domain into the plot', () => {
+    const c = buildTrendChart([series()], {
+      width: 200, height: 100, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0,
+      domain: [0, 100], markers: [140],
+    })!;
+    expect(c.markers[0].x).toBe(200);
   });
 });
