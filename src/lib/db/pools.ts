@@ -88,8 +88,11 @@ export interface PoolMetaUpsert {
 }
 
 // Writes metadata for one pool. On conflict it refreshes the metadata fields and
-// synced_at; image_url is only overwritten when it changes, and a changed image_url
-// clears the stored image so the avatar pass re-fetches it.
+// synced_at. The identity fields only ever move from null to a value: the upstream
+// source flickers to null between identical calls, and a null there is an unresolved
+// document, not a pool that dropped its name. image_url is only overwritten when it
+// changes, and a changed image_url clears the stored image so the avatar pass
+// re-fetches it.
 export async function upsertPoolMeta(db: D1Database, a: PoolMetaUpsert): Promise<void> {
   await db
     .prepare(
@@ -98,10 +101,10 @@ export async function upsertPoolMeta(db: D1Database, a: PoolMetaUpsert): Promise
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(pool_id) DO UPDATE SET
          pool_hash   = excluded.pool_hash,
-         ticker      = excluded.ticker,
-         name        = excluded.name,
-         homepage    = excluded.homepage,
-         description = excluded.description,
+         ticker      = COALESCE(excluded.ticker, pools.ticker),
+         name        = COALESCE(excluded.name, pools.name),
+         homepage    = COALESCE(excluded.homepage, pools.homepage),
+         description = COALESCE(excluded.description, pools.description),
          meta_url    = excluded.meta_url,
          meta_hash   = excluded.meta_hash,
          synced_at   = excluded.synced_at,

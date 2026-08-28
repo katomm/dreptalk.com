@@ -72,6 +72,26 @@ describe('pools module', () => {
     expect(after.find((r) => r.poolId === 'pool1logo')).toBeUndefined();
   });
 
+  it('null incoming identity fields preserve the stored name and ticker', async () => {
+    const poolId = 'pool1keep-identity';
+    await upsertPoolMeta(env.DB, {
+      poolId, poolHash: 'dd', ticker: 'CLIO1', name: 'CLIO1', homepage: 'https://clio.one',
+      description: 'd', metaUrl: 'https://m', metaHash: 'h1', imageUrl: null, syncedAt: 1,
+    });
+    await upsertPoolMeta(env.DB, {
+      poolId, poolHash: 'dd', ticker: null, name: null, homepage: null,
+      description: null, metaUrl: 'https://m', metaHash: 'h1', imageUrl: null, syncedAt: 2,
+    });
+    const pool = (await getPoolsByIds(env.DB, [poolId])).get(poolId);
+    expect(pool?.name).toBe('CLIO1');
+    expect(pool?.ticker).toBe('CLIO1');
+    expect(pool?.homepage).toBe('https://clio.one');
+    expect(pool?.description).toBe('d');
+    const raw = await env.DB.prepare('SELECT synced_at FROM pools WHERE pool_id = ?')
+      .bind(poolId).first<{ synced_at: number }>();
+    expect(raw?.synced_at).toBe(2);
+  });
+
   it('null incoming imageUrl preserves existing logo and stored columns', async () => {
     const poolId = 'pool1null-logo';
     // Insert with a logo url.
