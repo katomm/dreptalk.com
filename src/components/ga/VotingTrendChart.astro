@@ -230,8 +230,13 @@ const chartLabel = relative && compareTitle
       <g class="vtrend__hover" aria-hidden="true">
         {hoverBands.map((b) => (
           <>
-            <rect class="vtrend__band" x={b.x} y={chart.plot.y} width={b.w} height={chart.plot.h} />
-            <g class="vtrend__read">
+            {/* fill and opacity are also presentation attributes, not only CSS. A
+                presentation attribute loses to any CSS rule, so the stylesheet still
+                governs, but if the stylesheet ever fails to reach the page the band
+                stays invisible instead of painting SVG's default black over the plot,
+                and the readouts stay hidden instead of all appearing at once. */}
+            <rect class="vtrend__band" fill="none" x={b.x} y={chart.plot.y} width={b.w} height={chart.plot.h} />
+            <g class="vtrend__read" opacity="0">
               <line class="vtrend__cross" x1={b.lineX} y1={chart.plot.y} x2={b.lineX} y2={chart.plot.y + chart.plot.h} />
               <text class="vtrend__readtitle" x={b.textX} y={chart.plot.y + 12} text-anchor={b.anchor}>{xLabel(b.t)}</text>
               {b.samples.map((sample, i) => (
