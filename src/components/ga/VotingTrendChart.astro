@@ -8,9 +8,18 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
-import { computeVoteTrendSeries, buildTrendChart, type TrendBodyInput } from '@/lib/governance/voteTrend.js';
+import {
+  computeVoteTrendSeries,
+  buildTrendChart,
+  toRelativeSeries,
+  sharedTrendBodies,
+  type TrendBodyInput,
+  type TrendSeries,
+} from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
-import { fmtPctFine } from '@/lib/governance/view.js';
+import { fmtPctFine, isTerminalStatus } from '@/lib/governance/view.js';
+import type { CompareAction, CompareCandidateRow } from '@/lib/db/governance.js';
+import CompareActionPicker from './CompareActionPicker.astro';
 import { readThresholdSnapshot, evaluateThresholds } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope } from '@/lib/governance/onchain.js';
 import { resolveNetwork, type CardanoNetwork } from '@/lib/config/network.js';
@@ -24,9 +33,18 @@ interface Props {
   network: CardanoNetwork;
   /** Render time in ms, so an active action's trend stops at now, not its future expiry. */
   now: number;
+  /** This action's own topic slug, for the compare picker's links. */
+  slug: string;
+  /** The compared action's own trend data, or null when nothing is selected or eligible. */
+  compare: { action: CompareAction; trendRows: TrendVoteRow[]; ccVotes: CcVote[] } | null;
+  /** Actions the reader can pick to compare against. */
+  compareCandidates: CompareCandidateRow[];
+  /** The topic slug from the `?compare=` query param, or null when absent. */
+  compareSlug: string | null;
 }
 
-const { action, trendRows, ccVotes, committee, params, network, now } = Astro.props;
+const { action, trendRows, ccVotes, committee, params, network, now, slug, compare, compareCandidates, compareSlug } =
+  Astro.props;
 const cfg = resolveNetwork(network);
 
 const assembled = assembleTrendInputs({ action, trendRows, ccVotes, committee, cfg, nowSec: Math.floor(now / 1000) });
@@ -67,12 +85,71 @@ const inputs: TrendBodyInput[] = [
 
 // The series stops at the current epoch (lineEnd); the axis domain spans the full
 // window (end), so the deadline stays on the right with empty space after "now".
-const series = computeVoteTrendSeries(inputs, { start, end: lineEnd });
-const chart = buildTrendChart(series, { width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain: [start, end] });
+// Compare mode: both actions are re-based to seconds-since-their-own-window-start,
+// so day 0 of each voting window is the same x. Absolute dates would put two
+// actions from different months in disjoint parts of the axis and compare nothing.
+const own = computeVoteTrendSeries(inputs, { start, end: lineEnd });
+let series: TrendSeries[] = own;
+let compareSeries: TrendSeries[] = [];
+let domain: [number, number] = [start, end];
+let markers: number[] = [];
+let relative = false;
+let compareEmpty = false;
+
+if (compare) {
+  const ca = compare.action;
+  const cAssembled = assembleTrendInputs({
+    action: ca,
+    trendRows: compare.trendRows,
+    ccVotes: compare.ccVotes,
+    committee,
+    cfg,
+    nowSec: Math.floor(now / 1000),
+  });
+  const cInputs: TrendBodyInput[] = cAssembled.inputs.map((b) => ({
+    ...b,
+    // No threshold line for the compared action: its type may carry entirely
+    // different thresholds, and two dashed lines per colour is unreadable.
+    thresholdPct: null,
+    finalLabel:
+      b.key === 'CC'
+        ? (cAssembled.ccSize > 0 ? `${cAssembled.ccYesCount} of ${cAssembled.ccSize}` : fmtPctLabel(ca.ccYesPct))
+        : fmtPctLabel(b.key === 'DRep' ? ca.drepYesPct : ca.spoYesPct),
+    dashed: true,
+  }));
+  const cSeries = computeVoteTrendSeries(cInputs, { start: cAssembled.window.start, end: cAssembled.lineEnd });
+
+  // Body intersection is a business rule, so it lives in the pure model where it is
+  // unit-tested, not inline here (see sharedTrendBodies).
+  const shared = sharedTrendBodies(own, cSeries);
+
+  if (shared.own.length === 0) {
+    compareEmpty = true;
+  } else {
+    relative = true;
+    series = toRelativeSeries(shared.own, start);
+    compareSeries = toRelativeSeries(shared.compare, cAssembled.window.start);
+    const ownSpan = end - start;
+    const cmpSpan = cAssembled.window.end - cAssembled.window.start;
+    domain = [0, Math.max(ownSpan, cmpSpan, 1)];
+    // The today marker is gated on the action's LIFECYCLE STATUS, not on the shape of
+    // the data. `lineEnd < end` alone is a proxy for "still voting", and a proxy is
+    // what puts a "Today" label in the middle of a 2025 action the day its underlying
+    // assumption stops holding. isTerminalStatus is the same source of truth the
+    // lifecycle timeline directly above this chart already uses.
+    if (!isTerminalStatus(action.status) && lineEnd < end) markers = [lineEnd - start];
+  }
+}
+
+const chart = buildTrendChart([...series, ...compareSeries], {
+  width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain, markers,
+});
 
 const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-cc)' };
 const dateLabel = (t: number): string =>
   new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const dayLabel = (t: number): string => (t <= 0 ? 'Day 0' : `Day ${Math.round(t / 86400)}`);
+const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
 ---
 
 {chart && (
@@ -85,23 +162,85 @@ const dateLabel = (t: number): string =>
           <text class="vtrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{t.value}%</text>
         </>
       ))}
+      {chart.markers.map((m) => (
+        <>
+          <line class="vtrend__now" x1={m.x} y1={chart.plot.y} x2={m.x} y2={chart.plot.y + chart.plot.h} />
+          <text class="vtrend__xlabel" x={m.x} y={chart.plot.y - 6} text-anchor="middle">Today</text>
+        </>
+      ))}
       {chart.series.map((s) => (
         <>
-          {s.thresholdY != null && (
+          {!s.dashed && s.thresholdY != null && (
             <line class="vtrend__thr" style={`color:${COLORS[s.key]}`} x1={chart.plot.x} y1={s.thresholdY} x2={chart.plot.x + chart.plot.w} y2={s.thresholdY} />
           )}
-          <path class="vtrend__line" style={`color:${COLORS[s.key]}`} d={s.stepPath} vector-effect="non-scaling-stroke" />
+          <path
+            class:list={['vtrend__line', { 'vtrend__line--cmp': s.dashed }]}
+            style={`color:${COLORS[s.key]}`}
+            d={s.stepPath}
+            vector-effect="non-scaling-stroke"
+          />
+          {s.dashed && s.last.x < chart.plot.x + chart.plot.w - 1 && (
+            <circle class="vtrend__end" style={`color:${COLORS[s.key]}`} cx={s.last.x} cy={s.last.y} r="3" />
+          )}
         </>
       ))}
       {chart.xTicks.map((t) => (
-        <text class="vtrend__xlabel" x={t.x} y={chart.height - 10} text-anchor={t.x <= chart.plot.x + 1 ? 'start' : 'end'}>{dateLabel(t.t)}</text>
+        <text class="vtrend__xlabel" x={t.x} y={chart.height - 10} text-anchor={t.x <= chart.plot.x + 1 ? 'start' : 'end'}>{xLabel(t.t)}</text>
       ))}
     </svg>
-    <ul class="vtrend__legend">
-      {chart.series.map((s) => (
-        <li class="vtrend__leg"><span class="vtrend__swatch" style={`background:${COLORS[s.key]}`}></span>{s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}</li>
-      ))}
-    </ul>
+    {relative ? (
+      <div class="vtrend__legends">
+        <div class="vtrend__group">
+          <p class="vtrend__grouptitle">This action</p>
+          <ul class="vtrend__legend">
+            {chart.series.filter((s) => !s.dashed).map((s) => (
+              <li class="vtrend__leg">
+                <svg class="vtrend__key" viewBox="0 0 20 6" aria-hidden="true">
+                  <line class="vtrend__keyline" style={`color:${COLORS[s.key]}`} x1="0" y1="3" x2="20" y2="3" />
+                </svg>
+                {s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div class="vtrend__group">
+          <p class="vtrend__grouptitle">
+            Compared:{' '}
+            <a href={`/t/${compare!.action.topicSlug}/`}>{compare!.action.title ?? compare!.action.type}</a>
+          </p>
+          <ul class="vtrend__legend">
+            {chart.series.filter((s) => s.dashed).map((s) => (
+              <li class="vtrend__leg">
+                <svg class="vtrend__key" viewBox="0 0 20 6" aria-hidden="true">
+                  <line class="vtrend__keyline vtrend__keyline--cmp" style={`color:${COLORS[s.key]}`} x1="0" y1="3" x2="20" y2="3" />
+                </svg>
+                {s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    ) : (
+      <ul class="vtrend__legend">
+        {chart.series.map((s) => (
+          <li class="vtrend__leg"><span class="vtrend__swatch" style={`background:${COLORS[s.key]}`}></span>{s.key === 'CC' ? 'CC' : s.key + 's'} {s.finalLabel}</li>
+        ))}
+      </ul>
+    )}
+    {compareEmpty && compare && (
+      <p class="vtrend__cmpnote">
+        <a href={`/t/${compare.action.topicSlug}/`}>{compare.action.title ?? compare.action.type}</a>
+        {' '}has no voting body in common with this action, so there is nothing to overlay.
+      </p>
+    )}
+    {relative && <p class="vtrend__cmpnote">Both curves start at day 0 of their own voting window.</p>}
+    <CompareActionPicker
+      slug={slug}
+      candidates={compareCandidates}
+      activeSlug={compareSlug}
+      activeTitle={compare?.action.title ?? null}
+      activeHref={compare ? `/t/${compare.action.topicSlug}/` : null}
+    />
   </section>
 )}
 
@@ -116,5 +255,14 @@ const dateLabel = (t: number): string =>
   .vtrend__legend { list-style: none; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0.5rem 0 0; padding: 0; font-size: 0.8125rem; color: var(--muted); }
   .vtrend__leg { display: inline-flex; align-items: center; gap: 0.4rem; font-variant-numeric: tabular-nums; }
   .vtrend__swatch { width: 0.7rem; height: 0.2rem; border-radius: 999px; display: inline-block; }
+  .vtrend__line--cmp { stroke-width: 1.5; stroke-dasharray: 2 3; opacity: 0.55; }
+  .vtrend__end { fill: currentColor; opacity: 0.55; }
+  .vtrend__now { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.7; }
+  .vtrend__legends { display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; margin-top: 0.5rem; }
+  .vtrend__grouptitle { font-size: 0.75rem; font-weight: 700; color: var(--fg); margin: 0 0 0.2rem; }
+  .vtrend__key { width: 1.25rem; height: 0.375rem; flex-shrink: 0; }
+  .vtrend__keyline { stroke: currentColor; stroke-width: 2; }
+  .vtrend__keyline--cmp { stroke-width: 1.5; stroke-dasharray: 2 3; opacity: 0.55; }
+  .vtrend__cmpnote { font-size: 0.78rem; color: var(--muted); margin: 0.4rem 0 0; }
   @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel { display: none; } }
 </style>
