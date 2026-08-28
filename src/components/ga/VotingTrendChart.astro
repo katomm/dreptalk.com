@@ -11,10 +11,10 @@ import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
 import {
   computeVoteTrendSeries,
   buildTrendChart,
-  toRelativeSeries,
-  sharedTrendBodies,
+  buildCompareView,
   type TrendBodyInput,
-  type TrendSeries,
+  type TrendBodyKey,
+  type CompareView,
 } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
 import { fmtPctFine, isTerminalStatus } from '@/lib/governance/view.js';
@@ -89,12 +89,9 @@ const inputs: TrendBodyInput[] = [
 // so day 0 of each voting window is the same x. Absolute dates would put two
 // actions from different months in disjoint parts of the axis and compare nothing.
 const own = computeVoteTrendSeries(inputs, { start, end: lineEnd });
-let series: TrendSeries[] = own;
-let compareSeries: TrendSeries[] = [];
-let domain: [number, number] = [start, end];
-let markers: number[] = [];
-let relative = false;
-let compareEmpty = false;
+// Non-compare default. buildCompareView returns exactly this shape when nothing can
+// be overlaid, so the plain chart and the fallback can never drift apart.
+let view: CompareView = { series: own, compareSeries: [], domain: [start, end], markers: [], relative: false, droppedKeys: [] };
 
 if (compare) {
   const ca = compare.action;
@@ -119,27 +116,26 @@ if (compare) {
   }));
   const cSeries = computeVoteTrendSeries(cInputs, { start: cAssembled.window.start, end: cAssembled.lineEnd });
 
-  // Body intersection is a business rule, so it lives in the pure model where it is
-  // unit-tested, not inline here (see sharedTrendBodies).
-  const shared = sharedTrendBodies(own, cSeries);
-
-  if (shared.own.length === 0) {
-    compareEmpty = true;
-  } else {
-    relative = true;
-    series = toRelativeSeries(shared.own, start);
-    compareSeries = toRelativeSeries(shared.compare, cAssembled.window.start);
-    const ownSpan = end - start;
-    const cmpSpan = cAssembled.window.end - cAssembled.window.start;
-    domain = [0, Math.max(ownSpan, cmpSpan, 1)];
-    // The today marker is gated on the action's LIFECYCLE STATUS, not on the shape of
-    // the data. `lineEnd < end` alone is a proxy for "still voting", and a proxy is
-    // what puts a "Today" label in the middle of a 2025 action the day its underlying
-    // assumption stops holding. isTerminalStatus is the same source of truth the
-    // lifecycle timeline directly above this chart already uses.
-    if (!isTerminalStatus(action.status) && lineEnd < end) markers = [lineEnd - start];
-  }
+  // Every compare decision (body intersection, the two rebasing origins, the axis
+  // span, the Today gate) is a business rule, so it lives in the pure model where it
+  // is unit-tested, not inline here. isTerminalStatus stays on this side of the line:
+  // the model is told the answer, it never looks a status up.
+  view = buildCompareView(own, cSeries, {
+    start,
+    end,
+    lineEnd,
+    ownIsTerminal: isTerminalStatus(action.status),
+    compareStart: cAssembled.window.start,
+    compareEnd: cAssembled.window.end,
+  });
 }
+
+const { series, compareSeries, domain, markers, relative, droppedKeys } = view;
+// A compare was requested and resolved, but nothing could be overlaid.
+const compareEmpty = compare != null && !relative;
+// A compare was requested and the slug resolved to nothing eligible at all. Without
+// this the param sits in the URL while the page silently ignores it.
+const compareUnresolved = compareSlug != null && compare == null;
 
 const chart = buildTrendChart([...series, ...compareSeries], {
   width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain, markers,
@@ -150,12 +146,30 @@ const dateLabel = (t: number): string =>
   new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const dayLabel = (t: number): string => (t <= 0 ? 'Day 0' : `Day ${Math.round(t / 86400)}`);
 const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
+
+// "Today" sits at an arbitrary x, so near either edge a middle anchor would push it
+// out of the 640-unit viewBox. Same clamp the x tick labels already use, with middle
+// kept for the interior where the label should straddle its own line.
+const EDGE = 18;
+const nowAnchor = (x: number, plotX: number, plotW: number): string =>
+  x <= plotX + EDGE ? 'start' : x >= plotX + plotW - EDGE ? 'end' : 'middle';
+
+// Bodies the intersection removed from THIS action's chart. Dropping them silently
+// would read as "this action had no SPO vote", which is a different claim entirely.
+const bodyList = (keys: TrendBodyKey[], sep: string): string =>
+  keys.length < 2 ? (keys[0] ?? '') : `${keys.slice(0, -1).join(', ')} ${sep} ${keys[keys.length - 1]}`;
+const droppedLead = `${bodyList(droppedKeys, 'and')} ${droppedKeys.length === 1 ? 'is' : 'are'} not shown,`;
+const droppedTail = ` has no ${bodyList(droppedKeys, 'or')} votes to compare against.`;
+const compareTitle = compare ? compare.action.title ?? compare.action.type : null;
+const chartLabel = relative && compareTitle
+  ? `Cumulative yes support per body over the voting window, overlaid with ${compareTitle}`
+  : 'Cumulative yes support per body over the voting window';
 ---
 
 {chart && (
   <section class="vtrend" aria-label="Voting trend over time">
     <h3 class="vtrend__title">Voting trend</h3>
-    <svg class="vtrend__chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="Cumulative yes support per body over the voting window">
+    <svg class="vtrend__chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={chartLabel}>
       {chart.yTicks.map((t) => (
         <>
           <line class="vtrend__grid" x1={chart.plot.x} y1={t.y} x2={chart.plot.x + chart.plot.w} y2={t.y} />
@@ -165,7 +179,7 @@ const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
       {chart.markers.map((m) => (
         <>
           <line class="vtrend__now" x1={m.x} y1={chart.plot.y} x2={m.x} y2={chart.plot.y + chart.plot.h} />
-          <text class="vtrend__xlabel" x={m.x} y={chart.plot.y - 6} text-anchor="middle">Today</text>
+          <text class="vtrend__xlabel" x={m.x} y={chart.plot.y - 6} text-anchor={nowAnchor(m.x, chart.plot.x, chart.plot.w)}>Today</text>
         </>
       ))}
       {chart.series.map((s) => (
@@ -179,7 +193,10 @@ const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
             d={s.stepPath}
             vector-effect="non-scaling-stroke"
           />
-          {s.dashed && s.last.x < chart.plot.x + chart.plot.w - 1 && (
+          {/* In compare mode the shorter action's line stops mid-plot, so both sides
+              need a terminator. The x test still keeps a line that reaches the right
+              edge dot-free, which is every line on the non-compare chart. */}
+          {(s.dashed || relative) && s.last.x < chart.plot.x + chart.plot.w - 1 && (
             <circle class="vtrend__end" style={`color:${COLORS[s.key]}`} cx={s.last.x} cy={s.last.y} r="3" />
           )}
         </>
@@ -188,7 +205,7 @@ const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
         <text class="vtrend__xlabel" x={t.x} y={chart.height - 10} text-anchor={t.x <= chart.plot.x + 1 ? 'start' : 'end'}>{xLabel(t.t)}</text>
       ))}
     </svg>
-    {relative ? (
+    {relative && compare ? (
       <div class="vtrend__legends">
         <div class="vtrend__group">
           <p class="vtrend__grouptitle">This action</p>
@@ -206,7 +223,7 @@ const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
         <div class="vtrend__group">
           <p class="vtrend__grouptitle">
             Compared:{' '}
-            <a href={`/t/${compare!.action.topicSlug}/`}>{compare!.action.title ?? compare!.action.type}</a>
+            <a href={`/t/${compare.action.topicSlug}/`}>{compare.action.title ?? compare.action.type}</a>
           </p>
           <ul class="vtrend__legend">
             {chart.series.filter((s) => s.dashed).map((s) => (
@@ -229,8 +246,19 @@ const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
     )}
     {compareEmpty && compare && (
       <p class="vtrend__cmpnote">
+        Nothing to overlay from{' '}
+        <a href={`/t/${compare.action.topicSlug}/`}>{compare.action.title ?? compare.action.type}</a>. It shares no
+        voting body with this action, or has no vote data this chart can draw.
+      </p>
+    )}
+    {compareUnresolved && (
+      <p class="vtrend__cmpnote">The comparison this link asks for is not available, so only this action is shown.</p>
+    )}
+    {relative && compare && droppedKeys.length > 0 && (
+      <p class="vtrend__cmpnote">
+        {droppedLead}{' '}
         <a href={`/t/${compare.action.topicSlug}/`}>{compare.action.title ?? compare.action.type}</a>
-        {' '}has no voting body in common with this action, so there is nothing to overlay.
+        {droppedTail}
       </p>
     )}
     {relative && <p class="vtrend__cmpnote">Both curves start at day 0 of their own voting window.</p>}
@@ -259,10 +287,13 @@ const xLabel = (t: number): string => (relative ? dayLabel(t) : dateLabel(t));
   .vtrend__end { fill: currentColor; opacity: 0.55; }
   .vtrend__now { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.7; }
   .vtrend__legends { display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; margin-top: 0.5rem; }
+  .vtrend__group { min-width: 0; overflow-wrap: anywhere; }
   .vtrend__grouptitle { font-size: 0.75rem; font-weight: 700; color: var(--fg); margin: 0 0 0.2rem; }
   .vtrend__key { width: 1.25rem; height: 0.375rem; flex-shrink: 0; }
   .vtrend__keyline { stroke: currentColor; stroke-width: 2; }
   .vtrend__keyline--cmp { stroke-width: 1.5; stroke-dasharray: 2 3; opacity: 0.55; }
   .vtrend__cmpnote { font-size: 0.78rem; color: var(--muted); margin: 0.4rem 0 0; }
-  @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel { display: none; } }
+  /* .vtrend__now rides along: hiding only the label would leave an unexplained
+     dashed vertical line on narrow screens. */
+  @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel, .vtrend__now { display: none; } }
 </style>

@@ -192,3 +192,68 @@ export function sharedTrendBodies(
     compare: compare.filter((s) => ownKeys.has(s.key)),
   };
 }
+
+export interface CompareViewInput {
+  /** Own voting window in unix seconds, and where the own line stops. */
+  start: number;
+  end: number;
+  lineEnd: number;
+  /**
+   * Whether the own action's lifecycle is over. Passed in as a plain boolean on
+   * purpose: "voting is over" is defined by isTerminalStatus in the view layer, and
+   * this model never imports from the view or db layers to find that out.
+   */
+  ownIsTerminal: boolean;
+  /** The compared action's own voting window in unix seconds. */
+  compareStart: number;
+  compareEnd: number;
+}
+
+export interface CompareView {
+  /** The own action's series, re-based when an overlay is drawn. */
+  series: TrendSeries[];
+  /** The compared action's series, empty when nothing can be overlaid. */
+  compareSeries: TrendSeries[];
+  /** x domain for buildTrendChart: absolute seconds, or 0..span when relative. */
+  domain: [number, number];
+  /** "Today" marker positions on the same scale as domain. */
+  markers: number[];
+  /** True when both sides were re-based to seconds-since-their-own-window-start. */
+  relative: boolean;
+  /** Own bodies the intersection removed, so the view can say what vanished and why. */
+  droppedKeys: TrendBodyKey[];
+}
+
+/**
+ * The whole compare decision in one pure place: intersect the bodies, re-base each
+ * side by ITS OWN window start so day 0 of both windows is the same x, span the axis
+ * across whichever action ran longer, and place a "Today" marker only while the own
+ * action is genuinely still open. When nothing survives the intersection this returns
+ * exactly the non-compare shape, so the fallback cannot drift from the plain chart.
+ */
+export function buildCompareView(
+  own: TrendSeries[],
+  compare: TrendSeries[],
+  o: CompareViewInput,
+): CompareView {
+  const shared = sharedTrendBodies(own, compare);
+  if (shared.own.length === 0) {
+    return { series: own, compareSeries: [], domain: [o.start, o.end], markers: [], relative: false, droppedKeys: [] };
+  }
+  const keptKeys = new Set(shared.own.map((s) => s.key));
+  const ownSpan = o.end - o.start;
+  const cmpSpan = o.compareEnd - o.compareStart;
+  // The marker is gated on the lifecycle status, not on the shape of the data.
+  // `lineEnd < end` alone is a proxy for "still voting", and a proxy is what puts a
+  // "Today" label in the middle of a long-decided action.
+  const showNow = !o.ownIsTerminal && o.lineEnd < o.end;
+  return {
+    series: toRelativeSeries(shared.own, o.start),
+    compareSeries: toRelativeSeries(shared.compare, o.compareStart),
+    // Never clip the longer action: the axis spans whichever window ran longer.
+    domain: [0, Math.max(ownSpan, cmpSpan, 1)],
+    markers: showNow ? [o.lineEnd - o.start] : [],
+    relative: true,
+    droppedKeys: own.filter((s) => !keptKeys.has(s.key)).map((s) => s.key),
+  };
+}

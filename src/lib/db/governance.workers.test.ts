@@ -55,6 +55,8 @@ async function seedGovRow(o: {
   trendingScore?: number | null;
   drepYes?: number | null;
   drepYesPct?: number | null;
+  spoYesPct?: number | null;
+  ccYesPct?: number | null;
   /** Action title; left null by default so list queries that filter it out still apply. */
   title?: string | null;
 }): Promise<void> {
@@ -72,8 +74,8 @@ async function seedGovRow(o: {
     db()
       .prepare(
         `INSERT INTO governance_actions
-           (id, type, anchor_status, status, title, submitted_epoch, submitted_at, expiry_epoch, decided_epoch, drep_yes, drep_yes_pct, trending_score, topic_id, created_at, last_synced_at)
-         VALUES (?, ?, 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, type, anchor_status, status, title, submitted_epoch, submitted_at, expiry_epoch, decided_epoch, drep_yes, drep_yes_pct, spo_yes_pct, cc_yes_pct, trending_score, topic_id, created_at, last_synced_at)
+         VALUES (?, ?, 'no-anchor', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         o.actionId,
@@ -86,6 +88,8 @@ async function seedGovRow(o: {
         o.decidedEpoch ?? null,
         o.drepYes ?? null,
         o.drepYesPct ?? null,
+        o.spoYesPct ?? null,
+        o.ccYesPct ?? null,
         o.trendingScore ?? null,
         o.topicId,
         NOW,
@@ -96,20 +100,29 @@ async function seedGovRow(o: {
 
 // A single vote row, enough to exercise the compare-eligibility EXISTS gate.
 // votedPower null models a pre-backfill DRep row, localStatus 'failed' models an
-// optimistic local vote that never made it on chain. Neither may qualify an action.
+// optimistic local vote that never made it on chain, vote 'No' models an action
+// nobody supported. None of them may qualify an action: the trend draws rising yes
+// support, so a chart with no yes vote has no curve to draw.
 async function seedVote(
   gaId: string,
-  o: { votedPower?: number | null; role?: string; blockTime?: number | null; localStatus?: string | null } = {},
+  o: {
+    votedPower?: number | null;
+    role?: string;
+    blockTime?: number | null;
+    localStatus?: string | null;
+    vote?: string;
+  } = {},
 ): Promise<void> {
   await db()
     .prepare(
       `INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, block_time, synced_at, voted_power, local_status)
-       VALUES (?, ?, ?, 'Yes', ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       gaId,
       o.role ?? 'DRep',
       `voter-${gaId}`,
+      o.vote ?? 'Yes',
       o.blockTime === undefined ? 1_753_000 : o.blockTime,
       NOW,
       o.votedPower === undefined ? 1_000 : o.votedPower,
@@ -1109,32 +1122,39 @@ describe('threshold snapshot backfill queries', () => {
 
 describe('getCompareCandidates', () => {
   async function seedCompareFixtures(): Promise<void> {
-    await seedGovRow({ topicId: 'self', actionId: 'self#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 650, decidedEpoch: 655 });
+    await seedGovRow({ topicId: 'self', actionId: 'self#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 650, decidedEpoch: 655, drepYesPct: 51 });
     await seedVote('self#0');
     // Eligible, same type.
     await seedGovRow({ topicId: 'same', actionId: 'same#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 600, decidedEpoch: 607, title: 'Same type', drepYesPct: 78 });
     await seedVote('same#0');
     // Eligible, other type, newer. Must still sort below the same-type one.
-    await seedGovRow({ topicId: 'other', actionId: 'other#0', type: 'InfoAction', status: 'closed', submittedEpoch: 640, decidedEpoch: 647, title: 'Other type' });
+    await seedGovRow({ topicId: 'other', actionId: 'other#0', type: 'InfoAction', status: 'closed', submittedEpoch: 640, decidedEpoch: 647, title: 'Other type', drepYesPct: 62 });
     await seedVote('other#0');
     // Eligible on CC votes alone: CC never carries voted_power, so a DRep-shaped
     // gate would wrongly exclude it.
-    await seedGovRow({ topicId: 'cconly', actionId: 'cconly#0', type: 'TreasuryWithdrawals', status: 'expired', submittedEpoch: 610, decidedEpoch: 617, title: 'CC only' });
+    await seedGovRow({ topicId: 'cconly', actionId: 'cconly#0', type: 'TreasuryWithdrawals', status: 'expired', submittedEpoch: 610, decidedEpoch: 617, title: 'CC only', ccYesPct: 100 });
     await seedVote('cconly#0', { role: 'ConstitutionalCommittee', votedPower: null });
     // Not eligible: still open.
-    await seedGovRow({ topicId: 'active', actionId: 'active#0', type: 'TreasuryWithdrawals', status: 'active', submittedEpoch: 645, decidedEpoch: null });
+    await seedGovRow({ topicId: 'active', actionId: 'active#0', type: 'TreasuryWithdrawals', status: 'active', submittedEpoch: 645, decidedEpoch: null, drepYesPct: 40 });
     await seedVote('active#0');
     // Not eligible: terminal, but the only DRep row has no backfilled power.
-    await seedGovRow({ topicId: 'nopower', actionId: 'nopower#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 620, decidedEpoch: 627 });
+    await seedGovRow({ topicId: 'nopower', actionId: 'nopower#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 620, decidedEpoch: 627, drepYesPct: 55 });
     await seedVote('nopower#0', { votedPower: null });
     // Not eligible: the only row is a failed local vote.
-    await seedGovRow({ topicId: 'failed', actionId: 'failed#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 618, decidedEpoch: 625 });
+    await seedGovRow({ topicId: 'failed', actionId: 'failed#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 618, decidedEpoch: 625, drepYesPct: 55 });
     await seedVote('failed#0', { localStatus: 'failed' });
     // Not eligible: the only row has no block_time, so it cannot be placed on the axis.
-    await seedGovRow({ topicId: 'notime', actionId: 'notime#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 616, decidedEpoch: 623 });
+    await seedGovRow({ topicId: 'notime', actionId: 'notime#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 616, decidedEpoch: 623, drepYesPct: 55 });
     await seedVote('notime#0', { blockTime: null });
+    // Not eligible: nobody voted Yes, so the trend has no rising support to draw.
+    await seedGovRow({ topicId: 'noyes', actionId: 'noyes#0', type: 'TreasuryWithdrawals', status: 'expired', submittedEpoch: 614, decidedEpoch: 621, drepYesPct: 0 });
+    await seedVote('noyes#0', { vote: 'No' });
+    // Not eligible: real votes, but no stored final pct for any body, so every body
+    // would be dropped and the overlay would come out empty.
+    await seedGovRow({ topicId: 'nopct', actionId: 'nopct#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 612, decidedEpoch: 619 });
+    await seedVote('nopct#0');
     // Not eligible: deleted topic.
-    await seedGovRow({ topicId: 'gone', actionId: 'gone#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 630, decidedEpoch: 637, deleted: 1 });
+    await seedGovRow({ topicId: 'gone', actionId: 'gone#0', type: 'TreasuryWithdrawals', status: 'enacted', submittedEpoch: 630, decidedEpoch: 637, deleted: 1, drepYesPct: 55 });
     await seedVote('gone#0');
   }
 
@@ -1158,6 +1178,20 @@ describe('getCompareCandidates', () => {
     expect(ids).not.toContain('failed#0');
     expect(ids).not.toContain('notime#0');
     expect(ids).not.toContain('gone#0');
+  });
+
+  // The picker is a curated list, so an entry that renders nothing on click is a
+  // dead end. Both of these pass every other half of the gate.
+  it('skips an action whose only vote is a No', async () => {
+    await seedCompareFixtures();
+    const ids = (await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 20 })).map((r) => r.id);
+    expect(ids).not.toContain('noyes#0');
+  });
+
+  it('skips an action with votes but no stored final pct on any body', async () => {
+    await seedCompareFixtures();
+    const ids = (await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 20 })).map((r) => r.id);
+    expect(ids).not.toContain('nopct#0');
   });
 
   it('admits an action whose only votes are CC votes', async () => {
@@ -1198,7 +1232,7 @@ describe('getCompareActionBySlug', () => {
   });
 
   it('returns null for a deleted topic', async () => {
-    await seedGovRow({ topicId: 'gone', actionId: 'gone#0', status: 'enacted', decidedEpoch: 637, deleted: 1 });
+    await seedGovRow({ topicId: 'gone', actionId: 'gone#0', status: 'enacted', decidedEpoch: 637, deleted: 1, drepYesPct: 55 });
     await seedVote('gone#0');
     expect(await getCompareActionBySlug(db(), 'slug-gone')).toBeNull();
   });
@@ -1206,20 +1240,32 @@ describe('getCompareActionBySlug', () => {
   // These three are the reason the resolver shares the picker's SQL. A hand-typed
   // ?compare= must not reach what the picker refuses to list.
   it('returns null for an action that is still open', async () => {
-    await seedGovRow({ topicId: 'active', actionId: 'active#0', status: 'active', submittedEpoch: 645, decidedEpoch: null });
+    await seedGovRow({ topicId: 'active', actionId: 'active#0', status: 'active', submittedEpoch: 645, decidedEpoch: null, drepYesPct: 40 });
     await seedVote('active#0');
     expect(await getCompareActionBySlug(db(), 'slug-active')).toBeNull();
   });
 
   it('returns null for a terminal action with no drawable votes', async () => {
-    await seedGovRow({ topicId: 'nopower', actionId: 'nopower#0', status: 'enacted', submittedEpoch: 620, decidedEpoch: 627 });
+    await seedGovRow({ topicId: 'nopower', actionId: 'nopower#0', status: 'enacted', submittedEpoch: 620, decidedEpoch: 627, drepYesPct: 55 });
     await seedVote('nopower#0', { votedPower: null });
     expect(await getCompareActionBySlug(db(), 'slug-nopower')).toBeNull();
   });
 
   it('returns null when the only vote row is a failed local vote', async () => {
-    await seedGovRow({ topicId: 'failed', actionId: 'failed#0', status: 'enacted', submittedEpoch: 618, decidedEpoch: 625 });
+    await seedGovRow({ topicId: 'failed', actionId: 'failed#0', status: 'enacted', submittedEpoch: 618, decidedEpoch: 625, drepYesPct: 55 });
     await seedVote('failed#0', { localStatus: 'failed' });
     expect(await getCompareActionBySlug(db(), 'slug-failed')).toBeNull();
+  });
+
+  it('returns null for an action whose only vote is a No', async () => {
+    await seedGovRow({ topicId: 'noyes', actionId: 'noyes#0', status: 'expired', submittedEpoch: 614, decidedEpoch: 621, drepYesPct: 0 });
+    await seedVote('noyes#0', { vote: 'No' });
+    expect(await getCompareActionBySlug(db(), 'slug-noyes')).toBeNull();
+  });
+
+  it('returns null for an action with votes but no stored final pct on any body', async () => {
+    await seedGovRow({ topicId: 'nopct', actionId: 'nopct#0', status: 'enacted', submittedEpoch: 612, decidedEpoch: 619 });
+    await seedVote('nopct#0');
+    expect(await getCompareActionBySlug(db(), 'slug-nopct')).toBeNull();
   });
 });

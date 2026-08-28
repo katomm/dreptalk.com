@@ -995,7 +995,6 @@ export interface CompareCandidateRow {
   title: string | null;
   type: string;
   topic_slug: string;
-  decided_epoch: number | null;
 }
 
 /**
@@ -1005,19 +1004,26 @@ export interface CompareCandidateRow {
 export const COMPARABLE_BINDS: readonly string[] = [...TERMINAL_STATUSES];
 
 /**
- * The one definition of "this action can be compared against". Two halves:
+ * The one definition of "this action can be compared against". Three halves, each
+ * mirroring something the chart actually needs:
  * voting is over by the canonical lifecycle set (not a decided_epoch proxy, which
- * is only a data field that happens to correlate), and the action has at least one
- * live, timestamped vote the trend can actually draw. CC votes carry no voted_power
- * by design, so a CC-only trend is admitted explicitly rather than filtered out by
- * a DRep-shaped gate. The picker query and the ?compare= resolver both build on
- * this, so a hand-typed URL cannot reach an action the picker would not offer.
+ * is only a data field that happens to correlate), the action has at least one live,
+ * timestamped YES vote the trend can draw as a rising step, and at least one stored
+ * final pct for the curve to end on. computeVoteTrendSeries drops any body whose yes
+ * weight is zero or whose final pct is null, so without those last two an eligible
+ * action would render an empty overlay and a misleading note. CC votes carry no
+ * voted_power by design, so a CC-only trend is admitted explicitly rather than
+ * filtered out by a DRep-shaped gate. The picker query and the ?compare= resolver
+ * both build on this, so a hand-typed URL cannot reach an action the picker would
+ * not offer.
  */
 export function comparableActionSql(alias = 'g'): string {
   return `${alias}.status IN (${sqlPlaceholders(COMPARABLE_BINDS)})
+     AND (${alias}.drep_yes_pct IS NOT NULL OR ${alias}.spo_yes_pct IS NOT NULL OR ${alias}.cc_yes_pct IS NOT NULL)
      AND EXISTS (
        SELECT 1 FROM drep_votes v
        WHERE v.ga_id = ${alias}.id
+         AND v.vote = 'Yes'
          AND v.block_time IS NOT NULL
          AND ${liveVoteSql('v')}
          AND (v.voted_power IS NOT NULL OR v.voter_role = 'ConstitutionalCommittee')
@@ -1033,8 +1039,7 @@ export async function getCompareCandidates(
   return (
     await db
       .prepare(
-        `SELECT g.id AS id, g.title AS title, g.type AS type, t.slug AS topic_slug,
-                g.decided_epoch AS decided_epoch
+        `SELECT g.id AS id, g.title AS title, g.type AS type, t.slug AS topic_slug
          FROM governance_actions g
          JOIN topics t ON t.id = g.topic_id
          WHERE t.deleted = 0

@@ -6,6 +6,7 @@ import {
   type TrendBodyInput,
   toRelativeSeries,
   sharedTrendBodies,
+  buildCompareView,
 } from './voteTrend.js';
 
 const series = (over: Partial<TrendSeries> = {}): TrendSeries => ({
@@ -19,6 +20,8 @@ const series = (over: Partial<TrendSeries> = {}): TrendSeries => ({
   finalLabel: '80%',
   ...over,
 });
+
+const DAY = 86_400;
 
 describe('buildTrendChart', () => {
   it('returns null for an empty series list', () => {
@@ -237,5 +240,83 @@ describe('buildTrendChart compare support', () => {
       domain: [0, 100], markers: [140],
     })!;
     expect(c.markers[0].x).toBe(200);
+  });
+});
+
+describe('buildCompareView', () => {
+  const opts = {
+    start: 1000,
+    end: 1000 + 10 * DAY,
+    lineEnd: 1000 + 10 * DAY,
+    ownIsTerminal: true,
+    compareStart: 500_000,
+    compareEnd: 500_000 + 4 * DAY,
+  };
+  const ownDrep = series({ key: 'DRep', points: [{ t: 1000, pct: 0 }, { t: 1000 + 10 * DAY, pct: 80 }] });
+  const ownSpo = series({ key: 'SPO', points: [{ t: 1000, pct: 0 }, { t: 1000 + 10 * DAY, pct: 60 }] });
+  const cmpDrep = series({
+    key: 'DRep',
+    dashed: true,
+    points: [{ t: 500_000, pct: 0 }, { t: 500_000 + 4 * DAY, pct: 55 }],
+  });
+
+  it('re-bases each side by ITS OWN window start, not by one shared origin', () => {
+    const v = buildCompareView([ownDrep], [cmpDrep], opts);
+    // Both curves must begin at day 0. A single shared origin would push the
+    // compared action to t = 499000 and off the plot entirely.
+    expect(v.series[0].points[0].t).toBe(0);
+    expect(v.compareSeries[0].points[0].t).toBe(0);
+    expect(v.compareSeries[0].points[1].t).toBe(4 * DAY);
+  });
+
+  it('spans the axis across the longer action so neither is clipped', () => {
+    const longCompare = { ...opts, compareEnd: 500_000 + 30 * DAY };
+    const v = buildCompareView([ownDrep], [cmpDrep], longCompare);
+    expect(v.domain).toEqual([0, 30 * DAY]);
+    // And the other way round, when the own action is the longer one.
+    expect(buildCompareView([ownDrep], [cmpDrep], opts).domain).toEqual([0, 10 * DAY]);
+  });
+
+  it('never places a Today marker on a terminal action', () => {
+    const v = buildCompareView([ownDrep], [cmpDrep], { ...opts, ownIsTerminal: true, lineEnd: 1000 + 3 * DAY });
+    expect(v.markers).toEqual([]);
+  });
+
+  it('places a Today marker on an open action whose line stops short of the deadline', () => {
+    const v = buildCompareView([ownDrep], [cmpDrep], { ...opts, ownIsTerminal: false, lineEnd: 1000 + 3 * DAY });
+    expect(v.markers).toEqual([3 * DAY]);
+  });
+
+  it('places no marker on an open action whose line already reaches the deadline', () => {
+    const v = buildCompareView([ownDrep], [cmpDrep], { ...opts, ownIsTerminal: false });
+    expect(v.markers).toEqual([]);
+  });
+
+  it('falls back to exactly the non-compare shape when no body is shared', () => {
+    const v = buildCompareView([ownSpo], [cmpDrep], opts);
+    expect(v.relative).toBe(false);
+    expect(v.series).toEqual([ownSpo]);
+    expect(v.series[0].points[0].t).toBe(1000);
+    expect(v.compareSeries).toEqual([]);
+    expect(v.domain).toEqual([opts.start, opts.end]);
+    expect(v.markers).toEqual([]);
+    expect(v.droppedKeys).toEqual([]);
+  });
+
+  it('reports the own bodies the intersection removed', () => {
+    const v = buildCompareView([ownDrep, ownSpo], [cmpDrep], opts);
+    expect(v.series.map((s) => s.key)).toEqual(['DRep']);
+    expect(v.droppedKeys).toEqual(['SPO']);
+  });
+
+  it('reports no dropped bodies when both sides carry the same ones', () => {
+    const cmpSpo = series({ key: 'SPO', dashed: true, points: [{ t: 500_000, pct: 0 }, { t: 500_000 + DAY, pct: 20 }] });
+    expect(buildCompareView([ownDrep, ownSpo], [cmpDrep, cmpSpo], opts).droppedKeys).toEqual([]);
+  });
+
+  it('does not mutate the input series', () => {
+    buildCompareView([ownDrep], [cmpDrep], opts);
+    expect(ownDrep.points[0].t).toBe(1000);
+    expect(cmpDrep.points[0].t).toBe(500_000);
   });
 });

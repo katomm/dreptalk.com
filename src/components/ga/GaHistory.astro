@@ -2,7 +2,7 @@
 // History tab: lifecycle timeline for a governance action.
 // Milestones: Submitted, then either "Voting open until" (active) or terminal outcome.
 // Epochs are shown with their calendar date where known; dates are never invented.
-import type { GovernanceAction } from '@/lib/db/governance.js';
+import type { GovernanceAction, CompareCandidateRow, CompareAction } from '@/lib/db/governance.js';
 import { statusBadge, formatEpochDate, isTerminalStatus, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 import VotingTrendChart from './VotingTrendChart.astro';
@@ -10,7 +10,6 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
-import type { CompareCandidateRow, CompareAction } from '@/lib/db/governance.js';
 
 interface Props {
   action: GovernanceAction;
