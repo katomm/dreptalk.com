@@ -7,6 +7,8 @@ import {
   toRelativeSeries,
   sharedTrendBodies,
   buildCompareView,
+  sampleSeriesAt,
+  buildHoverBands,
 } from './voteTrend.js';
 
 const series = (over: Partial<TrendSeries> = {}): TrendSeries => ({
@@ -318,5 +320,114 @@ describe('buildCompareView', () => {
     buildCompareView([ownDrep], [cmpDrep], opts);
     expect(ownDrep.points[0].t).toBe(1000);
     expect(cmpDrep.points[0].t).toBe(500_000);
+  });
+});
+
+describe('sampleSeriesAt', () => {
+  // Step-after semantics: from point i-1 the line runs flat at pct i-1 until t_i,
+  // then jumps. So the value AT t_i is pct_i, and anywhere between is the older pct.
+  const step = (): TrendSeries => series({
+    points: [
+      { t: 0, pct: 0 },
+      { t: 100, pct: 30 },
+      { t: 200, pct: 75 },
+    ],
+  });
+
+  it('returns the value the curve has already reached, never an interpolation', () => {
+    // Half way between the 30 and 75 jumps the curve is still flat at 30. An
+    // interpolating implementation would answer 52.5 here, which the chart never draws.
+    expect(sampleSeriesAt(step(), 150)).toBe(30);
+  });
+
+  it('takes the new value exactly at a jump', () => {
+    expect(sampleSeriesAt(step(), 100)).toBe(30);
+    expect(sampleSeriesAt(step(), 200)).toBe(75);
+  });
+
+  it('returns the first point before the series starts', () => {
+    expect(sampleSeriesAt(step(), -50)).toBe(0);
+  });
+
+  it('holds the final value past the end', () => {
+    expect(sampleSeriesAt(step(), 10_000)).toBe(75);
+  });
+
+  it('returns 0 for an empty point list rather than throwing', () => {
+    expect(sampleSeriesAt(series({ points: [] }), 10)).toBe(0);
+  });
+});
+
+describe('buildHoverBands', () => {
+  const DAY = 86_400;
+  const plot = { x: 0, y: 0, w: 400, h: 200 };
+  const ramp = (over: Partial<TrendSeries> = {}): TrendSeries => series({
+    points: [
+      { t: 0, pct: 0 },
+      { t: 2 * DAY, pct: 40 },
+      { t: 4 * DAY, pct: 80 },
+    ],
+    ...over,
+  });
+
+  it('emits one band per step plus the closing edge', () => {
+    const bands = buildHoverBands([ramp()], { plot, domain: [0, 4 * DAY], step: DAY });
+    expect(bands.map((b) => b.t)).toEqual([0, DAY, 2 * DAY, 3 * DAY, 4 * DAY]);
+  });
+
+  it('puts the crosshair on the sample point, not the band centre', () => {
+    const bands = buildHoverBands([ramp()], { plot, domain: [0, 4 * DAY], step: DAY });
+    expect(bands[0].lineX).toBe(0);
+    expect(bands[2].lineX).toBe(200);
+    expect(bands[4].lineX).toBe(400);
+  });
+
+  it('covers the whole plot width with no gap between bands', () => {
+    const bands = buildHoverBands([ramp()], { plot, domain: [0, 4 * DAY], step: DAY });
+    expect(bands[0].x).toBe(plot.x);
+    const last = bands[bands.length - 1];
+    expect(last.x + last.w).toBeCloseTo(plot.x + plot.w);
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i].x).toBeCloseTo(bands[i - 1].x + bands[i - 1].w);
+    }
+  });
+
+  it('samples every series with step-after semantics', () => {
+    const bands = buildHoverBands([ramp()], { plot, domain: [0, 4 * DAY], step: DAY });
+    // Day 1 sits between the 0 and 40 jumps, so the curve is still at 0.
+    expect(bands[1].samples).toEqual([{ key: 'DRep', pct: 0, dashed: false }]);
+    expect(bands[2].samples[0].pct).toBe(40);
+    expect(bands[4].samples[0].pct).toBe(80);
+  });
+
+  it('carries the dashed flag through so a row can be tied to the compared action', () => {
+    const bands = buildHoverBands([ramp(), ramp({ key: 'SPO', dashed: true })], {
+      plot, domain: [0, 4 * DAY], step: DAY,
+    });
+    expect(bands[0].samples.map((s) => s.dashed)).toEqual([false, true]);
+  });
+
+  it('flips the readout to the left of the crosshair past the plot midpoint', () => {
+    const bands = buildHoverBands([ramp()], { plot, domain: [0, 4 * DAY], step: DAY });
+    expect(bands[0].anchor).toBe('start');
+    expect(bands[0].textX).toBeGreaterThan(bands[0].lineX);
+    expect(bands[4].anchor).toBe('end');
+    expect(bands[4].textX).toBeLessThan(bands[4].lineX);
+  });
+
+  it('coarsens the step instead of emitting an unbounded band count', () => {
+    // A 400 day domain at one band per day would be 400 bands of markup on every
+    // page view. The cap doubles the step until the count fits.
+    const bands = buildHoverBands([ramp()], { plot, domain: [0, 400 * DAY], step: DAY });
+    expect(bands.length).toBeLessThanOrEqual(41);
+    expect(bands.length).toBeGreaterThan(1);
+  });
+
+  it('returns no bands for a degenerate domain', () => {
+    expect(buildHoverBands([ramp()], { plot, domain: [0, 0], step: DAY })).toEqual([]);
+  });
+
+  it('returns no bands when there is nothing to read off', () => {
+    expect(buildHoverBands([], { plot, domain: [0, 4 * DAY], step: DAY })).toEqual([]);
   });
 });

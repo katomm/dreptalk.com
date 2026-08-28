@@ -257,3 +257,94 @@ export function buildCompareView(
     droppedKeys: own.filter((s) => !keptKeys.has(s.key)).map((s) => s.key),
   };
 }
+
+/**
+ * The value a step-after curve has at t: the last point at or before t, never an
+ * interpolation between two points. Support is committed at a vote instant, so
+ * between two votes the curve is flat and the honest reading is the older value.
+ */
+export function sampleSeriesAt(series: TrendSeries, t: number): number {
+  const pts = series.points;
+  if (pts.length === 0) return 0;
+  let pct = pts[0].pct;
+  for (const p of pts) {
+    if (p.t > t) break;
+    pct = p.pct;
+  }
+  return pct;
+}
+
+export interface HoverSample {
+  key: TrendBodyKey;
+  /** 0..100, the value every series has at this band's sample point. */
+  pct: number;
+  /** True for a compared action's series, so the row can be marked as such. */
+  dashed: boolean;
+}
+
+export interface HoverBand {
+  /** Hit area on the plot. Bands tile the plot width with no gap. */
+  x: number;
+  w: number;
+  /** Crosshair position: the sample point itself, not the band centre. */
+  lineX: number;
+  /** Domain value this band reads off, for the caller to label. */
+  t: number;
+  /** Where the readout text starts, and how it anchors, so it never leaves the plot. */
+  textX: number;
+  anchor: 'start' | 'end';
+  samples: HoverSample[];
+}
+
+export interface HoverBandOptions {
+  plot: { x: number; y: number; w: number; h: number };
+  domain: [number, number];
+  /** Seconds between sample points, e.g. one day. Coarsened when it would not fit. */
+  step: number;
+}
+
+/** Sample points beyond this would put more markup on the page than the readout is worth. */
+const MAX_HOVER_BANDS = 41;
+/** Gap in scale units between the crosshair and its readout text. */
+const READOUT_GAP = 6;
+
+/**
+ * Vertical hit areas for a CSS-only hover readout, one per sample point, each
+ * carrying every series' value at that point. Pure geometry plus sampling, so the
+ * component only has to render it: there is no client-side JavaScript involved.
+ */
+export function buildHoverBands(series: TrendSeries[], opts: HoverBandOptions): HoverBand[] {
+  const [tMin, tMax] = opts.domain;
+  const span = tMax - tMin;
+  if (series.length === 0 || span <= 0 || opts.step <= 0) return [];
+
+  // Coarsen rather than emit hundreds of bands: an unusually long window would
+  // otherwise put one group of markup per day on every page view.
+  let step = opts.step;
+  while (span / step > MAX_HOVER_BANDS - 1) step *= 2;
+
+  const ts: number[] = [];
+  for (let t = tMin; t < tMax; t += step) ts.push(t);
+  ts.push(tMax); // the closing edge, so the deadline itself is always readable
+
+  const xFor = (t: number): number => round2(opts.plot.x + (opts.plot.w * (t - tMin)) / span);
+  const mid = opts.plot.x + opts.plot.w / 2;
+
+  return ts.map((t, i) => {
+    const lineX = xFor(t);
+    // Each band owns the space up to the midpoint between it and its neighbours, so
+    // the nearest sample point is always the one under the cursor.
+    const left = i === 0 ? opts.plot.x : round2((xFor(ts[i - 1]) + lineX) / 2);
+    const right = i === ts.length - 1 ? opts.plot.x + opts.plot.w : round2((lineX + xFor(ts[i + 1])) / 2);
+    const anchor: 'start' | 'end' = lineX > mid ? 'end' : 'start';
+    return {
+      x: left,
+      w: round2(right - left),
+      lineX,
+      t,
+      textX: anchor === 'end' ? lineX - READOUT_GAP : lineX + READOUT_GAP,
+      anchor,
+      samples: series.map((s) => ({ key: s.key, pct: sampleSeriesAt(s, t), dashed: s.dashed === true })),
+    };
+  });
+}

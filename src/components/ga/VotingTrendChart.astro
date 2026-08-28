@@ -12,6 +12,7 @@ import {
   computeVoteTrendSeries,
   buildTrendChart,
   buildCompareView,
+  buildHoverBands,
   type TrendBodyInput,
   type TrendBodyKey,
   type CompareView,
@@ -160,6 +161,25 @@ const bodyList = (keys: TrendBodyKey[], sep: string): string =>
   keys.length < 2 ? (keys[0] ?? '') : `${keys.slice(0, -1).join(', ')} ${sep} ${keys[keys.length - 1]}`;
 const droppedLead = `${bodyList(droppedKeys, 'and')} ${droppedKeys.length === 1 ? 'is' : 'are'} not shown,`;
 const droppedTail = ` has no ${bodyList(droppedKeys, 'or')} votes to compare against.`;
+// CSS-only hover readout: one hit band per day, each carrying every series' value at
+// that point, so a reader can see where the two curves stood on the same day instead of
+// only where they ended. Desktop only (see the media query), no client JavaScript.
+const DAY_SECONDS = 86_400;
+// buildTrendChart returns null when no body has usable support, and the whole section
+// is then skipped, so there is nothing to hover over either.
+const hoverBands = chart
+  ? buildHoverBands([...series, ...compareSeries], { plot: chart.plot, domain, step: DAY_SECONDS })
+  : [];
+// The readout sits beside its crosshair, so its key line and its text swap places
+// depending on which side of the plot the band falls on.
+const KEY_W = 14;
+const KEY_GAP = 4;
+const rowGeom = (band: { textX: number; anchor: 'start' | 'end' }) =>
+  band.anchor === 'end'
+    ? { keyX1: band.textX - KEY_W, keyX2: band.textX, textX: band.textX - KEY_W - KEY_GAP }
+    : { keyX1: band.textX, keyX2: band.textX + KEY_W, textX: band.textX + KEY_W + KEY_GAP };
+const bodyLabel = (key: TrendBodyKey): string => (key === 'CC' ? 'CC' : `${key}s`);
+
 const compareTitle = compare ? compare.action.title ?? compare.action.type : null;
 const chartLabel = relative && compareTitle
   ? `Cumulative yes support per body over the voting window, overlaid with ${compareTitle}`
@@ -204,6 +224,39 @@ const chartLabel = relative && compareTitle
       {chart.xTicks.map((t) => (
         <text class="vtrend__xlabel" x={t.x} y={chart.height - 10} text-anchor={t.x <= chart.plot.x + 1 ? 'start' : 'end'}>{xLabel(t.t)}</text>
       ))}
+      {/* Last in the SVG on purpose: document order is the only z-order SVG has, and
+          the readout has to paint over the curves. aria-hidden because the same values
+          are hover-only, and forty focusable bands would wreck keyboard navigation. */}
+      <g class="vtrend__hover" aria-hidden="true">
+        {hoverBands.map((b) => (
+          <>
+            <rect class="vtrend__band" x={b.x} y={chart.plot.y} width={b.w} height={chart.plot.h} />
+            <g class="vtrend__read">
+              <line class="vtrend__cross" x1={b.lineX} y1={chart.plot.y} x2={b.lineX} y2={chart.plot.y + chart.plot.h} />
+              <text class="vtrend__readtitle" x={b.textX} y={chart.plot.y + 12} text-anchor={b.anchor}>{xLabel(b.t)}</text>
+              {b.samples.map((sample, i) => (
+                <>
+                  <line
+                    class:list={['vtrend__keyline', { 'vtrend__keyline--cmp': sample.dashed }]}
+                    style={`color:${COLORS[sample.key]}`}
+                    x1={rowGeom(b).keyX1}
+                    y1={chart.plot.y + 25 + i * 13}
+                    x2={rowGeom(b).keyX2}
+                    y2={chart.plot.y + 25 + i * 13}
+                  />
+                  <text
+                    class="vtrend__readrow"
+                    style={`color:${COLORS[sample.key]}`}
+                    x={rowGeom(b).textX}
+                    y={chart.plot.y + 29 + i * 13}
+                    text-anchor={b.anchor}
+                  >{bodyLabel(sample.key)} {fmtPctFine(sample.pct)}</text>
+                </>
+              ))}
+            </g>
+          </>
+        ))}
+      </g>
     </svg>
     {relative && compare ? (
       <div class="vtrend__legends">
@@ -293,6 +346,27 @@ const chartLabel = relative && compareTitle
   .vtrend__keyline { stroke: currentColor; stroke-width: 2; }
   .vtrend__keyline--cmp { stroke-width: 1.5; stroke-dasharray: 2 3; opacity: 0.55; }
   .vtrend__cmpnote { font-size: 0.78rem; color: var(--muted); margin: 0.4rem 0 0; }
+  .vtrend__band { fill: transparent; pointer-events: none; }
+  .vtrend__read { opacity: 0; pointer-events: none; }
+  .vtrend__cross { stroke: var(--fg); stroke-width: 1; opacity: 0.35; }
+  /* Stroked halo in the surface colour so the readout stays legible where it crosses
+     a curve or a grid line. No background rect, whose width we cannot know server-side. */
+  .vtrend__readtitle, .vtrend__readrow {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    paint-order: stroke fill;
+    stroke: var(--surface);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+  }
+  .vtrend__readtitle { fill: var(--fg); font-weight: 700; }
+  .vtrend__readrow { fill: currentColor; }
+  /* Desktop only, and only where hovering is a real interaction. Touch devices get
+     nothing, which is why the bands stay inert outside this query. */
+  @media (hover: hover) and (min-width: 641px) {
+    .vtrend__band { pointer-events: all; }
+    .vtrend__band:hover + .vtrend__read { opacity: 1; }
+  }
   /* .vtrend__now rides along: hiding only the label would leave an unexplained
      dashed vertical line on narrow screens. */
   @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel, .vtrend__now { display: none; } }
