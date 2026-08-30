@@ -1,0 +1,557 @@
+---
+// Voting power origins: for the signed-in DRep, where their CURRENT delegators
+// were delegated before they arrived. Gated to DReps only, mirroring /vote's
+// gating block (no session or non-DRep session -> /login).
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import { getSelfDrepId } from '@/lib/db/users';
+import { getDrepById } from '@/lib/db/dreps';
+import { runtimeEnv } from '@/lib/api/response';
+import { formatAdaCompact } from '@/lib/format/ada';
+import '@/styles/list-controls.css';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const isDrep = user.roles.includes('drep');
+if (!isDrep) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+
+// Resolve the drep_id from the session (falls back to a DB read for legacy
+// sessions), then the DRep's own row for the "Current delegators" tile. The
+// rest of the page (arrivals, the fan, the table) is filled client-side from
+// the analysis API, keyed off this same drep_id server-side via the session.
+const drepId = db ? await getSelfDrepId(db, user) : null;
+const drep = drepId && db ? await getDrepById(db, drepId) : null;
+
+const delegatorCount = drep?.delegatorCount ?? 0;
+const votingPowerLabel = formatAdaCompact(drep?.votingPower ?? null) ?? '0 ₳';
+---
+<Layout
+  title="Voting power origins - DRepTalk"
+  description="Where your current voting power came from, grouped by where your delegators were delegated before."
+  noindex={true}
+  wide
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Voting power origins</span>
+  </nav>
+
+  {!drep && (
+    <div class="callout callout--info" role="status">
+      <div class="callout__body">
+        Your DRep id has not synced yet. Check back in a few minutes.
+      </div>
+    </div>
+  )}
+
+  {drep && (
+    <div class="vpo" data-vpo-root>
+      <div class="vpo-head">
+        <h1 class="vpo-head__title">Voting power origins</h1>
+        <p class="vpo-head__sub">
+          Where your current voting power came from. Only delegators still with you today are included, grouped by
+          where they were delegated before.
+        </p>
+      </div>
+
+      <div class="vpo-kpis">
+        <div class="vpo-kpi">
+          <span class="vpo-kpi__label">Current delegators</span>
+          <span class="vpo-kpi__num">{delegatorCount.toLocaleString('en-US')}</span>
+          <span class="vpo-kpi__sub">{votingPowerLabel} voting power</span>
+        </div>
+        <div class="vpo-kpi">
+          <span class="vpo-kpi__label">Arrivals identified</span>
+          <div id="vpo-kpi-arrived" class="vpo-kpi__arrived">
+            <span class="vpo-kpi__num">...</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="vpo-controls">
+        <h2 class="vpo-controls__title">Where it came from</h2>
+        <div class="seg" role="group" aria-label="Time window">
+          <button type="button" class="seg__btn is-active" data-window="12" aria-pressed="true">~2 months</button>
+          <button type="button" class="seg__btn" data-window="36" aria-pressed="false">~6 months</button>
+          <button type="button" class="seg__btn" data-window="73" aria-pressed="false">~12 months</button>
+        </div>
+      </div>
+
+      <section class="vpo-card">
+        <div id="vpo-status" class="vpo-status" role="status">
+          <span class="vpo-spinner" aria-hidden="true"></span>
+          <span>Analyzing… the first run in a while can take a moment.</span>
+        </div>
+
+        <div class="vpo-content" data-vpo-content hidden>
+          <p class="vpo-line" data-vpo-coverage></p>
+          <p class="vpo-line" data-vpo-returning></p>
+          <svg id="vpo-fan" class="vpo-fan" viewBox="0 0 960 460" role="img" aria-label="Where the current voting power came from"></svg>
+          <div id="vpo-bar" class="vpo-bar" role="img" aria-label="Where the current voting power came from"></div>
+          <p class="vpo-caption" data-vpo-caption hidden>
+            <span class="vpo-caption__swatch" aria-hidden="true"></span>
+            <span class="vpo-caption__text" data-vpo-caption-text></span>
+          </p>
+        </div>
+      </section>
+
+      <section class="vpo-table-section" data-vpo-table-section hidden>
+        <div class="vpo-table-head">
+          <span class="vpo-table-head__dot" aria-hidden="true"></span>
+          <span class="vpo-table-head__col vpo-table-head__col--name">Source</span>
+          <span class="vpo-table-head__col">Delegators</span>
+          <span class="vpo-table-head__col">Stake</span>
+          <span class="vpo-table-head__col">Share</span>
+        </div>
+        <div id="vpo-table" class="vpo-table"></div>
+      </section>
+
+      <div class="vpo-footnotes">
+        <span>Amounts are these delegators' stake today, not their stake when they switched.</span>
+        <span>Shows the origin of delegators who are still with you. Delegations that arrived and left again within the window are not visible.</span>
+      </div>
+    </div>
+  )}
+</Layout>
+
+<script>
+  import { renderVotingPowerOrigins } from '@/lib/client/votingPowerOriginsPage';
+  renderVotingPowerOrigins();
+</script>
+
+<style is:global>
+  /* Layout-only rules use the design tokens (--fg/--muted/--border/--surface/
+     --shadow/--radius). The band/dot colors are the validated data-viz
+     palette from the approved mockup and are kept as literal hex, per source
+     TYPE (not identity): three individual DRep blues plus one merged shade,
+     amber for new delegators, gray for abstain/no-confidence, light gray for
+     unknown. is:global because the fan/bar/table content is built by the
+     client script, so it never carries Astro's scoped-style attribute. */
+  .vpo {
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+  }
+  .vpo-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .vpo-head__title {
+    margin: 0;
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .vpo-head__sub {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9375rem;
+    max-width: 62ch;
+  }
+
+  .vpo-kpis {
+    display: flex;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+  }
+  .vpo-kpi {
+    flex: 1 1 220px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .vpo-kpi__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .vpo-kpi__num {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .vpo-kpi__sub {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .vpo-kpi__arrived {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .vpo-kpi__pos {
+    color: var(--c-pos);
+  }
+
+  .vpo-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .vpo-controls__title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .vpo-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+    box-shadow: var(--shadow);
+  }
+
+  .vpo-status {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--muted);
+    font-size: 0.9375rem;
+    padding: 1rem 0;
+  }
+  .vpo-status--error {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .vpo-spinner {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    animation: vpo-spin 0.8s linear infinite;
+  }
+  @keyframes vpo-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .vpo-retry {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--fg);
+    font: inherit;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+  }
+
+  .vpo-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .vpo-line {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .vpo-line strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .vpo-fan {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-top: 0.4rem;
+  }
+  .vpo-fan text {
+    font-family: var(--font-body);
+  }
+  .vpo-label-name,
+  .vpo-label-name-inline {
+    fill: var(--fg);
+    font-size: 14px;
+    font-weight: 600;
+    text-anchor: end;
+  }
+  .vpo-label-sub {
+    fill: var(--muted);
+    font-size: 12px;
+    text-anchor: end;
+  }
+  .vpo-you-title {
+    fill: var(--fg);
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .vpo-you-sub {
+    fill: var(--muted);
+    font-size: 12px;
+  }
+  .vpo-band {
+    fill-opacity: 0.5;
+  }
+  .vpo-you-node {
+    fill: var(--accent);
+  }
+
+  /* Mobile composition bar: hidden by default, swaps in for the fan below 640px. */
+  .vpo-bar {
+    display: none;
+    height: 26px;
+    gap: 2px;
+    margin-top: 0.4rem;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .vpo-bar-seg {
+    flex: 0 0 auto;
+    height: 100%;
+  }
+  @media (max-width: 640px) {
+    .vpo-fan {
+      display: none !important;
+    }
+    .vpo-bar {
+      display: flex;
+    }
+  }
+
+  .vpo-caption {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    padding: 0.7rem 0 0;
+    border-top: 1px solid var(--border);
+    margin: 0.6rem 0 0;
+  }
+  .vpo-caption strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .vpo-caption__swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+    border-radius: 3px;
+    border: 1px solid #c9c5d8;
+    background: repeating-linear-gradient(45deg, #c9c5d8 0 2px, transparent 2px 5px);
+  }
+
+  .vpo-table-section {
+    display: flex;
+    flex-direction: column;
+  }
+  .vpo-table-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0 0 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .vpo-table-head__dot {
+    width: 10px;
+    flex-shrink: 0;
+  }
+  .vpo-table-head__col--name {
+    flex: 1;
+  }
+  .vpo-table-head__col:not(.vpo-table-head__col--name) {
+    width: 5rem;
+    text-align: right;
+  }
+  .vpo-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9375rem;
+  }
+  .vpo-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+    border-radius: 3px;
+  }
+  .vpo-row__name {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .vpo-row__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .vpo-row__link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+    font-weight: 600;
+  }
+  .vpo-row__label {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .vpo-row__num {
+    width: 5rem;
+    text-align: right;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+  }
+  .vpo-row__num--muted {
+    color: var(--muted);
+  }
+
+  .vpo-footnotes {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  /* Band/dot colors: source TYPE, not identity. Light values, dark overrides below. */
+  .vpo-band--drep-0,
+  .vpo-stub--drep-0,
+  .vpo-dot--drep-0 {
+    fill: #2563c9;
+    background: #2563c9;
+  }
+  .vpo-band--drep-1,
+  .vpo-stub--drep-1,
+  .vpo-dot--drep-1 {
+    fill: #4f83d9;
+    background: #4f83d9;
+  }
+  .vpo-band--drep-2,
+  .vpo-stub--drep-2,
+  .vpo-dot--drep-2 {
+    fill: #5b8fdd;
+    background: #5b8fdd;
+  }
+  .vpo-band--drep-3,
+  .vpo-stub--drep-3,
+  .vpo-dot--drep-3 {
+    fill: #7ba3e3;
+    background: #7ba3e3;
+  }
+  .vpo-band--new,
+  .vpo-stub--new,
+  .vpo-dot--new {
+    fill: #b45309;
+    background: #b45309;
+  }
+  .vpo-band--abstain,
+  .vpo-stub--abstain,
+  .vpo-dot--abstain {
+    fill: #6b6880;
+    background: #6b6880;
+  }
+  .vpo-band--unknown,
+  .vpo-stub--unknown,
+  .vpo-dot--unknown {
+    fill: #a5a1b5;
+    background: #a5a1b5;
+  }
+  .vpo-bar-seg--drep-0 {
+    background: #2563c9;
+  }
+  .vpo-bar-seg--drep-1 {
+    background: #4f83d9;
+  }
+  .vpo-bar-seg--drep-2 {
+    background: #5b8fdd;
+  }
+  .vpo-bar-seg--drep-3 {
+    background: #7ba3e3;
+  }
+  .vpo-bar-seg--new {
+    background: #b45309;
+  }
+  .vpo-bar-seg--abstain {
+    background: #6b6880;
+  }
+  .vpo-bar-seg--unknown {
+    background: #a5a1b5;
+  }
+
+  html[data-theme='dark'] .vpo-band--drep-0,
+  html[data-theme='dark'] .vpo-stub--drep-0,
+  html[data-theme='dark'] .vpo-dot--drep-0,
+  html[data-theme='dark'] .vpo-bar-seg--drep-0 {
+    fill: #3f7fd1;
+    background: #3f7fd1;
+  }
+  html[data-theme='dark'] .vpo-band--drep-1,
+  html[data-theme='dark'] .vpo-stub--drep-1,
+  html[data-theme='dark'] .vpo-dot--drep-1,
+  html[data-theme='dark'] .vpo-bar-seg--drep-1 {
+    fill: #5d95db;
+    background: #5d95db;
+  }
+  html[data-theme='dark'] .vpo-band--drep-2,
+  html[data-theme='dark'] .vpo-stub--drep-2,
+  html[data-theme='dark'] .vpo-dot--drep-2,
+  html[data-theme='dark'] .vpo-bar-seg--drep-2 {
+    fill: #6da0e0;
+    background: #6da0e0;
+  }
+  html[data-theme='dark'] .vpo-band--drep-3,
+  html[data-theme='dark'] .vpo-stub--drep-3,
+  html[data-theme='dark'] .vpo-dot--drep-3,
+  html[data-theme='dark'] .vpo-bar-seg--drep-3 {
+    fill: #7fabe4;
+    background: #7fabe4;
+  }
+  html[data-theme='dark'] .vpo-band--new,
+  html[data-theme='dark'] .vpo-stub--new,
+  html[data-theme='dark'] .vpo-dot--new,
+  html[data-theme='dark'] .vpo-bar-seg--new {
+    fill: #b3762a;
+    background: #b3762a;
+  }
+  html[data-theme='dark'] .vpo-band--abstain,
+  html[data-theme='dark'] .vpo-stub--abstain,
+  html[data-theme='dark'] .vpo-dot--abstain,
+  html[data-theme='dark'] .vpo-bar-seg--abstain {
+    fill: #9d99ad;
+    background: #9d99ad;
+  }
+  html[data-theme='dark'] .vpo-band--unknown,
+  html[data-theme='dark'] .vpo-stub--unknown,
+  html[data-theme='dark'] .vpo-dot--unknown,
+  html[data-theme='dark'] .vpo-bar-seg--unknown {
+    fill: #6b6880;
+    background: #6b6880;
+  }
+  html[data-theme='dark'] .vpo-caption__swatch {
+    border-color: #3a3450;
+    background: repeating-linear-gradient(45deg, #3a3450 0 2px, transparent 2px 5px);
+  }
+</style>
