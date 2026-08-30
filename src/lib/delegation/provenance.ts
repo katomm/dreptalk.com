@@ -10,8 +10,16 @@ export const PROVENANCE_WINDOWS = [12, 36, 73] as const;
 export type ProvenanceWindow = (typeof PROVENANCE_WINDOWS)[number];
 
 // Provenance lookups per request are capped: the top candidates by current
-// stake get analyzed, the rest is an honest "not analyzed" remainder. Start
-// at 500, Task 7 measures real latency and may raise it.
+// stake get analyzed, the rest is an honest "not analyzed" remainder. Task 7
+// measured real mainnet Koios latency against a 17k-delegator DRep (the
+// largest live one at measurement time): cap 500 already needs ~79
+// sequential calls (34 account_update_history + 27 tx_info + 18
+// drep_delegators pages) and 60-90s wall time (413/429 never fired, so this
+// is not a rate-limit artifact), well past the ~15s NO-GO ceiling. Raising
+// the cap to 1000 roughly doubled every stage (139 calls, ~150s). NO-GO:
+// stays at 500, not raised. The bottleneck is round-trip count and Koios's
+// own per-call latency on account_update_history/tx_info, not this cap or
+// TX_LOOKUP_BUDGET (which never got close to binding, see below).
 export const ANALYSIS_CAP = 500;
 
 export type SourceType = 'drep' | 'new' | 'abstain' | 'no_confidence' | 'unknown';
@@ -201,7 +209,12 @@ export function isCurrentPayloadVersion(payloadJson: string): boolean {
 
 // Hard budget for deduped tx_info lookups per request: churn-heavy whales
 // cannot run the cost away. Overflow degrades the smallest-stake candidates
-// into the unclassified bucket. Go/No-Go tuned by Task 7's measurements.
+// into the unclassified bucket. Task 7 measured this against the largest
+// live mainnet DRep (17k delegators): only 669 unique delegation_drep tx
+// hashes at ANALYSIS_CAP 500, 1326 at cap 1000, both well under this budget
+// (degraded_by_tx_budget was 0 in every run) - the mechanism never bound in
+// practice, so it is not the latency bottleneck (see ANALYSIS_CAP's comment
+// for the actual one) and was left unchanged.
 export const TX_LOOKUP_BUDGET = 2500;
 
 /** Groups classified arrivals by source, sorts by amount descending. */
