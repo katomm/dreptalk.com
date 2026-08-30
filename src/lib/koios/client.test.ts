@@ -568,3 +568,88 @@ describe('proposalListRowSchema', () => {
     });
   });
 });
+
+// --- drepDelegators / accountUpdateHistoryBatch / txInfoCertsBatch ---
+
+describe('drepDelegators', () => {
+  it('GETs /drep_delegators with id, limit and offset and parses rows', async () => {
+    const rows = [{ stake_address: 'stake1uxa', amount: '11546683', epoch_no: 562 }];
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 }));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    const out = await client.drepDelegators('drep1abc', 1000, 2000);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.koios.rest/api/v1/drep_delegators?_drep_id=drep1abc&limit=1000&offset=2000',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(out[0].amount).toBe('11546683');
+  });
+});
+
+describe('accountUpdateHistoryBatch', () => {
+  const row = (addr: string, slot: number) => ({
+    stake_address: addr, action_type: 'delegation_drep', tx_hash: 'a'.repeat(64),
+    epoch_no: 600, absolute_slot: slot,
+  });
+
+  it('POSTs _stake_addresses and parses flat rows', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify([row('stake1uxa', 1)]), { status: 200 }));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    const out = await client.accountUpdateHistoryBatch(['stake1uxa']);
+    const [, init] = fetchImpl.mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ _stake_addresses: ['stake1uxa'] });
+    expect(out).toHaveLength(1);
+  });
+
+  it('short-circuits on empty input without a network call', async () => {
+    const fetchImpl = vi.fn();
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    expect(await client.accountUpdateHistoryBatch([])).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('halves the chunk when a response hits the 1000-row page cap', async () => {
+    // Two addresses: a combined query returns exactly 1000 rows (capped),
+    // per-address queries return complete short results.
+    const capped = Array.from({ length: 1000 }, (_, i) => row('stake1uxa', i));
+    const fetchImpl = vi.fn(async (_url, init) => {
+      const body = JSON.parse((init as RequestInit).body as string) as { _stake_addresses: string[] };
+      if (body._stake_addresses.length === 2) {
+        return new Response(JSON.stringify(capped), { status: 200 });
+      }
+      return new Response(JSON.stringify([row(body._stake_addresses[0], 1)]), { status: 200 });
+    });
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    const out = await client.accountUpdateHistoryBatch(['stake1uxa', 'stake1uxb']);
+    expect(out).toHaveLength(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('pages a single address whose own history hits the cap', async () => {
+    const first = Array.from({ length: 1000 }, (_, i) => row('stake1uxa', i));
+    const fetchImpl = vi.fn(async (url) => {
+      if ((url as string).includes('offset=1000')) {
+        return new Response(JSON.stringify([row('stake1uxa', 2000)]), { status: 200 });
+      }
+      return new Response(JSON.stringify(first), { status: 200 });
+    });
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    const out = await client.accountUpdateHistoryBatch(['stake1uxa']);
+    expect(out).toHaveLength(1001);
+  });
+});
+
+describe('txInfoCertsBatch', () => {
+  it('POSTs _tx_hashes with certs on and the heavy sections off', async () => {
+    const rows = [{
+      tx_hash: 'c'.repeat(64),
+      certificates: [{ type: 'vote_delegation', info: { drep_id: 'drep1abc', stake_address: 'stake1uxa' } }],
+    }];
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 }));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    const out = await client.txInfoCertsBatch(['c'.repeat(64)]);
+    const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string);
+    expect(body._certs).toBe(true);
+    expect(body._inputs).toBe(false);
+    expect(out[0].certificates?.[0].type).toBe('vote_delegation');
+  });
+});

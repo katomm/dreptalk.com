@@ -395,6 +395,48 @@ const totalsRowSchema = z.object({
   reserves: z.string(),
 }).passthrough();
 
+// /drep_delegators row: a stake account currently vote-delegated to a DRep.
+// epoch_no is the epoch of the NEWEST delegation cert (validated live), so it
+// is only a pre-filter: the provenance stint logic decides real arrivals.
+const drepDelegatorRowSchema = z.object({
+  stake_address: z.string(),
+  amount: z.string(),
+  epoch_no: z.number(),
+}).passthrough();
+export type DrepDelegatorRow = z.infer<typeof drepDelegatorRowSchema>;
+
+// /account_update_history: flat per-event rows (successor of the deprecated
+// nested /account_updates). Consumers filter to delegation_drep.
+const accountUpdateHistoryRowSchema = z.object({
+  stake_address: z.string(),
+  action_type: z.string(),
+  tx_hash: z.string(),
+  epoch_no: z.number(),
+  absolute_slot: z.number(),
+}).passthrough();
+export type AccountUpdateHistoryRow = z.infer<typeof accountUpdateHistoryRowSchema>;
+
+// /tx_info with _certs: only the certificate list is consumed, the per-cert
+// info payload differs by type and is narrowed at the use site.
+const txCertSchema = z.object({
+  type: z.string(),
+  info: z.unknown(),
+}).passthrough();
+export type TxCert = z.infer<typeof txCertSchema>;
+const txInfoCertsRowSchema = z.object({
+  tx_hash: z.string(),
+  certificates: z.array(txCertSchema).nullable(),
+}).passthrough();
+export type TxInfoCertsRow = z.infer<typeof txInfoCertsRowSchema>;
+
+// /account_update_history returns one flat row per event, so PostgREST's
+// 1000-row page cap is reachable well below the POST body limit (measured:
+// 40 active accounts produced ~600 rows). Chunk small and halve on a capped
+// response, TX_INFO_MAX bounds the certs lookups.
+const ACCOUNT_UPDATE_HISTORY_MAX = 15;
+const TX_INFO_MAX = 25;
+const KOIOS_PAGE_CAP = 1000;
+
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
@@ -555,6 +597,81 @@ export function createKoiosClient(opts: KoiosClientOptions) {
         const mid = Math.floor(stakeAddresses.length / 2);
         const head = await accountInfoChunk(stakeAddresses.slice(0, mid));
         const tail = await accountInfoChunk(stakeAddresses.slice(mid));
+        return [...head, ...tail];
+      }
+      throw err;
+    }
+  }
+
+  // Pages one address's history by offset until a short page. Only needed for
+  // the rare account whose own event count reaches the page cap.
+  async function accountUpdateHistorySingle(stakeAddress: string): Promise<AccountUpdateHistoryRow[]> {
+    const out: AccountUpdateHistoryRow[] = [];
+    for (let offset = 0; ; offset += KOIOS_PAGE_CAP) {
+      const data = await request(`/account_update_history?limit=${KOIOS_PAGE_CAP}&offset=${offset}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _stake_addresses: [stakeAddress] }),
+      });
+      const rows = z.array(accountUpdateHistoryRowSchema).parse(data);
+      out.push(...rows);
+      if (rows.length < KOIOS_PAGE_CAP) return out;
+    }
+  }
+
+  // A response of exactly the page cap means rows were silently dropped
+  // (PostgREST caps, it does not error), so a capped response halves the chunk
+  // like a 413 does. A single capped address falls back to offset paging.
+  async function accountUpdateHistoryChunk(stakeAddresses: string[]): Promise<AccountUpdateHistoryRow[]> {
+    try {
+      const data = await request('/account_update_history', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _stake_addresses: stakeAddresses }),
+      });
+      const rows = z.array(accountUpdateHistoryRowSchema).parse(data);
+      if (rows.length >= KOIOS_PAGE_CAP) {
+        if (stakeAddresses.length === 1) return accountUpdateHistorySingle(stakeAddresses[0]);
+        const mid = Math.floor(stakeAddresses.length / 2);
+        const head = await accountUpdateHistoryChunk(stakeAddresses.slice(0, mid));
+        const tail = await accountUpdateHistoryChunk(stakeAddresses.slice(mid));
+        return [...head, ...tail];
+      }
+      return rows;
+    } catch (err) {
+      if (err instanceof KoiosHttpError && err.status === 413 && stakeAddresses.length > 1) {
+        const mid = Math.floor(stakeAddresses.length / 2);
+        const head = await accountUpdateHistoryChunk(stakeAddresses.slice(0, mid));
+        const tail = await accountUpdateHistoryChunk(stakeAddresses.slice(mid));
+        return [...head, ...tail];
+      }
+      throw err;
+    }
+  }
+
+  async function txInfoCertsChunk(txHashes: string[]): Promise<TxInfoCertsRow[]> {
+    try {
+      const data = await request('/tx_info', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        // Only certificates are needed, every other section is switched off to
+        // keep the response small (tx_info is heavy by default).
+        body: JSON.stringify({
+          _tx_hashes: txHashes,
+          _certs: true,
+          _inputs: false,
+          _metadata: false,
+          _assets: false,
+          _withdrawals: false,
+          _scripts: false,
+        }),
+      });
+      return z.array(txInfoCertsRowSchema).parse(data);
+    } catch (err) {
+      if (err instanceof KoiosHttpError && err.status === 413 && txHashes.length > 1) {
+        const mid = Math.floor(txHashes.length / 2);
+        const head = await txInfoCertsChunk(txHashes.slice(0, mid));
+        const tail = await txInfoCertsChunk(txHashes.slice(mid));
         return [...head, ...tail];
       }
       throw err;
@@ -763,6 +880,37 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       const row = z.array(totalsRowSchema).parse(data)[0] ?? null;
       if (!row) return null;
       return { epochNo: row.epoch_no, treasuryLovelace: row.treasury, reservesLovelace: row.reserves };
+    },
+
+    // Pages the current delegator set of a DRep, callers increment offset by
+    // limit until a page comes back shorter than limit.
+    async drepDelegators(drepId: string, limit = 1000, offset = 0): Promise<DrepDelegatorRow[]> {
+      const path = `/drep_delegators?_drep_id=${encodeURIComponent(drepId)}&limit=${limit}&offset=${offset}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(drepDelegatorRowSchema).parse(data);
+    },
+
+    // Flat certificate history for the provenance analysis. Sub-batched by
+    // ACCOUNT_UPDATE_HISTORY_MAX with 413-halving AND page-cap-halving (see
+    // accountUpdateHistoryChunk). Empty input short-circuits.
+    async accountUpdateHistoryBatch(stakeAddresses: string[]): Promise<AccountUpdateHistoryRow[]> {
+      if (stakeAddresses.length === 0) return [];
+      const out: AccountUpdateHistoryRow[] = [];
+      for (let i = 0; i < stakeAddresses.length; i += ACCOUNT_UPDATE_HISTORY_MAX) {
+        out.push(...(await accountUpdateHistoryChunk(stakeAddresses.slice(i, i + ACCOUNT_UPDATE_HISTORY_MAX))));
+      }
+      return out;
+    },
+
+    // Batch cert lookup: certificates only, every heavy tx_info section off.
+    // Sub-batched by TX_INFO_MAX with 413-halving. Empty input short-circuits.
+    async txInfoCertsBatch(txHashes: string[]): Promise<TxInfoCertsRow[]> {
+      if (txHashes.length === 0) return [];
+      const out: TxInfoCertsRow[] = [];
+      for (let i = 0; i < txHashes.length; i += TX_INFO_MAX) {
+        out.push(...(await txInfoCertsChunk(txHashes.slice(i, i + TX_INFO_MAX))));
+      }
+      return out;
     },
   };
 }
