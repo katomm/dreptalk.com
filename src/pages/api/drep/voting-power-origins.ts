@@ -84,7 +84,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
       baseUrl: cfg.koiosBaseUrl,
       token: env.KOIOS_API_KEY || undefined,
       timeoutMs: 15_000,
-      retries: 2,
+      // Three retries with Retry-After honored: the parallel chunk stages can
+      // brush Koios's burst limit on the heaviest DReps, and a single 429
+      // must not fail a computation this expensive.
+      retries: 3,
     });
 
     try {

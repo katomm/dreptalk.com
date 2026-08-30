@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { KOIOS_BATCH_CONCURRENCY, mapLimit } from './concurrency';
 
 export interface KoiosClientOptions {
   baseUrl: string;
@@ -894,23 +895,26 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     // ACCOUNT_UPDATE_HISTORY_MAX with 413-halving AND page-cap-halving (see
     // accountUpdateHistoryChunk). Empty input short-circuits.
     async accountUpdateHistoryBatch(stakeAddresses: string[]): Promise<AccountUpdateHistoryRow[]> {
-      if (stakeAddresses.length === 0) return [];
-      const out: AccountUpdateHistoryRow[] = [];
+      const chunks: string[][] = [];
       for (let i = 0; i < stakeAddresses.length; i += ACCOUNT_UPDATE_HISTORY_MAX) {
-        out.push(...(await accountUpdateHistoryChunk(stakeAddresses.slice(i, i + ACCOUNT_UPDATE_HISTORY_MAX))));
+        chunks.push(stakeAddresses.slice(i, i + ACCOUNT_UPDATE_HISTORY_MAX));
       }
-      return out;
+      // Chunks run with bounded concurrency, each keeping its own page-cap
+      // and 413 halving. Results stay in input chunk order.
+      const results = await mapLimit(chunks, KOIOS_BATCH_CONCURRENCY, accountUpdateHistoryChunk);
+      return results.flat();
     },
 
     // Batch cert lookup: certificates only, every heavy tx_info section off.
-    // Sub-batched by TX_INFO_MAX with 413-halving. Empty input short-circuits.
+    // Sub-batched by TX_INFO_MAX with 413-halving, chunks fetched with
+    // bounded concurrency. Empty input short-circuits.
     async txInfoCertsBatch(txHashes: string[]): Promise<TxInfoCertsRow[]> {
-      if (txHashes.length === 0) return [];
-      const out: TxInfoCertsRow[] = [];
+      const chunks: string[][] = [];
       for (let i = 0; i < txHashes.length; i += TX_INFO_MAX) {
-        out.push(...(await txInfoCertsChunk(txHashes.slice(i, i + TX_INFO_MAX))));
+        chunks.push(txHashes.slice(i, i + TX_INFO_MAX));
       }
-      return out;
+      const results = await mapLimit(chunks, KOIOS_BATCH_CONCURRENCY, txInfoCertsChunk);
+      return results.flat();
     },
   };
 }

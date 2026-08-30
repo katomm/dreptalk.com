@@ -5,6 +5,7 @@
 // Privacy: stake addresses live only in this request scope, they are never
 // written to D1, the payload, or logs.
 import type { AccountUpdateHistoryRow, DrepDelegatorRow, TxCert, TxInfoCertsRow } from '../koios/client';
+import { KOIOS_BATCH_CONCURRENCY, mapLimit } from '../koios/concurrency';
 import { getDrepsByIds } from '../db/dreps';
 import {
   aggregateSources, capCandidates, classifyCandidate, prefilterDelegators, resolveEvents,
@@ -12,6 +13,7 @@ import {
 } from './provenance';
 
 export interface ProvenanceKoios {
+  drepInfoBatch(drepIds: string[]): Promise<Array<{ live_delegator_count?: number | null }>>;
   drepDelegators(drepId: string, limit?: number, offset?: number): Promise<DrepDelegatorRow[]>;
   accountUpdateHistoryBatch(stakeAddresses: string[]): Promise<AccountUpdateHistoryRow[]>;
   txInfoCertsBatch(txHashes: string[]): Promise<TxInfoCertsRow[]>;
@@ -19,13 +21,29 @@ export interface ProvenanceKoios {
 
 const PAGE = 1000;
 
+/**
+ * Fetches the full current delegator set. One cheap headcount read sizes the
+ * page fan-out (a whale's 18 sequential pages were the largest single stage
+ * in the live measurement), the guided pages then fetch with bounded
+ * concurrency. The headcount can drift between the two reads or be missing,
+ * so a tail keeps paging sequentially while the last page comes back full.
+ */
 async function allDelegators(koios: ProvenanceKoios, drepId: string): Promise<DrepDelegatorRow[]> {
-  const out: DrepDelegatorRow[] = [];
-  for (let offset = 0; ; offset += PAGE) {
+  const info = await koios.drepInfoBatch([drepId]);
+  const headcount = info[0]?.live_delegator_count ?? 0;
+  const guidedPages = Math.max(1, Math.ceil(headcount / PAGE));
+  const offsets = Array.from({ length: guidedPages }, (_, i) => i * PAGE);
+  const pages = await mapLimit(offsets, KOIOS_BATCH_CONCURRENCY, (offset) =>
+    koios.drepDelegators(drepId, PAGE, offset),
+  );
+  const out = pages.flat();
+  let lastLength = pages[pages.length - 1]?.length ?? 0;
+  for (let offset = guidedPages * PAGE; lastLength === PAGE; offset += PAGE) {
     const page = await koios.drepDelegators(drepId, PAGE, offset);
     out.push(...page);
-    if (page.length < PAGE) return out;
+    lastLength = page.length;
   }
+  return out;
 }
 
 export async function computeProvenance(deps: {

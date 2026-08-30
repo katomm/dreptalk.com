@@ -10,16 +10,16 @@ export const PROVENANCE_WINDOWS = [12, 36, 73] as const;
 export type ProvenanceWindow = (typeof PROVENANCE_WINDOWS)[number];
 
 // Provenance lookups per request are capped: the top candidates by current
-// stake get analyzed, the rest is an honest "not analyzed" remainder. Task 7
-// measured real mainnet Koios latency against a 17k-delegator DRep (the
-// largest live one at measurement time): cap 500 already needs ~79
-// sequential calls (34 account_update_history + 27 tx_info + 18
-// drep_delegators pages) and 60-90s wall time (413/429 never fired, so this
-// is not a rate-limit artifact), well past the ~15s NO-GO ceiling. Raising
-// the cap to 1000 roughly doubled every stage (139 calls, ~150s). NO-GO:
-// stays at 500, not raised. The bottleneck is round-trip count and Koios's
-// own per-call latency on account_update_history/tx_info, not this cap or
-// TX_LOOKUP_BUDGET (which never got close to binding, see below).
+// stake get analyzed, the rest is an honest "not analyzed" remainder.
+// Measured live against a 17k-delegator DRep (the largest live one at
+// measurement time), cap 500, window 73: the fully SEQUENTIAL chain took
+// 60-90s over ~79 calls (34 account_update_history + 27 tx_info + 18
+// drep_delegators pages), well past the ~15s ceiling. With the bounded
+// concurrency in koios/concurrency.ts the same chain measured 13.1s
+// (2026-08-30, no 429 at a window of 4), so the cap stays at 500 inside
+// the ceiling. The remaining bottleneck is Koios's own per-call latency
+// on account_update_history/tx_info, not this cap or TX_LOOKUP_BUDGET
+// (which never got close to binding, see below).
 export const ANALYSIS_CAP = 500;
 
 export type SourceType = 'drep' | 'new' | 'abstain' | 'no_confidence' | 'unknown';

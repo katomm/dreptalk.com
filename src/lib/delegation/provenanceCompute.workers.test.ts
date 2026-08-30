@@ -20,6 +20,9 @@ function fakeKoios(): ProvenanceKoios & { historyAddrs: string[]; txRequests: st
   const state = { historyAddrs: [] as string[], txRequests: [] as string[][] };
   return {
     ...state,
+    async drepInfoBatch() {
+      return [{ live_delegator_count: 4 }];
+    },
     async drepDelegators(_d, _l = 1000, offset = 0): Promise<DrepDelegatorRow[]> {
       if (offset > 0) return [];
       return [
@@ -91,6 +94,9 @@ describe('computeProvenance', () => {
 
   it('counts a candidate whose history cannot confirm the stint as unresolved, never as an arrival', async () => {
     const koios: ProvenanceKoios = {
+      async drepInfoBatch() {
+        return [{ live_delegator_count: 1 }];
+      },
       async drepDelegators(_d, _l = 1000, offset = 0) {
         return offset > 0 ? [] : [{ stake_address: 'stake1odd', amount: '5000000', epoch_no: 651 }];
       },
@@ -113,6 +119,9 @@ describe('computeProvenance', () => {
     const amounts: Record<string, string> = { stake1big: '9000000', stake1mid: '5000000', stake1small: '1000000' };
     const txRequests: string[] = [];
     const koios: ProvenanceKoios = {
+      async drepInfoBatch() {
+        return [{ live_delegator_count: 3 }];
+      },
       async drepDelegators(_d, _l = 1000, offset = 0) {
         return offset > 0 ? [] : addrs.map((a) => ({ stake_address: a, amount: amounts[a], epoch_no: 650 }));
       },
@@ -143,6 +152,7 @@ describe('computeProvenance', () => {
     const full = Array.from({ length: 1000 }, (_, i) =>
       ({ stake_address: `stake1p${i}`, amount: '1', epoch_no: 100 }));
     const koios: ProvenanceKoios = {
+      async drepInfoBatch() { return [{ live_delegator_count: 1000 }]; },
       async drepDelegators(_d, _l = 1000, offset = 0) { calls.push(offset); return offset === 0 ? full : []; },
       async accountUpdateHistoryBatch() { historyCalled = true; return []; },
       async txInfoCertsBatch() { return []; },
@@ -152,5 +162,44 @@ describe('computeProvenance', () => {
     expect(historyCalled).toBe(false);
     expect(payload.base.count).toBe(1000);
     expect(payload.sources).toEqual([]);
+  });
+
+  it('fans out delegator pages from the headcount and needs no tail when the last page is short', async () => {
+    const calls: number[] = [];
+    const rowsAt = (offset: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ stake_address: `stake1q${offset + i}`, amount: '1', epoch_no: 100 }));
+    const koios: ProvenanceKoios = {
+      async drepInfoBatch() { return [{ live_delegator_count: 2500 }]; },
+      async drepDelegators(_d, _l = 1000, offset = 0) {
+        calls.push(offset);
+        if (offset < 2000) return rowsAt(offset, 1000);
+        return rowsAt(offset, 500);
+      },
+      async accountUpdateHistoryBatch() { return []; },
+      async txInfoCertsBatch() { return []; },
+    };
+    const payload = await computeProvenance({ koios, db: db(), drepId: SELF, windowEpochs: 12, currentEpoch: 652, now: 1 });
+    expect([...calls].sort((a, b) => a - b)).toEqual([0, 1000, 2000]);
+    expect(payload.base.count).toBe(2500);
+  });
+
+  it('keeps paging sequentially when the headcount drifted and the last guided page came back full', async () => {
+    const calls: number[] = [];
+    const rowsAt = (offset: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ stake_address: `stake1r${offset + i}`, amount: '1', epoch_no: 100 }));
+    const koios: ProvenanceKoios = {
+      // Headcount says one page, the chain actually holds 2003 delegators.
+      async drepInfoBatch() { return [{ live_delegator_count: 1000 }]; },
+      async drepDelegators(_d, _l = 1000, offset = 0) {
+        calls.push(offset);
+        if (offset < 2000) return rowsAt(offset, 1000);
+        return rowsAt(offset, 3);
+      },
+      async accountUpdateHistoryBatch() { return []; },
+      async txInfoCertsBatch() { return []; },
+    };
+    const payload = await computeProvenance({ koios, db: db(), drepId: SELF, windowEpochs: 12, currentEpoch: 652, now: 1 });
+    expect(calls).toEqual([0, 1000, 2000]);
+    expect(payload.base.count).toBe(2003);
   });
 });
