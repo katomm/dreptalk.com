@@ -227,6 +227,16 @@ const votingPowerLabel = formatAdaCompact(drep?.votingPower ?? null) ?? '0 ₳';
     font-size: 0.9375rem;
     padding: 1rem 0;
   }
+  /* Every section below is toggled via the DOM `hidden` property, but each
+     also sets its own unconditional `display`, which outranks the UA
+     `[hidden]` rule (same pattern as GovActionRow.astro / vote.astro), so
+     each must re-assert none explicitly. */
+  .vpo-status[hidden],
+  .vpo-content[hidden],
+  .vpo-caption[hidden],
+  .vpo-table-section[hidden] {
+    display: none;
+  }
   .vpo-status--error {
     justify-content: space-between;
     flex-wrap: wrap;
