@@ -1,6 +1,6 @@
 // Client-side fetch and render for /voting-power-origins/. Bundled by Astro as a
 // real module (not is:inline), so it needs no CSP hash. All copy is inserted via
-// textContent/createElement; the only innerHTML is our own identiconSvg output.
+// textContent/createElement, the only innerHTML is our own identiconSvg output.
 //
 // Fan geometry mirrors the approved mockup: a 960x460 viewBox, source stubs
 // stacked on the left with a gap between them, cubic-bezier ribbons converging
@@ -9,6 +9,7 @@
 // shade for every DRep beyond that (whether merged into "Other DReps" in the
 // fan or listed on its own row in the table).
 import type { ProvenancePayload, ProvenanceSource } from '../delegation/provenance';
+import { drepPath } from '../dreps/profile';
 import { formatAdaCompact } from '../format/ada';
 import { identiconSvg } from '../identity/identicon';
 
@@ -365,9 +366,9 @@ function buildTable(table: HTMLElement, payload: ProvenancePayload): void {
     if (s.type === 'drep' && s.drepId) {
       const icon = document.createElement('span');
       icon.className = 'vpo-row__icon';
-      icon.innerHTML = identiconSvg(s.drepId, 18);
+      icon.innerHTML = identiconSvg(s.hex ?? s.drepId, 18);
       const link = document.createElement('a');
-      link.href = `/dreps/${s.drepId}/`;
+      link.href = drepPath({ drepId: s.drepId, slug: s.slug });
       link.className = 'vpo-row__link';
       link.textContent = sourceLabel(s);
       appendAll(nameCell, icon, link);
@@ -414,16 +415,20 @@ function renderArrivedKpi(container: HTMLElement, payload: ProvenancePayload): v
 
   const sub = document.createElement('span');
   sub.className = 'vpo-kpi__sub';
-  sub.textContent = `${ada(amount.toString())} still with you · among the ${payload.coverage.analyzedCandidateCount.toLocaleString('en-US')} largest recent-activity accounts`;
+  const analyzedCount = payload.coverage.analyzedCandidateCount;
+  sub.textContent = analyzedCount === 0
+    ? `${ada(amount.toString())} still with you`
+    : `${ada(amount.toString())} still with you · among the ${analyzedCount.toLocaleString('en-US')} largest recent-activity accounts`;
 
   appendAll(container, num, sub);
 }
 
-async function fetchProvenance(windowEpochs: number): Promise<ProvenancePayload> {
+async function fetchProvenance(windowEpochs: number, signal: AbortSignal): Promise<ProvenancePayload> {
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ window: windowEpochs }),
+    signal,
   });
   if (!res.ok) throw new Error(`request failed: ${res.status}`);
   return (await res.json()) as ProvenancePayload;
@@ -495,7 +500,7 @@ export function renderVotingPowerOrigins(): void {
   function render(payload: ProvenancePayload): void {
     renderArrivedKpi(kpiArrived as HTMLElement, payload);
 
-    const empty = payload.sources.length === 0 && payload.notAnalyzed === null;
+    const empty = payload.sources.length === 0 && payload.notAnalyzed === null && payload.unresolved === null;
     if (empty) {
       showStatus('empty');
       return;
@@ -531,14 +536,26 @@ export function renderVotingPowerOrigins(): void {
   }
 
   let currentWindow = 12;
+  // Guards against a slow response for an earlier window overwriting a newer
+  // one: each load() call claims the next id, and only the still-current
+  // call is allowed to touch the DOM once its fetch settles.
+  let requestId = 0;
+  let activeController: AbortController | null = null;
 
   async function load(windowEpochs: number): Promise<void> {
     currentWindow = windowEpochs;
+    const id = ++requestId;
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
     showStatus('loading');
     try {
-      const payload = await fetchProvenance(windowEpochs);
+      const payload = await fetchProvenance(windowEpochs, controller.signal);
+      if (id !== requestId) return; // a newer window switch has since started
       render(payload);
-    } catch {
+    } catch (err) {
+      if (id !== requestId) return; // stale, a newer request already took over
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       showStatus('error', () => {
         void load(currentWindow);
       });

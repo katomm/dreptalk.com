@@ -30,6 +30,10 @@ export interface ProvenanceSource {
   drepId?: string;
   /** Display name from our dreps table, filled by the compute layer. */
   name?: string | null;
+  /** Credential hex from our dreps table, filled by the compute layer, seeds the identicon. */
+  hex?: string | null;
+  /** SEO slug from our dreps table, filled by the compute layer, builds the profile link. */
+  slug?: string | null;
   count: number;
   /** Lovelace sum of the delegators' CURRENT stake, decimal string. */
   amount: string;
@@ -182,8 +186,17 @@ export function classifyCandidate(
     // The unresolved predecessor might have been self. Inside the window,
     // either reading keeps the arrival in-window: arrival with unknown
     // source. Before the cutoff, it could extend the stint past the
-    // boundary: unresolved.
+    // boundary: unresolved. Exception: if the run BEFORE the null was
+    // itself self and started before the cutoff, a null-was-self reading
+    // merges all three into one stint starting there, before the cutoff,
+    // so the in-window-null shortcut is unsafe and this must be unresolved
+    // too. Only unsafe when that earlier self run is itself before the
+    // cutoff; when it is in-window, every reading keeps the stint in-window.
     if (sourceRun.epoch >= cutoffEpoch) {
+      const beforeSource = priorRuns[priorRuns.length - 2];
+      if (beforeSource && beforeSource.target === selfDrepId && beforeSource.epoch < cutoffEpoch) {
+        return { kind: 'unresolved' };
+      }
       return { kind: 'arrival', source: { type: 'unknown' }, returning: false };
     }
     return { kind: 'unresolved' };

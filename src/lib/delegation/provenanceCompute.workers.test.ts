@@ -53,9 +53,9 @@ function fakeKoios(): ProvenanceKoios & { historyAddrs: string[]; txRequests: st
 describe('computeProvenance', () => {
   it('classifies, reclassifies the re-cert stint into base, joins names, computes coverage', async () => {
     await db().prepare(
-      `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at, slug, name)
-       VALUES (?, 'registered', 1, 0, 0, ?, ?)`,
-    ).bind(OTHER, 'other-prov', 'Other DRep').run();
+      `INSERT INTO dreps (drep_id, hex, status, active, last_synced_at, created_at, slug, name)
+       VALUES (?, ?, 'registered', 1, 0, 0, ?, ?)`,
+    ).bind(OTHER, 'a'.repeat(56), 'other-prov', 'Other DRep').run();
 
     const koios = fakeKoios();
     const payload = await computeProvenance({
@@ -74,7 +74,10 @@ describe('computeProvenance', () => {
     expect(payload.base).toEqual({ count: 2, amount: '16000000' });
     expect(payload.reclassifiedBaseCount).toBe(1);
     expect(payload.sources).toEqual([
-      { type: 'drep', drepId: OTHER, name: 'Other DRep', count: 1, amount: '3000000', returningCount: 0 },
+      {
+        type: 'drep', drepId: OTHER, name: 'Other DRep', hex: 'a'.repeat(56), slug: 'other-prov',
+        count: 1, amount: '3000000', returningCount: 0,
+      },
       { type: 'new', count: 1, amount: '1000000', returningCount: 0 },
     ]);
     expect(payload.coverage).toEqual({

@@ -145,6 +145,25 @@ describe('classifyCandidate', () => {
     });
   });
 
+  it('unresolved: an in-window null could hide a self run starting before the cutoff', () => {
+    // self@620, null@642, self@645. If the null was also self, all three
+    // collapse into one stint starting at 620, before the cutoff: base, not
+    // an in-window arrival. The run before the null (self@620) is before the
+    // cutoff, so the in-window-null arrival shortcut is not safe here.
+    expect(classifyCandidate([ev(SELF, 620, 1), ev(null, 642, 2), ev(SELF, 645, 3)], SELF, cutoff)).toEqual({
+      kind: 'unresolved',
+    });
+  });
+
+  it('arrival with unknown source still holds when the run before the null is self but in-window', () => {
+    // self@641, null@642, self@645. The run before the null is self, but its
+    // own epoch (641) is already inside the window, so even if the null
+    // extends that same self stint, the stint start stays in-window.
+    expect(classifyCandidate([ev(SELF, 641, 1), ev(null, 642, 2), ev(SELF, 645, 3)], SELF, cutoff)).toEqual({
+      kind: 'arrival', source: { type: 'unknown' }, returning: false,
+    });
+  });
+
   it('payload version helper', () => {
     expect(isCurrentPayloadVersion('{"version":1}')).toBe(true);
     expect(isCurrentPayloadVersion('{"version":2}')).toBe(false);

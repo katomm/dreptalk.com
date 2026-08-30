@@ -83,8 +83,11 @@ export async function computeProvenance(deps: {
         degraded.push(row);
         continue;
       }
-      const own = (historyByAddr.get(row.stake_address) ?? []).map((r) => r.tx_hash);
-      const add = own.filter((h) => !txHashes.has(h));
+      // Deduped up front: two certs in one tx produce two history rows, and
+      // without this an account's own repeated tx hash would count twice
+      // against the budget below.
+      const own = new Set((historyByAddr.get(row.stake_address) ?? []).map((r) => r.tx_hash));
+      const add = [...own].filter((h) => !txHashes.has(h));
       if (txHashes.size + add.length > txLookupBudget) {
         overBudget = true;
         degraded.push(row);
@@ -118,7 +121,12 @@ export async function computeProvenance(deps: {
   if (drepIds.length > 0) {
     const known = await getDrepsByIds(db, drepIds);
     for (const s of sources) {
-      if (s.type === 'drep' && s.drepId) s.name = known.get(s.drepId)?.name ?? null;
+      if (s.type === 'drep' && s.drepId) {
+        const drep = known.get(s.drepId);
+        s.name = drep?.name ?? null;
+        s.hex = drep?.hex ?? null;
+        s.slug = drep?.slug ?? null;
+      }
     }
   }
 

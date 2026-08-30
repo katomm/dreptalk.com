@@ -1,5 +1,5 @@
 // D1 access for the voting-power-origins cache (migration 0082). The payload
-// is an opaque JSON string; TTL freshness is the caller's decision via
+// is an opaque JSON string, TTL freshness is the caller's decision via
 // computedAt. Rows hold aggregates and drep ids only, never stake addresses.
 
 export interface ProvenanceCacheRow {
