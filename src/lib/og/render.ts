@@ -1,13 +1,15 @@
 /// <reference types="@cloudflare/workers-types" />
 // Render pipeline for the OG cards. renderOgCard is the shared endpoint tail:
 // serve a warm edge-cached copy when present, else load fonts + logo (cached per
-// isolate), build the HTML, encode the PNG, edge-cache it, and return it. Each
+// isolate), build the HTML, add a fallback face for any script the bundled Latin
+// subset cannot draw, encode the PNG, edge-cache it, and return it. Each
 // card is stable for a content version, so it renders once per colo instead of
 // on every crawl. A render that fails (e.g. an embedded image the rasterizer
 // cannot decode) is served the site's static OG image, never a broken 0-byte card.
 
 import { waitUntil } from 'cloudflare:workers';
 import { ImageResponse } from 'workers-og';
+import { loadFallbackFonts } from './fallbackFonts.js';
 import { loadOgFonts, type OgFont } from './fonts.js';
 import { OG_HEIGHT, OG_WIDTH } from './theme.js';
 
@@ -52,8 +54,12 @@ export async function renderOgCard(
   // and a Cache API Response carries immutable headers (see api/search.ts).
   if (cached) return new Response(cached.body, cached);
 
-  const fonts = await loadOgFonts(assets, url);
-  const png = await renderPng(await build(), fonts);
+  const [fonts, html] = await Promise.all([loadOgFonts(assets, url), build()]);
+  // A name outside the bundled Latin subset (CJK, Cyrillic, Greek, Latin Extended)
+  // would otherwise render as an empty gap. Only such a card pays for a fallback
+  // face; a Latin-only card gets an empty array without a single subrequest.
+  const fallbackFonts = await loadFallbackFonts(html, fonts);
+  const png = await renderPng(html, [...fonts, ...fallbackFonts]);
 
   if (!png) {
     // The static default card, streamed from the assets binding. Never edge-cached,
