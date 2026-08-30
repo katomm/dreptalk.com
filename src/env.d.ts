@@ -67,5 +67,7 @@ declare namespace Cloudflare {
     LEGAL_CONTACT_EMAIL?: string;
     LEGAL_PHONE?: string;
     LEGAL_VAT_ID?: string;
+    /** Local dev only: '1' switches voting-power-origins to a fixture payload, bypassing Koios (astro dev SSR fetch hangs, see the DEV stub comment there). */
+    PROVENANCE_STUB?: string;
   }
 }
