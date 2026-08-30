@@ -574,7 +574,7 @@ describe('proposalListRowSchema', () => {
 describe('drepDelegators', () => {
   it('GETs /drep_delegators with id, limit and offset and parses rows', async () => {
     const rows = [{ stake_address: 'stake1uxa', amount: '11546683', epoch_no: 562 }];
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(rows), { status: 200 }));
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
     const out = await client.drepDelegators('drep1abc', 1000, 2000);
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -592,7 +592,7 @@ describe('accountUpdateHistoryBatch', () => {
   });
 
   it('POSTs _stake_addresses and parses flat rows', async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify([row('stake1uxa', 1)]), { status: 200 }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify([row('stake1uxa', 1)]), { status: 200 }));
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
     const out = await client.accountUpdateHistoryBatch(['stake1uxa']);
     const [, init] = fetchImpl.mock.calls[0];
@@ -601,7 +601,7 @@ describe('accountUpdateHistoryBatch', () => {
   });
 
   it('short-circuits on empty input without a network call', async () => {
-    const fetchImpl = vi.fn();
+    const fetchImpl = vi.fn<typeof fetch>();
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
     expect(await client.accountUpdateHistoryBatch([])).toEqual([]);
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -611,7 +611,7 @@ describe('accountUpdateHistoryBatch', () => {
     // Two addresses: a combined query returns exactly 1000 rows (capped),
     // per-address queries return complete short results.
     const capped = Array.from({ length: 1000 }, (_, i) => row('stake1uxa', i));
-    const fetchImpl = vi.fn(async (_url, init) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
       const body = JSON.parse((init as RequestInit).body as string) as { _stake_addresses: string[] };
       if (body._stake_addresses.length === 2) {
         return new Response(JSON.stringify(capped), { status: 200 });
@@ -626,7 +626,7 @@ describe('accountUpdateHistoryBatch', () => {
 
   it('pages a single address whose own history hits the cap', async () => {
     const first = Array.from({ length: 1000 }, (_, i) => row('stake1uxa', i));
-    const fetchImpl = vi.fn(async (url) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (url) => {
       if ((url as string).includes('offset=1000')) {
         return new Response(JSON.stringify([row('stake1uxa', 2000)]), { status: 200 });
       }
@@ -644,7 +644,7 @@ describe('txInfoCertsBatch', () => {
       tx_hash: 'c'.repeat(64),
       certificates: [{ type: 'vote_delegation', info: { drep_id: 'drep1abc', stake_address: 'stake1uxa' } }],
     }];
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(rows), { status: 200 }));
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
     const out = await client.txInfoCertsBatch(['c'.repeat(64)]);
     const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string);
