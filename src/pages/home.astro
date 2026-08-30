@@ -112,7 +112,13 @@ interface HomeCard {
   desc: string;
   stat?: string;
   badge?: string;
+  /** ISO date. While today is before it, the card carries a "New" pill. */
+  newUntil?: string;
 }
+
+// Recently shipped cards carry a "New" pill until this date passes, so the
+// marker retires itself instead of needing a follow-up commit.
+const isNew = (until?: string) => (until ? Date.now() < Date.parse(until) : false);
 
 // Discussions is either the featured tile beside the power trend (DReps with
 // a trend to show) or a regular grid card (everyone else).
@@ -156,6 +162,7 @@ const cards: HomeCard[] = [
           title: 'Voting power origins',
           desc: 'Where your current voting power came from.',
           icon: icons.origins,
+          newUntil: '2026-10-15',
         },
       ]
     : [
@@ -260,6 +267,7 @@ const cards: HomeCard[] = [
           <span class="home-card__title">
             {card.title}
             {card.badge && <span class="home-card__badge">{card.badge}</span>}
+            {isNew(card.newUntil) && <span class="home-card__new">New</span>}
           </span>
           <span class="home-card__text">{card.desc}</span>
           {card.stat && <span class="home-card__stat">{card.stat}</span>}
@@ -466,6 +474,23 @@ const cards: HomeCard[] = [
     line-height: 1.4;
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     color: var(--accent);
+    vertical-align: text-bottom;
+  }
+  /* Freshly shipped feature marker. Solid fill so it reads as a label rather
+     than as another count pill next to the needs-action badge. */
+  .home-card__new {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.45rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    line-height: 1.4;
+    background: var(--accent);
+    color: var(--on-accent);
     vertical-align: text-bottom;
   }
   .home-card__chev {
