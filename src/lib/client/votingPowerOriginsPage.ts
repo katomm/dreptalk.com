@@ -100,24 +100,35 @@ interface FanStream {
 }
 
 /**
- * Top FAN_TOP sources become their own stream; the remaining DRep sources
- * merge into one "Other DReps (n)" pseudo-stream, remaining non-DRep sources
- * (new/abstain/no_confidence/unknown) stay individual. Identified arrivals
- * only: notAnalyzed and unresolved never enter the fan.
+ * Top FAN_TOP sources become their own stream, EXCEPT that DRep-type sources
+ * are further capped at the palette's three individual blue slots: only the
+ * top 3 DReps by amount (the same three assignDrepColorIndices colors) stay
+ * individual, any further DRep source (whether ranked 4th/5th within the top
+ * FAN_TOP or beyond it) merges into one "Other DReps (n)" pseudo-stream.
+ * Without this cap, a top FAN_TOP of 4-5 DReps would produce 4-5 individually
+ * labeled ribbons sharing only 3 distinct colors between them. Non-DRep
+ * sources (new/abstain/no_confidence/unknown) are never capped and always
+ * stay individual. Identified arrivals only: notAnalyzed and unresolved
+ * never enter the fan.
  */
 function fanStreams(payload: ProvenancePayload): FanStream[] {
   const drepColor = assignDrepColorIndices(payload.sources);
-  const top = payload.sources.slice(0, FAN_TOP);
-  const rest = payload.sources.slice(FAN_TOP);
+  const isColoredDrep = (s: ProvenanceSource) =>
+    s.type === 'drep' && s.drepId !== undefined && drepColor.has(s.drepId);
 
-  const streams: FanStream[] = top.map(s => ({
+  const top = payload.sources.slice(0, FAN_TOP);
+  const individual = top.filter(s => s.type !== 'drep' || isColoredDrep(s));
+
+  const streams: FanStream[] = individual.map(s => ({
     label: sourceLabel(s),
     count: s.count,
     amount: BigInt(s.amount),
     colorKey: colorKeyFor(s, drepColor),
   }));
 
-  const mergedDreps = rest.filter(s => s.type === 'drep');
+  // Every DRep source without one of the three colored slots merges here,
+  // regardless of whether it ranked inside or outside the top FAN_TOP.
+  const mergedDreps = payload.sources.filter(s => s.type === 'drep' && !isColoredDrep(s));
   if (mergedDreps.length > 0) {
     streams.push({
       label: `Other DReps (${mergedDreps.length})`,
@@ -126,8 +137,8 @@ function fanStreams(payload: ProvenancePayload): FanStream[] {
       colorKey: 'drep-3',
     });
   }
-  for (const s of rest) {
-    if (s.type === 'drep') continue;
+  for (const s of payload.sources.slice(FAN_TOP)) {
+    if (s.type === 'drep') continue; // already folded into mergedDreps above
     streams.push({
       label: sourceLabel(s),
       count: s.count,
