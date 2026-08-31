@@ -75,11 +75,12 @@ survey, answer it, and see the answer come back through the index.
 
 - Backend: `https://tessera-backend-preprod.matthieu-pizenberg.workers.dev`.
 - **The acceptance survey** — DRep-eligible, linked, still open at
-  increment 6. `end_epoch` must equal the linking action's expiry epoch, so
-  the survey is created first and the action follows, its anchor naming the
-  ref. `1200298c…2d23:0` is the known linked survey; if unusable, a fresh
-  pair is the long-lead item — start before increment 3. (`ccaa8baa…1547:0`
-  is standalone: never admitted, still useful for testing.)
+  increment 6. Its `end_epoch` = Koios `expiration` − 1 (DRepTalk's
+  `expiryEpoch` is that +1): survey and vote close at the same boundary.
+  Survey first, then the action, its anchor naming the ref.
+  `1200298c…2d23:0` is the known linked survey; if unusable, a fresh pair
+  is the long-lead item — start before increment 3. (`ccaa8baa…1547:0` is
+  standalone: never admitted, still useful for testing.)
 - `GET /api/responses/{txHash}` (agreed 2026-08-21, confirmed 2026-08-25):
   the responses one transaction carried — `surveyKey`, `responseIndex`,
   `role`, `credential`, `slot`. Needed because `/api/responded` cannot tell
@@ -110,7 +111,7 @@ Tessera preprod backend
   GET /health                              network guard
         │   server-side only, from gov-sync; never from a page request, never from the browser
         ▼
-gov-sync worker  (*/5 cron, one phase under recordSyncRun)
+gov-sync worker  (*/5 cron, one entry in the phase registry)
         │        writes D1: survey, survey_gov_link, topics + posts; settles survey_response_local
         ▼
 app worker (Astro SSR)   reads D1 only — the same invariant every other on-chain value obeys
@@ -166,7 +167,7 @@ network-mismatch refusal.
 
 ### 3 — Schema and the sync phase
 
-Migration `0081_surveys.sql`:
+One migration (numbered when written; `0081`/`0082` are already taken):
 
 - `survey` — `ref` (`<txHashHex>:<index>`) PK, `topic_id`, `title`,
   `end_epoch`, `eligible_roles` (JSON int array), `sealed`, `cancelled`,
@@ -183,8 +184,8 @@ Migration `0081_surveys.sql`:
 - `survey_sync_state` — one row: last seen `counts.linked`, time of the last
   complete walk (pass 1) and of the last unconditional re-audit (pass 3).
 
-`src/lib/surveys/sync.ts` mirrors `src/lib/governance/sync.ts`. One phase,
-four passes:
+`src/lib/surveys/sync.ts` is one entry in the `*/5` registry of
+`src/lib/sync/phases/`. Four passes:
 
 1. **Discover.** Read page one of `?filter=linked` (limit 200); its
    `counts.linked` is the size of the whole linked set, so while that fits
@@ -197,9 +198,11 @@ four passes:
    `createTopic({ …, source: 'survey', batchWith: <survey row> })`, atomic.
 2. **Refresh held.** `?refs=` over every held survey with NULL `final_state`,
    chunks of 200: upsert `claimed_count`, `cancelled`, links, `tip_epoch`,
-   `tessera_fetched_at`, `final_state`. Closed surveys stay in this set —
-   `end_epoch` is inclusive and verdicts land incrementally, so a row
-   freezes at `final_state`, never at close. A ref absent from a *complete*
+   `tessera_fetched_at`, `final_state` — 5 rows per statement, as
+   `drepVotes.ts` `UPSERT_CHUNK` does: D1 caps bound params at 100 per
+   query (~19 columns here) and miniflare ignores the cap. Closed surveys
+   stay in this set — `end_epoch` is inclusive, verdicts land late, so a
+   row freezes at `final_state`, never at close. A ref absent from a *complete*
    answer (no `incomplete` in the body) is rolled back: set `unavailable`
    (hides answering, keeps the thread; cleared if the ref reappears). From
    an incomplete answer, absence proves nothing — touch no row.
@@ -212,10 +215,9 @@ four passes:
 4. **Settle pending.** `GET /api/responses/{txHash}` per pending local row;
    settle rule in increment 7.
 
-`topics.source` gains `'survey'`; every consumer branching on
-`=== 'governance'` must fall into its non-governance branch — checked, not
-assumed. The phase runs under `recordSyncRun` on the `*/5` trigger; with
-`TESSERA_BACKEND_URL` empty it is not registered.
+`topics.source` gains `'survey'`; every `=== 'governance'` consumer falls
+into its neutral branch (the maintainer verified this against main). The
+`when` gate holds the entry off while `TESSERA_BACKEND_URL` is empty.
 
 *Done when:* a local sync creates one topic per admitted survey with an
 audited `counted_dreps`; a DRep-eligible standalone survey and a linked
