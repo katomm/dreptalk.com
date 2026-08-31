@@ -162,3 +162,64 @@ export async function updateVoteDerivedStats(
     .bind(votesCast, recentlyVotingDrepCount, complete ? 1 : 0, epoch)
     .run();
 }
+
+interface RawEpochStatsRow {
+  epoch: number;
+  total_drep_power: string;
+  powered_drep_count: number;
+  recently_voting_drep_count: number;
+  abstain_power: string | null;
+  anc_power: string | null;
+  delegator_total: number | null;
+  abstain_delegators: number | null;
+  anc_delegators: number | null;
+  gini: number;
+  top10_share_pct: number;
+  min_coalition_50: number;
+  min_coalition_67: number;
+  votes_cast: number;
+  vote_data_complete: number;
+  treasury_lovelace: string | null;
+}
+
+function toEpochStatsRow(r: RawEpochStatsRow): EpochStatsRow {
+  return {
+    epoch: r.epoch,
+    totalDrepPower: r.total_drep_power,
+    poweredDrepCount: r.powered_drep_count,
+    recentlyVotingDrepCount: r.recently_voting_drep_count,
+    abstainPower: r.abstain_power,
+    ancPower: r.anc_power,
+    delegatorTotal: r.delegator_total,
+    abstainDelegators: r.abstain_delegators,
+    ancDelegators: r.anc_delegators,
+    gini: r.gini,
+    top10SharePct: r.top10_share_pct,
+    minCoalition50: r.min_coalition_50,
+    minCoalition67: r.min_coalition_67,
+    votesCast: r.votes_cast,
+    voteDataComplete: r.vote_data_complete === 1,
+    treasuryLovelace: r.treasury_lovelace,
+  };
+}
+
+/**
+ * The stored stats series, epoch ascending, for the analytics hub. Callers
+ * clip each metric to its seriesStartEpoch before charting, this read is
+ * deliberately raw. The whole table is ~150 rows per network.
+ */
+export async function listEpochStats(
+  db: D1Database,
+  opts: { fromEpoch?: number } = {},
+): Promise<EpochStatsRow[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT ${COLUMNS.split(', ').filter((c) => c !== 'computed_at').join(', ')}
+           FROM governance_epoch_stats WHERE epoch >= ? ORDER BY epoch ASC`,
+      )
+      .bind(opts.fromEpoch ?? 0)
+      .all<RawEpochStatsRow>()
+  ).results ?? [];
+  return rows.map(toEpochStatsRow);
+}
