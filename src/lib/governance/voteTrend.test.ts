@@ -231,6 +231,17 @@ describe('buildTrendChart compare support', () => {
     expect(c.markers).toEqual([{ t: 50, x: 100 }]);
   });
 
+  it('projects a requested deadline onto the x scale as deadlineX', () => {
+    const s = series({ points: [{ t: 0, pct: 0 }, { t: 100, pct: 50 }] });
+    const chart = buildTrendChart([s], { width: 640, padLeft: 0, padRight: 0, domain: [0, 100], deadline: 50 })!;
+    expect(chart.deadlineX).toBe(320);
+  });
+
+  it('has a null deadlineX when no deadline is requested', () => {
+    const s = series({ points: [{ t: 0, pct: 0 }, { t: 100, pct: 50 }] });
+    expect(buildTrendChart([s])!.deadlineX).toBeNull();
+  });
+
   it('returns an empty marker list when none are requested', () => {
     const c = buildTrendChart([series()], { domain: [0, 100] })!;
     expect(c.markers).toEqual([]);

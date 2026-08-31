@@ -12,6 +12,7 @@ import {
   computeVoteTrendSeries,
   buildTrendChart,
   buildCompareView,
+  plainCompareView,
   buildHoverBands,
   type TrendBodyInput,
   type TrendBodyKey,
@@ -92,7 +93,7 @@ const inputs: TrendBodyInput[] = [
 const own = computeVoteTrendSeries(inputs, { start, end: lineEnd });
 // Non-compare default. buildCompareView returns exactly this shape when nothing can
 // be overlaid, so the plain chart and the fallback can never drift apart.
-let view: CompareView = { series: own, compareSeries: [], domain: [start, end], markers: [], deadline: null, relative: false, droppedKeys: [] };
+let view: CompareView = plainCompareView(own, start, end);
 
 if (compare) {
   const ca = compare.action;
@@ -138,15 +139,9 @@ const compareEmpty = compare != null && !relative;
 // this the param sits in the URL while the page silently ignores it.
 const compareUnresolved = compareSlug != null && compare == null;
 
-// The deadline rides the markers option so it is projected by the exact same x
-// scale as the series, then split back out by t (never equal to a Today t: a Today
-// marker only exists while the line still stops short of the deadline).
 const chart = buildTrendChart([...series, ...compareSeries], {
-  width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain,
-  markers: deadline != null ? [...markers, deadline] : markers,
+  width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain, markers, deadline,
 });
-const todayMarkers = chart ? chart.markers.filter((m) => m.t !== deadline) : [];
-const deadlineMarker = chart && deadline != null ? chart.markers.find((m) => m.t === deadline) ?? null : null;
 
 const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-cc)' };
 const dateLabel = (t: number): string =>
@@ -202,7 +197,7 @@ const chartLabel = relative && compareTitle
           <text class="vtrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{t.value}%</text>
         </>
       ))}
-      {todayMarkers.map((m) => (
+      {chart.markers.map((m) => (
         <>
           <line class="vtrend__now" x1={m.x} y1={chart.plot.y} x2={m.x} y2={chart.plot.y + chart.plot.h} />
           <text class="vtrend__xlabel" x={m.x} y={chart.plot.y - 6} text-anchor={nowAnchor(m.x, chart.plot.x, chart.plot.w)}>Today</text>
@@ -211,10 +206,10 @@ const chartLabel = relative && compareTitle
       {/* Own deadline under a longer compared window. Labelled at the bottom, on the
           x-tick row: the top row belongs to "Today", which sits close by whenever the
           action is near its deadline, and two stacked top labels would collide. */}
-      {deadlineMarker && (
+      {chart.deadlineX != null && (
         <>
-          <line class="vtrend__deadline" x1={deadlineMarker.x} y1={chart.plot.y} x2={deadlineMarker.x} y2={chart.plot.y + chart.plot.h} />
-          <text class="vtrend__xlabel" x={deadlineMarker.x} y={chart.height - 10} text-anchor={nowAnchor(deadlineMarker.x, chart.plot.x, chart.plot.w)}>Voting ends</text>
+          <line class="vtrend__deadline" x1={chart.deadlineX} y1={chart.plot.y} x2={chart.deadlineX} y2={chart.plot.y + chart.plot.h} />
+          <text class="vtrend__xlabel" x={chart.deadlineX} y={chart.height - 10} text-anchor={nowAnchor(chart.deadlineX, chart.plot.x, chart.plot.w)}>Voting ends</text>
         </>
       )}
       {chart.series.map((s) => (

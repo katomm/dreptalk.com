@@ -36,6 +36,9 @@ export interface TrendChartOptions {
   domain?: [number, number];
   /** Extra t values to project onto the x scale, e.g. a "today" marker. */
   markers?: number[];
+  /** The own action's voting deadline, projected like a marker but kept apart from
+      the markers list so the view never has to tell the two kinds apart by value. */
+  deadline?: number | null;
 }
 
 export interface TrendChartSeries {
@@ -55,6 +58,8 @@ export interface TrendChart {
   yTicks: { value: number; y: number }[];
   xTicks: { t: number; x: number }[];
   markers: { t: number; x: number }[];
+  /** x of the requested deadline on the plot, or null when none was requested. */
+  deadlineX: number | null;
 }
 
 function round2(n: number): number {
@@ -108,8 +113,9 @@ export function buildTrendChart(series: TrendSeries[], opts: TrendChartOptions =
     t,
     x: xFor(Math.min(Math.max(t, tMin), tMax)),
   }));
+  const deadlineX = opts.deadline == null ? null : xFor(Math.min(Math.max(opts.deadline, tMin), tMax));
 
-  return { width, height, plot, series: chartSeries, yTicks, xTicks, markers };
+  return { width, height, plot, series: chartSeries, yTicks, xTicks, markers, deadlineX };
 }
 
 export interface TrendVote {
@@ -232,6 +238,15 @@ export interface CompareView {
 }
 
 /**
+ * The CompareView with nothing overlaid: absolute domain, no markers, not relative.
+ * Both the component's non-compare default and buildCompareView's empty-intersection
+ * fallback are THIS shape, structurally, so the two can never drift apart.
+ */
+export function plainCompareView(series: TrendSeries[], start: number, end: number): CompareView {
+  return { series, compareSeries: [], domain: [start, end], markers: [], deadline: null, relative: false, droppedKeys: [] };
+}
+
+/**
  * The whole compare decision in one pure place: intersect the bodies, re-base each
  * side by ITS OWN window start so day 0 of both windows is the same x, span the axis
  * across whichever action ran longer, and place a "Today" marker only while the own
@@ -245,7 +260,7 @@ export function buildCompareView(
 ): CompareView {
   const shared = sharedTrendBodies(own, compare);
   if (shared.own.length === 0) {
-    return { series: own, compareSeries: [], domain: [o.start, o.end], markers: [], deadline: null, relative: false, droppedKeys: [] };
+    return plainCompareView(own, o.start, o.end);
   }
   const keptKeys = new Set(shared.own.map((s) => s.key));
   const ownSpan = o.end - o.start;
