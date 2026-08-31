@@ -15,6 +15,7 @@ import {
   listActiveDrepIds, deactivateDreps,
 } from '../db/dreps.js';
 import { assignSlugs } from './slug.js';
+import { SPECIAL_DREP_IDS } from './special.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { gcDrepMetadata } from '../db/drepMetadata.js';
 import { fetchAnchorDoc, extractCip119Profile, PROFILE_EXTRACT_VERSION } from '../governance/metadata.js';
@@ -373,6 +374,77 @@ function hasChanged(next: Drep, existing: Drep | undefined): boolean {
   );
 }
 
+/**
+ * Fetches and upserts the two predefined delegation options (see
+ * dreps/special.ts). GET /drep_list never lists them, so they fall outside the
+ * main registered-DRep enumeration above and need this dedicated /drep_info
+ * lookup. They have no CIP-119 anchor, so none of the profile/anchor/avatar
+ * machinery runs for them, only the minimal chain-derived row the default
+ * delegation cards and the epoch stats delegator stamp need.
+ *
+ * Isolated from the main pipeline on purpose: this runs after the main loop's
+ * upserts have already committed, and a Koios error here is caught and counted
+ * rather than thrown, so it can never turn an otherwise-successful sync of every
+ * real DRep into a failed run.
+ */
+async function syncSpecialDreps(
+  deps: DrepSyncDeps,
+  observedDelegatorCounts: Map<string, number>,
+  now: number,
+): Promise<{ failed: number }> {
+  try {
+    const rows = await deps.koios.drepInfoBatch([...SPECIAL_DREP_IDS]);
+    // Recorded before the upsert, mirroring the main loop: a D1 write failure
+    // below must not drop a count Koios did deliver.
+    for (const info of rows) {
+      if (info.live_delegator_count != null) {
+        observedDelegatorCounts.set(info.drep_id, info.live_delegator_count);
+      }
+    }
+    await Promise.all(
+      rows.map((info) =>
+        upsertDrep(deps.db, {
+          drepId: info.drep_id,
+          // Koios answers hex: null for these two ids, they have no credential.
+          // The column is nullable, so it is stored as-is, no placeholder value.
+          hex: info.hex,
+          hasScript: info.has_script,
+          status: info.drep_status ?? 'registered',
+          active: info.active ?? true,
+          deposit: info.deposit,
+          votingPower: info.amount,
+          expiresEpochNo: info.expires_epoch_no,
+          delegatorCount: info.live_delegator_count ?? null,
+          delegatorCountSyncedAt: info.live_delegator_count != null ? now : null,
+          // No hosted document for a pseudo-DRep: every profile/anchor field
+          // stays empty, matching resolveProfile's "no anchor on chain" case.
+          name: null,
+          bio: null,
+          imageUrl: null,
+          imageContentHash: null,
+          imageStoredUrl: null,
+          imageFetchFailedAt: null,
+          links: null,
+          motivations: null,
+          qualifications: null,
+          paymentAddress: null,
+          doNotList: false,
+          anchorUrl: null,
+          anchorHash: null,
+          anchorStatus: 'no-anchor',
+          profileExtractVersion: 0,
+          lastSyncedAt: now,
+          createdAt: now,
+        }),
+      ),
+    );
+    return { failed: 0 };
+  } catch (err) {
+    console.warn('[dreps-sync] failed to sync the predefined delegation options:', err);
+    return { failed: 1 };
+  }
+}
+
 export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   const { db, koios, now, followedDrepIds } = deps;
 
@@ -430,6 +502,12 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
       }
     }
   }
+
+  // The two predefined delegation options never appear in the registered
+  // enumeration above (drep_list does not list them), so they get their own
+  // fetch here, after the main pipeline's upserts have already committed.
+  const specialsResult = await syncSpecialDreps(deps, observedDelegatorCounts, now);
+  failed += specialsResult.failed;
 
   // Deactivate rows that still claim active voting power but are no longer in the
   // registered enumeration: the DRep deregistered (deposit returned). Koios drops

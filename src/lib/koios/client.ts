@@ -117,13 +117,16 @@ export type DrepListRow = z.infer<typeof drepListRowSchema>;
 // DrepInfoRow schema: full shape returned by POST /drep_info (batch).
 // Includes anchor fields (meta_url, meta_hash) for CIP-119 metadata resolution
 // and voting power amount. All nullable fields follow the live Koios response.
+// hex is nullable: the two predefined pseudo-DReps (see dreps/special.ts) have
+// no credential, and Koios answers them with hex: null, verified against live
+// Koios mainnet.
 // live_delegator_count is Koios's per-DRep delegator headcount ("delegators whose
 // last voting power delegation was to this DRep"); optional so a network that has
 // not yet exposed it parses cleanly, in which case the count is treated as unknown.
 const drepInfoRowSchema = z
   .object({
     drep_id: z.string(),
-    hex: z.string(),
+    hex: z.string().nullable(),
     has_script: z.boolean(),
     drep_status: z.string(),
     deposit: z.string().nullable(),

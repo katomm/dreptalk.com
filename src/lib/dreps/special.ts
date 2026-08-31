@@ -1,6 +1,8 @@
-// The two predefined pseudo-DReps Koios returns in drep_list. They are not real
-// voters: "always abstain" stake is excluded from active voting stake, and
-// "always no confidence" is a standing no.
+// The two predefined pseudo-DReps Koios answers for on POST /drep_info (GET
+// /drep_list does NOT list them, verified against live Koios mainnet, so the
+// sync needs a dedicated drep_info fetch for these two ids, see syncDreps).
+// They are not real voters: "always abstain" stake is excluded from active
+// voting stake, and "always no confidence" is a standing no.
 //
 // Two-layer convention (binding for every metric, see also
 // analytics/epochStatsContract.ts):
