@@ -112,14 +112,16 @@ export async function backfillEpochStats(
 
   let inserted = 0;
   for (const epoch of missing.slice(0, deps.budget)) {
-    // Both fetches are required: a totals failure intentionally blocks this
-    // epoch's insertion (atomic completeness), the epoch stays missing and is
-    // retried next run instead of a write-once row with a repair path.
+    // Both fetches are required: a totals fetch that throws, or comes back
+    // null (Koios served nothing for the epoch), leaves the epoch missing for
+    // the next run instead of writing a write-once row with a NULL treasury
+    // column and no repair path (atomic completeness).
     const rows = await fetchEpochPowerRows(deps.koios, epoch);
     if (rows.length === 0) continue; // Koios served nothing, stays in remaining
+    const totalsRow = await deps.koios.totals(epoch);
+    if (totalsRow == null) continue; // atomic completeness, epoch stays in remaining
     const history: EpochHistoryInput[] = rows.map((r) => ({ drepId: r.drepId, amount: r.amount }));
-    const treasury = (await deps.koios.totals(epoch))?.treasuryLovelace ?? null;
-    const row = await buildRow(deps.db, deps.cfg, epoch, history, treasury);
+    const row = await buildRow(deps.db, deps.cfg, epoch, history, totalsRow.treasuryLovelace);
     if (await insertEpochStatsIfMissing(deps.db, row)) inserted++;
   }
   // Everything not inserted this run is still missing, including epochs the

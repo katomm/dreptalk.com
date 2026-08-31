@@ -18,11 +18,14 @@ async function statsRow(epoch: number) {
     .first<Record<string, unknown>>();
 }
 
-function makeKoios(over: Partial<Record<'emptyEpochs', number[]>> = {}) {
+function makeKoios(over: Partial<Record<'emptyEpochs' | 'nullTotalsEpochs', number[]>> = {}) {
   const emptyEpochs = new Set(over.emptyEpochs ?? []);
+  const nullTotalsEpochs = new Set(over.nullTotalsEpochs ?? []);
   return {
     totals: async (epochNo?: number) =>
-      ({ epochNo: epochNo ?? 999, treasuryLovelace: '4242', reservesLovelace: '1' }),
+      epochNo != null && nullTotalsEpochs.has(epochNo)
+        ? null
+        : { epochNo: epochNo ?? 999, treasuryLovelace: '4242', reservesLovelace: '1' },
     firstDrepPowerEpoch: async () => 538,
     drepVotingPowerHistory: async (epochNo: number, _limit?: number, offset = 0) =>
       offset > 0 || emptyEpochs.has(epochNo) ? [] : [
@@ -95,6 +98,16 @@ describe('backfillEpochStats', () => {
     });
     expect(r.inserted).toBe(2); // 539 and 540
     expect(r.remaining).toBe(1); // 538 stays missing and is retried next run
+  });
+
+  it('skips an epoch whose totals fetch resolves null, no NULL-treasury row is written', async () => {
+    const r = await backfillEpochStats({
+      db: env.DB, koios: makeKoios({ nullTotalsEpochs: [539] }), cfg, currentEpoch: 541, budget: 3,
+    });
+    expect(r.inserted).toBe(2); // 538 and 540, 539 skipped
+    expect(r.remaining).toBe(1); // 539 stays missing and is retried next run
+    const row = await statsRow(539);
+    expect(row).toBeNull();
   });
 
   it('repairs both vote-derived columns once the sweep drained', async () => {
