@@ -37,6 +37,18 @@ export interface TrendAssemblyResult {
 }
 
 /**
+ * The epoch at whose start voting on a terminal action ended: the decision epoch,
+ * clamped to the expiry epoch. An enacted action's decision epoch can be its
+ * enactment epoch, one past the expiry, but voting still ended at the start of the
+ * expiry epoch. Shared by the chart window and the compare picker's end labels so
+ * both always name the same epoch.
+ */
+export function votingEndEpoch(decidedEpoch: number | null, expiryEpoch: number | null): number | null {
+  const decided = decidedEpoch ?? expiryEpoch;
+  return decided != null && expiryEpoch != null ? Math.min(decided, expiryEpoch) : decided;
+}
+
+/**
  * Builds the voting window and per-body TrendBodyInput[] shared by every voting-trend
  * chart. DRep/SPO are power-weighted yes votes (voted_power); CC is the committee-
  * timeline-deduped final vote per active member, weighted 1 each.
@@ -47,12 +59,10 @@ export function assembleTrendInputs(a: TrendAssemblyInputs): TrendAssemblyResult
   // Voting window in unix seconds: from the submit epoch start to the decision (or
   // expiry) epoch start. Falls back to the span of observed votes when epochs are absent.
   const decidedEpoch = action.decidedEpoch ?? action.expiryEpoch;
-  // An enacted action's decision epoch can be its enactment epoch, one past the
-  // expiry. Voting still ended at the start of the expiry epoch, so the window is
-  // clamped there: unclamped, a compared action drew one epoch of window that never
-  // existed and pushed the shared compare axis past every real deadline.
-  const windowEndEpoch =
-    decidedEpoch != null && action.expiryEpoch != null ? Math.min(decidedEpoch, action.expiryEpoch) : decidedEpoch;
+  // Clamped to expiry (see votingEndEpoch): unclamped, a compared action drew one
+  // epoch of window that never existed and pushed the shared compare axis past
+  // every real deadline.
+  const windowEndEpoch = votingEndEpoch(action.decidedEpoch, action.expiryEpoch);
   const windowStart = action.submittedEpoch != null ? epochStartUnix(action.submittedEpoch, cfg) : null;
   const windowEnd = windowEndEpoch != null ? epochStartUnix(windowEndEpoch, cfg) : null;
   const voteTimes = [...trendRows.map((r) => r.block_time), ...ccVotes.map((v) => v.blockTime ?? 0)].filter((t) => t > 0);
