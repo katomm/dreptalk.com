@@ -33,7 +33,7 @@ const sort = Astro.url.searchParams.get('sort') === 'delegators' ? 'delegators' 
 const listOffset = pageToOffset(page, PAGE_SIZE);
 
 // The directory listing, the concentration aggregate, and the power-history
-// aggregates are independent reads; fetch them concurrently so a cold (uncached)
+// aggregates are independent reads, fetch them concurrently so a cold (uncached)
 // render pays one round-trip of latency, not three.
 const [dreps, concentrationRows, powerAggregates] = db
   ? await Promise.all([
