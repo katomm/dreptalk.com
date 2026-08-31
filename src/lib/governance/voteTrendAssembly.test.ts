@@ -49,6 +49,20 @@ describe('assembleTrendInputs', () => {
     expect(result.window.end).toBe(epochStartUnix(15, cfg));
   });
 
+  it('clamps the window end to the expiry epoch when the decision epoch is later', () => {
+    // An enacted action can carry a decision epoch one past its expiry (enactment,
+    // not ratification). Voting still ended at the start of the expiry epoch, so the
+    // window must not stretch to the later epoch.
+    const result = assembleTrendInputs({
+      action: action({ decidedEpoch: 21, expiryEpoch: 20 }),
+      trendRows: [voteRow()],
+      ccVotes: [],
+      committee: { members: [], hotToCold: new Map() },
+      cfg,
+    });
+    expect(result.window.end).toBe(epochStartUnix(20, cfg));
+  });
+
   it('falls back to the span of observed vote times when submittedEpoch is absent', () => {
     const earliestVote = epochStartUnix(10, cfg) + 1000;
     const latestVote = epochStartUnix(10, cfg) + 9000;

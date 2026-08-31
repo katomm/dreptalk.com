@@ -36,6 +36,9 @@ export interface TrendChartOptions {
   domain?: [number, number];
   /** Extra t values to project onto the x scale, e.g. a "today" marker. */
   markers?: number[];
+  /** The own action's voting deadline, projected like a marker but kept apart from
+      the markers list so the view never has to tell the two kinds apart by value. */
+  deadline?: number | null;
 }
 
 export interface TrendChartSeries {
@@ -55,6 +58,8 @@ export interface TrendChart {
   yTicks: { value: number; y: number }[];
   xTicks: { t: number; x: number }[];
   markers: { t: number; x: number }[];
+  /** x of the requested deadline on the plot, or null when none was requested. */
+  deadlineX: number | null;
 }
 
 function round2(n: number): number {
@@ -108,8 +113,9 @@ export function buildTrendChart(series: TrendSeries[], opts: TrendChartOptions =
     t,
     x: xFor(Math.min(Math.max(t, tMin), tMax)),
   }));
+  const deadlineX = opts.deadline == null ? null : xFor(Math.min(Math.max(opts.deadline, tMin), tMax));
 
-  return { width, height, plot, series: chartSeries, yTicks, xTicks, markers };
+  return { width, height, plot, series: chartSeries, yTicks, xTicks, markers, deadlineX };
 }
 
 export interface TrendVote {
@@ -218,10 +224,26 @@ export interface CompareView {
   domain: [number, number];
   /** "Today" marker positions on the same scale as domain. */
   markers: number[];
+  /**
+   * The own action's voting deadline on the domain scale, or null. Set only when the
+   * compared window runs longer AND the own action is still open: the axis then
+   * extends past the own deadline, and without a marker there the empty space to the
+   * axis end reads as remaining voting time.
+   */
+  deadline: number | null;
   /** True when both sides were re-based to seconds-since-their-own-window-start. */
   relative: boolean;
   /** Own bodies the intersection removed, so the view can say what vanished and why. */
   droppedKeys: TrendBodyKey[];
+}
+
+/**
+ * The CompareView with nothing overlaid: absolute domain, no markers, not relative.
+ * Both the component's non-compare default and buildCompareView's empty-intersection
+ * fallback are THIS shape, structurally, so the two can never drift apart.
+ */
+export function plainCompareView(series: TrendSeries[], start: number, end: number): CompareView {
+  return { series, compareSeries: [], domain: [start, end], markers: [], deadline: null, relative: false, droppedKeys: [] };
 }
 
 /**
@@ -238,7 +260,7 @@ export function buildCompareView(
 ): CompareView {
   const shared = sharedTrendBodies(own, compare);
   if (shared.own.length === 0) {
-    return { series: own, compareSeries: [], domain: [o.start, o.end], markers: [], relative: false, droppedKeys: [] };
+    return plainCompareView(own, o.start, o.end);
   }
   const keptKeys = new Set(shared.own.map((s) => s.key));
   const ownSpan = o.end - o.start;
@@ -253,6 +275,10 @@ export function buildCompareView(
     // Never clip the longer action: the axis spans whichever window ran longer.
     domain: [0, Math.max(ownSpan, cmpSpan, 1)],
     markers: showNow ? [o.lineEnd - o.start] : [],
+    // Only while open and only when the axis outruns the own window: on a terminal
+    // action the endpoint dot already closes the story, and when the own window is
+    // the longer one the deadline is the plot's right edge anyway.
+    deadline: !o.ownIsTerminal && cmpSpan > ownSpan ? ownSpan : null,
     relative: true,
     droppedKeys: own.filter((s) => !keptKeys.has(s.key)).map((s) => s.key),
   };

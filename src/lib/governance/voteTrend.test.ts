@@ -231,6 +231,17 @@ describe('buildTrendChart compare support', () => {
     expect(c.markers).toEqual([{ t: 50, x: 100 }]);
   });
 
+  it('projects a requested deadline onto the x scale as deadlineX', () => {
+    const s = series({ points: [{ t: 0, pct: 0 }, { t: 100, pct: 50 }] });
+    const chart = buildTrendChart([s], { width: 640, padLeft: 0, padRight: 0, domain: [0, 100], deadline: 50 })!;
+    expect(chart.deadlineX).toBe(320);
+  });
+
+  it('has a null deadlineX when no deadline is requested', () => {
+    const s = series({ points: [{ t: 0, pct: 0 }, { t: 100, pct: 50 }] });
+    expect(buildTrendChart([s])!.deadlineX).toBeNull();
+  });
+
   it('returns an empty marker list when none are requested', () => {
     const c = buildTrendChart([series()], { domain: [0, 100] })!;
     expect(c.markers).toEqual([]);
@@ -294,9 +305,28 @@ describe('buildCompareView', () => {
     expect(v.markers).toEqual([]);
   });
 
+  it('marks the own deadline when the compared window is longer and the action is open', () => {
+    const longCompare = { ...opts, ownIsTerminal: false, lineEnd: 1000 + 3 * DAY, compareEnd: 500_000 + 30 * DAY };
+    // The axis runs to day 30 but this action's voting ends at day 10. Without a
+    // marker there, the empty space to day 30 reads as remaining voting time.
+    expect(buildCompareView([ownDrep], [cmpDrep], longCompare).deadline).toBe(10 * DAY);
+  });
+
+  it('marks no deadline on a terminal action even under a longer compared window', () => {
+    const longCompare = { ...opts, ownIsTerminal: true, compareEnd: 500_000 + 30 * DAY };
+    expect(buildCompareView([ownDrep], [cmpDrep], longCompare).deadline).toBeNull();
+  });
+
+  it('marks no deadline when the own window is the longer or equal one', () => {
+    // The axis already ends at the own deadline, a marker on the plot edge is noise.
+    const v = buildCompareView([ownDrep], [cmpDrep], { ...opts, ownIsTerminal: false, lineEnd: 1000 + 3 * DAY });
+    expect(v.deadline).toBeNull();
+  });
+
   it('falls back to exactly the non-compare shape when no body is shared', () => {
     const v = buildCompareView([ownSpo], [cmpDrep], opts);
     expect(v.relative).toBe(false);
+    expect(v.deadline).toBeNull();
     expect(v.series).toEqual([ownSpo]);
     expect(v.series[0].points[0].t).toBe(1000);
     expect(v.compareSeries).toEqual([]);
