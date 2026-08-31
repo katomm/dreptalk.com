@@ -17,10 +17,15 @@ const COLUMNS =
 
 const PLACEHOLDERS = Array.from({ length: 17 }, () => '?').join(', ');
 
-// Everything except the PK, for the conflict update below.
+// Everything except the PK, for the conflict update below. treasury_lovelace
+// gets its own clause: treasury is constant within an epoch, so if a later
+// live-pass write hits an epoch where Koios served an empty array (NULL),
+// keeping the earlier intra-epoch value is exact, an overwrite to NULL is not.
 const UPDATE_SET = COLUMNS.split(', ')
   .filter((c) => c !== 'epoch')
-  .map((c) => `${c} = excluded.${c}`)
+  .map((c) =>
+    c === 'treasury_lovelace' ? `${c} = COALESCE(excluded.${c}, ${c})` : `${c} = excluded.${c}`,
+  )
   .join(', ');
 
 const SPECIAL_PLACEHOLDERS = SPECIAL_DREP_IDS.map(() => '?').join(', ');

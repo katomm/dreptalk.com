@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { syncCurrentEpochStats, backfillEpochStats } from './epochStatsSync.js';
-import { resolveNetwork } from '../config/network.js';
+import { resolveNetwork, epochStartUnix } from '../config/network.js';
 
 const cfg = resolveNetwork('mainnet');
 
@@ -51,6 +51,9 @@ describe('syncCurrentEpochStats', () => {
     // One row is unstamped, so no partial total is stored.
     expect(row?.delegator_total).toBeNull();
     expect(row?.treasury_lovelace).toBe('4242');
+    // The live pass always writes an open epoch as vote-incomplete, even
+    // though nothing is currently unswept, the epoch itself is still open.
+    expect(row?.vote_data_complete).toBe(0);
 
     // A later run in the same epoch sees the completed stamps and heals.
     await env.DB.prepare(
@@ -59,6 +62,7 @@ describe('syncCurrentEpochStats', () => {
     await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 540 });
     row = await statsRow(540);
     expect(row?.delegator_total).toBe(150);
+    expect(row?.vote_data_complete).toBe(0);
   });
 
   it('skips without history rows for the epoch', async () => {
@@ -124,5 +128,43 @@ describe('backfillEpochStats', () => {
     expect(r.repaired).toBe(1);
     row = await statsRow(538);
     expect(row?.vote_data_complete).toBe(1);
+  });
+});
+
+describe('finalization after an epoch roll', () => {
+  it('live-pass epoch freezes at flag 0, the next backfill run repairs it once closed', async () => {
+    await seedHistory(540, [
+      ['drep1a', '600', 100],
+      ['drep1b', '400', 50],
+    ]);
+    const t0 = epochStartUnix(540, cfg);
+    // Already swept: the sweep state is not what this test is about, an open
+    // epoch must stay incomplete even when nothing is unswept.
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, topic_id, created_at, last_synced_at, vote_history_swept_at)
+       VALUES ('gaF', 'InfoAction', 't', 'active', NULL, 0, 0, 5)`,
+    ).run();
+    await env.DB.prepare(
+      `INSERT INTO drep_votes (ga_id, voter_id, voter_role, vote, block_time, synced_at)
+       VALUES ('gaF', 'drep1a', 'DRep', 'Yes', ?, 0)`,
+    ).bind(t0 + 10).run();
+
+    const live = await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 540 });
+    expect(live.written).toBe(true);
+    let row = await statsRow(540);
+    // Written while the epoch is still open: incomplete no matter what the
+    // sweep looks like, this is the bug the finalization guards against.
+    expect(row?.vote_data_complete).toBe(0);
+    expect(row?.votes_cast).toBe(1);
+
+    // Roll to the next epoch: 540 is closed, the live pass never writes it
+    // again, so the backfill's repair pass must finalize it instead.
+    const r = await backfillEpochStats({ db: env.DB, koios: makeKoios(), cfg, currentEpoch: 541, budget: 0 });
+    expect(r.repaired).toBe(1);
+    row = await statsRow(540);
+    expect(row?.vote_data_complete).toBe(1);
+    // Recomputed from the same local vote data, not just a flag flip.
+    expect(row?.votes_cast).toBe(1);
+    expect(row?.recently_voting_drep_count).toBe(1);
   });
 });

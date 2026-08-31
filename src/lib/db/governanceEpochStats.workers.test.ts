@@ -50,6 +50,15 @@ describe('epoch stats persistence', () => {
     expect(await getStoredStatsEpochs(env.DB)).toEqual(new Set([540]));
   });
 
+  it('keeps the earlier treasury value when a later upsert writes null', async () => {
+    await upsertEpochStats(env.DB, row(550, { treasuryLovelace: '77' }));
+    await upsertEpochStats(env.DB, row(550, { treasuryLovelace: null }));
+    const stored = await env.DB.prepare(
+      'SELECT treasury_lovelace FROM governance_epoch_stats WHERE epoch = 550',
+    ).first<{ treasury_lovelace: string }>();
+    expect(stored?.treasury_lovelace).toBe('77');
+  });
+
   it('repairs both vote-derived columns together', async () => {
     await upsertEpochStats(env.DB, row(540, { voteDataComplete: false }));
     await upsertEpochStats(env.DB, row(541, { voteDataComplete: true }));

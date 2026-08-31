@@ -7,8 +7,9 @@
 -- default delegation layer and get their own columns.
 -- Rows for past epochs are written once (INSERT OR IGNORE by the backfill).
 -- The current epoch's row is recomputed each cron run until the epoch ends,
--- and rows with vote_data_complete = 0 get their vote-derived columns
--- repaired once the vote-history sweep has drained.
+-- always with vote_data_complete = 0, an open epoch's vote set is incomplete
+-- by definition. Once the epoch closes, the backfill's repair pass recomputes
+-- both vote-derived columns and sets the flag to 1.
 CREATE TABLE governance_epoch_stats (
   epoch INTEGER PRIMARY KEY,
   -- lovelace, summed over the epoch's non-special snapshot rows
@@ -36,8 +37,9 @@ CREATE TABLE governance_epoch_stats (
   -- DRep vote transactions in the epoch, superseded included, local data,
   -- exact only where vote_data_complete = 1
   votes_cast INTEGER NOT NULL,
-  -- 1 when zero governance_actions had vote_history_swept_at IS NULL at
-  -- compute time. Gates BOTH votes_cast and recently_voting_drep_count,
+  -- 1 when the epoch has closed AND zero governance_actions had
+  -- vote_history_swept_at IS NULL at compute time. Always 0 for the current,
+  -- still-open epoch. Gates BOTH votes_cast and recently_voting_drep_count,
   -- they derive from the same drep_votes + drep_vote_history source.
   vote_data_complete INTEGER NOT NULL,
   -- lovelace, from Koios /totals for the epoch

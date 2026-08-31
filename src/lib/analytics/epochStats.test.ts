@@ -30,6 +30,10 @@ describe('computeGini', () => {
   it('is 0 for empty input', () => {
     expect(computeGini([])).toBe(0);
   });
+
+  it('clamps the BigInt-truncation negative for three equal amounts to exactly 0', () => {
+    expect(computeGini([5n, 5n, 5n])).toBe(0);
+  });
 });
 
 describe('computeEpochStatsRow', () => {

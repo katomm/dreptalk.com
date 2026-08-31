@@ -66,7 +66,10 @@ export function computeGini(amounts: bigint[]): number {
   }
   if (total === 0n) return 0;
   const scaled = (weighted * 2_000_000n) / (BigInt(n) * total);
-  return Number(scaled) / 1_000_000 - (n + 1) / n;
+  // BigInt division truncates, so an equal distribution can compute a tiny
+  // negative (for example about -3.3e-7 at n=3) instead of exactly 0. Clamp,
+  // a coefficient below 0 is never a real answer.
+  return Math.max(0, Number(scaled) / 1_000_000 - (n + 1) / n);
 }
 
 /** Four-decimal percent of part out of total, BigInt-safe, 0 when total is 0. */

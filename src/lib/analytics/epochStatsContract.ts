@@ -39,7 +39,12 @@ export interface EpochStatsMetric {
   definition: string;
 }
 
-/** Trailing window for recently_voting_drep_count. Internal knob, one UI variant. */
+/**
+ * Trailing window for recently_voting_drep_count. Internal knob, one UI
+ * variant. Changing this value redefines the stored series: existing rows
+ * were computed under the old window, so a change requires resetting
+ * vote_data_complete to 0 on stored rows so the repair pass recomputes them.
+ */
 export const RECENT_VOTING_WINDOW_EPOCHS = 12;
 
 export type EpochStatsMetricKey =
@@ -81,7 +86,7 @@ export const EPOCH_STATS_METRICS: Record<EpochStatsMetricKey, EpochStatsMetric> 
     start: 'first-complete',
     includesSpecials: false,
     source: 'local-votes',
-    definition: 'DReps that voted at least once in the last 12 epochs, superseded votes included.',
+    definition: 'DReps that voted at least once in the last 12 epochs, superseded votes included. Votes without a block time are not counted.',
   },
   abstainPower: {
     column: 'abstain_power',
@@ -161,7 +166,7 @@ export const EPOCH_STATS_METRICS: Record<EpochStatsMetricKey, EpochStatsMetric> 
     start: 'first-complete',
     includesSpecials: false,
     source: 'local-votes',
-    definition: 'DRep vote transactions submitted during the epoch, later-superseded votes included.',
+    definition: 'DRep vote transactions submitted during the epoch, later-superseded votes included. Votes without a block time are not counted.',
   },
   treasuryLovelace: {
     column: 'treasury_lovelace',

@@ -2,9 +2,13 @@
 // Orchestration for the governance_epoch_stats phases. The current-epoch pass
 // reads the already-synced drep_voting_power_history window (specials are in
 // it) and recomputes its row every run, so intra-epoch votes and late
-// delegator stamps converge. The backfill fetches older epochs from Koios
-// transiently (never into the history table), oldest first, budgeted per run,
-// and leaves the forward-only delegator columns NULL. See
+// delegator stamps converge. Its row always carries vote_data_complete = 0,
+// an open epoch's vote set is incomplete by definition, no matter how the
+// sweep looks at compute time. The backfill's repair pass finalizes the row
+// (both vote-derived columns and the flag) once the epoch has closed and the
+// vote-history sweep has drained. The backfill also fetches older epochs from
+// Koios transiently (never into the history table), oldest first, budgeted
+// per run, and leaves the forward-only delegator columns NULL. See
 // epochStatsContract.ts for what every column means.
 import { computeEpochStatsRow, type EpochHistoryInput } from './epochStats.js';
 import { RECENT_VOTING_WINDOW_EPOCHS } from './epochStatsContract.js';
@@ -41,20 +45,28 @@ async function loadStoredEpochHistory(db: D1Database, epoch: number): Promise<Ep
   return rows.map((r) => ({ drepId: r.drep_id, amount: r.amount, delegatorCount: r.delegator_count }));
 }
 
+/**
+ * `epochClosed` decides whether vote_data_complete can ever be true: an open
+ * epoch's vote set is incomplete by definition (the cron still has hours left
+ * to observe votes in it), so the live pass always passes false regardless of
+ * sweep state. The backfill passes true, since a backfilled epoch has already
+ * closed, and the sweep-based gate (unswept === 0) is the right check there.
+ */
 async function buildRow(
   db: D1Database,
   cfg: NetworkConfig,
   epoch: number,
   history: EpochHistoryInput[],
   treasuryLovelace: string | null,
+  epochClosed: boolean,
 ) {
-  const unswept = await countUnsweptActions(db);
+  const voteDataComplete = epochClosed && (await countUnsweptActions(db)) === 0;
   return computeEpochStatsRow({
     epoch,
     history,
     recentlyVotingDrepCount: await countRecentlyVotingDreps(db, epoch, cfg, RECENT_VOTING_WINDOW_EPOCHS),
     votesCast: await countDrepVotesInEpoch(db, epoch, cfg),
-    voteDataComplete: unswept === 0,
+    voteDataComplete,
     treasuryLovelace,
   });
 }
@@ -71,7 +83,7 @@ export async function syncCurrentEpochStats(deps: SyncCurrentEpochStatsDeps): Pr
   const history = await loadStoredEpochHistory(deps.db, deps.epoch);
   if (history.length === 0) return { written: false };
   const treasury = (await deps.koios.totals(deps.epoch))?.treasuryLovelace ?? null;
-  const row = await buildRow(deps.db, deps.cfg, deps.epoch, history, treasury);
+  const row = await buildRow(deps.db, deps.cfg, deps.epoch, history, treasury, false);
   await upsertEpochStats(deps.db, row);
   return { written: true };
 }
@@ -85,17 +97,26 @@ export interface BackfillEpochStatsDeps {
   budget: number;
 }
 
+// Post-fix-1 this list normally holds exactly one epoch, the one that just
+// closed, since the live pass never lets an open epoch's flag go true and
+// the repair pass runs every backfill invocation. The cap only guards the
+// pathological case where the sweep stayed behind for a long stretch and
+// many epochs piled up incomplete, so one run cannot be made to walk an
+// unbounded backlog.
+const MAX_REPAIRS_PER_RUN = 24;
+
 export async function backfillEpochStats(
   deps: BackfillEpochStatsDeps,
 ): Promise<{ inserted: number; repaired: number; remaining: number }> {
   // Repair pass first: rows whose vote-derived columns were computed while
-  // the sweep was pending get both columns recomputed together once nothing
-  // is unswept anymore. Pure local SQL. The current epoch is skipped, the
-  // live pass owns and recomputes it anyway.
+  // the epoch was still open or the sweep was pending get both columns
+  // recomputed together once the epoch has closed and nothing is unswept
+  // anymore. Pure local SQL. The current epoch is skipped, the live pass
+  // owns and recomputes it anyway.
   let repaired = 0;
   if ((await countUnsweptActions(deps.db)) === 0) {
-    for (const epoch of await listIncompleteVoteDataEpochs(deps.db)) {
-      if (epoch >= deps.currentEpoch) continue;
+    const incomplete = (await listIncompleteVoteDataEpochs(deps.db)).filter((epoch) => epoch < deps.currentEpoch);
+    for (const epoch of incomplete.slice(0, MAX_REPAIRS_PER_RUN)) {
       const votes = await countDrepVotesInEpoch(deps.db, epoch, deps.cfg);
       const recent = await countRecentlyVotingDreps(deps.db, epoch, deps.cfg, RECENT_VOTING_WINDOW_EPOCHS);
       await updateVoteDerivedStats(deps.db, epoch, votes, recent, true);
@@ -121,7 +142,7 @@ export async function backfillEpochStats(
     const totalsRow = await deps.koios.totals(epoch);
     if (totalsRow == null) continue; // atomic completeness, epoch stays in remaining
     const history: EpochHistoryInput[] = rows.map((r) => ({ drepId: r.drepId, amount: r.amount }));
-    const row = await buildRow(deps.db, deps.cfg, epoch, history, totalsRow.treasuryLovelace);
+    const row = await buildRow(deps.db, deps.cfg, epoch, history, totalsRow.treasuryLovelace, true);
     if (await insertEpochStatsIfMissing(deps.db, row)) inserted++;
   }
   // Everything not inserted this run is still missing, including epochs the
