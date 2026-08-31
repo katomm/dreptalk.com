@@ -5,7 +5,6 @@ import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
-import DrepConcentration from '@/components/DrepConcentration.tsx';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
 import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import DrepSelfCard from '@/components/DrepSelfCard.astro';
@@ -16,8 +15,6 @@ import { getSelfDrepId } from '@/lib/db/users.js';
 import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
-import { buildThresholdMarkers } from '@/lib/dreps/thresholdMarkers.js';
-import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { influencePct } from '@/lib/dreps/profile.js';
 import { computeVotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
@@ -35,17 +32,16 @@ const sort = Astro.url.searchParams.get('sort') === 'delegators' ? 'delegators' 
 // (rank = offset + row index + 1), so ranks stay continuous across pages.
 const listOffset = pageToOffset(page, PAGE_SIZE);
 
-// The directory listing, the concentration aggregate, and the cached protocol
-// params are independent reads; fetch them concurrently so a cold (uncached)
+// The directory listing, the concentration aggregate, and the power-history
+// aggregates are independent reads; fetch them concurrently so a cold (uncached)
 // render pays one round-trip of latency, not three.
-const [dreps, concentrationRows, params, powerAggregates] = db
+const [dreps, concentrationRows, powerAggregates] = db
   ? await Promise.all([
       listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: listOffset, sort }),
       listDrepsForConcentration(db),
-      getProtocolParams(db),
       getVotingPowerEpochAggregates(db),
     ])
-  : [[], [], null, []];
+  : [[], [], []];
 
 // Voting power concentration: all active, non-special DReps as BigInt powers.
 // Parse lovelace defensively so a single malformed row cannot 500 the page
@@ -103,13 +99,7 @@ const statCards: {
   { label: 'Top 10 control', value: `${top10Pct.toFixed(1)}%`, icon: 'share', alt: true, sub: 'held by the 10 largest' },
 ];
 
-// Donut slider markers: each DRep voting threshold (dvt_* fraction) paired with
-// the governance action it gates, grouped by rounded percent (several actions
-// share a threshold). See buildThresholdMarkers for the Conway-default fallback
-// and synced-param override rules.
-const { markers, defaultThresholdPct, thresholdsAsOf } = buildThresholdMarkers(params);
-
-// The island uses the deployment's real network for the delegation tx + explorer links.
+// DrepActionsMenu uses the deployment's real network for the delegation tx + explorer links.
 const network = currentNetwork().network;
 
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
@@ -336,16 +326,10 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
   />
 
   {concentration.drepCount > 0 && (
-    <DrepConcentration
-      client:visible
-      topK={concentration.topK}
-      byPercent={concentration.byPercent}
-      drepCount={concentration.drepCount}
-      totalLabel={concentration.totalLabel}
-      markers={markers}
-      defaultThresholdPct={defaultThresholdPct}
-      thresholdsAsOf={thresholdsAsOf}
-    />
+    <a class="drep-conc-teaser" href="/analytics/">
+      <strong>Voting power concentration</strong>
+      <span>The top 10 DReps hold {top10Pct.toFixed(1)}% of the delegated power. Explore the full picture, thresholds and trends on the analytics page.</span>
+    </a>
   )}
 
   {dreps.length > 0 && <DrepActionsMenu client:idle network={network} />}
@@ -374,6 +358,34 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
     font-size: 0.9375rem;
   }
   .drep-match-teaser span {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  /* Quiet banner linking to the /analytics/ page, reusing the directory's
+     stat-tile tokens (border, radius, surface) so it reads as part of the page. */
+  .drep-conc-teaser {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.85rem 1rem;
+    margin: 0 0 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-decoration: none;
+    color: var(--fg);
+    transition: border-color 0.15s ease;
+  }
+  .drep-conc-teaser:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .drep-conc-teaser strong {
+    font-size: 0.9375rem;
+  }
+  .drep-conc-teaser span {
     display: block;
     margin-top: 0.15rem;
     font-size: 0.8125rem;
