@@ -30,6 +30,8 @@ export interface ProtocolParams {
   treasuryLovelace: string | null;
   /** Reserves balance in lovelace, from Koios /totals. Null until first synced. */
   reservesLovelace: string | null;
+  /** Circulating supply in lovelace, from Koios /totals. Null until first synced. */
+  circulationLovelace: string | null;
   /** Epoch the treasury/reserves balances are from. Null until first synced. */
   treasuryEpoch: number | null;
 }
@@ -45,7 +47,8 @@ interface Row {
   cc_threshold: number | null; committee_min_size: number | null; committee_size: number | null;
   synced_at: number;
   raw_json: string | null;
-  treasury_lovelace: string | null; reserves_lovelace: string | null; treasury_epoch: number | null;
+  treasury_lovelace: string | null; reserves_lovelace: string | null; circulation_lovelace: string | null;
+  treasury_epoch: number | null;
 }
 
 export async function getProtocolParams(db: D1Database): Promise<ProtocolParams | null> {
@@ -64,6 +67,7 @@ export async function getProtocolParams(db: D1Database): Promise<ProtocolParams 
     syncedAt: r.synced_at,
     rawJson: r.raw_json,
     treasuryLovelace: r.treasury_lovelace, reservesLovelace: r.reserves_lovelace,
+    circulationLovelace: r.circulation_lovelace,
     treasuryEpoch: r.treasury_epoch,
   };
 }
@@ -76,14 +80,14 @@ export async function upsertProtocolParams(db: D1Database, p: ProtocolParams): P
         dvt_pp_gov, dvt_treasury_withdrawal, pvt_motion_no_confidence, pvt_committee_normal,
         pvt_committee_no_confidence, pvt_hard_fork, pvt_security_group, cc_threshold,
         committee_min_size, committee_size, synced_at, raw_json,
-        treasury_lovelace, reserves_lovelace, treasury_epoch)
-     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        treasury_lovelace, reserves_lovelace, circulation_lovelace, treasury_epoch)
+     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     p.epoch, p.dvtMotionNoConfidence, p.dvtCommitteeNormal, p.dvtCommitteeNoConfidence,
     p.dvtUpdateConstitution, p.dvtHardFork, p.dvtPpNetwork, p.dvtPpEconomic, p.dvtPpTechnical,
     p.dvtPpGov, p.dvtTreasuryWithdrawal, p.pvtMotionNoConfidence, p.pvtCommitteeNormal,
     p.pvtCommitteeNoConfidence, p.pvtHardFork, p.pvtSecurityGroup, p.ccThreshold,
     p.committeeMinSize, p.committeeSize, p.syncedAt, p.rawJson,
-    p.treasuryLovelace, p.reservesLovelace, p.treasuryEpoch,
+    p.treasuryLovelace, p.reservesLovelace, p.circulationLovelace, p.treasuryEpoch,
   ).run();
 }

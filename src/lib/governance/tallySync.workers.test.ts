@@ -1113,7 +1113,7 @@ describe('backfillThresholdSnapshots', () => {
     pvtMotionNoConfidence: null, pvtCommitteeNormal: null, pvtCommitteeNoConfidence: null,
     pvtHardFork: null, pvtSecurityGroup: null, ccThreshold: 0.667,
     committeeMinSize: 5, committeeSize: 6, syncedAt: NOW, rawJson: null,
-    treasuryLovelace: null, reservesLovelace: null, treasuryEpoch: null,
+    treasuryLovelace: null, reservesLovelace: null, circulationLovelace: null, treasuryEpoch: null,
   };
 
   // Seeds a committee of `n` members all active at any epoch >= 500.

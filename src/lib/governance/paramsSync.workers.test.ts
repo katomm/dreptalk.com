@@ -50,7 +50,7 @@ function fakeKoios(overrides: Partial<ParamsSyncKoios> = {}): ParamsSyncKoios {
         quorum: 0.67,
         members: [member(), member({ status: 'resigned', cc_hot_hex: 'cc'.repeat(28), cc_cold_hex: 'dd'.repeat(28) })],
       })),
-    totals: overrides.totals ?? (async () => ({ epochNo: 570, treasuryLovelace: '1500000000000', reservesLovelace: '900000000000' })),
+    totals: overrides.totals ?? (async () => ({ epochNo: 570, treasuryLovelace: '1500000000000', reservesLovelace: '900000000000', circulationLovelace: null })),
   };
 }
 
@@ -120,5 +120,56 @@ describe('syncProtocolParams', () => {
     const r = await syncProtocolParams({ koios: fakeKoios(), db: env.DB, now: 1_000 });
 
     expect(r.unknownMembers).toBeGreaterThan(0);
+  });
+
+  it('stores circulation when totals includes it', async () => {
+    await syncProtocolParams({
+      koios: fakeKoios({
+        totals: async () => ({
+          epochNo: 570,
+          treasuryLovelace: '1500000000000',
+          reservesLovelace: '900000000000',
+          circulationLovelace: '600000000000',
+        }),
+      }),
+      db: env.DB,
+      now: 1_000,
+    });
+
+    const stored = await getProtocolParams(env.DB);
+    expect(stored?.circulationLovelace).toBe('600000000000');
+  });
+
+  it('keeps the stored circulation when a later totals response omits it', async () => {
+    await syncProtocolParams({
+      koios: fakeKoios({
+        totals: async () => ({
+          epochNo: 570,
+          treasuryLovelace: '1500000000000',
+          reservesLovelace: '900000000000',
+          circulationLovelace: '600000000000',
+        }),
+      }),
+      db: env.DB,
+      now: 1_000,
+    });
+
+    const r = await syncProtocolParams({
+      koios: fakeKoios({
+        epochParams: async () => epochParamsRow({ epoch_no: 571 }),
+        totals: async () => ({
+          epochNo: 571,
+          treasuryLovelace: '1500000000000',
+          reservesLovelace: '900000000000',
+          circulationLovelace: null,
+        }),
+      }),
+      db: env.DB,
+      now: 2_000,
+    });
+
+    expect(r.written).toBe(1);
+    const stored = await getProtocolParams(env.DB);
+    expect(stored).toMatchObject({ epoch: 571, circulationLovelace: '600000000000' });
   });
 });

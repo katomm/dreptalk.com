@@ -17,7 +17,7 @@ describe('createKoiosClient.totals', () => {
 
     const row = await client.totals(540);
 
-    expect(row).toEqual({ epochNo: 540, treasuryLovelace: '111', reservesLovelace: '222' });
+    expect(row).toEqual({ epochNo: 540, treasuryLovelace: '111', reservesLovelace: '222', circulationLovelace: null });
     const url = fetchImpl.mock.calls[0][0] as string;
     expect(url).toContain('/totals?');
     expect(url).toContain('_epoch_no=540');
@@ -34,6 +34,24 @@ describe('createKoiosClient.totals', () => {
     const url = fetchImpl.mock.calls[0][0] as string;
     expect(url).toContain('order=epoch_no.desc');
     expect(url).toContain('limit=1');
+  });
+
+  it('parses circulation when Koios provides it', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse([{ epoch_no: 540, treasury: '111', reserves: '222', circulation: '333' }]),
+    );
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    const row = await client.totals(540);
+    expect(row?.circulationLovelace).toBe('333');
+  });
+
+  it('tolerates a missing circulation field', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse([{ epoch_no: 540, treasury: '111', reserves: '222' }]),
+    );
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    const row = await client.totals(540);
+    expect(row?.circulationLovelace).toBeNull();
   });
 });
 

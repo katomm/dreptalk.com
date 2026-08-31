@@ -388,12 +388,14 @@ const epochParamsRowSchema = z.object({
 
 export type EpochParamsRow = z.infer<typeof epochParamsRowSchema>;
 
-// /totals row: per-epoch treasury and reserves balances (lovelace, as strings
-// since they exceed safe integer range).
+// /totals row: per-epoch treasury, reserves, and circulating supply balances
+// (lovelace, as strings since they exceed safe integer range). Circulation is
+// nullable and optional since older Koios responses may omit it.
 const totalsRowSchema = z.object({
   epoch_no: z.number(),
   treasury: z.string(),
   reserves: z.string(),
+  circulation: z.string().nullable().optional(),
 }).passthrough();
 
 // /drep_delegators row: a stake account currently vote-delegated to a DRep.
@@ -874,14 +876,19 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
     },
 
-    // Treasury and reserves balances (lovelace), the latest epoch by default,
-    // or one specific epoch for the stats backfill.
-    async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string } | null> {
+    // Treasury, reserves, and circulating supply balances (lovelace), the
+    // latest epoch by default, or one specific epoch for the stats backfill.
+    async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null } | null> {
       const path = epochNo != null ? `/totals?_epoch_no=${epochNo}` : '/totals?order=epoch_no.desc&limit=1';
       const data = await request(path, { method: 'GET' });
       const row = z.array(totalsRowSchema).parse(data)[0] ?? null;
       if (!row) return null;
-      return { epochNo: row.epoch_no, treasuryLovelace: row.treasury, reservesLovelace: row.reserves };
+      return {
+        epochNo: row.epoch_no,
+        treasuryLovelace: row.treasury,
+        reservesLovelace: row.reserves,
+        circulationLovelace: row.circulation ?? null,
+      };
     },
 
     // Oldest epoch with DRep voting power data on this network, from
