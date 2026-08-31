@@ -869,6 +869,23 @@ describe('syncDreps delegator counts', () => {
     expect(result.observedDelegatorCounts.has(idWithoutCount)).toBe(false);
   });
 
+  it('keeps the special ids in observedDelegatorCounts for the epoch stamp', async () => {
+    // drep_always_abstain is a Koios pseudo-drep, not a real registered DRep
+    // (see dreps/special.ts), but the epoch stats abstain_delegators column is
+    // stamped straight from this map with no filtering. If a future change
+    // filters the specials out of observedDelegatorCounts, that column would
+    // silently go blank, so this test freezes the current, unfiltered behavior.
+    const id = 'drep_always_abstain';
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { live_delegator_count: 193000 })]]),
+    });
+
+    const r = await syncDreps({ koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    expect(r.observedDelegatorCounts.get('drep_always_abstain')).toBe(193000);
+  });
+
   it('observes a count even when the row is unchanged and the write is skipped', async () => {
     const id = 'drep1-observed-unchanged';
     const first = fakeKoios({
