@@ -333,9 +333,12 @@ const chartLabel = relative && compareTitle
     <CompareActionPicker
       slug={slug}
       candidates={compareCandidates}
+      network={network}
       activeSlug={compareSlug}
       activeTitle={compare?.action.title ?? null}
       activeHref={compare ? `/t/${compare.action.topicSlug}/` : null}
+      activeDecidedEpoch={compare?.action.decidedEpoch ?? null}
+      activeExpiryEpoch={compare?.action.expiryEpoch ?? null}
     />
   </section>
 )}

@@ -4,21 +4,40 @@
 // client JS, so the choice is a normal navigation and the resulting view is a
 // shareable URL.
 import type { CompareCandidateRow } from '@/lib/db/governance.js';
+import { votingEndEpoch } from '@/lib/governance/voteTrendAssembly.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
+import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 
 interface Props {
   slug: string;
   candidates: CompareCandidateRow[];
+  network: CardanoNetwork;
   /** Slug of the active comparison, or null. */
   activeSlug: string | null;
   /** Title of the active comparison, for the chip. */
   activeTitle: string | null;
   activeHref: string | null;
+  /** Voting-end epochs of the active comparison, for the chip's end note. */
+  activeDecidedEpoch: number | null;
+  activeExpiryEpoch: number | null;
 }
 
-const { slug, candidates, activeSlug, activeTitle, activeHref } = Astro.props;
+const { slug, candidates, network, activeSlug, activeTitle, activeHref, activeDecidedEpoch, activeExpiryEpoch } =
+  Astro.props;
+const cfg = resolveNetwork(network);
 const base = `/t/${slug}/?tab=history`;
 const hrefFor = (target: string): string => `${base}&compare=${encodeURIComponent(target)}`;
 const label = (c: CompareCandidateRow): string => c.title ?? c.type;
+
+// "epoch 520 (Mar 12, 2025)": when voting on the candidate ended, so two runs of
+// the same recurring title stay tellable apart and the reader sees how far apart
+// the compared windows are. Same end-epoch rule as the chart window itself.
+const endNote = (decided: number | null, expiry: number | null): string | null => {
+  const epoch = votingEndEpoch(decided, expiry);
+  if (epoch == null) return null;
+  return `epoch ${epoch} (${formatEpochDate(epochStartUnix(epoch, cfg))})`;
+};
+const activeEnd = endNote(activeDecidedEpoch, activeExpiryEpoch);
 ---
 
 {(candidates.length > 0 || activeSlug) && (
@@ -26,6 +45,7 @@ const label = (c: CompareCandidateRow): string => c.title ?? c.type;
     {activeSlug && activeHref ? (
       <p class="vcmp__active">
         Compared with <a href={activeHref}>{activeTitle ?? activeSlug}</a>
+        {activeEnd && <span class="vcmp__end">&middot; voting ended {activeEnd}</span>}
         <a class="vcmp__clear" href={base}>Clear</a>
       </p>
     ) : activeSlug ? (
@@ -43,7 +63,12 @@ const label = (c: CompareCandidateRow): string => c.title ?? c.type;
                 class:list={['vcmp__item', { 'vcmp__item--active': c.topic_slug === activeSlug }]}
                 href={hrefFor(c.topic_slug)}
               >
-                <span class="vcmp__name">{label(c)}</span>
+                <span class="vcmp__id">
+                  <span class="vcmp__name">{label(c)}</span>
+                  {endNote(c.decided_epoch, c.expiry_epoch) && (
+                    <span class="vcmp__ended">Voting ended {endNote(c.decided_epoch, c.expiry_epoch)}</span>
+                  )}
+                </span>
                 <span class="vcmp__type">{c.type}</span>
               </a>
             </li>
@@ -57,6 +82,9 @@ const label = (c: CompareCandidateRow): string => c.title ?? c.type;
 <style>
   .vcmp { margin-top: 0.75rem; }
   .vcmp__active { font-size: 0.8125rem; color: var(--muted); margin: 0 0 0.5rem; }
+  /* Astro drops the source whitespace before the inline expression, so the gap
+     after the linked title is made explicit here. */
+  .vcmp__end { margin-left: 0.3em; }
   .vcmp__clear { margin-left: 0.75rem; }
   .vcmp__box { border: 1px solid var(--border); border-radius: 0.5rem; }
   .vcmp__summary { cursor: pointer; padding: 0.5rem 0.75rem; font-size: 0.8125rem; font-weight: 600; color: var(--fg); }
@@ -64,6 +92,8 @@ const label = (c: CompareCandidateRow): string => c.title ?? c.type;
   .vcmp__item { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0.75rem; font-size: 0.8125rem; text-decoration: none; }
   .vcmp__item:hover { background: var(--surface-2); }
   .vcmp__item--active { font-weight: 700; }
+  .vcmp__id { min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
   .vcmp__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vcmp__ended { color: var(--muted); font-size: 0.75rem; font-weight: 400; }
   .vcmp__type { color: var(--muted); flex-shrink: 0; }
 </style>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assembleTrendInputs, type TrendAssemblyInputs } from './voteTrendAssembly.js';
+import { assembleTrendInputs, votingEndEpoch, type TrendAssemblyInputs } from './voteTrendAssembly.js';
 import { resolveNetwork, epochStartUnix } from '@/lib/config/network.js';
 import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
@@ -152,5 +152,27 @@ describe('assembleTrendInputs', () => {
     });
     expect(result.window.end).toBe(epochStartUnix(15, cfg));
     expect(result.lineEnd).toBe(epochStartUnix(15, cfg));
+  });
+});
+
+describe('votingEndEpoch', () => {
+  it('uses the decision epoch when it is within the voting window', () => {
+    expect(votingEndEpoch(15, 20)).toBe(15);
+  });
+
+  it('clamps an enactment-epoch decision back to the expiry epoch', () => {
+    expect(votingEndEpoch(21, 20)).toBe(20);
+  });
+
+  it('falls back to the expiry epoch when there is no decision epoch', () => {
+    expect(votingEndEpoch(null, 20)).toBe(20);
+  });
+
+  it('keeps a bare decision epoch when the expiry is unknown', () => {
+    expect(votingEndEpoch(15, null)).toBe(15);
+  });
+
+  it('is null when neither epoch is known', () => {
+    expect(votingEndEpoch(null, null)).toBeNull();
   });
 });
