@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  analyticsCardModel,
   discussionCardModel,
   drepCardModel,
   type GovCardInput,
@@ -9,7 +10,7 @@ import {
   moversCardModel,
   voteCardModel,
 } from './model.js';
-import { moversCardHtml } from './templates.js';
+import { analyticsCardHtml, moversCardHtml } from './templates.js';
 import { accentForType, BRAND_ACCENT, TALLY } from './theme.js';
 
 const baseAction: GovCardInput = {
@@ -302,5 +303,67 @@ describe('voteCardModel', () => {
     );
     expect(m.votePhrase).toBe('voted Yes');
     expect(m.voteColor).toBe(TALLY.yes);
+  });
+});
+
+describe('analyticsCardModel', () => {
+  it('composes the epoch, powered count, voting line and abstain line', () => {
+    const m = analyticsCardModel({
+      epoch: 643,
+      powered: 1234,
+      recentlyVoting: 512,
+      totalPowerLabel: '1,200,000,000 ₳',
+      abstainLabel: '45,000 ₳',
+    });
+    expect(m.accent).toBe(BRAND_ACCENT);
+    expect(m.epochLabel).toBe('Epoch 643');
+    expect(m.poweredCount).toBe('1,234');
+    expect(m.totalPowerLabel).toBe('1,200,000,000 ₳');
+    expect(m.votingLine).toBe('512 voted in the last 12 epochs');
+    expect(m.abstainLine).toBe('Always abstain holds 45,000 ₳');
+  });
+
+  it('omits the abstain line when the option holds no power', () => {
+    const m = analyticsCardModel({
+      epoch: 643,
+      powered: 1234,
+      recentlyVoting: 512,
+      totalPowerLabel: '1,200,000,000 ₳',
+      abstainLabel: null,
+    });
+    expect(m.abstainLine).toBeNull();
+  });
+
+  it('renders an html card that includes the eyebrow, headline and voting line', () => {
+    const html = analyticsCardHtml(
+      analyticsCardModel({
+        epoch: 643,
+        powered: 1234,
+        recentlyVoting: 512,
+        totalPowerLabel: '1,200,000,000 ₳',
+        abstainLabel: '45,000 ₳',
+      }),
+    );
+    expect(html).toContain('Governance analytics');
+    expect(html).toContain('Epoch 643');
+    expect(html).toContain('1,234');
+    expect(html).toContain('1,200,000,000 ₳');
+    expect(html).toContain('512 voted in the last 12 epochs');
+    expect(html).toContain('Always abstain holds 45,000 ₳');
+    // Every flex container satori needs is declared; no bare multi-child div slipped in.
+    expect(html).not.toMatch(/<div (?![^>]*display:flex)[^>]*>\s*</);
+  });
+
+  it('drops the abstain row from the html when the line is null', () => {
+    const html = analyticsCardHtml(
+      analyticsCardModel({
+        epoch: 643,
+        powered: 1234,
+        recentlyVoting: 512,
+        totalPowerLabel: '1,200,000,000 ₳',
+        abstainLabel: null,
+      }),
+    );
+    expect(html).not.toContain('Always abstain');
   });
 });

@@ -8,6 +8,7 @@
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
 import type {
+  AnalyticsCardModel,
   CommitteeCardModel,
   DiscussionCardModel,
   DrepCardModel,
@@ -304,6 +305,27 @@ export function moversCardHtml(m: MoversCardModel): string {
       ${moversColumn('Top losers', 'down', m.losers)}
     </div>`;
   return cardShell(m.accent, `Movers · ${m.epochLabel}`, body);
+}
+
+// Governance analytics hub card: a headline pairing the powered-DRep count
+// with total delegated power, the recent-voting line beneath it and, when the
+// always-abstain option holds power, a third line for it. No title() call
+// here (unlike the other cards), the eyebrow pill already carries the page's
+// name, so the headline figure is the first thing in the body.
+export function analyticsCardHtml(m: AnalyticsCardModel): string {
+  const abstainRow = m.abstainLine
+    ? `<div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:16px;">${esc(m.abstainLine)}</div>`
+    : '';
+  const body = `<div style="display:flex;flex-direction:column;">
+      <div style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-bottom:10px;">${esc(m.epochLabel)}</div>
+      <div style="display:flex;align-items:baseline;">
+        <span style="display:flex;font-size:72px;font-weight:800;color:${INK};letter-spacing:-1px;">${esc(m.poweredCount)}</span>
+        <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:16px;">DReps hold ${esc(m.totalPowerLabel)}</span>
+      </div>
+      <div style="display:flex;font-size:32px;font-weight:600;color:${INK};margin-top:24px;">${esc(m.votingLine)}</div>
+      ${abstainRow}
+    </div>`;
+  return cardShell(m.accent, 'Governance analytics', body);
 }
 
 // Also renders help-guide cards: helpCardModel returns the same shape with no

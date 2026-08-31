@@ -10,6 +10,7 @@ import { computeVotingPowerDelta, formatTrendDelta } from '../dreps/votingPowerT
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
 import { getCategory } from '../../../config/categories.js';
+import { RECENT_VOTING_WINDOW_EPOCHS } from '../analytics/epochStatsContract.js';
 import type { NclStatus } from '../governance/ncl.js';
 import { voteDisplay } from '../governance/voteStatement.js';
 import { accentForType, BRAND_ACCENT, statusColor, tint, TALLY, MUTED } from './theme.js';
@@ -334,6 +335,39 @@ export function moversCardModel(input: {
         : 'The biggest DRep voting-power shifts this epoch',
     gainers: input.gainers.map(moverRow),
     losers: input.losers.map(moverRow),
+  };
+}
+
+export interface AnalyticsCardModel {
+  accent: string;
+  /** Small meta line above the headline, e.g. "Epoch 643". */
+  epochLabel: string;
+  /** Powered-DRep count, pre-formatted with thousands separators. */
+  poweredCount: string;
+  /** Total delegated voting power, already ada-formatted by the caller. */
+  totalPowerLabel: string;
+  /** e.g. "128 voted in the last 12 epochs". */
+  votingLine: string;
+  /** e.g. "Always abstain holds 1.2M ₳", or null when the option holds no power. */
+  abstainLine: string | null;
+}
+
+// The endpoint pre-formats the ada amounts (same formatAda the page itself
+// uses), so this model only composes the sentences, it does no lovelace math.
+export function analyticsCardModel(input: {
+  epoch: number;
+  powered: number;
+  recentlyVoting: number;
+  totalPowerLabel: string;
+  abstainLabel: string | null;
+}): AnalyticsCardModel {
+  return {
+    accent: BRAND_ACCENT,
+    epochLabel: `Epoch ${input.epoch}`,
+    poweredCount: input.powered.toLocaleString('en-US'),
+    totalPowerLabel: input.totalPowerLabel,
+    votingLine: `${input.recentlyVoting.toLocaleString('en-US')} voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`,
+    abstainLine: input.abstainLabel != null ? `Always abstain holds ${input.abstainLabel}` : null,
   };
 }
 

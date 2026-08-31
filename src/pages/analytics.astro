@@ -20,6 +20,7 @@ import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartEpoch } from '@/lib/analytics/epochStatsContract.js';
 import { buildVitals, metricSeries, netChange } from '@/lib/analytics/hubView.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
@@ -80,6 +81,12 @@ const ancDelta = netChange(
 const fmtAdaCompact = (v: number) => formatAdaCompact(String(Math.round(v)));
 const hasBackbone = current != null;
 
+// Cache-busted by the same stats fields the OG card renders, so a scraper's
+// cached image refreshes whenever any of those fields actually changes.
+const ogImage = current
+  ? `/og/analytics.png?v=${ogCardVersion([current.epoch, current.poweredDrepCount, current.recentlyVotingDrepCount, current.totalDrepPower, current.abstainPower])}`
+  : undefined;
+
 // The two default-option cards, grouped for the template so the grid renders
 // from one map instead of two near-identical blocks.
 const defaultCards = [
@@ -121,6 +128,7 @@ const activityRows = activity
   title="Governance analytics - DRepTalk"
   description="Health, participation, concentration and the default delegation options of Cardano governance, tracked per epoch."
   wide
+  ogImage={ogImage}
 >
   <nav class="hub-crumbs" aria-label="Breadcrumb">
     <a href="/">DRepTalk</a>
