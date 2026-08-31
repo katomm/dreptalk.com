@@ -874,7 +874,7 @@ describe('getThreadPage opening post', () => {
     // DRep's post taking the role would misattribute it.
     expect(page.topLevel[0].id).toBe(rationalePostId);
     expect(page.openingPost?.id).toBe(mirrorPostId);
-    expect(page.stats?.participants).toBe(2);
+    expect(page.participants).toBe(2);
   });
 });
 

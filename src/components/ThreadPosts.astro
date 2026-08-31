@@ -80,9 +80,9 @@ const notVoted = (author: AuthorDescriptor) =>
   hasVoteData && !!author.drepId && !author.isSystem && !govVotes.has(author.drepId);
 ---
 
-{thread.stats && (
+{thread.participants !== null && (
   <TopicStatsBar
-    stats={thread.stats}
+    participants={thread.participants}
     comments={Math.max(0, topic.post_count - 1)}
     lastPostAt={topic.last_post_at}
     now={now}

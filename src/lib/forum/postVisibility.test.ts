@@ -32,30 +32,30 @@ describe('postViewerContext: canFlag', () => {
   });
 });
 
-describe('postViewerContext: canReact', () => {
+describe('postViewerContext: reactions', () => {
   it('lets a writer react to another user\'s post', () => {
     const c = postViewerContext({ author_id: 'other', hidden: false }, writer, false);
-    expect(c.canReact).toBe(true);
+    expect(c.reactions).toBe('interactive');
   });
 
-  it('lets a writer react to a system post (unlike flagging)', () => {
+  it('hides the row entirely on a system post', () => {
     const c = postViewerContext({ author_id: 'gov-sync', hidden: false }, writer, true);
-    expect(c.canReact).toBe(true);
+    expect(c.reactions).toBe('hidden');
   });
 
-  it('forbids reacting to your own post', () => {
+  it('shows read-only counts on your own post', () => {
     const c = postViewerContext({ author_id: writer.id, hidden: false }, writer, false);
-    expect(c.canReact).toBe(false);
+    expect(c.reactions).toBe('readonly');
   });
 
-  it('forbids a non-writer from reacting', () => {
+  it('shows read-only counts to a non-writer', () => {
     const c = postViewerContext({ author_id: 'other', hidden: false }, member, false);
-    expect(c.canReact).toBe(false);
+    expect(c.reactions).toBe('readonly');
   });
 
-  it('forbids an anonymous viewer from reacting', () => {
+  it('shows read-only counts to an anonymous viewer', () => {
     const c = postViewerContext({ author_id: 'other', hidden: false }, null, false);
-    expect(c.canReact).toBe(false);
+    expect(c.reactions).toBe('readonly');
   });
 });
 

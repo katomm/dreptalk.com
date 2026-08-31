@@ -897,14 +897,6 @@ export async function getPostHistory(db: D1Database, postId: string): Promise<Po
 // Thread page (one-level threading) and thread stats
 // ---------------------------------------------------------------------------
 
-export interface TopicStats {
-  /** Distinct authors across the topic's live posts (system author included). */
-  participants: number;
-  /** Thumbs up/down on the opening post: the topic-level supporting/opposing signal. */
-  supporting: number;
-  opposing: number;
-}
-
 export interface ThreadPage {
   /** Top-level posts for this page, oldest first. */
   topLevel: Post[];
@@ -916,8 +908,11 @@ export interface ThreadPage {
    * Reply suppression, and the meta excerpt.
    */
   openingPost: Post | null;
-  /** Header-strip stats for the whole topic; null for a topic with no posts. */
-  stats: TopicStats | null;
+  /**
+   * Distinct authors across the topic's live posts (system author included),
+   * for the header strip. Null for a topic with no posts.
+   */
+  participants: number | null;
 }
 
 // The page's top-level posts: live, parentless, oldest first. Shared between
@@ -962,7 +957,7 @@ export async function getThreadPage(
       .prepare(
         `SELECT
            (SELECT COUNT(DISTINCT author_id) FROM posts WHERE topic_id = ?1 AND deleted = 0) AS participants,
-           p.id AS opening_post_id, p.up_count, p.down_count
+           p.id AS opening_post_id
          FROM posts p
          JOIN topics t ON t.id = p.topic_id
          WHERE p.topic_id = ?1 AND p.deleted = 0 AND ${OPENING_POST_MATCH}
@@ -984,11 +979,9 @@ export async function getThreadPage(
   }
 
   const statsRow = statsRes.results?.[0] as
-    | { participants: number; opening_post_id: string; up_count: number; down_count: number }
+    | { participants: number; opening_post_id: string }
     | undefined;
-  const stats: TopicStats | null = statsRow
-    ? { participants: statsRow.participants, supporting: statsRow.up_count, opposing: statsRow.down_count }
-    : null;
+  const participants = statsRow ? statsRow.participants : null;
 
   // The opening post is the one the stats row already identified by authorship
   // (OPENING_POST_MATCH), so the header strip's counts and the post that renders
@@ -1002,6 +995,6 @@ export async function getThreadPage(
     topLevel,
     childrenByParent,
     openingPost: opening,
-    stats,
+    participants,
   };
 }

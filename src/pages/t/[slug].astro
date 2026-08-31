@@ -112,7 +112,7 @@ const offset = pageToOffset(page, PAGE_SIZE);
 
 const thread: ThreadPage = topic && db
   ? await getThreadPage(db, topic.id, { limit: PAGE_SIZE, offset })
-  : { topLevel: [], childrenByParent: new Map(), openingPost: null, stats: null };
+  : { topLevel: [], childrenByParent: new Map(), openingPost: null, participants: null };
 
 // Every post on the page (top-level and replies) for the batched lookups below.
 const pagePosts = [...thread.topLevel, ...[...thread.childrenByParent.values()].flat()];
