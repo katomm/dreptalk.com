@@ -16,6 +16,9 @@ import type { Reaction } from '@/lib/db/postReactions.js';
 interface Props {
   post: Post;
   canReact: boolean;
+  /** Whether the reaction buttons render at all. False on system posts, which
+      carry no reactions in either direction. */
+  showReactions: boolean;
   canFlag: boolean;
   /** Drives the disabled hint: own posts read differently than "sign in". */
   isOwnPost: boolean;
@@ -35,7 +38,7 @@ interface Props {
   citable?: boolean;
 }
 
-const { post, canReact, canFlag, isOwnPost, flagged, viewerReaction, canReply = false, canEdit = false, authorName = '', citable = false } = Astro.props;
+const { post, canReact, showReactions, canFlag, isOwnPost, flagged, viewerReaction, canReply = false, canEdit = false, authorName = '', citable = false } = Astro.props;
 const disabledReason = isOwnPost ? 'You cannot react to your own posts' : undefined;
 // vote_rationale posts are frozen: the edit affordance is never shown,
 // regardless of what the caller passes for canEdit. Flag stays available.
@@ -43,7 +46,7 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
 ---
 
 <div style="margin-top:0.75rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
-  {canReact ? (
+  {showReactions && (canReact ? (
     <ReactionButtons
       client:visible
       postId={post.id}
@@ -61,7 +64,7 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
       canReact={false}
       disabledReason={disabledReason}
     />
-  )}
+  ))}
   {canReply && (
     <button
       type="button"

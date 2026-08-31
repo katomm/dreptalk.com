@@ -413,10 +413,11 @@ export interface ReactPostInput {
 
 /**
  * Shared react/withdraw flow. A writer holds at most one reaction per post;
- * setting the other side replaces it. Unlike flagging, reacting to a system
- * (governance) post is allowed: the opening post of a governance action is
- * exactly what readers want to signal support or opposition on. Reacting to
- * your own post is not. Unexpected errors return 500 without leaking detail.
+ * setting the other side replaces it. Reacting to your own post is refused, and
+ * so is reacting to a system (governance) post: the opening post there is a
+ * neutral mirror of an on-chain action, and a stake-free thumb next to the real
+ * tally only reads as a rival vote. Unexpected errors return 500 without
+ * leaking detail.
  */
 async function handleReactionChange(
   input: ReactPostInput,
@@ -449,9 +450,14 @@ async function handleReactionChange(
       return { status: 404, json: { ok: false, error: 'post_not_found' } };
     }
 
-    // 4. You cannot react to your own post.
+    // 4. You cannot react to your own post, nor to a system/governance post.
     if (post.author_id === user.id) {
       return { status: 403, json: { ok: false, error: 'cannot_react_own' } };
+    }
+    // Withdrawal stays open so a reaction recorded before this rule can still
+    // be taken back.
+    if (post.author_id === GOV_SYNC_AUTHOR && reaction) {
+      return { status: 403, json: { ok: false, error: 'cannot_react_system' } };
     }
 
     const state: ReactionState = reaction

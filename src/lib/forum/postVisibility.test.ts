@@ -38,9 +38,15 @@ describe('postViewerContext: canReact', () => {
     expect(c.canReact).toBe(true);
   });
 
-  it('lets a writer react to a system post (unlike flagging)', () => {
+  it('forbids reacting to a system post, and hides the affordance there', () => {
     const c = postViewerContext({ author_id: 'gov-sync', hidden: false }, writer, true);
-    expect(c.canReact).toBe(true);
+    expect(c.canReact).toBe(false);
+    expect(c.showReactions).toBe(false);
+  });
+
+  it('shows the affordance on a non-system post even when the viewer cannot react', () => {
+    const c = postViewerContext({ author_id: 'other', hidden: false }, null, false);
+    expect(c.showReactions).toBe(true);
   });
 
   it('forbids reacting to your own post', () => {

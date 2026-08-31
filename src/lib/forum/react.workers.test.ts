@@ -91,6 +91,19 @@ describe('handleReactToPost: authorization and validation', () => {
     expect((r.json as { error: string }).error).toBe('cannot_react_own');
   });
 
+  it('403 when reacting to a system post', async () => {
+    const postId = await newPost(GOV_SYNC_AUTHOR, 'governance');
+    const r = await handleReactToPost(reactInput(WRITER, postId), 'up');
+    expect(r.status).toBe(403);
+    expect((r.json as { error: string }).error).toBe('cannot_react_system');
+  });
+
+  it('still lets a reaction recorded on a system post be withdrawn', async () => {
+    const postId = await newPost(GOV_SYNC_AUTHOR, 'governance');
+    const r = await handleClearReaction(reactInput(WRITER, postId));
+    expect(r.status).toBe(200);
+  });
+
   it('403 mandate revoked when the reactor\'s grant was revoked', async () => {
     const postId = await newPost('someone-else');
     const coUserId = 'grant-co-user-react';
@@ -103,12 +116,6 @@ describe('handleReactToPost: authorization and validation', () => {
     expect((r.json as { error: string }).error).toBe('mandate revoked');
   });
 
-  it('200 for a system/governance post (unlike flagging)', async () => {
-    const postId = await newPost(GOV_SYNC_AUTHOR, 'governance');
-    const r = await handleReactToPost(reactInput(WRITER, postId), 'up');
-    expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ ok: true, reaction: 'up', upCount: 1, downCount: 0 });
-  });
 });
 
 describe('handleReactToPost: state', () => {

@@ -5,7 +5,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, createPost, getThreadPage } from './forum.js';
-import { setReaction } from './postReactions.js';
 
 const db = () => env.DB;
 const NOW = 1_753_000_000_000;
@@ -102,16 +101,13 @@ describe('getThreadPage', () => {
 });
 
 describe('getThreadPage stats', () => {
-  it('counts distinct participants and reads the opening post reactions', async () => {
-    const { topicId, openerId } = await newTopic();
+  it('counts distinct participants', async () => {
+    const { topicId } = await newTopic();
     await reply(topicId, 'second-author', null, NOW + 1000);
     await reply(topicId, 'second-author', null, NOW + 2000);
 
-    await setReaction(db(), { postId: openerId, reactorId: 'fan-1', reaction: 'up', now: NOW });
-    await setReaction(db(), { postId: openerId, reactorId: 'fan-2', reaction: 'down', now: NOW });
-
     const { stats } = await getThreadPage(db(), topicId);
-    expect(stats).toEqual({ participants: 2, supporting: 1, opposing: 1 });
+    expect(stats).toEqual({ participants: 2 });
   });
 
   it('returns null stats for an unknown topic', async () => {
