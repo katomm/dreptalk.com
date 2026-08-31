@@ -16,25 +16,28 @@ import { getDefaultDelegationCurrent } from '@/lib/db/defaultDelegation.js';
 import { getDrepActivityBreakdown } from '@/lib/db/drepActivityBreakdown.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDrepsForConcentration } from '@/lib/db/dreps.js';
+import { listDecidedActionsForRepresentation } from '@/lib/db/effectiveRepresentation.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
 import { buildVitals, metricSeries, netChange } from '@/lib/analytics/hubView.js';
+import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 if (db) Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
-const [stats, defaults, activity, params, concRows] = db
+const [stats, defaults, activity, params, concRows, repActions] = db
   ? await Promise.all([
       listEpochStats(db),
       getDefaultDelegationCurrent(db),
       getDrepActivityBreakdown(db),
       getProtocolParams(db),
       listDrepsForConcentration(db),
+      listDecidedActionsForRepresentation(db),
     ])
-  : [[], { abstain: null, noConfidence: null }, null, null, []];
+  : [[], { abstain: null, noConfidence: null }, null, null, [], []];
 
 // All five starts are derivable from the already-loaded stats array, so this
 // resolves them in memory instead of five sequential DB round-trips (stats is
@@ -50,6 +53,8 @@ const starts = {
 const current = stats.length > 0 ? stats[stats.length - 1] : null;
 const prev = stats.length > 1 ? stats[stats.length - 2] : null;
 const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
+const effRep = buildEffRep(repActions);
+const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
 
 // Parse lovelace defensively so a single malformed stored value cannot 500 the
 // page (Koios writes plain integer strings, but the column is untrusted text).
@@ -125,7 +130,7 @@ const activityRows = activity
   ? [
       { label: 'Registered', value: activity.registered },
       { label: 'Currently active', value: activity.active },
-      { label: 'With voting power', value: activity.powered },
+      { label: 'Active with voting power', value: activity.powered },
       { label: 'Ever voted on chain', value: activity.everVoted },
       { label: 'Never voted', value: Math.max(0, activity.registered - activity.everVoted) },
     ].map((row) => ({
@@ -157,16 +162,15 @@ const activityRows = activity
           <span class="drep-stat__body">
             <span class="drep-stat__label">{card.label}</span>
             <span class="drep-stat__value">{card.value}</span>
-            {card.trend ? (
+            {card.trend && (
               <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
                 {card.trend.direction !== 'flat' && (
                   <span class="drep-stat__arrow" aria-hidden="true">{card.trend.direction === 'up' ? '↑' : '↓'}</span>
                 )}
                 {card.trend.label}
               </span>
-            ) : card.sub ? (
-              <span class="drep-stat__sub">{card.sub}</span>
-            ) : null}
+            )}
+            {card.sub && <span class="drep-stat__sub">{card.sub}</span>}
           </span>
         </div>
       ))}
@@ -210,6 +214,34 @@ const activityRows = activity
         <EpochSeriesChart title="DReps with voting power" points={metricSeries(stats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
         <EpochSeriesChart title="Delegators" points={metricSeries(stats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={starts.delegatorTotal} />
       </div>
+    </section>
+  )}
+
+  {effRep.rows.length > 0 && (
+    <section class="hub-effrep" aria-labelledby="hub-effrep-title">
+      <h2 id="hub-effrep-title">Effective representation</h2>
+      <p class="hub-effrep__lede">Across the last {effRep.rows.length} decided actions, a median of {fmtShare(effRep.medianPowerSharePct)} of the delegated voting power was actually represented in the vote.</p>
+      <ul class="hub-effrep__rows">
+        {effRep.rows.map((row) => (
+          <li class="hub-effrep__row">
+            <div class="hub-effrep__head">
+              <span class="hub-effrep__title">
+                {row.href ? <a href={row.href}>{row.title}</a> : row.title}
+              </span>
+              <span class="hub-effrep__type">{row.type}</span>
+              <span class="hub-effrep__epoch">Epoch {row.decidedEpoch}</span>
+            </div>
+            <div class="hub-effrep__meter">
+              <span class="hub-effrep__bar" aria-hidden="true"><span class="hub-effrep__fill" style={`width:${row.powerSharePct.toFixed(1)}%`}></span></span>
+              <span class="hub-effrep__value">{fmtShare(row.powerSharePct)}</span>
+            </div>
+            {row.countSharePct != null && (
+              <p class="hub-effrep__note">{fmtShare(row.countSharePct)} of DReps voted</p>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p class="hub-effrep__footnote">Denominator: the delegated voting power in each action's decision epoch, the predefined default options excluded.{effRep.skipped > 0 && ` ${effRep.skipped} older actions without epoch data are not shown.`}</p>
     </section>
   )}
 
@@ -358,6 +390,7 @@ const activityRows = activity
     margin: 0 0 2.5rem;
   }
   #hub-trends-title,
+  #hub-effrep-title,
   #hub-activity-title {
     margin: 0 0 1rem;
     font-size: 1.2rem;
@@ -371,6 +404,108 @@ const activityRows = activity
     .hub-trends__grid {
       grid-template-columns: repeat(3, 1fr);
     }
+  }
+
+  .hub-effrep {
+    margin: 0 0 2.5rem;
+  }
+  .hub-effrep__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-effrep__rows {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  .hub-effrep__row {
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-effrep__head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 0.5rem;
+  }
+  .hub-effrep__title {
+    font-weight: 600;
+    min-width: 0;
+  }
+  .hub-effrep__title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-effrep__title a:hover {
+    text-decoration: underline;
+  }
+  .hub-effrep__type {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .hub-effrep__epoch {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .hub-effrep__meter {
+    display: grid;
+    grid-template-columns: 1fr 4rem;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .hub-effrep__bar {
+    display: block;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .hub-effrep__fill {
+    /* Both spans default to inline, and an inline element ignores explicit
+       width/height entirely, silently dropping the proportional fill. Block
+       makes the inline-styled width actually take effect. */
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .hub-effrep__value {
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-effrep__note {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  @media (max-width: 480px) {
+    .hub-effrep__meter {
+      grid-template-columns: 1fr 3.25rem;
+      gap: 0.5rem;
+    }
+    .hub-effrep__epoch {
+      margin-left: 0;
+    }
+  }
+  .hub-effrep__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
   }
 
   .hub-activity {

@@ -110,6 +110,10 @@ export function buildVitals(
       value: current.poweredDrepCount.toLocaleString('en-US'),
       icon: 'people',
       trend: countTrend(current.poweredDrepCount, prev?.poweredDrepCount ?? null),
+      // The snapshot counts every power-holding row including retired DReps,
+      // while the DRep activity section's count below is active-only. Without
+      // this the two counts on the same page look like a contradiction.
+      sub: 'including retired DReps still holding stake',
     },
     {
       label: `Voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`,
