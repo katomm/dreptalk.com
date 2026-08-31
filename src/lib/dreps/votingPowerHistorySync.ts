@@ -60,7 +60,7 @@ export interface VotingPowerHistorySyncResult {
 }
 
 /** Pages through one epoch, collecting every DRep's snapshot (skipping null amounts). */
-async function fetchEpoch(
+export async function fetchEpochPowerRows(
   koios: VotingPowerHistorySyncDeps['koios'],
   epoch: number,
 ): Promise<VotingPowerHistoryRow[]> {
@@ -89,7 +89,7 @@ export async function syncDrepVotingPowerHistory(
   let inserted = 0;
   const fetchedEpochs: number[] = [];
   for (const epoch of missing) {
-    const rows = await fetchEpoch(koios, epoch);
+    const rows = await fetchEpochPowerRows(koios, epoch);
     inserted += await insertVotingPowerHistory(db, rows);
     fetchedEpochs.push(epoch);
   }
