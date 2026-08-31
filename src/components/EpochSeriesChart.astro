@@ -1,0 +1,53 @@
+---
+// Generic SSR line chart for one per-epoch metric. Thin wrapper around the
+// existing buildPowerChart geometry, no client JS. Renders nothing with
+// fewer than two points, the caller decides whether to show an empty note.
+import { buildPowerChart } from '@/lib/dreps/votingPowerTrend.js';
+
+interface Props {
+  title: string;
+  points: { epoch: number; value: number }[];
+  /** Formats the y-axis tick values, defaults to compact en-US numbers. */
+  format?: (v: number) => string;
+  /** First reliable epoch, rendered as the honesty caption. */
+  sinceEpoch?: number | null;
+}
+
+const { title, points, sinceEpoch = null } = Astro.props;
+const format = Astro.props.format ?? ((v: number) => v.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 }));
+const chart = buildPowerChart(points.map((p) => p.value), {
+  width: 320, height: 120, padLeft: 4, padRight: 52, padTop: 12, padBottom: 22,
+});
+const firstEpoch = points[0]?.epoch;
+const lastEpoch = points[points.length - 1]?.epoch;
+---
+{chart && (
+  <figure class="eschart">
+    <figcaption class="eschart__head">
+      <span class="eschart__title">{title}</span>
+      {sinceEpoch != null && <span class="eschart__since">data since epoch {sinceEpoch}</span>}
+    </figcaption>
+    <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={`${title} per epoch`}>
+      <path d={chart.area} class="eschart__area" />
+      <polyline points={chart.line} class="eschart__line" fill="none" />
+      {chart.yTicks.map((t) => (
+        <text x={chart.width - 4} y={t.y + 3} text-anchor="end" class="eschart__tick">{format(t.value)}</text>
+      ))}
+      <circle cx={chart.last.x} cy={chart.last.y} r="2.5" class="eschart__dot" />
+      <text x={chart.plot.x} y={chart.height - 6} class="eschart__tick">ep {firstEpoch}</text>
+      <text x={chart.plot.x + chart.plot.w} y={chart.height - 6} text-anchor="end" class="eschart__tick">ep {lastEpoch}</text>
+    </svg>
+  </figure>
+)}
+
+<style>
+  .eschart { margin: 0; }
+  .eschart__head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; margin-bottom: 0.35rem; }
+  .eschart__title { font-size: 0.85rem; font-weight: 600; }
+  .eschart__since { font-size: 0.7rem; color: var(--muted); }
+  .eschart svg { width: 100%; height: auto; display: block; }
+  .eschart__area { fill: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .eschart__line { stroke: var(--accent); stroke-width: 1.6; }
+  .eschart__dot { fill: var(--accent); }
+  .eschart__tick { font-size: 9px; fill: var(--muted); }
+</style>

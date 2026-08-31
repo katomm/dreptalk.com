@@ -1,0 +1,409 @@
+---
+// Public governance analytics hub: network-wide health, participation,
+// concentration and the default delegation options, tracked per epoch. All
+// reads are D1 only (no Koios calls here), and every representative metric
+// excludes the two predefined auto-voting options (see dreps/special.ts),
+// which get their own default-options layer below instead.
+export const prerender = false;
+import Layout from '@/layouts/Layout.astro';
+import DrepStatIcon from '@/components/DrepStatIcon.astro';
+import DrepConcentration from '@/components/DrepConcentration.tsx';
+import EpochSeriesChart from '@/components/EpochSeriesChart.astro';
+import { runtimeEnv } from '@/lib/api/response';
+import { cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
+import { listEpochStats } from '@/lib/db/governanceEpochStats.js';
+import { getDefaultDelegationCurrent } from '@/lib/db/defaultDelegation.js';
+import { getDrepActivityBreakdown } from '@/lib/db/drepActivityBreakdown.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { listDrepsForConcentration } from '@/lib/db/dreps.js';
+import { computeConcentration } from '@/lib/dreps/concentration.js';
+import { buildThresholdMarkers } from '@/lib/dreps/thresholdMarkers.js';
+import { seriesStartEpoch } from '@/lib/analytics/epochStatsContract.js';
+import { buildVitals, metricSeries, netChange } from '@/lib/analytics/hubView.js';
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+if (db) Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+
+const [stats, defaults, activity, params, concRows] = db
+  ? await Promise.all([
+      listEpochStats(db),
+      getDefaultDelegationCurrent(db),
+      getDrepActivityBreakdown(db),
+      getProtocolParams(db),
+      listDrepsForConcentration(db),
+    ])
+  : [[], { abstain: null, noConfidence: null }, null, null, []];
+
+const starts = db
+  ? {
+      totalDrepPower: await seriesStartEpoch(db, 'totalDrepPower'),
+      poweredDrepCount: await seriesStartEpoch(db, 'poweredDrepCount'),
+      delegatorTotal: await seriesStartEpoch(db, 'delegatorTotal'),
+      abstainPower: await seriesStartEpoch(db, 'abstainPower'),
+      ancPower: await seriesStartEpoch(db, 'ancPower'),
+    }
+  : { totalDrepPower: null, poweredDrepCount: null, delegatorTotal: null, abstainPower: null, ancPower: null };
+
+const current = stats.length > 0 ? stats[stats.length - 1] : null;
+const prev = stats.length > 1 ? stats[stats.length - 2] : null;
+const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
+
+const concentration = computeConcentration(
+  concRows.map((r) => ({ drepId: r.drepId, name: r.name, slug: r.slug, power: BigInt(r.votingPower ?? '0') })),
+);
+const { markers, defaultThresholdPct, thresholdsAsOf } = buildThresholdMarkers(params);
+
+const abstainSeries = metricSeries(stats, 'abstainPower', starts.abstainPower);
+const ancSeries = metricSeries(stats, 'ancPower', starts.ancPower);
+const abstainDelta = netChange(
+  defaults.abstain?.delegatorCount ?? null,
+  prev?.abstainDelegators ?? null,
+  (n) => n.toLocaleString('en-US'),
+);
+const ancDelta = netChange(
+  defaults.noConfidence?.delegatorCount ?? null,
+  prev?.ancDelegators ?? null,
+  (n) => n.toLocaleString('en-US'),
+);
+
+const fmtAdaCompact = (v: number) => formatAda(String(Math.round(v)));
+const hasBackbone = current != null;
+
+// The two default-option cards, grouped for the template so the grid renders
+// from one map instead of two near-identical blocks.
+const defaultCards = [
+  {
+    title: 'Always abstain',
+    power: formatAda(defaults.abstain?.votingPower ?? null),
+    delegatorCount: defaults.abstain?.delegatorCount ?? null,
+    chip: abstainDelta,
+    series: abstainSeries,
+    sinceEpoch: starts.abstainPower,
+  },
+  {
+    title: 'Always no confidence',
+    power: formatAda(defaults.noConfidence?.votingPower ?? null),
+    delegatorCount: defaults.noConfidence?.delegatorCount ?? null,
+    chip: ancDelta,
+    series: ancSeries,
+    sinceEpoch: starts.ancPower,
+  },
+];
+
+// DRep activity rows, each with its share of the registered count for the mini
+// bar. Guards the division so a fresh, empty table renders zero-width bars
+// instead of NaN.
+const activityRows = activity
+  ? [
+      { label: 'Registered', value: activity.registered },
+      { label: 'Currently active', value: activity.active },
+      { label: 'With voting power', value: activity.powered },
+      { label: 'Ever voted on chain', value: activity.everVoted },
+      { label: 'Never voted', value: Math.max(0, activity.registered - activity.everVoted) },
+    ].map((row) => ({
+      ...row,
+      pct: activity.registered > 0 ? Math.min(100, (row.value / activity.registered) * 100) : 0,
+    }))
+  : [];
+---
+<Layout
+  title="Governance analytics - DRepTalk"
+  description="Health, participation, concentration and the default delegation options of Cardano governance, tracked per epoch."
+  wide
+>
+  <nav class="hub-crumbs" aria-label="Breadcrumb">
+    <a href="/">DRepTalk</a>
+    <span aria-hidden="true">/</span>
+    <span>Analytics</span>
+  </nav>
+
+  <h1>Governance analytics</h1>
+  <p class="hub-intro">How healthy, representative and decentralized Cardano governance is right now, and how it moves per epoch. <a href="/help/governance-analytics/">How to read this page</a></p>
+
+  {vitals.length > 0 && (
+    <div class="drep-stats">
+      {vitals.map((card) => (
+        <div class={`drep-stat${card.alt ? ' drep-stat--alt' : ''}`}>
+          <span class="drep-stat__icon"><DrepStatIcon name={card.icon} /></span>
+          <span class="drep-stat__body">
+            <span class="drep-stat__label">{card.label}</span>
+            <span class="drep-stat__value">{card.value}</span>
+            {card.trend ? (
+              <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
+                {card.trend.direction !== 'flat' && (
+                  <span class="drep-stat__arrow" aria-hidden="true">{card.trend.direction === 'up' ? '↑' : '↓'}</span>
+                )}
+                {card.trend.label}
+              </span>
+            ) : card.sub ? (
+              <span class="drep-stat__sub">{card.sub}</span>
+            ) : null}
+          </span>
+        </div>
+      ))}
+    </div>
+  )}
+  {!hasBackbone && (
+    <p class="hub-empty">Per-epoch data starts filling in with the next sync run. The sections below appear as soon as the first epoch is recorded.</p>
+  )}
+
+  <section class="hub-defaults" aria-labelledby="hub-defaults-title">
+    <h2 id="hub-defaults-title">The default options</h2>
+    <p class="hub-defaults__lede">Not everyone delegates to a person. These two predefined options hold real voting weight, and they are kept apart from every DRep statistic on this site. <a href="/help/default-delegation-options/">What they do</a></p>
+    <div class="hub-defaults__grid">
+      {defaultCards.map((opt) => (
+        <div class="hub-defaults__card">
+          <h3 class="hub-defaults__name">{opt.title}</h3>
+          <p class="hub-defaults__power">{opt.power}</p>
+          <p class="hub-defaults__meta">
+            <span>
+              {opt.delegatorCount != null
+                ? `${opt.delegatorCount.toLocaleString('en-US')} ${opt.delegatorCount === 1 ? 'delegator' : 'delegators'}`
+                : 'Delegator count pending'}
+            </span>
+            {opt.chip && (
+              <span class={`hub-defaults__chip hub-defaults__chip--${opt.chip.direction}`}>{opt.chip.label}</span>
+            )}
+          </p>
+          <EpochSeriesChart title="Voting power" points={opt.series} format={fmtAdaCompact} sinceEpoch={opt.sinceEpoch} />
+        </div>
+      ))}
+    </div>
+    <p class="hub-defaults__note">Changes are net movement per epoch. Arrivals and departures inside an epoch are not individually visible on chain aggregates, so this page never claims inflow or outflow.</p>
+  </section>
+
+  {hasBackbone && (
+    <section class="hub-trends" aria-labelledby="hub-trends-title">
+      <h2 id="hub-trends-title">Per-epoch trends</h2>
+      <div class="hub-trends__grid">
+        <EpochSeriesChart title="Delegated voting power" points={metricSeries(stats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={starts.totalDrepPower} />
+        <EpochSeriesChart title="DReps with voting power" points={metricSeries(stats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
+        <EpochSeriesChart title="Delegators" points={metricSeries(stats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={starts.delegatorTotal} />
+      </div>
+    </section>
+  )}
+
+  {activity && (
+    <section class="hub-activity" aria-labelledby="hub-activity-title">
+      <h2 id="hub-activity-title">DRep activity</h2>
+      <ul class="hub-activity__rows">
+        {activityRows.map((row) => (
+          <li class="hub-activity__row">
+            <span class="hub-activity__label">{row.label}</span>
+            <span class="hub-activity__bar"><span class="hub-activity__fill" style={`width:${row.pct.toFixed(1)}%`}></span></span>
+            <span class="hub-activity__value">{row.value.toLocaleString('en-US')}</span>
+          </li>
+        ))}
+      </ul>
+      <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)} across {activity.inactiveCount.toLocaleString('en-US')} DReps.</p>
+      <p class="hub-activity__note">Definitions: active follows the on-chain registration state, voted counts any on-chain vote including later-changed ones.</p>
+    </section>
+  )}
+
+  {concentration.drepCount > 0 && (
+    <DrepConcentration
+      client:visible
+      topK={concentration.topK}
+      byPercent={concentration.byPercent}
+      drepCount={concentration.drepCount}
+      totalLabel={concentration.totalLabel}
+      markers={markers}
+      defaultThresholdPct={defaultThresholdPct}
+      thresholdsAsOf={thresholdsAsOf}
+    />
+  )}
+
+  <p class="hub-back"><a href="/dreps/">Browse the DRep directory</a></p>
+</Layout>
+
+<style>
+  .hub-crumbs {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+  }
+  .hub-crumbs a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .hub-crumbs a:hover {
+    color: var(--fg);
+  }
+
+  .hub-intro {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0.4rem 0 1.5rem;
+  }
+
+  .hub-empty {
+    color: var(--muted);
+    margin: 0 0 1.5rem;
+  }
+
+  /* The one visually distinct surface on the page: the default-options layer is
+     deliberately set apart from every DRep statistic above and below it, so the
+     tint makes that split visible rather than just stating it in prose. */
+  .hub-defaults {
+    margin: 0 0 2.5rem;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+  }
+  #hub-defaults-title {
+    margin: 0 0 0.4rem;
+    font-size: 1.2rem;
+  }
+  .hub-defaults__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-defaults__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+  @media (min-width: 720px) {
+    .hub-defaults__grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .hub-defaults__card {
+    padding: 1.1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-defaults__name {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+    font-weight: 650;
+  }
+  .hub-defaults__power {
+    margin: 0 0 0.35rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-defaults__meta {
+    margin: 0 0 1rem;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .hub-defaults__chip {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-defaults__chip--up {
+    color: var(--c-pos);
+  }
+  .hub-defaults__chip--down {
+    color: var(--c-neg);
+  }
+  .hub-defaults__chip--flat {
+    color: var(--muted);
+  }
+  .hub-defaults__note {
+    margin: 1.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-trends {
+    margin: 0 0 2.5rem;
+  }
+  #hub-trends-title,
+  #hub-activity-title {
+    margin: 0 0 1rem;
+    font-size: 1.2rem;
+  }
+  .hub-trends__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  @media (min-width: 900px) {
+    .hub-trends__grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  .hub-activity {
+    margin: 0 0 2.5rem;
+  }
+  .hub-activity__rows {
+    list-style: none;
+    margin: 0 0 1.1rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .hub-activity__row {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr 4rem;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .hub-activity__label {
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .hub-activity__bar {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .hub-activity__fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .hub-activity__value {
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  @media (max-width: 480px) {
+    .hub-activity__row {
+      grid-template-columns: 6.5rem 1fr 3.25rem;
+      gap: 0.5rem;
+    }
+    .hub-activity__label {
+      font-size: 0.8rem;
+    }
+  }
+  .hub-activity__stake {
+    margin: 0 0 0.4rem;
+    font-size: 0.875rem;
+  }
+  .hub-activity__note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-back {
+    margin-top: 2rem;
+    font-size: 0.9rem;
+  }
+  .hub-back a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .hub-back a:hover {
+    text-decoration: underline;
+  }
+</style>
