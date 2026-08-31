@@ -22,6 +22,12 @@ _(one line per completed increment; record deviations here)_
   Deviations: lifecycle/cancellation come from `cip-179/domain`'s published
   `aggregate()` (§5 gains that import — still zero own CIP-179 rules); audits
   are capped at 20/run, a truncated daily re-audit stays due for the next run.
+- 2026-08-31 — increment 4: `surveys` category (kind `'survey'`, position 5),
+  `src/components/survey/` (card + list row), the `/c/surveys/` branch with
+  the not-indexed state, the card on survey threads, `/s/[ref]` → thread
+  redirect. Deviation: new optional `TESSERA_APP_URL` var for the card's
+  deep link (display-only; link omitted when unset) — the backend URL is an
+  API origin, not a page a reader can open.
 
 ---
 

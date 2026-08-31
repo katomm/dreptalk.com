@@ -9,7 +9,9 @@ import TopicRow from '@/components/TopicRow.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
 import Pager from '@/components/Pager.astro';
 import CategorySidebar from '@/components/CategorySidebar.astro';
-import { getCategory, getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG } from '../../../config/categories.js';
+import { getCategory, getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG, SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
+import SurveyRow from '@/components/survey/SurveyRow.astro';
+import { listSurveysWithTopics, type SurveyListEntry } from '@/lib/db/surveys.js';
 import { getTopicsByIds, getCategoryStats, type Topic } from '@/lib/db/forum.js';
 import {
   getDiscussionTopics,
@@ -50,7 +52,8 @@ import { env } from 'cloudflare:workers';
 const { slug } = Astro.params;
 const category = slug ? getCategory(slug) : undefined;
 // Active network, passed to each row so it can turn an expiry epoch into a date.
-const network = currentNetwork().network;
+const netCfg = currentNetwork();
+const network = netCfg.network;
 
 const notFound = !category;
 if (notFound) {
@@ -67,6 +70,11 @@ const now = Date.now();
 
 const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
 const isBudgetCategory = category?.slug === BUDGET_CATEGORY_SLUG;
+const isSurveysCategory = category?.slug === SURVEYS_CATEGORY_SLUG;
+// The surveys category is fed by the Tessera mirror, which only runs where
+// TESSERA_BACKEND_URL is configured (preprod today). Presence of the var is
+// how this page tells "no surveys yet" from "not indexed on this network".
+const surveysIndexed = Boolean(env.TESSERA_BACKEND_URL);
 // OG card per category kind: the governance-actions overview gets its own card,
 // other discussion categories share the generic discussion card. The budget
 // category is finalized to the current treasury card after the overview loads,
@@ -123,6 +131,10 @@ let treasuryOverview: TreasuryOverviewData | null = null;
 // only; the governance overview keeps its own tally/countdown enrichment instead.
 let participantCounts = new Map<string, number>();
 let excerptHtml = new Map<string, string>();
+// Surveys category: the mirrored rows joined with their threads, plus the
+// oldest snapshot time on the page for the "as of" line.
+let surveyEntries: SurveyListEntry[] = [];
+let surveyAsOf: number | null = null;
 
 // The category sidebar stats are independent of the per-category data loaded
 // below, so start the query now and let it overlap with that work instead of
@@ -175,6 +187,12 @@ if (category && db) {
       (mx, r) => (r.action.tallySyncedAt != null && (mx == null || r.action.tallySyncedAt > mx) ? r.action.tallySyncedAt : mx),
       null,
     );
+  } else if (isSurveysCategory) {
+    surveyEntries = await listSurveysWithTopics(db, { limit: PAGE_SIZE, offset });
+    surveyAsOf = surveyEntries.reduce<number | null>(
+      (mn, e) => (mn == null || e.survey.tesseraFetchedAt < mn ? e.survey.tesseraFetchedAt : mn),
+      null,
+    );
   } else {
     topics = await getDiscussionTopics(db, category.slug, { sort: discussionSort, limit: PAGE_SIZE, offset });
     const topicIds = topics.map((t) => t.id);
@@ -216,7 +234,9 @@ const isDrepViewer = user?.roles.includes('drep') ?? false;
 const prevPage = page > 1 ? page - 1 : null;
 const nextPage = isGovernanceCategory
   ? (offset + PAGE_SIZE < govTotal ? page + 1 : null)
-  : (topics.length === PAGE_SIZE ? page + 1 : null);
+  : isSurveysCategory
+    ? (surveyEntries.length === PAGE_SIZE ? page + 1 : null)
+    : (topics.length === PAGE_SIZE ? page + 1 : null);
 // A total page count is only known for the governance category (it has a real
 // row count); non-governance categories page by the "full page ⇒ maybe more"
 // heuristic, so the pager shows just the current page there.
@@ -474,6 +494,71 @@ const breadcrumbLd = {
           totalPages={totalPages}
           label="Topic list pagination"
         />
+          </div>
+        </div>
+      </>
+    ) : isSurveysCategory ? (
+      <>
+        <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+          <a href="/">DRepTalk</a>
+          <span style="margin:0 0.375rem;">/</span>
+          <span>{category.name}</span>
+        </nav>
+
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:1.5rem;">
+          <div>
+            <h1 style="margin:0 0 0.25rem;">{category.name}</h1>
+            <p style="margin:0;color:var(--muted);font-size:0.875rem;">
+              {category.description}
+            </p>
+          </div>
+        </div>
+
+        <div class="cat-layout">
+          <CategorySidebar categories={allCategories} stats={catStats} selectedSlug={category.slug} now={now} />
+          <div class="cat-main">
+            <nav class="cat-chips" aria-label="Categories">
+              {allCategories.map((c) => (
+                <a class:list={['cat-chip', { 'cat-chip--on': c.slug === category.slug }]} href={`/c/${c.slug}/`}>
+                  {c.name}<span>{catStats.get(c.slug)?.topicCount ?? 0}</span>
+                </a>
+              ))}
+            </nav>
+
+            {surveyEntries.length === 0 ? (
+              surveysIndexed ? (
+                <p style="color:var(--muted);">
+                  No surveys yet. A survey appears here once it is open to DReps and linked by a
+                  governance action.
+                </p>
+              ) : (
+                <p style="color:var(--muted);">
+                  Surveys are not indexed on this network. CIP-179 surveys are currently mirrored
+                  on the preprod deployment only.
+                </p>
+              )
+            ) : (
+              <>
+                <div style="display:flex;flex-direction:column;gap:0;">
+                  {surveyEntries.map((entry) => (
+                    <SurveyRow entry={entry} cfg={netCfg} now={now} />
+                  ))}
+                </div>
+                {surveyAsOf != null && (
+                  <p class="ga-asof">Survey data as of {formatRelativeTime(surveyAsOf * 1000, now)}. Cached, not live.</p>
+                )}
+              </>
+            )}
+
+            <Pager
+              prevHref={prevPage ? pageHref(prevPage) : null}
+              nextHref={nextPage ? pageHref(nextPage) : null}
+              firstHref={firstPage ? pageHref(firstPage) : null}
+              lastHref={lastPage ? pageHref(lastPage) : null}
+              page={page}
+              totalPages={totalPages}
+              label="Topic list pagination"
+            />
           </div>
         </div>
       </>

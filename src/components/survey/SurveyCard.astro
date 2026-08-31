@@ -1,0 +1,237 @@
+---
+// The survey thread's header card: everything DRepTalk mirrored about the
+// survey — definition, deadline, the audited DRep count — plus a deep link to
+// Tessera. Deliberately no tally figure of any kind: CIP-179 does not mandate
+// a counting policy, so the card shows participation, never "the result".
+// Reads only what the page loaded from D1; the "as of" line owns the staleness.
+import type { SurveyDefinition } from 'cip-179';
+import type { NetworkConfig } from '@/lib/config/network.js';
+import type { SurveyRow } from '@/lib/db/surveys.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import {
+  questionViews,
+  roleLabels,
+  surveyDeadlineUnix,
+  surveyLifecycle,
+  tesseraSurveyUrl,
+} from '@/lib/surveys/view.js';
+
+interface Props {
+  survey: SurveyRow;
+  definition: SurveyDefinition;
+  cfg: NetworkConfig;
+  now: number;
+  appUrl: string | undefined;
+}
+
+const { survey, definition, cfg, now, appUrl } = Astro.props;
+
+const lifecycle = surveyLifecycle(survey, now, cfg);
+const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
+const questions = questionViews(definition);
+const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
+
+const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Closed' : 'Cancelled';
+---
+
+<section class="svy-card">
+  <div class="svy-card__head">
+    <span class="svy-card__kind">CIP-179 survey</span>
+    <span class:list={['svy-badge', `svy-badge--${lifecycle}`]}>{statusLabel}</span>
+    {survey.sealed && <span class="svy-badge svy-badge--sealed">Sealed</span>}
+  </div>
+
+  {survey.unavailable && (
+    <p class="svy-card__warn">
+      The on-chain record of this survey was no longer found in the index — it may have been
+      rolled back. The thread stays; answering is disabled.
+    </p>
+  )}
+
+  {survey.externalContent ? (
+    <p class="svy-card__note">
+      The survey text lives in an external document that is not loaded here.
+    </p>
+  ) : (
+    definition.description && <p class="svy-card__desc">{definition.description}</p>
+  )}
+
+  <ol class="svy-card__questions">
+    {questions.map((q) => (
+      <li>
+        <p class="svy-q__prompt">{q.prompt}{q.required && <span class="svy-q__req" title="An answer must include this question"> *</span>}</p>
+        <p class="svy-q__kind">{q.kindLabel}</p>
+        {q.options && (
+          <ul class="svy-q__options">
+            {q.options.map((o) => <li>{o}</li>)}
+          </ul>
+        )}
+        {q.optionNote && <p class="svy-q__kind">{q.optionNote}</p>}
+      </li>
+    ))}
+  </ol>
+
+  <dl class="svy-card__facts">
+    <div>
+      <dt>Eligible to respond</dt>
+      <dd>{roleLabels(survey.eligibleRoles)}</dd>
+    </div>
+    <div>
+      <dt>Responses accepted</dt>
+      <dd>through epoch {survey.endEpoch} (inclusive) — until {formatEpochDate(deadlineUnix)}</dd>
+    </div>
+    <div>
+      <dt>Participation</dt>
+      <dd>
+        {survey.countedDreps != null
+          ? `${survey.countedDreps} DRep ${survey.countedDreps === 1 ? 'response' : 'responses'} counted`
+          : 'count pending'}
+      </dd>
+    </div>
+  </dl>
+
+  <div class="svy-card__foot">
+    {deepLink && (
+      <a class="svy-card__link" href={deepLink} target="_blank" rel="noopener noreferrer">
+        View on Tessera ↗
+      </a>
+    )}
+    <span class="svy-card__asof">
+      Survey data as of {formatRelativeTime(survey.tesseraFetchedAt * 1000, now)}. Cached, not live.
+    </span>
+  </div>
+</section>
+
+<style>
+  .svy-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 1.25rem 1.25rem 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .svy-card__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .svy-card__kind {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .svy-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    border: 1px solid transparent;
+  }
+  .svy-badge--open {
+    color: var(--c-pos);
+    background: color-mix(in srgb, var(--c-pos) 12%, transparent);
+  }
+  .svy-badge--closed {
+    color: var(--muted);
+    background: color-mix(in srgb, var(--muted) 14%, transparent);
+  }
+  .svy-badge--cancelled {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  .svy-badge--sealed {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .svy-card__warn {
+    font-size: 0.875rem;
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin: 0 0 0.9rem;
+  }
+  .svy-card__desc,
+  .svy-card__note {
+    font-size: 0.9375rem;
+    margin: 0 0 1rem;
+  }
+  .svy-card__note {
+    color: var(--muted);
+    font-style: italic;
+  }
+  .svy-card__questions {
+    margin: 0 0 1rem;
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .svy-q__prompt {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  .svy-q__req {
+    color: var(--danger);
+  }
+  .svy-q__kind {
+    margin: 0.1rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-q__options {
+    margin: 0.35rem 0 0;
+    padding-left: 1.1rem;
+    font-size: 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .svy-card__facts {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.9rem;
+  }
+  .svy-card__facts dt {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .svy-card__facts dd {
+    margin: 0.1rem 0 0;
+    font-size: 0.9rem;
+  }
+  .svy-card__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.75rem;
+    justify-content: space-between;
+    margin-top: 1rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+  }
+  .svy-card__link {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .svy-card__link:hover {
+    text-decoration: underline;
+  }
+  .svy-card__asof {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+</style>

@@ -195,6 +195,129 @@ export async function batchByBinds(
   if (pending.length > 0) await db.batch(pending);
 }
 
+/** One mirrored survey, as the pages read it (booleans decoded from 0/1). */
+export interface SurveyRow {
+  ref: string;
+  topicId: string;
+  title: string;
+  endEpoch: number;
+  /** CIP-179 role ints (DRep = 0). */
+  eligibleRoles: number[];
+  sealed: boolean;
+  cancelled: boolean;
+  externalContent: boolean;
+  /** Wire-form record JSON; decode with cip-179's fromJsonSafe. */
+  definitionJson: string;
+  countedDreps: number | null;
+  finalState: string | null;
+  unavailable: boolean;
+  tipEpoch: number;
+  /** Snapshot time (unix s) — the "as of" the UI shows. */
+  tesseraFetchedAt: number;
+  submittedAt: number | null;
+}
+
+interface RawSurveyRow {
+  ref: string;
+  topic_id: string;
+  title: string;
+  end_epoch: number;
+  eligible_roles: string;
+  sealed: number;
+  cancelled: number;
+  external_content: number;
+  definition: string;
+  counted_dreps: number | null;
+  final_state: string | null;
+  unavailable: number;
+  tip_epoch: number;
+  tessera_fetched_at: number;
+  submitted_at: number | null;
+}
+
+// Qualified with the table name so the list join (topics also has title/slug)
+// stays unambiguous; single-table reads accept the qualification too.
+const SURVEY_COLUMNS =
+  'survey.ref, survey.topic_id, survey.title, survey.end_epoch, survey.eligible_roles, ' +
+  'survey.sealed, survey.cancelled, survey.external_content, survey.definition, ' +
+  'survey.counted_dreps, survey.final_state, survey.unavailable, survey.tip_epoch, ' +
+  'survey.tessera_fetched_at, survey.submitted_at';
+
+function rowToSurvey(r: RawSurveyRow): SurveyRow {
+  return {
+    ref: r.ref,
+    topicId: r.topic_id,
+    title: r.title,
+    endEpoch: r.end_epoch,
+    eligibleRoles: JSON.parse(r.eligible_roles) as number[],
+    sealed: r.sealed === 1,
+    cancelled: r.cancelled === 1,
+    externalContent: r.external_content === 1,
+    definitionJson: r.definition,
+    countedDreps: r.counted_dreps,
+    finalState: r.final_state,
+    unavailable: r.unavailable === 1,
+    tipEpoch: r.tip_epoch,
+    tesseraFetchedAt: r.tessera_fetched_at,
+    submittedAt: r.submitted_at,
+  };
+}
+
+/** The survey behind one thread, or null for a non-survey topic. */
+export async function getSurveyByTopicId(db: D1Database, topicId: string): Promise<SurveyRow | null> {
+  const row = await db
+    .prepare(`SELECT ${SURVEY_COLUMNS} FROM survey WHERE topic_id = ?`)
+    .bind(topicId)
+    .first<RawSurveyRow>();
+  return row ? rowToSurvey(row) : null;
+}
+
+/** One list entry of the surveys category: the survey plus its thread's slug
+ * and activity numbers, so the row can link and show replies without a join
+ * per row. */
+export interface SurveyListEntry {
+  survey: SurveyRow;
+  topicSlug: string;
+  postCount: number;
+  lastPostAt: number;
+}
+
+/** The surveys category list: newest publication first (a stable order that
+ * needs no tip), paged. Deleted threads drop out with their topic. */
+export async function listSurveysWithTopics(
+  db: D1Database,
+  opts: { limit: number; offset: number },
+): Promise<SurveyListEntry[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${SURVEY_COLUMNS}, t.slug AS topic_slug, t.post_count, t.last_post_at
+       FROM survey JOIN topics t ON t.id = survey.topic_id
+       WHERE t.deleted = 0
+       ORDER BY survey.submitted_at DESC, survey.ref
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(opts.limit, opts.offset)
+    .all<RawSurveyRow & { topic_slug: string; post_count: number; last_post_at: number }>();
+  return results.map((r) => ({
+    survey: rowToSurvey(r),
+    topicSlug: r.topic_slug,
+    postCount: r.post_count,
+    lastPostAt: r.last_post_at,
+  }));
+}
+
+/** Thread slug for a survey ref — the /s/<ref> redirect target. */
+export async function getTopicSlugBySurveyRef(db: D1Database, ref: string): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT t.slug FROM survey JOIN topics t ON t.id = survey.topic_id
+       WHERE survey.ref = ? AND t.deleted = 0`,
+    )
+    .bind(ref)
+    .first<{ slug: string }>();
+  return row?.slug ?? null;
+}
+
 export interface SurveySyncState {
   /** Last seen size of Tessera's linked set (counts.linked), or null before the first walk. */
   linkedCount: number | null;

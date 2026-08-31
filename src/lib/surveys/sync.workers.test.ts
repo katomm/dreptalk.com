@@ -5,7 +5,13 @@ import { toJsonSafe } from 'cip-179/tally';
 import { describe, expect, it } from 'vitest';
 import { resolveNetwork } from '../config/network.js';
 import { buildInsertGovernanceAction } from '../db/governance.js';
-import { getHeldSurveys, getSurveySyncState } from '../db/surveys.js';
+import {
+  getHeldSurveys,
+  getSurveyByTopicId,
+  getSurveySyncState,
+  getTopicSlugBySurveyRef,
+  listSurveysWithTopics,
+} from '../db/surveys.js';
 import type { SurveyBundlePage, SurveyPage, SurveySet, TesseraTip } from '../tessera/client.js';
 import { type SurveysSyncDeps, type SurveysTessera, syncSurveys } from './sync.js';
 
@@ -278,6 +284,33 @@ describe('syncSurveys', () => {
     // The ref reappears in a complete answer: cleared.
     await syncSurveys(deps(fakeTessera()));
     expect((await surveyRows())[0].unavailable).toBe(0);
+  });
+
+  it('serves the page readers: by topic, the category list, and the /s/<ref> slug', async () => {
+    await importLinkingAction();
+    await syncSurveys(deps(fakeTessera()));
+
+    const [row] = await surveyRows();
+    const byTopic = await getSurveyByTopicId(env.DB, row.topic_id);
+    expect(byTopic).toMatchObject({
+      ref: KEY_LINKED,
+      title: 'Treasury priorities',
+      endEpoch: 300,
+      eligibleRoles: [Role.DRep],
+      countedDreps: 2,
+      sealed: false,
+      unavailable: false,
+    });
+    // The stored wire record must decode back to the definition.
+    expect(byTopic?.definitionJson).toContain('Which budget line matters most?');
+
+    const list = await listSurveysWithTopics(env.DB, { limit: 10, offset: 0 });
+    expect(list).toHaveLength(1);
+    expect(list[0].postCount).toBe(1);
+    expect(list[0].topicSlug).toContain('treasury-priorities');
+
+    expect(await getTopicSlugBySurveyRef(env.DB, KEY_LINKED)).toBe(list[0].topicSlug);
+    expect(await getTopicSlugBySurveyRef(env.DB, `${'9'.repeat(64)}:0`)).toBeNull();
   });
 
   it('skips the run without recording an error while the backend has no snapshot', async () => {

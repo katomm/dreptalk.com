@@ -1,0 +1,122 @@
+---
+// One row of the surveys category list: title → thread, lifecycle badge,
+// deadline, the audited DRep count, and thread activity. Mirrors the calm
+// list-row look of TopicRow without its user-authored affordances.
+import type { NetworkConfig } from '@/lib/config/network.js';
+import type { SurveyListEntry } from '@/lib/db/surveys.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import { surveyDeadlineUnix, surveyLifecycle } from '@/lib/surveys/view.js';
+
+interface Props {
+  entry: SurveyListEntry;
+  cfg: NetworkConfig;
+  now: number;
+}
+
+const { entry, cfg, now } = Astro.props;
+const { survey } = entry;
+
+const lifecycle = surveyLifecycle(survey, now, cfg);
+const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Closed' : 'Cancelled';
+const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
+const replies = Math.max(0, entry.postCount - 1);
+---
+
+<a class="svy-row" href={`/t/${entry.topicSlug}/`}>
+  <div class="svy-row__main">
+    <span class="svy-row__title">{survey.title}</span>
+    <span class="svy-row__meta">
+      <span class:list={['svy-row__badge', `svy-row__badge--${lifecycle}`]}>{statusLabel}</span>
+      {survey.unavailable && <span class="svy-row__badge svy-row__badge--gone">Record missing</span>}
+      <span>
+        {lifecycle === 'open'
+          ? `open until ${formatEpochDate(deadlineUnix)} (epoch ${survey.endEpoch})`
+          : `ended epoch ${survey.endEpoch}`}
+      </span>
+    </span>
+  </div>
+  <div class="svy-row__stats">
+    <span>
+      {survey.countedDreps != null ? `${survey.countedDreps} DRep${survey.countedDreps === 1 ? '' : 's'} counted` : 'count pending'}
+    </span>
+    <span>{replies} {replies === 1 ? 'reply' : 'replies'} · {formatRelativeTime(entry.lastPostAt, now)}</span>
+  </div>
+</a>
+
+<style>
+  .svy-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.85rem 0;
+    border-top: 1px solid var(--border);
+    text-decoration: none;
+    color: inherit;
+  }
+  .svy-row:first-of-type {
+    border-top: 0;
+  }
+  .svy-row__main {
+    min-width: 0;
+  }
+  .svy-row__title {
+    display: block;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--fg);
+  }
+  .svy-row:hover .svy-row__title {
+    text-decoration: underline;
+  }
+  .svy-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.25rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .svy-row__badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+  }
+  .svy-row__badge--open {
+    color: var(--c-pos);
+    background: color-mix(in srgb, var(--c-pos) 12%, transparent);
+  }
+  .svy-row__badge--closed {
+    color: var(--muted);
+    background: color-mix(in srgb, var(--muted) 14%, transparent);
+  }
+  .svy-row__badge--cancelled,
+  .svy-row__badge--gone {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  .svy-row__stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.15rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  @media (max-width: 40rem) {
+    .svy-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .svy-row__stats {
+      flex-direction: row;
+      justify-content: space-between;
+      white-space: normal;
+    }
+  }
+</style>

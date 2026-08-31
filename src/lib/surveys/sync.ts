@@ -40,6 +40,7 @@ import {
 } from '../db/surveys.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { renderMarkdown } from '../markdown.js';
+import { roleLabels } from './view.js';
 import {
   MAX_REFS_PER_CALL,
   type SurveySet,
@@ -125,14 +126,6 @@ function decodeSet(set: SurveySet): DecodedSet {
   };
 }
 
-const ROLE_LABELS: Record<number, string> = {
-  [Role.DRep]: 'DReps',
-  [Role.SPO]: 'SPOs',
-  [Role.CC]: 'Constitutional Committee members',
-  [Role.Stakeholder]: 'stakeholders',
-  [Role.Keyholder]: 'keyholders',
-};
-
 /** Title for the thread: the on-chain title, or a ref-derived fallback (empty
  * titles are legal in external-content mode). */
 function surveyTitle(a: SurveyAggregate): string {
@@ -143,7 +136,7 @@ function surveyTitle(a: SurveyAggregate): string {
  * governance threads (the description is untrusted on-chain data). */
 function composeFirstPostMd(a: SurveyAggregate): string {
   const def = a.record.definition;
-  const roles = def.eligibleRoles.map(r => ROLE_LABELS[r] ?? `role ${r}`).join(', ');
+  const roles = roleLabels(def.eligibleRoles);
   const lines: string[] = ['**On-chain CIP-179 survey.**', ''];
   if (a.external) {
     lines.push('The survey text lives in an external document that is not loaded here.', '');

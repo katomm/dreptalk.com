@@ -32,6 +32,8 @@ cfg.vars = {
   // one caller of the URL. Keep in sync with [env.preprod.vars] in
   // workers/gov-sync/wrangler.toml.
   TESSERA_BACKEND_URL: 'https://tessera-backend-preprod.matthieu-pizenberg.workers.dev',
+  // Deep-link target on survey cards ("open in Tessera"); display-only.
+  TESSERA_APP_URL: 'https://tessera-preprod.matthieu-pizenberg.workers.dev',
 };
 cfg.routes = [{ pattern: 'preprod.dreptalk.com', custom_domain: true }];
 cfg.d1_databases = [

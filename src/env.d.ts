@@ -57,6 +57,12 @@ declare namespace Cloudflare {
      * Only gov-sync ever calls the URL; the app reads presence alone.
      */
     TESSERA_BACKEND_URL?: string;
+    /**
+     * Public origin of the Tessera browser app for this network — the survey
+     * card's deep-link target ("open in Tessera"). Display-only: nothing is
+     * fetched from it. The link is omitted when unset.
+     */
+    TESSERA_APP_URL?: string;
     /** Moderator allowlist: comma-separated `<stake_addr>:<role>` pairs. */
     MODERATORS?: string;
     VAPID_PUBLIC_KEY?: string;
