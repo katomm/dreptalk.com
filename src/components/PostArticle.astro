@@ -45,7 +45,7 @@ interface Props {
 
 const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber, mandate, citable = false } = Astro.props;
 
-const { canSeeContent, canFlag, canReact, showReactions, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
+const { canSeeContent, canFlag, reactions, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
 
 // A hidden post's version index answers 404 for as long as it is hidden, and
 // the action row still renders for its author and for moderators, so the Cite
@@ -132,8 +132,7 @@ const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?
   {canSeeContent && (
     <PostActions
       post={post}
-      canReact={canReact}
-      showReactions={showReactions}
+      reactions={reactions}
       canFlag={canFlag}
       isOwnPost={isOwnPost}
       flagged={flagged}

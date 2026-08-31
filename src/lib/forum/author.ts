@@ -62,6 +62,9 @@ function roleBadges(u: User | undefined): string[] {
   return badges;
 }
 
+/** The gov-sync mirror of an on-chain action, as opposed to a member's post. */
+export const isSystemAuthor = (authorId: string): boolean => authorId === GOV_SYNC_AUTHOR;
+
 /**
  * Builds the descriptor for one author id from the already-batched users/dreps
  * maps. Pure mapping, performs no I/O. The gov-sync system author renders as a
@@ -73,7 +76,7 @@ export function describeAuthor(
   drepsById: Map<string, Drep>,
   poolsById: Map<string, Pool>,
 ): AuthorDescriptor {
-  if (authorId === GOV_SYNC_AUTHOR) return systemAuthor(authorId);
+  if (isSystemAuthor(authorId)) return systemAuthor(authorId);
 
   const u = usersById.get(authorId);
   const drep = u?.drep_id ? drepsById.get(u.drep_id) : undefined;

@@ -897,11 +897,6 @@ export async function getPostHistory(db: D1Database, postId: string): Promise<Po
 // Thread page (one-level threading) and thread stats
 // ---------------------------------------------------------------------------
 
-export interface TopicStats {
-  /** Distinct authors across the topic's live posts (system author included). */
-  participants: number;
-}
-
 export interface ThreadPage {
   /** Top-level posts for this page, oldest first. */
   topLevel: Post[];
@@ -913,8 +908,11 @@ export interface ThreadPage {
    * Reply suppression, and the meta excerpt.
    */
   openingPost: Post | null;
-  /** Header-strip stats for the whole topic; null for a topic with no posts. */
-  stats: TopicStats | null;
+  /**
+   * Distinct authors across the topic's live posts (system author included),
+   * for the header strip. Null for a topic with no posts.
+   */
+  participants: number | null;
 }
 
 // The page's top-level posts: live, parentless, oldest first. Shared between
@@ -983,7 +981,7 @@ export async function getThreadPage(
   const statsRow = statsRes.results?.[0] as
     | { participants: number; opening_post_id: string }
     | undefined;
-  const stats: TopicStats | null = statsRow ? { participants: statsRow.participants } : null;
+  const participants = statsRow ? statsRow.participants : null;
 
   // The opening post is the one the stats row already identified by authorship
   // (OPENING_POST_MATCH), so the header strip's counts and the post that renders
@@ -997,6 +995,6 @@ export async function getThreadPage(
     topLevel,
     childrenByParent,
     openingPost: opening,
-    stats,
+    participants,
   };
 }

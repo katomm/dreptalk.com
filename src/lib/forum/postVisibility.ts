@@ -4,6 +4,12 @@
 
 import { isWriter, isModerator } from '../auth/roles.js';
 
+/**
+ * The three states the reaction row can be in. One value rather than a pair of
+ * booleans, so no caller can hold the incoherent "may toggle, but hidden".
+ */
+export type ReactionAffordance = 'interactive' | 'readonly' | 'hidden';
+
 /** The session user shape components receive (mirrors App.Locals.user). */
 export interface SessionUser {
   id: string;
@@ -17,10 +23,12 @@ export interface PostViewerContext {
   canSeeContent: boolean;
   /** The viewer may flag this post (a writer, not the author, not a system post). */
   canFlag: boolean;
-  /** The viewer may react to this post (a writer, not the author, not a system post). */
-  canReact: boolean;
-  /** Whether the reaction affordance is rendered at all (never on system posts). */
-  showReactions: boolean;
+  /**
+   * How the reaction affordance renders: 'interactive' for a viewer who may
+   * toggle, 'readonly' for live counts they cannot change, 'hidden' where the
+   * post carries no reactions at all.
+   */
+  reactions: ReactionAffordance;
   /** The viewer may edit this post (a writer, their own, not system, not hidden). */
   canEdit: boolean;
 }
@@ -30,10 +38,10 @@ export interface PostViewerContext {
  * - canSeeContent: a hidden post stays readable for its author and moderators.
  * - canFlag: only on-chain writers can flag, never their own post or a
  *   system/governance post (authorIsSystem).
- * - canReact: only on-chain writers, never their own post, never a
- *   system/governance post. A thumbs up on the neutral mirror of an on-chain
- *   action reads as a stake-free straw poll next to the real tally, so the
- *   affordance is not rendered there at all (showReactions).
+ * - reactions: only on-chain writers may toggle, never on their own post. On a
+ *   system/governance post the row is hidden outright: a thumbs up on the
+ *   neutral mirror of an on-chain action reads as a stake-free straw poll next
+ *   to the real tally.
  */
 export function postViewerContext(
   post: { author_id: string; hidden: boolean },
@@ -44,8 +52,11 @@ export function postViewerContext(
   const roles = user?.roles ?? [];
   const canSeeContent = !post.hidden || isOwnPost || isModerator(roles);
   const canFlag = isWriter(roles) && !isOwnPost && !authorIsSystem;
-  const showReactions = !authorIsSystem;
-  const canReact = isWriter(roles) && !isOwnPost && showReactions;
+  const reactions: ReactionAffordance = authorIsSystem
+    ? 'hidden'
+    : isWriter(roles) && !isOwnPost
+      ? 'interactive'
+      : 'readonly';
   const canEdit = isWriter(roles) && isOwnPost && !authorIsSystem && !post.hidden;
-  return { isOwnPost, canSeeContent, canFlag, canReact, showReactions, canEdit };
+  return { isOwnPost, canSeeContent, canFlag, reactions, canEdit };
 }

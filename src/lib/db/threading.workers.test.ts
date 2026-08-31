@@ -100,18 +100,18 @@ describe('getThreadPage', () => {
   });
 });
 
-describe('getThreadPage stats', () => {
+describe('getThreadPage participants', () => {
   it('counts distinct participants', async () => {
     const { topicId } = await newTopic();
     await reply(topicId, 'second-author', null, NOW + 1000);
     await reply(topicId, 'second-author', null, NOW + 2000);
 
-    const { stats } = await getThreadPage(db(), topicId);
-    expect(stats).toEqual({ participants: 2 });
+    const { participants } = await getThreadPage(db(), topicId);
+    expect(participants).toBe(2);
   });
 
-  it('returns null stats for an unknown topic', async () => {
-    const { stats } = await getThreadPage(db(), crypto.randomUUID());
-    expect(stats).toBeNull();
+  it('returns a null participant count for an unknown topic', async () => {
+    const { participants } = await getThreadPage(db(), crypto.randomUUID());
+    expect(participants).toBeNull();
   });
 });

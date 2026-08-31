@@ -8,17 +8,17 @@
 // only ever the opening post's, and it duplicated numbers that already sit under
 // that post. They stay where the post they belong to is.
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import type { TopicStats } from '@/lib/db/forum.js';
 
 interface Props {
-  stats: TopicStats;
+  /** Distinct authors across the topic's live posts. */
+  participants: number;
   /** Replies only (post_count minus the opening post). */
   comments: number;
   lastPostAt: number;
   now: number;
 }
 
-const { stats, comments, lastPostAt, now } = Astro.props;
+const { participants, comments, lastPostAt, now } = Astro.props;
 
 // Inline outline icons (Lucide geometry) so the strip needs no icon library.
 const ICONS: Record<string, string> = {
@@ -35,13 +35,13 @@ const cells = [
   {
     label: 'Participation',
     metrics: [
-      { icon: 'participants', value: String(stats.participants), tone: 'var(--accent)' },
-      { icon: 'comments', value: String(comments), tone: 'var(--accent)' },
+      { icon: 'participants', value: String(participants) },
+      { icon: 'comments', value: String(comments) },
     ],
   },
   {
     label: 'Last activity',
-    metrics: [{ icon: 'clock', value: formatRelativeTime(lastPostAt, now), tone: 'var(--accent)' }],
+    metrics: [{ icon: 'clock', value: formatRelativeTime(lastPostAt, now) }],
   },
 ];
 ---
@@ -62,7 +62,6 @@ const cells = [
               stroke-linecap="round"
               stroke-linejoin="round"
               aria-hidden="true"
-              style={`color:${metric.tone}`}
               set:html={ICONS[metric.icon]}
             />
             {metric.value}
@@ -117,6 +116,7 @@ const cells = [
     width: 1.125rem;
     height: 1.125rem;
     flex-shrink: 0;
+    color: var(--accent);
   }
   /* Narrow screens: keep the cells side by side (the values are short, e.g.
      "3h ago"), just tighten padding, gaps and type so the strip stays on one

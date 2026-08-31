@@ -98,10 +98,11 @@ describe('handleReactToPost: authorization and validation', () => {
     expect((r.json as { error: string }).error).toBe('cannot_react_system');
   });
 
-  it('still lets a reaction recorded on a system post be withdrawn', async () => {
+  it('403 when withdrawing a reaction on a system post', async () => {
     const postId = await newPost(GOV_SYNC_AUTHOR, 'governance');
     const r = await handleClearReaction(reactInput(WRITER, postId));
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(403);
+    expect((r.json as { error: string }).error).toBe('cannot_react_system');
   });
 
   it('403 mandate revoked when the reactor\'s grant was revoked', async () => {

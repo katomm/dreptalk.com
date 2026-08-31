@@ -3,22 +3,21 @@
 // and the community flag. Shared by every thread view so the action row cannot
 // drift between governance and non-governance markup.
 //
-// Hydration is gated on canReact: a viewer who cannot react (anonymous,
+// Hydration is gated on the reaction affordance: 'readonly' (anonymous,
 // non-writer, own post) gets the same buttons as static server-rendered HTML
-// with zero client JS; only viewers who can actually toggle pay for an island.
+// with zero client JS, only 'interactive' viewers pay for an island, and
+// 'hidden' (system posts) emits no reaction row at all.
 // Reply and Share are plain server-rendered buttons handled by the thread's
 // one delegated script (see ThreadPosts.astro), not islands.
 import ReactionButtons from '@/components/ReactionButtons.tsx';
 import FlagButton from '@/components/FlagButton.tsx';
 import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
+import type { ReactionAffordance } from '@/lib/forum/postVisibility.js';
 
 interface Props {
   post: Post;
-  canReact: boolean;
-  /** Whether the reaction buttons render at all. False on system posts, which
-      carry no reactions in either direction. */
-  showReactions: boolean;
+  reactions: ReactionAffordance;
   canFlag: boolean;
   /** Drives the disabled hint: own posts read differently than "sign in". */
   isOwnPost: boolean;
@@ -38,7 +37,7 @@ interface Props {
   citable?: boolean;
 }
 
-const { post, canReact, showReactions, canFlag, isOwnPost, flagged, viewerReaction, canReply = false, canEdit = false, authorName = '', citable = false } = Astro.props;
+const { post, reactions, canFlag, isOwnPost, flagged, viewerReaction, canReply = false, canEdit = false, authorName = '', citable = false } = Astro.props;
 const disabledReason = isOwnPost ? 'You cannot react to your own posts' : undefined;
 // vote_rationale posts are frozen: the edit affordance is never shown,
 // regardless of what the caller passes for canEdit. Flag stays available.
@@ -46,7 +45,7 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
 ---
 
 <div style="margin-top:0.75rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
-  {showReactions && (canReact ? (
+  {reactions === 'interactive' && (
     <ReactionButtons
       client:visible
       postId={post.id}
@@ -55,7 +54,8 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
       initialReaction={viewerReaction}
       canReact={true}
     />
-  ) : (
+  )}
+  {reactions === 'readonly' && (
     <ReactionButtons
       postId={post.id}
       initialUpCount={post.up_count}
@@ -64,7 +64,7 @@ const showEdit = canEdit && post.source !== 'vote_rationale';
       canReact={false}
       disabledReason={disabledReason}
     />
-  ))}
+  )}
   {canReply && (
     <button
       type="button"

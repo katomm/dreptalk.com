@@ -11,7 +11,7 @@ import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
 import { isWriter, WRITER_ROLES } from '../auth/roles.js';
 import { isGrantActiveForUser } from '../db/proposerGrants.js';
-import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
+import { isSystemAuthor } from './author.js';
 import { toBase64Url } from '../crypto/base64url.js';
 import { notifyReply, notifyMentions } from '../notifications/notify.js';
 import { extractMentionSlugs, resolveMentions } from './mentions.js';
@@ -362,7 +362,7 @@ async function authorizeFlag(
   if (post.author_id === user.id) {
     return { fail: { status: 403, json: { ok: false, error: 'cannot_flag_own' } } };
   }
-  if (post.author_id === GOV_SYNC_AUTHOR) {
+  if (isSystemAuthor(post.author_id)) {
     return { fail: { status: 403, json: { ok: false, error: 'cannot_flag_system' } } };
   }
 
@@ -454,9 +454,7 @@ async function handleReactionChange(
     if (post.author_id === user.id) {
       return { status: 403, json: { ok: false, error: 'cannot_react_own' } };
     }
-    // Withdrawal stays open so a reaction recorded before this rule can still
-    // be taken back.
-    if (post.author_id === GOV_SYNC_AUTHOR && reaction) {
+    if (isSystemAuthor(post.author_id)) {
       return { status: 403, json: { ok: false, error: 'cannot_react_system' } };
     }
 
