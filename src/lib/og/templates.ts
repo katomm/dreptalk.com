@@ -312,20 +312,29 @@ export function moversCardHtml(m: MoversCardModel): string {
 // always-abstain option holds power, a third line for it. No title() call
 // here (unlike the other cards), the eyebrow pill already carries the page's
 // name, so the headline figure is the first thing in the body.
+//
+// Two sibling blocks, not one wrapping div: cardShell's flex column uses
+// justify-content:space-between across [header, ...body children] to spread
+// content vertically (see moversCardHtml). A single body div is only one more
+// flex item after the header, so space-between just pushes it to the bottom,
+// leaving a dead gap under the header. Splitting the headline and the detail
+// lines into two items lets the same layout balance this card too.
 export function analyticsCardHtml(m: AnalyticsCardModel): string {
   const abstainRow = m.abstainLine
     ? `<div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:16px;">${esc(m.abstainLine)}</div>`
     : '';
-  const body = `<div style="display:flex;flex-direction:column;">
+  const headlineBlock = `<div style="display:flex;flex-direction:column;">
       <div style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-bottom:10px;">${esc(m.epochLabel)}</div>
       <div style="display:flex;align-items:baseline;">
         <span style="display:flex;font-size:72px;font-weight:800;color:${INK};letter-spacing:-1px;">${esc(m.poweredCount)}</span>
         <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:16px;">DReps hold ${esc(m.totalPowerLabel)}</span>
       </div>
-      <div style="display:flex;font-size:32px;font-weight:600;color:${INK};margin-top:24px;">${esc(m.votingLine)}</div>
+    </div>`;
+  const detailBlock = `<div style="display:flex;flex-direction:column;">
+      <div style="display:flex;font-size:32px;font-weight:600;color:${INK};">${esc(m.votingLine)}</div>
       ${abstainRow}
     </div>`;
-  return cardShell(m.accent, 'Governance analytics', body);
+  return cardShell(m.accent, 'Governance analytics', `${headlineBlock}${detailBlock}`);
 }
 
 // Also renders help-guide cards: helpCardModel returns the same shape with no

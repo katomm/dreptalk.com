@@ -11,9 +11,16 @@ interface Props {
   format?: (v: number) => string;
   /** First reliable epoch, rendered as the honesty caption. */
   sinceEpoch?: number | null;
+  /**
+   * SVG aria-label. Defaults to "${title} per epoch", which collides when two
+   * charts on the same page share one generic title (e.g. both default-option
+   * cards titled "Voting power"), pass a distinct label in that case.
+   */
+  ariaLabel?: string;
 }
 
-const { title, points, sinceEpoch = null } = Astro.props;
+const { title, points, sinceEpoch = null, ariaLabel } = Astro.props;
+const resolvedAriaLabel = ariaLabel ?? `${title} per epoch`;
 const format = Astro.props.format ?? ((v: number) => v.toLocaleString('en-US', { notation: 'compact', maximumFractionDigits: 1 }));
 const chart = buildPowerChart(points.map((p) => p.value), {
   width: 320, height: 120, padLeft: 4, padRight: 52, padTop: 12, padBottom: 22,
@@ -27,7 +34,7 @@ const lastEpoch = points[points.length - 1]?.epoch;
       <span class="eschart__title">{title}</span>
       {sinceEpoch != null && <span class="eschart__since">data since epoch {sinceEpoch}</span>}
     </figcaption>
-    <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={`${title} per epoch`}>
+    <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={resolvedAriaLabel}>
       <path d={chart.area} class="eschart__area" />
       <polyline points={chart.line} class="eschart__line" fill="none" />
       {chart.yTicks.map((t) => (

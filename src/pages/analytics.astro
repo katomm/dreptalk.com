@@ -18,7 +18,7 @@ import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers } from '@/lib/dreps/thresholdMarkers.js';
-import { seriesStartEpoch } from '@/lib/analytics/epochStatsContract.js';
+import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
 import { buildVitals, metricSeries, netChange } from '@/lib/analytics/hubView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
@@ -36,15 +36,16 @@ const [stats, defaults, activity, params, concRows] = db
     ])
   : [[], { abstain: null, noConfidence: null }, null, null, []];
 
-const starts = db
-  ? {
-      totalDrepPower: await seriesStartEpoch(db, 'totalDrepPower'),
-      poweredDrepCount: await seriesStartEpoch(db, 'poweredDrepCount'),
-      delegatorTotal: await seriesStartEpoch(db, 'delegatorTotal'),
-      abstainPower: await seriesStartEpoch(db, 'abstainPower'),
-      ancPower: await seriesStartEpoch(db, 'ancPower'),
-    }
-  : { totalDrepPower: null, poweredDrepCount: null, delegatorTotal: null, abstainPower: null, ancPower: null };
+// All five starts are derivable from the already-loaded stats array, so this
+// resolves them in memory instead of five sequential DB round-trips (stats is
+// [] without a db, and seriesStartFromRows([], _) is null, same as before).
+const starts = {
+  totalDrepPower: seriesStartFromRows(stats, 'totalDrepPower'),
+  poweredDrepCount: seriesStartFromRows(stats, 'poweredDrepCount'),
+  delegatorTotal: seriesStartFromRows(stats, 'delegatorTotal'),
+  abstainPower: seriesStartFromRows(stats, 'abstainPower'),
+  ancPower: seriesStartFromRows(stats, 'ancPower'),
+};
 
 const current = stats.length > 0 ? stats[stats.length - 1] : null;
 const prev = stats.length > 1 ? stats[stats.length - 2] : null;
@@ -87,12 +88,20 @@ const ogImage = current
   ? `/og/analytics.png?v=${ogCardVersion([current.epoch, current.poweredDrepCount, current.recentlyVotingDrepCount, current.totalDrepPower, current.abstainPower])}`
   : undefined;
 
+// formatAda renders a NULL amount as "0 ₳", which would misreport an absent
+// reading as a real zero. A missing votingPower (fresh DB, or the row simply
+// not synced yet) instead gets the same pending wording the delegator count
+// already uses below.
+const powerLabel = (votingPower: string | null | undefined): string =>
+  votingPower != null ? formatAda(votingPower) : 'Voting power pending';
+
 // The two default-option cards, grouped for the template so the grid renders
 // from one map instead of two near-identical blocks.
 const defaultCards = [
   {
     title: 'Always abstain',
-    power: formatAda(defaults.abstain?.votingPower ?? null),
+    ariaLabel: 'Always abstain voting power per epoch',
+    power: powerLabel(defaults.abstain?.votingPower),
     delegatorCount: defaults.abstain?.delegatorCount ?? null,
     chip: abstainDelta,
     series: abstainSeries,
@@ -100,7 +109,8 @@ const defaultCards = [
   },
   {
     title: 'Always no confidence',
-    power: formatAda(defaults.noConfidence?.votingPower ?? null),
+    ariaLabel: 'Always no confidence voting power per epoch',
+    power: powerLabel(defaults.noConfidence?.votingPower),
     delegatorCount: defaults.noConfidence?.delegatorCount ?? null,
     chip: ancDelta,
     series: ancSeries,
@@ -162,8 +172,9 @@ const activityRows = activity
       ))}
     </div>
   )}
+  {current && <p class="hub-asof">As of epoch {current.epoch}</p>}
   {!hasBackbone && (
-    <p class="hub-empty">Per-epoch data starts filling in with the next sync run. The sections below appear as soon as the first epoch is recorded.</p>
+    <p class="hub-empty">Per-epoch data starts filling in with the next sync run. Vitals and the per-epoch trend charts fill in once the first epoch is recorded.</p>
   )}
 
   <section class="hub-defaults" aria-labelledby="hub-defaults-title">
@@ -184,7 +195,7 @@ const activityRows = activity
               <span class={`hub-defaults__chip hub-defaults__chip--${opt.chip.direction}`}>{opt.chip.label}</span>
             )}
           </p>
-          <EpochSeriesChart title="Voting power" points={opt.series} format={fmtAdaCompact} sinceEpoch={opt.sinceEpoch} />
+          <EpochSeriesChart title="Voting power" ariaLabel={opt.ariaLabel} points={opt.series} format={fmtAdaCompact} sinceEpoch={opt.sinceEpoch} />
         </div>
       ))}
     </div>
@@ -215,7 +226,7 @@ const activityRows = activity
         ))}
       </ul>
       <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)} across {activity.inactiveCount.toLocaleString('en-US')} DReps.</p>
-      <p class="hub-activity__note">Definitions: active follows the on-chain registration state, voted counts any on-chain vote including later-changed ones.</p>
+      <p class="hub-activity__note">Definitions: active follows the on-chain registration state, voted counts any on-chain vote including later-changed ones, counts are live as of the latest sync.</p>
     </section>
   )}
 
@@ -256,6 +267,12 @@ const activityRows = activity
     color: var(--muted);
     max-width: 60ch;
     margin: 0.4rem 0 1.5rem;
+  }
+
+  .hub-asof {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin: 0.5rem 0 1.5rem;
   }
 
   .hub-empty {
@@ -378,12 +395,17 @@ const activityRows = activity
     color: var(--muted);
   }
   .hub-activity__bar {
+    display: block;
     height: 6px;
     border-radius: 999px;
     background: var(--border);
     overflow: hidden;
   }
   .hub-activity__fill {
+    /* Both spans default to inline, and an inline element ignores explicit
+       width/height entirely, silently dropping the proportional fill. Block
+       makes the inline-styled width actually take effect. */
+    display: block;
     height: 100%;
     border-radius: 999px;
     background: var(--accent);

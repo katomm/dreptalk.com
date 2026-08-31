@@ -7,6 +7,7 @@
 // Two-layer convention (see src/lib/dreps/special.ts): representative metrics
 // exclude the special auto-voting ids, the specials form the default
 // delegation layer with their own columns.
+import type { EpochStatsRow } from './epochStats.js';
 
 /**
  * How trustworthy the stored values are:
@@ -198,4 +199,31 @@ export async function seriesStartEpoch(
   }
   const row = await db.prepare(sql).first<{ e: number | null }>();
   return row?.e ?? null;
+}
+
+/**
+ * Pure, in-memory equivalent of seriesStartEpoch for callers that already
+ * hold the full stats series (epoch ascending, as listEpochStats returns it),
+ * so they can resolve every metric's start without one DB round-trip each.
+ * Implements the same three start rules as seriesStartEpoch, over rows
+ * already in memory. Keep seriesStartEpoch too, not every consumer holds rows.
+ *
+ * The metric key doubles as the EpochStatsRow field name for every chartable
+ * metric (asserted by a test), so no separate name table is needed here, the
+ * key indexes the row directly.
+ */
+export function seriesStartFromRows(
+  rows: EpochStatsRow[],
+  key: EpochStatsMetricKey,
+): number | null {
+  if (rows.length === 0) return null;
+  const metric = EPOCH_STATS_METRICS[key];
+  if (metric.start === 'oldest-row') {
+    return rows[0].epoch;
+  }
+  if (metric.start === 'first-complete') {
+    return rows.find((r) => r.voteDataComplete)?.epoch ?? null;
+  }
+  const field = key as keyof EpochStatsRow;
+  return rows.find((r) => r[field] != null)?.epoch ?? null;
 }

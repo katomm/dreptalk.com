@@ -93,8 +93,17 @@ export function buildVitals(
   if (circulationLovelace != null) {
     const circulation = Number(circulationLovelace);
     const total = Number(current.totalDrepPower);
-    if (circulation > 0) shareValue = `${((total / circulation) * 100).toFixed(1)}%`;
+    if (Number.isFinite(circulation) && Number.isFinite(total) && circulation > 0) {
+      shareValue = `${((total / circulation) * 100).toFixed(1)}%`;
+    }
   }
+  // The running epoch's vote data is provisional (vote_data_complete is only
+  // set once the epoch has ended), so this card says so instead of quietly
+  // showing a count that will still change. The guide explains the rule, this
+  // sub only states it is in effect right now.
+  const votingSub = current.voteDataComplete === false
+    ? 'still filling in for the running epoch'
+    : 'superseded votes included';
   return [
     {
       label: 'DReps with voting power',
@@ -103,11 +112,11 @@ export function buildVitals(
       trend: countTrend(current.poweredDrepCount, prev?.poweredDrepCount ?? null),
     },
     {
-      label: 'Voted in the last 12 epochs',
+      label: `Voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`,
       value: current.recentlyVotingDrepCount.toLocaleString('en-US'),
       icon: 'gauge',
       alt: true,
-      sub: `voted at least once in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`,
+      sub: votingSub,
     },
     {
       label: 'Delegated voting power',

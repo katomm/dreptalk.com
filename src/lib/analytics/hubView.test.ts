@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildVitals, netChange, metricSeries } from './hubView.js';
+import { RECENT_VOTING_WINDOW_EPOCHS } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';
 
 function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
@@ -83,5 +84,34 @@ describe('buildVitals', () => {
     // Delta is 2,000,000,000,000 lovelace, formatAda renders that as whole ada
     // with the currency symbol, never as an unreadable raw lovelace digit run.
     expect(power?.trend).toEqual({ direction: 'up', label: '+2,000,000 ₳ this epoch' });
+  });
+  it('interpolates the recent-voting window into the label instead of hard-coding it', () => {
+    const cards = buildVitals(row(540), row(539), null);
+    const gauge = cards.find((c) => c.icon === 'gauge');
+    expect(gauge?.label).toBe(`Voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`);
+  });
+  it('marks the voting card provisional while the running epoch is incomplete', () => {
+    const cards = buildVitals(row(540, { voteDataComplete: false }), row(539), null);
+    const gauge = cards.find((c) => c.icon === 'gauge');
+    expect(gauge?.sub).toBe('still filling in for the running epoch');
+  });
+  it('shows the definition tail on the voting card once the epoch is complete', () => {
+    const cards = buildVitals(row(540, { voteDataComplete: true }), row(539), null);
+    const gauge = cards.find((c) => c.icon === 'gauge');
+    expect(gauge?.sub).toBe('superseded votes included');
+  });
+  it('never renders NaN% when totalDrepPower is malformed', () => {
+    const cards = buildVitals(
+      row(540, { totalDrepPower: 'not-a-number' }),
+      row(539),
+      '20000000000000000',
+    );
+    const share = cards.find((c) => c.icon === 'share');
+    expect(share?.value).toBe('n/a');
+  });
+  it('never renders NaN% when circulation is malformed', () => {
+    const cards = buildVitals(row(540), row(539), 'not-a-number');
+    const share = cards.find((c) => c.icon === 'share');
+    expect(share?.value).toBe('n/a');
   });
 });
