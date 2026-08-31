@@ -92,7 +92,7 @@ const inputs: TrendBodyInput[] = [
 const own = computeVoteTrendSeries(inputs, { start, end: lineEnd });
 // Non-compare default. buildCompareView returns exactly this shape when nothing can
 // be overlaid, so the plain chart and the fallback can never drift apart.
-let view: CompareView = { series: own, compareSeries: [], domain: [start, end], markers: [], relative: false, droppedKeys: [] };
+let view: CompareView = { series: own, compareSeries: [], domain: [start, end], markers: [], deadline: null, relative: false, droppedKeys: [] };
 
 if (compare) {
   const ca = compare.action;
@@ -131,16 +131,22 @@ if (compare) {
   });
 }
 
-const { series, compareSeries, domain, markers, relative, droppedKeys } = view;
+const { series, compareSeries, domain, markers, deadline, relative, droppedKeys } = view;
 // A compare was requested and resolved, but nothing could be overlaid.
 const compareEmpty = compare != null && !relative;
 // A compare was requested and the slug resolved to nothing eligible at all. Without
 // this the param sits in the URL while the page silently ignores it.
 const compareUnresolved = compareSlug != null && compare == null;
 
+// The deadline rides the markers option so it is projected by the exact same x
+// scale as the series, then split back out by t (never equal to a Today t: a Today
+// marker only exists while the line still stops short of the deadline).
 const chart = buildTrendChart([...series, ...compareSeries], {
-  width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain, markers,
+  width: 640, height: 240, padLeft: 8, padRight: 64, padTop: 18, padBottom: 34, domain,
+  markers: deadline != null ? [...markers, deadline] : markers,
 });
+const todayMarkers = chart ? chart.markers.filter((m) => m.t !== deadline) : [];
+const deadlineMarker = chart && deadline != null ? chart.markers.find((m) => m.t === deadline) ?? null : null;
 
 const COLORS: Record<string, string> = { DRep: 'var(--accent)', SPO: 'var(--c-pos)', CC: 'var(--c-cc)' };
 const dateLabel = (t: number): string =>
@@ -196,12 +202,21 @@ const chartLabel = relative && compareTitle
           <text class="vtrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{t.value}%</text>
         </>
       ))}
-      {chart.markers.map((m) => (
+      {todayMarkers.map((m) => (
         <>
           <line class="vtrend__now" x1={m.x} y1={chart.plot.y} x2={m.x} y2={chart.plot.y + chart.plot.h} />
           <text class="vtrend__xlabel" x={m.x} y={chart.plot.y - 6} text-anchor={nowAnchor(m.x, chart.plot.x, chart.plot.w)}>Today</text>
         </>
       ))}
+      {/* Own deadline under a longer compared window. Labelled at the bottom, on the
+          x-tick row: the top row belongs to "Today", which sits close by whenever the
+          action is near its deadline, and two stacked top labels would collide. */}
+      {deadlineMarker && (
+        <>
+          <line class="vtrend__deadline" x1={deadlineMarker.x} y1={chart.plot.y} x2={deadlineMarker.x} y2={chart.plot.y + chart.plot.h} />
+          <text class="vtrend__xlabel" x={deadlineMarker.x} y={chart.height - 10} text-anchor={nowAnchor(deadlineMarker.x, chart.plot.x, chart.plot.w)}>Voting ends</text>
+        </>
+      )}
       {chart.series.map((s) => (
         <>
           {!s.dashed && s.thresholdY != null && (
@@ -344,6 +359,7 @@ const chartLabel = relative && compareTitle
   .vtrend__line--cmp { stroke-width: 1.5; stroke-dasharray: 2 3; opacity: 0.55; }
   .vtrend__end { fill: currentColor; opacity: 0.55; }
   .vtrend__now { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.7; }
+  .vtrend__deadline { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 6 3; opacity: 0.7; }
   .vtrend__legends { display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; margin-top: 0.5rem; }
   .vtrend__group { min-width: 0; overflow-wrap: anywhere; }
   .vtrend__grouptitle { font-size: 0.75rem; font-weight: 700; color: var(--fg); margin: 0 0 0.2rem; }
@@ -374,5 +390,5 @@ const chartLabel = relative && compareTitle
   }
   /* .vtrend__now rides along: hiding only the label would leave an unexplained
      dashed vertical line on narrow screens. */
-  @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel, .vtrend__now { display: none; } }
+  @media (max-width: 560px) { .vtrend__ylabel, .vtrend__xlabel, .vtrend__now, .vtrend__deadline { display: none; } }
 </style>

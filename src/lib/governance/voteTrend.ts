@@ -218,6 +218,13 @@ export interface CompareView {
   domain: [number, number];
   /** "Today" marker positions on the same scale as domain. */
   markers: number[];
+  /**
+   * The own action's voting deadline on the domain scale, or null. Set only when the
+   * compared window runs longer AND the own action is still open: the axis then
+   * extends past the own deadline, and without a marker there the empty space to the
+   * axis end reads as remaining voting time.
+   */
+  deadline: number | null;
   /** True when both sides were re-based to seconds-since-their-own-window-start. */
   relative: boolean;
   /** Own bodies the intersection removed, so the view can say what vanished and why. */
@@ -238,7 +245,7 @@ export function buildCompareView(
 ): CompareView {
   const shared = sharedTrendBodies(own, compare);
   if (shared.own.length === 0) {
-    return { series: own, compareSeries: [], domain: [o.start, o.end], markers: [], relative: false, droppedKeys: [] };
+    return { series: own, compareSeries: [], domain: [o.start, o.end], markers: [], deadline: null, relative: false, droppedKeys: [] };
   }
   const keptKeys = new Set(shared.own.map((s) => s.key));
   const ownSpan = o.end - o.start;
@@ -253,6 +260,10 @@ export function buildCompareView(
     // Never clip the longer action: the axis spans whichever window ran longer.
     domain: [0, Math.max(ownSpan, cmpSpan, 1)],
     markers: showNow ? [o.lineEnd - o.start] : [],
+    // Only while open and only when the axis outruns the own window: on a terminal
+    // action the endpoint dot already closes the story, and when the own window is
+    // the longer one the deadline is the plot's right edge anyway.
+    deadline: !o.ownIsTerminal && cmpSpan > ownSpan ? ownSpan : null,
     relative: true,
     droppedKeys: own.filter((s) => !keptKeys.has(s.key)).map((s) => s.key),
   };

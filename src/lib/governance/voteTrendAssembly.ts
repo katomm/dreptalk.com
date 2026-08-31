@@ -47,8 +47,14 @@ export function assembleTrendInputs(a: TrendAssemblyInputs): TrendAssemblyResult
   // Voting window in unix seconds: from the submit epoch start to the decision (or
   // expiry) epoch start. Falls back to the span of observed votes when epochs are absent.
   const decidedEpoch = action.decidedEpoch ?? action.expiryEpoch;
+  // An enacted action's decision epoch can be its enactment epoch, one past the
+  // expiry. Voting still ended at the start of the expiry epoch, so the window is
+  // clamped there: unclamped, a compared action drew one epoch of window that never
+  // existed and pushed the shared compare axis past every real deadline.
+  const windowEndEpoch =
+    decidedEpoch != null && action.expiryEpoch != null ? Math.min(decidedEpoch, action.expiryEpoch) : decidedEpoch;
   const windowStart = action.submittedEpoch != null ? epochStartUnix(action.submittedEpoch, cfg) : null;
-  const windowEnd = decidedEpoch != null ? epochStartUnix(decidedEpoch, cfg) : null;
+  const windowEnd = windowEndEpoch != null ? epochStartUnix(windowEndEpoch, cfg) : null;
   const voteTimes = [...trendRows.map((r) => r.block_time), ...ccVotes.map((v) => v.blockTime ?? 0)].filter((t) => t > 0);
   const start = windowStart ?? (voteTimes.length ? Math.min(...voteTimes) : 0);
   // The x-axis spans the whole voting window (up to the expiry/decision epoch), so the
