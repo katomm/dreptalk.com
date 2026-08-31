@@ -73,6 +73,15 @@ _(one line per completed increment; record deviations here)_
   (401/400/404/403/200 + credential-injection rejection) and the
   settle/wait/age triad. End-to-end confirm-overlay-clears run pending with
   increment 6's wallet run.
+- 2026-08-31 — increments 6 + 7 acceptance runs done by hand, both
+  done-whens met: the maintainer answered the acceptance survey from its
+  thread, the transaction confirmed on chain, the card overlaid *Your
+  answer · confirming…*, and once Tessera indexed the tx a sync run
+  settled the row and the overlay cleared on its own. A re-answer showed
+  the same cycle and the counted figure stayed at 1 — the replacement,
+  observed latest-wins. The run surfaced one spec gap, now in §8: the
+  viewer's own answer is invisible once settled, and a re-answer opens an
+  empty form although `<tessera-respond>` supports pre-fill.
 
 ---
 
@@ -420,6 +429,24 @@ does no label-17 indexing, and no page request reads Tessera.
   the last known slice otherwise. The case against is a genuinely rolled-back
   proposal, whose link would then survive its action; `unavailable` already
   accepts that trade on the survey side. Needs a workers test pinning it.
+- **The voter's own answer is invisible once settled, and a re-answer
+  starts from a blank form.** Found in the acceptance run (2026-08-31).
+  Two symptoms, one missing input. `<tessera-respond>` already ships the
+  edit/replace flow — a `priorResponses` prop pre-fills the form, marks
+  the submission as a replacement, and picks the entry matching the
+  current role + credential itself (a sealed prior marks without
+  pre-filling; ciphertext) — but the host must supply the responder's
+  prior responses, and DRepTalk persists none: pass 3 fetches every
+  response in the bundle for `auditResponses` and discards the content,
+  and pass 4's `responsesByTx` read carries identity only. Showing the
+  settled answer on the card has the same missing input, and would not
+  contradict the no-result-figure decision (§7), which is about tallies,
+  not the viewer's own submission. The architectural line ("the chain is
+  never read on a page request") points at persisting the audited
+  latest-valid responses in D1 during pass 3 and reading the viewer's row
+  at SSR — a new table, so shape the maintainer should see in the issue
+  before the code exists. Whether it lands on this branch or as the first
+  follow-up is an open scope call.
 - evolution-sdk skew (§5); widget bundle weight — measure before the PR.
 - **The acceptance pair is the long-lead item** (§3). Nothing in 1–5 blocks
   on it, but increment 6 cannot run without it. Start early.
