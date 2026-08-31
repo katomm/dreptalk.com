@@ -82,6 +82,14 @@ _(one line per completed increment; record deviations here)_
   observed latest-wins. The run surfaced one spec gap, now in §8: the
   viewer's own answer is invisible once settled, and a re-answer opens an
   empty form although `<tessera-respond>` supports pre-fill.
+- 2026-08-31 — polish beyond the plan, none of it visible on mainnet
+  (no survey topics exist there): `<tessera-respond>` rethemed to
+  DRepTalk's tokens via host CSS (both themes follow automatically; also
+  fixed the connect button's nonexistent `--accent-contrast` token), and
+  surveys got their own type icon — a checklist, shared as
+  `CHECKLIST_PATH`/`topicTypeIconPath` in `forum/icons.ts` and used by the
+  category sidebar, topic rows, and the activity feed, whose view model
+  now carries `topic.source` instead of the derived `isGovernance`.
 
 ---
 
