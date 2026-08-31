@@ -49,6 +49,14 @@ declare namespace Cloudflare {
     CARDANO_NETWORK?: string;
     /** Optional Koios secret for higher rate limits (app proxy + gov-sync). */
     KOIOS_API_KEY?: string;
+    /**
+     * Tessera serving backend for CIP-179 surveys (preprod only for now).
+     * Non-empty = the surveys feature is on: gov-sync mirrors the linked
+     * surveys and the app renders /c/surveys/ from D1. Empty or unset = off —
+     * the sync phase is gated out and the category shows a not-indexed state.
+     * Only gov-sync ever calls the URL; the app reads presence alone.
+     */
+    TESSERA_BACKEND_URL?: string;
     /** Moderator allowlist: comma-separated `<stake_addr>:<role>` pairs. */
     MODERATORS?: string;
     VAPID_PUBLIC_KEY?: string;

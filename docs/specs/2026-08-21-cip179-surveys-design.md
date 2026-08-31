@@ -11,6 +11,11 @@ _(one line per completed increment; record deviations here)_
 
 - 2026-08-25 — revised for the maintainer's review: audited DRep count,
   refresh-until-final, rollback rule, tx-exact settling. No code yet.
+- 2026-08-31 — increment 2: Tessera client (`src/lib/tessera/client.ts`,
+  node-tested) and `TESSERA_BACKEND_URL` config, preprod only. Deviation:
+  the network guard is enforced inside the client (memoized `/health` check
+  before the first snapshot request) rather than left to callers.
+  Increment 1 (manual preprod wallet loop) still to be run by hand.
 
 ---
 

@@ -27,6 +27,11 @@ cfg.vars = {
   VAPID_PUBLIC_KEY: 'BP8lsNXkOYQipYvkb5iBFeXOlDdkcDrlC7Dqbgw3e1bNd9UhgF3KdbpjHCwEMyhtExwc06YlzwzaUo_pCK8VXJ0',
   // Preprod bot username for the notification deep link (mainnet bot differs).
   TELEGRAM_BOT_USERNAME: 'DRepTalkPreprodBot',
+  // Feature switch for CIP-179 surveys: the app only checks presence (the
+  // /c/surveys/ pages render a not-indexed state without it); gov-sync is the
+  // one caller of the URL. Keep in sync with [env.preprod.vars] in
+  // workers/gov-sync/wrangler.toml.
+  TESSERA_BACKEND_URL: 'https://tessera-backend-preprod.matthieu-pizenberg.workers.dev',
 };
 cfg.routes = [{ pattern: 'preprod.dreptalk.com', custom_domain: true }];
 cfg.d1_databases = [
