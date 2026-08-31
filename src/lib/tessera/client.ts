@@ -86,6 +86,14 @@ const govLinkSchema = z
 
 export type TesseraGovLink = z.infer<typeof govLinkSchema>;
 
+// A survey decided for good: no later snapshot changes it, so the sync freezes
+// the row and stops refreshing it. `finalized` and `cancelled` also carry the
+// tally artifact hash on the wire, but this mirror shows participation, never
+// a result — only `state` is pinned and the hash passes through unread.
+const finalStateEntrySchema = z
+  .object({ state: z.enum(['finalized', 'cancelled', 'untalliable']) })
+  .passthrough();
+
 // The shared body of both /api/surveys selections (a filtered page, or the
 // refs the caller names). `incomplete` set means the backend could not index
 // every matching record, so absence from `surveys` proves nothing — the sync's
@@ -97,7 +105,7 @@ const surveySetSchema = z
     govLinks: z.array(govLinkSchema),
     tip: tipSchema,
     responseCounts: z.record(z.string(), z.number()),
-    finalizedCancelled: z.array(z.string()),
+    finalState: z.record(z.string(), finalStateEntrySchema),
     incomplete: z.boolean().optional(),
     fetchedAt: z.number(),
   })

@@ -90,7 +90,7 @@ interface DecodedSet {
   aggregates: SurveyAggregate[];
   tip: TesseraTip;
   responseCounts: Record<string, number>;
-  finalizedCancelled: Set<string>;
+  finalState: SurveySet['finalState'];
   incomplete: boolean;
   fetchedAt: number;
   /** Wire-form record JSON per survey key, stored verbatim in D1. */
@@ -101,7 +101,13 @@ interface DecodedSet {
 function decodeSet(set: SurveySet): DecodedSet {
   const records = set.surveys.map(w => fromJsonSafe(w) as SurveyRecord);
   const cancellations = set.cancellations.map(w => fromJsonSafe(w) as CancellationRecord);
-  const finalizedCancelled = new Set(set.finalizedCancelled);
+  // aggregate() still takes the finalized-cancelled key set; the wire moved to
+  // the richer finalState map, so the caller derives the set it wants.
+  const finalizedCancelled = new Set(
+    Object.entries(set.finalState)
+      .filter(([, v]) => v.state === 'cancelled')
+      .map(([k]) => k),
+  );
   const aggregates = aggregate(
     records,
     cancellations,
@@ -119,7 +125,7 @@ function decodeSet(set: SurveySet): DecodedSet {
     aggregates,
     tip: set.tip,
     responseCounts: set.responseCounts,
-    finalizedCancelled,
+    finalState: set.finalState,
     incomplete: set.incomplete === true,
     fetchedAt: set.fetchedAt,
     wireByKey,
@@ -202,7 +208,7 @@ async function admitFromSet(
             externalContent: a.external,
             definitionJson: wire,
             claimedCount: set.responseCounts[a.key] ?? 0,
-            finalState: set.finalizedCancelled.has(a.key) ? 'cancelled' : null,
+            finalState: set.finalState[a.key]?.state ?? null,
             tipEpoch: set.tip.epoch,
             tesseraFetchedAt: set.fetchedAt,
             submittedAt: recordUnixMs(a.record.slot, set.tip),
@@ -350,7 +356,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
               ref: a.key,
               claimedCount: set.responseCounts[a.key] ?? 0,
               cancelled: a.cancelled,
-              finalState: set.finalizedCancelled.has(a.key) ? 'cancelled' : null,
+              finalState: set.finalState[a.key]?.state ?? null,
               tipEpoch: set.tip.epoch,
               tesseraFetchedAt: set.fetchedAt,
               now,

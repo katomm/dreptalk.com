@@ -39,6 +39,14 @@ _(one line per completed increment; record deviations here)_
   `finalizedCancelled`. §9 is the delta this branch owes it — until that
   lands, the landed sync fails schema validation against the live backend.
   Increments 6–7 are unblocked.
+- 2026-08-31 — §9 landed: the client schema pins
+  `finalState: record(key → {state})` (states enumerated, `artifactHash`
+  passes through unread), `decodeSet` derives `aggregate()`'s
+  finalized-cancelled set from the `cancelled` entries, and both write sites
+  store the wire state. Beyond §9's list: a workers test pins that any final
+  state freezes the row out of the refresh set and that only `cancelled`
+  surfaces as a cancellation; a node test pins the three-state decode and
+  that an unknown state fails at the envelope.
 
 ---
 

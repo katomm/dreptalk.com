@@ -28,7 +28,7 @@ const surveySet = {
   govLinks: [{ surveyKey: KEY_A, actionId: 'gov_action1xyz', endEpoch: 299, title: 'Budget' }],
   tip,
   responseCounts: { [KEY_A]: 12 },
-  finalizedCancelled: [],
+  finalState: {},
   fetchedAt: 1780000100,
 };
 
@@ -102,6 +102,31 @@ describe('surveysByRefs', () => {
       `https://tessera.example.dev/api/surveys?refs=${KEY_A},${KEY_B}`,
       expect.objectContaining({ method: 'GET' }),
     );
+  });
+
+  it('decodes the three final states and rejects a state it cannot store', async () => {
+    const decided = {
+      ...surveySet,
+      finalState: {
+        [KEY_A]: { state: 'finalized', artifactHash: 'ab'.repeat(32) },
+        [KEY_B]: { state: 'cancelled', artifactHash: 'cd'.repeat(32) },
+        [`${'c'.repeat(64)}:0`]: { state: 'untalliable' },
+      },
+    };
+    const result = await client(fetchWithHealth(decided)).surveysByRefs([KEY_A]);
+    expect(result.ready).toBe(true);
+    if (!result.ready) return;
+    // The artifact hash is unused but must survive the decode (passthrough).
+    expect(result.value.finalState[KEY_A]).toEqual({
+      state: 'finalized',
+      artifactHash: 'ab'.repeat(32),
+    });
+    expect(result.value.finalState[`${'c'.repeat(64)}:0`]).toEqual({ state: 'untalliable' });
+
+    // A fourth state would freeze a row under a value no reader understands:
+    // fail at the envelope, where the wire change gets reviewed.
+    const unknown = { ...surveySet, finalState: { [KEY_A]: { state: 'vetoed' } } };
+    await expect(client(fetchWithHealth(unknown)).surveysByRefs([KEY_A])).rejects.toThrow();
   });
 
   it('refuses an oversized or malformed key list without a request', async () => {

@@ -18,9 +18,12 @@ import type { SurveyBundlePage, SurveyPage, SurveySet, TesseraTip } from '../tes
 import { type SurveysSyncDeps, type SurveysTessera, syncSurveys } from './sync.js';
 
 const TX_LINKED = 'a'.repeat(64);
+const TX_SECOND = 'b'.repeat(64);
 const TX_NON_DREP = 'c'.repeat(64);
 const KEY_LINKED = `${TX_LINKED}:0`;
+const KEY_SECOND = `${TX_SECOND}:0`;
 const ACTION_ID = 'gov_action1linkedaction';
+const ACTION_SECOND = 'gov_action1secondaction';
 
 const tip: TesseraTip = {
   epoch: 300,
@@ -91,7 +94,7 @@ function setOf(
     govLinks,
     tip,
     responseCounts: counts,
-    finalizedCancelled: [],
+    finalState: {},
     fetchedAt: tip.time,
   };
 }
@@ -168,10 +171,10 @@ function deps(tessera: SurveysTessera, now = 1_780_000_500_000): SurveysSyncDeps
   return { db: env.DB, tessera, cfg: resolveNetwork('preprod'), now, rand: () => 'abcd1234' };
 }
 
-async function importLinkingAction(): Promise<void> {
+async function importLinkingAction(proposalId = ACTION_ID): Promise<void> {
   await buildInsertGovernanceAction(env.DB, {
-    id: `${'f'.repeat(64)}#0`,
-    proposalId: ACTION_ID,
+    id: `${'f'.repeat(64)}#${proposalId === ACTION_ID ? 0 : 1}`,
+    proposalId,
     type: 'InfoAction',
     title: 'The linking action',
     abstract: null,
@@ -188,7 +191,7 @@ async function importLinkingAction(): Promise<void> {
     enactedEpoch: null,
     onchainPayload: null,
     metaVersion: 1,
-    topicId: 'topic-of-the-action',
+    topicId: `topic-of-${proposalId}`,
     now: 1,
   }).run();
 }
@@ -286,6 +289,69 @@ describe('syncSurveys', () => {
     // The ref reappears in a complete answer: cleared.
     await syncSurveys(deps(fakeTessera()));
     expect((await surveyRows())[0].unavailable).toBe(0);
+  });
+
+  it('freezes a survey at any final state, and only "cancelled" reads as a cancellation', async () => {
+    const first = surveyRecord(TX_LINKED, definition());
+    const second = surveyRecord(TX_SECOND, definition({ title: 'Second survey' }));
+    const links: SurveySet['govLinks'] = [
+      { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
+      { surveyKey: KEY_SECOND, actionId: ACTION_SECOND, endEpoch: 300, title: 'The other action' },
+    ];
+    const counts = { [KEY_LINKED]: 3, [KEY_SECOND]: 1 };
+    const open = setOf([first, second], links, counts);
+    await importLinkingAction();
+    await importLinkingAction(ACTION_SECOND);
+    await syncSurveys(
+      deps(
+        fakeTessera({
+          surveyList: async () => ({ ready: true, value: pageOf(open, 2) }),
+          surveysByRefs: async () => ({ ready: true, value: open }),
+        }),
+      ),
+    );
+    expect((await getHeldSurveys(env.DB)).map(h => h.ref).sort()).toEqual([KEY_LINKED, KEY_SECOND]);
+
+    // The refresh answer declares both decided for good — one cancelled, one
+    // finalized with an artifact. Only the cancelled one may surface as a
+    // cancellation; both must freeze.
+    const decided: SurveySet = {
+      ...open,
+      finalState: {
+        [KEY_LINKED]: { state: 'cancelled', artifactHash: 'ab'.repeat(32) },
+        [KEY_SECOND]: { state: 'finalized', artifactHash: 'cd'.repeat(32) },
+      },
+    };
+    await syncSurveys(
+      deps(
+        fakeTessera({
+          surveyList: async () => ({ ready: true, value: pageOf(open, 2) }),
+          surveysByRefs: async () => ({ ready: true, value: decided }),
+        }),
+      ),
+    );
+    const { results } = await env.DB.prepare(
+      'SELECT ref, cancelled, final_state FROM survey ORDER BY ref',
+    ).all<{ ref: string; cancelled: number; final_state: string | null }>();
+    expect(results).toEqual([
+      { ref: KEY_LINKED, cancelled: 1, final_state: 'cancelled' },
+      { ref: KEY_SECOND, cancelled: 0, final_state: 'finalized' },
+    ]);
+    expect(await getHeldSurveys(env.DB)).toEqual([]);
+
+    // Both frozen: the next run's refresh set is empty — the bounded working
+    // set the finalState wire change buys.
+    const r = await syncSurveys(
+      deps(
+        fakeTessera({
+          surveyList: async () => ({ ready: true, value: pageOf(open, 2) }),
+          surveysByRefs: async () => {
+            throw new Error('a decided survey must not be refreshed');
+          },
+        }),
+      ),
+    );
+    expect(r).toMatchObject({ refreshed: 0, failed: 0 });
   });
 
   it('serves the page readers: by topic, the category list, and the /s/<ref> slug', async () => {
