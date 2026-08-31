@@ -13,6 +13,38 @@ export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
   return new Set(rows.map((r) => r.id));
 }
 
+/**
+ * Which of the given bech32 gov_action ids name an imported action. The surveys
+ * sync joins Tessera's govLink.actionId against proposal_id for its admission
+ * rule; low tens of ids per call, so one IN query (no chunking needed).
+ */
+export async function getKnownProposalIds(
+  db: D1Database,
+  proposalIds: readonly string[],
+): Promise<Set<string>> {
+  if (proposalIds.length === 0) return new Set();
+  const rows =
+    (
+      await db
+        .prepare(
+          `SELECT proposal_id FROM governance_actions WHERE proposal_id IN (${sqlPlaceholders(proposalIds)})`,
+        )
+        .bind(...proposalIds)
+        .all<{ proposal_id: string }>()
+    ).results ?? [];
+  return new Set(rows.map((r) => r.proposal_id));
+}
+
+/** Whether any action was imported after `sinceMs` — the surveys sync's cue that
+ * the DRepTalk half of an admission may have turned true since its last full walk. */
+export async function hasActionsCreatedSince(db: D1Database, sinceMs: number): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 AS present FROM governance_actions WHERE created_at > ? LIMIT 1')
+    .bind(sinceMs)
+    .first<{ present: number }>();
+  return row !== null;
+}
+
 /** Ids of actions whose on-chain payload has not yet been stored (backfill target). */
 export async function getActionIdsMissingOnchainPayload(db: D1Database): Promise<Set<string>> {
   const rows =

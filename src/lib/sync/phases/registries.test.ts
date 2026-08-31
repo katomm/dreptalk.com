@@ -22,8 +22,14 @@ const core: CoreSyncContext = {
   now: 0,
 };
 
-function govCtx(heavy: boolean): GovernanceSyncContext {
-  return { ...core, heavy, vapid: null, telegramBotToken: null };
+function govCtx(heavy: boolean, opts: { tessera?: boolean } = {}): GovernanceSyncContext {
+  return {
+    ...core,
+    heavy,
+    vapid: null,
+    telegramBotToken: null,
+    tessera: opts.tessera ? ({} as GovernanceSyncContext['tessera']) : null,
+  };
 }
 
 function voteCtx(opts: { hourly?: boolean; avatars?: boolean } = {}): VoteSyncContext {
@@ -65,6 +71,13 @@ describe('governancePhases', () => {
       'discovery', 'tallies', 'gov-status-times', 'voted-power', 'threshold-backfill',
       'metadata', 'gov-titles', 'post-dates', 'trending', 'params',
       'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
+    ]);
+  });
+
+  it('runs the surveys mirror only when the Tessera client is configured', () => {
+    expect(activePhaseNames(governancePhases, govCtx(false))).not.toContain('surveys');
+    expect(activePhaseNames(governancePhases, govCtx(false, { tessera: true }))).toEqual([
+      'discovery', 'surveys', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure', 'cip100',
     ]);
   });
 

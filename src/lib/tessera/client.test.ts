@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createTesseraClient,
   MAX_REFS_PER_CALL,
   TesseraHttpError,
   TesseraNetworkMismatchError,
-  createTesseraClient,
 } from './client';
 
 const TX_A = 'a'.repeat(64);
@@ -154,7 +154,13 @@ describe('responsesByTx', () => {
   it('decodes and unwraps the response list', async () => {
     const fetchImpl = fetchWithHealth({
       responses: [
-        { surveyKey: KEY_A, responseIndex: 0, role: 0, credential: `key:${'c'.repeat(56)}`, slot: 5 },
+        {
+          surveyKey: KEY_A,
+          responseIndex: 0,
+          role: 0,
+          credential: `key:${'c'.repeat(56)}`,
+          slot: 5,
+        },
       ],
     });
     const result = await client(fetchImpl).responsesByTx(TX_B);
@@ -190,7 +196,9 @@ describe('snapshot not ready', () => {
 
   it('throws on any other non-2xx', async () => {
     const fetchImpl = fetchWithHealth({ error: 'unknown survey' }, 404);
-    await expect(client(fetchImpl).surveyBundle(KEY_A)).rejects.toThrow(/tessera request failed: 404/);
+    await expect(client(fetchImpl).surveyBundle(KEY_A)).rejects.toThrow(
+      /tessera request failed: 404/,
+    );
   });
 });
 
@@ -203,7 +211,7 @@ describe('network guard', () => {
     // Only /health was hit; the data request never went out, and the mismatch
     // keeps rejecting without re-checking.
     await expect(c.surveysByRefs([KEY_A])).rejects.toThrow(TesseraNetworkMismatchError);
-    expect(fetchImpl.mock.calls.map((call) => String(call[0]))).toEqual([
+    expect(fetchImpl.mock.calls.map(call => String(call[0]))).toEqual([
       'https://tessera.example.dev/health',
     ]);
   });
@@ -215,8 +223,8 @@ describe('network guard', () => {
     await c.surveyList();
     await c.surveyList();
 
-    const urls = fetchImpl.mock.calls.map((call) => String(call[0]));
-    expect(urls.filter((u) => u.endsWith('/health'))).toHaveLength(1);
+    const urls = fetchImpl.mock.calls.map(call => String(call[0]));
+    expect(urls.filter(u => u.endsWith('/health'))).toHaveLength(1);
   });
 
   it('retries the health check after a transient failure', async () => {

@@ -27,6 +27,7 @@ import { dispatchWebPush, dispatchTelegram } from '../../notifications/dispatch.
 import { sendWebPush, type VapidConfig } from '../../push/webPush.js';
 import { sendTelegramMessage } from '../../push/telegram.js';
 import { refreshBulk } from '../../delegation/refresh.js';
+import { syncSurveys, type SurveysTessera } from '../../surveys/sync.js';
 import type { CoreSyncContext } from './context.js';
 import type { SyncPhaseDef } from './registry.js';
 
@@ -37,6 +38,9 @@ export interface GovernanceSyncContext extends CoreSyncContext {
   vapid: VapidConfig | null;
   /** Null until the bot token secret is set; the telegram phase fails soft. */
   telegramBotToken: string | null;
+  /** Null while TESSERA_BACKEND_URL is unset/empty (the maintainer's off switch
+   * for CIP-179 surveys); the surveys phase is gated out entirely. */
+  tessera: SurveysTessera | null;
 }
 
 // Per-run tally budget: each run tallies at most this many (stale-first), paced
@@ -62,6 +66,24 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       });
       console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
       return { items: disc.total, failed: disc.failed };
+    },
+  },
+  {
+    // CIP-179 surveys mirrored from the Tessera backend. Right after discovery
+    // so an action imported this run can admit its linked survey in the same
+    // run. Every tick: the phase is one list request when nothing changed.
+    name: 'surveys',
+    when: (ctx) => ctx.tessera !== null,
+    run: async (ctx) => {
+      if (!ctx.tessera) return { items: 0 };
+      const r = await syncSurveys({
+        db: ctx.db, tessera: ctx.tessera, cfg: ctx.cfg, now: ctx.now, rand: randSuffix,
+      });
+      console.log(
+        `[surveys] notReady=${r.notReady} admitted=${r.admitted} refreshed=${r.refreshed}` +
+          ` rolledBack=${r.rolledBack} audited=${r.audited} failed=${r.failed}`,
+      );
+      return { items: r.admitted + r.refreshed + r.audited, failed: r.failed };
     },
   },
   {

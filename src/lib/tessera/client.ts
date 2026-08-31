@@ -160,9 +160,7 @@ const txResponseSchema = z
   })
   .passthrough();
 
-const txResponsesSchema = z
-  .object({ responses: z.array(txResponseSchema) })
-  .passthrough();
+const txResponsesSchema = z.object({ responses: z.array(txResponseSchema) }).passthrough();
 
 export type TxResponse = z.infer<typeof txResponseSchema>;
 
@@ -205,13 +203,13 @@ export function createTesseraClient(opts: TesseraClientOptions) {
   let guard: Promise<void> | null = null;
   function ensureNetwork(): Promise<void> {
     if (!guard) {
-      const p = health().then((h) => {
+      const p = health().then(h => {
         if (h.network !== opts.network) {
           throw new TesseraNetworkMismatchError(opts.network, h.network);
         }
       });
       guard = p;
-      p.catch((err) => {
+      p.catch(err => {
         if (guard === p && !(err instanceof TesseraNetworkMismatchError)) guard = null;
       });
     }
@@ -222,7 +220,10 @@ export function createTesseraClient(opts: TesseraClientOptions) {
   // `503 snapshot not ready` becomes a ready:false result instead of an error.
   // Any other 503 (a gateway, an outage) still throws — only the body the
   // backend actually sends for "no snapshot yet" is treated as benign.
-  async function snapshotRequest<T>(path: string, schema: z.ZodType<T>): Promise<SnapshotResult<T>> {
+  async function snapshotRequest<T>(
+    path: string,
+    schema: z.ZodType<T>,
+  ): Promise<SnapshotResult<T>> {
     await ensureNetwork();
     const res = await requestRaw(path);
     if (res.status === 503) {
@@ -260,9 +261,11 @@ export function createTesseraClient(opts: TesseraClientOptions) {
     // than as a server 400 that would read like an outage.
     async surveysByRefs(keys: readonly string[]): Promise<SnapshotResult<SurveySet>> {
       if (keys.length === 0 || keys.length > MAX_REFS_PER_CALL) {
-        throw new RangeError(`surveysByRefs takes 1..${MAX_REFS_PER_CALL} keys, got ${keys.length}`);
+        throw new RangeError(
+          `surveysByRefs takes 1..${MAX_REFS_PER_CALL} keys, got ${keys.length}`,
+        );
       }
-      const bad = keys.find((k) => !SURVEY_KEY_RE.test(k));
+      const bad = keys.find(k => !SURVEY_KEY_RE.test(k));
       if (bad !== undefined) throw new RangeError(`malformed survey key: ${bad}`);
       return snapshotRequest(`/api/surveys?refs=${keys.join(',')}`, surveySetSchema);
     },

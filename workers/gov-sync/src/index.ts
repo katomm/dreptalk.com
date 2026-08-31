@@ -30,6 +30,7 @@ import { governancePhases } from '../../../src/lib/sync/phases/governance.js';
 import { votePhases } from '../../../src/lib/sync/phases/votes.js';
 import { drepPhases, initialDrepSyncState } from '../../../src/lib/sync/phases/dreps.js';
 import { imagesDownscaler } from '../../../src/lib/dreps/avatarStore.js';
+import { createTesseraClient } from '../../../src/lib/tessera/client.js';
 import type { VapidConfig } from '../../../src/lib/push/webPush.js';
 
 // The binding shapes live once on the global Cloudflare.Env augmentation
@@ -123,6 +124,12 @@ export default {
               heavy: minute % 15 === 0,
               vapid: buildVapid(env, core.cfg.siteOrigin),
               telegramBotToken: env.TELEGRAM_BOT_TOKEN ?? null,
+              // Non-empty TESSERA_BACKEND_URL switches the surveys phase on
+              // (preprod only today). The client itself refuses a backend whose
+              // /health network differs from this deployment's.
+              tessera: env.TESSERA_BACKEND_URL
+                ? createTesseraClient({ baseUrl: env.TESSERA_BACKEND_URL, network: core.cfg.network })
+                : null,
             };
             return runPhases(governancePhases, ctx, phase);
           }

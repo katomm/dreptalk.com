@@ -17,6 +17,9 @@ export const CATEGORIES: Category[] = [
 
 export const GOVERNANCE_CATEGORY_SLUG = 'governance-actions';
 export const BUDGET_CATEGORY_SLUG = 'budget';
+// The surveys sync writes topics under this slug; the category entry itself
+// (kind 'survey', its pages) lands with the survey UI.
+export const SURVEYS_CATEGORY_SLUG = 'surveys';
 
 // Pre-sorted once at module load; avoids repeated sort on every getCategories() call.
 const SORTED_CATEGORIES: readonly Category[] = [...CATEGORIES].sort((a, b) => a.position - b.position);

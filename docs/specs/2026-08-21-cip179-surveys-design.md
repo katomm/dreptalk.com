@@ -16,6 +16,12 @@ _(one line per completed increment; record deviations here)_
   the network guard is enforced inside the client (memoized `/health` check
   before the first snapshot request) rather than left to callers.
   Increment 1 (manual preprod wallet loop) still to be run by hand.
+- 2026-08-31 — increment 3: migration `0083_surveys.sql`, `src/lib/db/surveys.ts`,
+  `src/lib/surveys/sync.ts` as the `surveys` entry in the `*/5` registry,
+  workers-tested. Passes 1–3; pass 4 lands with increment 7's settle rule.
+  Deviations: lifecycle/cancellation come from `cip-179/domain`'s published
+  `aggregate()` (§5 gains that import — still zero own CIP-179 rules); audits
+  are capped at 20/run, a truncated daily re-audit stays due for the next run.
 
 ---
 
