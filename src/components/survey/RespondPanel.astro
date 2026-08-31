@@ -245,7 +245,7 @@ const { survey, network } = Astro.props;
     border: none;
     border-radius: 8px;
     background: var(--accent);
-    color: var(--accent-contrast, #fff);
+    color: var(--on-accent);
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
@@ -277,5 +277,52 @@ const { survey, network } = Astro.props;
   }
   .svy-respond__tx a {
     color: var(--accent);
+  }
+  /* Retheme the widget to DRepTalk. Its --tessera-* tokens (the full list is
+     the :host block of the package's theme.css) are custom properties, which
+     inherit through the shadow boundary, so mapping them onto DRepTalk's own
+     tokens here makes them re-resolve when html[data-theme] flips — the
+     widget's `theme` prop could not do that (it pins static inline values).
+     The widget's default font names (Hanken Grotesk etc.) are not loaded on
+     this site, so without the type mappings it renders in system-ui. Derived
+     shades use color-mix, already relied on by global.css (--avatar-ground). */
+  tessera-respond {
+    --tessera-sans: var(--font-body);
+    --tessera-serif: var(--font-display);
+    --tessera-mono: var(--font-mono);
+    --tessera-ink: var(--fg);
+    --tessera-body: var(--fg);
+    --tessera-muted: var(--muted);
+    --tessera-faint: color-mix(in srgb, var(--muted) 70%, var(--bg));
+    --tessera-dim: color-mix(in srgb, var(--muted) 60%, var(--bg));
+    --tessera-paper: var(--bg);
+    --tessera-line: var(--border);
+    --tessera-line2: var(--border);
+    --tessera-hair: color-mix(in srgb, var(--border) 55%, var(--bg));
+    --tessera-surface2: var(--surface-2);
+    --tessera-surface3: var(--surface);
+    --tessera-header-line: var(--border);
+    --tessera-card-bg: var(--surface-2);
+    --tessera-card-line: var(--border);
+    --tessera-label: var(--muted);
+    --tessera-label-strong: var(--fg);
+    --tessera-accent: var(--accent);
+    --tessera-accent-bg: color-mix(in srgb, var(--accent) 12%, var(--bg));
+    --tessera-accent-line: color-mix(in srgb, var(--accent) 30%, var(--bg));
+    --tessera-on-accent: var(--on-accent);
+    --tessera-ok: var(--c-pos);
+    --tessera-ok-ink: var(--c-pos);
+    --tessera-ok-line: color-mix(in srgb, var(--c-pos) 30%, var(--bg));
+    --tessera-ok-bg-soft: color-mix(in srgb, var(--c-pos) 8%, var(--bg));
+    --tessera-warn: var(--c-cc);
+    --tessera-warn-line: color-mix(in srgb, var(--c-cc) 30%, var(--bg));
+    --tessera-danger: var(--danger);
+    --tessera-danger-ink: var(--danger);
+    --tessera-danger-bg: color-mix(in srgb, var(--danger) 10%, var(--bg));
+    --tessera-danger-line: color-mix(in srgb, var(--danger) 30%, var(--bg));
+    --tessera-danger-line-soft: color-mix(in srgb, var(--danger) 20%, var(--bg));
+    /* Match the sibling survey card's 12px corners; inner radii step down. */
+    --tessera-r-card: 12px;
+    --tessera-r-md: 10px;
   }
 </style>
