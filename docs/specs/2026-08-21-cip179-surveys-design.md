@@ -366,9 +366,10 @@ its own; a replacement shows the same cycle; a tx that never lands ages to
 
 ### 8 — Freshness, docs, PR
 
-Add the freshness row (both places; the drift test enforces the pair),
-mention the feature in the README, delete this document (Decisions move into
-the PR description). PR: `feat: index CIP-179 surveys and let DReps answer
+Add the freshness row (both places; the drift test enforces the pair) and
+mention the feature in the README. This document stays on the branch; the
+maintainer deletes it on acceptance (Decisions move into the PR
+description). PR: `feat: index CIP-179 surveys and let DReps answer
 them` — say explicitly that surveys come from Tessera's HTTP API, DRepTalk
 does no label-17 indexing, and no page request reads Tessera.
 
