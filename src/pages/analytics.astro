@@ -17,6 +17,7 @@ import { getDrepActivityBreakdown } from '@/lib/db/drepActivityBreakdown.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { listDecidedActionsForRepresentation } from '@/lib/db/effectiveRepresentation.js';
+import { readableType } from '@/lib/governance/view.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
@@ -228,7 +229,7 @@ const activityRows = activity
               <span class="hub-effrep__title">
                 {row.href ? <a href={row.href}>{row.title}</a> : row.title}
               </span>
-              <span class="hub-effrep__type">{row.type}</span>
+              <span class="hub-effrep__type">{readableType(row.type)}</span>
               <span class="hub-effrep__epoch">Epoch {row.decidedEpoch}</span>
             </div>
             <div class="hub-effrep__meter">
