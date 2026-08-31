@@ -8,6 +8,7 @@ import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../dr
 import { syncDrepVotingPowerHistory } from '../../dreps/votingPowerHistorySync.js';
 import { runDrepStatsDigest } from '../../db/drepStatsDigest.js';
 import { backfillVoteHistorySweep } from '../../governance/voteHistoryBackfill.js';
+import { syncCurrentEpochStats, backfillEpochStats } from '../../analytics/epochStatsSync.js';
 import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
 import {
   storeDrepAvatars,
@@ -53,6 +54,12 @@ export interface DrepSyncContext extends CoreSyncContext {
 // over a few 6-hour runs (deferred anchors resume automatically). Steady-state
 // runs fetch only changed anchors and never come near the cap.
 const DREP_ANCHOR_LIMIT = 400;
+
+// Historical epochs fetched per run. ~150 epochs exist per network at
+// introduction, at 12 per run and four 6-hour runs per day the backfill
+// drains in roughly three days while keeping each run's subrequest count
+// small (one totals call plus a few history pages per epoch).
+const EPOCH_STATS_BACKFILL_PER_RUN = 12;
 
 export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
   {
@@ -130,6 +137,42 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
         );
       }
       return { items: sweep.inserted };
+    },
+  },
+  {
+    // One governance_epoch_stats row for the epoch the history phase captured
+    // this run. Runs after the vote-history sweep so the vote-derived columns
+    // see the freshest sweep state, and is recomputed every run: intra-epoch
+    // votes and late delegator stamps converge onto the same row until the
+    // epoch rolls. Metric definitions live in analytics/epochStatsContract.ts.
+    name: 'epoch-stats',
+    run: async (ctx) => {
+      if (ctx.state.vpHistoryEpoch === null) return { items: 0 };
+      const r = await syncCurrentEpochStats({
+        db: ctx.db, koios: ctx.koios, cfg: ctx.cfg, epoch: ctx.state.vpHistoryEpoch,
+      });
+      console.log(`[epoch-stats] epoch=${ctx.state.vpHistoryEpoch} written=${r.written}`);
+      return { items: r.written ? 1 : 0 };
+    },
+  },
+  {
+    // Self-draining historical backfill of governance_epoch_stats, oldest
+    // epoch first, EPOCH_STATS_BACKFILL_PER_RUN epochs per run (transient
+    // Koios fetches, nothing enters the history table). No-op once every
+    // epoch since the network's first DRep power data is stored. Also repairs
+    // the vote-derived columns of rows flagged incomplete once the
+    // vote-history sweep drained.
+    name: 'epoch-stats-backfill',
+    run: async (ctx) => {
+      if (ctx.state.vpHistoryEpoch === null) return { items: 0 };
+      const r = await backfillEpochStats({
+        db: ctx.db, koios: ctx.koios, cfg: ctx.cfg,
+        currentEpoch: ctx.state.vpHistoryEpoch, budget: EPOCH_STATS_BACKFILL_PER_RUN,
+      });
+      if (r.inserted > 0 || r.repaired > 0 || r.remaining > 0) {
+        console.log(`[epoch-stats-backfill] inserted=${r.inserted} repaired=${r.repaired} remaining=${r.remaining}`);
+      }
+      return { items: r.inserted + r.repaired };
     },
   },
   {
