@@ -12,8 +12,11 @@ import {
   getSurveyGovLinks,
   getSurveySyncState,
   getTopicSlugBySurveyRef,
+  getViewerSurveyResponse,
   listSurveysWithTopics,
+  recordLocalSurveyResponse,
 } from '../db/surveys.js';
+import { PENDING_VOTE_TTL_SEC } from '../governance/tallySync.js';
 import type { SurveyBundlePage, SurveyPage, SurveySet, TesseraTip } from '../tessera/client.js';
 import { type SurveysSyncDeps, type SurveysTessera, syncSurveys } from './sync.js';
 
@@ -164,6 +167,9 @@ function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
           { ...response('aa', 0, tip.slot - 4_000), txHash: 'e'.repeat(64) },
         ]),
       })),
+    // "Submitted, not indexed yet" — the backend's answer for any tx the
+    // fake was not told about.
+    responsesByTx: overrides.responsesByTx ?? (async () => ({ ready: true, value: [] })),
   };
 }
 
@@ -383,7 +389,12 @@ describe('syncSurveys', () => {
     // Linkage, both directions. The action's own topic id names no real topic
     // row here, so the survey-side view resolves the title but no thread link.
     expect(await getSurveyGovLinks(env.DB, KEY_LINKED)).toEqual([
-      { actionId: ACTION_ID, title: 'The linking action', actionTitle: 'The linking action', topicSlug: null },
+      {
+        actionId: ACTION_ID,
+        title: 'The linking action',
+        actionTitle: 'The linking action',
+        topicSlug: null,
+      },
     ]);
     const linked = await getLinkedSurveyForAction(env.DB, ACTION_ID);
     expect(linked?.survey.ref).toBe(KEY_LINKED);
@@ -400,6 +411,8 @@ describe('syncSurveys', () => {
       refreshed: 0,
       rolledBack: 0,
       audited: 0,
+      settled: 0,
+      agedFailed: 0,
       failed: 0,
     });
     expect((await getSurveySyncState(env.DB)).lastFullWalkAt).toBeNull();
@@ -422,5 +435,67 @@ describe('syncSurveys', () => {
     expect((await syncSurveys(deps(fakeTessera(), nextDay))).audited).toBe(1);
     expect((await getSurveySyncState(env.DB)).lastAuditAt).toBe(nextDay);
     expect((await getHeldSurveys(env.DB))[0].countedDreps).toBe(2);
+  });
+
+  it('settles a local answer by its exact tx, keeps a fresh one pending, ages a stale one', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const txIndexed = '11'.repeat(32);
+    const txWaiting = '22'.repeat(32);
+    const txDropped = '33'.repeat(32);
+    const cred = `key:${'aa'.repeat(28)}`;
+    const tessera = fakeTessera({
+      responsesByTx: async txHash => ({
+        ready: true,
+        value:
+          txHash === txIndexed
+            ? [{ surveyKey: KEY_LINKED, responseIndex: 0, role: 0, credential: cred, slot: 1 }]
+            : [],
+      }),
+    });
+    await syncSurveys(deps(tessera, now));
+
+    // Three viewers mid-flight: one whose tx Tessera has indexed, one whose
+    // fresh tx it has not yet, one whose stale tx never landed.
+    await recordLocalSurveyResponse(env.DB, {
+      surveyRef: KEY_LINKED,
+      userId: 'u-settle',
+      txHash: txIndexed,
+      credential: cred,
+      now: now - 1_000,
+    });
+    await recordLocalSurveyResponse(env.DB, {
+      surveyRef: KEY_LINKED,
+      userId: 'u-wait',
+      txHash: txWaiting,
+      credential: cred,
+      now: now - 1_000,
+    });
+    await recordLocalSurveyResponse(env.DB, {
+      surveyRef: KEY_LINKED,
+      userId: 'u-old',
+      txHash: txDropped,
+      credential: cred,
+      now: now - (PENDING_VOTE_TTL_SEC + 60) * 1000,
+    });
+
+    const r = await syncSurveys(deps(tessera, now));
+    expect(r.settled).toBe(1);
+    expect(r.agedFailed).toBe(1);
+    // The indexed answer's row is gone (the on-chain record supersedes it);
+    // the fresh one still reads "confirming"; the stale one invites a retry.
+    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-settle')).toBeNull();
+    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-wait'))?.status).toBe('pending');
+    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-old'))?.status).toBe('failed');
+
+    // Re-answering overwrites the failed row back to pending under a new tx.
+    await recordLocalSurveyResponse(env.DB, {
+      surveyRef: KEY_LINKED,
+      userId: 'u-old',
+      txHash: txWaiting,
+      credential: cred,
+      now,
+    });
+    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-old'))?.status).toBe('pending');
   });
 });

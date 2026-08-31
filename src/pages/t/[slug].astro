@@ -20,7 +20,12 @@ import ShareButton from '@/components/ShareButton.astro';
 import SurveyCard from '@/components/survey/SurveyCard.astro';
 import LinkedSurveyCard from '@/components/survey/LinkedSurveyCard.astro';
 import RespondPanel from '@/components/survey/RespondPanel.astro';
-import { getLinkedSurveyForAction, getSurveyByTopicId, getSurveyGovLinks } from '@/lib/db/surveys.js';
+import {
+  getLinkedSurveyForAction,
+  getSurveyByTopicId,
+  getSurveyGovLinks,
+  getViewerSurveyResponse,
+} from '@/lib/db/surveys.js';
 import { parseSurveyDefinition, surveyLifecycle } from '@/lib/surveys/view.js';
 import { Role, type SurveyDefinition } from 'cip-179';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
@@ -230,10 +235,13 @@ const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 const surveyDefinition: SurveyDefinition | null = surveyRow
   ? parseSurveyDefinition(surveyRow.definitionJson)
   : null;
-const [surveyLinks, linkedSurvey] = await Promise.all([
+const [surveyLinks, linkedSurvey, viewerSurveyResponse] = await Promise.all([
   surveyRow && db ? getSurveyGovLinks(db, surveyRow.ref) : Promise.resolve([]),
   db && govAction?.proposalId
     ? getLinkedSurveyForAction(db, govAction.proposalId)
+    : Promise.resolve(null),
+  surveyRow && db && user
+    ? getViewerSurveyResponse(db, surveyRow.ref, user.id)
     : Promise.resolve(null),
 ]);
 
@@ -874,6 +882,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             cfg={netCfg}
             now={now}
             appUrl={env.TESSERA_APP_URL}
+            viewerResponse={viewerSurveyResponse}
           />
         )}
         {surveyRow && canAnswerSurvey && <RespondPanel survey={surveyRow} network={network} />}

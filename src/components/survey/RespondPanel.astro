@@ -70,6 +70,7 @@ const { survey, network } = Astro.props;
   import type { CardanoNetwork } from '@/lib/config/network.js';
   import { txExplorerUrl } from '@/lib/config/network.js';
   import { loadDrepTxModule } from '@/lib/governance/voteFlowClient.js';
+  import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
   import { connectAsDrep, type EnabledWalletApi } from '@/lib/wallet/drepWalletConnect.js';
   import {
     chooseSelectedWallet,
@@ -180,6 +181,19 @@ const { survey, network } = Astro.props;
           signerKeyHashes,
           origin: window.location.origin,
         });
+        // Optimistic record so the card can overlay "confirming…" until the
+        // sync settles it. Non-fatal by design: the chain is the source of
+        // truth and the sync self-heals, so a failed POST only warns.
+        try {
+          const res = await fetchWithTimeout('/api/survey/response/record', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ surveyRef: root.dataset.ref, txHash }),
+          });
+          if (!res.ok) console.warn('[RespondPanel] record failed', res.status);
+        } catch (recordErr) {
+          console.warn('[RespondPanel] record failed', recordErr);
+        }
         widgetSlot.hidden = true;
         statusEl.hidden = true;
         const link = successEl.querySelector<HTMLAnchorElement>('[data-tx-link]')!;

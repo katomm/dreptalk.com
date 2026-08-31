@@ -6,7 +6,7 @@
 // Reads only what the page loaded from D1; the "as of" line owns the staleness.
 import type { SurveyDefinition } from 'cip-179';
 import type { NetworkConfig } from '@/lib/config/network.js';
-import type { SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
+import type { LocalSurveyResponse, SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import {
@@ -26,9 +26,11 @@ interface Props {
   cfg: NetworkConfig;
   now: number;
   appUrl: string | undefined;
+  /** The viewer's own optimistic answer row, when signed in and present. */
+  viewerResponse?: LocalSurveyResponse | null;
 }
 
-const { survey, definition, links, cfg, now, appUrl } = Astro.props;
+const { survey, definition, links, cfg, now, appUrl, viewerResponse } = Astro.props;
 
 const lifecycle = surveyLifecycle(survey, now, cfg);
 const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
@@ -49,6 +51,20 @@ const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Cl
     <p class="svy-card__warn">
       The on-chain record of this survey was no longer found in the index — it may have been
       rolled back. The thread stays; answering is disabled.
+    </p>
+  )}
+
+  {/* The viewer's own submission state, from the optimistic local row. It
+      never claims validity — whether an answer is *counted* is only knowable
+      at finalization; this only tracks whether the transaction confirmed. */}
+  {viewerResponse && viewerResponse.status === 'pending' && (
+    <p class="svy-card__mine">
+      Your answer · confirming… (checked against the chain every few minutes)
+    </p>
+  )}
+  {viewerResponse && viewerResponse.status === 'failed' && (
+    <p class="svy-card__mine svy-card__mine--failed">
+      Your answer didn't confirm — you can answer again.
     </p>
   )}
 
@@ -176,6 +192,18 @@ const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Cl
     border-radius: 8px;
     padding: 0.6rem 0.8rem;
     margin: 0 0 0.9rem;
+  }
+  .svy-card__mine {
+    font-size: 0.875rem;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin: 0 0 0.9rem;
+  }
+  .svy-card__mine--failed {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
   }
   .svy-card__desc,
   .svy-card__note {

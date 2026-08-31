@@ -264,7 +264,10 @@ function rowToSurvey(r: RawSurveyRow): SurveyRow {
 }
 
 /** The survey behind one thread, or null for a non-survey topic. */
-export async function getSurveyByTopicId(db: D1Database, topicId: string): Promise<SurveyRow | null> {
+export async function getSurveyByTopicId(
+  db: D1Database,
+  topicId: string,
+): Promise<SurveyRow | null> {
   const row = await db
     .prepare(`SELECT ${SURVEY_COLUMNS} FROM survey WHERE topic_id = ?`)
     .bind(topicId)
@@ -298,7 +301,7 @@ export async function listSurveysWithTopics(
     )
     .bind(opts.limit, opts.offset)
     .all<RawSurveyRow & { topic_slug: string; post_count: number; last_post_at: number }>();
-  return results.map((r) => ({
+  return results.map(r => ({
     survey: rowToSurvey(r),
     topicSlug: r.topic_slug,
     postCount: r.post_count,
@@ -328,8 +331,13 @@ export async function getSurveyGovLinks(db: D1Database, ref: string): Promise<Su
        ORDER BY l.action_id`,
     )
     .bind(ref)
-    .all<{ action_id: string; title: string | null; action_title: string | null; topic_slug: string | null }>();
-  return results.map((r) => ({
+    .all<{
+      action_id: string;
+      title: string | null;
+      action_title: string | null;
+      topic_slug: string | null;
+    }>();
+  return results.map(r => ({
     actionId: r.action_id,
     title: r.title,
     actionTitle: r.action_title,
@@ -368,6 +376,108 @@ export async function getTopicSlugBySurveyRef(db: D1Database, ref: string): Prom
     .bind(ref)
     .first<{ slug: string }>();
   return row?.slug ?? null;
+}
+
+/** Whether a survey with this ref is mirrored here (any state). */
+export async function surveyRefExists(db: D1Database, ref: string): Promise<boolean> {
+  const row = await db.prepare('SELECT 1 AS x FROM survey WHERE ref = ?').bind(ref).first();
+  return row !== null;
+}
+
+/**
+ * Optimistic record of the viewer's own just-submitted answer, written by
+ * POST /api/survey/response/record and settled (deleted) by the sync once
+ * Tessera indexes the exact transaction. `failed` rows stay for the viewer's
+ * own overlay ("didn't confirm — answer again"); a re-answer overwrites the
+ * row via the (survey_ref, user_id) key, resetting it to pending.
+ */
+export interface LocalSurveyResponse {
+  txHash: string;
+  status: 'pending' | 'failed';
+  createdAt: number;
+}
+
+export async function recordLocalSurveyResponse(
+  db: D1Database,
+  r: { surveyRef: string; userId: string; txHash: string; credential: string; now: number },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO survey_response_local
+         (survey_ref, user_id, tx_hash, credential, status, created_at)
+       VALUES (?, ?, ?, ?, 'pending', ?)`,
+    )
+    .bind(r.surveyRef, r.userId, r.txHash, r.credential, r.now)
+    .run();
+}
+
+/** The viewer's own local answer on one survey, for the card overlay. */
+export async function getViewerSurveyResponse(
+  db: D1Database,
+  surveyRef: string,
+  userId: string,
+): Promise<LocalSurveyResponse | null> {
+  const row = await db
+    .prepare(
+      'SELECT tx_hash, status, created_at FROM survey_response_local WHERE survey_ref = ? AND user_id = ?',
+    )
+    .bind(surveyRef, userId)
+    .first<{ tx_hash: string; status: string; created_at: number }>();
+  return row
+    ? { txHash: row.tx_hash, status: row.status as 'pending' | 'failed', createdAt: row.created_at }
+    : null;
+}
+
+export interface PendingSurveyResponse {
+  surveyRef: string;
+  userId: string;
+  txHash: string;
+  createdAt: number;
+}
+
+/** Every local answer still awaiting its transaction — the set pass 4 polls. */
+export async function getPendingSurveyResponses(db: D1Database): Promise<PendingSurveyResponse[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT survey_ref, user_id, tx_hash, created_at
+       FROM survey_response_local WHERE status = 'pending'`,
+    )
+    .all<{ survey_ref: string; user_id: string; tx_hash: string; created_at: number }>();
+  return results.map(r => ({
+    surveyRef: r.survey_ref,
+    userId: r.user_id,
+    txHash: r.tx_hash,
+    createdAt: r.created_at,
+  }));
+}
+
+/** Settles one local answer: the indexed on-chain response supersedes it. */
+export async function deleteLocalSurveyResponse(
+  db: D1Database,
+  surveyRef: string,
+  userId: string,
+): Promise<void> {
+  await db
+    .prepare('DELETE FROM survey_response_local WHERE survey_ref = ? AND user_id = ?')
+    .bind(surveyRef, userId)
+    .run();
+}
+
+/** Flags pending answers older than the cutoff (unix ms) as failed: the tx
+ * was dropped or rolled back, or it landed without a response for this survey.
+ * Returns rows changed. */
+export async function markStaleSurveyResponsesFailed(
+  db: D1Database,
+  cutoffMs: number,
+): Promise<number> {
+  const result = await db
+    .prepare(
+      `UPDATE survey_response_local SET status = 'failed'
+       WHERE status = 'pending' AND created_at < ?`,
+    )
+    .bind(cutoffMs)
+    .run();
+  return result.meta.changes ?? 0;
 }
 
 export interface SurveySyncState {

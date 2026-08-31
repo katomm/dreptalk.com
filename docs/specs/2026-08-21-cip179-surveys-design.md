@@ -63,6 +63,16 @@ _(one line per completed increment; record deviations here)_
   when the panel renders; sealing chunks stay lazy. Evolution skew checked:
   peer `^0.5.9`, installed 0.5.12, deduped. On-chain acceptance run still
   pending (needs the wallet).
+- 2026-08-31 — increment 7: `POST /api/survey/response/record`
+  (session-derived `key:<hex>` credential via `parseDrepId`; script DReps
+  403 — a row no key witness could settle), `survey_response_local` helpers
+  in `db/surveys.ts`, the card's confirming/didn't-confirm overlay, and
+  pass 4 settling by exact tx via `responsesByTx` with pending rows aged to
+  `failed` past `PENDING_VOTE_TTL_SEC` (imported from tallySync — one
+  cutoff for both optimistic lifecycles). Workers tests pin the endpoint
+  (401/400/404/403/200 + credential-injection rejection) and the
+  settle/wait/age triad. End-to-end confirm-overlay-clears run pending with
+  increment 6's wallet run.
 
 ---
 

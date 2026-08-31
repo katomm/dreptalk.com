@@ -30,25 +30,32 @@ import {
   buildInsertGovLink,
   buildInsertSurvey,
   buildRefreshSurvey,
+  deleteLocalSurveyResponse,
   getHeldSurveys,
   getKnownSurveyRefs,
+  getPendingSurveyResponses,
   getSurveySyncState,
   type HeldSurvey,
+  markStaleSurveyResponsesFailed,
   markSurveysUnavailable,
   putSurveySyncState,
   updateCountedDreps,
 } from '../db/surveys.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
+import { PENDING_VOTE_TTL_SEC } from '../governance/tallySync.js';
 import { renderMarkdown } from '../markdown.js';
-import { roleLabels } from './view.js';
 import {
   MAX_REFS_PER_CALL,
   type SurveySet,
   type TesseraClient,
   type TesseraTip,
 } from '../tessera/client.js';
+import { roleLabels } from './view.js';
 
-export type SurveysTessera = Pick<TesseraClient, 'surveyList' | 'surveysByRefs' | 'surveyBundle'>;
+export type SurveysTessera = Pick<
+  TesseraClient,
+  'surveyList' | 'surveysByRefs' | 'surveyBundle' | 'responsesByTx'
+>;
 
 export interface SurveysSyncDeps {
   db: D1Database;
@@ -66,6 +73,10 @@ export interface SurveysSyncResult {
   refreshed: number;
   rolledBack: number;
   audited: number;
+  /** Local answer rows deleted because their exact tx is indexed upstream. */
+  settled: number;
+  /** Pending local answers aged to 'failed' past the confirmation cutoff. */
+  agedFailed: number;
   failed: number;
 }
 
@@ -285,6 +296,8 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   let refreshed = 0;
   let rolledBack = 0;
   let audited = 0;
+  let settled = 0;
+  let agedFailed = 0;
 
   const state = await getSurveySyncState(db);
   const known = await getKnownSurveyRefs(db);
@@ -297,7 +310,16 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   // backstop is due.
   const page1 = await tessera.surveyList({ filter: 'linked', limit: MAX_REFS_PER_CALL });
   if (!page1.ready) {
-    return { notReady: true, admitted: 0, refreshed: 0, rolledBack: 0, audited: 0, failed: 0 };
+    return {
+      notReady: true,
+      admitted: 0,
+      refreshed: 0,
+      rolledBack: 0,
+      audited: 0,
+      settled: 0,
+      agedFailed: 0,
+      failed: 0,
+    };
   }
   const linkedCount = page1.value.counts.linked;
   const walkTriggered =
@@ -313,7 +335,9 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         ? page1
         : await tessera.surveyList({ filter: 'linked', limit: MAX_REFS_PER_CALL });
     for (let n = 0; n < MAX_LIST_PAGES; n++) {
-      if (!page.ready) return { notReady: true, ...counters, refreshed, rolledBack, audited };
+      if (!page.ready) {
+        return { notReady: true, ...counters, refreshed, rolledBack, audited, settled, agedFailed };
+      }
       for (const key of await admitFromSet(deps, decodeSet(page.value), known, counters)) {
         auditQueue.add(key);
       }
@@ -420,5 +444,39 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     counters.failed++;
   }
 
-  return { notReady: false, ...counters, refreshed, rolledBack, audited };
+  // --- Pass 4: settle optimistic local answers by exact transaction. A row
+  // whose tx Tessera has indexed *with a response for this survey* is done —
+  // the on-chain record supersedes it (and, being tx-exact, a replacement is
+  // observable where /api/responded would hide it). A well-formed unindexed
+  // hash answers 200 with an empty list ("submitted, not indexed yet" is the
+  // state this pass polls), so an empty answer just leaves the row pending;
+  // past the same cutoff the GA-vote sweep uses, a pending row turns 'failed'
+  // and the card invites answering again. The overlay never claims validity:
+  // "counted" is only knowable at finalization.
+  try {
+    const pending = await getPendingSurveyResponses(db);
+    const byTx = new Map<string, typeof pending>();
+    for (const row of pending) {
+      const rows = byTx.get(row.txHash);
+      if (rows) rows.push(row);
+      else byTx.set(row.txHash, [row]);
+    }
+    for (const [txHash, rows] of byTx) {
+      const result = await tessera.responsesByTx(txHash);
+      if (!result.ready) break;
+      const answered = new Set(result.value.map(r => r.surveyKey));
+      for (const row of rows) {
+        if (answered.has(row.surveyRef)) {
+          await deleteLocalSurveyResponse(db, row.surveyRef, row.userId);
+          settled++;
+        }
+      }
+    }
+    agedFailed = await markStaleSurveyResponsesFailed(db, now - PENDING_VOTE_TTL_SEC * 1000);
+  } catch (err) {
+    console.error('[surveys] settle pass failed', err);
+    counters.failed++;
+  }
+
+  return { notReady: false, ...counters, refreshed, rolledBack, audited, settled, agedFailed };
 }
