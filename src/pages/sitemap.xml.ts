@@ -22,6 +22,7 @@ export const GET: APIRoute = async ({ site }) => {
     { path: '/brand/' },
     { path: '/help/' },
     { path: '/match/' },
+    { path: '/analytics/' },
     ...(await getCollection('guides')).map((g) => ({
       path: `/help/${g.id}/`,
       ...(g.data.updated ? { lastmod: g.data.updated.toISOString() } : {}),

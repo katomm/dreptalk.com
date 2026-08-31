@@ -100,6 +100,7 @@ const icons = {
   origins: 'M5 6h4M5 12h4M5 18h4M9 6c6 0 4 6 10 6M9 18c6 0 4-6 10-6M9 12h10',
   discussions:
     'M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1',
+  analytics: 'M4 5v14h16M8 15l3-4 2.5 2L18 7',
 } as const;
 
 // Card status lines are uniformly muted; anything that wants action (unvoted
@@ -184,6 +185,13 @@ const cards: HomeCard[] = [
     href: '/match/',
     icon: icons.match,
     desc: 'Answer real governance questions and see which DReps vote like you.',
+  },
+  {
+    title: 'Governance analytics',
+    href: '/analytics/',
+    icon: icons.analytics,
+    desc: 'Health, participation and the default options, tracked per epoch.',
+    newUntil: '2026-10-15',
   },
   {
     title: 'Notifications',
