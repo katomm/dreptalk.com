@@ -30,3 +30,17 @@ The "voted in the last 12 epochs" figure counts DReps with at least one on-chain
 ## Where the numbers come from
 
 DRepTalk records one row of governance aggregates per epoch, built from the same chain data that powers the rest of the site. Voting power snapshots come from the per-epoch stake distribution, vote counts from the on-chain votes themselves, and the concentration figures from the full distribution of delegated power across DReps, with the two default options excluded.
+
+## Frequently asked questions
+
+### Why do some charts start later than others?
+
+Each metric shows data from the first epoch it can be measured reliably. Voting power can be reconstructed from chain history, but delegator counts only exist from the point DRepTalk started observing them live, so that chart starts later instead of pretending older data exists.
+
+### Why does the current epoch look provisional?
+
+An epoch's vote activity is only final once the epoch has ended. The page treats the running epoch as incomplete by design and finalizes its numbers right after the epoch rolls over.
+
+### What is the difference between active and with voting power?
+
+Active follows the on-chain registration state. A DRep can be active with zero delegated stake, and stake can still sit with a DRep whose registration has lapsed. The activity section shows both layers separately.
