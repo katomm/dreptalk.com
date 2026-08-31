@@ -350,7 +350,7 @@ describe('analyticsCardModel', () => {
     expect(html).toContain('1,200,000,000 ₳');
     expect(html).toContain('512 voted in the last 12 epochs');
     expect(html).toContain('Always abstain holds 45,000 ₳');
-    // Every flex container satori needs is declared; no bare multi-child div slipped in.
+    // Every flex container satori needs is declared, no bare multi-child div slipped in.
     expect(html).not.toMatch(/<div (?![^>]*display:flex)[^>]*>\s*</);
   });
 
