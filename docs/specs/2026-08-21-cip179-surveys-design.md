@@ -33,6 +33,12 @@ _(one line per completed increment; record deviations here)_
   otherwise); the action thread's sidebar gains a Linked-survey card. The
   branch now pauses before increment 6 (needs the acceptance pair), as
   planned; increment 1's manual wallet loop also still pending.
+- 2026-08-31 — Tessera shipped everything §3 waited on (backend commit
+  `cf65710`, live on preprod): the acceptance pair exists, the responses
+  route is up, and `finalState` landed as a **breaking replacement** of
+  `finalizedCancelled`. §9 is the delta this branch owes it — until that
+  lands, the landed sync fails schema validation against the live backend.
+  Increments 6–7 are unblocked.
 
 ---
 
@@ -96,26 +102,28 @@ survey, answer it, and see the answer come back through the index.
 **Tessera side.**
 
 - Backend: `https://tessera-backend-preprod.matthieu-pizenberg.workers.dev`.
-- **The acceptance survey** — DRep-eligible, linked, still open at
-  increment 6. Its `end_epoch` = Koios `expiration` − 1 (DRepTalk's
-  `expiryEpoch` is that +1): survey and vote close at the same boundary.
-  Survey first, then the action, its anchor naming the ref.
-  `1200298c…2d23:0` is the known linked survey; if unusable, a fresh pair
-  is the long-lead item — start before increment 3. (`ccaa8baa…1547:0` is
-  standalone: never admitted, still useful for testing.)
-- `GET /api/responses/{txHash}` (agreed 2026-08-21, confirmed 2026-08-25):
-  the responses one transaction carried — `surveyKey`, `responseIndex`,
-  `role`, `credential`, `slot`. Needed because `/api/responded` cannot tell
-  a *replacement* from the response it supersedes. No fallback: increment 7
-  waits for it.
-- `finalState` on list rows (agreed 2026-08-25): `finalized` (with artifact
-  hash), `cancelled`, or `untalliable` — so a mirror knows when a closed
-  survey is decided for good (today the untalliable outcome is computed and
-  discarded). **Not a blocker**: until it ships, pass 2 keeps refreshing
-  everything not `finalizedCancelled`.
+- **The acceptance survey** — shipped 2026-08-31: `49389974…d70c:0`,
+  DRep-eligible, linked, end epoch 316, one DRep response already counted.
+  Its `end_epoch` = Koios `expiration` − 1 (DRepTalk's `expiryEpoch` is
+  that +1): survey and vote close at the same boundary.
+  (`ccaa8baa…1547:0` remains standalone: never admitted, still useful for
+  testing.)
+- `GET /api/responses/{txHash}` — live 2026-08-31: the responses one
+  transaction carried — `surveyKey`, `responseIndex`, `role`, `credential`,
+  `slot` (plus `txHash`, redundant with the path). Needed because
+  `/api/responded` cannot tell a *replacement* from the response it
+  supersedes. A well-formed hash the backend has not indexed answers
+  `200 {"responses":[]}`, never 404 — "submitted, not indexed yet" is the
+  normal state increment 7's sweep polls; only a malformed hash 404s.
+- `finalState` on list payloads — live 2026-08-31, as a **breaking
+  replacement**: `finalizedCancelled` is gone from the wire. A map
+  `surveyKey → {state: "finalized"|"cancelled", artifactHash} |
+  {state: "untalliable"}`, always present (possibly empty), naming every
+  survey decided for good. §9 lists the changes this branch owes it.
 
-**Where the work pauses.** Increment 6 needs the acceptance survey and
-increment 7 the route above, so the branch stops after increment 5.
+**Where the work paused.** The branch stopped after increment 5 waiting for
+the items above; all three shipped 2026-08-31, so increments 6–7 are
+unblocked.
 
 **DRepTalk side.** Branch `feat/cip179-surveys` off `main`. `.dev.vars` with
 `CARDANO_NETWORK=preprod`, `KOIOS_API_KEY`, the new `TESSERA_BACKEND_URL`. A
@@ -385,3 +393,35 @@ does no label-17 indexing, and no page request reads Tessera.
   on the action's thread, no topic" is now a smaller diff than a category; §1
   argues it still loses. Confirm with the maintainer before increment 3 — the
   last decision that would invalidate the migration.
+
+## 9. The finalState wire change (2026-08-31)
+
+Tessera's deployed backend (commit `cf65710`) replaced `finalizedCancelled`
+— an array of cancelled survey keys — with the `finalState` map (§3) on both
+`/api/surveys` selections. No transition period: this branch is the only
+consumer and absorbs the change before anything deploys. The published
+packages are untouched, so no version bumps; `aggregate()` still takes a
+`ReadonlySet` of cancelled keys — the caller now derives it.
+
+What changes here:
+
+- `src/lib/tessera/client.ts` — `surveySetSchema` drops
+  `finalizedCancelled: z.array(z.string())` for a `finalState` record whose
+  entries are `{state: 'finalized' | 'cancelled', artifactHash: string}` or
+  `{state: 'untalliable'}`.
+- `src/lib/surveys/sync.ts` — `decodeSet` builds the `aggregate()` argument
+  from the entries whose state is `cancelled`; the two
+  `set.finalizedCancelled.has(a.key) ? 'cancelled' : null` sites become
+  `set.finalState[a.key]?.state ?? null`.
+- Test fixtures (`client.test.ts`, `sync.workers.test.ts`):
+  `finalizedCancelled: []` → `finalState: {}`.
+- `migrations/0083_surveys.sql` needs nothing: `final_state` is bare TEXT
+  and the refresh set is `WHERE final_state IS NULL`, so the two new values
+  slot in.
+
+What it buys: pass 2's working set becomes bounded. Previously only
+`cancelled` ever froze a row, so finalized and untalliable surveys would
+have refreshed forever; with all three states stored, increment 3's
+"a held survey refreshes until `final_state`" holds as written.
+`artifactHash` arrives for free and stays unused — this mirror shows
+participation, never a result.
