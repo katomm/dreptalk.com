@@ -874,13 +874,23 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
     },
 
-    // Latest epoch's treasury and reserves balances (lovelace). One row
-    // (newest epoch first, limit 1).
-    async totals(): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string } | null> {
-      const data = await request('/totals?order=epoch_no.desc&limit=1', { method: 'GET' });
+    // Treasury and reserves balances (lovelace), the latest epoch by default,
+    // or one specific epoch for the stats backfill.
+    async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string } | null> {
+      const path = epochNo != null ? `/totals?_epoch_no=${epochNo}` : '/totals?order=epoch_no.desc&limit=1';
+      const data = await request(path, { method: 'GET' });
       const row = z.array(totalsRowSchema).parse(data)[0] ?? null;
       if (!row) return null;
       return { epochNo: row.epoch_no, treasuryLovelace: row.treasury, reservesLovelace: row.reserves };
+    },
+
+    // Oldest epoch with DRep voting power data on this network, from
+    // /drep_epoch_summary. One row, used as the epoch-stats backfill floor so
+    // no start epoch is ever hardcoded per network.
+    async firstDrepPowerEpoch(): Promise<number | null> {
+      const data = await request('/drep_epoch_summary?order=epoch_no.asc&limit=1', { method: 'GET' });
+      const rows = z.array(z.object({ epoch_no: z.number() }).passthrough()).parse(data);
+      return rows[0]?.epoch_no ?? null;
     },
 
     // Pages the current delegator set of a DRep, callers increment offset by
