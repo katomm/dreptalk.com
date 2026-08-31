@@ -10,7 +10,7 @@ import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import DrepConcentration from '@/components/DrepConcentration.tsx';
 import EpochSeriesChart from '@/components/EpochSeriesChart.astro';
 import { runtimeEnv } from '@/lib/api/response';
-import { cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
+import { cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
 import { listEpochStats } from '@/lib/db/governanceEpochStats.js';
 import { getDefaultDelegationCurrent } from '@/lib/db/defaultDelegation.js';
 import { getDrepActivityBreakdown } from '@/lib/db/drepActivityBreakdown.js';
@@ -49,8 +49,18 @@ const current = stats.length > 0 ? stats[stats.length - 1] : null;
 const prev = stats.length > 1 ? stats[stats.length - 2] : null;
 const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
 
+// Parse lovelace defensively so a single malformed stored value cannot 500 the
+// page (Koios writes plain integer strings, but the column is untrusted text).
+// Same helper as the concentration donut on dreps/index.astro.
+const toLovelace = (s: string | null): bigint => {
+  try {
+    return BigInt(s ?? '0');
+  } catch {
+    return 0n;
+  }
+};
 const concentration = computeConcentration(
-  concRows.map((r) => ({ drepId: r.drepId, name: r.name, slug: r.slug, power: BigInt(r.votingPower ?? '0') })),
+  concRows.map((r) => ({ drepId: r.drepId, name: r.name, slug: r.slug, power: toLovelace(r.votingPower) })),
 );
 const { markers, defaultThresholdPct, thresholdsAsOf } = buildThresholdMarkers(params);
 
@@ -67,7 +77,7 @@ const ancDelta = netChange(
   (n) => n.toLocaleString('en-US'),
 );
 
-const fmtAdaCompact = (v: number) => formatAda(String(Math.round(v)));
+const fmtAdaCompact = (v: number) => formatAdaCompact(String(Math.round(v)));
 const hasBackbone = current != null;
 
 // The two default-option cards, grouped for the template so the grid renders
