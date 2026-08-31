@@ -28,6 +28,11 @@ _(one line per completed increment; record deviations here)_
   redirect. Deviation: new optional `TESSERA_APP_URL` var for the card's
   deep link (display-only; link omitted when unset) — the backend URL is an
   API origin, not a page a reader can open.
+- 2026-08-31 — increment 5: linkage both directions. The survey card lists
+  its linking actions (thread link when imported, Tessera's anchor title
+  otherwise); the action thread's sidebar gains a Linked-survey card. The
+  branch now pauses before increment 6 (needs the acceptance pair), as
+  planned; increment 1's manual wallet loop also still pending.
 
 ---
 

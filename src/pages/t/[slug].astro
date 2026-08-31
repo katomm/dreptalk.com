@@ -18,7 +18,8 @@ import GaSidebar from '@/components/ga/GaSidebar.astro';
 import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import SurveyCard from '@/components/survey/SurveyCard.astro';
-import { getSurveyByTopicId } from '@/lib/db/surveys.js';
+import LinkedSurveyCard from '@/components/survey/LinkedSurveyCard.astro';
+import { getLinkedSurveyForAction, getSurveyByTopicId, getSurveyGovLinks } from '@/lib/db/surveys.js';
 import { parseSurveyDefinition } from '@/lib/surveys/view.js';
 import type { SurveyDefinition } from 'cip-179';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
@@ -222,10 +223,18 @@ const [govAction, viewerPostState, surveyRow] = await Promise.all([
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 
 // Survey topics render their mirrored card above the thread. The stored wire
-// record decodes with the same cip-179 codec the sync used to write it.
+// record decodes with the same cip-179 codec the sync used to write it. The
+// linkage renders in both directions: the survey card names its linking
+// actions, and an action's sidebar names its (at most one) linked survey.
 const surveyDefinition: SurveyDefinition | null = surveyRow
   ? parseSurveyDefinition(surveyRow.definitionJson)
   : null;
+const [surveyLinks, linkedSurvey] = await Promise.all([
+  surveyRow && db ? getSurveyGovLinks(db, surveyRow.ref) : Promise.resolve([]),
+  db && govAction?.proposalId
+    ? getLinkedSurveyForAction(db, govAction.proposalId)
+    : Promise.resolve(null),
+]);
 
 // If this action defines or challenges an NCL period, show its live tracker.
 const nclPeriod = govAction
@@ -826,6 +835,15 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />
               )}
+              {linkedSurvey && (
+                <LinkedSurveyCard
+                  slot="after-status"
+                  survey={linkedSurvey.survey}
+                  topicSlug={linkedSurvey.topicSlug}
+                  cfg={netCfg}
+                  now={now}
+                />
+              )}
             </GaSidebar>
           </div>
         </div>
@@ -838,6 +856,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           <SurveyCard
             survey={surveyRow}
             definition={surveyDefinition}
+            links={surveyLinks}
             cfg={netCfg}
             now={now}
             appUrl={env.TESSERA_APP_URL}

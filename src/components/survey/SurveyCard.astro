@@ -6,7 +6,7 @@
 // Reads only what the page loaded from D1; the "as of" line owns the staleness.
 import type { SurveyDefinition } from 'cip-179';
 import type { NetworkConfig } from '@/lib/config/network.js';
-import type { SurveyRow } from '@/lib/db/surveys.js';
+import type { SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import {
@@ -20,12 +20,15 @@ import {
 interface Props {
   survey: SurveyRow;
   definition: SurveyDefinition;
+  /** The governance actions advertising this survey (may name actions this
+   * site has not imported — those render unlinked). */
+  links: SurveyGovLinkView[];
   cfg: NetworkConfig;
   now: number;
   appUrl: string | undefined;
 }
 
-const { survey, definition, cfg, now, appUrl } = Astro.props;
+const { survey, definition, links, cfg, now, appUrl } = Astro.props;
 
 const lifecycle = surveyLifecycle(survey, now, cfg);
 const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
@@ -89,6 +92,25 @@ const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Cl
           : 'count pending'}
       </dd>
     </div>
+    {links.length > 0 && (
+      <div>
+        <dt>Linked by {links.length} governance {links.length === 1 ? 'action' : 'actions'}</dt>
+        {links.map((l) => (
+          <dd>
+            {l.topicSlug ? (
+              <a class="svy-card__actionlink" href={`/t/${l.topicSlug}/`}>
+                {l.actionTitle ?? l.title ?? l.actionId}
+              </a>
+            ) : (
+              <>
+                {l.title ?? l.actionId}
+                <span class="svy-card__linknote"> (action not indexed here)</span>
+              </>
+            )}
+          </dd>
+        ))}
+      </div>
+    )}
   </dl>
 
   <div class="svy-card__foot">
@@ -210,6 +232,17 @@ const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Cl
   .svy-card__facts dd {
     margin: 0.1rem 0 0;
     font-size: 0.9rem;
+  }
+  .svy-card__actionlink {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .svy-card__actionlink:hover {
+    text-decoration: underline;
+  }
+  .svy-card__linknote {
+    color: var(--muted);
+    font-size: 0.8125rem;
   }
   .svy-card__foot {
     display: flex;

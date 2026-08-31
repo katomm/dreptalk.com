@@ -306,6 +306,58 @@ export async function listSurveysWithTopics(
   }));
 }
 
+/** One governance action linking a survey, resolved to its DRepTalk thread
+ * when the action is imported. `title` is Tessera's extract from the action's
+ * CIP-108 anchor — the fallback name for an action DRepTalk has not imported
+ * (which can legitimately hold a link: admission needs only one match). */
+export interface SurveyGovLinkView {
+  actionId: string;
+  title: string | null;
+  actionTitle: string | null;
+  topicSlug: string | null;
+}
+
+export async function getSurveyGovLinks(db: D1Database, ref: string): Promise<SurveyGovLinkView[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT l.action_id, l.title, ga.title AS action_title, t.slug AS topic_slug
+       FROM survey_gov_link l
+       LEFT JOIN governance_actions ga ON ga.proposal_id = l.action_id
+       LEFT JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
+       WHERE l.survey_ref = ?
+       ORDER BY l.action_id`,
+    )
+    .bind(ref)
+    .all<{ action_id: string; title: string | null; action_title: string | null; topic_slug: string | null }>();
+  return results.map((r) => ({
+    actionId: r.action_id,
+    title: r.title,
+    actionTitle: r.action_title,
+    topicSlug: r.topic_slug,
+  }));
+}
+
+/** The admitted survey one governance action links — at most one by
+ * construction (an action's anchor declares a single survey). Null when the
+ * action links none, or links one that was never admitted. */
+export async function getLinkedSurveyForAction(
+  db: D1Database,
+  proposalId: string,
+): Promise<{ survey: SurveyRow; topicSlug: string } | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${SURVEY_COLUMNS}, t.slug AS topic_slug
+       FROM survey_gov_link l
+       JOIN survey ON survey.ref = l.survey_ref
+       JOIN topics t ON t.id = survey.topic_id
+       WHERE l.action_id = ? AND t.deleted = 0
+       LIMIT 1`,
+    )
+    .bind(proposalId)
+    .first<RawSurveyRow & { topic_slug: string }>();
+  return row ? { survey: rowToSurvey(row), topicSlug: row.topic_slug } : null;
+}
+
 /** Thread slug for a survey ref — the /s/<ref> redirect target. */
 export async function getTopicSlugBySurveyRef(db: D1Database, ref: string): Promise<string | null> {
   const row = await db

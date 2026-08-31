@@ -7,7 +7,9 @@ import { resolveNetwork } from '../config/network.js';
 import { buildInsertGovernanceAction } from '../db/governance.js';
 import {
   getHeldSurveys,
+  getLinkedSurveyForAction,
   getSurveyByTopicId,
+  getSurveyGovLinks,
   getSurveySyncState,
   getTopicSlugBySurveyRef,
   listSurveysWithTopics,
@@ -311,6 +313,16 @@ describe('syncSurveys', () => {
 
     expect(await getTopicSlugBySurveyRef(env.DB, KEY_LINKED)).toBe(list[0].topicSlug);
     expect(await getTopicSlugBySurveyRef(env.DB, `${'9'.repeat(64)}:0`)).toBeNull();
+
+    // Linkage, both directions. The action's own topic id names no real topic
+    // row here, so the survey-side view resolves the title but no thread link.
+    expect(await getSurveyGovLinks(env.DB, KEY_LINKED)).toEqual([
+      { actionId: ACTION_ID, title: 'The linking action', actionTitle: 'The linking action', topicSlug: null },
+    ]);
+    const linked = await getLinkedSurveyForAction(env.DB, ACTION_ID);
+    expect(linked?.survey.ref).toBe(KEY_LINKED);
+    expect(linked?.topicSlug).toBe(list[0].topicSlug);
+    expect(await getLinkedSurveyForAction(env.DB, 'gov_action1unknown')).toBeNull();
   });
 
   it('skips the run without recording an error while the backend has no snapshot', async () => {

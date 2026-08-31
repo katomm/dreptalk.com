@@ -1,0 +1,104 @@
+---
+// Sidebar card on a governance-action thread whose anchor links a CIP-179
+// survey (at most one by construction: an action's metadata declares a single
+// survey). "Linked by the action's metadata", never "official" — the linkage
+// is a discovery relation, not an endorsement. Matches the sidebar card look
+// of ActionStatusCard / NclMiniCard.
+import type { NetworkConfig } from '@/lib/config/network.js';
+import type { SurveyRow } from '@/lib/db/surveys.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
+import { surveyDeadlineUnix, surveyLifecycle } from '@/lib/surveys/view.js';
+
+interface Props {
+  survey: SurveyRow;
+  topicSlug: string;
+  cfg: NetworkConfig;
+  now: number;
+}
+
+const { survey, topicSlug, cfg, now } = Astro.props;
+
+const lifecycle = surveyLifecycle(survey, now, cfg);
+const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Closed' : 'Cancelled';
+const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
+---
+
+<div class="sidebar-card">
+  <p class="sidebar-card__title">Linked survey</p>
+  <a class="lsvy__name" href={`/t/${topicSlug}/`}>{survey.title}</a>
+  <p class="lsvy__meta">
+    <span class:list={['lsvy__badge', `lsvy__badge--${lifecycle}`]}>{statusLabel}</span>
+    {lifecycle === 'open' ? `until ${formatEpochDate(deadlineUnix)}` : `ended epoch ${survey.endEpoch}`}
+  </p>
+  <p class="lsvy__count">
+    {survey.countedDreps != null
+      ? `${survey.countedDreps} DRep ${survey.countedDreps === 1 ? 'response' : 'responses'} counted`
+      : 'response count pending'}
+  </p>
+  <p class="lsvy__note">Linked by this action's metadata.</p>
+</div>
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+  .lsvy__name {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--fg);
+    text-decoration: none;
+    line-height: 1.35;
+  }
+  .lsvy__name:hover {
+    text-decoration: underline;
+  }
+  .lsvy__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.4rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .lsvy__badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+  }
+  .lsvy__badge--open {
+    color: var(--c-pos);
+    background: color-mix(in srgb, var(--c-pos) 12%, transparent);
+  }
+  .lsvy__badge--closed {
+    color: var(--muted);
+    background: color-mix(in srgb, var(--muted) 14%, transparent);
+  }
+  .lsvy__badge--cancelled {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  .lsvy__count {
+    margin: 0.35rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .lsvy__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+</style>
