@@ -411,49 +411,19 @@ does no label-17 indexing, and no page request reads Tessera.
   is the vote panel, riding with A. Deferred, not rejected.
 - **Preprod gating by `TESSERA_BACKEND_URL` presence** plus the `/health`
   network match. One switch, owned by whoever deploys the site.
+- **Pass 2's link rewrite (delete, re-insert what the answer carries)
+  stands unguarded: erasure is part of the contract** — a rolled-back
+  action must take its link down with it (2026-08-31).
 
 ## 8. Risks and open items
 
-- **Refreshing erases a linkage Tessera stops reporting.** A guard missing
-  from landed code, to add before the branch merges. Pass 2 rewrites
-  `survey_gov_link` from every refresh answer (delete, then re-insert what the
-  answer carries), so a survey whose answer carries no links loses the ones
-  already stored: the card's linking actions and the action thread's
-  Linked-survey card both disappear. Tessera freezes a settled link slice onto
-  the survey row, so a steady-state answer keeps carrying it — the exposure is
-  transient, chiefly its link tables being rebuildable cache that re-resolves
-  only a few anchors per refresh after a wipe. The asymmetry decides it:
-  keeping a link Tessera no longer reports costs a stale label, deleting one
-  costs a relation this mirror cannot recover without re-admission. So replace
-  a survey's link rows only from an answer that carries links for it, and keep
-  the last known slice otherwise. The case against is a genuinely rolled-back
-  proposal, whose link would then survive its action; `unavailable` already
-  accepts that trade on the survey side. Needs a workers test pinning it.
-- **The voter's own answer is invisible once settled, and a re-answer
-  starts from a blank form.** Found in the acceptance run (2026-08-31).
-  Two symptoms, one missing input. `<tessera-respond>` already ships the
-  edit/replace flow — a `priorResponses` prop pre-fills the form, marks
-  the submission as a replacement, and picks the entry matching the
-  current role + credential itself (a sealed prior marks without
-  pre-filling; ciphertext) — but the host must supply the responder's
-  prior responses, and DRepTalk persists none: pass 3 fetches every
-  response in the bundle for `auditResponses` and discards the content,
-  and pass 4's `responsesByTx` read carries identity only. Showing the
-  settled answer on the card has the same missing input, and would not
-  contradict the no-result-figure decision (§7), which is about tallies,
-  not the viewer's own submission. The architectural line ("the chain is
-  never read on a page request") points at persisting the audited
-  latest-valid responses in D1 during pass 3 and reading the viewer's row
-  at SSR — a new table, so shape the maintainer should see in the issue
-  before the code exists. Whether it lands on this branch or as the first
-  follow-up is an open scope call.
-- evolution-sdk skew (§5); widget bundle weight — measure before the PR.
-- **The acceptance pair is the long-lead item** (§3). Nothing in 1–5 blocks
-  on it, but increment 6 cannot run without it. Start early.
-- **The narrowed admission rule reopens the presentation question.** "Card
-  on the action's thread, no topic" is now a smaller diff than a category; §1
-  argues it still loses. Confirm with the maintainer before increment 3 — the
-  last decision that would invalidate the migration.
+- **The voter's own settled answer is invisible, and a re-answer starts
+  blank — although `<tessera-respond>` ships a `priorResponses`
+  edit/replace flow — because DRepTalk persists no response content**
+  (pass 3 discards the bundle's responses after `auditResponses`; pass 4
+  reads identity only). The fix the architecture points at is a D1 mirror
+  of the audited latest-valid responses, written in pass 3 and read at
+  SSR — a new table, to raise with the maintainer before the code exists.
 
 ## 9. The finalState wire change (2026-08-31)
 
