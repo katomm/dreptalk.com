@@ -363,6 +363,21 @@ does no label-17 indexing, and no page request reads Tessera.
 
 ## 8. Risks and open items
 
+- **Refreshing erases a linkage Tessera stops reporting.** A guard missing
+  from landed code, to add before the branch merges. Pass 2 rewrites
+  `survey_gov_link` from every refresh answer (delete, then re-insert what the
+  answer carries), so a survey whose answer carries no links loses the ones
+  already stored: the card's linking actions and the action thread's
+  Linked-survey card both disappear. Tessera freezes a settled link slice onto
+  the survey row, so a steady-state answer keeps carrying it — the exposure is
+  transient, chiefly its link tables being rebuildable cache that re-resolves
+  only a few anchors per refresh after a wipe. The asymmetry decides it:
+  keeping a link Tessera no longer reports costs a stale label, deleting one
+  costs a relation this mirror cannot recover without re-admission. So replace
+  a survey's link rows only from an answer that carries links for it, and keep
+  the last known slice otherwise. The case against is a genuinely rolled-back
+  proposal, whose link would then survive its action; `unavailable` already
+  accepts that trade on the survey side. Needs a workers test pinning it.
 - evolution-sdk skew (§5); widget bundle weight — measure before the PR.
 - **The acceptance pair is the long-lead item** (§3). Nothing in 1–5 blocks
   on it, but increment 6 cannot run without it. Start early.
