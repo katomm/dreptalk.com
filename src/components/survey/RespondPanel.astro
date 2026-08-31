@@ -1,0 +1,267 @@
+---
+// The answering panel under a survey card: wallet connect, then Tessera's
+// <tessera-respond> element, which owns the whole CIP-179 form and emits the
+// finished label-17 payload — DRepTalk assembles no CIP-179 structure itself.
+// The page gates rendering server-side (drep session; DRep-eligible, open, not
+// cancelled/unavailable/external survey); this component only assumes it.
+//
+// The sibling script is a bundled <script> (never is:inline), so Astro hashes
+// it into the strict CSP automatically. Server data crosses to it through
+// data-* attributes: the stored wire-form record JSON travels verbatim and is
+// decoded client-side with the same cip-179 fromJsonSafe the sync used, so the
+// widget sees exactly what Tessera published (a re-serialized object could not
+// carry the definition's byte fields).
+import type { CardanoNetwork } from '@/lib/config/network.js';
+import type { SurveyRow } from '@/lib/db/surveys.js';
+
+interface Props {
+  survey: SurveyRow;
+  network: CardanoNetwork;
+}
+
+const { survey, network } = Astro.props;
+---
+
+<section
+  class="svy-respond"
+  data-survey-respond
+  data-network={network}
+  data-ref={survey.ref}
+  data-definition={survey.definitionJson}
+  data-tip-epoch={String(survey.tipEpoch)}
+>
+  <h3 class="svy-respond__title">Answer this survey</h3>
+
+  <div data-connect-step>
+    <p class="svy-respond__hint">
+      Connect a DRep-capable wallet (Lace, Eternl, Typhon) to answer on chain. Your answer is a
+      public Cardano transaction signed by your DRep key; the wallet pays only the network fee.
+    </p>
+    <div class="svy-respond__connect">
+      <select data-wallet-select aria-label="Wallet">
+        <option value="">Detecting wallets…</option>
+      </select>
+      <button type="button" class="svy-respond__btn" data-connect>Connect wallet</button>
+    </div>
+  </div>
+
+  <div data-widget-slot hidden>
+    <tessera-respond></tessera-respond>
+  </div>
+
+  <p class="svy-respond__status" data-status hidden></p>
+  <p class="svy-respond__error" data-error hidden></p>
+
+  <div class="svy-respond__success" data-success hidden>
+    <p><strong>Answer submitted.</strong> It will show on this page once the transaction confirms
+      and the next sync sees it (a few minutes).</p>
+    <p class="svy-respond__tx">
+      Transaction: <a data-tx-link target="_blank" rel="noopener noreferrer"><code data-tx-hash></code></a>
+    </p>
+  </div>
+</section>
+
+<script>
+  import 'cardano-tessera-respond';
+  import type { RespondResult, TesseraRespondElement } from 'cardano-tessera-respond';
+  import { Role } from 'cip-179';
+  import type { SurveyRecord } from 'cip-179/domain';
+  import { fromJsonSafe } from 'cip-179/tally';
+  import type { CardanoNetwork } from '@/lib/config/network.js';
+  import { txExplorerUrl } from '@/lib/config/network.js';
+  import { loadDrepTxModule } from '@/lib/governance/voteFlowClient.js';
+  import { connectAsDrep, type EnabledWalletApi } from '@/lib/wallet/drepWalletConnect.js';
+  import {
+    chooseSelectedWallet,
+    listCardanoWallets,
+    recallWallet,
+    rememberWallet,
+  } from '@/lib/wallet/useCardanoWallets.js';
+  import { readableError } from '@/lib/wallet/walletError.js';
+
+  const root = document.querySelector<HTMLElement>('[data-survey-respond]');
+  if (root) {
+    const network = root.dataset.network as CardanoNetwork;
+    const record = fromJsonSafe(JSON.parse(root.dataset.definition ?? '')) as SurveyRecord;
+
+    // Not HTMLSelectElement: workers-types' HTMLRewriter Element (referenced
+    // globally in env.d.ts) merges into the DOM Element, and HTMLSelectElement
+    // — the one element redeclaring remove() — stops satisfying it. `value` is
+    // the only select-specific member used, so type it structurally.
+    const select = root.querySelector<HTMLElement & { value: string }>('[data-wallet-select]')!;
+    const connectBtn = root.querySelector<HTMLButtonElement>('[data-connect]')!;
+    const connectStep = root.querySelector<HTMLElement>('[data-connect-step]')!;
+    const widgetSlot = root.querySelector<HTMLElement>('[data-widget-slot]')!;
+    const widget = root.querySelector<TesseraRespondElement>('tessera-respond')!;
+    const statusEl = root.querySelector<HTMLElement>('[data-status]')!;
+    const errorEl = root.querySelector<HTMLElement>('[data-error]')!;
+    const successEl = root.querySelector<HTMLElement>('[data-success]')!;
+
+    // Wallet extensions inject window.cardano asynchronously, often after this
+    // script runs, so a single scan routinely finds nothing: re-scan on a short
+    // schedule (the same reasoning as useCardanoWallets' interval) and keep the
+    // remembered / CIP-95-capable default until the user picks one themselves.
+    let userPicked = false;
+    select.addEventListener('change', () => {
+      userPicked = true;
+    });
+    function scanWallets(): void {
+      const wallets = listCardanoWallets((window as { cardano?: unknown }).cardano);
+      if (wallets.length === 0) return;
+      const chosen = chooseSelectedWallet(select.value, recallWallet(), wallets, userPicked, true);
+      select.replaceChildren(
+        ...wallets.map((w) => new Option(w.name, w.key, false, w.key === chosen)),
+      );
+    }
+    scanWallets();
+    for (const delay of [500, 1500, 3000]) setTimeout(scanWallets, delay);
+
+    function showError(message: string): void {
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+      statusEl.hidden = true;
+    }
+    function showStatus(message: string): void {
+      statusEl.textContent = message;
+      statusEl.hidden = false;
+      errorEl.hidden = true;
+    }
+
+    let api: EnabledWalletApi | null = null;
+    connectBtn.addEventListener('click', async () => {
+      scanWallets();
+      const wallets = listCardanoWallets((window as { cardano?: unknown }).cardano);
+      const wallet = wallets.find((w) => w.key === select.value) ?? wallets[0];
+      if (!wallet) {
+        showError('No Cardano wallet extension was found. Install a DRep-capable wallet first.');
+        return;
+      }
+      connectBtn.disabled = true;
+      showStatus('Connecting…');
+      try {
+        const connected = await connectAsDrep(wallet.raw, network, {
+          onEnabled: () => rememberWallet(wallet.key),
+        });
+        api = connected.api;
+        // Everything the widget requires, as DOM properties (never attributes:
+        // these are objects). It renders as soon as the last one lands.
+        widget.responder = { [Role.DRep]: { type: 'key', keyHash: connected.identity.drepKeyHash } };
+        widget.definition = record.definition;
+        widget.surveyRef = record.ref;
+        widget.tipEpoch = Number(root.dataset.tipEpoch);
+        widget.cancelled = false; // gated server-side; explicit beats the attribute fallback
+        connectStep.hidden = true;
+        statusEl.hidden = true;
+        widgetSlot.hidden = false;
+      } catch (err) {
+        showError(readableError(err));
+      } finally {
+        connectBtn.disabled = false;
+      }
+    });
+
+    let submitting = false;
+    root.addEventListener('tessera:response', async (event) => {
+      const result = (event as CustomEvent<RespondResult>).detail;
+      if (submitting || !api) return;
+      submitting = true;
+      showStatus('Awaiting wallet signature…');
+      try {
+        // Same lazy tx-builder module as the vote flow; a failed import is a
+        // PreSignError (stale page after a deploy) with its own reload hint.
+        const mod = await loadDrepTxModule();
+        const signerKeyHashes = result.proveCredentials
+          .filter((p) => p.credential.type === 'key')
+          .map((p) => (p.credential as { keyHash: Uint8Array }).keyHash);
+        const { txHash } = await mod.castSurveyResponse({
+          walletApi: api,
+          network,
+          payload: result.payload,
+          signerKeyHashes,
+          origin: window.location.origin,
+        });
+        widgetSlot.hidden = true;
+        statusEl.hidden = true;
+        const link = successEl.querySelector<HTMLAnchorElement>('[data-tx-link]')!;
+        link.href = txExplorerUrl(network, txHash);
+        successEl.querySelector('[data-tx-hash]')!.textContent = txHash;
+        successEl.hidden = false;
+      } catch (err) {
+        showError(readableError(err));
+      } finally {
+        submitting = false;
+      }
+    });
+  }
+</script>
+
+<style>
+  .svy-respond {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .svy-respond__title {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+  }
+  .svy-respond__hint {
+    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .svy-respond__connect {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .svy-respond__connect select {
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: inherit;
+    font-size: 0.875rem;
+  }
+  .svy-respond__btn {
+    padding: 0.45rem 0.9rem;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--accent-contrast, #fff);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .svy-respond__btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .svy-respond__status {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .svy-respond__error {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--danger);
+  }
+  .svy-respond__success {
+    font-size: 0.9rem;
+  }
+  .svy-respond__success p {
+    margin: 0 0 0.5rem;
+  }
+  .svy-respond__tx {
+    word-break: break-all;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-respond__tx a {
+    color: var(--accent);
+  }
+</style>

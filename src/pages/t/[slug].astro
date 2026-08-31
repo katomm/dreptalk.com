@@ -19,9 +19,10 @@ import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import SurveyCard from '@/components/survey/SurveyCard.astro';
 import LinkedSurveyCard from '@/components/survey/LinkedSurveyCard.astro';
+import RespondPanel from '@/components/survey/RespondPanel.astro';
 import { getLinkedSurveyForAction, getSurveyByTopicId, getSurveyGovLinks } from '@/lib/db/surveys.js';
-import { parseSurveyDefinition } from '@/lib/surveys/view.js';
-import type { SurveyDefinition } from 'cip-179';
+import { parseSurveyDefinition, surveyLifecycle } from '@/lib/surveys/view.js';
+import { Role, type SurveyDefinition } from 'cip-179';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
 import { getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
@@ -235,6 +236,19 @@ const [surveyLinks, linkedSurvey] = await Promise.all([
     ? getLinkedSurveyForAction(db, govAction.proposalId)
     : Promise.resolve(null),
 ]);
+
+// The answering panel renders only for a drep session on a survey that can
+// actually take an answer: DRep-eligible, open, not cancelled, not rolled
+// back, and not external-content (its prompts live behind an anchor Tessera's
+// API does not serve, so the widget could not show what is being signed).
+const canAnswerSurvey =
+  !!surveyRow &&
+  !!user?.roles.includes('drep') &&
+  !surveyRow.cancelled &&
+  !surveyRow.unavailable &&
+  !surveyRow.externalContent &&
+  surveyRow.eligibleRoles.includes(Role.DRep) &&
+  surveyLifecycle(surveyRow, now, netCfg) === 'open';
 
 // If this action defines or challenges an NCL period, show its live tracker.
 const nclPeriod = govAction
@@ -862,6 +876,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             appUrl={env.TESSERA_APP_URL}
           />
         )}
+        {surveyRow && canAnswerSurvey && <RespondPanel survey={surveyRow} network={network} />}
         <ThreadPosts
           topic={topic}
           thread={thread}

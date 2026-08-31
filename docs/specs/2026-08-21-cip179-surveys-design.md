@@ -52,6 +52,17 @@ _(one line per completed increment; record deviations here)_
   (`admitted=1`, thread + gov link verified in D1), `/c/surveys` renders it,
   and the maintainer signed in as `drep` with the preprod wallet and posted
   a reply. No code; only increments 6–8 and §8's gov-link guard remain.
+- 2026-08-31 — increment 6: `cardano-tessera-respond` 0.1.3 (pinned),
+  `RespondPanel.astro` + bundled sibling script, and
+  `castSurveyResponse`/`queueSurveyResponseOps` in `drepTx.ts` (reusing its
+  private client/UTxO/sign helpers and recorder-stub tests rather than a
+  second evolution tx module; the SDK's duplicate-label rejection enforces
+  one label-17 payload per tx for free). Panel gate additionally excludes
+  external-content surveys (§7's "listed but not answerable"). Bundle
+  weight (§8): widget chunk ~327 KB raw + ~91 KB panel script, loaded only
+  when the panel renders; sealing chunks stay lazy. Evolution skew checked:
+  peer `^0.5.9`, installed 0.5.12, deduped. On-chain acceptance run still
+  pending (needs the wallet).
 
 ---
 

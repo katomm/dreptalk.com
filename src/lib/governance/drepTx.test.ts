@@ -2,26 +2,30 @@
 // buildRegisterDrepParts requires no network or wallet, so it runs offline.
 // The full registerDRep function is covered by the preprod e2e suite (Phase B-11).
 
-import { describe, it, expect } from 'vitest';
-import type { VotingProcedures, GovernanceAction } from '@evolution-sdk/evolution';
+import type { GovernanceAction, VotingProcedures } from '@evolution-sdk/evolution';
 import { Anchor, Url } from '@evolution-sdk/evolution';
-import {
-  buildRegisterDrepParts,
-  queueRegisterDrepOps,
-  queueDeregisterDrepOps,
-  queueUpdateDrepOps,
-  buildDrepTarget,
-  stakeCredentialFromRewardAddress,
-  queueDelegateVotesOps,
-  buildGovActionId,
-  queueVotesOps,
-  castDRepVotes,
-} from './drepTx.js';
+import { METADATA_LABEL } from 'cip-179';
+import { describe, expect, it } from 'vitest';
+import { DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { bytesToHex } from '../crypto/hex.js';
+import {
+  buildDrepTarget,
+  buildGovActionId,
+  buildRegisterDrepParts,
+  castDRepVotes,
+  queueDelegateVotesOps,
+  queueDeregisterDrepOps,
+  queueRegisterDrepOps,
+  queueSurveyResponseOps,
+  queueUpdateDrepOps,
+  queueVotesOps,
+  stakeCredentialFromRewardAddress,
+} from './drepTx.js';
 
 // Deterministic test fixtures.
 const DREP_KEY_HASH = new Uint8Array(28).fill(0xab); // 28-byte blake2b-224 placeholder
-const ANCHOR_URL = 'https://dreptalk.com/drep/0000000000000000000000000000000000000000000000000000000000000000.json';
+const ANCHOR_URL =
+  'https://dreptalk.com/drep/0000000000000000000000000000000000000000000000000000000000000000.json';
 // 64 hex chars = 32 bytes, a valid blake2b-256 placeholder.
 const ANCHOR_HASH_HEX = 'ab'.repeat(32);
 
@@ -30,18 +34,36 @@ const ANCHOR_HASH_HEX = 'ab'.repeat(32);
 function makeBuilderRecorder() {
   const calls: Array<{ op: string; arg: unknown }> = [];
   const rec = {
-    registerDRep(arg: unknown) { calls.push({ op: 'registerDRep', arg }); return rec; },
-    updateDRep(arg: unknown) { calls.push({ op: 'updateDRep', arg }); return rec; },
-    deregisterDRep(arg: unknown) { calls.push({ op: 'deregisterDRep', arg }); return rec; },
-    delegateToDRep(arg: unknown) { calls.push({ op: 'delegateToDRep', arg }); return rec; },
-    addSigner(arg: unknown) { calls.push({ op: 'addSigner', arg }); return rec; },
-    attachMetadata(arg: unknown) { calls.push({ op: 'attachMetadata', arg }); return rec; },
+    registerDRep(arg: unknown) {
+      calls.push({ op: 'registerDRep', arg });
+      return rec;
+    },
+    updateDRep(arg: unknown) {
+      calls.push({ op: 'updateDRep', arg });
+      return rec;
+    },
+    deregisterDRep(arg: unknown) {
+      calls.push({ op: 'deregisterDRep', arg });
+      return rec;
+    },
+    delegateToDRep(arg: unknown) {
+      calls.push({ op: 'delegateToDRep', arg });
+      return rec;
+    },
+    addSigner(arg: unknown) {
+      calls.push({ op: 'addSigner', arg });
+      return rec;
+    },
+    attachMetadata(arg: unknown) {
+      calls.push({ op: 'attachMetadata', arg });
+      return rec;
+    },
   };
   return { rec, calls };
 }
 
 function addSignerKeyHashHex(calls: Array<{ op: string; arg: unknown }>): string | null {
-  const c = calls.find((x) => x.op === 'addSigner');
+  const c = calls.find(x => x.op === 'addSigner');
   if (!c) return null;
   const keyHash = (c.arg as { keyHash: { hash: Uint8Array } }).keyHash.hash;
   return bytesToHex(keyHash);
@@ -126,7 +148,7 @@ describe('queueRegisterDrepOps (fee: DRep key required signer)', () => {
       drepKeyHash: DREP_KEY_HASH,
     });
 
-    expect(calls.some((c) => c.op === 'registerDRep')).toBe(true);
+    expect(calls.some(c => c.op === 'registerDRep')).toBe(true);
     expect(addSignerKeyHashHex(calls)).toBe(bytesToHex(DREP_KEY_HASH));
   });
 });
@@ -145,7 +167,7 @@ describe('queueDeregisterDrepOps (fee: DRep key required signer)', () => {
       drepKeyHash: DREP_KEY_HASH,
     });
 
-    expect(calls.some((c) => c.op === 'deregisterDRep')).toBe(true);
+    expect(calls.some(c => c.op === 'deregisterDRep')).toBe(true);
     expect(addSignerKeyHashHex(calls)).toBe(bytesToHex(DREP_KEY_HASH));
   });
 });
@@ -165,12 +187,12 @@ describe('queueUpdateDrepOps (fee: DRep key required signer)', () => {
       drepKeyHash: DREP_KEY_HASH,
     });
 
-    const update = calls.find((c) => c.op === 'updateDRep');
+    const update = calls.find(c => c.op === 'updateDRep');
     expect(update).toBeDefined();
     // The new anchor must ride on the cert; without it the update is a no-op.
     expect((update!.arg as { anchor?: unknown }).anchor).toBeDefined();
     expect(addSignerKeyHashHex(calls)).toBe(bytesToHex(DREP_KEY_HASH));
-    expect(calls.some((c) => c.op === 'attachMetadata')).toBe(true);
+    expect(calls.some(c => c.op === 'attachMetadata')).toBe(true);
   });
 });
 
@@ -214,7 +236,9 @@ describe('stakeCredentialFromRewardAddress', () => {
 // MUST declare it via addSigner or the fee falls one vkey witness short.
 describe('queueDelegateVotesOps (fee: stake key required signer)', () => {
   it('queues the vote_deleg cert and declares the stake key as a required signer', () => {
-    const { stakeCredential, stakeKeyHash } = stakeCredentialFromRewardAddress(`e0${STAKE_HASH_HEX}`);
+    const { stakeCredential, stakeKeyHash } = stakeCredentialFromRewardAddress(
+      `e0${STAKE_HASH_HEX}`,
+    );
     const drep = buildDrepTarget({ credentialHex: DREP_CRED_HEX, isScript: false });
     const { rec, calls } = makeBuilderRecorder();
 
@@ -224,10 +248,10 @@ describe('queueDelegateVotesOps (fee: stake key required signer)', () => {
       stakeKeyHash,
     });
 
-    expect(calls.some((c) => c.op === 'delegateToDRep')).toBe(true);
+    expect(calls.some(c => c.op === 'delegateToDRep')).toBe(true);
     expect(addSignerKeyHashHex(calls)).toBe(STAKE_HASH_HEX);
     // The CIP-20 attribution tag (label 674) rides along, like register/retire.
-    expect(calls.some((c) => c.op === 'attachMetadata')).toBe(true);
+    expect(calls.some(c => c.op === 'attachMetadata')).toBe(true);
   });
 });
 
@@ -254,7 +278,13 @@ describe('queueVotesOps (single vote)', () => {
     // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
     const stub: any = new Proxy(
       {},
-      { get: (_t, prop: string) => (arg: unknown) => { if (!calls[prop]) calls[prop] = []; calls[prop].push(arg); return stub; } },
+      {
+        get: (_t, prop: string) => (arg: unknown) => {
+          if (!calls[prop]) calls[prop] = [];
+          calls[prop].push(arg);
+          return stub;
+        },
+      },
     );
 
     const drepKeyHash = new Uint8Array(28).fill(7);
@@ -277,7 +307,13 @@ describe('queueVotesOps (multi-vote)', () => {
     // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
     const stub: any = new Proxy(
       {},
-      { get: (_t, prop: string) => (arg: unknown) => { if (!calls[prop]) calls[prop] = []; calls[prop].push(arg); return stub; } },
+      {
+        get: (_t, prop: string) => (arg: unknown) => {
+          if (!calls[prop]) calls[prop] = [];
+          calls[prop].push(arg);
+          return stub;
+        },
+      },
     );
     return { stub, calls };
   }
@@ -359,5 +395,46 @@ describe('castDRepVotes input validation', () => {
         votes: [],
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe('queueSurveyResponseOps', () => {
+  function makeStub() {
+    const calls: Record<string, unknown[]> = {};
+    // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
+    const stub: any = new Proxy(
+      {},
+      {
+        get: (_t, prop: string) => (arg: unknown) => {
+          if (!calls[prop]) calls[prop] = [];
+          calls[prop].push(arg);
+          return stub;
+        },
+      },
+    );
+    return { stub, calls };
+  }
+
+  // A metadatum tree the widget could emit: toTxMetadatum is a type-level
+  // cast, so the exact same structure must come out at label 17.
+  const payload = new Map<bigint, unknown>([[0n, ['responses', 1n]]]) as never;
+
+  it('attaches the payload at label 17, one signer per key hash, and the CIP-20 tag', () => {
+    const { stub, calls } = makeStub();
+    const keyA = new Uint8Array(28).fill(1);
+    const keyB = new Uint8Array(28).fill(2);
+    queueSurveyResponseOps(stub, { payload, signerKeyHashes: [keyA, keyB] });
+
+    const meta = calls.attachMetadata as Array<{ label: bigint; metadata: unknown }>;
+    expect(meta.map(m => m.label)).toEqual([BigInt(METADATA_LABEL), DREPTALK_CIP20_LABEL]);
+    expect(meta[0].metadata).toBe(payload);
+    // Mechanism A lives in required_signers: a missing entry silently
+    // invalidates the response, so the signer count is the assertion.
+    expect(calls.addSigner).toHaveLength(2);
+  });
+
+  it('rejects an empty credential list — an unproven response would carry no signature', () => {
+    const { stub } = makeStub();
+    expect(() => queueSurveyResponseOps(stub, { payload, signerKeyHashes: [] })).toThrow();
   });
 });

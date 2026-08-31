@@ -3,12 +3,27 @@
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
 import {
-  Address, Anchor, Client, Credential, DRep, GovernanceAction, KeyHash, ScriptHash,
-  Transaction, TransactionHash, Url, UTxO, VotingProcedures, mainnet, preprod,
+  Address,
+  Anchor,
+  Client,
+  Credential,
+  DRep,
+  GovernanceAction,
+  KeyHash,
+  mainnet,
+  preprod,
+  ScriptHash,
+  Transaction,
+  TransactionHash,
+  Url,
+  UTxO,
+  VotingProcedures,
 } from '@evolution-sdk/evolution';
-import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
-import { hexToBytes } from '../crypto/hex.js';
+import { METADATA_LABEL, type Metadatum } from 'cip-179';
+import { toTxMetadatum } from 'cip-179/evolution';
+import { DREPTALK_CIP20_LABEL, dreptalkCip20Metadatum } from '../cardano/tx.js';
 import type { CardanoNetwork } from '../config/network.js';
+import { hexToBytes } from '../crypto/hex.js';
 
 // WalletApi is not re-exported from the barrel. We define a structurally compatible
 // interface (a strict superset of what we actually call) so callers can pass the
@@ -19,7 +34,10 @@ export interface WalletApi {
   getRewardAddresses(): Promise<ReadonlyArray<string>>;
   getUtxos(): Promise<ReadonlyArray<string>>;
   signTx(txCborHex: string, partialSign: boolean): Promise<string>;
-  signData(addressHex: string, payload: string | Uint8Array): Promise<{ payload: string | Uint8Array; signature: string }>;
+  signData(
+    addressHex: string,
+    payload: string | Uint8Array,
+  ): Promise<{ payload: string | Uint8Array; signature: string }>;
   submitTx(txCborHex: string): Promise<string>;
 }
 
@@ -118,7 +136,7 @@ async function collectWalletUtxos(
   const addresses = used.length > 0 ? used : await walletApi.getUnusedAddresses();
 
   const perAddress = await Promise.all(
-    addresses.map((addressHex) => reader.getUtxos(Address.fromHex(addressHex))),
+    addresses.map(addressHex => reader.getUtxos(Address.fromHex(addressHex))),
   );
 
   // Dedupe by output reference: an address list is normally disjoint, but guard
@@ -240,7 +258,10 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
   // reg_drep locks the DRep deposit, so the inputs must cover deposit + fee.
-  const inputs = pickInputsToCover(availableUtxos, DREP_DEPOSIT_LOVELACE + FUNDING_HEADROOM_LOVELACE);
+  const inputs = pickInputsToCover(
+    availableUtxos,
+    DREP_DEPOSIT_LOVELACE + FUNDING_HEADROOM_LOVELACE,
+  );
 
   const built = await queueRegisterDrepOps(client.newTx(), {
     drepCredential,
@@ -332,7 +353,7 @@ export function stakeCredentialFromRewardAddress(rewardAddressHex: string): {
   if (bytes.length !== 29) {
     throw new Error('Unexpected reward address length; expected a 29-byte stake address.');
   }
-  const isScript = (bytes[0] >> 4) === 0b1111;
+  const isScript = bytes[0] >> 4 === 0b1111;
   const hash = bytes.slice(1, 29);
   return {
     stakeCredential: isScript ? Credential.makeScriptHash(hash) : Credential.makeKeyHash(hash),
@@ -377,7 +398,11 @@ export function buildGovActionId(id: string): GovernanceAction.GovActionId {
 
 /** Maps our vote string to the SDK Vote value. */
 function voteValue(vote: 'yes' | 'no' | 'abstain') {
-  return vote === 'yes' ? VotingProcedures.yes() : vote === 'no' ? VotingProcedures.no() : VotingProcedures.abstain();
+  return vote === 'yes'
+    ? VotingProcedures.yes()
+    : vote === 'no'
+      ? VotingProcedures.no()
+      : VotingProcedures.abstain();
 }
 
 /**
@@ -453,7 +478,7 @@ export async function castDRepVotes(opts: CastDRepVotesOpts): Promise<{ txHash: 
     throw new Error('At least one vote is required.');
   }
   const seen = new Set<string>();
-  const votes = opts.votes.map((v) => {
+  const votes = opts.votes.map(v => {
     const key = v.govActionId.trim().toLowerCase();
     if (seen.has(key)) {
       throw new Error(`Duplicate governance action in batch: ${v.govActionId}`);
@@ -526,6 +551,70 @@ export async function castDRepVote(opts: CastDRepVoteOpts): Promise<{ txHash: st
 }
 
 /**
+ * Queues a CIP-179 survey response onto a tx builder: the label-17 payload the
+ * `<tessera-respond>` widget emitted (already a complete, encoded metadatum —
+ * DRepTalk never assembles CIP-179 structures itself), one required signer per
+ * credential the payload must prove control of (mechanism A: the entry in
+ * `required_signers` is the proof, so dropping a signer silently invalidates
+ * the response rather than failing the tx), and the CIP-20 attribution tag.
+ * Labels 17 and 674 merge into one metadata map; the SDK rejects a duplicate
+ * label, which also enforces CIP-179's one-payload-per-transaction rule.
+ * Pure (no network); exported for unit tests.
+ */
+export function queueSurveyResponseOps(
+  txb: DrepTxBuilder,
+  parts: { payload: Metadatum; signerKeyHashes: readonly Uint8Array[] },
+): DrepTxBuilder {
+  if (parts.signerKeyHashes.length === 0) {
+    throw new Error('A survey response needs at least one credential to prove.');
+  }
+  let tx = txb.attachMetadata({
+    label: BigInt(METADATA_LABEL),
+    metadata: toTxMetadatum(parts.payload),
+  });
+  for (const keyHash of parts.signerKeyHashes) {
+    tx = tx.addSigner({ keyHash: KeyHash.fromBytes(keyHash) });
+  }
+  return tx.attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+export interface CastSurveyResponseOpts {
+  /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
+  walletApi: WalletApi;
+  network: CardanoNetwork;
+  /** The label-17 metadatum from the widget's RespondResult, attached verbatim. */
+  payload: Metadatum;
+  /** 28-byte key hashes from RespondResult.proveCredentials (key credentials only). */
+  signerKeyHashes: readonly Uint8Array[];
+  /** window.location.origin, base for the /api/koios proxy. */
+  origin: string;
+}
+
+/**
+ * Builds, signs, and submits the transaction carrying one CIP-179 survey
+ * response (metadata label 17, credential proof via required_signers).
+ * Non-custodial like the vote flow: the wallet signs and submits. No deposit,
+ * so the inputs only need to cover the fee. Requires a live wallet and a
+ * reachable Koios provider; the queue step is unit-tested offline.
+ */
+export async function castSurveyResponse(
+  opts: CastSurveyResponseOpts,
+): Promise<{ txHash: string }> {
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
+
+  const built = await queueSurveyResponseOps(client.newTx(), {
+    payload: opts.payload,
+    signerKeyHashes: opts.signerKeyHashes,
+  })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
+
+  return signAndSubmit(built, opts.walletApi);
+}
+
+/**
  * Queues the vote_deleg certificate, the stake-key required signer, and the
  * CIP-20 attribution tag. Like reg_drep, the vote_deleg certificate is witnessed
  * by a key (the stake key) that controls no input, and EvolutionSDK sizes the fee
@@ -568,11 +657,18 @@ export interface DelegateVotesOpts {
  * needs a redeemer rather than a vkey signer and is out of scope here.
  */
 export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ txHash: string }> {
-  const { stakeCredential, stakeKeyHash, isScript } = stakeCredentialFromRewardAddress(opts.rewardAddressHex);
+  const { stakeCredential, stakeKeyHash, isScript } = stakeCredentialFromRewardAddress(
+    opts.rewardAddressHex,
+  );
   if (isScript) {
-    throw new Error('This wallet uses a script-controlled stake credential, which is not supported for delegation.');
+    throw new Error(
+      'This wallet uses a script-controlled stake credential, which is not supported for delegation.',
+    );
   }
-  const drep = buildDrepTarget({ credentialHex: opts.drepCredentialHex, isScript: opts.drepIsScript });
+  const drep = buildDrepTarget({
+    credentialHex: opts.drepCredentialHex,
+    isScript: opts.drepIsScript,
+  });
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
