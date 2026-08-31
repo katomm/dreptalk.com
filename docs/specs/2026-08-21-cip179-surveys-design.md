@@ -47,6 +47,11 @@ _(one line per completed increment; record deviations here)_
   state freezes the row out of the refresh set and that only `cancelled`
   surfaces as a cancellation; a node test pins the three-state decode and
   that an unknown state fails at the envelope.
+- 2026-08-31 — increment 1 done by hand: one local `*/5` run imported the
+  preprod governance actions and admitted the acceptance survey
+  (`admitted=1`, thread + gov link verified in D1), `/c/surveys` renders it,
+  and the maintainer signed in as `drep` with the preprod wallet and posted
+  a reply. No code; only increments 6–8 and §8's gov-link guard remain.
 
 ---
 
