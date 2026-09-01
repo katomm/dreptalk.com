@@ -27,6 +27,20 @@ async function seedDrep(drepId: string, extra: Partial<{ active: number; registe
   ).bind(drepId, extra.active ?? 1, extra.registeredEpoch ?? null).run();
 }
 
+function reportCardRow(i: number): ReportCardRow {
+  return {
+    drepId: `drep_chunk_${i}`,
+    computedAt: 1000 + i,
+    participationPct: i,
+    participationAheadPct: i,
+    rationalePct: i % 2 === 0 ? null : i / 100,
+    rationaleAheadPct: i % 2 === 0 ? null : i,
+    eligible: i,
+    cohortSize: 25,
+    rationaleCohortSize: 25,
+  };
+}
+
 describe('listQualifyingDecidedEpochs', () => {
   it('excludes an action without any DRep vote and one with only SPO votes, ascends, one entry per action', async () => {
     await seedAction('ga_novote', 500);
@@ -137,6 +151,30 @@ describe('replaceReportCards + getReportCard', () => {
     await replaceReportCards(env.DB, [rowB]);
     expect(await getReportCard(env.DB, 'drepA')).toBeNull(); // atomic swap: gone
     expect(await getReportCard(env.DB, 'drepB')).toEqual(rowB);
+  });
+
+  it('replaces 25 rows across the 10-row chunk boundary and all round-trip', async () => {
+    // 25 rows spans three INSERT chunks (10, 10, 5), pinning the chunk math by
+    // row count. Miniflare does not enforce D1's real 100-bind-per-statement
+    // cap, so a bug that widened REPLACE_CHUNK past the cap would not fail
+    // here on the bind count alone, only this row-count check catches it.
+    const rows = Array.from({ length: 25 }, (_, i) => reportCardRow(i + 1));
+    await replaceReportCards(env.DB, rows);
+
+    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM drep_report_card').first<{ n: number }>();
+    expect(count?.n).toBe(25);
+
+    expect(await getReportCard(env.DB, 'drep_chunk_25')).toEqual(rows[24]);
+  });
+
+  it('clears the table when replacing with an empty list', async () => {
+    await replaceReportCards(env.DB, [reportCardRow(1)]);
+    expect(await getReportCard(env.DB, 'drep_chunk_1')).not.toBeNull();
+
+    await replaceReportCards(env.DB, []);
+    expect(await getReportCard(env.DB, 'drep_chunk_1')).toBeNull();
+    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM drep_report_card').first<{ n: number }>();
+    expect(count?.n).toBe(0);
   });
 });
 

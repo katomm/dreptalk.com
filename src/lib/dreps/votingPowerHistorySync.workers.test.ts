@@ -103,19 +103,80 @@ describe('syncDrepVotingPowerHistory', () => {
     expect(row).toMatchObject({ s: 'SENTINEL', p: 'SENTINEL', e: -1 });
   });
 
-  it('prunes snapshots older than the window floor', async () => {
+  it('skips the denormalize when only old epochs are fetched (backfill drip)', async () => {
+    await seedDrep('drepA', '150');
+    // Current and previous epoch (949, 950) are already stored. Only an older
+    // epoch is missing, so this run's fetch is a pure backfill drip.
+    await insertVotingPowerHistory(env.DB, [
+      { drepId: 'drepA', epoch: 949, amount: '140' },
+      { drepId: 'drepA', epoch: 950, amount: '150' },
+    ]);
+    await env.DB.prepare(
+      "UPDATE dreps SET voting_power_snapshot = 'SENTINEL', voting_power_prev = 'SENTINEL', voting_power_snapshot_epoch = -1 WHERE drep_id = 'drepA'",
+    ).run();
+    const { koios } = fakeKoios({ 948: { drepA: '130' } });
+
+    const res = await syncDrepVotingPowerHistory({
+      koios,
+      db: env.DB,
+      currentEpoch: 950,
+      windowSize: 3,
+      maxFetchPerRun: 1,
+    });
+
+    expect(res.fetchedEpochs).toEqual([948]);
+    const row = await env.DB.prepare(
+      'SELECT voting_power_snapshot AS s, voting_power_prev AS p, voting_power_snapshot_epoch AS e FROM dreps WHERE drep_id = ?',
+    )
+      .bind('drepA')
+      .first<{ s: string | null; p: string | null; e: number | null }>();
+    expect(row).toMatchObject({ s: 'SENTINEL', p: 'SENTINEL', e: -1 });
+  });
+
+  it('prunes snapshots older than an absolute floor', async () => {
     await insertVotingPowerHistory(env.DB, [
       { drepId: 'drepA', epoch: 535, amount: '1' },
       { drepId: 'drepA', epoch: 536, amount: '2' },
     ]);
     const { koios } = fakeKoios({ 540: { drepA: '150' } });
 
-    const res = await syncDrepVotingPowerHistory({ koios, db: env.DB, currentEpoch: 540, windowSize: 4 });
+    // Same floor (537) the relative window would compute, but supplied as the
+    // absolute floorEpoch: pruning only ever runs against a confirmed floor.
+    const res = await syncDrepVotingPowerHistory({
+      koios,
+      db: env.DB,
+      currentEpoch: 540,
+      windowSize: 4,
+      floorEpoch: 537,
+    });
 
-    // Window floor is 537, so 535 and 536 are pruned.
     expect(res.pruned).toBe(2);
     const epochs = [...(await getStoredEpochs(env.DB))].sort((a, b) => a - b);
     expect(epochs.every((e) => e >= 537)).toBe(true);
+  });
+
+  it('never prunes when floorEpoch is null, even for epochs far outside the relative window', async () => {
+    await insertVotingPowerHistory(env.DB, [
+      { drepId: 'drepA', epoch: 535, amount: '1' },
+      { drepId: 'drepA', epoch: 536, amount: '2' },
+    ]);
+    const { koios } = fakeKoios({ 540: { drepA: '150' } });
+
+    // No absolute floor supplied (legacy relative-window caller, or the phase's
+    // .catch(() => null) fallback after a Koios flake): pruning must be skipped
+    // entirely, never deleting rows an earlier run backfilled.
+    const res = await syncDrepVotingPowerHistory({
+      koios,
+      db: env.DB,
+      currentEpoch: 540,
+      windowSize: 4,
+      floorEpoch: null,
+    });
+
+    expect(res.pruned).toBe(0);
+    const epochs = [...(await getStoredEpochs(env.DB))].sort((a, b) => a - b);
+    expect(epochs).toContain(535);
+    expect(epochs).toContain(536);
   });
 
   it('spends the fetch budget newest-first and reports the remainder', async () => {

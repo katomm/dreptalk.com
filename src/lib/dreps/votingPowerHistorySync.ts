@@ -8,9 +8,11 @@
 // epochs, so a per-run fetch budget caps the subrequest count and the backlog
 // drips over subsequent cron runs. Missing epochs are fetched newest first, since
 // the list delta chip and the sparkline head depend on the newest epochs, so those
-// heal before older history catches up. It then prunes anything older than the
-// floor and projects the latest two snapshots onto the dreps rows for the list
-// delta chip.
+// heal before older history catches up. Pruning runs only when the caller supplies
+// an absolute floorEpoch, since deleting against the unconfirmed relative window
+// could remove rows that an earlier run correctly backfilled after a Koios flake.
+// It then prunes anything older than the floor and projects the latest two
+// snapshots onto the dreps rows for the list delta chip.
 
 import type { DrepVotingPowerHistoryRow } from '../koios/client.js';
 import {
@@ -109,10 +111,10 @@ export async function syncDrepVotingPowerHistory(
   const { koios, db, currentEpoch } = deps;
   const windowSize = deps.windowSize ?? DEFAULT_WINDOW;
   const budget = deps.maxFetchPerRun ?? DEFAULT_MAX_FETCH_PER_RUN;
-  const floor =
-    deps.floorEpoch != null && deps.floorEpoch <= currentEpoch
-      ? deps.floorEpoch
-      : Math.max(0, currentEpoch - windowSize + 1);
+  const hasAbsoluteFloor = deps.floorEpoch != null && deps.floorEpoch <= currentEpoch;
+  const floor = hasAbsoluteFloor
+    ? (deps.floorEpoch as number)
+    : Math.max(0, currentEpoch - windowSize + 1);
   const window = Array.from({ length: currentEpoch - floor + 1 }, (_, i) => floor + i);
 
   const stored = await getStoredEpochs(db);
@@ -129,12 +131,15 @@ export async function syncDrepVotingPowerHistory(
     fetchedEpochs.push(epoch);
   }
 
-  const pruned = await pruneVotingPowerHistoryBefore(db, floor);
-  // Re-project onto the dreps rows only when a new epoch landed: the denormalized
-  // snapshots are immutable once set, so an intra-epoch run (nothing fetched) would
-  // rewrite ~2000 rows for no change. The cold backfill always fetches, so the
-  // first run still populates every row.
-  if (fetchedEpochs.length > 0) await denormalizeDrepVotingPower(db, currentEpoch);
+  // Only an absolute floor is a confirmed retention boundary: a run stuck on the
+  // relative window (legacy caller, or the phase's .catch(() => null) fallback
+  // after a Koios flake) must never delete rows an earlier run backfilled.
+  const pruned = hasAbsoluteFloor ? await pruneVotingPowerHistoryBefore(db, floor) : 0;
+  // Re-project onto the dreps rows only when a recent epoch actually landed: a
+  // backfill drip fetches only old epochs and would otherwise rewrite ~2000 rows
+  // for no change to the current snapshot. The cold backfill always includes the
+  // current epoch, so the first run still populates every row.
+  if (fetchedEpochs.some((e) => e >= currentEpoch - 1)) await denormalizeDrepVotingPower(db, currentEpoch);
 
   // Freeze this run's observed delegator counts into the current epoch's rows
   // (stamp-once inside, see stampDelegatorCounts).

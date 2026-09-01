@@ -17,10 +17,10 @@ interface Props {
   /** Real vote switches (see voteChangeStat); the line is omitted when null. */
   changes?: VoteChangeStat | null;
   /** Report-card percentiles vs the active-DRep cohort. Only the DRep profile
-   *  passes these; the SPO and home cards stay role-neutral and omit them. */
+   *  passes these. The SPO and home cards stay role-neutral and omit them. */
   percentiles?: { participationAheadPct: number; rationaleAheadPct: number | null; cohortSize: number } | null;
   /** Median vote-timing stat (see voteTimingStat). Only the DRep profile passes
-   *  this; the SPO and home cards stay role-neutral and omit it. */
+   *  this. The SPO and home cards stay role-neutral and omit it. */
   timing?: { medianDay: number; timed: number; totalVotes: number } | null;
 }
 
@@ -44,7 +44,7 @@ const participationLine =
     <p class="vstats__empty">No recorded on-chain votes.</p>
   ) : (
     <Fragment>
-    <div class="vstats__body">
+    <div class="vstats__body" style={`--vstats-cols:${timing ? 4 : 3}`}>
       <div class="vstats__cell">
         <span class="vstats__cell-title">
           <span class="vstats__icon vstats__icon--accent" aria-hidden="true">
@@ -106,7 +106,7 @@ const participationLine =
             Vote timing
           </span>
           <span class="vstats__big">Day {timing.medianDay.toFixed(1)}</span>
-          <span class="vstats__cell-line">Median point after submission across {timing.timed} timed votes{timing.timed < timing.totalVotes ? ` (${timing.timed} of ${timing.totalVotes} votes have a recorded time)` : ''}</span>
+          <span class="vstats__cell-line">Median point after submission across {timing.timed} timed votes{timing.timed < timing.totalVotes ? ` (${timing.timed} of ${timing.totalVotes} votes could be timed)` : ''}</span>
         </div>
       )}
 
@@ -184,21 +184,24 @@ const participationLine =
   .vstats__empty { color: var(--muted); margin: 0; }
 
   /* Up to four equal-width blocks (participation, rationale, timing, voting
-     pattern). Explicit column counts per breakpoint, not auto-fit: auto-fit
+     pattern). Timing is DRep-profile-only, so the SPO and home cards have
+     three. Explicit column counts per breakpoint, not auto-fit: auto-fit
      sizes tracks off the widest content and can strand the last cell alone on
      its own row next to empty tracks whenever the item count doesn't divide
-     evenly into however many tracks happen to fit. Fixed counts (4 / 2 / 1)
-     always wrap a short final row flush left instead. Breakpoints are sized
-     off the widest cell (the voting-pattern chart, whose fixed-width donut
-     plus legend need about 248px) against this card's own content width
-     (container minus the page's own padding, minus this card's padding), so
-     each track always has room for it: 1250px keeps 4 columns at >=252px each
-     down to just above that width; 700px keeps 2 columns at >=286px each down
-     to just above that width; a single column below 700px never has a width
-     problem. */
+     evenly into however many tracks happen to fit. The wide breakpoint's
+     column count matches the actual cell count (--vstats-cols, set inline to
+     3 or 4), so a three-cell page never gets a permanently empty fourth
+     track. Below it, fixed counts (2 / 1) always wrap a short final row flush
+     left instead. Breakpoints are sized off the widest cell (the
+     voting-pattern chart, whose fixed-width donut plus legend need about
+     248px) against this card's own content width (container minus the page's
+     own padding, minus this card's padding), so each track always has room
+     for it: 1250px keeps up to 4 columns at >=252px each down to just above
+     that width, 700px keeps 2 columns at >=286px each down to just above that
+     width, and a single column below 700px never has a width problem. */
   .vstats__body {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(var(--vstats-cols, 3), 1fr);
     gap: 1.25rem 2rem;
     align-items: start;
   }
