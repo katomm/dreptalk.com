@@ -23,7 +23,7 @@ faqs:
     a: "Membership changes over time. A member who resigned, whose term expired, or who had not yet registered a voting key does not count as eligible for an action decided in that period, so each action is measured against the committee as it stood at the time."
 ---
 
-The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in four chapters: governance today, representation and participation, accountability and behavior, and decentralization.
+The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in five chapters: governance today, representation and participation, accountability and behavior, decentralization, and governance throughput.
 
 ## The two layers
 
@@ -61,11 +61,23 @@ The committee panel shows how the Constitutional Committee participates: the med
 
 A committee vote against an action expresses that the member did not find it consistent with the constitution in force at the time. The panel reports these outcomes as numbers and takes no position on any individual judgment.
 
+## SPO participation
+
+Stake pool operators vote alongside DReps and the Constitutional Committee, but only on a subset of governance actions: hard forks, motions of no confidence, committee changes and security-relevant parameter changes. The panel counts how many decided actions fall in that eligible set, then reports two figures over them. Median SPO turnout weighs each pool's stake against the stake of every pool that could vote, the pools permanently set to abstain included and the No side counted the way the ledger counts it, the same denominator the on-chain ratification check uses. The second figure counts how often the SPO verdict and the DRep verdict on the same action fell on opposite sides of their respective thresholds.
+
+Both figures only cover actions with a complete reading. An action whose stake tally is missing or unparseable is left out of the turnout median rather than folded in as a guess, and the panel states how many actions that affected.
+
 ## Concentration of delegated power
 
 The lower part of the page looks at how concentrated the delegated voting power itself is, independent of who actually votes. The Gini coefficient summarizes how unevenly power is spread across DReps, from 0 for a perfectly even spread to values near 1 when a few DReps hold most of it. The top-10 share and the minimum-coalition counts make the same idea concrete: how much the ten largest DReps hold, and how few of the largest DReps together reach half or two thirds of all delegated power.
 
 The minimum coalition table applies the live approval thresholds to the current distribution: for each threshold it shows how few of the largest DReps together hold that share of the delegated power, and which action types the threshold gates. This is arithmetic on delegated power, not a claim that those DReps coordinate or vote at all. How the power that actually voted concentrates is a separate reading, described under voting concentration above.
+
+## Governance throughput
+
+The last chapter steps back from any single vote and looks at the pipeline of governance actions as a whole: how many are submitted, how they conclude, and how long a conclusion takes. An action's outcome is one of enacted, expired, closed, or dropped. Closed is the outcome reserved for info actions, which by design never enact anything, they conclude once the vote has run its course. Dropped covers actions withdrawn or superseded before a decision was reached. Actions still open have not reached any of these outcomes yet.
+
+Timing is measured in epochs, not calendar days, because both submission and decision are recorded per epoch on chain. The overall median and the per-type breakdown only include actions with a known submission epoch, and a type needs at least three such actions before its own median is shown, otherwise the table reports its counts without one.
 
 ## Where the numbers come from
 

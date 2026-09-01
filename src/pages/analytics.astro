@@ -22,6 +22,7 @@ import { listDecidedVoteChangeRows, countVoteChangeCoverage } from '@/lib/db/vot
 import { listDecidedActionRationaleCoverage, countRationaleAddedViaRevote } from '@/lib/db/rationaleCoverage.js';
 import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, type CcVoteRow } from '@/lib/db/committee.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
+import { listDecidedOutcomeRows, countSubmittedSince, countActionsByStatus } from '@/lib/db/hubOutcomes.js';
 import { readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
@@ -32,6 +33,7 @@ import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
 import { buildCcPanel, selectExtremes } from '@/lib/analytics/ccPanelView.js';
+import { buildSpoSnapshot, buildThroughput } from '@/lib/analytics/outcomesView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
 // The site's governance actions list route, same href as the header nav's
@@ -132,6 +134,22 @@ const ccMemberLists = [
 ].filter((list) => list.members.length > 0);
 const tenureLabel = (t: { from: number; to: number | null }): string =>
   t.to == null ? `since epoch ${t.from}` : `epochs ${t.from} to ${t.to}`;
+
+// Decided-outcome rows feed both the SPO snapshot (chapter 2) and the
+// governance throughput chapter (chapter 5), so they share one read plus the
+// two whole-table reads those panels also need. The 12-epoch submitted
+// window counts back from the current epoch, or from epoch 0 (and is not
+// rendered) while the current epoch is not yet known.
+const [outcomeRows, submittedRecent, statusCounts] = db
+  ? await Promise.all([
+      listDecidedOutcomeRows(db),
+      countSubmittedSince(db, (params?.epoch ?? 0) - 11),
+      countActionsByStatus(db),
+    ])
+  : [[], 0, {}];
+const spo = buildSpoSnapshot(outcomeRows);
+const throughput = buildThroughput(outcomeRows, statusCounts, submittedRecent);
+const showSubmittedRecent = params?.epoch != null;
 
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
 // Medians can end in .5 with an even action count, render as-is.
@@ -433,6 +451,28 @@ const activityBars = activity
         <p class="hub-cc__footnote">Eligibility follows the committee membership at each action's tally epoch, and only a member's final vote counts.{ccPanel.skipped > 0 && ` ${ccPanel.skipped} actions without a resolvable committee are not counted.`}{ccPanel.verdictBasis < ccPanel.considered && ` The threshold reading covers ${ccPanel.verdictBasis} actions with a frozen committee threshold.`}</p>
       </section>
     )}
+
+    {spo.eligible > 0 && (
+      <section class="hub-spo" aria-labelledby="hub-spo-title">
+        <h3 id="hub-spo-title">SPO participation</h3>
+        <p class="hub-spo__lede">SPOs vote on {spo.eligible} of the decided actions (hard forks, motions of no confidence, committee changes and security-relevant parameter changes).</p>
+        <div class="hub-tiles">
+          {spo.medianTurnoutPct != null && (
+            <div class="hub-tile">
+              <p class="hub-tile__value">{fmtShare(spo.medianTurnoutPct)}</p>
+              <p class="hub-tile__label">Median SPO turnout</p>
+              <p class="hub-tile__sub">power-weighted, over {spo.turnoutBasis} actions</p>
+            </div>
+          )}
+          <div class="hub-tile">
+            <p class="hub-tile__value">{spo.divergent} of {spo.divergenceBasis}</p>
+            <p class="hub-tile__label">Verdicts differing from DReps</p>
+            <p class="hub-tile__sub">actions where the two bodies did not agree</p>
+          </div>
+        </div>
+        <p class="hub-spo__footnote">Turnout weighs each pool's stake against the pools that could vote, the always-abstain pools included and the No side as the ledger counts it.{spo.turnoutExcluded > 0 && ` ${spo.turnoutExcluded} actions without complete stake figures are left out.`}</p>
+      </section>
+    )}
   </section>
 
   <section class="hub-chapter" aria-labelledby="chapter-accountability-title">
@@ -604,6 +644,75 @@ const activityBars = activity
     )}
   </section>
 
+  <section class="hub-chapter" aria-labelledby="chapter-throughput-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <h2 id="chapter-throughput-title" class="hub-chapter__title">Governance throughput</h2>
+      <p class="hub-chapter__intro">What happens to governance actions: how many arrive, how they conclude, and how long a decision takes.</p>
+    </header>
+
+    <div class="hub-throughput">
+      <div class="hub-tiles">
+        {showSubmittedRecent && (
+          <div class="hub-tile">
+            <p class="hub-tile__value">{throughput.submittedRecent.toLocaleString('en-US')}</p>
+            <p class="hub-tile__label">Submitted, last 12 epochs</p>
+          </div>
+        )}
+        <div class="hub-tile">
+          <p class="hub-tile__value">{throughput.enacted.toLocaleString('en-US')}</p>
+          <p class="hub-tile__label">Enacted</p>
+          <p class="hub-tile__sub">all-time</p>
+        </div>
+        <div class="hub-tile">
+          <p class="hub-tile__value">{throughput.expired.toLocaleString('en-US')}</p>
+          <p class="hub-tile__label">Expired</p>
+          <p class="hub-tile__sub">all-time</p>
+        </div>
+        <div class="hub-tile">
+          <p class="hub-tile__value">{throughput.closed.toLocaleString('en-US')}</p>
+          <p class="hub-tile__label">Closed without enactment</p>
+          <p class="hub-tile__sub">all-time</p>
+        </div>
+      </div>
+
+      {throughput.medianEpochsToDecision != null && (
+        <p class="hub-throughput__median">Decisions took a median of {fmtCount(throughput.medianEpochsToDecision)} epochs from submission, across {throughput.decisionBasis} decided actions.</p>
+      )}
+
+      {throughput.byType.length > 0 && (
+        <div class="hub-table-wrap">
+          <table class="hub-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th class="hub-table__num">Decided</th>
+                <th class="hub-table__num">Enacted</th>
+                <th class="hub-table__num">Expired</th>
+                <th class="hub-table__num">Closed</th>
+                <th class="hub-table__num">Median epochs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {throughput.byType.map((t) => (
+                <tr>
+                  <td>{readableType(t.type)}</td>
+                  <td class="hub-table__num">{t.decided}</td>
+                  <td class="hub-table__num">{t.enacted}</td>
+                  <td class="hub-table__num">{t.expired}</td>
+                  <td class="hub-table__num">{t.closed}</td>
+                  <td class="hub-table__num">{t.medianEpochs != null ? fmtCount(t.medianEpochs) : 'fewer than 3'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p class="hub-throughput__footnote">Closed is the outcome of info actions, which conclude without enactment. Timing is counted in epochs because decisions are recorded per epoch.{throughput.dropped > 0 && ` ${throughput.dropped} ${throughput.dropped === 1 ? 'action was' : 'actions were'} dropped before a decision.`}{throughput.active > 0 && ` ${throughput.active} ${throughput.active === 1 ? 'action is' : 'actions are'} still open.`}</p>
+    </div>
+  </section>
+
   <p class="hub-back"><a href="/dreps/">Browse the DRep directory</a></p>
 </Layout>
 
@@ -758,6 +867,7 @@ const activityBars = activity
   #hub-votechange-title,
   #hub-rationale-title,
   #hub-cc-title,
+  #hub-spo-title,
   #hub-activity-title,
   #hub-coalition-title,
   #hub-conc-trends-title {
@@ -1265,6 +1375,20 @@ const activityBars = activity
     font-size: 0.75rem;
   }
 
+  .hub-spo {
+    margin: 0 0 2.5rem;
+  }
+  .hub-spo__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-spo__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
   .hub-coalition {
     margin: 0 0 2.5rem;
   }
@@ -1360,6 +1484,47 @@ const activityBars = activity
     margin: 0;
     color: var(--muted);
     font-size: 0.75rem;
+  }
+
+  .hub-throughput__median {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-throughput__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .hub-table-wrap {
+    overflow-x: auto;
+    margin: 0 0 1.25rem;
+  }
+  .hub-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .hub-table th {
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 0 0.5rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .hub-table td {
+    padding: 0.5rem 0.5rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .hub-table tr:last-child td {
+    border-bottom: none;
+  }
+  .hub-table__num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
 
   .hub-back {
