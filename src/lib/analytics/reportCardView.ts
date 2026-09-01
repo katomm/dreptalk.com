@@ -50,16 +50,16 @@ function countEligible(qualifyingEpochs: number[], registeredEpoch: number): num
 
 // Sorts once and walks with tie groups: every member sharing a value gets
 // the same aheadPct, the count of strictly smaller values in the same pass.
-function rankAheadPct<T>(items: T[], valueOf: (item: T) => number): Map<T, number> {
-  const sorted = [...items].sort((a, b) => valueOf(a) - valueOf(b));
+function rankAheadPct<T>(items: T[], getValue: (item: T) => number): Map<T, number> {
+  const sorted = [...items].sort((a, b) => getValue(a) - getValue(b));
   const cohortSize = sorted.length;
   const aheadPct = new Map<T, number>();
   let strictlyBelow = 0;
   let i = 0;
   while (i < sorted.length) {
-    const value = valueOf(sorted[i]);
+    const value = getValue(sorted[i]);
     let j = i;
-    while (j < sorted.length && valueOf(sorted[j]) === value) j += 1;
+    while (j < sorted.length && getValue(sorted[j]) === value) j += 1;
     const pct = Math.floor((100 * strictlyBelow) / cohortSize);
     for (let k = i; k < j; k += 1) aheadPct.set(sorted[k], pct);
     strictlyBelow += j - i;
