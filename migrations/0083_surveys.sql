@@ -26,9 +26,21 @@ CREATE TABLE survey (
   -- detector for re-audits only, never rendered.
   claimed_count      INTEGER NOT NULL DEFAULT 0,
   -- NULL while the survey can still change; set once Tessera decides it for
-  -- good ('cancelled' today; 'finalized' / 'untalliable' once the backend
-  -- ships finalState on list rows). A non-NULL row is no longer refreshed.
+  -- good ('finalized' | 'cancelled' | 'untalliable'). A non-NULL row is no
+  -- longer refreshed — but its count still needs one successful audit at or
+  -- after that moment (proof verdicts land late), a debt audit_due_at carries.
   final_state        TEXT,
+  -- Audit scheduling, one row at a time. audit_due_at is the only scheduler:
+  -- admission, a moved claimed_count, the tip crossing end_epoch and an
+  -- arriving final_state all set it to "now"; success on a still-open survey
+  -- re-arms it a day out (a verdict can flip without the count moving), and a
+  -- failure backs off exponentially. NULL means no audit will ever run again —
+  -- for a decided row that is the terminal state, reached by one successful
+  -- post-final audit or by giving up, which clears counted_dreps: a decided
+  -- row's count is either the audited final count or absent.
+  audited_at         INTEGER,            -- last successful audit (unix ms)
+  audit_due_at       INTEGER,            -- next attempt due (unix ms)
+  audit_attempts     INTEGER NOT NULL DEFAULT 0,  -- consecutive failures
   -- The on-chain record disappeared from a complete Tessera answer (rolled
   -- back). Hides answering, keeps the thread; cleared if the ref reappears.
   unavailable        INTEGER NOT NULL DEFAULT 0,
@@ -38,6 +50,7 @@ CREATE TABLE survey (
   synced_at          INTEGER NOT NULL    -- last write by the sync (unix ms)
 );
 CREATE INDEX idx_survey_topic ON survey(topic_id);
+CREATE INDEX idx_survey_audit_due ON survey(audit_due_at);
 
 -- Governance actions advertising a survey (N actions may link one survey).
 -- action_id is the bech32 gov_action id, joining governance_actions.proposal_id;
@@ -68,11 +81,10 @@ CREATE TABLE survey_response_local (
 
 -- Single-row sync state (id = 1, like protocol_params): the last seen size of
 -- Tessera's linked set (page one re-evaluates the whole set while it fits; a
--- moved count is one of the triggers to walk further), when pass 1 last walked
--- the complete list, and when pass 3 last ran its unconditional re-audit.
+-- moved count is one of the triggers to walk further) and when pass 1 last
+-- walked the complete list.
 CREATE TABLE survey_sync_state (
   id                INTEGER PRIMARY KEY,
   linked_count      INTEGER,
-  last_full_walk_at INTEGER,             -- unix ms
-  last_audit_at     INTEGER              -- unix ms
+  last_full_walk_at INTEGER              -- unix ms
 );

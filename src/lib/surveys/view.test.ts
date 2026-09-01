@@ -4,6 +4,7 @@ import { toJsonSafe } from 'cip-179/tally';
 import { hexToBytes } from 'cip-179/domain';
 import { EPOCH_LENGTH_SECONDS, resolveNetwork } from '../config/network.js';
 import {
+  countStillExpected,
   parseSurveyDefinition,
   questionViews,
   roleLabels,
@@ -44,6 +45,15 @@ describe('surveyLifecycle', () => {
 
   it('cancelled wins over the clock', () => {
     expect(surveyLifecycle({ endEpoch: 300, cancelled: true }, startOf(299), cfg)).toBe('cancelled');
+  });
+});
+
+describe('countStillExpected', () => {
+  it('is false only for a decided survey with its audit schedule closed', () => {
+    expect(countStillExpected({ finalState: null, auditDueAt: null })).toBe(true);
+    expect(countStillExpected({ finalState: null, auditDueAt: 1 })).toBe(true);
+    expect(countStillExpected({ finalState: 'finalized', auditDueAt: 1 })).toBe(true);
+    expect(countStillExpected({ finalState: 'finalized', auditDueAt: null })).toBe(false);
   });
 });
 

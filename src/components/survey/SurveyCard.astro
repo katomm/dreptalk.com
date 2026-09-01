@@ -10,6 +10,7 @@ import type { LocalSurveyResponse, SurveyGovLinkView, SurveyRow } from '@/lib/db
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import {
+  countStillExpected,
   questionViews,
   roleLabels,
   surveyDeadlineUnix,
@@ -105,7 +106,9 @@ const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Cl
       <dd>
         {survey.countedDreps != null
           ? `${survey.countedDreps} DRep ${survey.countedDreps === 1 ? 'response' : 'responses'} counted`
-          : 'count pending'}
+          : countStillExpected(survey)
+            ? 'count pending'
+            : 'count unavailable'}
       </dd>
     </div>
     {links.length > 0 && (

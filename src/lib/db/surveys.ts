@@ -12,7 +12,6 @@ export interface HeldSurvey {
   endEpoch: number;
   tipEpoch: number;
   claimedCount: number;
-  countedDreps: number | null;
   unavailable: boolean;
 }
 
@@ -21,7 +20,7 @@ export interface HeldSurvey {
 export async function getHeldSurveys(db: D1Database): Promise<HeldSurvey[]> {
   const { results } = await db
     .prepare(
-      `SELECT ref, end_epoch, tip_epoch, claimed_count, counted_dreps, unavailable
+      `SELECT ref, end_epoch, tip_epoch, claimed_count, unavailable
        FROM survey WHERE final_state IS NULL`,
     )
     .all<{
@@ -29,7 +28,6 @@ export async function getHeldSurveys(db: D1Database): Promise<HeldSurvey[]> {
       end_epoch: number;
       tip_epoch: number;
       claimed_count: number;
-      counted_dreps: number | null;
       unavailable: number;
     }>();
   return results.map(r => ({
@@ -37,7 +35,6 @@ export async function getHeldSurveys(db: D1Database): Promise<HeldSurvey[]> {
     endEpoch: r.end_epoch,
     tipEpoch: r.tip_epoch,
     claimedCount: r.claimed_count,
-    countedDreps: r.counted_dreps,
     unavailable: r.unavailable === 1,
   }));
 }
@@ -71,9 +68,9 @@ export function buildInsertSurvey(db: D1Database, s: NewSurvey): D1PreparedState
     .prepare(
       `INSERT INTO survey
          (ref, topic_id, title, end_epoch, eligible_roles, sealed, cancelled, external_content,
-          definition, counted_dreps, claimed_count, final_state, unavailable, tip_epoch,
-          tessera_fetched_at, submitted_at, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?)`,
+          definition, counted_dreps, claimed_count, final_state, audit_due_at, audit_attempts,
+          unavailable, tip_epoch, tessera_fetched_at, submitted_at, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 0, ?, ?, ?, ?)`,
     )
     .bind(
       s.ref,
@@ -87,6 +84,7 @@ export function buildInsertSurvey(db: D1Database, s: NewSurvey): D1PreparedState
       s.definitionJson,
       s.claimedCount,
       s.finalState,
+      s.now,
       s.tipEpoch,
       s.tesseraFetchedAt,
       s.submittedAt,
@@ -113,12 +111,16 @@ export function buildDeleteGovLinks(db: D1Database, surveyRef: string): D1Prepar
 }
 
 /** The fields a Tessera answer refreshes on a held row. Reappearing clears
- * `unavailable` unconditionally: presence in a complete answer is the proof. */
+ * `unavailable` unconditionally: presence in a complete answer is the proof.
+ * A non-null `auditDueAt` schedules an audit and restarts its backoff ladder
+ * (the chain changed under the row, so past failures no longer describe it);
+ * null leaves whatever schedule the row already carries. */
 export interface SurveyRefresh {
   ref: string;
   claimedCount: number;
   cancelled: boolean;
   finalState: string | null;
+  auditDueAt: number | null;
   tipEpoch: number;
   tesseraFetchedAt: number;
   now: number;
@@ -128,6 +130,8 @@ export function buildRefreshSurvey(db: D1Database, r: SurveyRefresh): D1Prepared
   return db
     .prepare(
       `UPDATE survey SET claimed_count = ?, cancelled = ?, final_state = ?, unavailable = 0,
+         audit_due_at = COALESCE(?, audit_due_at),
+         audit_attempts = CASE WHEN ? IS NULL THEN audit_attempts ELSE 0 END,
          tip_epoch = ?, tessera_fetched_at = ?, synced_at = ?
        WHERE ref = ?`,
     )
@@ -135,6 +139,8 @@ export function buildRefreshSurvey(db: D1Database, r: SurveyRefresh): D1Prepared
       r.claimedCount,
       r.cancelled ? 1 : 0,
       r.finalState,
+      r.auditDueAt,
+      r.auditDueAt,
       r.tipEpoch,
       r.tesseraFetchedAt,
       r.now,
@@ -158,15 +164,90 @@ export async function markSurveysUnavailable(
   }
 }
 
-export async function updateCountedDreps(
+/** One due entry of the audit queue. `finalState`/`auditAttempts` are read
+ * back so the sync can pick the outcome transition without a second query. */
+export interface AuditDueSurvey {
+  ref: string;
+  finalState: string | null;
+  auditAttempts: number;
+}
+
+/** The audits due now, oldest first — except decided rows, which cut the
+ * line: their stored count is frozen wrong until their one post-final audit
+ * lands (or is conceded), while a held row merely gets its next look late. */
+export async function getAuditDueSurveys(
+  db: D1Database,
+  now: number,
+  limit: number,
+): Promise<AuditDueSurvey[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ref, final_state, audit_attempts FROM survey
+       WHERE audit_due_at IS NOT NULL AND audit_due_at <= ?
+       ORDER BY (final_state IS NULL), audit_due_at
+       LIMIT ?`,
+    )
+    .bind(now, limit)
+    .all<{ ref: string; final_state: string | null; audit_attempts: number }>();
+  return results.map(r => ({
+    ref: r.ref,
+    finalState: r.final_state,
+    auditAttempts: r.audit_attempts,
+  }));
+}
+
+/** A successful audit: the count, the stamp, and the next look — a day out
+ * for a held row (`nextDueAt`), never again (null) for a decided one. */
+export async function markSurveyAudited(
   db: D1Database,
   ref: string,
   countedDreps: number,
+  nextDueAt: number | null,
   now: number,
 ): Promise<void> {
   await db
-    .prepare('UPDATE survey SET counted_dreps = ?, synced_at = ? WHERE ref = ?')
-    .bind(countedDreps, now, ref)
+    .prepare(
+      `UPDATE survey SET counted_dreps = ?, audited_at = ?, audit_due_at = ?,
+         audit_attempts = 0, synced_at = ?
+       WHERE ref = ?`,
+    )
+    .bind(countedDreps, now, nextDueAt, now, ref)
+    .run();
+}
+
+/** A failed audit attempt: count it and back off to `nextDueAt`. */
+export async function markSurveyAuditFailed(
+  db: D1Database,
+  ref: string,
+  nextDueAt: number,
+  now: number,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE survey SET audit_attempts = audit_attempts + 1, audit_due_at = ?, synced_at = ?
+       WHERE ref = ?`,
+    )
+    .bind(nextDueAt, now, ref)
+    .run();
+}
+
+/** Stop auditing a survey for good. `clearCount` is set when a decided row
+ * concedes: its stored count was never confirmed at-or-after finalization, so
+ * it must show no number rather than a possibly wrong one. (A refresh trigger
+ * can still revive the schedule if the chain changes under a held row.) */
+export async function abandonSurveyAudit(
+  db: D1Database,
+  ref: string,
+  clearCount: boolean,
+  now: number,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE survey SET audit_due_at = NULL,
+         counted_dreps = CASE WHEN ? = 1 THEN NULL ELSE counted_dreps END, synced_at = ?
+       WHERE ref = ?`,
+    )
+    .bind(clearCount ? 1 : 0, now, ref)
     .run();
 }
 
@@ -210,6 +291,9 @@ export interface SurveyRow {
   definitionJson: string;
   countedDreps: number | null;
   finalState: string | null;
+  /** Next audit attempt (unix ms), null when none is scheduled — for a
+   * decided row that means the count is settled, confirmed or conceded. */
+  auditDueAt: number | null;
   unavailable: boolean;
   tipEpoch: number;
   /** Snapshot time (unix s) — the "as of" the UI shows. */
@@ -229,6 +313,7 @@ interface RawSurveyRow {
   definition: string;
   counted_dreps: number | null;
   final_state: string | null;
+  audit_due_at: number | null;
   unavailable: number;
   tip_epoch: number;
   tessera_fetched_at: number;
@@ -240,7 +325,8 @@ interface RawSurveyRow {
 const SURVEY_COLUMNS =
   'survey.ref, survey.topic_id, survey.title, survey.end_epoch, survey.eligible_roles, ' +
   'survey.sealed, survey.cancelled, survey.external_content, survey.definition, ' +
-  'survey.counted_dreps, survey.final_state, survey.unavailable, survey.tip_epoch, ' +
+  'survey.counted_dreps, survey.final_state, survey.audit_due_at, survey.unavailable, ' +
+  'survey.tip_epoch, ' +
   'survey.tessera_fetched_at, survey.submitted_at';
 
 function rowToSurvey(r: RawSurveyRow): SurveyRow {
@@ -256,6 +342,7 @@ function rowToSurvey(r: RawSurveyRow): SurveyRow {
     definitionJson: r.definition,
     countedDreps: r.counted_dreps,
     finalState: r.final_state,
+    auditDueAt: r.audit_due_at,
     unavailable: r.unavailable === 1,
     tipEpoch: r.tip_epoch,
     tesseraFetchedAt: r.tessera_fetched_at,
@@ -485,37 +572,27 @@ export interface SurveySyncState {
   linkedCount: number | null;
   /** When pass 1 last evaluated the complete linked list (unix ms). */
   lastFullWalkAt: number | null;
-  /** When pass 3 last ran its unconditional re-audit over every held survey (unix ms). */
-  lastAuditAt: number | null;
 }
 
 export async function getSurveySyncState(db: D1Database): Promise<SurveySyncState> {
   const row = await db
-    .prepare(
-      'SELECT linked_count, last_full_walk_at, last_audit_at FROM survey_sync_state WHERE id = 1',
-    )
-    .first<{
-      linked_count: number | null;
-      last_full_walk_at: number | null;
-      last_audit_at: number | null;
-    }>();
+    .prepare('SELECT linked_count, last_full_walk_at FROM survey_sync_state WHERE id = 1')
+    .first<{ linked_count: number | null; last_full_walk_at: number | null }>();
   return {
     linkedCount: row?.linked_count ?? null,
     lastFullWalkAt: row?.last_full_walk_at ?? null,
-    lastAuditAt: row?.last_audit_at ?? null,
   };
 }
 
 export async function putSurveySyncState(db: D1Database, s: SurveySyncState): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO survey_sync_state (id, linked_count, last_full_walk_at, last_audit_at)
-       VALUES (1, ?, ?, ?)
+      `INSERT INTO survey_sync_state (id, linked_count, last_full_walk_at)
+       VALUES (1, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          linked_count = excluded.linked_count,
-         last_full_walk_at = excluded.last_full_walk_at,
-         last_audit_at = excluded.last_audit_at`,
+         last_full_walk_at = excluded.last_full_walk_at`,
     )
-    .bind(s.linkedCount, s.lastFullWalkAt, s.lastAuditAt)
+    .bind(s.linkedCount, s.lastFullWalkAt)
     .run();
 }

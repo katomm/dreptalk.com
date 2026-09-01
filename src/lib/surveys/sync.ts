@@ -25,21 +25,23 @@ import type { NetworkConfig } from '../config/network.js';
 import { createTopic } from '../db/forum.js';
 import { getKnownProposalIds, hasActionsCreatedSince } from '../db/governance.js';
 import {
+  abandonSurveyAudit,
   batchByBinds,
   buildDeleteGovLinks,
   buildInsertGovLink,
   buildInsertSurvey,
   buildRefreshSurvey,
   deleteLocalSurveyResponse,
+  getAuditDueSurveys,
   getHeldSurveys,
   getKnownSurveyRefs,
   getPendingSurveyResponses,
   getSurveySyncState,
-  type HeldSurvey,
   markStaleSurveyResponsesFailed,
+  markSurveyAudited,
+  markSurveyAuditFailed,
   markSurveysUnavailable,
   putSurveySyncState,
-  updateCountedDreps,
 } from '../db/surveys.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { PENDING_VOTE_TTL_SEC } from '../governance/tallySync.js';
@@ -48,6 +50,7 @@ import {
   MAX_REFS_PER_CALL,
   type SurveySet,
   type TesseraClient,
+  TesseraHttpError,
   type TesseraTip,
 } from '../tessera/client.js';
 import { roleLabels } from './view.js';
@@ -80,20 +83,32 @@ export interface SurveysSyncResult {
   failed: number;
 }
 
-/** Walk the whole linked list / re-audit every held survey at most daily. */
+/** Walk the whole linked list at most daily. */
 const BACKSTOP_MS = 24 * 60 * 60 * 1000;
 /** Hard cap on list pages one run walks (paranoia bound, 200 surveys each). */
 const MAX_LIST_PAGES = 25;
-/** Bundle audits per run, so a daily re-audit of a large held set spreads over
- * a few runs instead of stretching one cron invocation. */
+/** Bundle audits per run, so re-auditing a large due set spreads over a few
+ * runs instead of stretching one cron invocation; audit_due_at ordering makes
+ * the next run continue where this one stopped. */
 const AUDIT_LIMIT = 20;
+/** Re-audit cadence for a held survey: a proof verdict can flip without the
+ * raw count moving, so success re-arms the schedule this far out. */
+const AUDIT_RECHECK_MS = 24 * 60 * 60 * 1000;
+/** Failure backoff: one cron interval, doubling per consecutive failure. */
+const AUDIT_RETRY_BASE_MS = 5 * 60 * 1000;
+const AUDIT_RETRY_MAX_MS = 24 * 60 * 60 * 1000;
+/** Failures after which a decided survey's audit concedes (~21 h of retrying)
+ * and clears its count. A held survey never concedes by exhaustion: it is
+ * still changing, costs at most one attempt a day at the backoff cap, and
+ * exits by finalizing or rolling back instead. */
+const MAX_AUDIT_ATTEMPTS = 8;
 /** Response pages one bundle collection reads (200 responses each). */
 const MAX_BUNDLE_PAGES = 50;
 /** Restarts a page walk tolerates when the snapshot moves mid-walk (resync). */
 const MAX_RESYNC_RESTARTS = 2;
 
 /** Binds of the per-survey statement groups batchByBinds packs (see db/surveys.ts). */
-const REFRESH_BINDS = 7;
+const REFRESH_BINDS = 9;
 const DELETE_LINKS_BINDS = 1;
 const LINK_BINDS = 3;
 
@@ -175,17 +190,16 @@ function recordUnixMs(slot: number, tip: TesseraTip): number {
 }
 
 /** Admit every new DRep-eligible survey on the page whose (epoch-aligned) links
- * include an imported action. Returns the admitted keys. */
+ * include an imported action. */
 async function admitFromSet(
   deps: SurveysSyncDeps,
   set: DecodedSet,
   known: Set<string>,
   counters: { admitted: number; failed: number },
-): Promise<string[]> {
+): Promise<void> {
   const { db, now, rand } = deps;
   const actionIds = [...new Set(set.aggregates.flatMap(a => a.govLinks.map(l => l.actionId)))];
   const imported = await getKnownProposalIds(db, actionIds);
-  const admittedKeys: string[] = [];
   for (const a of set.aggregates) {
     if (known.has(a.key)) continue;
     if (!a.record.definition.eligibleRoles.includes(Role.DRep)) continue;
@@ -229,30 +243,12 @@ async function admitFromSet(
         ],
       });
       known.add(a.key);
-      admittedKeys.push(a.key);
       counters.admitted++;
     } catch (err) {
       console.error(`[surveys] admission failed for ${a.key}`, err);
       counters.failed++;
     }
   }
-  return admittedKeys;
-}
-
-/** Keys due an audit after a refresh: the raw count moved, or the tip crossed
- * the survey's end epoch this refresh (verdicts land late — a count can be
- * final while a proof verdict still flips a counted response). */
-function auditTriggers(held: HeldSurvey[], set: DecodedSet): string[] {
-  const byRef = new Map(held.map(h => [h.ref, h]));
-  const due: string[] = [];
-  for (const a of set.aggregates) {
-    const h = byRef.get(a.key);
-    if (!h) continue;
-    const newCount = set.responseCounts[a.key] ?? 0;
-    const crossed = h.tipEpoch <= h.endEpoch && set.tip.epoch > h.endEpoch;
-    if (newCount !== h.claimedCount || crossed) due.push(a.key);
-  }
-  return due;
 }
 
 /**
@@ -301,7 +297,6 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
 
   const state = await getSurveySyncState(db);
   const known = await getKnownSurveyRefs(db);
-  const auditQueue = new Set<string>();
 
   // --- Pass 1: discover. Page one of ?filter=linked re-evaluates the whole
   // linked set while it fits (counts.linked sizes the universe); walk further
@@ -338,9 +333,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       if (!page.ready) {
         return { notReady: true, ...counters, refreshed, rolledBack, audited, settled, agedFailed };
       }
-      for (const key of await admitFromSet(deps, decodeSet(page.value), known, counters)) {
-        auditQueue.add(key);
-      }
+      await admitFromSet(deps, decodeSet(page.value), known, counters);
       if (page.value.nextCursor === null) {
         completeWalk = true;
         break;
@@ -362,34 +355,51 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   }
 
   // --- Pass 2: refresh every held (not-yet-final) survey by explicit refs,
-  // rolled-back detection included. Just-admitted rows are current already.
+  // rolled-back detection included.
   try {
-    const held = (await getHeldSurveys(db)).filter(h => !auditQueue.has(h.ref));
+    const held = await getHeldSurveys(db);
     for (let i = 0; i < held.length; i += MAX_REFS_PER_CALL) {
       const chunk = held.slice(i, i + MAX_REFS_PER_CALL);
+      const byRef = new Map(chunk.map(h => [h.ref, h]));
       const result = await tessera.surveysByRefs(chunk.map(h => h.ref));
       if (!result.ready) break;
       const set = decodeSet(result.value);
-      for (const key of auditTriggers(chunk, set)) auditQueue.add(key);
       const present = new Set(set.aggregates.map(a => a.key));
       await batchByBinds(
         db,
-        set.aggregates.map(a => ({
-          statements: [
-            buildRefreshSurvey(db, {
-              ref: a.key,
-              claimedCount: set.responseCounts[a.key] ?? 0,
-              cancelled: a.cancelled,
-              finalState: set.finalState[a.key]?.state ?? null,
-              tipEpoch: set.tip.epoch,
-              tesseraFetchedAt: set.fetchedAt,
-              now,
-            }),
-            buildDeleteGovLinks(db, a.key),
-            ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
-          ],
-          binds: REFRESH_BINDS + DELETE_LINKS_BINDS + a.govLinks.length * LINK_BINDS,
-        })),
+        set.aggregates.map(a => {
+          const h = byRef.get(a.key);
+          const claimedCount = set.responseCounts[a.key] ?? 0;
+          const finalState = set.finalState[a.key]?.state ?? null;
+          // An audit is due when the raw count moved, the tip crossed the end
+          // epoch this refresh, or a final state arrived (every row here was
+          // held, so any non-null finalState is the arrival). Verdicts land
+          // late — a count can look settled while a proof verdict still flips
+          // a counted response — which is why finalization demands one more
+          // audit instead of freezing the stored count.
+          const triggered =
+            h !== undefined &&
+            (claimedCount !== h.claimedCount ||
+              (h.tipEpoch <= h.endEpoch && set.tip.epoch > h.endEpoch) ||
+              finalState !== null);
+          return {
+            statements: [
+              buildRefreshSurvey(db, {
+                ref: a.key,
+                claimedCount,
+                cancelled: a.cancelled,
+                finalState,
+                auditDueAt: triggered ? now : null,
+                tipEpoch: set.tip.epoch,
+                tesseraFetchedAt: set.fetchedAt,
+                now,
+              }),
+              buildDeleteGovLinks(db, a.key),
+              ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
+            ],
+            binds: REFRESH_BINDS + DELETE_LINKS_BINDS + a.govLinks.length * LINK_BINDS,
+          };
+        }),
       );
       refreshed += set.aggregates.length;
       // A ref absent from a COMPLETE answer names a rolled-back record; from an
@@ -401,10 +411,6 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
           rolledBack += absent.length;
         }
       }
-      // Rows whose audited count never landed (an earlier failed audit) retry.
-      for (const h of chunk) {
-        if (h.countedDreps === null && present.has(h.ref)) auditQueue.add(h.ref);
-      }
     }
   } catch (err) {
     console.error('[surveys] refresh pass failed', err);
@@ -412,32 +418,36 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   }
 
   // --- Pass 3: audit counts. Recompute counted_dreps through Tessera's
-  // published auditResponses for the queued surveys, plus everything held on
-  // the daily re-audit. Capped per run; an uncapped daily pass keeps its due
-  // flag so the next run continues.
-  const dailyAudit = now - (state.lastAuditAt ?? 0) > BACKSTOP_MS;
+  // published auditResponses for every survey whose audit is due, decided rows
+  // first. Success stamps audited_at and schedules the next look; failure
+  // backs off on the row itself, so a not-ready or crashed run changes nothing
+  // and the same rows are simply due again. A decided row that exhausts its
+  // attempts concedes — count cleared, schedule closed — and a bundle 404 is
+  // terminal outright: Tessera is saying the survey is not in its corpus, and
+  // its SINCE floor means it will not re-enter it.
   try {
-    if (dailyAudit) {
-      for (const h of await getHeldSurveys(db)) {
-        if (!h.unavailable) auditQueue.add(h.ref);
-      }
-    }
-    const queue = [...auditQueue];
-    for (const key of queue.slice(0, AUDIT_LIMIT)) {
+    for (const due of await getAuditDueSurveys(db, now, AUDIT_LIMIT)) {
       try {
-        const bundle = await collectBundle(tessera, key);
+        const bundle = await collectBundle(tessera, due.ref);
         if (!bundle) break;
         const audit = auditResponses(bundle.responses, bundle.record.definition, bundle.verdicts);
         const counted = audit.counted.filter(r => r.response.role === Role.DRep).length;
-        await updateCountedDreps(db, key, counted, now);
+        const nextDueAt = due.finalState === null ? now + AUDIT_RECHECK_MS : null;
+        await markSurveyAudited(db, due.ref, counted, nextDueAt, now);
         audited++;
       } catch (err) {
-        console.error(`[surveys] audit failed for ${key}`, err);
+        console.error(`[surveys] audit failed for ${due.ref}`, err);
         counters.failed++;
+        const gone = err instanceof TesseraHttpError && err.status === 404;
+        const conceded =
+          due.finalState !== null && (gone || due.auditAttempts + 1 >= MAX_AUDIT_ATTEMPTS);
+        if (gone || conceded) {
+          await abandonSurveyAudit(db, due.ref, conceded, now);
+        } else {
+          const backoff = Math.min(AUDIT_RETRY_BASE_MS * 2 ** due.auditAttempts, AUDIT_RETRY_MAX_MS);
+          await markSurveyAuditFailed(db, due.ref, now + backoff, now);
+        }
       }
-    }
-    if (dailyAudit && queue.length <= AUDIT_LIMIT) {
-      await putSurveySyncState(db, { ...(await getSurveySyncState(db)), lastAuditAt: now });
     }
   } catch (err) {
     console.error('[surveys] audit pass failed', err);

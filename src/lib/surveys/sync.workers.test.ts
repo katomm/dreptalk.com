@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { Role, type SurveyDefinition, type SurveyResponse } from 'cip-179';
-import { hexToBytes, type ResponseRecord, type SurveyRecord } from 'cip-179/domain';
+import { hexToBytes, proofVerdictKey, type ResponseRecord, type SurveyRecord } from 'cip-179/domain';
 import { toJsonSafe } from 'cip-179/tally';
 import { describe, expect, it } from 'vitest';
 import { resolveNetwork } from '../config/network.js';
@@ -17,7 +17,13 @@ import {
   recordLocalSurveyResponse,
 } from '../db/surveys.js';
 import { PENDING_VOTE_TTL_SEC } from '../governance/tallySync.js';
-import type { SurveyBundlePage, SurveyPage, SurveySet, TesseraTip } from '../tessera/client.js';
+import {
+  type SurveyBundlePage,
+  type SurveyPage,
+  type SurveySet,
+  TesseraHttpError,
+  type TesseraTip,
+} from '../tessera/client.js';
 import { type SurveysSyncDeps, type SurveysTessera, syncSurveys } from './sync.js';
 
 const TX_LINKED = 'a'.repeat(64);
@@ -27,6 +33,19 @@ const KEY_LINKED = `${TX_LINKED}:0`;
 const KEY_SECOND = `${TX_SECOND}:0`;
 const ACTION_ID = 'gov_action1linkedaction';
 const ACTION_SECOND = 'gov_action1secondaction';
+
+const MIN_MS = 60 * 1000;
+const HOUR_MS = 60 * MIN_MS;
+/** Mirrors the sync's AUDIT_RECHECK_MS / AUDIT_RETRY_BASE_MS. */
+const DAY_MS = 24 * HOUR_MS;
+const RETRY_MS = 5 * MIN_MS;
+
+const LINKED_LINKS: SurveySet['govLinks'] = [
+  { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
+];
+const FINALIZED: SurveySet['finalState'] = {
+  [KEY_LINKED]: { state: 'finalized', artifactHash: 'ab'.repeat(32) },
+};
 
 const tip: TesseraTip = {
   epoch: 300,
@@ -207,16 +226,26 @@ async function surveyRows(): Promise<
     ref: string;
     topic_id: string;
     counted_dreps: number | null;
+    final_state: string | null;
+    audited_at: number | null;
+    audit_due_at: number | null;
+    audit_attempts: number;
     unavailable: number;
     cancelled: number;
   }[]
 > {
   const { results } = await env.DB.prepare(
-    'SELECT ref, topic_id, counted_dreps, unavailable, cancelled FROM survey ORDER BY ref',
+    `SELECT ref, topic_id, counted_dreps, final_state, audited_at, audit_due_at, audit_attempts,
+            unavailable, cancelled
+     FROM survey ORDER BY ref`,
   ).all<{
     ref: string;
     topic_id: string;
     counted_dreps: number | null;
+    final_state: string | null;
+    audited_at: number | null;
+    audit_due_at: number | null;
+    audit_attempts: number;
     unavailable: number;
     cancelled: number;
   }>();
@@ -418,23 +447,239 @@ describe('syncSurveys', () => {
     expect((await getSurveySyncState(env.DB)).lastFullWalkAt).toBeNull();
   });
 
-  it('stamps the full-walk state on a single-page run and re-audits on the daily backstop', async () => {
+  it('stamps the full-walk state on a single-page run', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     await syncSurveys(deps(fakeTessera(), now));
-    const state = await getSurveySyncState(env.DB);
-    expect(state).toMatchObject({ linkedCount: 2, lastFullWalkAt: now, lastAuditAt: now });
+    expect(await getSurveySyncState(env.DB)).toEqual({ linkedCount: 2, lastFullWalkAt: now });
+  });
 
-    // Within the backstop and with nothing changed, no re-audit runs.
-    const later = now + 60 * 60 * 1000;
-    expect((await syncSurveys(deps(fakeTessera(), later))).audited).toBe(0);
+  it('re-arms a held survey a day out on success and re-audits it when due', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    expect((await syncSurveys(deps(fakeTessera(), now))).audited).toBe(1);
+    let [row] = await surveyRows();
+    expect(row).toMatchObject({ audited_at: now, audit_due_at: now + DAY_MS, audit_attempts: 0 });
 
-    // Past the backstop the held survey is re-audited even though nothing moved
-    // (a proof verdict can flip without the raw count changing).
-    const nextDay = now + 25 * 60 * 60 * 1000;
+    // Not due and nothing moved: no audit an hour later.
+    expect((await syncSurveys(deps(fakeTessera(), now + HOUR_MS))).audited).toBe(0);
+
+    // Once due, the survey is re-audited with no trigger firing — a proof
+    // verdict can flip without the raw count moving.
+    const nextDay = now + 25 * HOUR_MS;
     expect((await syncSurveys(deps(fakeTessera(), nextDay))).audited).toBe(1);
-    expect((await getSurveySyncState(env.DB)).lastAuditAt).toBe(nextDay);
-    expect((await getHeldSurveys(env.DB))[0].countedDreps).toBe(2);
+    [row] = await surveyRows();
+    expect(row).toMatchObject({ audited_at: nextDay, audit_due_at: nextDay + DAY_MS });
+  });
+
+  it('audits once more when a final state arrives with the count unchanged, then closes', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    await syncSurveys(deps(fakeTessera(), now));
+    expect((await surveyRows())[0].counted_dreps).toBe(2);
+
+    // Tessera finalizes: the raw count has not moved, but a proof verdict now
+    // rejects one of the two counted responses.
+    const linked = surveyRecord(TX_LINKED, definition());
+    const finalized = fakeTessera({
+      surveysByRefs: async () => ({
+        ready: true,
+        value: { ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), finalState: FINALIZED },
+      }),
+      surveyBundle: async () => ({
+        ready: true,
+        value: {
+          ...bundleOf(linked, [response('aa'), response('bb')]),
+          verdicts: { [proofVerdictKey(response('bb'))]: false },
+        },
+      }),
+    });
+    const later = now + RETRY_MS;
+    expect((await syncSurveys(deps(finalized, later))).audited).toBe(1);
+    const [row] = await surveyRows();
+    expect(row).toMatchObject({
+      final_state: 'finalized',
+      counted_dreps: 1,
+      audited_at: later,
+      audit_due_at: null,
+    });
+  });
+
+  it('keeps retrying a survey admitted already final until its audit lands', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const linked = surveyRecord(TX_LINKED, definition());
+    const finalPage: SurveyPage = {
+      ...pageOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), 1),
+      finalState: FINALIZED,
+    };
+    const listFinal = async () => ({ ready: true as const, value: finalPage });
+    const failing = fakeTessera({
+      surveyList: listFinal,
+      surveyBundle: async () => {
+        throw new TesseraHttpError(500);
+      },
+    });
+    const working = fakeTessera({ surveyList: listFinal });
+
+    // The admission-run audit fails: the failure is persisted on the row, not
+    // forgotten with the in-memory queue.
+    expect(await syncSurveys(deps(failing, now))).toMatchObject({
+      admitted: 1,
+      audited: 0,
+      failed: 1,
+    });
+    let [row] = await surveyRows();
+    expect(row).toMatchObject({
+      final_state: 'finalized',
+      counted_dreps: null,
+      audited_at: null,
+      audit_attempts: 1,
+      audit_due_at: now + RETRY_MS,
+    });
+
+    // Backing off: not due one minute later.
+    expect((await syncSurveys(deps(working, now + MIN_MS))).audited).toBe(0);
+
+    // Due: the retry stores the audited final count and closes the schedule.
+    expect((await syncSurveys(deps(working, now + 6 * MIN_MS))).audited).toBe(1);
+    [row] = await surveyRows();
+    expect(row).toMatchObject({ counted_dreps: 2, audit_due_at: null });
+  });
+
+  it('covers more than AUDIT_LIMIT due surveys across runs without re-auditing the done ones', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const records = Array.from({ length: 25 }, (_, i) =>
+      surveyRecord(String(i).padStart(2, '0').repeat(32), definition({ title: `Survey ${i}` })),
+    );
+    const links: SurveySet['govLinks'] = records.map(r => ({
+      surveyKey: `${r.txHash}:0`,
+      actionId: ACTION_ID,
+      endEpoch: 300,
+      title: 'The linking action',
+    }));
+    const counts = Object.fromEntries(records.map(r => [`${r.txHash}:0`, 1]));
+    const set = setOf(records, links, counts);
+    const byKey = new Map(records.map(r => [`${r.txHash}:0`, r]));
+    const fake = fakeTessera({
+      surveyList: async () => ({ ready: true, value: pageOf(set, 25) }),
+      surveysByRefs: async () => ({ ready: true, value: set }),
+      surveyBundle: async key => {
+        const rec = byKey.get(key);
+        if (!rec) throw new Error(`no record for ${key}`);
+        return { ready: true, value: bundleOf(rec, []) };
+      },
+    });
+
+    expect(await syncSurveys(deps(fake, now))).toMatchObject({ admitted: 25, audited: 20 });
+    // The next run audits exactly the five left over — the twenty done ones
+    // are scheduled a day out, not first in line again.
+    expect(await syncSurveys(deps(fake, now + RETRY_MS))).toMatchObject({
+      admitted: 0,
+      audited: 5,
+      failed: 0,
+    });
+    const done = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM survey WHERE counted_dreps IS NOT NULL',
+    ).first<{ n: number }>();
+    expect(done?.n).toBe(25);
+  });
+
+  it('a not-ready bundle marks no progress: the row stays due, uncharged', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const notReadyBundle = fakeTessera({ surveyBundle: async () => ({ ready: false }) });
+    expect(await syncSurveys(deps(notReadyBundle, now))).toMatchObject({ audited: 0, failed: 0 });
+    const [row] = await surveyRows();
+    // Losing the snapshot is not the survey's failure: no backoff charged.
+    expect(row).toMatchObject({ audit_due_at: now, audit_attempts: 0 });
+    expect((await syncSurveys(deps(fakeTessera(), now + 1_000))).audited).toBe(1);
+  });
+
+  it('treats a bundle 404 as terminal, but a refresh trigger can revive the schedule', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    await syncSurveys(deps(fakeTessera(), now));
+
+    const linked = surveyRecord(TX_LINKED, definition());
+    const gone404 = fakeTessera({
+      // The moved count schedules a re-audit; the bundle route answers 404.
+      surveysByRefs: async () => ({
+        ready: true,
+        value: setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 4 }),
+      }),
+      surveyBundle: async () => {
+        throw new TesseraHttpError(404);
+      },
+    });
+    expect(await syncSurveys(deps(gone404, now + HOUR_MS))).toMatchObject({
+      audited: 0,
+      failed: 1,
+    });
+    let [row] = await surveyRows();
+    // Terminal on the first answer — no backoff ladder — and a held row keeps
+    // its last audited count.
+    expect(row).toMatchObject({ audit_due_at: null, counted_dreps: 2 });
+
+    // The ref is back in the corpus and its count moved again: the refresh
+    // trigger re-arms the schedule and the audit succeeds.
+    const back = fakeTessera({
+      surveysByRefs: async () => ({
+        ready: true,
+        value: setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 5 }),
+      }),
+    });
+    expect((await syncSurveys(deps(back, now + 2 * HOUR_MS))).audited).toBe(1);
+    [row] = await surveyRows();
+    expect(row.counted_dreps).toBe(2);
+  });
+
+  it('a decided survey concedes after exhausted retries and clears its count; a held one never concedes', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    await syncSurveys(deps(fakeTessera(), now));
+
+    const linked = surveyRecord(TX_LINKED, definition());
+    const failing = (finalState: SurveySet['finalState']) =>
+      fakeTessera({
+        surveysByRefs: async () => ({
+          ready: true,
+          value: { ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), finalState },
+        }),
+        surveyBundle: async () => {
+          throw new TesseraHttpError(500);
+        },
+      });
+
+    // Held at the top of the ladder: the next failure keeps backing off at the
+    // cap instead of conceding — a held row exits by finalizing or rolling
+    // back, never by exhaustion.
+    await env.DB.prepare('UPDATE survey SET audit_attempts = 7, audit_due_at = ?').bind(now).run();
+    await syncSurveys(deps(failing({}), now));
+    let [row] = await surveyRows();
+    expect(row).toMatchObject({
+      audit_attempts: 8,
+      audit_due_at: now + Math.min(RETRY_MS * 2 ** 7, DAY_MS),
+      counted_dreps: 2,
+    });
+
+    // Finalization arrives while the bundle route is down: the trigger resets
+    // the ladder and records the post-final audit debt.
+    await syncSurveys(deps(failing(FINALIZED), now));
+    [row] = await surveyRows();
+    expect(row).toMatchObject({ final_state: 'finalized', audit_attempts: 1, counted_dreps: 2 });
+
+    // Fast-forward to the last rung: the next failure concedes — schedule
+    // closed, and the never-confirmed count cleared rather than frozen.
+    await env.DB.prepare('UPDATE survey SET audit_attempts = 7, audit_due_at = ?').bind(now).run();
+    await syncSurveys(deps(failing(FINALIZED), now));
+    [row] = await surveyRows();
+    expect(row).toMatchObject({ audit_due_at: null, counted_dreps: null });
+
+    // Closed means closed: a later healthy run audits nothing.
+    expect((await syncSurveys(deps(fakeTessera(), now + DAY_MS))).audited).toBe(0);
+    expect((await surveyRows())[0].counted_dreps).toBeNull();
   });
 
   it('settles a local answer by its exact tx, keeps a fresh one pending, ages a stale one', async () => {

@@ -44,6 +44,19 @@ export function surveyLifecycle(
   return epochFromUnix(nowMs / 1000, cfg) > row.endEpoch ? 'closed' : 'open';
 }
 
+/**
+ * Whether an audited DRep count can still arrive for a row storing none.
+ * False only for a decided survey whose audit schedule is closed without a
+ * confirmed count (the sync conceded): "pending" would be a lie there —
+ * nothing is scheduled any more.
+ */
+export function countStillExpected(row: {
+  finalState: string | null;
+  auditDueAt: number | null;
+}): boolean {
+  return row.finalState === null || row.auditDueAt !== null;
+}
+
 /** Unix seconds of the response cutoff: the start of the epoch after
  * `end_epoch` (inclusive deadline). */
 export function surveyDeadlineUnix(endEpoch: number, cfg: NetworkConfig): number {
