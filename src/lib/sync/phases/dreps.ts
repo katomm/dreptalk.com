@@ -89,23 +89,30 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
   },
   {
     // Capture per-epoch voting power snapshots for the list delta chip and the
-    // profile sparkline. Self-healing: fetches only epochs not yet stored, prunes
-    // the rolling window, and projects the latest two snapshots onto the dreps rows.
-    // Inserts are chunked to stay under D1's 100 bound-parameter-per-query limit.
-    // A fetch failure here must not fail the DRep sync that already succeeded.
+    // profile sparkline. Self-healing: fetches only epochs not yet stored (newest
+    // first, budgeted per run), prunes below the retention floor, and projects the
+    // latest two snapshots onto the dreps rows. Inserts are chunked to stay under
+    // D1's 100 bound-parameter-per-query limit. A fetch failure here must not fail
+    // the DRep sync that already succeeded.
     name: 'voting-power-history',
     run: async (ctx) => {
       const tip = await ctx.koios.tip();
+      // Full-history retention: the absolute floor is the network's first DRep
+      // power epoch (mainnet 508, preprod 164), the same source the epoch-stats
+      // backfill uses. A Koios miss falls back to the legacy relative window.
+      const floorEpoch = await ctx.koios.firstDrepPowerEpoch().catch(() => null);
       const r = await syncDrepVotingPowerHistory({
         koios: ctx.koios,
         db: ctx.db,
         currentEpoch: tip.epoch_no,
+        floorEpoch,
         observedDelegatorCounts: ctx.state.observedDelegatorCounts,
       });
       ctx.state.vpHistoryEpoch = tip.epoch_no;
       console.log(
         `[drep-vp-history] window=${r.window[0]}..${r.window[r.window.length - 1]} ` +
-          `fetched=${r.fetchedEpochs.length} inserted=${r.inserted} pruned=${r.pruned} stamped=${r.stamped}`,
+          `fetched=${r.fetchedEpochs.length} inserted=${r.inserted} pruned=${r.pruned} ` +
+          `remaining=${r.remaining} stamped=${r.stamped}`,
       );
       return { items: r.inserted };
     },

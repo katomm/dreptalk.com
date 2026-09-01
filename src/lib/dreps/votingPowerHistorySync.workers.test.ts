@@ -118,6 +118,74 @@ describe('syncDrepVotingPowerHistory', () => {
     expect(epochs.every((e) => e >= 537)).toBe(true);
   });
 
+  it('spends the fetch budget newest-first and reports the remainder', async () => {
+    const { koios, requested } = fakeKoios({});
+
+    const res = await syncDrepVotingPowerHistory({
+      koios,
+      db: env.DB,
+      currentEpoch: 650,
+      floorEpoch: 600,
+      maxFetchPerRun: 3,
+    });
+
+    // window 600..650 (51 epochs), none stored, budget 3 -> fetches 650, 649, 648.
+    expect(res.window[0]).toBe(600);
+    expect(res.window[res.window.length - 1]).toBe(650);
+    expect(res.window.length).toBe(51);
+    expect(res.fetchedEpochs).toEqual([650, 649, 648]);
+    expect(requested).toEqual([650, 649, 648]);
+    expect(res.remaining).toBe(48);
+  });
+
+  it('uses the absolute floor instead of the relative window when provided', async () => {
+    const { koios } = fakeKoios({});
+
+    // windowSize 16 would give floor 635; floorEpoch 600 must win.
+    const res = await syncDrepVotingPowerHistory({
+      koios,
+      db: env.DB,
+      currentEpoch: 650,
+      windowSize: 16,
+      floorEpoch: 600,
+    });
+
+    expect(res.window[0]).toBe(600);
+  });
+
+  it('falls back to the relative window when floorEpoch is null', async () => {
+    const { koios } = fakeKoios({});
+
+    const res = await syncDrepVotingPowerHistory({
+      koios,
+      db: env.DB,
+      currentEpoch: 650,
+      windowSize: 16,
+      floorEpoch: null,
+    });
+
+    // Behaves exactly like before: window[0] is currentEpoch - (windowSize - 1).
+    expect(res.window[0]).toBe(635);
+  });
+
+  it('never prunes below an absolute floor that extends the window', async () => {
+    await insertVotingPowerHistory(env.DB, [{ drepId: 'drepA', epoch: 620, amount: '1' }]);
+    const { koios } = fakeKoios({});
+
+    const res = await syncDrepVotingPowerHistory({
+      koios,
+      db: env.DB,
+      currentEpoch: 650,
+      windowSize: 4,
+      floorEpoch: 600,
+    });
+
+    // The relative window's floor (647) would prune 620, but the absolute floor
+    // (600) extends retention and it survives.
+    expect(res.pruned).toBe(0);
+    expect((await getStoredEpochs(env.DB)).has(620)).toBe(true);
+  });
+
   it('stamps observed delegator counts for the current epoch even when nothing was fetched', async () => {
     await insertVotingPowerHistory(env.DB, [{ drepId: 'drep_stamp_sync', epoch: 950, amount: '100' }]);
 
