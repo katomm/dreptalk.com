@@ -205,15 +205,22 @@ describe('listCohortValues', () => {
 });
 
 describe('getNetworkTimingByType', () => {
-  it('computes the rn-pair median per type in days, excluding a negative-delta vote', async () => {
+  it('computes the rn-pair median per type in days, excluding a negative-delta vote and an open action', async () => {
     // Realistic units: submitted_at in milliseconds, block_time in seconds, so a
     // unit mix-up in the SQL (missing the *1000.0 normalization) would fail this.
     const submittedAt = 1_780_000_000_000; // ms
     const baseSec = 1_780_000_000; // submittedAt / 1000, seconds
     const daySec = 86_400;
 
-    async function seedTimedVote(gaId: string, type: string, dayOffset: number, voterId: string, decidedEpoch: number | null) {
-      await seedAction(gaId, `Action ${gaId}`, decidedEpoch, { type, submittedAt });
+    async function seedTimedVote(
+      gaId: string,
+      type: string,
+      dayOffset: number,
+      voterId: string,
+      decidedEpoch: number | null,
+      status?: string,
+    ) {
+      await seedAction(gaId, `Action ${gaId}`, decidedEpoch, { type, submittedAt, status });
       await upsertVotes(
         env.DB,
         gaId,
@@ -228,6 +235,9 @@ describe('getNetworkTimingByType', () => {
     await seedTimedVote('ga_tw3', 'TreasuryWithdrawals', 10, 'voterTw3', 902);
     // Negative delta (block_time before submitted_at): excluded, must not shift the median or the count.
     await seedTimedVote('ga_tw_neg', 'TreasuryWithdrawals', -1, 'voterTwNeg', 903);
+    // Still-open action (status 'active'), timed and positive-delta: excluded, it can only hold an
+    // early vote so far and would otherwise drag the median down to day 0.
+    await seedTimedVote('ga_tw_open', 'TreasuryWithdrawals', 0, 'voterTwOpen', 904, 'active');
 
     // ParameterChange: day offsets 2, 4 -> even n=2, rn-pair averages both middle rows ((2+4)/2 = 3).
     await seedTimedVote('ga_pc1', 'ParameterChange', 2, 'voterPc1', 900);
@@ -279,13 +289,20 @@ describe('getNetworkTimingByType role filter', () => {
 });
 
 describe('getNetworkTimingOverall', () => {
-  it('computes the overall median across types, and returns null when no timed votes exist for the role', async () => {
+  it('computes the overall median across types, excluding an open action, and returns null when no timed votes exist for the role', async () => {
     const submittedAt = 1_780_000_000_000; // ms
     const baseSec = 1_780_000_000; // seconds
     const daySec = 86_400;
 
-    async function seedTimedDrepVote(gaId: string, type: string, dayOffset: number, voterId: string, decidedEpoch: number | null) {
-      await seedAction(gaId, `Action ${gaId}`, decidedEpoch, { type, submittedAt });
+    async function seedTimedDrepVote(
+      gaId: string,
+      type: string,
+      dayOffset: number,
+      voterId: string,
+      decidedEpoch: number | null,
+      status?: string,
+    ) {
+      await seedAction(gaId, `Action ${gaId}`, decidedEpoch, { type, submittedAt, status });
       await upsertVotes(
         env.DB,
         gaId,
@@ -298,6 +315,9 @@ describe('getNetworkTimingOverall', () => {
     await seedTimedDrepVote('ga_ov1', 'InfoAction', 1, 'voterOv1', 900);
     await seedTimedDrepVote('ga_ov2', 'TreasuryWithdrawals', 2, 'voterOv2', 901);
     await seedTimedDrepVote('ga_ov3', 'ParameterChange', 10, 'voterOv3', 902);
+    // Still-open action (status 'active'), timed and positive-delta: excluded, it can only hold an
+    // early vote so far and would otherwise pull the overall median toward day 0.
+    await seedTimedDrepVote('ga_ov_open', 'InfoAction', 0, 'voterOvOpen', 903, 'active');
 
     const overall = await getNetworkTimingOverall(env.DB, 'DRep');
     expect(overall?.timedVotes).toBe(3);

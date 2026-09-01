@@ -59,6 +59,12 @@ export interface OwnVoteTiming {
 
 const DEFAULT_LIMIT = 50;
 
+// Shared by every network-wide timing read: an open action can only hold early
+// votes so far (it has not reached its window end yet), so including it would
+// bias the "how long after submission" figures early. Restricting to decided
+// actions keeps these medians comparable to the decided-only thirds bucketing.
+const DECIDED_STATUS_SQL = "g.status IN ('enacted', 'ratified', 'expired', 'closed')";
+
 /**
  * Decided actions the DRep was eligible to vote on but did not: the same
  * eligible set as getDrepParticipation (decided_epoch >= registeredEpoch, at
@@ -149,9 +155,11 @@ export async function listCohortValues(db: D1Database): Promise<CohortValues[]> 
 
 /**
  * Median vote-timing (days from an action's submission to the vote), per
- * action type, over every live timed vote network-wide for the given voter
- * role (DRep by default, kept for the record page's existing callers). Only
- * rows with both timestamps present and a non-negative delta qualify
+ * action type, over every live timed vote on a decided action, network-wide,
+ * for the given voter role (DRep by default, kept for the record page's
+ * existing callers). Decided actions only: an open action can only hold early
+ * votes so far, so including it would bias the median toward the early side.
+ * Only rows with both timestamps present and a non-negative delta qualify
  * (submitted_at is milliseconds, block_time is seconds, hence the *1000.0
  * normalization).
  *
@@ -173,6 +181,7 @@ export async function getNetworkTimingByType(db: D1Database, role: 'DRep' | 'SPO
              FROM drep_votes v
              JOIN governance_actions g ON g.id = v.ga_id
             WHERE v.voter_role = ? AND ${liveVoteSql('v')}
+              AND ${DECIDED_STATUS_SQL}
               AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
               AND v.block_time * 1000.0 >= g.submitted_at
          )
@@ -187,8 +196,10 @@ export async function getNetworkTimingByType(db: D1Database, role: 'DRep' | 'SPO
 
 /**
  * Same rn-pair median trick as getNetworkTimingByType, but without the type
- * partition: one overall median across every live timed vote network-wide
- * for the given voter role. Null when the role has no timed votes at all.
+ * partition: one overall median across every live timed vote on a decided
+ * action, network-wide, for the given voter role. Decided actions only, same
+ * reasoning as getNetworkTimingByType: an open action can only hold early
+ * votes so far. Null when the role has no timed votes at all.
  */
 export async function getNetworkTimingOverall(db: D1Database, role: 'DRep' | 'SPO'): Promise<NetworkOverallTiming | null> {
   const row = await db
@@ -200,6 +211,7 @@ export async function getNetworkTimingOverall(db: D1Database, role: 'DRep' | 'SP
            FROM drep_votes v
            JOIN governance_actions g ON g.id = v.ga_id
           WHERE v.voter_role = ? AND ${liveVoteSql('v')}
+            AND ${DECIDED_STATUS_SQL}
             AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
             AND v.block_time * 1000.0 >= g.submitted_at
        )
@@ -237,7 +249,7 @@ export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
              JOIN governance_actions g ON g.id = v.ga_id
             WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
               AND g.decided_epoch IS NOT NULL
-              AND g.status IN ('enacted', 'ratified', 'expired', 'closed')
+              AND ${DECIDED_STATUS_SQL}
               AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
               AND v.block_time * 1000.0 >= g.submitted_at
          )
@@ -280,7 +292,7 @@ export async function getWindowThirds(db: D1Database, anchor: { epoch: number; u
            JOIN governance_actions g ON g.id = v.ga_id
           WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
             AND g.decided_epoch IS NOT NULL
-            AND g.status IN ('enacted', 'ratified', 'expired', 'closed')
+            AND ${DECIDED_STATUS_SQL}
             AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
        ), q AS (
          SELECT (block_ms - submitted_at) / (end_ms - submitted_at) AS position

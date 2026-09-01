@@ -51,7 +51,7 @@ Only actions whose complete vote history has been swept from the chain are count
 
 ## Voting timing
 
-The timing panel reads when votes arrive. It counts votes, not weight: every vote counts once, whatever voting power stands behind it, so the figures describe the behavior of the voters rather than the movement of the stake. The headline numbers are the median day after submission for DRep votes and for SPO votes, and the day by which half of an action's votes had arrived, taken as a median across decided actions. A vote can only be timed when both the action's submission and the vote's block time are on record.
+The timing panel reads when votes arrive. It counts votes, not weight: every vote counts once, whatever voting power stands behind it, so the figures describe the behavior of the voters rather than the movement of the stake. The headline numbers are the median day after submission for DRep votes and for SPO votes, and the day by which half of an action's votes had arrived, taken as a median across decided actions. A vote can only be timed when both the action's submission and the vote's block time are on record. The medians only cover decided actions, an action still open can only hold its early votes so far.
 
 The window split reads every vote against its own action's voting window instead of the calendar. The span from submission to the close of voting is cut into three equal parts, and each vote falls in the early, middle or late third of that action's window, so an action open for twenty days and one open for five are read on the same scale. Votes recorded after the window closed are counted separately and never as late, because they never had a third to fall into.
 

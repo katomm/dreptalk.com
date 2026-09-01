@@ -282,6 +282,9 @@ function participationLine(stat: ParticipationStat): string {
         ) : (
           <p class="mgr-note">Not enough timed votes in any single action type yet, each type needs at least 3.</p>
         )}
+        {timingDetail.types.length > 0 && (
+          <p class="mgr-note">The network median covers decided actions only, an open action would only show its early votes so far.</p>
+        )}
 
         {timingDetail.windowBasis > 0 ? (
           <div class="mgr-timing">
