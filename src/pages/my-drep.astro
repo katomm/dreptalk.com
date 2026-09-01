@@ -1,0 +1,538 @@
+---
+// Delegator-gated "My DRep": what the DRep a user delegated to has done since
+// that delegation started (M1), or what a standing default option meant on the
+// last decided actions (M2). Gated to a signed-in session, mirroring
+// /my-governance-record for the head handling (noindex, no OG card, no sitemap
+// entry). Cookied requests are never edge-cached by the middleware, so the page
+// sets no cache headers of its own. The stake address stays server side: it is
+// never rendered and never put in a link.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import GovTypePill from '@/components/GovTypePill.astro';
+import { runtimeEnv, currentNetwork } from '@/lib/api/response';
+import { resolveNetwork, epochStartMs, epochStartUnix } from '@/lib/config/network';
+import { getFollow } from '@/lib/db/delegatorFollows';
+import { resolveDelegationView, drepStatusHint } from '@/lib/delegation/delegationView';
+import { getDrepById } from '@/lib/db/dreps';
+import { drepPath } from '@/lib/dreps/profile';
+import {
+  listDrepActionsSince,
+  countVoteChangesSince,
+  getPowerAtOrAfter,
+  getPowerLatest,
+  listRecentDecidedActions,
+  type SinceActionRow,
+  type PowerPoint,
+  type RecentDecidedAction,
+} from '@/lib/db/myDrep';
+import { buildMyDrep, buildDefaultOptionView, type DefaultOption } from '@/lib/analytics/myDrepView';
+import { fmtPct, shortGovActionId } from '@/lib/governance/view';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+
+// Same pattern the sibling gated pages use to turn the runtime env's network
+// string into the config the epoch boundaries need.
+const cfg = resolveNetwork(currentNetwork().network);
+
+// How many decided actions the default-option view lists.
+const RECENT_LIMIT = 10;
+
+const follow = db ? await getFollow(db, user.id) : null;
+const view = resolveDelegationView(follow);
+const drepId = view.kind === 'drep' ? view.drepId : null;
+const defaultOption: DefaultOption | null =
+  view.kind === 'abstain' || view.kind === 'no_confidence' ? view.kind : null;
+// NULL until the delegation-start capture has run for this follow.
+const sinceEpoch = follow?.delegated_since_epoch ?? null;
+
+// One ternary per read (the pattern /my-governance-record uses), so each
+// position keeps its own type without a tuple-wide cast. Only the reads the
+// current state actually needs run, the others resolve to their empty value.
+const [drep, actions, voteChanges, powerThen, powerNow, recent] = await Promise.all([
+  db && drepId ? getDrepById(db, drepId) : Promise.resolve(null),
+  db && drepId && sinceEpoch != null
+    ? listDrepActionsSince(db, drepId, sinceEpoch)
+    : Promise.resolve([] as SinceActionRow[]),
+  db && drepId && sinceEpoch != null
+    ? countVoteChangesSince(db, drepId, epochStartUnix(sinceEpoch, cfg))
+    : Promise.resolve(0),
+  db && drepId && sinceEpoch != null
+    ? getPowerAtOrAfter(db, drepId, sinceEpoch)
+    : Promise.resolve(null as PowerPoint | null),
+  db && drepId && sinceEpoch != null ? getPowerLatest(db, drepId) : Promise.resolve(null as PowerPoint | null),
+  db && defaultOption ? listRecentDecidedActions(db, RECENT_LIMIT) : Promise.resolve([] as RecentDecidedAction[]),
+]);
+
+const m1 =
+  drepId != null && sinceEpoch != null
+    ? buildMyDrep({
+        sinceEpoch,
+        sinceStartMs: epochStartMs(sinceEpoch, cfg),
+        actions,
+        voteChanges,
+        powerThen,
+        powerNow,
+      })
+    : null;
+const m2 = defaultOption ? buildDefaultOptionView(defaultOption, recent) : null;
+
+// The profile link works before the dreps row has synced, drepPath falls back
+// to the raw id when there is no slug.
+const profileHref = drepId ? drepPath({ drepId, slug: drep?.slug ?? null }) : null;
+const drepLabel = drep?.name ?? 'Your DRep';
+
+// Registration state as one line, no history. expires_epoch_no is the epoch the
+// registration lapses in unless the DRep votes or updates before then.
+const statusLine = drep
+  ? drep.active
+    ? drep.expiresEpochNo != null
+      ? `Active, and the registration expires in epoch ${drep.expiresEpochNo} unless this DRep votes or updates before then.`
+      : 'Active.'
+    : (drepStatusHint(drep.active, drep.status) ?? 'This DRep is not currently active.')
+  : null;
+
+const num = (n: number) => n.toLocaleString('en-US');
+/** Signed count change, with an unchanged count reading "0" rather than nothing. */
+const signed = (n: number) => (n > 0 ? `+${num(n)}` : num(n));
+
+// Both power figures come from the same snapshot row, so one epoch labels the
+// whole "at your delegation" column. A start epoch later than the delegation
+// epoch means the history no longer reaches that far back, which the column
+// says out loud instead of passing the later figure off as the start.
+const startIsFirstOnRecord = m1 != null && powerThen != null && powerThen.epoch > m1.sinceEpoch;
+const startColLabel = powerThen
+  ? startIsFirstOnRecord
+    ? `Epoch ${powerThen.epoch}, first figure on record`
+    : `Epoch ${powerThen.epoch}`
+  : 'At your delegation';
+const nowColLabel = powerNow ? `Epoch ${powerNow.epoch}` : 'Now';
+const NO_FIGURE = 'No figure for that epoch';
+
+const missedCount = m1?.missed.length ?? 0;
+const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
+---
+<Layout
+  title="My DRep - DRepTalk"
+  description="What the DRep you delegated to has done since your delegation started, and what a default delegation option meant on the decided actions."
+  noindex={true}
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>My DRep</span>
+  </nav>
+
+  <div class="mdr">
+    <div class="mdr-head">
+      <h1 class="mdr-head__title">{h1}</h1>
+      {/* No line break between the name and the period below: Astro keeps
+          template whitespace, so a wrapped expression would render "Name ." */}
+      {view.kind === 'drep' && (
+        <p class="mdr-head__sub">You delegated your voting power to {profileHref ? <a href={profileHref}>{drepLabel}</a> : drepLabel}.{m1 && ` Since your latest delegation in epoch ${m1.sinceEpoch}, ${m1.sinceDateIso}.`}</p>
+      )}
+      {defaultOption && (
+        <p class="mdr-head__sub">
+          {defaultOption === 'abstain'
+            ? 'Your voting power is delegated to the always abstain option, not to a DRep.'
+            : 'Your voting power is delegated to the always no confidence option, not to a DRep.'}
+        </p>
+      )}
+    </div>
+
+    {view.kind === 'no-follow' && (
+      <section class="mdr-section">
+        <h2 class="mdr-section__title">No tracked delegation yet</h2>
+        <p class="mdr-line">
+          This page reads your own delegation, so it needs a stake wallet linked to your account. Once the
+          link is in place, DRepTalk resolves who your voting power sits with and this page shows what has
+          happened since.
+        </p>
+        <p class="mdr-line"><a href="/settings/account/">Link your stake wallet in your account settings</a></p>
+      </section>
+    )}
+
+    {view.kind === 'pending' && (
+      <section class="mdr-section">
+        <h2 class="mdr-section__title">Still resolving</h2>
+        <p class="mdr-line">
+          Your delegation is still being looked up on chain. This usually takes a moment, check back shortly.
+        </p>
+      </section>
+    )}
+
+    {view.kind === 'none' && (
+      <section class="mdr-section">
+        <h2 class="mdr-section__title">No delegation on record</h2>
+        <p class="mdr-line">
+          Your stake is not delegated to a DRep or to one of the two default options, so there is nothing to
+          report on yet. Delegating puts your voting power to work in governance.
+        </p>
+        <p class="mdr-line"><a href="/dreps/">Browse the DRep directory</a></p>
+      </section>
+    )}
+
+    {view.kind === 'drep' && !drep && (
+      <div class="callout callout--info" role="status">
+        <div class="callout__body">
+          This DRep's on-chain record has not synced yet, so the name and the registration state are missing
+          here. The figures below are unaffected.
+        </div>
+      </div>
+    )}
+
+    {view.kind === 'drep' && !m1 && (
+      <section class="mdr-section">
+        <h2 class="mdr-section__title">Delegation start pending</h2>
+        <p class="mdr-line">
+          The epoch your latest delegation was submitted in is being looked up and is normally on record
+          within a day. Until then this page shows no since-figures, because every figure on it counts from
+          that epoch.
+        </p>
+        {profileHref && (
+          <p class="mdr-line"><a href={profileHref}>Open the DRep profile for the full public record</a></p>
+        )}
+      </section>
+    )}
+
+    {m1 && (
+      <>
+        <section class="mdr-section">
+          <h2 class="mdr-section__title">Since your delegation</h2>
+          <div class="mdr-metrics">
+            <div class="mdr-metric">
+              <span class="mdr-metric__label">Participation</span>
+              {m1.participationPct != null && <span class="mdr-metric__value">{fmtPct(m1.participationPct)}</span>}
+              <span class="mdr-metric__basis">
+                {m1.eligible > 0
+                  ? `${num(m1.voted)} of ${num(m1.eligible)} decided actions since epoch ${m1.sinceEpoch}`
+                  : `No decided actions since epoch ${m1.sinceEpoch}`}
+              </span>
+            </div>
+            <div class="mdr-metric">
+              <span class="mdr-metric__label">Rationale coverage</span>
+              {m1.rationalePct != null && <span class="mdr-metric__value">{fmtPct(m1.rationalePct)}</span>}
+              <span class="mdr-metric__basis">
+                {m1.voted > 0
+                  ? `${num(m1.withRationale)} of ${num(m1.voted)} votes with a rationale`
+                  : `No votes since epoch ${m1.sinceEpoch}`}
+              </span>
+            </div>
+            <div class="mdr-metric">
+              <span class="mdr-metric__label">Vote changes</span>
+              <span class="mdr-metric__value">{num(m1.voteChanges)}</span>
+              <span class="mdr-metric__basis">{`Votes replaced by a later vote since epoch ${m1.sinceEpoch}`}</span>
+            </div>
+          </div>
+          <p class="mdr-note">
+            A decided action counts here once at least one DRep voted on it, so actions no DRep could vote on
+            stay out of every figure. Actions decided before epoch {m1.sinceEpoch} are never counted against
+            this DRep on your behalf. Rationale coverage counts the actions this DRep voted on, not all of them.
+          </p>
+          {statusLine && <p class="mdr-line">{statusLine}</p>}
+        </section>
+
+        <section class="mdr-section">
+          <h2 class="mdr-section__title">Voting power and delegators</h2>
+          <div class="mdr-table-wrap">
+            <table class="mdr-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>{startColLabel}</th>
+                  <th>{nowColLabel}</th>
+                  <th>Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Voting power</td>
+                  <td>{m1.power.start?.label ?? NO_FIGURE}</td>
+                  <td>{m1.power.now?.label ?? NO_FIGURE}</td>
+                  <td>{m1.power.deltaLabel ?? 'Needs a figure for both epochs'}</td>
+                </tr>
+                <tr>
+                  <td>Delegators</td>
+                  <td>{m1.delegators.start != null ? num(m1.delegators.start) : NO_FIGURE}</td>
+                  <td>{m1.delegators.now != null ? num(m1.delegators.now) : NO_FIGURE}</td>
+                  <td>{m1.delegators.delta != null ? signed(m1.delegators.delta) : 'Needs a figure for both epochs'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="mdr-note">
+            Both figures come from the per-epoch snapshots DRepTalk records. A delegation that started before
+            the first snapshot on record shows the earliest epoch that is available instead, which the column
+            header states. Delegator counts exist only from the epoch DRepTalk began recording them.
+          </p>
+        </section>
+
+        <section class="mdr-section">
+          <h2 class="mdr-section__title">Actions without a vote from this DRep</h2>
+          {missedCount === 0 ? (
+            <p class="mdr-line">
+              {m1.eligible > 0
+                ? `No missed actions since then. Every one of the ${num(m1.eligible)} decided actions since epoch ${m1.sinceEpoch} carries a vote from this DRep.`
+                : `No decided actions since epoch ${m1.sinceEpoch}, so there is nothing that could have been missed.`}
+            </p>
+          ) : (
+            <>
+              <p class="mdr-headline">
+                {`${num(missedCount)} of ${num(m1.eligible)} decided actions since epoch ${m1.sinceEpoch} carry no vote from this DRep`}
+              </p>
+              <div class="mdr-list">
+                {m1.missed.map((row) => (
+                  <div class="mdr-row">
+                    <span class="mdr-row__title">
+                      {row.topicSlug ? (
+                        <a href={`/t/${row.topicSlug}/`}>{row.title ?? shortGovActionId(row.gaId)}</a>
+                      ) : (
+                        row.title ?? shortGovActionId(row.gaId)
+                      )}
+                    </span>
+                    <GovTypePill type={row.type} />
+                    <span class="mdr-row__meta">{`Epoch ${row.decidedEpoch}`}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
+        <p class="mdr-sub">
+          These figures describe one DRep over one window, they are not a score. A DRep that did not vote on
+          an action may have had reasons you agree with. The public record on the <a href={profileHref ?? '/dreps/'}>DRep profile</a>
+          covers its whole history, and <a href="/help/my-drep/">how this page is built</a> explains where every
+          number comes from.
+        </p>
+      </>
+    )}
+
+    {m2 && (
+      <>
+        <section class="mdr-section">
+          <h2 class="mdr-section__title">What your choice meant</h2>
+          <p class="mdr-line">{m2.rule}</p>
+          {m2.rows.length === 0 ? (
+            <p class="mdr-line">No governance action has been decided yet, so there is nothing to show here.</p>
+          ) : (
+            <div class="mdr-list">
+              {m2.rows.map((row) => (
+                <div class="mdr-row mdr-row--stacked">
+                  <span class="mdr-row__main">
+                    <span class="mdr-row__title">
+                      {row.href ? <a href={row.href}>{row.title}</a> : row.title}
+                    </span>
+                    <GovTypePill type={row.type} />
+                    <span class="mdr-row__meta">{row.outcome}</span>
+                  </span>
+                  <span class="mdr-row__effect">{row.effect}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p class="mdr-note">
+            {`Basis: the ${num(RECENT_LIMIT)} most recent decided actions. A default option applies automatically, there is nothing to cast and no rationale to read.`}
+          </p>
+        </section>
+
+        <p class="mdr-sub">
+          You can move your voting power to a DRep or to the other default option at any time.
+          <a href="/help/default-delegation-options/">What the default options do</a> covers both in full, and
+          <a href="/dreps/">the DRep directory</a> lists the representatives you could delegate to instead.
+        </p>
+      </>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .mdr {
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+  }
+  .mdr-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .mdr-head__title {
+    margin: 0;
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .mdr-head__sub {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9375rem;
+    max-width: 62ch;
+  }
+  .mdr-head__sub a {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .mdr-section {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .mdr-section__title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .mdr-headline {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 700;
+  }
+  .mdr-line {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--muted);
+    max-width: 68ch;
+  }
+  .mdr-line a {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .mdr-note {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    max-width: 72ch;
+  }
+  .mdr-sub {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    max-width: 72ch;
+  }
+  .mdr-sub a {
+    color: var(--accent);
+  }
+
+  /* Three stat blocks, stacking on narrow screens. */
+  .mdr-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+  @media (max-width: 680px) {
+    .mdr-metrics {
+      grid-template-columns: 1fr;
+    }
+  }
+  .mdr-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .mdr-metric__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .mdr-metric__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .mdr-metric__basis {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  .mdr-table-wrap {
+    overflow-x: auto;
+  }
+  .mdr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .mdr-table th {
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 0 0.5rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mdr-table td {
+    padding: 0.5rem 0.5rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  .mdr-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .mdr-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .mdr-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9375rem;
+  }
+  .mdr-row--stacked {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+  }
+  .mdr-row:last-child {
+    border-bottom: none;
+  }
+  .mdr-row__main {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .mdr-row__title {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .mdr-row__title a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+    font-weight: 600;
+  }
+  .mdr-row__meta {
+    flex-shrink: 0;
+    text-align: right;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .mdr-row__effect {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+</style>

@@ -99,6 +99,7 @@ const icons = {
   match: TARGET_PATH,
   origins: 'M5 6h4M5 12h4M5 18h4M9 6c6 0 4 6 10 6M9 18c6 0 4-6 10-6M9 12h10',
   record: 'M5 20V13M10 20V6M15 20V16M19 20V10M7.5 3.5l2.5 2.5 2.5-2.5',
+  myDrep: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M16 11l2 2 4-4',
   discussions:
     'M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1',
   analytics: 'M4 5v14h16M8 15l3-4 2.5 2L18 7',
@@ -117,6 +118,15 @@ interface HomeCard {
   /** ISO date. While today is before it, the card carries a "New" pill. */
   newUntil?: string;
 }
+
+// The delegation states the "My DRep" card has something to show for, taken
+// from the dashboard's own resolved view so the card costs no extra query.
+const trackedDelegation =
+  delegationData.view.kind === 'drep' ||
+  delegationData.view.kind === 'abstain' ||
+  delegationData.view.kind === 'no_confidence'
+    ? delegationData.view.kind
+    : null;
 
 // Recently shipped cards carry a "New" pill until this date passes, so the
 // marker retires itself instead of needing a follow-up commit.
@@ -188,6 +198,23 @@ const cards: HomeCard[] = [
               : 'Manage your DRepTalk account.',
         },
       ]),
+  // Only for a resolved follow that actually has something to report on: a DRep
+  // or one of the two default options. A pending, missing or undelegated follow
+  // would open a page with nothing on it.
+  ...(trackedDelegation
+    ? [
+        {
+          title: 'My DRep',
+          href: '/my-drep/',
+          icon: icons.myDrep,
+          desc:
+            trackedDelegation === 'drep'
+              ? 'What your DRep did since you delegated.'
+              : 'What your default choice meant.',
+          newUntil: '2026-09-16',
+        },
+      ]
+    : []),
   {
     title: 'Find your DRep',
     href: '/match/',

@@ -41,6 +41,16 @@ const stakeAddr = selfRow?.stake_addr ?? null;
 const follow = stakeAddr && db ? await getFollow(db, user.id) : null;
 const followDrep =
   follow?.delegation_type === 'drep' && follow.drep_id && db ? await getDrepById(db, follow.drep_id) : null;
+// The "My DRep" link only shows for a resolved follow that has something to
+// report on (a DRep or one of the two default options), the same condition the
+// home card uses. A pending or undelegated follow would open an empty page.
+const trackedType =
+  follow?.resolution_status === 'resolved' &&
+  (follow.delegation_type === 'drep' ||
+    follow.delegation_type === 'abstain' ||
+    follow.delegation_type === 'no_confidence')
+    ? follow.delegation_type
+    : null;
 const initialTracking = follow
   ? {
       resolutionStatus: follow.resolution_status,
@@ -68,6 +78,15 @@ const initialTracking = follow
         initialTracking={initialTracking}
         client:load
       />
+      {trackedType && (
+        <p style="margin:1rem 0 0;font-size:0.9375rem;">
+          <a href="/my-drep/" style="color:var(--accent);font-weight:600;">
+            {trackedType === 'drep'
+              ? 'See what your DRep did since you delegated'
+              : 'See what your default choice meant'}
+          </a>
+        </p>
+      )}
     </section>
   ) : (
     <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
