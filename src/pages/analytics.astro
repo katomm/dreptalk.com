@@ -18,12 +18,14 @@ import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { listDecidedActionsForRepresentation } from '@/lib/db/effectiveRepresentation.js';
 import { listDrepVotePowersByAction } from '@/lib/db/drepVotes.js';
+import { listDecidedVoteChangeRows, countVoteChangeCoverage } from '@/lib/db/voteChangeStats.js';
 import { readableType } from '@/lib/governance/view.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
 import { buildVitals, metricSeries, netChange } from '@/lib/analytics/hubView.js';
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
+import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
 const env = runtimeEnv(Astro.locals);
@@ -60,6 +62,15 @@ const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
 // any missing per-vote power renders no half-count, never a zero.
 const votePowers = db ? await listDrepVotePowersByAction(db, repActions.map((a) => a.id)) : undefined;
 const effRep = buildEffRep(repActions, votePowers);
+
+// Vote-change analytics over all decided actions with swept history: one read
+// for the classified pairs, one for the coverage denominators and the
+// unclassifiable-pair disclosure.
+const [changeRows, changeCoverage] = db
+  ? await Promise.all([listDecidedVoteChangeRows(db), countVoteChangeCoverage(db)])
+  : [[], { decidedSwept: 0, decidedUnswept: 0, orphanPairs: 0 }];
+const voteChanges = buildVoteChangeView(changeRows, changeCoverage);
+
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
 // Median half-counts can end in .5 with an even action count, render as-is.
 const fmtCount = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
@@ -253,6 +264,30 @@ const activityRows = activity
     </section>
   )}
 
+  {voteChanges.decidedSwept > 0 && voteChanges.changedCount + voteChanges.samePositionCount > 0 && (
+    <section class="hub-votechange" aria-labelledby="hub-votechange-title">
+      <h2 id="hub-votechange-title">Changed votes</h2>
+      <p class="hub-votechange__lede">Across {voteChanges.decidedSwept} decided actions, {voteChanges.actionsWithChange} saw at least one DRep change their position. {voteChanges.changedCount} votes changed position in total, while {voteChanges.samePositionCount} re-votes kept the voter's position.</p>
+      <p class="hub-votechange__directions">{voteChanges.toYes} changed to yes, {voteChanges.toNo} to no and {voteChanges.toAbstain} to abstain.</p>
+      {voteChanges.topActions.length > 0 && (
+        <>
+          <h3 class="hub-votechange__subtitle">Most reconsidered actions</h3>
+          <ul class="hub-votechange__rows">
+            {voteChanges.topActions.map((a) => (
+              <li class="hub-votechange__row">
+                <span class="hub-votechange__title">{a.href ? <a href={a.href}>{a.title}</a> : a.title}</span>
+                <span class="hub-votechange__type">{readableType(a.type)}</span>
+                <span class="hub-votechange__epoch">Epoch {a.decidedEpoch}</span>
+                <span class="hub-votechange__count">{a.changedCount} changed</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <p class="hub-votechange__footnote">Counts cover decided actions with a fully swept vote history and compare each voter's first recorded vote with the final one.{voteChanges.decidedUnswept > 0 && ` ${voteChanges.decidedUnswept} decided actions are still queued for the sweep.`}{voteChanges.orphanPairs > 0 && ` ${voteChanges.orphanPairs} re-votes whose final vote is not on record are left out.`}</p>
+    </section>
+  )}
+
   {activity && (
     <section class="hub-activity" aria-labelledby="hub-activity-title">
       <h2 id="hub-activity-title">DRep activity</h2>
@@ -399,6 +434,7 @@ const activityRows = activity
   }
   #hub-trends-title,
   #hub-effrep-title,
+  #hub-votechange-title,
   #hub-activity-title {
     margin: 0 0 1rem;
     font-size: 1.2rem;
@@ -511,6 +547,83 @@ const activityRows = activity
     }
   }
   .hub-effrep__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-votechange {
+    margin: 0 0 2.5rem;
+  }
+  .hub-votechange__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 0.5rem;
+  }
+  .hub-votechange__directions {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-votechange__subtitle {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+  }
+  .hub-votechange__rows {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hub-votechange__row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-votechange__title {
+    font-weight: 600;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .hub-votechange__title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-votechange__title a:hover {
+    text-decoration: underline;
+  }
+  .hub-votechange__type {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .hub-votechange__epoch,
+  .hub-votechange__count {
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .hub-votechange__epoch {
+    margin-left: auto;
+  }
+  @media (max-width: 480px) {
+    .hub-votechange__epoch {
+      margin-left: 0;
+    }
+  }
+  .hub-votechange__footnote {
     margin: 0;
     color: var(--muted);
     font-size: 0.75rem;
