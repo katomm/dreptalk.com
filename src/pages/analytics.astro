@@ -58,7 +58,7 @@ const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
 // Per-action vote powers for the concentration read, one batched query for the
 // listed actions. Completeness gating happens in the builder: an action with
 // any missing per-vote power renders no half-count, never a zero.
-const votePowers = db ? await listDrepVotePowersByAction(db, repActions.map((a) => a.id)) : new Map<string, (number | null)[]>();
+const votePowers = db ? await listDrepVotePowersByAction(db, repActions.map((a) => a.id)) : undefined;
 const effRep = buildEffRep(repActions, votePowers);
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
 // Median half-counts can end in .5 with an even action count, render as-is.

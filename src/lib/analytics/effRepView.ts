@@ -62,7 +62,7 @@ export function buildEffRep(
       action.poweredDrepCount != null && action.poweredDrepCount !== 0
         ? clampPct((action.votesCast / action.poweredDrepCount) * 100)
         : null;
-    const rawConc = powersByAction ? buildVoteConcentration(powersByAction.get(action.id) ?? [], null) : null;
+    const rawConc = buildVoteConcentration(powersByAction?.get(action.id) ?? [], null);
     // Skew guard: the per-vote rows sync separately from the tally counts, so a
     // freshly decided action can hold fewer vote rows than the tally counted.
     // Late votes only ever push voterCount above votesCast, so this never fires falsely.
