@@ -303,6 +303,57 @@ describe('syncSurveys', () => {
     expect((await surveyRows()).length).toBe(0);
   });
 
+  it('restarts the discovery walk when a list page answers from an older snapshot', async () => {
+    await importLinkingAction();
+    await importLinkingAction(ACTION_SECOND);
+    const first = surveyRecord(TX_LINKED, definition());
+    const second = surveyRecord(TX_SECOND, definition({ title: 'Second survey' }));
+    const links: SurveySet['govLinks'] = [
+      { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
+      { surveyKey: KEY_SECOND, actionId: ACTION_SECOND, endEpoch: 300, title: 'The other action' },
+    ];
+    const pageOne = (linked: number): SurveyPage => ({
+      ...pageOf(setOf([first], links.slice(0, 1), { [KEY_LINKED]: 3 }), linked),
+      nextCursor: 'cursor-1',
+    });
+    const pageTwo = pageOf(setOf([second], links.slice(1), { [KEY_SECOND]: 1 }), 3);
+    // The best-effort answer to a cursor minted against an older snapshot:
+    // rows gone AND the cursor terminal — the pair that reads like a finished
+    // walk if `resync` is not checked first.
+    const stale: SurveyPage = { ...pageOf(setOf([], [], {}), 2), resync: true };
+    const bothRefs = async () => ({
+      ready: true as const,
+      value: setOf([first, second], links, { [KEY_LINKED]: 3, [KEY_SECOND]: 1 }),
+    });
+
+    // Generation two counts one more linked survey than the one abandoned.
+    let calls = 0;
+    const moved = fakeTessera({
+      surveyList: async params => {
+        calls++;
+        if (!params?.cursor) return { ready: true, value: pageOne(calls === 1 ? 2 : 3) };
+        return { ready: true, value: calls === 2 ? stale : pageTwo };
+      },
+      surveysByRefs: bothRefs,
+    });
+    const now = 1_780_000_500_000;
+    expect(await syncSurveys(deps(moved, now))).toMatchObject({ admitted: 2, failed: 0 });
+    // Page two of the restarted walk is where the second survey lives: taking
+    // the stale terminal page would have admitted only the first.
+    expect((await surveyRows()).map(r => r.ref)).toEqual([KEY_LINKED, KEY_SECOND]);
+    expect(await getSurveySyncState(env.DB)).toEqual({ linkedCount: 3, lastFullWalkAt: now });
+
+    // A walk that never converges leaves the state alone, so the next run
+    // tries again instead of believing a complete walk happened.
+    const churning = fakeTessera({
+      surveyList: async params =>
+        params?.cursor ? { ready: true, value: stale } : { ready: true, value: pageOne(4) },
+      surveysByRefs: bothRefs,
+    });
+    expect(await syncSurveys(deps(churning, now + HOUR_MS))).toMatchObject({ admitted: 0 });
+    expect(await getSurveySyncState(env.DB)).toEqual({ linkedCount: 3, lastFullWalkAt: now });
+  });
+
   it('rolls a held survey back when a complete answer omits it, and clears it on reappearance', async () => {
     await importLinkingAction();
     await syncSurveys(deps(fakeTessera()));

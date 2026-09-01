@@ -314,14 +314,17 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       failed: 0,
     };
   }
-  const linkedCount = page1.value.counts.linked;
   const walkTriggered =
     page1.value.nextCursor !== null &&
-    (linkedCount !== state.linkedCount ||
+    (page1.value.counts.linked !== state.linkedCount ||
       (await hasActionsCreatedSince(db, state.lastFullWalkAt ?? 0)) ||
       now - (state.lastFullWalkAt ?? 0) > BACKSTOP_MS);
 
   let completeWalk = false;
+  /** The linked-set size the completed walk saw. A restart re-reads page one,
+   * and what this pass persists has to describe the generation it actually
+   * walked, not the one it abandoned. */
+  let walkedCount = page1.value.counts.linked;
   for (let restart = 0; restart <= MAX_RESYNC_RESTARTS && !completeWalk; restart++) {
     let page =
       restart === 0
@@ -331,15 +334,20 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       if (!page.ready) {
         return { notReady: true, ...counters, refreshed, rolledBack, audited, settled, agedFailed };
       }
+      // Read before the page is used for anything: `resync` says the snapshot
+      // moved under the cursor, so these rows belong to a generation this walk
+      // is abandoning — and a stale answer is served best-effort, so its
+      // terminal cursor is not this generation's end either. Taking it would
+      // stamp last_full_walk_at over a walk that skipped whatever crossed a
+      // keyset boundary. Restart from a fresh page one instead.
+      if (page.value.resync) break;
+      if (n === 0) walkedCount = page.value.counts.linked;
       await admitFromSet(deps, decodeSet(page.value), known, counters);
       if (page.value.nextCursor === null) {
         completeWalk = true;
         break;
       }
       if (!walkTriggered) break;
-      // A resync flag means the snapshot moved under the cursor; restart the
-      // walk so no survey is skipped across the generation boundary.
-      if (page.value.resync) break;
       page = await tessera.surveyList({
         filter: 'linked',
         limit: MAX_REFS_PER_CALL,
@@ -349,7 +357,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     if (!walkTriggered) break;
   }
   if (completeWalk) {
-    await putSurveySyncState(db, { ...state, linkedCount, lastFullWalkAt: now });
+    await putSurveySyncState(db, { ...state, linkedCount: walkedCount, lastFullWalkAt: now });
   }
 
   // --- Pass 2: refresh every held (not-yet-final) survey by explicit refs,
