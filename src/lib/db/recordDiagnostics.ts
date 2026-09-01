@@ -66,6 +66,12 @@ const DEFAULT_LIMIT = 50;
 // actions keeps these medians comparable to the decided-only thirds bucketing.
 const DECIDED_STATUS_SQL = "g.status IN ('enacted', 'ratified', 'expired', 'closed')";
 
+// Shared by the timing reads that measure days from submission: both sides of
+// the delta have to be on record and the vote must not predate the submission
+// (submitted_at is milliseconds, block_time is seconds, hence the *1000.0).
+const TIMED_VOTE_SQL =
+  'v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL AND v.block_time * 1000.0 >= g.submitted_at';
+
 /**
  * Decided actions the DRep was eligible to vote on but did not: the same
  * eligible set as getDrepParticipation (decided_epoch >= registeredEpoch, at
@@ -183,8 +189,7 @@ export async function getNetworkTimingByType(db: D1Database, role: 'DRep' | 'SPO
              JOIN governance_actions g ON g.id = v.ga_id
             WHERE v.voter_role = ? AND ${liveVoteSql('v')}
               AND ${DECIDED_STATUS_SQL}
-              AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
-              AND v.block_time * 1000.0 >= g.submitted_at
+              AND ${TIMED_VOTE_SQL}
          )
          SELECT type, AVG(day) AS median_day, MAX(n) AS timed_votes
            FROM t WHERE rn IN ((n + 1) / 2, (n + 2) / 2) GROUP BY type ORDER BY type`,
@@ -213,8 +218,7 @@ export async function getNetworkTimingOverall(db: D1Database, role: 'DRep' | 'SP
            JOIN governance_actions g ON g.id = v.ga_id
           WHERE v.voter_role = ? AND ${liveVoteSql('v')}
             AND ${DECIDED_STATUS_SQL}
-            AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
-            AND v.block_time * 1000.0 >= g.submitted_at
+            AND ${TIMED_VOTE_SQL}
        )
        SELECT AVG(day) AS median_day, MAX(n) AS timed_votes
          FROM t WHERE rn IN ((n + 1) / 2, (n + 2) / 2)`,
@@ -251,8 +255,7 @@ export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
             WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
               AND g.decided_epoch IS NOT NULL
               AND ${DECIDED_STATUS_SQL}
-              AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
-              AND v.block_time * 1000.0 >= g.submitted_at
+              AND ${TIMED_VOTE_SQL}
          )
          SELECT day FROM t WHERE n >= 2 AND rn = (n + 1) / 2`,
       )
@@ -266,14 +269,13 @@ export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
  * late thirds of its voting window, plus a separate afterClose bucket for
  * votes past the window end (basis excludes afterClose).
  *
- * The window end epoch is MIN(decided_epoch, expiry_epoch) when both are
- * present, else whichever one is (SQLite's MIN() returns NULL if either
- * argument is NULL, hence the CASE instead of a plain MIN(a, b)). For an
- * enacted action decided_epoch is the ENACTMENT epoch, always one past the
- * ratification epoch, and voting stopped mattering at the start of the
- * ratification epoch, so an enacted row goes into the MIN as
- * decided_epoch - 1. anchor
- * converts that epoch to milliseconds via the same epoch-start formula as
+ * The window end epoch is decided_end (decided_epoch, minus one for an
+ * enacted action, whose decided_epoch is the ENACTMENT epoch one past the
+ * ratification epoch where voting stopped mattering) capped by expiry_epoch.
+ * The COALESCE stands in for a missing expiry, since SQLite's MIN() returns
+ * NULL as soon as one argument is NULL, and decided_end itself is always
+ * present because the WHERE clause requires decided_epoch. anchor converts
+ * that epoch to milliseconds via the same epoch-start formula as
  * epochStartUnix (unixSeconds + (epoch - anchorEpoch) * EPOCH_LENGTH_SECONDS),
  * inlined here because the conversion has to happen inside the SQL to bucket
  * per row. position is where the vote falls between submission (0) and the
@@ -288,19 +290,20 @@ export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
 export async function getWindowThirds(db: D1Database, anchor: { epoch: number; unixSeconds: number }): Promise<WindowThirds> {
   const row = await db
     .prepare(
-      `WITH t AS (
+      `WITH w AS (
          SELECT v.block_time * 1000.0 AS block_ms, g.submitted_at AS submitted_at,
-                (? + ((CASE WHEN g.decided_epoch IS NOT NULL AND g.expiry_epoch IS NOT NULL
-                            THEN MIN(CASE WHEN g.status = 'enacted' THEN g.decided_epoch - 1 ELSE g.decided_epoch END,
-                                     g.expiry_epoch)
-                            ELSE COALESCE(CASE WHEN g.status = 'enacted' THEN g.decided_epoch - 1 ELSE g.decided_epoch END,
-                                          g.expiry_epoch) END) - ?) * ${EPOCH_LENGTH_SECONDS}) * 1000.0 AS end_ms
+                g.expiry_epoch AS expiry_epoch,
+                CASE WHEN g.status = 'enacted' THEN g.decided_epoch - 1 ELSE g.decided_epoch END AS decided_end
            FROM drep_votes v
            JOIN governance_actions g ON g.id = v.ga_id
           WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
             AND g.decided_epoch IS NOT NULL
             AND ${DECIDED_STATUS_SQL}
             AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
+       ), t AS (
+         SELECT block_ms, submitted_at,
+                (? + (MIN(decided_end, COALESCE(expiry_epoch, decided_end)) - ?) * ${EPOCH_LENGTH_SECONDS}) * 1000.0 AS end_ms
+           FROM w
        ), q AS (
          SELECT (block_ms - submitted_at) / (end_ms - submitted_at) AS position
            FROM t WHERE end_ms > submitted_at AND block_ms >= submitted_at

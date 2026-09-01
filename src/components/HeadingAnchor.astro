@@ -90,9 +90,9 @@ const Tag = level === 2 ? 'h2' : 'h3';
     opacity: 0;
     transition: opacity 0.15s ease;
   }
+  /* :focus already covers :focus-visible, one selector is enough. */
   .heading-anchor-wrap:hover .heading-anchor,
-  .heading-anchor:focus,
-  .heading-anchor:focus-visible {
+  .heading-anchor:focus {
     opacity: 1;
   }
   .heading-anchor:hover {

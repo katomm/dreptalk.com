@@ -87,12 +87,12 @@ function median(values: number[]): number | null {
  * classificationEndEpoch(vote) (decidedEpoch, expiryEpoch, and status, an
  * enacted action's window ends at the ratification epoch, one before its
  * decidedEpoch enactment epoch, matching the public getWindowThirds read).
- * position is how far into that window (in ms) the vote landed, floored at 0
- * (position < 1/3 early,
- * <= 2/3 middle, else late). A vote whose window cannot be resolved (both
- * epochs null), is non-positive (submittedAt at or past the window end), or
- * whose position exceeds 1 (cast after the window closed, so it never
- * entered the tally) is counted in skippedWindows instead of classified,
+ * position is how far into that window (in ms) the vote arrived, floored at
+ * 0 (position < 1/3 early, <= 2/3 middle, else late). A vote whose window
+ * cannot be resolved (both epochs null), is non-positive (submittedAt at or
+ * past the window end), or whose position exceeds 1 (cast after the window
+ * closed, so it never entered the tally) is counted in skippedWindows
+ * instead of classified,
  * windowBasis is the count that did get classified (early + middle + late).
  */
 export function buildTimingDetail(

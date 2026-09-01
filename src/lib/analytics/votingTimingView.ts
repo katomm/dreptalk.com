@@ -1,6 +1,6 @@
 // Pure view model for the analytics hub's network-wide voting-timing panel:
 // overall DRep vs SPO median day-to-vote, an early/middle/late split of the
-// voting window (plus how many votes land after the window closes), the
+// voting window (plus how many votes arrive after the window closes), the
 // half-turnout median day, and a per-type DRep vs SPO median breakdown. All
 // inputs are D1 reads already computed by recordDiagnostics.ts, this module
 // only shapes them, no I/O.
@@ -50,12 +50,11 @@ function median(values: number[]): number | null {
  * decided actions, and a per-type breakdown.
  *
  * byType keeps only types with at least MIN_TYPE_TIMED_VOTES timed DRep
- * votes (a per-type figure below that floor is too noisy to show), joins the
- * SPO median for the same type name subject to the same MIN_TYPE_TIMED_VOTES
- * floor on the SPO side (null when the SPO type row is absent or has fewer
- * than MIN_TYPE_TIMED_VOTES timed votes, since SPOs vote far less often than
- * DReps and an unfiltered join would show noisy low-sample medians), sorted
- * by drepTimed descending then type ascending.
+ * votes, a per-type figure below that floor is too noisy to show. The SPO
+ * median for the same type name is joined under the same floor on the SPO
+ * side (null when that row is missing or thinner, since SPOs vote far less
+ * often than DReps and an unfiltered join would show low-sample medians).
+ * Sorted by drepTimed descending, then type ascending.
  */
 export function buildVotingTiming(input: BuildVotingTimingInput): VotingTimingView {
   const spoByType = new Map(input.spoByType.map((t) => [t.type, t]));

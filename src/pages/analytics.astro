@@ -29,8 +29,6 @@ import {
   getNetworkTimingOverall,
   getHalfTurnoutDays,
   getWindowThirds,
-  type NetworkTypeTiming,
-  type NetworkOverallTiming,
   type WindowThirds,
 } from '@/lib/db/recordDiagnostics.js';
 import { readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
@@ -176,7 +174,6 @@ const tenureLabel = (t: { from: number; to: number | null }): string =>
 // their own round-trip: they are action-level reads like the outcome ones.
 // The window thirds need the network's epoch anchor to turn an epoch number
 // into a timestamp inside SQL.
-const cfg = currentNetwork();
 const emptyThirds: WindowThirds = { early: 0, middle: 0, late: 0, afterClose: 0, basis: 0 };
 const [
   outcomeRows,
@@ -188,17 +185,19 @@ const [
   spoTimingOverall,
   halfTurnoutDays,
   windowThirds,
-] = await Promise.all([
-  db ? listDecidedOutcomeRows(db) : Promise.resolve([]),
-  db ? countSubmittedSince(db, (params?.epoch ?? 0) - 11) : Promise.resolve(0),
-  db ? countActionsByStatus(db) : Promise.resolve({}),
-  db ? getNetworkTimingByType(db, 'DRep') : Promise.resolve([] as NetworkTypeTiming[]),
-  db ? getNetworkTimingByType(db, 'SPO') : Promise.resolve([] as NetworkTypeTiming[]),
-  db ? getNetworkTimingOverall(db, 'DRep') : Promise.resolve(null as NetworkOverallTiming | null),
-  db ? getNetworkTimingOverall(db, 'SPO') : Promise.resolve(null as NetworkOverallTiming | null),
-  db ? getHalfTurnoutDays(db) : Promise.resolve([] as number[]),
-  db ? getWindowThirds(db, cfg.epochAnchor) : Promise.resolve(emptyThirds),
-]);
+] = db
+  ? await Promise.all([
+      listDecidedOutcomeRows(db),
+      countSubmittedSince(db, (params?.epoch ?? 0) - 11),
+      countActionsByStatus(db),
+      getNetworkTimingByType(db, 'DRep'),
+      getNetworkTimingByType(db, 'SPO'),
+      getNetworkTimingOverall(db, 'DRep'),
+      getNetworkTimingOverall(db, 'SPO'),
+      getHalfTurnoutDays(db),
+      getWindowThirds(db, currentNetwork().epochAnchor),
+    ])
+  : [[], 0, {}, [], [], null, null, [], emptyThirds];
 const spo = buildSpoSnapshot(outcomeRows);
 const throughput = buildThroughput(outcomeRows, statusCounts, submittedRecent);
 const showSubmittedRecent = params?.epoch != null;
@@ -537,15 +536,18 @@ const activityBars = activity
           <>
             <h4 class="hub-spo__subtitle">Where the two verdicts differed</h4>
             <ul class="hub-spo__rows">
-              {spo.divergentActions.map((a) => (
-                <li class="hub-spo__row">
-                  {/* An untitled action is named by its readable type, and the type
-                      line is dropped so the same label does not appear twice. */}
-                  <span class="hub-spo__row-title">{a.href ? <a href={a.href}>{a.title ?? readableType(a.type)}</a> : (a.title ?? readableType(a.type))}</span>
-                  {a.title != null && <span class="hub-spo__row-type">{readableType(a.type)}</span>}
-                  <span class="hub-spo__row-missed">{a.missedBy === 'DRep' ? 'DRep tally below its threshold' : 'SPO tally below its threshold'}</span>
-                </li>
-              ))}
+              {spo.divergentActions.map((a) => {
+                // An untitled action is named by its readable type, and the type
+                // line is dropped so the same label does not appear twice.
+                const label = a.title ?? readableType(a.type);
+                return (
+                  <li class="hub-spo__row">
+                    <span class="hub-spo__row-title">{a.href ? <a href={a.href}>{label}</a> : label}</span>
+                    {a.title != null && <span class="hub-spo__row-type">{readableType(a.type)}</span>}
+                    <span class="hub-spo__row-missed">{a.missedBy} tally below its threshold</span>
+                  </li>
+                );
+              })}
             </ul>
           </>
         )}

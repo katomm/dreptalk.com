@@ -25,6 +25,11 @@ export const CC_KNOWN_NAMES: Readonly<Record<string, { name: string; source: str
   },
 };
 
+/** The curated name for a cold key, null when the table has no entry for it. */
+function knownNameByCold(coldHex: string): string | null {
+  return CC_KNOWN_NAMES[normalizeKeyHex(coldHex)]?.name ?? null;
+}
+
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 }
@@ -75,15 +80,14 @@ export function buildCcNameIndex(rows: CcNameRow[], hotToCold: Map<string, strin
     const prev = byColdKey.get(cold);
     if (prev == null || r.sourceBlockTime >= prev.bt) byColdKey.set(cold, { name: r.name, bt: r.sourceBlockTime });
   }
-  const knownByCold = (coldHex: string): string | null => CC_KNOWN_NAMES[normalizeKeyHex(coldHex)]?.name ?? null;
   return {
     byHot: (hotHex) => {
       const hot = normalizeKeyHex(hotHex);
       const declared = byHotKey.get(hot);
       if (declared != null) return declared;
       const cold = hotToCold.get(hot);
-      return cold != null ? knownByCold(cold) : null;
+      return cold != null ? knownNameByCold(cold) : null;
     },
-    byCold: (coldHex) => byColdKey.get(normalizeKeyHex(coldHex))?.name ?? knownByCold(coldHex),
+    byCold: (coldHex) => byColdKey.get(normalizeKeyHex(coldHex))?.name ?? knownNameByCold(coldHex),
   };
 }

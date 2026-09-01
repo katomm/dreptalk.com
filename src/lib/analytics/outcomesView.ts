@@ -154,7 +154,7 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
         // this branch at all.
         divergentActions.push({
           gaId: row.gaId,
-          title: row.title ?? null,
+          title: row.title,
           href: row.topicSlug != null ? `/t/${row.topicSlug}/` : null,
           type: row.type,
           missedBy: drepVerdict === false ? 'DRep' : 'SPO',
