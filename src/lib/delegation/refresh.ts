@@ -6,6 +6,7 @@ import { resolveDelegation } from './resolve.js';
 import { delegationStartEpoch } from './delegationStart.js';
 import {
   applyResolution,
+  captureDelegatedSince,
   getFollow,
   listFollowsMissingSince,
   markBatchError,
@@ -80,13 +81,18 @@ export async function resolveFollow(
     // Capture the delegation start when it can have moved (a new baseline or a
     // re-delegation) or when it is still missing and the retry window has passed.
     // An unchanged follow that already has a start never touches the endpoint.
-    let capture = applied === 'created' || applied === 'changed';
+    const fresh = applied === 'created' || applied === 'changed';
+    let capture = fresh;
+    // The since_checked_at this login observed on the row, used to compare and set
+    // on the retry path so a cron capture that happened in between is not undone.
+    let observedSince: number | null = null;
     if (!capture) {
       const row = await getFollow(db, userId);
       capture =
         row != null &&
         row.delegated_since_epoch == null &&
         (row.since_checked_at == null || row.since_checked_at < now - SINCE_RETRY_SEC);
+      observedSince = row?.since_checked_at ?? null;
     }
     if (capture) {
       let epoch: number | null = null;
@@ -100,7 +106,10 @@ export async function resolveFollow(
         // A failed capture is recorded as a NULL start below, so the attempt is
         // visible and the retry window applies instead of a per-login hammer.
       }
-      await setDelegatedSince(db, userId, epoch, now);
+      // A fresh baseline owns the start it just captured, so it writes flat. The
+      // retry path only writes while the row is still the one it read.
+      if (fresh) await setDelegatedSince(db, userId, epoch, now);
+      else await captureDelegatedSince(db, userId, epoch, now, observedSince);
     }
   } catch {
     // Never throw: a D1 write failure here must not fail the login. The row
@@ -171,8 +180,10 @@ export async function refreshBulk(
  * ONE extra Koios call capped at SINCE_BULK_CAP addresses. No sweep beyond the
  * batch: only addresses already being refreshed are touched. Every address in
  * the call gets its attempt recorded, including the ones Koios returned no rows
- * for and, on a total failure, all of them. Never throws: the capture is a bonus
- * on top of the refresh, not a reason to fail it.
+ * for and, on a total failure, all of them. Every write compares and sets on the
+ * since_checked_at observed when the row was listed, so a login capture that ran
+ * while the Koios call was in flight is not overwritten. Never throws: the
+ * capture is a bonus on top of the refresh, not a reason to fail it.
  */
 async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: string[], now: number): Promise<void> {
   try {
@@ -192,9 +203,17 @@ async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: strin
       if (list) list.push(row);
       else byStake.set(row.stake_address, [row]);
     }
-    for (const { userId, stakeAddr } of pending) {
+    for (const { userId, stakeAddr, sinceCheckedAt } of pending) {
       try {
-        await setDelegatedSince(db, userId, delegationStartEpoch(byStake.get(stakeAddr) ?? []), now);
+        // Compare and set on what the listing observed: a login that captured the
+        // start while this bulk call was in flight keeps its value.
+        await captureDelegatedSince(
+          db,
+          userId,
+          delegationStartEpoch(byStake.get(stakeAddr) ?? []),
+          now,
+          sinceCheckedAt,
+        );
       } catch {
         // A per-row write failure must not abort the rest of the capture.
       }

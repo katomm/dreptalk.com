@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds, setDelegatedSince, listFollowsMissingSince } from './delegatorFollows.js';
+import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds, setDelegatedSince, captureDelegatedSince, listFollowsMissingSince } from './delegatorFollows.js';
 import { getNotificationsPage } from './notifications.js';
 
 const db = () => env.DB as D1Database;
@@ -166,13 +166,13 @@ describe('delegation start columns (migration 0089)', () => {
 
     const ids = ['ls-a', 'ls-b', 'ls-c', 'ls-d'];
     expect(await listFollowsMissingSince(db(), ids, 1000, 10)).toEqual([
-      { userId: 'ls-d', stakeAddr: 'stake_test1lsd' },
-      { userId: 'ls-c', stakeAddr: 'stake_test1lsc' },
-      { userId: 'ls-b', stakeAddr: 'stake_test1lsb' },
+      { userId: 'ls-d', stakeAddr: 'stake_test1lsd', sinceCheckedAt: null },
+      { userId: 'ls-c', stakeAddr: 'stake_test1lsc', sinceCheckedAt: 300 },
+      { userId: 'ls-b', stakeAddr: 'stake_test1lsb', sinceCheckedAt: 500 },
     ]);
     expect(await listFollowsMissingSince(db(), ids, 1000, 2)).toEqual([
-      { userId: 'ls-d', stakeAddr: 'stake_test1lsd' },
-      { userId: 'ls-c', stakeAddr: 'stake_test1lsc' },
+      { userId: 'ls-d', stakeAddr: 'stake_test1lsd', sinceCheckedAt: null },
+      { userId: 'ls-c', stakeAddr: 'stake_test1lsc', sinceCheckedAt: 300 },
     ]);
   });
 
@@ -182,7 +182,49 @@ describe('delegation start columns (migration 0089)', () => {
     await setDelegatedSince(db(), 'lf-fresh', null, 1000);
     expect(await listFollowsMissingSince(db(), ['lf-fresh'], 1000, 10)).toEqual([]);
     expect(await listFollowsMissingSince(db(), ['lf-fresh'], 1001, 10))
-      .toEqual([{ userId: 'lf-fresh', stakeAddr: 'stake_test1lff' }]);
+      .toEqual([{ userId: 'lf-fresh', stakeAddr: 'stake_test1lff', sinceCheckedAt: 1000 }]);
     expect(await listFollowsMissingSince(db(), [], 9999, 10)).toEqual([]);
+  });
+
+  it('captureDelegatedSince writes only while the row still matches what was observed', async () => {
+    await ensureFollow(db(), 'cas-1', 'stake_test1cas1', 0);
+    await ensureFollow(db(), 'cas-2', 'stake_test1cas2', 0);
+    await ensureFollow(db(), 'cas-3', 'stake_test1cas3', 0);
+
+    // Observed never attempted, still never attempted: the write applies.
+    expect(await captureDelegatedSince(db(), 'cas-1', 640, 4000, null)).toBe(true);
+    expect(await since('cas-1')).toEqual({ delegated_since_epoch: 640, since_checked_at: 4000 });
+
+    // Observed never attempted, but a start was captured in between: refused.
+    await setDelegatedSince(db(), 'cas-2', 700, 3000);
+    expect(await captureDelegatedSince(db(), 'cas-2', 640, 4000, null)).toBe(false);
+    expect(await since('cas-2')).toEqual({ delegated_since_epoch: 700, since_checked_at: 3000 });
+
+    // Observed at 300, but a failed attempt moved the stamp on: refused, so the
+    // newer attempt window stands.
+    await setDelegatedSince(db(), 'cas-3', null, 300);
+    await setDelegatedSince(db(), 'cas-3', null, 3500);
+    expect(await captureDelegatedSince(db(), 'cas-3', 640, 4000, 300)).toBe(false);
+    expect(await since('cas-3')).toEqual({ delegated_since_epoch: null, since_checked_at: 3500 });
+    // Observing the current stamp lets it through.
+    expect(await captureDelegatedSince(db(), 'cas-3', 640, 4000, 3500)).toBe(true);
+    expect(await since('cas-3')).toEqual({ delegated_since_epoch: 640, since_checked_at: 4000 });
+  });
+
+  it('a changed delegation clears the captured start so both capture paths pick it up', async () => {
+    await ensureFollow(db(), 'ch-1', 'stake_test1ch1', 1000);
+    await applyResolution(db(), 'ch-1', drepState('drep1cha'), 1000);
+    await setDelegatedSince(db(), 'ch-1', 640, 1000);
+    expect(await since('ch-1')).toEqual({ delegated_since_epoch: 640, since_checked_at: 1000 });
+
+    expect(await applyResolution(db(), 'ch-1', drepState('drep1chb'), 2000)).toBe('changed');
+    expect(await since('ch-1')).toEqual({ delegated_since_epoch: null, since_checked_at: null });
+    expect(await listFollowsMissingSince(db(), ['ch-1'], 2000, 10))
+      .toEqual([{ userId: 'ch-1', stakeAddr: 'stake_test1ch1', sinceCheckedAt: null }]);
+
+    // An unchanged re-resolution leaves a captured start alone.
+    await setDelegatedSince(db(), 'ch-1', 655, 2000);
+    expect(await applyResolution(db(), 'ch-1', drepState('drep1chb'), 3000)).toBe('unchanged');
+    expect(await since('ch-1')).toEqual({ delegated_since_epoch: 655, since_checked_at: 2000 });
   });
 });

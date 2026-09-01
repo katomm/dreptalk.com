@@ -91,8 +91,15 @@ export async function listDrepActionsSince(
 /**
  * How often the DRep superseded one of its own votes since the delegation
  * started. drep_vote_history holds one row per superseded vote, so the count is
- * of changes, not of actions. `sinceUnix` is unix SECONDS (the unit of
- * drep_vote_history.block_time) and the boundary is inclusive.
+ * of changes, not of actions.
+ *
+ * The window is keyed on superseded_at, when the vote was REPLACED, not on
+ * block_time, when the vote it replaced was originally cast. A vote cast long
+ * before the delegation started and changed inside the window is a change the
+ * delegator lived through, and block_time would drop it. superseded_at holds the
+ * replacing vote's block_time for backfilled rows and the sync time that
+ * observed the change for live ones, both unix SECONDS, the same unit as
+ * `sinceUnix`. The boundary is inclusive.
  */
 export async function countVoteChangesSince(
   db: D1Database,
@@ -102,7 +109,7 @@ export async function countVoteChangesSince(
   const row = await db
     .prepare(
       `SELECT COUNT(*) AS n FROM drep_vote_history
-        WHERE voter_id = ? AND voter_role = 'DRep' AND block_time >= ?`,
+        WHERE voter_id = ? AND voter_role = 'DRep' AND superseded_at >= ?`,
     )
     .bind(drepId, sinceUnix)
     .first<{ n: number }>();

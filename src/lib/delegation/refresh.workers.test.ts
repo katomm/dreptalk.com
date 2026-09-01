@@ -231,4 +231,44 @@ describe('delegation start capture in refreshBulk', () => {
     expect(failed?.delegated_since_epoch).toBeNull();
     expect(failed?.since_checked_at).toBe(900_000);
   });
+
+  it('re-captures the start of a follow whose delegation changed in the same batch', async () => {
+    await ensureFollow(db(), 'bc1', 'stake_test1bc1', 0);
+    const first = fakeKoios({});
+    await resolveFollow(db(), first.koios as never, 'bc1', 'stake_test1bc1', 0);
+    expect((await getFollow(db(), 'bc1'))?.delegated_since_epoch).toBe(640);
+
+    // The cron sees a re-delegation, and the history now carries a newer event.
+    const second = fakeKoios({
+      drep: VALID_DREP_B,
+      history: (addrs) => addrs.flatMap((a) => [histRow(a, 640, 100), histRow(a, 655, 900)]),
+    });
+    const res = await refreshBulk(db(), second.koios as never, 900_000, 50);
+
+    expect(res.changed).toBe(1);
+    expect(second.historyCalls).toEqual([['stake_test1bc1']]);
+    const row = await getFollow(db(), 'bc1');
+    expect(row?.drep_id).toBe(VALID_DREP_B);
+    expect(row?.delegated_since_epoch).toBe(655);
+    expect(row?.since_checked_at).toBe(900_000);
+  });
+
+  it('does not overwrite a start a login captured while the bulk call was in flight', async () => {
+    await ensureFollow(db(), 'race1', 'stake_test1race1', 0);
+    const koios = {
+      accountInfo: async (stake: string) => acct(stake, VALID_DREP_A),
+      accountInfoBatch: async (addrs: string[]) => addrs.map((a) => acct(a, VALID_DREP_A)),
+      accountUpdateHistoryBatch: async (addrs: string[]) => {
+        // Stands in for a login that captured the start between the listing and
+        // the write below, which is exactly the window the compare-and-set covers.
+        await setDelegatedSince(db(), 'race1', 700, 899_000);
+        return addrs.map((a) => histRow(a, 640, 100));
+      },
+    };
+    await refreshBulk(db(), koios as never, 900_000, 50);
+
+    const row = await getFollow(db(), 'race1');
+    expect(row?.delegated_since_epoch).toBe(700);
+    expect(row?.since_checked_at).toBe(899_000);
+  });
 });

@@ -45,12 +45,18 @@ async function seedRationale(gaId: string, voterId: string, status: string) {
     .run();
 }
 
-async function seedVoteHistory(gaId: string, voterId: string, blockTime: number, role = 'DRep') {
+async function seedVoteHistory(
+  gaId: string,
+  voterId: string,
+  blockTime: number,
+  supersededAt: number,
+  role = 'DRep',
+) {
   await env.DB.prepare(
     `INSERT INTO drep_vote_history (ga_id, voter_id, voter_role, vote, meta_url, meta_hash, block_time, body_html, superseded_at)
-     VALUES (?, ?, ?, 'Yes', NULL, NULL, ?, NULL, 0)`,
+     VALUES (?, ?, ?, 'Yes', NULL, NULL, ?, NULL, ?)`,
   )
-    .bind(gaId, voterId, role, blockTime)
+    .bind(gaId, voterId, role, blockTime, supersededAt)
     .run();
 }
 
@@ -185,14 +191,28 @@ describe('listDrepActionsSince', () => {
 describe('countVoteChangesSince', () => {
   it('counts the DReps own superseded votes from sinceUnix inclusive', async () => {
     const since = 1_700_000_000;
-    await seedVoteHistory('ga_1', DREP, since - 1);
-    await seedVoteHistory('ga_2', DREP, since);
-    await seedVoteHistory('ga_3', DREP, since + 1);
+    await seedVoteHistory('ga_1', DREP, since - 100, since - 1);
+    await seedVoteHistory('ga_2', DREP, since - 100, since);
+    await seedVoteHistory('ga_3', DREP, since - 100, since + 1);
     // Another voter, and our own id in the SPO role: neither counts.
-    await seedVoteHistory('ga_4', 'drep1other', since + 1);
-    await seedVoteHistory('ga_5', DREP, since + 1, 'SPO');
+    await seedVoteHistory('ga_4', 'drep1other', since - 100, since + 1);
+    await seedVoteHistory('ga_5', DREP, since - 100, since + 1, 'SPO');
 
     expect(await countVoteChangesSince(env.DB, DREP, since)).toBe(2);
+  });
+
+  it('keys the window on when the vote was replaced, not on when it was cast', async () => {
+    const since = 1_700_000_000;
+    // Cast well before the delegation started, replaced inside the window: counts,
+    // because the delegator lived through that change.
+    await seedVoteHistory('ga_old_new', DREP, since - 500_000, since + 10);
+    // Cast inside the window but already replaced before it started: impossible on
+    // real data, and the row must follow superseded_at either way.
+    await seedVoteHistory('ga_new_old', DREP, since + 10, since - 10);
+    // Cast and replaced entirely before the window.
+    await seedVoteHistory('ga_both_old', DREP, since - 500_000, since - 1);
+
+    expect(await countVoteChangesSince(env.DB, DREP, since)).toBe(1);
   });
 
   it('is 0 without any history rows', async () => {
