@@ -142,10 +142,18 @@ resolves it.
 
 ## 4. Decisions
 
-- **Admission: DRep-eligible *and* linked by an imported action**
-  (maintainer). Alternatives: every survey, or DRep-eligible alone. Cost:
-  a standalone DRep survey is invisible. It is editorial policy, so the
-  data model does not encode it — widening later is one predicate.
+- **Admission is gated, and the MVP implements one of the three agreed
+  gates.** The policy (maintainer, #379) admits a survey when any one
+  holds: (1) authored through DRepTalk by a verified writer — DRep, SPO,
+  Proposer or CC member — with the definition transaction confirmed on
+  chain; (2) linked by an imported governance action; (3) explicitly
+  imported by a verified writer who separately proves control of the
+  survey's owner credential. Only gate 2 can fire before authoring
+  exists, so the MVP ships it alone, narrowed to DRep-eligible surveys —
+  a starting point, not the settled policy; gates 1 and 3 are deferred,
+  not dropped, and the role axis widens with them. The gate is editorial
+  policy, so the data model does not encode it — widening is one
+  predicate.
 - **Each admitted survey is a thread in its own category**, not a card on
   the linking action's thread: links are N-to-1, so a card has no
   canonical home and `/s/<ref>` no single destination; and admission is
