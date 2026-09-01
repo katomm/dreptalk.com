@@ -28,6 +28,13 @@ export const SINCE_RETRY_SEC = 86_400;
 // One bulk pass captures at most this many starts, matching the Koios
 // /account_update_history chunk size so the sweep is a single upstream chunk.
 export const SINCE_BULK_CAP = 15;
+// After this many attempts that produced no start, the page stops promising one.
+// The capture paths keep retrying daily regardless (one call, and a start that
+// only appears later is still worth having): this is a display threshold, not a
+// stop condition. Three daily lookups is long enough that a slow indexer or a
+// passing outage has been ruled out, and an account whose delegation certificate
+// simply is not in the history it returns will never produce one.
+export const SINCE_GIVE_UP_ATTEMPTS = 3;
 
 // Map the transport cases plus the resolver's fail-closed verdict onto a
 // resolution outcome. A NULL account (koios returned no row, or a bulk response

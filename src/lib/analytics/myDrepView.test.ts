@@ -16,14 +16,10 @@ function action(gaId: string, opts: Partial<SinceActionRow> = {}): SinceActionRo
   };
 }
 
-// 2026-01-15T00:00:00Z, the start of the delegation epoch in the tests below.
-const SINCE_START_MS = Date.UTC(2026, 0, 15);
-
 describe('buildMyDrep', () => {
   it('computes participation, rationale coverage, power and delegators from concrete rows', () => {
     const view = buildMyDrep({
       sinceEpoch: 640,
-      sinceStartMs: SINCE_START_MS,
       actions: [
         action('ga_1', { decidedEpoch: 648, hasRationale: true }),
         action('ga_2', { decidedEpoch: 647, hasRationale: true }),
@@ -37,7 +33,6 @@ describe('buildMyDrep', () => {
     });
 
     expect(view.sinceEpoch).toBe(640);
-    expect(view.sinceDateIso).toBe('2026-01-15');
 
     expect(view.eligible).toBe(5);
     expect(view.voted).toBe(4);
@@ -62,7 +57,6 @@ describe('buildMyDrep', () => {
   it('marks the then-figure as the first on record when its epoch is later than the start', () => {
     const view = buildMyDrep({
       sinceEpoch: 640,
-      sinceStartMs: SINCE_START_MS,
       actions: [],
       voteChanges: 0,
       powerThen: { epoch: 645, amount: '1000000000000', delegatorCount: null },
@@ -80,7 +74,6 @@ describe('buildMyDrep', () => {
   it('labels an unchanged power as 0 rather than hiding it', () => {
     const view = buildMyDrep({
       sinceEpoch: 640,
-      sinceStartMs: SINCE_START_MS,
       actions: [],
       voteChanges: 0,
       powerThen: { epoch: 640, amount: '1000000000000', delegatorCount: 7 },
@@ -97,7 +90,6 @@ describe('buildMyDrep', () => {
     const same = { epoch: 650, amount: '1000000000000', delegatorCount: 7 };
     const view = buildMyDrep({
       sinceEpoch: 650,
-      sinceStartMs: SINCE_START_MS,
       actions: [],
       voteChanges: 0,
       powerThen: same,
@@ -118,7 +110,6 @@ describe('buildMyDrep', () => {
   it('leaves the percentages null on an empty basis and the power null when no snapshot exists', () => {
     const view = buildMyDrep({
       sinceEpoch: 640,
-      sinceStartMs: SINCE_START_MS,
       actions: [],
       voteChanges: 0,
       powerThen: null,
@@ -143,7 +134,6 @@ describe('buildMyDrep', () => {
   it('leaves the rationale percentage null when the DRep voted on nothing in the window', () => {
     const view = buildMyDrep({
       sinceEpoch: 640,
-      sinceStartMs: SINCE_START_MS,
       actions: [action('ga_1', { vote: null }), action('ga_2', { vote: null })],
       voteChanges: 0,
       powerThen: null,
@@ -160,7 +150,6 @@ describe('buildMyDrep', () => {
   it('does not credit a rationale on an action the DRep never voted on', () => {
     const view = buildMyDrep({
       sinceEpoch: 640,
-      sinceStartMs: SINCE_START_MS,
       actions: [action('ga_1', { vote: null, hasRationale: true }), action('ga_2', { vote: 'Yes', hasRationale: true })],
       voteChanges: 0,
       powerThen: null,
@@ -174,7 +163,6 @@ describe('buildMyDrep', () => {
   it('drops a power figure whose amount is not a number rather than showing a zero', () => {
     const view = buildMyDrep({
       sinceEpoch: 640,
-      sinceStartMs: SINCE_START_MS,
       actions: [],
       voteChanges: 0,
       powerThen: { epoch: 640, amount: '', delegatorCount: 3 },

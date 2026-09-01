@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { resolveFollow, refreshBulk } from './refresh.js';
+import { resolveFollow, refreshBulk, SINCE_GIVE_UP_ATTEMPTS, SINCE_RETRY_SEC } from './refresh.js';
 import { ensureFollow, getFollow, setDelegatedSince } from '../db/delegatorFollows.js';
 
 const db = () => env.DB as D1Database;
@@ -270,5 +270,45 @@ describe('delegation start capture in refreshBulk', () => {
     const row = await getFollow(db(), 'race1');
     expect(row?.delegated_since_epoch).toBe(700);
     expect(row?.since_checked_at).toBe(899_000);
+  });
+});
+
+describe('give-up threshold for an unfindable delegation start', () => {
+  it('counts one attempt per daily retry and keeps retrying past the threshold', async () => {
+    await ensureFollow(db(), 'gu1', 'stake_test1gu1', 0);
+    const empty = { drep: VALID_DREP_A, history: () => [] as ReturnType<typeof histRow>[] };
+
+    let now = 1000;
+    // The first pass creates the baseline, every later pass is a due retry.
+    for (let i = 0; i < SINCE_GIVE_UP_ATTEMPTS; i++) {
+      const { koios, historyCalls } = fakeKoios(empty);
+      await resolveFollow(db(), koios as never, 'gu1', 'stake_test1gu1', now);
+      expect(historyCalls).toEqual([['stake_test1gu1']]);
+      const row = await getFollow(db(), 'gu1');
+      expect(row?.delegated_since_epoch).toBeNull();
+      expect(row?.since_attempts).toBe(i + 1);
+      now += SINCE_RETRY_SEC + 1;
+    }
+    expect((await getFollow(db(), 'gu1'))?.since_attempts).toBeGreaterThanOrEqual(SINCE_GIVE_UP_ATTEMPTS);
+
+    // Reaching the threshold is a display decision only: the capture path still
+    // runs, and a start that finally shows up is captured and ends the run.
+    const found = fakeKoios({ drep: VALID_DREP_A, history: (addrs) => addrs.map((a) => histRow(a, 661, 4200)) });
+    await resolveFollow(db(), found.koios as never, 'gu1', 'stake_test1gu1', now);
+    expect(found.historyCalls).toEqual([['stake_test1gu1']]);
+    const row = await getFollow(db(), 'gu1');
+    expect(row?.delegated_since_epoch).toBe(661);
+    expect(row?.since_attempts).toBe(0);
+  });
+
+  it('counts the bulk captures that found nothing too', async () => {
+    await ensureFollow(db(), 'gu2', 'stake_test1gu2', 0);
+    let now = 900_000;
+    for (let i = 0; i < SINCE_GIVE_UP_ATTEMPTS; i++) {
+      const { koios } = fakeKoios({ history: () => [] });
+      await refreshBulk(db(), koios as never, now, 50);
+      expect((await getFollow(db(), 'gu2'))?.since_attempts).toBe(i + 1);
+      now += SINCE_RETRY_SEC + 1;
+    }
   });
 });

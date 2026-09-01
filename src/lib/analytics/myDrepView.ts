@@ -2,14 +2,11 @@
 // summary of one DRep's record (M1) and the effect a standing default option had
 // on the last decided actions (M2). No I/O, everything here is deterministic.
 import { formatAdaCompact } from '../format/ada.js';
-import { isoDate } from '../format/date.js';
 import { readableType, statusBadge } from '../governance/view.js';
 import type { PowerPoint, RecentDecidedAction, SinceActionRow } from '../db/myDrep.js';
 
 export interface MyDrepView {
   sinceEpoch: number;
-  /** Calendar date of the start-epoch boundary, e.g. "2026-01-15". */
-  sinceDateIso: string;
   eligible: number;
   voted: number;
   /** The eligible actions with no vote from this DRep, newest first. */
@@ -42,8 +39,6 @@ export interface MyDrepView {
 
 export interface MyDrepInput {
   sinceEpoch: number;
-  /** Unix MILLISECONDS of the start-epoch boundary, from epochStartMs. */
-  sinceStartMs: number;
   actions: SinceActionRow[];
   voteChanges: number;
   powerThen: PowerPoint | null;
@@ -95,7 +90,7 @@ function powerLabel(point: PowerPoint | null): string | null {
  * the deltas are null rather than a zero that would read as "nothing moved".
  */
 export function buildMyDrep(input: MyDrepInput): MyDrepView {
-  const { sinceEpoch, sinceStartMs, actions, voteChanges, powerThen, powerNow } = input;
+  const { sinceEpoch, actions, voteChanges, powerThen, powerNow } = input;
 
   const eligible = actions.length;
   const voted = actions.filter((a) => a.vote != null).length;
@@ -114,7 +109,6 @@ export function buildMyDrep(input: MyDrepInput): MyDrepView {
 
   return {
     sinceEpoch,
-    sinceDateIso: isoDate(new Date(sinceStartMs)),
     eligible,
     voted,
     missed,

@@ -13,7 +13,8 @@ import GovTypePill from '@/components/GovTypePill.astro';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { resolveNetwork, epochStartMs, epochStartUnix } from '@/lib/config/network';
 import { getFollow } from '@/lib/db/delegatorFollows';
-import { resolveDelegationView, drepStatusHint } from '@/lib/delegation/delegationView';
+import { resolveDelegationView, drepStatusHint, isRetiredStatus } from '@/lib/delegation/delegationView';
+import { SINCE_GIVE_UP_ATTEMPTS } from '@/lib/delegation/refresh';
 import { getDrepById } from '@/lib/db/dreps';
 import { drepPath } from '@/lib/dreps/profile';
 import {
@@ -54,6 +55,15 @@ const defaultOption: DefaultOption | null =
 // NULL until the delegation-start capture has run for this follow.
 const sinceEpoch = follow?.delegated_since_epoch ?? null;
 
+// Both the DRep view and a default option count from the delegation start, so
+// neither can say anything until the capture has run for this follow. After
+// SINCE_GIVE_UP_ATTEMPTS lookups that found no certificate, waiting is no longer
+// the honest answer: the capture keeps retrying daily, but the page stops
+// promising a start that has not turned up and says what it can say instead.
+const startMissing = (drepId != null || defaultOption != null) && sinceEpoch == null;
+const startGivenUp = startMissing && (follow?.since_attempts ?? 0) >= SINCE_GIVE_UP_ATTEMPTS;
+const startPending = startMissing && !startGivenUp;
+
 // One ternary per read (the pattern /my-governance-record uses), so each
 // position keeps its own type without a tuple-wide cast. Only the reads the
 // current state actually needs run, the others resolve to their empty value.
@@ -61,8 +71,10 @@ const sinceEpoch = follow?.delegated_since_epoch ?? null;
 // older than the registration cannot be measured from the delegation epoch.
 const [drep, recent] = await Promise.all([
   db && drepId ? getDrepById(db, drepId) : Promise.resolve(null),
-  db && defaultOption && sinceEpoch != null
-    ? listRecentDecidedActions(db, RECENT_LIMIT, sinceEpoch)
+  db && defaultOption && (sinceEpoch != null || startGivenUp)
+    ? // Without a start there is no window to bound the list by, so it runs
+      // unbounded and the basis below says so rather than implying a window.
+      listRecentDecidedActions(db, RECENT_LIMIT, sinceEpoch ?? undefined)
     : Promise.resolve([] as RecentDecidedAction[]),
 ]);
 
@@ -93,22 +105,18 @@ const m1 =
   drepId != null && effectiveSince != null
     ? buildMyDrep({
         sinceEpoch: effectiveSince,
-        sinceStartMs: epochStartMs(effectiveSince, cfg),
         actions,
         voteChanges,
         powerThen,
         powerNow,
       })
     : null;
-const m2 = defaultOption && sinceEpoch != null ? buildDefaultOptionView(defaultOption, recent) : null;
+const m2 =
+  defaultOption && (sinceEpoch != null || startGivenUp) ? buildDefaultOptionView(defaultOption, recent) : null;
 
 // The delegation itself, stated in the header, keeps the epoch the certificate
 // was submitted in even when the figures below start later.
 const delegationDateIso = sinceEpoch != null ? isoDate(new Date(epochStartMs(sinceEpoch, cfg))) : null;
-
-// Both the DRep view and a default option count from the delegation start, so
-// neither can say anything until the capture has run for this follow.
-const startPending = (drepId != null || defaultOption != null) && sinceEpoch == null;
 
 // The profile link works before the dreps row has synced, drepPath falls back
 // to the raw id when there is no slug.
@@ -146,8 +154,11 @@ const NO_FIGURE = 'No figure for that epoch';
 
 const missedCount = m1?.missed.length ?? 0;
 // A DRep whose registration has ended cannot vote, so actions decided after that
-// point are not misses in the sense the list otherwise carries.
-const drepRetired = drep != null && !drep.active;
+// point are not misses in the sense the list otherwise carries. `!active` alone
+// would also catch a DRep that merely went inactive by not voting for the no-vote
+// window, which is still allowed to vote, so the caveat follows the status the
+// same way drepStatusHint does.
+const drepRetired = drep != null && !drep.active && isRetiredStatus(drep.status);
 
 // A member who signed in through the delegator door holds no writer role, so
 // the account settings that carry the stake-wallet flow have nothing for them.
@@ -253,6 +264,20 @@ const NO_CHANGE = 'Needs a figure for both epochs';
       </section>
     )}
 
+    {startGivenUp && drepId != null && (
+      <section class="mdr-section">
+        <h2 class="mdr-section__title">Delegation start not on record</h2>
+        <p class="mdr-line">
+          DRepTalk could not find the certificate of your latest delegation in the account history after
+          several lookups, so this page cannot count from a start epoch. The DRep profile carries the all-time
+          record.
+        </p>
+        {profileHref && (
+          <p class="mdr-line"><a href={profileHref}>Open the DRep profile for the full public record</a></p>
+        )}
+      </section>
+    )}
+
     {m1 && (
       <>
         <section class="mdr-section">
@@ -342,7 +367,7 @@ const NO_CHANGE = 'Needs a figure for both epochs';
               </p>
               {drepRetired && (
                 <p class="mdr-line">
-                  This DRep is no longer active, actions decided after its retirement could not be voted on.
+                  This DRep has ended its registration, actions decided after that point could not be voted on.
                 </p>
               )}
               <div class="mdr-list">
@@ -380,7 +405,9 @@ const NO_CHANGE = 'Needs a figure for both epochs';
           <p class="mdr-line">{m2.rule}</p>
           {m2.rows.length === 0 ? (
             <p class="mdr-line">
-              {`No governance action has been decided since your delegation in epoch ${sinceEpoch}, so there is nothing to show here.`}
+              {sinceEpoch != null
+                ? `No governance action has been decided since your delegation in epoch ${sinceEpoch}, so there is nothing to show here.`
+                : 'No governance action has been decided yet, so there is nothing to show here.'}
             </p>
           ) : (
             <div class="mdr-list">
@@ -400,7 +427,9 @@ const NO_CHANGE = 'Needs a figure for both epochs';
           )}
           {m2.rows.length > 0 && (
             <p class="mdr-note">
-              {`Basis: the ${m2.rows.length === 1 ? 'most recent action' : `${num(m2.rows.length)} most recent actions`} decided since epoch ${sinceEpoch}, when your delegation started. A default option applies automatically, there is nothing to cast and no rationale to read.`}
+              {sinceEpoch != null
+                ? `Basis: the ${m2.rows.length === 1 ? 'most recent action' : `${num(m2.rows.length)} most recent actions`} decided since epoch ${sinceEpoch}, when your delegation started. A default option applies automatically, there is nothing to cast and no rationale to read.`
+                : `Basis: the ${m2.rows.length === 1 ? 'most recent decided action' : `${num(m2.rows.length)} most recent decided actions`}, your delegation start is not on record. A default option applies automatically, there is nothing to cast and no rationale to read.`}
             </p>
           )}
         </section>

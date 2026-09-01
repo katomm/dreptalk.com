@@ -20,6 +20,17 @@ export interface DelegatorFollowRow {
   refresh_error_at: number | null;
   delegated_since_epoch: number | null;
   since_checked_at: number | null;
+  /** Consecutive capture attempts that produced no start. 0 once one succeeds. */
+  since_attempts: number;
+}
+
+/**
+ * The SQL fragment that keeps since_attempts honest on a capture write: an
+ * attempt that produced no start counts up, a captured start resets the run to
+ * 0. Chosen by the caller's own epoch argument, so no value is interpolated.
+ */
+function attemptsFragment(epoch: number | null): string {
+  return epoch == null ? 'since_attempts = since_attempts + 1' : 'since_attempts = 0';
 }
 
 function columnsFor(state: DelegationState): { type: string; drepId: string | null } {
@@ -72,7 +83,8 @@ export async function ensureFollow(db: D1Database, userId: string, stakeAddr: st
  *    the change predicate, ON CONFLICT on the event_key index) + UPDATE with the
  *    same predicate, in one db.batch (INSERT first). The result is read from the
  *    UPDATE's meta.changes, not from the pre-read. The same UPDATE clears the
- *    captured delegation start, which described the delegation just replaced.
+ *    captured delegation start, which described the delegation just replaced,
+ *    and the attempt count that belonged to it.
  *  - resolved equal to the baseline: advance checked_at, clear error.
  */
 export async function applyResolution(
@@ -125,11 +137,12 @@ export async function applyResolution(
     // the same statement that writes the new one. Nulling both columns makes the
     // row "missing a start" by construction, so every capture path (the login
     // follow-up here and the cron's listFollowsMissingSince) picks it up even if
-    // the immediate follow-up write never runs.
+    // the immediate follow-up write never runs. The attempt count goes with them:
+    // the new delegation gets a full run of lookups before the page gives up.
     db.prepare(
       `UPDATE delegator_follows
           SET delegation_type = ?, drep_id = ?, delegation_set_at = ?, checked_at = ?, refresh_attempted_at = ?, refresh_error_at = NULL,
-              delegated_since_epoch = NULL, since_checked_at = NULL
+              delegated_since_epoch = NULL, since_checked_at = NULL, since_attempts = 0
         WHERE user_id = ? AND ${pred}`,
     ).bind(type, drepId, now, now, now, userId, type, drepId),
   ]);
@@ -164,8 +177,8 @@ export async function getFollowedDrepIds(db: D1Database): Promise<Set<string>> {
 /**
  * Records a delegation-start capture attempt unconditionally. `epoch` null means
  * the attempt ran but produced no start (Koios failed, or the account has no
- * delegation_drep event), so the row keeps a NULL start and waits out the retry
- * window instead of being re-queried on every login.
+ * delegation_drep event), so the row keeps a NULL start, counts the attempt and
+ * waits out the retry window instead of being re-queried on every login.
  * Only for a capture that directly follows a created or changed baseline, where
  * this call owns the freshly written delegation. Retry paths that act on a row
  * they read earlier must use captureDelegatedSince instead.
@@ -177,7 +190,10 @@ export async function setDelegatedSince(
   now: number,
 ): Promise<void> {
   await db
-    .prepare('UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ? WHERE user_id = ?')
+    .prepare(
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?, ${attemptsFragment(epoch)}
+        WHERE user_id = ?`,
+    )
     .bind(epoch, now, userId)
     .run();
 }
@@ -259,7 +275,7 @@ export async function captureDelegatedSince(
 ): Promise<boolean> {
   const res = await db
     .prepare(
-      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?, ${attemptsFragment(epoch)}
         WHERE user_id = ? AND delegated_since_epoch IS NULL AND COALESCE(since_checked_at, -1) = ?`,
     )
     .bind(epoch, now, userId, observedSinceCheckedAt ?? -1)

@@ -211,6 +211,49 @@ describe('delegation start columns (migration 0089)', () => {
     expect(await since('cas-3')).toEqual({ delegated_since_epoch: 640, since_checked_at: 4000 });
   });
 
+  it('counts the attempts that found no start and resets the run on a captured one', async () => {
+    const attempts = async (userId: string) =>
+      (await db().prepare('SELECT since_attempts FROM delegator_follows WHERE user_id = ?')
+        .bind(userId).first<{ since_attempts: number }>())?.since_attempts;
+
+    await ensureFollow(db(), 'at-1', 'stake_test1at1', 0);
+    expect(await attempts('at-1')).toBe(0);
+
+    await setDelegatedSince(db(), 'at-1', null, 1000);
+    expect(await attempts('at-1')).toBe(1);
+    await setDelegatedSince(db(), 'at-1', null, 2000);
+    expect(await attempts('at-1')).toBe(2);
+    // The compare-and-set path counts the same way.
+    expect(await captureDelegatedSince(db(), 'at-1', null, 3000, 2000)).toBe(true);
+    expect(await attempts('at-1')).toBe(3);
+    // A refused compare-and-set writes nothing, so it counts nothing either.
+    expect(await captureDelegatedSince(db(), 'at-1', null, 4000, 2000)).toBe(false);
+    expect(await attempts('at-1')).toBe(3);
+
+    // A captured start ends the run.
+    expect(await captureDelegatedSince(db(), 'at-1', 640, 5000, 3000)).toBe(true);
+    expect(await attempts('at-1')).toBe(0);
+
+    // And so does setDelegatedSince with an epoch.
+    await ensureFollow(db(), 'at-2', 'stake_test1at2', 0);
+    await setDelegatedSince(db(), 'at-2', null, 1000);
+    await setDelegatedSince(db(), 'at-2', 655, 2000);
+    expect(await attempts('at-2')).toBe(0);
+  });
+
+  it('a changed delegation resets the attempt count with the start it belonged to', async () => {
+    await ensureFollow(db(), 'at-3', 'stake_test1at3', 1000);
+    await applyResolution(db(), 'at-3', drepState('drep1ata'), 1000);
+    await setDelegatedSince(db(), 'at-3', null, 1000);
+    await setDelegatedSince(db(), 'at-3', null, 2000);
+    await setDelegatedSince(db(), 'at-3', null, 3000);
+
+    expect(await applyResolution(db(), 'at-3', drepState('drep1atb'), 4000)).toBe('changed');
+    const row = await getFollow(db(), 'at-3');
+    expect(row?.since_attempts).toBe(0);
+    expect(row?.delegated_since_epoch).toBeNull();
+  });
+
   it('a changed delegation clears the captured start so both capture paths pick it up', async () => {
     await ensureFollow(db(), 'ch-1', 'stake_test1ch1', 1000);
     await applyResolution(db(), 'ch-1', drepState('drep1cha'), 1000);

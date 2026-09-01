@@ -25,11 +25,21 @@ export function resolveDelegationView(follow: DelegatorFollowRow | null): Delega
 
 const RETIRED_STATUSES = new Set(['deregistered', 'retired']);
 
+/**
+ * Whether the raw Koios status means the registration has ended. Deliberately
+ * narrower than `!active`, which also covers a DRep that merely went inactive by
+ * not voting for the no-vote window and is still allowed to vote. Callers that
+ * make a claim about what a DRep COULD have done must use this, not `!active`.
+ */
+export function isRetiredStatus(status: string): boolean {
+  return RETIRED_STATUSES.has(status.toLowerCase());
+}
+
 /** English status hint for a drep follow, or null when active/normal.
  *  Follows the existing model (active boolean + raw Koios status). */
 export function drepStatusHint(active: boolean, status: string): string | null {
   if (active) return null;
-  if (RETIRED_STATUSES.has(status.toLowerCase())) {
+  if (isRetiredStatus(status)) {
     return 'This DRep has ended its registration. You should review your delegation.';
   }
   return 'This DRep is currently inactive and may not be participating in votes.';
