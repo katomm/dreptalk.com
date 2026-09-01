@@ -927,15 +927,12 @@ export async function listDrepVotePowersByAction(
   gaIds: string[],
 ): Promise<Map<string, (number | null)[]>> {
   const map = new Map<string, (number | null)[]>();
-  const CHUNK = 90;
-  for (let i = 0; i < gaIds.length; i += CHUNK) {
-    const chunk = gaIds.slice(i, i + CHUNK);
-    const placeholders = chunk.map(() => '?').join(',');
+  for (const chunk of chunked(gaIds, D1_MAX_BINDS)) {
     const rows = (
       await db
         .prepare(
           `SELECT ga_id, voted_power FROM drep_votes
-            WHERE ga_id IN (${placeholders}) AND voter_role = 'DRep' AND ${liveVoteSql()}`,
+            WHERE ga_id IN (${sqlPlaceholders(chunk)}) AND voter_role = 'DRep' AND ${liveVoteSql()}`,
         )
         .bind(...chunk)
         .all<{ ga_id: string; voted_power: number | null }>()
