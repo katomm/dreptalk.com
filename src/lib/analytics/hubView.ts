@@ -39,7 +39,11 @@ export type ChartableMetric =
   | 'poweredDrepCount'
   | 'delegatorTotal'
   | 'abstainPower'
-  | 'ancPower';
+  | 'ancPower'
+  | 'gini'
+  | 'top10SharePct'
+  | 'minCoalition50'
+  | 'minCoalition67';
 
 /**
  * Chart points for one metric, clipped to its reliable series start
