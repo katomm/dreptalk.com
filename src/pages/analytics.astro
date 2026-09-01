@@ -318,7 +318,7 @@ const activityRows = activity
       {rationaleCoverage.byType.length > 1 && (
         <ul class="hub-rationale__types">
           {rationaleCoverage.byType.map((t) => (
-            <li class="hub-rationale__type"><span class="hub-rationale__type-name">{readableType(t.type)}</span><span class="hub-rationale__type-value">{fmtShare(t.medianPct)} median, {t.actions} actions</span></li>
+            <li class="hub-rationale__type"><span class="hub-rationale__type-name">{readableType(t.type)}</span><span class="hub-rationale__type-value">{fmtShare(t.medianPct)} median, {t.actions} {t.actions === 1 ? 'action' : 'actions'}</span></li>
           ))}
         </ul>
       )}
