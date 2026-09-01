@@ -17,6 +17,8 @@ faqs:
     a: "Only a re-vote whose final position differs from the voter's first recorded one. Re-votes that keep the position, for example to attach or update a rationale, are counted separately and never shown as changed votes."
   - q: "Could the largest DReps really decide an action on their own?"
     a: "The smallest-group numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure."
+  - q: "Does a missing rationale mean a DRep voted carelessly?"
+    a: "No. The rationale figures measure whether a vote carries a published explanation, nothing about its reasoning. Some DReps explain their votes in other places, and a vote without an attached rationale can be as considered as any other."
 ---
 
 The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day.
@@ -44,6 +46,12 @@ These stats only appear when the voting power behind every single vote on the ac
 A DRep can re-vote on an action at any time while voting is open, and the analytics page tracks what those re-votes actually did. A re-vote only counts as a changed vote when the voter's final position differs from their first recorded one. Many re-votes keep the position and only update the attached rationale, and those are shown separately rather than inflated into change numbers. The panel also shows where changed votes moved, to yes, to no or to abstain, and which decided actions were reconsidered the most.
 
 Only actions whose complete vote history has been swept from the chain are counted, and the panel says how many are still queued. The same honest split appears on each action's Votes tab.
+
+## Vote rationales
+
+Every on-chain vote can carry a metadata document explaining the decision, the rationale. The rationales panel measures how many DRep votes on decided actions come with one, both as a share of votes and weighted by the voting power behind them. It also shows which decided actions were best and least covered, and how many rationales arrived only later, through a re-vote on the same action.
+
+Coverage is a presence check, nothing more. A vote with a rationale is not automatically better reasoned than one without, and the panel makes no attempt to judge content. The power-weighted figure only counts actions where the voting power behind every single vote is recorded, and says how many actions that excludes.
 
 ## Concentration of delegated power
 
@@ -76,6 +84,10 @@ The per-vote voting power for at least one vote on that action is not recorded. 
 ### What counts as a changed vote?
 
 Only a re-vote whose final position differs from the voter's first recorded one. Re-votes that keep the position, for example to attach or update a rationale, are counted separately and never shown as changed votes.
+
+### Does a missing rationale mean a DRep voted carelessly?
+
+No. The rationale figures measure whether a vote carries a published explanation, nothing about its reasoning. Some DReps explain their votes in other places, and a vote without an attached rationale can be as considered as any other.
 
 ### Could the largest DReps really decide an action on their own?
 
