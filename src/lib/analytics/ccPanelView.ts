@@ -3,7 +3,11 @@
 // eligibility epoch, the same active-member set and the same final-vote
 // dedup, so the hub can never disagree with an action's own Votes tab.
 // Actions that cannot be resolved are skipped and disclosed, and the
-// below-threshold rate only uses the frozen per-action snapshot.
+// below-threshold rate only uses the frozen per-action snapshot. The real
+// committee has held two separate cold-key credentials for the Cardano
+// Japan Council at once (two seats at the same organization), so two Japan
+// Council rows in the member list is real committee structure, not a
+// name-dedup bug.
 import { activeCommitteeMembersAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { finalCcVoteByMember } from '../koios/corrections.js';
 import { committeeEpochForAction, type CcVoteRow, type DecidedCcAction } from '../db/committee.js';
@@ -17,6 +21,10 @@ export interface CcMemberRow {
   voted: number;
   eligible: number;
   pct: number;
+  /** From the earliest term this member started (never below its own authorization epoch), to null while a term is still current. */
+  tenure: { from: number; to: number | null };
+  /** One entry per CcPanelView.actionEpochs, whether this member voted, missed, or was not on the active set for that action. */
+  sequence: ('voted' | 'missed' | 'ineligible')[];
 }
 
 export interface CcPanelView {
@@ -27,7 +35,42 @@ export interface CcPanelView {
   belowThreshold: number;
   verdictBasis: number;
   medianLatencyDays: number | null;
+  /** Decided epochs of the considered actions, ascending, ties broken by gaId. One entry per member sequence position. */
+  actionEpochs: number[];
   members: CcMemberRow[];
+}
+
+/** Selects the best and worst n rows from an already best-first sorted list. Under 2n rows, everything is "top" and there is no bottom. */
+export function selectExtremes<T>(rows: T[], n: number): { top: T[]; bottom: T[]; total: number } {
+  const total = rows.length;
+  if (total <= 2 * n) return { top: [...rows], bottom: [], total };
+  return { top: rows.slice(0, n), bottom: rows.slice(total - n), total };
+}
+
+/**
+ * Tenure across every term a cold key has held. `from` is the earliest term's
+ * start, never below that term's own hot-key authorization epoch. `to` is
+ * null while any term is still current (open version, not resigned, term not
+ * yet expired), otherwise the latest of each term's end (its expiration, or
+ * the epoch before resignation when it resigned).
+ */
+function computeTenure(terms: CommitteeMemberTerm[], currentEpoch: number | null): { from: number; to: number | null } {
+  if (terms.length === 0) return { from: 0, to: null };
+  let earliest = terms[0];
+  for (const t of terms) {
+    if (t.versionFrom < earliest.versionFrom) earliest = t;
+  }
+  const from = Math.max(earliest.versionFrom, earliest.authorizedFrom);
+  const isCurrent = terms.some(
+    (t) => t.versionTo == null && t.resignedAt == null && currentEpoch != null && t.termExpiration >= currentEpoch,
+  );
+  if (isCurrent) return { from, to: null };
+  let to = -Infinity;
+  for (const t of terms) {
+    const end = t.resignedAt != null ? Math.min(t.termExpiration, t.resignedAt - 1) : t.termExpiration;
+    if (end > to) to = end;
+  }
+  return { from, to };
 }
 
 function median(values: number[]): number | null {
@@ -53,10 +96,23 @@ export function buildCcPanel(input: {
   let verdictBasis = 0;
   const turnouts: number[] = [];
   const latencies: number[] = [];
-  const perMember = new Map<string, { voted: number; eligible: number }>();
+  const actionEpochs: number[] = [];
+  const perMember = new Map<string, { voted: number; eligible: number; seq: Map<number, 'voted' | 'missed'> }>();
 
-  for (const a of actions) {
-    if (!isCcEligible(a.type)) continue;
+  const termsByCold = new Map<string, CommitteeMemberTerm[]>();
+  for (const m of members) {
+    const arr = termsByCold.get(m.coldKeyHex) ?? [];
+    arr.push(m);
+    termsByCold.set(m.coldKeyHex, arr);
+  }
+
+  // Sorted so every member's sequence lines up position-by-position with
+  // actionEpochs, regardless of the order actions arrived in.
+  const eligibleActions = actions
+    .filter((a) => isCcEligible(a.type))
+    .sort((x, y) => x.decidedEpoch - y.decidedEpoch || x.gaId.localeCompare(y.gaId));
+
+  for (const a of eligibleActions) {
     const epoch = committeeEpochForAction(a.decidedEpoch, currentEpoch);
     if (epoch == null) {
       skipped += 1;
@@ -68,6 +124,8 @@ export function buildCcPanel(input: {
       continue;
     }
     considered += 1;
+    const index = actionEpochs.length;
+    actionEpochs.push(a.decidedEpoch);
     const finalByCold = finalCcVoteByMember(votesByAction.get(a.gaId) ?? [], members, hotToCold, epoch);
     turnouts.push((finalByCold.size / active.size) * 100);
 
@@ -92,9 +150,11 @@ export function buildCcPanel(input: {
     }
 
     for (const cold of active) {
-      const entry = perMember.get(cold) ?? { voted: 0, eligible: 0 };
+      const entry = perMember.get(cold) ?? { voted: 0, eligible: 0, seq: new Map<number, 'voted' | 'missed'>() };
       entry.eligible += 1;
-      if (finalByCold.has(cold)) entry.voted += 1;
+      const voted = finalByCold.has(cold);
+      if (voted) entry.voted += 1;
+      entry.seq.set(index, voted ? 'voted' : 'missed');
       perMember.set(cold, entry);
     }
   }
@@ -106,6 +166,8 @@ export function buildCcPanel(input: {
       voted: m.voted,
       eligible: m.eligible,
       pct: m.eligible > 0 ? (m.voted / m.eligible) * 100 : 0,
+      tenure: computeTenure(termsByCold.get(coldKeyHex) ?? [], currentEpoch),
+      sequence: actionEpochs.map((_, i) => m.seq.get(i) ?? 'ineligible') as CcMemberRow['sequence'],
     }))
     .sort((x, y) => y.pct - x.pct || (x.name ?? x.coldKeyHex).localeCompare(y.name ?? y.coldKeyHex));
 
@@ -117,6 +179,7 @@ export function buildCcPanel(input: {
     belowThreshold,
     verdictBasis,
     medianLatencyDays: median(latencies),
+    actionEpochs,
     members: memberRows,
   };
 }

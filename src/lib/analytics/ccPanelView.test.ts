@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCcPanel } from './ccPanelView.js';
+import { buildCcPanel, selectExtremes } from './ccPanelView.js';
 import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import type { CcVoteRow, DecidedCcAction } from '../db/committee.js';
 
@@ -53,6 +53,38 @@ describe('buildCcPanel', () => {
     const other = v.members.find((m) => m.coldKeyHex === 'cold2');
     expect(other).toMatchObject({ name: null, voted: 1, eligible: 2, pct: 50 });
     expect(v.members[0].coldKeyHex).toBe('cold1');
+    // Both actions were decided at epoch 600, considered in gaId order.
+    expect(v.actionEpochs).toEqual([600, 600]);
+    // cold1 voted Yes on both, cold2 voted No on ga1 (still counted voted) then missed ga2.
+    expect(alice?.sequence).toEqual(['voted', 'voted']);
+    expect(other?.sequence).toEqual(['voted', 'missed']);
+    // Both members hold an open, still-current term from epoch 500.
+    expect(alice?.tenure).toEqual({ from: 500, to: null });
+    expect(other?.tenure).toEqual({ from: 500, to: null });
+  });
+
+  it('marks a member ineligible for actions decided after its term expired, and closes its tenure', () => {
+    const endedMembers: CommitteeMemberTerm[] = [
+      { coldKeyHex: 'cold1', versionFrom: 500, versionTo: null, termExpiration: 610, authorizedFrom: 500, resignedAt: null },
+      { coldKeyHex: 'cold2', versionFrom: 500, versionTo: null, termExpiration: 900, authorizedFrom: 500, resignedAt: null },
+    ];
+    const actions = [
+      action({ gaId: 'ga1', decidedEpoch: 600 }),
+      action({ gaId: 'ga2', decidedEpoch: 620 }),
+    ];
+    const votesByAction = new Map([
+      ['ga1', [vote('hot1', 'Yes', 2 * DAY), vote('hot2', 'Yes', 2 * DAY)]],
+      ['ga2', [vote('hot2', 'Yes', 2 * DAY)]],
+    ]);
+    const v = buildCcPanel({ actions, votesByAction, members: endedMembers, hotToCold, nameIndex, currentEpoch: 650 });
+    expect(v.considered).toBe(2);
+    expect(v.actionEpochs).toEqual([600, 620]);
+    const cold1 = v.members.find((m) => m.coldKeyHex === 'cold1');
+    expect(cold1?.sequence).toEqual(['voted', 'ineligible']);
+    expect(cold1?.tenure).toEqual({ from: 500, to: 610 });
+    const cold2 = v.members.find((m) => m.coldKeyHex === 'cold2');
+    expect(cold2?.sequence).toEqual(['voted', 'voted']);
+    expect(cold2?.tenure).toEqual({ from: 500, to: null });
   });
 
   it('applies the quorum gate to the verdict', () => {
@@ -93,5 +125,23 @@ describe('buildCcPanel', () => {
     const votesByAction = new Map([['ga1', [vote('hot1', 'Yes', 3 * DAY)]]]);
     const v = buildCcPanel({ actions, votesByAction, members, hotToCold, nameIndex, currentEpoch: 650 });
     expect(v.medianLatencyDays).toBe(2);
+  });
+});
+
+describe('selectExtremes', () => {
+  it('splits a longer list into top n and the last n, both in original order', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => i);
+    const { top, bottom, total } = selectExtremes(rows, 5);
+    expect(top).toEqual([0, 1, 2, 3, 4]);
+    expect(bottom).toEqual([7, 8, 9, 10, 11]);
+    expect(total).toBe(12);
+  });
+
+  it('keeps everything as top with an empty bottom when the list is 2n or smaller', () => {
+    const rows = Array.from({ length: 8 }, (_, i) => i);
+    const { top, bottom, total } = selectExtremes(rows, 5);
+    expect(top).toEqual(rows);
+    expect(bottom).toEqual([]);
+    expect(total).toBe(8);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildVitals, contiguousPrefix, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
+import { buildVitals, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
 import { RECENT_VOTING_WINDOW_EPOCHS } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';
 
@@ -62,6 +62,7 @@ describe('buildVitals', () => {
   it('builds four cards with deltas and the circulating share', () => {
     const cards = buildVitals(row(540, { poweredDrepCount: 710 }), row(539), '20000000000000000');
     expect(cards).toHaveLength(4);
+    expect(cards[0].label).toBe('DReps holding delegated power');
     expect(cards[0].trend?.direction).toBe('up'); // powered 700 -> 710
     const share = cards.find((c) => c.icon === 'share');
     expect(share?.value).toBe('10.0%'); // 2e15 of 2e16
@@ -143,5 +144,25 @@ describe('rowBeforeEpoch', () => {
   it('returns the true previous row on a contiguous series', () => {
     const rows = [row(650), row(651), row(652)];
     expect(rowBeforeEpoch(rows, 652)?.epoch).toBe(651);
+  });
+});
+
+describe('defaultOptionsComparison', () => {
+  it('sums the two default pools and formats both labels compact', () => {
+    const v = defaultOptionsComparison('9776000000000000', '150000000000000', '5134000000000000');
+    expect(v?.defaultsLabel).toMatch(/^9\.9B/);
+    expect(v?.reprLabel).toMatch(/^5\.1B/);
+  });
+
+  it('is null when any input is null or undefined', () => {
+    expect(defaultOptionsComparison(null, '150000000000000', '5134000000000000')).toBeNull();
+    expect(defaultOptionsComparison('9776000000000000', undefined, '5134000000000000')).toBeNull();
+    expect(defaultOptionsComparison('9776000000000000', '150000000000000', null)).toBeNull();
+  });
+
+  it('is null when any amount is malformed', () => {
+    expect(defaultOptionsComparison('not-a-number', '150000000000000', '5134000000000000')).toBeNull();
+    expect(defaultOptionsComparison('9776000000000000', 'not-a-number', '5134000000000000')).toBeNull();
+    expect(defaultOptionsComparison('9776000000000000', '150000000000000', 'not-a-number')).toBeNull();
   });
 });

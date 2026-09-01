@@ -4,6 +4,7 @@
 // start so a NULL never renders as a zero, and lovelace-to-Number conversion
 // is display-only (documented precision).
 import { formatAda } from '../forum/view.js';
+import { formatAdaCompact } from '../format/ada.js';
 import { RECENT_VOTING_WINDOW_EPOCHS } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';
 
@@ -134,7 +135,7 @@ export function buildVitals(
     : 'superseded votes included';
   return [
     {
-      label: 'DReps with voting power',
+      label: 'DReps holding delegated power',
       value: current.poweredDrepCount.toLocaleString('en-US'),
       icon: 'people',
       trend: countTrend(current.poweredDrepCount, prev?.poweredDrepCount ?? null),
@@ -164,4 +165,30 @@ export function buildVitals(
       sub: 'delegated to DReps',
     },
   ];
+}
+
+/**
+ * Compact-formatted comparison between the two default-option pools (abstain
+ * plus always-no-confidence) and the represented total, for the hub's
+ * default-options card. Null unless all three lovelace amounts parse, BigInt
+ * throughout since the pools run well past Number's safe-integer range.
+ */
+export function defaultOptionsComparison(
+  abstain: string | null | undefined,
+  anc: string | null | undefined,
+  reprTotal: string | null,
+): { defaultsLabel: string; reprLabel: string } | null {
+  if (abstain == null || anc == null || reprTotal == null) return null;
+  let defaultsSum: bigint;
+  let repr: bigint;
+  try {
+    defaultsSum = BigInt(abstain) + BigInt(anc);
+    repr = BigInt(reprTotal);
+  } catch {
+    return null;
+  }
+  const defaultsLabel = formatAdaCompact(defaultsSum.toString());
+  const reprLabel = formatAdaCompact(repr.toString());
+  if (defaultsLabel == null || reprLabel == null) return null;
+  return { defaultsLabel, reprLabel };
 }
