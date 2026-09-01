@@ -71,12 +71,34 @@ describe('buildVotingTiming', () => {
           { type: 'ParameterChange', medianDay: 2, timedVotes: 30 },
           { type: 'TreasuryWithdrawals', medianDay: 5, timedVotes: 22 },
         ],
-        spoByType: [{ type: 'ParameterChange', medianDay: 7, timedVotes: 8 }],
+        spoByType: [{ type: 'ParameterChange', medianDay: 7, timedVotes: 20 }],
       }),
     );
     expect(v.byType).toEqual([
       { type: 'ParameterChange', drepMedianDay: 2, drepTimed: 30, spoMedianDay: 7 },
       { type: 'TreasuryWithdrawals', drepMedianDay: 5, drepTimed: 22, spoMedianDay: null },
+    ]);
+  });
+
+  it('floors the SPO median at 20 timed SPO votes, independent of the DRep count', () => {
+    const v = buildVotingTiming(
+      input({
+        drepByType: [{ type: 'ParameterChange', medianDay: 2, timedVotes: 25 }],
+        spoByType: [{ type: 'ParameterChange', medianDay: 7, timedVotes: 19 }],
+      }),
+    );
+    expect(v.byType).toEqual([
+      { type: 'ParameterChange', drepMedianDay: 2, drepTimed: 25, spoMedianDay: null },
+    ]);
+
+    const v2 = buildVotingTiming(
+      input({
+        drepByType: [{ type: 'ParameterChange', medianDay: 2, timedVotes: 25 }],
+        spoByType: [{ type: 'ParameterChange', medianDay: 7, timedVotes: 20 }],
+      }),
+    );
+    expect(v2.byType).toEqual([
+      { type: 'ParameterChange', drepMedianDay: 2, drepTimed: 25, spoMedianDay: 7 },
     ]);
   });
 

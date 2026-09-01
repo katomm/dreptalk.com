@@ -51,21 +51,25 @@ function median(values: number[]): number | null {
  *
  * byType keeps only types with at least MIN_TYPE_TIMED_VOTES timed DRep
  * votes (a per-type figure below that floor is too noisy to show), joins the
- * SPO median for the same type name (null when SPOs have no timed votes of
- * that type at all, since SPOs vote far less often than DReps and gating the
- * join on their own count would empty the table), sorted by drepTimed
- * descending then type ascending.
+ * SPO median for the same type name subject to the same MIN_TYPE_TIMED_VOTES
+ * floor on the SPO side (null when the SPO type row is absent or has fewer
+ * than MIN_TYPE_TIMED_VOTES timed votes, since SPOs vote far less often than
+ * DReps and an unfiltered join would show noisy low-sample medians), sorted
+ * by drepTimed descending then type ascending.
  */
 export function buildVotingTiming(input: BuildVotingTimingInput): VotingTimingView {
-  const spoMedianByType = new Map(input.spoByType.map((t) => [t.type, t.medianDay]));
+  const spoByType = new Map(input.spoByType.map((t) => [t.type, t]));
   const byType: TypeTimingRow[] = input.drepByType
     .filter((t) => t.timedVotes >= MIN_TYPE_TIMED_VOTES)
-    .map((t) => ({
-      type: t.type,
-      drepMedianDay: t.medianDay,
-      drepTimed: t.timedVotes,
-      spoMedianDay: spoMedianByType.get(t.type) ?? null,
-    }))
+    .map((t) => {
+      const spo = spoByType.get(t.type);
+      return {
+        type: t.type,
+        drepMedianDay: t.medianDay,
+        drepTimed: t.timedVotes,
+        spoMedianDay: spo && spo.timedVotes >= MIN_TYPE_TIMED_VOTES ? spo.medianDay : null,
+      };
+    })
     .sort((a, b) => b.drepTimed - a.drepTimed || a.type.localeCompare(b.type));
 
   return {

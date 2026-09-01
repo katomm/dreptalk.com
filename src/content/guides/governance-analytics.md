@@ -49,6 +49,12 @@ A DRep can re-vote on an action at any time while voting is open, and the analyt
 
 Only actions whose complete vote history has been swept from the chain are counted, and the panel says how many are still queued. The same honest split appears on each action's Votes tab.
 
+## Vote rationales
+
+Every on-chain vote can carry a metadata document explaining the decision, the rationale. The rationales panel measures how many DRep votes on decided actions carry that link, both as a share of votes and weighted by the voting power behind them. A linked document is not always retrievable, so these figures can read higher than the readable rationales on an action's own page. It also shows which decided actions were best and least covered, and how many rationales arrived only later, through a re-vote on the same action.
+
+Coverage is a presence check, nothing more. A vote with a rationale is not automatically better reasoned than one without, and the panel makes no attempt to judge content. The power-weighted figure only counts actions where the voting power behind every single vote is recorded, and says how many actions that excludes.
+
 ## Voting timing
 
 The timing panel reads when votes arrive. It counts votes, not weight: every vote counts once, whatever voting power stands behind it, so the figures describe the behavior of the voters rather than the movement of the stake. The headline numbers are the median day after submission for DRep votes and for SPO votes, and the day by which half of an action's votes had arrived, taken as a median across decided actions. A vote can only be timed when both the action's submission and the vote's block time are on record. The medians only cover decided actions, an action still open can only hold its early votes so far.
@@ -56,12 +62,6 @@ The timing panel reads when votes arrive. It counts votes, not weight: every vot
 The window split reads every vote against its own action's voting window instead of the calendar. The span from submission to the close of voting is cut into three equal parts, and each vote falls in the early, middle or late third of that action's window, so an action open for twenty days and one open for five are read on the same scale. Votes recorded after the window closed are counted separately and never as late, because they never had a third to fall into.
 
 None of this is a quality measure. Timing describes when votes arrive, not how carefully they were cast. An early vote is not more diligent than a late one, and a late vote can be the result of waiting for a discussion to run its course.
-
-## Vote rationales
-
-Every on-chain vote can carry a metadata document explaining the decision, the rationale. The rationales panel measures how many DRep votes on decided actions carry that link, both as a share of votes and weighted by the voting power behind them. A linked document is not always retrievable, so these figures can read higher than the readable rationales on an action's own page. It also shows which decided actions were best and least covered, and how many rationales arrived only later, through a re-vote on the same action.
-
-Coverage is a presence check, nothing more. A vote with a rationale is not automatically better reasoned than one without, and the panel makes no attempt to judge content. The power-weighted figure only counts actions where the voting power behind every single vote is recorded, and says how many actions that excludes.
 
 ## The Constitutional Committee
 
