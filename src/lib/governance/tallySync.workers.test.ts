@@ -2,7 +2,7 @@
 // Tally/vote sync tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { buildInsertGovernanceAction, getGovernanceActionByTopicId, markVotesSynced } from '../db/governance.js';
+import { buildInsertGovernanceAction, getGovernanceActionByTopicId, getActionsNeedingVotedPower, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId, recordLocalVote, getViewerVote, upsertVotes } from '../db/drepVotes.js';
 import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes, backfillThresholdSnapshots } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
@@ -267,6 +267,45 @@ describe('syncGovernanceTallies', () => {
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.drepVotedPower).toBeNull();
+  });
+
+  it('persists the four default-option power fields as raw strings, even above Number.MAX_SAFE_INTEGER', async () => {
+    const a = await insertActive(400);
+    const withDefaults: VotingSummary = {
+      ...summary,
+      // Above Number.MAX_SAFE_INTEGER (9_007_199_254_740_991): a JS number would
+      // silently round this, so this value byte-identical surviving is the real assertion.
+      drep_always_abstain_vote_power: '9776721978688292',
+      drep_always_no_confidence_vote_power: '4123456789012345',
+      pool_passive_always_abstain_vote_power: '888777666555',
+      pool_passive_always_no_confidence_vote_power: '111222333444',
+    };
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)], withDefaults),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 10,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.drepAlwaysAbstainPower).toBe('9776721978688292');
+    expect(got!.drepAlwaysNoConfidencePower).toBe('4123456789012345');
+    expect(got!.spoAlwaysAbstainPower).toBe('888777666555');
+    expect(got!.spoAlwaysNoConfidencePower).toBe('111222333444');
+  });
+
+  it('writes nulls for the four default-option power fields when the summary lacks them', async () => {
+    const a = await insertActive(400);
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)]), // base `summary`, no default-option fields
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 10,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.drepAlwaysAbstainPower).toBeNull();
+    expect(got!.drepAlwaysNoConfidencePower).toBeNull();
+    expect(got!.spoAlwaysAbstainPower).toBeNull();
+    expect(got!.spoAlwaysNoConfidencePower).toBeNull();
   });
 
   it('re-queues a frozen action for one final vote backfill, but not an active one', async () => {
@@ -627,9 +666,18 @@ describe('backfillVotedPower', () => {
 
   it('returns scanned=0 on the second run when all actions are filled', async () => {
     const t = await insertTerminal('expired');
+    // Includes the default-option fields: a real Koios response always carries them,
+    // and only a summary that supplies them can fully fill a row (see the predicate's
+    // drep_always_abstain_power clause) so it drops out of the candidate set.
     const koios = {
       async proposalVotingSummary(_pid: string): Promise<VotingSummary | null> {
-        return summary;
+        return {
+          ...summary,
+          drep_always_abstain_vote_power: '9776721978688292',
+          drep_always_no_confidence_vote_power: '4123456789012345',
+          pool_passive_always_abstain_vote_power: '888777666555',
+          pool_passive_always_no_confidence_vote_power: '111222333444',
+        };
       },
     };
 
@@ -641,6 +689,47 @@ describe('backfillVotedPower', () => {
     expect(got!.drepVotedPower).toBe(SUMMED_VOTED_POWER);
     // scanned must be 0 for the actions seeded in this test (they are all filled).
     expect(second.scanned).toBe(0);
+  });
+
+  it('re-queues and fills the default-option power fields for a terminal action whose other power fields already exist', async () => {
+    const ga = await insertActive(290);
+    // Simulate an action tallied before the default-option columns existed: its
+    // other power fields are already filled in, only the four new columns are
+    // still NULL. The new predicate clause alone must pick this row up.
+    await db()
+      .prepare(
+        `UPDATE governance_actions
+           SET status = 'expired', drep_voted_power = ?, drep_yes_power = ?, drep_no_power = ?, drep_abstain_power = ?,
+               spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?, spo_eligible_power = ?
+         WHERE id = ?`,
+      )
+      .bind(SUMMED_VOTED_POWER, 29497454745, 3536695673892, 0, 0, 0, 0, 0, ga.id)
+      .run();
+
+    const needing = await getActionsNeedingVotedPower(db(), 10);
+    expect(needing.map((g) => g.id)).toContain(ga.id);
+
+    const withDefaults: VotingSummary = {
+      ...summary,
+      drep_always_abstain_vote_power: '9776721978688292',
+      drep_always_no_confidence_vote_power: '4123456789012345',
+      pool_passive_always_abstain_vote_power: '888777666555',
+      pool_passive_always_no_confidence_vote_power: '111222333444',
+    };
+    const koios = {
+      async proposalVotingSummary(_pid: string): Promise<VotingSummary | null> {
+        return withDefaults;
+      },
+    };
+
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    expect(result.updated).toBe(1);
+
+    const got = await getGovernanceActionByTopicId(db(), ga.topicId);
+    expect(got!.drepAlwaysAbstainPower).toBe('9776721978688292');
+    expect(got!.drepAlwaysNoConfidencePower).toBe('4123456789012345');
+    expect(got!.spoAlwaysAbstainPower).toBe('888777666555');
+    expect(got!.spoAlwaysNoConfidencePower).toBe('111222333444');
   });
 
   it('counts a failed Koios call in failed and continues', async () => {
