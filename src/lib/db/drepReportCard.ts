@@ -62,8 +62,8 @@ const REPLACE_CHUNK = 10;
  * Atomically replaces the whole table with the given rows: a DELETE-all
  * followed by chunked multi-row INSERTs, all in ONE db.batch call, so a
  * concurrent reader (the profile) never observes a partially refreshed
- * table. Called once per 6-hourly sync run with the full computed cohort;
- * an empty rows list still clears the table (no cohort member qualified).
+ * table. Called once per 6-hourly sync run with the full computed cohort.
+ * An empty rows list still clears the table (no cohort member qualified).
  */
 export async function replaceReportCards(db: D1Database, rows: ReportCardRow[]): Promise<void> {
   const stmts: D1PreparedStatement[] = [db.prepare('DELETE FROM drep_report_card')];
@@ -132,7 +132,7 @@ export async function listQualifyingDecidedEpochs(db: D1Database): Promise<numbe
  * Mirrors getDrepParticipation's numerator verbatim, batched across every DRep
  * in one query instead of one round-trip per DRep. The join to dreps means an
  * unregistered voter (no row, or a NULL registered_epoch) never appears in the
- * map; the pseudo-DReps cast no votes, so they never appear either.
+ * map, and the pseudo-DReps cast no votes, so they never appear either.
  */
 export async function listDrepVoteCounts(db: D1Database): Promise<Map<string, number>> {
   const rows = (
