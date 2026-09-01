@@ -11,6 +11,14 @@ import { backfillVoteHistorySweep } from '../../governance/voteHistoryBackfill.j
 import { syncCurrentEpochStats, backfillEpochStats } from '../../analytics/epochStatsSync.js';
 import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
 import {
+  listCohortCandidates,
+  listQualifyingDecidedEpochs,
+  listDrepVoteCounts,
+  listDrepRationaleCounts,
+  replaceReportCards,
+} from '../../db/drepReportCard.js';
+import { computeReportCards } from '../../analytics/reportCardView.js';
+import {
   storeDrepAvatars,
   gcDrepAvatars,
   type ImageDownscaler,
@@ -129,6 +137,26 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
       const r = await runDrepStatsDigest(ctx.db, ctx.state.vpHistoryEpoch, Date.now());
       console.log(`[drep-stats] epoch=${ctx.state.vpHistoryEpoch} candidates=${r.candidates} fired=${r.fired}`);
       return { items: r.fired };
+    },
+  },
+  {
+    // Report-card percentiles for the DRep profiles: batch the per-DRep
+    // participation and rationale rates with the exact profile semantics,
+    // rank them in the cohort, and atomically swap the small table. Runs on
+    // the same 6-hourly cadence as the profile sync. A failure here leaves
+    // the previous percentiles standing.
+    name: 'drep-report-card',
+    run: async (ctx) => {
+      const [candidates, qualifyingEpochs, voteCounts, rationaleCounts] = await Promise.all([
+        listCohortCandidates(ctx.db),
+        listQualifyingDecidedEpochs(ctx.db),
+        listDrepVoteCounts(ctx.db),
+        listDrepRationaleCounts(ctx.db),
+      ]);
+      const rows = computeReportCards({ candidates, qualifyingEpochs, voteCounts, rationaleCounts, now: Date.now() });
+      await replaceReportCards(ctx.db, rows);
+      console.log(`[drep-report-card] cohort=${rows.length} candidates=${candidates.length}`);
+      return { items: rows.length };
     },
   },
   {

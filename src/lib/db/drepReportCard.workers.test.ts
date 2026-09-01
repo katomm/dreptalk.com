@@ -11,6 +11,7 @@ import {
 } from './drepReportCard.js';
 import { upsertVotes } from './drepVotes.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
+import { computeReportCards } from '../analytics/reportCardView.js';
 
 async function seedAction(id: string, decidedEpoch: number | null) {
   await env.DB.prepare(
@@ -136,5 +137,59 @@ describe('replaceReportCards + getReportCard', () => {
     await replaceReportCards(env.DB, [rowB]);
     expect(await getReportCard(env.DB, 'drepA')).toBeNull(); // atomic swap: gone
     expect(await getReportCard(env.DB, 'drepB')).toEqual(rowB);
+  });
+});
+
+describe('end to end: reads to compute to write', () => {
+  it('ranks a three-member cohort by participation and excludes an active special DRep', async () => {
+    // Three cohort members, same registered_epoch, distinct participation:
+    // drepFull votes on all 5 qualifying actions (100%), drepMid on 3 (60%),
+    // drepLow on 1 (20%). The special DRep is seeded active with full
+    // participation too, to prove listCohortCandidates keeps it out of the
+    // cohort even though nothing about its votes would exclude it.
+    await seedDrep('drepFull', { registeredEpoch: 500 });
+    await seedDrep('drepMid', { registeredEpoch: 500 });
+    await seedDrep('drepLow', { registeredEpoch: 500 });
+    await seedDrep(SPECIAL_DREP_IDS[0], { active: 1, registeredEpoch: 500 });
+
+    for (let i = 1; i <= 5; i += 1) {
+      await seedAction(`ga_rc${i}`, 500 + i);
+    }
+    // drepFull: all 5. drepMid: the first 3. drepLow: the first 1.
+    // The special DRep votes on all 5 too, same as drepFull.
+    for (let i = 1; i <= 5; i += 1) {
+      const votes = [
+        { voterRole: 'DRep', voterId: 'drepFull', voterHex: null, vote: 'Yes' },
+        { voterRole: 'DRep', voterId: SPECIAL_DREP_IDS[0], voterHex: null, vote: 'Yes' },
+      ];
+      if (i <= 3) votes.push({ voterRole: 'DRep', voterId: 'drepMid', voterHex: null, vote: 'Yes' });
+      if (i <= 1) votes.push({ voterRole: 'DRep', voterId: 'drepLow', voterHex: null, vote: 'No' });
+      await upsertVotes(env.DB, `ga_rc${i}`, votes, 1);
+    }
+
+    const [candidates, qualifyingEpochs, voteCounts, rationaleCounts] = await Promise.all([
+      listCohortCandidates(env.DB),
+      listQualifyingDecidedEpochs(env.DB),
+      listDrepVoteCounts(env.DB),
+      listDrepRationaleCounts(env.DB),
+    ]);
+    // The special DRep never becomes a candidate, regardless of its votes.
+    expect(candidates.map((c) => c.drepId).sort()).toEqual(['drepFull', 'drepLow', 'drepMid']);
+
+    const rows = computeReportCards({ candidates, qualifyingEpochs, voteCounts, rationaleCounts, now: 12345 });
+    await replaceReportCards(env.DB, rows);
+
+    // drepMid sits strictly between drepLow (20%) and drepFull (100%) in a
+    // cohort of 3, so exactly 1 of 3 members ranks below it: floor(100/3) = 33.
+    const mid = await getReportCard(env.DB, 'drepMid');
+    expect(mid).not.toBeNull();
+    expect(mid?.eligible).toBe(5);
+    expect(mid?.cohortSize).toBe(3);
+    expect(mid?.participationPct).toBeCloseTo(60);
+    expect(mid?.participationAheadPct).toBe(33);
+
+    // The special DRep's full participation would otherwise have ranked it
+    // first, but it was never a candidate, so it has no report-card row at all.
+    expect(await getReportCard(env.DB, SPECIAL_DREP_IDS[0])).toBeNull();
   });
 });
