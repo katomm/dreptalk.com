@@ -49,11 +49,11 @@ describe('buildMyDrep', () => {
 
     expect(view.voteChanges).toBe(2);
 
-    expect(view.power.then).toEqual({ epoch: 640, label: '1M ₳', firstOnRecord: false });
+    expect(view.power.start).toEqual({ epoch: 640, label: '1M ₳', firstOnRecord: false });
     expect(view.power.now).toEqual({ epoch: 650, label: '1.5M ₳' });
     expect(view.power.deltaLabel).toBe('+500K ₳');
 
-    expect(view.delegators.then).toBe(12);
+    expect(view.delegators.start).toBe(12);
     expect(view.delegators.now).toBe(20);
     expect(view.delegators.delta).toBe(8);
   });
@@ -68,10 +68,10 @@ describe('buildMyDrep', () => {
       powerNow: { epoch: 650, amount: '750000000000', delegatorCount: 5 },
     });
 
-    expect(view.power.then).toEqual({ epoch: 645, label: '1M ₳', firstOnRecord: true });
+    expect(view.power.start).toEqual({ epoch: 645, label: '1M ₳', firstOnRecord: true });
     expect(view.power.deltaLabel).toBe('-250K ₳');
     // A missing start count is never 0, and without both sides there is no delta.
-    expect(view.delegators.then).toBeNull();
+    expect(view.delegators.start).toBeNull();
     expect(view.delegators.now).toBe(5);
     expect(view.delegators.delta).toBeNull();
   });
@@ -87,7 +87,7 @@ describe('buildMyDrep', () => {
     });
 
     expect(view.power.deltaLabel).toBe('0 ₳');
-    expect(view.delegators.then).toBe(7);
+    expect(view.delegators.start).toBe(7);
     expect(view.delegators.now).toBe(7);
     expect(view.delegators.delta).toBe(0);
   });
@@ -108,10 +108,10 @@ describe('buildMyDrep', () => {
     expect(view.withRationale).toBe(0);
     expect(view.rationalePct).toBeNull();
     expect(view.missed).toEqual([]);
-    expect(view.power.then).toBeNull();
+    expect(view.power.start).toBeNull();
     expect(view.power.now).toBeNull();
     expect(view.power.deltaLabel).toBeNull();
-    expect(view.delegators.then).toBeNull();
+    expect(view.delegators.start).toBeNull();
     expect(view.delegators.now).toBeNull();
     expect(view.delegators.delta).toBeNull();
   });
@@ -157,11 +157,11 @@ describe('buildMyDrep', () => {
       powerNow: { epoch: 650, amount: '1000000000000', delegatorCount: 4 },
     });
 
-    expect(view.power.then).toBeNull();
+    expect(view.power.start).toBeNull();
     expect(view.power.now).toEqual({ epoch: 650, label: '1M ₳' });
     expect(view.power.deltaLabel).toBeNull();
     // The delegator counts are stored beside the amount and stay readable.
-    expect(view.delegators.then).toBe(3);
+    expect(view.delegators.start).toBe(3);
     expect(view.delegators.now).toBe(4);
     expect(view.delegators.delta).toBe(1);
   });

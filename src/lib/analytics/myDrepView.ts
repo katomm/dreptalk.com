@@ -21,11 +21,11 @@ export interface MyDrepView {
   rationalePct: number | null;
   voteChanges: number;
   power: {
-    then: { epoch: number; label: string; firstOnRecord: boolean } | null;
+    start: { epoch: number; label: string; firstOnRecord: boolean } | null;
     now: { epoch: number; label: string } | null;
     deltaLabel: string | null;
   };
-  delegators: { then: number | null; now: number | null; delta: number | null };
+  delegators: { start: number | null; now: number | null; delta: number | null };
 }
 
 export interface MyDrepInput {
@@ -106,8 +106,7 @@ export function buildMyDrep(input: MyDrepInput): MyDrepView {
     rationalePct: voted > 0 ? (withRationale / voted) * 100 : null,
     voteChanges,
     power: {
-      // biome-ignore lint/suspicious/noThenProperty: "then versus now" is the page's own vocabulary and the value is data, never a function, so this object is not thenable
-      then:
+      start:
         powerThen && thenLabel != null
           ? { epoch: powerThen.epoch, label: thenLabel, firstOnRecord: powerThen.epoch > sinceEpoch }
           : null,
@@ -115,8 +114,7 @@ export function buildMyDrep(input: MyDrepInput): MyDrepView {
       deltaLabel: thenLabel != null && nowLabel != null ? powerDeltaLabel(powerThen, powerNow) : null,
     },
     delegators: {
-      // biome-ignore lint/suspicious/noThenProperty: same "then versus now" pair, a number or null, never a function
-      then: thenCount,
+      start: thenCount,
       now: nowCount,
       delta: thenCount != null && nowCount != null ? nowCount - thenCount : null,
     },
