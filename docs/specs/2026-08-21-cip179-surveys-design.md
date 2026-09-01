@@ -95,6 +95,12 @@ _(one line per completed increment; record deviations here)_
   the fix spans both panels and is not taken here), and increment 8's README,
   deployment-doc and document-deletion steps are pinned as the last commit on
   the branch, after the maintainer's review is validated.
+- 2026-09-01 — PR review response, part two: the discovery walk restarts on a
+  stale list page instead of taking its terminal cursor as a finished walk; a
+  held survey's audit schedule survives a bundle 404 and is re-armed by
+  reappearance; optimistic answers age in their own ungated phase; and the
+  three category-kind branches of `/c/<slug>/` collapse onto one shell
+  component. Decisions in §7.
 
 ---
 
@@ -441,6 +447,25 @@ API, DRepTalk does no label-17 indexing, and no page request reads Tessera.
 - **Pass 2's link rewrite (delete, re-insert what the answer carries)
   stands unguarded: erasure is part of the contract** — a rolled-back
   action must take its link down with it (2026-08-31).
+- **The audit schedule follows the row's held/retired lifecycle, rather than
+  Tessera's 404 being read as "gone for good"** (2026-09-01, PR review). The
+  narrower alternative was to keep the terminal 404 and add reappearance as a
+  refresh trigger, but an incomplete `?refs=` answer can hide a rollback, so
+  there is no reappearance to detect and the schedule would still be lost.
+  Both landed: a held row backs off and retires out of the due set, and
+  reappearance re-arms it at once. `abandonSurveyAudit` then had one meaning
+  left and became `concedeSurveyAudit`.
+- **Ageing optimistic answers is its own ungated sync phase**
+  (`survey-reconcile`, 2026-09-01, PR review), not a guaranteed-cleanup path
+  inside `syncSurveys`. A cleanup path would still have sat under the
+  `TESSERA_BACKEND_URL` switch, which gates the whole surveys phase; the
+  separate phase is also the shape the vote side already uses
+  (`reconcile-pending`).
+- **The `/c/<slug>/` scaffold was unified inside this PR** (2026-09-01, PR
+  review) rather than deferred to the dedicated task the simplify backlog
+  held. This branch added the third copy of the frame, so removing it here
+  leaves the page smaller than the branch found it; the three rendered
+  category pages were diffed before and after to keep it a pure move.
 
 ## 8. Risks and open items
 
