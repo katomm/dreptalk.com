@@ -268,7 +268,9 @@ const activityRows = activity
     <section class="hub-votechange" aria-labelledby="hub-votechange-title">
       <h2 id="hub-votechange-title">Changed votes</h2>
       <p class="hub-votechange__lede">Across {voteChanges.decidedSwept} decided actions, {voteChanges.actionsWithChange} saw at least one DRep change their position. {voteChanges.changedCount} votes changed position in total, while {voteChanges.samePositionCount} re-votes kept the voter's position.</p>
-      <p class="hub-votechange__directions">{voteChanges.toYes} changed to yes, {voteChanges.toNo} to no and {voteChanges.toAbstain} to abstain.</p>
+      {voteChanges.changedCount > 0 && (
+        <p class="hub-votechange__directions">{voteChanges.toYes} changed to yes, {voteChanges.toNo} to no and {voteChanges.toAbstain} to abstain.</p>
+      )}
       {voteChanges.topActions.length > 0 && (
         <>
           <h3 class="hub-votechange__subtitle">Most reconsidered actions</h3>

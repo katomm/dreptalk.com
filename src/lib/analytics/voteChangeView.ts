@@ -99,8 +99,10 @@ export function describeActionVoteChanges(c: ActionVoteChanges): string | null {
   if (c.toYes > 0) parts.push(`${c.toYes} to yes`);
   if (c.toNo > 0) parts.push(`${c.toNo} to no`);
   if (c.toAbstain > 0) parts.push(`${c.toAbstain} to abstain`);
+  // Past tense on purpose: voted_power is the power each voter weighed with at
+  // the time of the final vote, not what they hold today.
   const power =
-    c.movedPower !== null ? `, together holding ${formatAdaCompact(c.movedPower.toString())} of voting power` : '';
+    c.movedPower !== null ? `, together voting with ${formatAdaCompact(c.movedPower.toString())} of voting power` : '';
   return `Changed votes: ${parts.join(', ')}${power}.`;
 }
 

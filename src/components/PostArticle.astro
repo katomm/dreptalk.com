@@ -118,7 +118,7 @@ const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?
   {changedVote && (
     <p class="vr-changed-notice">
       The author has since changed their vote to{' '}
-      <strong style={`color:${changedVoteColor};`}>{changedVote.toUpperCase()}</strong>; see their{' '}
+      <strong style={`color:${changedVoteColor};`}>{changedVote.toUpperCase()}</strong>, see their{' '}
       <a href={changedVoteHref} class="vr-anchor-link">current position</a>.
     </p>
   )}

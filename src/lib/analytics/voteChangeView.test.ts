@@ -84,7 +84,7 @@ describe('describeActionVoteChanges', () => {
       changed: 3, samePosition: 1, toYes: 2, toNo: 1, toAbstain: 0,
       movedPower: 343_700_000_000_000n, unclassified: 0,
     });
-    expect(s).toBe('Changed votes: 2 to yes, 1 to no, together holding 343.7M ₳ of voting power.');
+    expect(s).toBe('Changed votes: 2 to yes, 1 to no, together voting with 343.7M ₳ of voting power.');
   });
 
   it('omits the power clause without a complete power reading', () => {
