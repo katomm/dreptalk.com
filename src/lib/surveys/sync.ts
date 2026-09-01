@@ -25,7 +25,6 @@ import type { NetworkConfig } from '../config/network.js';
 import { createTopic } from '../db/forum.js';
 import { getKnownProposalIds, hasActionsCreatedSince } from '../db/governance.js';
 import {
-  abandonSurveyAudit,
   buildDeleteGovLinks,
   buildInsertGovLink,
   buildInsertSurvey,
@@ -35,6 +34,7 @@ import {
   getHeldSurveys,
   getKnownSurveyRefs,
   getPendingSurveyResponses,
+  concedeSurveyAudit,
   getSurveySyncState,
   markStaleSurveyResponsesFailed,
   markSurveyAudited,
@@ -384,9 +384,14 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         // arrival — and it must trigger an audit rather than freeze the
         // stored count, because verdicts land late: a proof verdict can
         // still flip a counted response after the count itself settles.
+        // A ref that was unavailable and is answered again triggers too: its
+        // bundle 404'd for as long as it was gone, so the count on the row
+        // predates the rollback and the backoff those failures built describes
+        // a survey that was absent, not this one.
         const triggered =
           h !== undefined &&
-          (claimedCount !== h.claimedCount ||
+          (h.unavailable ||
+            claimedCount !== h.claimedCount ||
             (h.tipEpoch <= h.endEpoch && set.tip.epoch > h.endEpoch) ||
             finalState !== null);
         return [
@@ -424,10 +429,15 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   // --- Pass 3: audit counts through Tessera's published auditResponses, for
   // every survey whose audit is due. Every outcome is persisted on the row, so
   // a crashed or snapshot-less run leaves those surveys simply due again. A
-  // 404 is terminal even on the first failure: Tessera is saying the survey is
-  // outside its corpus, and its SINCE floor means it will not re-enter it.
+  // 404 says the survey is outside Tessera's corpus right now, which is the
+  // same thing pass 2 records as a rollback and not proof it is gone: the
+  // settlement window can bring the record back, which is why a rolled-back
+  // row keeps its refresh slot for four days. The audit schedule follows that
+  // lifecycle — a held row backs off and retries until it retires out of the
+  // due set, and only a decided one, whose count can no longer be confirmed,
+  // concedes.
   try {
-    for (const due of await getAuditDueSurveys(db, now, AUDIT_LIMIT)) {
+    for (const due of await getAuditDueSurveys(db, now, now - UNAVAILABLE_TTL_MS, AUDIT_LIMIT)) {
       try {
         const bundle = await collectBundle(tessera, due.ref);
         if (!bundle) break;
@@ -440,10 +450,8 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         console.error(`[surveys] audit failed for ${due.ref}`, err);
         counters.failed++;
         const gone = err instanceof TesseraHttpError && err.status === 404;
-        const conceded =
-          due.finalState !== null && (gone || due.auditAttempts + 1 >= MAX_AUDIT_ATTEMPTS);
-        if (gone || conceded) {
-          await abandonSurveyAudit(db, due.ref, conceded, now);
+        if (due.finalState !== null && (gone || due.auditAttempts + 1 >= MAX_AUDIT_ATTEMPTS)) {
+          await concedeSurveyAudit(db, due.ref, now);
         } else {
           const backoff = Math.min(AUDIT_RETRY_BASE_MS * 2 ** due.auditAttempts, AUDIT_RETRY_MAX_MS);
           await markSurveyAuditFailed(db, due.ref, now + backoff, now);

@@ -180,20 +180,25 @@ export interface AuditDueSurvey {
 
 /** The audits due now, oldest first — except decided rows, which cut the line:
  * their count stays frozen wrong until the post-final audit lands, while a held
- * row only gets its next look late. */
+ * row only gets its next look late. A row retired past `retiredCutoff` drops
+ * out on the same terms as the refresh set: once nothing asks Tessera about the
+ * ref again, nothing can audit it either, so its schedule is left where the
+ * last failure put it and never selected. */
 export async function getAuditDueSurveys(
   db: D1Database,
   now: number,
+  retiredCutoff: number,
   limit: number,
 ): Promise<AuditDueSurvey[]> {
   const { results } = await db
     .prepare(
       `SELECT ref, final_state, audit_attempts FROM survey
        WHERE audit_due_at IS NOT NULL AND audit_due_at <= ?
+         AND (unavailable_since IS NULL OR unavailable_since > ?)
        ORDER BY (final_state IS NULL), audit_due_at
        LIMIT ?`,
     )
-    .bind(now, limit)
+    .bind(now, retiredCutoff, limit)
     .all<{ ref: string; final_state: string | null; audit_attempts: number }>();
   return results.map(r => ({
     ref: r.ref,
@@ -236,22 +241,20 @@ export async function markSurveyAuditFailed(
     .run();
 }
 
-/** Stop auditing a survey for good. `clearCount` when a decided row concedes:
- * its count was never confirmed at-or-after finalization, and no number beats a
- * possibly wrong one. */
-export async function abandonSurveyAudit(
+/** A decided survey gives up on its count: it was never confirmed at or after
+ * finalization and now never will be, and no number beats a possibly wrong one.
+ * Only decided rows reach this — a held one is still changing, so freezing it
+ * on a stale figure is the bug the scheduling exists to kill. */
+export async function concedeSurveyAudit(
   db: D1Database,
   ref: string,
-  clearCount: boolean,
   now: number,
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE survey SET audit_due_at = NULL,
-         counted_dreps = CASE WHEN ? = 1 THEN NULL ELSE counted_dreps END, synced_at = ?
-       WHERE ref = ?`,
+      'UPDATE survey SET audit_due_at = NULL, counted_dreps = NULL, synced_at = ? WHERE ref = ?',
     )
-    .bind(clearCount ? 1 : 0, now, ref)
+    .bind(now, ref)
     .run();
 }
 

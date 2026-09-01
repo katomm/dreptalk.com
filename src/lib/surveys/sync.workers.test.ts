@@ -395,8 +395,8 @@ describe('syncSurveys', () => {
     await syncSurveys(deps(fakeTessera(), now));
     const gone = fakeTessera({
       surveysByRefs: async () => ({ ready: true, value: setOf([], [], {}) }),
-      // The rolled-back ref is outside Tessera's corpus: its bundle 404s,
-      // which closes the audit schedule on the same terms.
+      // The rolled-back ref is outside Tessera's corpus, so its bundle 404s
+      // and every due audit backs off further.
       surveyBundle: async () => {
         throw new TesseraHttpError(404);
       },
@@ -420,12 +420,16 @@ describe('syncSurveys', () => {
     const after = await syncSurveys(deps(guard, now + HOUR_MS + ROLLBACK_TTL_MS + 1));
     expect(after).toMatchObject({ refreshed: 0, rolledBack: 0, audited: 0, failed: 0 });
     const [row] = await surveyRows();
+    // Retirement, not concession, is what ends the audits: the schedule stays
+    // where the last failure left it and is simply never selected again, and
+    // the count a held row was last given is not taken away from the card.
     expect(row).toMatchObject({
       unavailable: 1,
       unavailable_since: now + HOUR_MS,
-      audit_due_at: null,
+      audit_attempts: 2,
       counted_dreps: 2,
     });
+    expect(row.audit_due_at).not.toBeNull();
     expect(await listSurveysWithTopics(env.DB, { limit: 10, offset: 0 })).toHaveLength(1);
   });
 
@@ -700,7 +704,7 @@ describe('syncSurveys', () => {
     expect((await syncSurveys(deps(fakeTessera(), now + 1_000))).audited).toBe(1);
   });
 
-  it('treats a bundle 404 as terminal, but a refresh trigger can revive the schedule', async () => {
+  it('backs a held survey off after a bundle 404, and a refresh trigger re-arms it', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     await syncSurveys(deps(fakeTessera(), now));
@@ -721,12 +725,16 @@ describe('syncSurveys', () => {
       failed: 1,
     });
     let [row] = await surveyRows();
-    // Terminal on the first answer — no backoff ladder — and a held row keeps
-    // its last audited count.
-    expect(row).toMatchObject({ audit_due_at: null, counted_dreps: 2 });
+    // A held row is still changing, so a 404 only backs its schedule off — it
+    // keeps the last audited count and stays due.
+    expect(row).toMatchObject({
+      audit_due_at: now + HOUR_MS + RETRY_MS,
+      audit_attempts: 1,
+      counted_dreps: 2,
+    });
 
-    // The ref is back in the corpus and its count moved again: the refresh
-    // trigger re-arms the schedule and the audit succeeds.
+    // The count moved again: the refresh trigger pulls the next attempt
+    // forward and clears the ladder the failures built.
     const back = fakeTessera({
       surveysByRefs: async () => ({
         ready: true,
@@ -735,7 +743,44 @@ describe('syncSurveys', () => {
     });
     expect((await syncSurveys(deps(back, now + 2 * HOUR_MS))).audited).toBe(1);
     [row] = await surveyRows();
-    expect(row.counted_dreps).toBe(2);
+    expect(row).toMatchObject({ counted_dreps: 2, audit_attempts: 0 });
+  });
+
+  it('re-audits a rolled-back survey the moment it reappears, count unchanged', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    await syncSurveys(deps(fakeTessera(), now));
+
+    // Rolled back, and its bundle 404s for as long as it is out of the corpus,
+    // so the daily re-audit fails and backs off.
+    const gone = fakeTessera({
+      surveysByRefs: async () => ({ ready: true, value: setOf([], [], {}) }),
+      surveyBundle: async () => {
+        throw new TesseraHttpError(404);
+      },
+    });
+    await syncSurveys(deps(gone, now + HOUR_MS));
+    expect(await syncSurveys(deps(gone, now + DAY_MS + HOUR_MS))).toMatchObject({ failed: 1 });
+    expect((await surveyRows())[0]).toMatchObject({
+      unavailable: 1,
+      audit_attempts: 1,
+      audit_due_at: now + DAY_MS + HOUR_MS + RETRY_MS,
+    });
+
+    // It comes back inside the settlement window with its claimed count
+    // unchanged, in the same epoch and still undecided — reappearance is the
+    // only trigger there is. Before the backed-off attempt is even due: the
+    // failures described a survey that was absent, not this one.
+    const back = now + DAY_MS + HOUR_MS + MIN_MS;
+    expect(await syncSurveys(deps(fakeTessera(), back))).toMatchObject({ audited: 1, failed: 0 });
+    expect((await surveyRows())[0]).toMatchObject({
+      unavailable: 0,
+      unavailable_since: null,
+      audit_attempts: 0,
+      audited_at: back,
+      audit_due_at: back + DAY_MS,
+      counted_dreps: 2,
+    });
   });
 
   it('a decided survey concedes after exhausted retries and clears its count; a held one never concedes', async () => {
