@@ -80,7 +80,7 @@ function title(text: string, maxWidth = 1010): string {
   return `<div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:${maxWidth}px;">${esc(text)}</div>`;
 }
 
-// Number-led: the leading body's Yes-of-eligible share as a big figure, over a thin
+// Number-led: the leading body's yes share of the counted stake as a big figure, over a thin
 // bar whose green fill is that share and whose neutral remainder is everything else
 // (no, abstain and, dominant on low turnout, not-voted). The remainder is deliberately
 // left unlabeled here since the card has no room to split it honestly; the detail page
@@ -91,7 +91,7 @@ function tallyBlock(t: { yesPct: number; role: string }): string {
   return `<div style="display:flex;flex-direction:column;">
     <div style="display:flex;align-items:baseline;margin-bottom:14px;">
       <span style="display:flex;font-size:64px;font-weight:800;color:${INK};">${fmtPctFine(yes)}</span>
-      <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:14px;">${bodyLabel} yes of eligible</span>
+      <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:14px;">${bodyLabel} yes of the counted stake</span>
     </div>
     <div style="display:flex;width:1010px;height:20px;border-radius:10px;overflow:hidden;background:${TRACK};">
       <div style="display:flex;width:${yes}%;height:20px;background:${TALLY.yes};"></div>
@@ -135,14 +135,14 @@ function committeeChip(kind: 'add' | 'remove', count: number): string {
     </div>`;
 }
 
-// One Yes-of-eligible bar for a voting body (DReps / SPOs), compact enough that
+// One yes-of-counted bar for a voting body (DReps / SPOs), compact enough that
 // both bodies stack under the summary within the card height.
 function committeeBar(label: string, yesPct: number): string {
   const yes = Math.min(100, Math.max(0, yesPct));
   return `<div style="display:flex;flex-direction:column;margin-top:20px;">
       <div style="display:flex;align-items:baseline;margin-bottom:8px;">
         <span style="display:flex;font-size:40px;font-weight:800;color:${INK};">${fmtPctFine(yes)}</span>
-        <span style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-left:12px;">${esc(label)} yes of eligible</span>
+        <span style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-left:12px;">${esc(label)} yes of counted</span>
       </div>
       <div style="display:flex;width:1010px;height:16px;border-radius:8px;overflow:hidden;background:${TRACK};">
         <div style="display:flex;width:${yes}%;height:16px;background:${TALLY.yes};"></div>
@@ -151,7 +151,7 @@ function committeeBar(label: string, yesPct: number): string {
 }
 
 // Committee membership change card: a joining/leaving count summary over the DRep
-// and SPO Yes-of-eligible bars (the two bodies that vote on a committee action).
+// and SPO yes-of-counted bars (the two bodies that vote on a committee action).
 export function committeeCardHtml(m: CommitteeCardModel): string {
   const meta = m.meta
     ? `<span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-left:16px;">${esc(m.meta)}</span>`

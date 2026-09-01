@@ -202,12 +202,13 @@ const Root = hasControls ? 'div' : 'a';
     </div>
   </div>
 
-  <!-- Voting: one merged row per eligible body. The composition bar carries BOTH
-       facts at once, how full it is = turnout (Yes + No), the empty remainder = not
-       voted, and the green/red split within = sentiment. The percentage is the Yes
-       share of eligible power (ratification), so a low-turnout action reads honestly
-       (a near-empty bar), never as a false "100% yes". Raw amounts and threshold
-       context live on the detail page's Voting Information card. -->
+  <!-- Voting: one merged row per eligible body. The bar is the ratification split,
+       Yes against the No side, over the stake the threshold is measured against, with
+       the threshold marker on the same scale. Stake that never voted is part of the No
+       side, because that is how it is counted. How much of the No side that is, how
+       much stake abstained out of the tally altogether, and turnout are all on the
+       detail page's Voting Information card, which has room to name their
+       denominators. This row must not imply them. -->
   <div class="garow__voting">
     {voting.bodies.map((b) => (
       <div class="vrow">
@@ -351,7 +352,7 @@ const Root = hasControls ? 'div' : 'a';
   .garow__proextra { flex:0 0 auto; font-size:0.72rem; color:var(--muted); }
   .garow__prosub { font-size:0.72rem; color:var(--muted); }
 
-  /* Voting cell: a compact label + composition bar + Yes-of-eligible percentage per
+  /* Voting cell: a compact label + ratification bar + yes-of-counted percentage per
      eligible body (DRep/SPO/CC), stacked vertically. The single bar shows turnout
      (how full) and sentiment (green/red split) at once. */
   .garow__voting { min-width:0; display:flex; flex-direction:column; gap:7px; }

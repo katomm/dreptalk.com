@@ -42,6 +42,12 @@ const baseAction: GovCardInput = {
   spoAbstainPower: null,
   drepVotedPower: null,
   spoEligiblePower: null,
+  drepNoSidePower: null,
+  spoNoSidePower: null,
+  drepAlwaysAbstainPower: null,
+  drepAlwaysNoConfidencePower: null,
+  spoAlwaysAbstainPower: null,
+  spoAlwaysNoConfidencePower: null,
 };
 
 describe('govCardModel', () => {

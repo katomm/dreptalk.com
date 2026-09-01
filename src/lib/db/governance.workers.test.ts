@@ -408,6 +408,7 @@ describe('getActionsNeedingVotedPower', () => {
       spoEligiblePower: 5_000_000_000,
       drepAlwaysAbstainPower: '0', drepAlwaysNoConfidencePower: '0',
       spoAlwaysAbstainPower: '0', spoAlwaysNoConfidencePower: '0',
+      drepNoSidePower: '0', spoNoSidePower: '0',
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });

@@ -275,6 +275,7 @@ describe('syncGovernanceTallies', () => {
       ...summary,
       // Above Number.MAX_SAFE_INTEGER (9_007_199_254_740_991): a JS number would
       // silently round this, so this value byte-identical surviving is the real assertion.
+      drep_no_vote_power: '1587872967435543',
       drep_always_abstain_vote_power: '9776721978688292',
       drep_always_no_confidence_vote_power: '4123456789012345',
       pool_passive_always_abstain_vote_power: '888777666555',
@@ -673,7 +674,9 @@ describe('backfillVotedPower', () => {
       async proposalVotingSummary(_pid: string): Promise<VotingSummary | null> {
         return {
           ...summary,
-          drep_always_abstain_vote_power: '9776721978688292',
+          drep_no_vote_power: '1587872967435543',
+          drep_no_vote_power: '1587872967435543',
+      drep_always_abstain_vote_power: '9776721978688292',
           drep_always_no_confidence_vote_power: '4123456789012345',
           pool_passive_always_abstain_vote_power: '888777666555',
           pool_passive_always_no_confidence_vote_power: '111222333444',
@@ -711,6 +714,7 @@ describe('backfillVotedPower', () => {
 
     const withDefaults: VotingSummary = {
       ...summary,
+      drep_no_vote_power: '1587872967435543',
       drep_always_abstain_vote_power: '9776721978688292',
       drep_always_no_confidence_vote_power: '4123456789012345',
       pool_passive_always_abstain_vote_power: '888777666555',

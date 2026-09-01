@@ -244,6 +244,12 @@ export function votePowers(s: VotingSummary | null) {
     spoYesPower: powerNum(s?.pool_active_yes_vote_power),
     spoNoPower: powerNum(s?.pool_active_no_vote_power),
     spoAbstainPower: powerNum(s?.pool_active_abstain_vote_power),
+    // The ratification No side per body (cast No + default No + always-no-confidence
+    // in one Koios figure). Stored raw: with the Yes power it gives the exact
+    // ratification denominator, and it is the only way to tell the default No apart
+    // from stake that is out of the tally altogether.
+    drepNoSidePower: s?.drep_no_vote_power ?? null,
+    spoNoSidePower: s?.pool_no_vote_power ?? null,
     drepAlwaysAbstainPower: s?.drep_always_abstain_vote_power ?? null,
     drepAlwaysNoConfidencePower: s?.drep_always_no_confidence_vote_power ?? null,
     spoAlwaysAbstainPower: s?.pool_passive_always_abstain_vote_power ?? null,

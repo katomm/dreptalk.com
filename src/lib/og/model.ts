@@ -42,7 +42,7 @@ export interface GovCardModel {
   subtitle: string | null;
   status: { label: string; color: string; tint: string };
   meta: string;
-  // Number-led headline: the leading body's Yes-of-eligible share. Denominator-independent
+  // Number-led headline: the leading body's yes share of the counted stake. Denominator-independent
   // (the stored ratification pct), so no non-voting stake is ever mislabeled as No.
   tally: { yesPct: number; role: string } | null;
 }
@@ -78,7 +78,7 @@ export interface CommitteeCardInput extends GovCardInput {
   removedCount: number;
 }
 
-// One voting body's Yes-of-eligible share on a committee action. Committee changes
+// One voting body's yes share of the counted stake on a committee action. Committee changes
 // are decided by DReps and SPOs; the committee itself does not vote on them.
 export interface CommitteeBar {
   label: string;
@@ -96,7 +96,7 @@ export interface CommitteeCardModel {
 }
 
 // Committee membership change as a share card: a joining/leaving count summary
-// over the DRep and SPO Yes-of-eligible bars (the two bodies that vote on a
+// over the DRep and SPO yes-of-counted bars (the two bodies that vote on a
 // committee action). Deliberately no per-member names: incoming seats are not yet
 // seated, so their key has no hot-to-cold mapping and would render as a raw hash.
 export function committeeCardModel(
