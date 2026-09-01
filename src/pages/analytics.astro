@@ -17,6 +17,7 @@ import { getDrepActivityBreakdown } from '@/lib/db/drepActivityBreakdown.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { listDecidedActionsForRepresentation } from '@/lib/db/effectiveRepresentation.js';
+import { listDrepVotePowersByAction } from '@/lib/db/drepVotes.js';
 import { readableType } from '@/lib/governance/view.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers } from '@/lib/dreps/thresholdMarkers.js';
@@ -54,8 +55,14 @@ const starts = {
 const current = stats.length > 0 ? stats[stats.length - 1] : null;
 const prev = stats.length > 1 ? stats[stats.length - 2] : null;
 const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
-const effRep = buildEffRep(repActions);
+// Per-action vote powers for the concentration read, one batched query for the
+// listed actions. Completeness gating happens in the builder: an action with
+// any missing per-vote power renders no half-count, never a zero.
+const votePowers = db ? await listDrepVotePowersByAction(db, repActions.map((a) => a.id)) : new Map<string, (number | null)[]>();
+const effRep = buildEffRep(repActions, votePowers);
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
+// Median half-counts can end in .5 with an even action count, render as-is.
+const fmtCount = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 // Parse lovelace defensively so a single malformed stored value cannot 500 the
 // page (Koios writes plain integer strings, but the column is untrusted text).
@@ -221,7 +228,7 @@ const activityRows = activity
   {effRep.rows.length > 0 && (
     <section class="hub-effrep" aria-labelledby="hub-effrep-title">
       <h2 id="hub-effrep-title">Effective representation</h2>
-      <p class="hub-effrep__lede">Across the last {effRep.rows.length} decided actions, a median of {fmtShare(effRep.medianPowerSharePct)} of the delegated voting power was actually represented in the vote.</p>
+      <p class="hub-effrep__lede">Across the last {effRep.rows.length} decided actions, a median of {fmtShare(effRep.medianPowerSharePct)} of the delegated voting power was actually represented in the vote.{effRep.medianHalfCount != null && ` A median of ${fmtCount(effRep.medianHalfCount)} DReps was enough to cast half of the voted power.`}</p>
       <ul class="hub-effrep__rows">
         {effRep.rows.map((row) => (
           <li class="hub-effrep__row">
@@ -236,13 +243,17 @@ const activityRows = activity
               <span class="hub-effrep__bar" aria-hidden="true"><span class="hub-effrep__fill" style={`width:${row.powerSharePct.toFixed(1)}%`}></span></span>
               <span class="hub-effrep__value">{fmtShare(row.powerSharePct)}</span>
             </div>
-            {row.countSharePct != null && (
-              <p class="hub-effrep__note">{fmtShare(row.countSharePct)} of DReps voted</p>
+            {(row.countSharePct != null || row.halfCount != null) && (
+              <p class="hub-effrep__note">
+                {row.countSharePct != null && `${fmtShare(row.countSharePct)} of DReps voted`}
+                {row.countSharePct != null && row.halfCount != null && ', '}
+                {row.halfCount != null && `${row.halfCount} of ${row.voterCount} voters cast half of the voted power`}
+              </p>
             )}
           </li>
         ))}
       </ul>
-      <p class="hub-effrep__footnote">Denominator: the delegated voting power in each action's decision epoch, the predefined default options excluded.{effRep.skipped > 0 && ` ${effRep.skipped} older actions without epoch data are not shown.`}</p>
+      <p class="hub-effrep__footnote">Denominator: the delegated voting power in each action's decision epoch, the predefined default options excluded. Concentration reads use the voting power each DRep voted with and appear only when it is recorded for every vote.{effRep.skipped > 0 && ` ${effRep.skipped} older actions without epoch data are not shown.`}</p>
     </section>
   )}
 
