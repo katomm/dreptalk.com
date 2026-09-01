@@ -184,7 +184,9 @@ function participationLine(stat: ParticipationStat): string {
           <div class="mgr-callout">
             <div class="callout callout--info" role="status">
               <div class="callout__body">
-                Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so this section shows the plain numbers without a percentile.
+                {cohortValues.length === 0
+                  ? 'Percentiles have not been computed yet. They are built on the next sync run, check back in a few hours.'
+                  : 'Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so this section shows the plain numbers without a percentile.'}
               </div>
             </div>
             <p class="mgr-line">{`Participation: ${participationLine(pStat)}`}</p>

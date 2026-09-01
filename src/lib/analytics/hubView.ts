@@ -67,6 +67,30 @@ export function metricSeries(
   return out;
 }
 
+/**
+ * The longest gapless run of rows starting at the oldest one. During the
+ * one-time epoch backfill the stored epochs are a growing prefix plus the
+ * live current epoch, and a chart drawn across that hole would read the
+ * connecting line as data. A complete series comes back unchanged, so this
+ * is a no-op once the backfill has drained. Rows must be ascending by epoch
+ * (listEpochStats order).
+ */
+export function contiguousPrefix(rows: EpochStatsRow[]): EpochStatsRow[] {
+  for (let i = 1; i < rows.length; i += 1) {
+    if (rows[i].epoch !== rows[i - 1].epoch + 1) return rows.slice(0, i);
+  }
+  return rows;
+}
+
+/**
+ * The row exactly one epoch behind the given one, or null. A positional
+ * stats[length - 2] would pick an ancient backfilled epoch mid-drain and
+ * feed the vitals and net-change chips a years-wide delta.
+ */
+export function rowBeforeEpoch(rows: EpochStatsRow[], epoch: number): EpochStatsRow | null {
+  return rows.find((r) => r.epoch === epoch - 1) ?? null;
+}
+
 function countTrend(current: number, prev: number | null): VitalCard['trend'] {
   const chip = netChange(current, prev, (n) => n.toLocaleString('en-US'));
   return chip ? { direction: chip.direction, label: chip.label } : null;

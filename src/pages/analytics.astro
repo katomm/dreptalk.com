@@ -27,7 +27,7 @@ import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
-import { buildVitals, metricSeries, netChange } from '@/lib/analytics/hubView.js';
+import { buildVitals, contiguousPrefix, metricSeries, netChange, rowBeforeEpoch } from '@/lib/analytics/hubView.js';
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
@@ -49,23 +49,32 @@ const [stats, defaults, activity, params, concRows, repActions] = db
     ])
   : [[], { abstain: null, noConfidence: null }, null, null, [], []];
 
-// All five starts are derivable from the already-loaded stats array, so this
-// resolves them in memory instead of five sequential DB round-trips (stats is
-// [] without a db, and seriesStartFromRows([], _) is null, same as before).
+// Charts only ever draw the gapless head of the series: during the one-time
+// epoch backfill the stored rows are a growing prefix plus the live current
+// epoch, and a line across that hole would read as data. Once the backfill
+// has drained, chartStats === stats and the note below disappears for good.
+const chartStats = contiguousPrefix(stats);
+const backfillGap = chartStats.length < stats.length;
+
+// All starts are derivable from the already-loaded rows, so this resolves
+// them in memory instead of sequential DB round-trips (chartStats is [] with
+// no db, and seriesStartFromRows([], _) is null, same as before).
 const starts = {
-  totalDrepPower: seriesStartFromRows(stats, 'totalDrepPower'),
-  poweredDrepCount: seriesStartFromRows(stats, 'poweredDrepCount'),
-  delegatorTotal: seriesStartFromRows(stats, 'delegatorTotal'),
-  abstainPower: seriesStartFromRows(stats, 'abstainPower'),
-  ancPower: seriesStartFromRows(stats, 'ancPower'),
-  gini: seriesStartFromRows(stats, 'gini'),
-  top10SharePct: seriesStartFromRows(stats, 'top10SharePct'),
-  minCoalition50: seriesStartFromRows(stats, 'minCoalition50'),
-  minCoalition67: seriesStartFromRows(stats, 'minCoalition67'),
+  totalDrepPower: seriesStartFromRows(chartStats, 'totalDrepPower'),
+  poweredDrepCount: seriesStartFromRows(chartStats, 'poweredDrepCount'),
+  delegatorTotal: seriesStartFromRows(chartStats, 'delegatorTotal'),
+  abstainPower: seriesStartFromRows(chartStats, 'abstainPower'),
+  ancPower: seriesStartFromRows(chartStats, 'ancPower'),
+  gini: seriesStartFromRows(chartStats, 'gini'),
+  top10SharePct: seriesStartFromRows(chartStats, 'top10SharePct'),
+  minCoalition50: seriesStartFromRows(chartStats, 'minCoalition50'),
+  minCoalition67: seriesStartFromRows(chartStats, 'minCoalition67'),
 };
 
 const current = stats.length > 0 ? stats[stats.length - 1] : null;
-const prev = stats.length > 1 ? stats[stats.length - 2] : null;
+// The true previous epoch's row, never a positional neighbor: mid-backfill
+// stats[length - 2] would be an ancient epoch and every delta would lie.
+const prev = current ? rowBeforeEpoch(stats, current.epoch) : null;
 const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
 // Per-action vote powers for the concentration read, one batched query for the
 // listed actions. Completeness gating happens in the builder: an action with
@@ -130,8 +139,8 @@ const { markers, defaultThresholdPct, thresholdsAsOf } = buildThresholdMarkers(p
 // Smallest group per threshold, from the same distribution the island renders.
 const coalitionRows = buildCoalitionTable(params, concentration.byPercent);
 
-const abstainSeries = metricSeries(stats, 'abstainPower', starts.abstainPower);
-const ancSeries = metricSeries(stats, 'ancPower', starts.ancPower);
+const abstainSeries = metricSeries(chartStats, 'abstainPower', starts.abstainPower);
+const ancSeries = metricSeries(chartStats, 'ancPower', starts.ancPower);
 const abstainDelta = netChange(
   defaults.abstain?.delegatorCount ?? null,
   prev?.abstainDelegators ?? null,
@@ -240,6 +249,9 @@ const activityRows = activity
   {!hasBackbone && (
     <p class="hub-empty">Per-epoch data starts filling in with the next sync run. Vitals and the per-epoch trend charts fill in once the first epoch is recorded.</p>
   )}
+  {backfillGap && (
+    <p class="hub-empty">Historical epochs are still being backfilled. The trend charts show the epochs recorded so far and complete on their own over the next days, and panels that need the missing epochs appear as they fill in.</p>
+  )}
 
   <section class="hub-defaults" aria-labelledby="hub-defaults-title">
     <h2 id="hub-defaults-title">The default options</h2>
@@ -270,9 +282,9 @@ const activityRows = activity
     <section class="hub-trends" aria-labelledby="hub-trends-title">
       <h2 id="hub-trends-title">Per-epoch trends</h2>
       <div class="hub-trends__grid">
-        <EpochSeriesChart title="Delegated voting power" points={metricSeries(stats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={starts.totalDrepPower} />
-        <EpochSeriesChart title="DReps with voting power" points={metricSeries(stats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
-        <EpochSeriesChart title="Delegators" points={metricSeries(stats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={starts.delegatorTotal} />
+        <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={starts.totalDrepPower} />
+        <EpochSeriesChart title="DReps with voting power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
+        <EpochSeriesChart title="Delegators" points={metricSeries(chartStats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={starts.delegatorTotal} />
       </div>
     </section>
   )}
@@ -442,10 +454,10 @@ const activityRows = activity
     <section class="hub-conc-trends" aria-labelledby="hub-conc-trends-title">
       <h2 id="hub-conc-trends-title">Concentration over time</h2>
       <div class="hub-trends__grid">
-        <EpochSeriesChart title="Gini coefficient" points={metricSeries(stats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={starts.gini} />
-        <EpochSeriesChart title="Top-10 share" points={metricSeries(stats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={starts.top10SharePct} />
-        <EpochSeriesChart title="DReps for 50% of delegated power" points={metricSeries(stats, 'minCoalition50', starts.minCoalition50)} sinceEpoch={starts.minCoalition50} />
-        <EpochSeriesChart title="DReps for 67% of delegated power" points={metricSeries(stats, 'minCoalition67', starts.minCoalition67)} sinceEpoch={starts.minCoalition67} />
+        <EpochSeriesChart title="Gini coefficient" points={metricSeries(chartStats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={starts.gini} />
+        <EpochSeriesChart title="Top-10 share" points={metricSeries(chartStats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={starts.top10SharePct} />
+        <EpochSeriesChart title="DReps for 50% of delegated power" points={metricSeries(chartStats, 'minCoalition50', starts.minCoalition50)} sinceEpoch={starts.minCoalition50} />
+        <EpochSeriesChart title="DReps for 67% of delegated power" points={metricSeries(chartStats, 'minCoalition67', starts.minCoalition67)} sinceEpoch={starts.minCoalition67} />
       </div>
     </section>
   )}

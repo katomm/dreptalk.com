@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildVitals, netChange, metricSeries } from './hubView.js';
+import { buildVitals, contiguousPrefix, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
 import { RECENT_VOTING_WINDOW_EPOCHS } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';
 
@@ -113,5 +113,35 @@ describe('buildVitals', () => {
     const cards = buildVitals(row(540), row(539), 'not-a-number');
     const share = cards.find((c) => c.icon === 'share');
     expect(share?.value).toBe('n/a');
+  });
+});
+
+describe('contiguousPrefix', () => {
+  it('returns the input unchanged when the epochs are gapless', () => {
+    const rows = [row(600), row(601), row(602)];
+    expect(contiguousPrefix(rows)).toBe(rows);
+  });
+
+  it('clips at the first hole so charts never draw across missing epochs', () => {
+    const rows = [row(508), row(509), row(510), row(652)];
+    expect(contiguousPrefix(rows).map((r) => r.epoch)).toEqual([508, 509, 510]);
+  });
+
+  it('handles empty and single-row inputs', () => {
+    expect(contiguousPrefix([])).toEqual([]);
+    expect(contiguousPrefix([row(650)]).map((r) => r.epoch)).toEqual([650]);
+  });
+});
+
+describe('rowBeforeEpoch', () => {
+  it('finds exactly the previous epoch, never a positional neighbor', () => {
+    const rows = [row(508), row(509), row(652)];
+    expect(rowBeforeEpoch(rows, 652)).toBeNull();
+    expect(rowBeforeEpoch(rows, 510)?.epoch).toBe(509);
+  });
+
+  it('returns the true previous row on a contiguous series', () => {
+    const rows = [row(650), row(651), row(652)];
+    expect(rowBeforeEpoch(rows, 652)?.epoch).toBe(651);
   });
 });
