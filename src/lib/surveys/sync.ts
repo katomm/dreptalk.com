@@ -303,10 +303,10 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   const known = await getKnownSurveyRefs(db);
 
   // --- Pass 1: discover. Page one of ?filter=linked re-evaluates the whole
-  // linked set while it fits (counts.linked sizes the universe); walk further
-  // only when the count moved, an action was imported since the last complete
-  // walk (the DRepTalk half of an admission turning true late), or the daily
-  // backstop is due.
+  // linked set while it fits (counts.linked sizes the universe); paging past it
+  // costs requests, so it waits for a reason: the count moved, an action was
+  // imported since the last complete walk (the DRepTalk half of an admission
+  // turning true late), or the daily backstop is due.
   const page1 = await tessera.surveyList({ filter: 'linked', limit: MAX_REFS_PER_CALL });
   if (!page1.ready) {
     return {
@@ -453,15 +453,13 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     counters.failed++;
   }
 
-  // --- Pass 4: settle optimistic local answers by exact transaction. A row
-  // whose tx Tessera has indexed *with a response for this survey* is done —
-  // the on-chain record supersedes it (and, being tx-exact, a replacement is
-  // observable where /api/responded would hide it). A well-formed unindexed
-  // hash answers 200 with an empty list ("submitted, not indexed yet" is the
-  // state this pass polls), so an empty answer just leaves the row pending;
-  // past the same cutoff the GA-vote sweep uses, a pending row turns 'failed'
-  // and the card invites answering again. The overlay never claims validity:
-  // "counted" is only knowable at finalization.
+  // --- Pass 4: settle optimistic local answers by exact transaction. Matching
+  // the transaction, not just the survey, is what makes a replacement visible
+  // where /api/responded would hide it. An unindexed hash answers 200 with an
+  // empty list — "submitted, not indexed yet" is the state this pass polls —
+  // so an empty answer leaves the row pending until the GA-vote cutoff ages it
+  // to 'failed'. The overlay never claims validity: "counted" is only knowable
+  // at finalization.
   try {
     const pending = await getPendingSurveyResponses(db);
     const byTx = new Map<string, typeof pending>();

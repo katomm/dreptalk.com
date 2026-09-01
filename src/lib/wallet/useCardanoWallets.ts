@@ -67,7 +67,7 @@ export function rememberWallet(key: string): void {
   }
 }
 
-/** Reads the remembered wallet key back. Safe without localStorage. */
+/** Safe without localStorage. */
 export function recallWallet(): string | null {
   try {
     return localStorage.getItem(LAST_WALLET_STORAGE_KEY);

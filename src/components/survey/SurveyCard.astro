@@ -1,9 +1,8 @@
 ---
-// The survey thread's header card: everything DRepTalk mirrored about the
-// survey — definition, deadline, the audited DRep count — plus a deep link to
-// Tessera. Deliberately no tally figure of any kind: CIP-179 does not mandate
-// a counting policy, so the card shows participation, never "the result".
-// Reads only what the page loaded from D1; the "as of" line owns the staleness.
+// The survey thread's header card, from what the page loaded out of D1 — the
+// "as of" line owns the staleness. Deliberately no tally figure of any kind:
+// CIP-179 mandates no counting policy, so the card shows participation, never
+// "the result".
 import type { SurveyDefinition } from 'cip-179';
 import type { NetworkConfig } from '@/lib/config/network.js';
 import type { LocalSurveyResponse, SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';

@@ -24,7 +24,7 @@ export interface TesseraClientOptions {
   timeoutMs?: number;
 }
 
-/** Error for any unexpected non-2xx Tessera response; carries the HTTP status. */
+/** Any unexpected non-2xx Tessera response. */
 export class TesseraHttpError extends Error {
   constructor(public readonly status: number) {
     super(`tessera request failed: ${status}`);
@@ -154,10 +154,9 @@ const surveyBundleSchema = z
 
 export type SurveyBundlePage = z.infer<typeof surveyBundleSchema>;
 
-// The responses one transaction carried (shape agreed with the Tessera
-// maintainer, 2026-08-25; the route ships Tessera-side before increment 7).
-// Exact-transaction settling is the point: /api/responded cannot tell a
-// replacement from the response it superseded.
+// The responses one transaction carried. Settling on the exact transaction is
+// the point: /api/responded cannot tell a replacement from the response it
+// superseded.
 const txResponseSchema = z
   .object({
     surveyKey: z.string(),
@@ -252,8 +251,6 @@ export function createTesseraClient(opts: TesseraClientOptions) {
   return {
     health,
 
-    // One page of the Explore list. Pass 1 reads `?filter=linked` and pages by
-    // `nextCursor` only when the linked set outgrows one page.
     async surveyList(params: SurveyListParams = {}): Promise<SnapshotResult<SurveyPage>> {
       const q = new URLSearchParams();
       if (params.filter) q.set('filter', params.filter);
@@ -289,8 +286,6 @@ export function createTesseraClient(opts: TesseraClientOptions) {
       return snapshotRequest(`/api/surveys/${txHash}/${index}${qs}`, surveyBundleSchema);
     },
 
-    // The responses one transaction carried; settles pending local rows by the
-    // exact transaction hash.
     async responsesByTx(txHash: string): Promise<SnapshotResult<TxResponse[]>> {
       if (!/^[0-9a-f]{64}$/.test(txHash)) throw new RangeError(`malformed tx hash: ${txHash}`);
       const result = await snapshotRequest(`/api/responses/${txHash}`, txResponsesSchema);

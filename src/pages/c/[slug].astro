@@ -131,8 +131,7 @@ let treasuryOverview: TreasuryOverviewData | null = null;
 // only; the governance overview keeps its own tally/countdown enrichment instead.
 let participantCounts = new Map<string, number>();
 let excerptHtml = new Map<string, string>();
-// Surveys category: the mirrored rows joined with their threads, plus the
-// oldest snapshot time on the page for the "as of" line.
+// The oldest snapshot time on the page is what the "as of" line must show.
 let surveyEntries: SurveyListEntry[] = [];
 let surveyAsOf: number | null = null;
 

@@ -1,9 +1,8 @@
 ---
-// The answering panel under a survey card: wallet connect, then Tessera's
-// <tessera-respond> element, which owns the whole CIP-179 form and emits the
-// finished label-17 payload — DRepTalk assembles no CIP-179 structure itself.
-// The page gates rendering server-side (drep session; DRep-eligible, open, not
-// cancelled/unavailable/external survey); this component only assumes it.
+// The answering panel under a survey card. Tessera's <tessera-respond> element
+// owns the whole CIP-179 form and emits the finished label-17 payload —
+// DRepTalk assembles no CIP-179 structure itself. Whether answering is allowed
+// at all is decided server-side by the page; this component only assumes it.
 //
 // The sibling script is a bundled <script> (never is:inline), so Astro hashes
 // it into the strict CSP automatically. Server data crosses to it through
@@ -144,8 +143,8 @@ const { survey, network } = Astro.props;
           onEnabled: () => rememberWallet(wallet.key),
         });
         api = connected.api;
-        // Everything the widget requires, as DOM properties (never attributes:
-        // these are objects). It renders as soon as the last one lands.
+        // DOM properties, never attributes: these are objects. The widget
+        // renders as soon as the last one lands.
         widget.responder = { [Role.DRep]: { type: 'key', keyHash: connected.identity.drepKeyHash } };
         widget.definition = record.definition;
         widget.surveyRef = record.ref;
@@ -181,9 +180,8 @@ const { survey, network } = Astro.props;
           signerKeyHashes,
           origin: window.location.origin,
         });
-        // Optimistic record so the card can overlay "confirming…" until the
-        // sync settles it. Non-fatal by design: the chain is the source of
-        // truth and the sync self-heals, so a failed POST only warns.
+        // Non-fatal by design: the chain is the source of truth and the sync
+        // self-heals, so a failed overlay record only warns.
         try {
           const res = await fetchWithTimeout('/api/survey/response/record', {
             method: 'POST',

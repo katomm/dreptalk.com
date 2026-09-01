@@ -228,10 +228,9 @@ const [govAction, viewerPostState, surveyRow] = await Promise.all([
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 
-// Survey topics render their mirrored card above the thread. The stored wire
-// record decodes with the same cip-179 codec the sync used to write it. The
-// linkage renders in both directions: the survey card names its linking
-// actions, and an action's sidebar names its (at most one) linked survey.
+// The stored wire record decodes with the same cip-179 codec the sync used to
+// write it. Linkage renders both ways: the survey card names its linking
+// actions, an action's sidebar names its linked survey.
 const surveyDefinition: SurveyDefinition | null = surveyRow
   ? parseSurveyDefinition(surveyRow.definitionJson)
   : null;
