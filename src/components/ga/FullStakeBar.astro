@@ -35,10 +35,15 @@ const FILL: Record<FullStakeSegmentKey, string> = {
 };
 
 const pctOf = (key: FullStakeSegmentKey): number => view.segments.find((s) => s.key === key)?.pct ?? 0;
-// Text alternative so the color-only bar is not lost to screen readers.
+// Text alternative so the color-only bar is not lost to screen readers. Structure
+// mirrors CompositionBar's barLabel (an appended ", threshold X%" clause only when
+// a threshold exists), formatted with fmtPctFine (one decimal) rather than
+// CompositionBar's whole-number Math.round, matching this bar's own legend, which
+// already shows every other percentage at that precision.
 const barLabel =
   `Voting power: yes ${Math.round(pctOf('yes'))}%, no ${Math.round(pctOf('no'))}%, ` +
-  `not voted ${Math.round(pctOf('notVoted'))}%`;
+  `not voted ${Math.round(pctOf('notVoted'))}%` +
+  (view.thresholdPct != null ? `, threshold ${fmtPctFine(clamp(view.thresholdPct))}` : '');
 ---
 
 <div class="fsbar">

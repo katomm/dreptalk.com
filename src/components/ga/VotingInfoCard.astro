@@ -152,7 +152,14 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
           {r.composition ? (
             <>
               <div class="vbody__lead">
-                <span class="vbody__yes"><b>{fmtPctFine(r.composition.yes)}</b> yes of eligible</span>
+                <span class="vbody__yes">
+                  <b>{fmtPctFine(r.composition.yes)}</b> yes{' '}
+                  {r.fullStake ? (
+                    <span class="vbody__lead-note">of the vote-eligible stake</span>
+                  ) : (
+                    'of eligible'
+                  )}
+                </span>
                 {r.participation != null && (
                   <span class="vbody__turnout">{fmtPct(r.participation)} turnout</span>
                 )}
@@ -164,7 +171,7 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
                 <CompositionBar bar={r.composition} thresholdPct={r.thresholdPct} />
               )}
 
-              {r.amounts && (
+              {!r.fullStake && r.amounts && (
                 <div class="vote-amounts">
                   <span><b>{r.amounts.yes}</b> yes</span>
                   <span>{r.amounts.no} no</span>
@@ -284,6 +291,14 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     font-size: 0.72rem;
     color: var(--muted);
     white-space: nowrap;
+  }
+  /* Disambiguates the headline's ratification share from the full-stake bar's own
+     yes% below (a different denominator), styled like the card's other footnotes
+     (.info-footnote) so it reads as a clarifying aside, not part of the number. */
+  .vbody__lead-note {
+    font-size: 0.6875rem;
+    color: var(--muted);
+    font-style: italic;
   }
 
   .vote-amounts {
