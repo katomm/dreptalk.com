@@ -223,9 +223,6 @@ Each has a destination; none may silently die with this document.
   → file as an upstream issue before this document is deleted.
 - **Mechanism B** (vote-in-same-transaction proof) — lands in the vote
   panel when scheduled.
-- **A sealed survey is indistinguishable from a public one in the list.**
-  `SurveyCard` badges it; `SurveyRow` does not, though sealing changes what
-  a responder commits to. One badge, if the maintainer wants it.
 - **`docs/development.md`'s local-sync commands are stale** (pre-existing on
   `main`): it documents the old `*/15` and hourly crons, and its bare
   `curl .../__scheduled` sends an empty expression, so the worker logs

@@ -27,6 +27,7 @@ const replies = Math.max(0, entry.postCount - 1);
     <span class="svy-row__title">{survey.title}</span>
     <span class="svy-row__meta">
       <span class:list={['svy-row__badge', `svy-row__badge--${lifecycle}`]}>{statusLabel}</span>
+      {survey.sealed && <span class="svy-row__badge svy-row__badge--sealed">Sealed</span>}
       {survey.unavailable && <span class="svy-row__badge svy-row__badge--gone">Record missing</span>}
       <span>
         {lifecycle === 'open'
@@ -101,6 +102,10 @@ const replies = Math.max(0, entry.postCount - 1);
   .svy-row__badge--gone {
     color: var(--danger);
     background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  .svy-row__badge--sealed {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .svy-row__stats {
     display: flex;

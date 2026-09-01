@@ -27,6 +27,7 @@ const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
   <a class="lsvy__name" href={`/t/${topicSlug}/`}>{survey.title}</a>
   <p class="lsvy__meta">
     <span class:list={['lsvy__badge', `lsvy__badge--${lifecycle}`]}>{statusLabel}</span>
+    {survey.sealed && <span class="lsvy__badge lsvy__badge--sealed">Sealed</span>}
     {lifecycle === 'open' ? `until ${formatEpochDate(deadlineUnix)}` : `ended epoch ${survey.endEpoch}`}
   </p>
   <p class="lsvy__count">
@@ -90,6 +91,10 @@ const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
   .lsvy__badge--cancelled {
     color: var(--danger);
     background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  .lsvy__badge--sealed {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .lsvy__count {
     margin: 0.35rem 0 0;
