@@ -191,7 +191,7 @@ const rationaleOwnRange = ownRangeLabel(rationaleHistogram);
         {participation === null ? (
           <p class="mgr-line">Registration date pending.</p>
         ) : unvoted.total === 0 ? (
-          <p class="mgr-line">Every eligible action carries your vote.</p>
+          <p class="mgr-line">{participation.eligible > 0 ? 'Every eligible action carries your vote.' : 'No eligible actions yet.'}</p>
         ) : (
           <>
             <p class="mgr-headline">{`${unvoted.total} of your ${participation.eligible} eligible actions have no vote from you`}</p>
@@ -212,7 +212,7 @@ const rationaleOwnRange = ownRangeLabel(rationaleHistogram);
       <section class="mgr-section">
         <h2 class="mgr-section__title">Votes without a rationale</h2>
         {unrationaled.total === 0 ? (
-          <p class="mgr-line">Every vote carries a rationale link.</p>
+          <p class="mgr-line">{rationaleStats.total > 0 ? 'Every vote carries a rationale link.' : 'No votes yet.'}</p>
         ) : (
           <>
             <p class="mgr-headline">{`${unrationaled.total} of your ${rationaleStats.total} votes carry no rationale link`}</p>

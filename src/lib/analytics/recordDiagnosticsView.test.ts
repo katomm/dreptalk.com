@@ -165,6 +165,20 @@ describe('buildTimingDetail: early/middle/late window classification', () => {
     expect(detail.windowBasis).toBe(0);
   });
 
+  it('counts a vote cast after the window closed as skipped, not late', () => {
+    // decidedEpoch 1 -> window end = epochStartMs(1, cfg) = 432_000_000 ms.
+    // blockTime lands the vote at day 6 (518_400_000 ms), past the window end.
+    const vote = ownVote({ submittedAt: 0, blockTime: 518_400_000 / 1000, decidedEpoch: 1 });
+
+    const detail = buildTimingDetail([vote], [], cfg);
+
+    expect(detail.skippedWindows).toBe(1);
+    expect(detail.early).toBe(0);
+    expect(detail.middle).toBe(0);
+    expect(detail.late).toBe(0);
+    expect(detail.windowBasis).toBe(0);
+  });
+
   it('drops a negative-day vote entirely, before it can reach type stats or window classification', () => {
     // blockTime * 1000 < submittedAt -> day < 0. decidedEpoch/expiryEpoch both
     // null so, if this vote were not dropped first, it would otherwise count

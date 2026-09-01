@@ -85,11 +85,12 @@ function median(values: number[]): number | null {
  *
  * early/middle/late: the voting window runs from submittedAt to the start of
  * votingEndEpoch(decidedEpoch, expiryEpoch). position is how far into that
- * window (in ms) the vote landed, clamped to 0..1 (position < 1/3 early,
+ * window (in ms) the vote landed, floored at 0 (position < 1/3 early,
  * <= 2/3 middle, else late). A vote whose window cannot be resolved (both
- * epochs null) or is non-positive (submittedAt at or past the window end)
- * is counted in skippedWindows instead of classified, windowBasis is the
- * count that did get classified (early + middle + late).
+ * epochs null), is non-positive (submittedAt at or past the window end), or
+ * whose position exceeds 1 (cast after the window closed, so it never
+ * entered the tally) is counted in skippedWindows instead of classified,
+ * windowBasis is the count that did get classified (early + middle + late).
  */
 export function buildTimingDetail(
   own: OwnVoteTiming[],
@@ -135,7 +136,12 @@ export function buildTimingDetail(
       skippedWindows += 1;
       continue;
     }
-    const position = Math.min(1, Math.max(0, (t.day * DAY_MS) / windowMs));
+    const rawPosition = (t.day * DAY_MS) / windowMs;
+    if (rawPosition > 1) {
+      skippedWindows += 1;
+      continue;
+    }
+    const position = Math.max(0, rawPosition);
     if (position < 1 / 3) early += 1;
     else if (position <= 2 / 3) middle += 1;
     else late += 1;

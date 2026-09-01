@@ -7,7 +7,7 @@ import {
   getNetworkTimingByType,
   listOwnVoteTimings,
 } from './recordDiagnostics.js';
-import { upsertVotes } from './drepVotes.js';
+import { upsertVotes, getDrepParticipation } from './drepVotes.js';
 import { replaceReportCards } from './drepReportCard.js';
 
 async function seedAction(
@@ -74,6 +74,62 @@ describe('listUnvotedEligibleActions', () => {
     expect(rows[0].type).toBe('InfoAction');
     expect(rows[0].topicSlug).toBeNull();
     expect(rows[1].topicSlug).toBe('topic-a');
+  });
+});
+
+describe('eligible - voted - unvoted identity', () => {
+  it('keeps participation.eligible - participation.voted equal to unvoted.total across a mixed set', async () => {
+    const drepId = 'drepMix';
+    const registeredEpoch = 600;
+
+    // Qualifying, drepMix voted.
+    await seedAction('ga_v1', 'Voted A', 600);
+    await upsertVotes(
+      env.DB,
+      'ga_v1',
+      [
+        { voterRole: 'DRep', voterId: 'other1', voterHex: null, vote: 'Yes' },
+        { voterRole: 'DRep', voterId: drepId, voterHex: null, vote: 'Yes' },
+      ],
+      1,
+    );
+
+    // Qualifying, drepMix voted.
+    await seedAction('ga_v2', 'Voted B', 601);
+    await upsertVotes(
+      env.DB,
+      'ga_v2',
+      [
+        { voterRole: 'DRep', voterId: 'other2', voterHex: null, vote: 'No' },
+        { voterRole: 'DRep', voterId: drepId, voterHex: null, vote: 'No' },
+      ],
+      1,
+    );
+
+    // Qualifying, drepMix did not vote.
+    await seedAction('ga_u1', 'Unvoted A', 602);
+    await upsertVotes(env.DB, 'ga_u1', [{ voterRole: 'DRep', voterId: 'other3', voterHex: null, vote: 'Yes' }], 1);
+
+    // Qualifying, drepMix did not vote.
+    await seedAction('ga_u2', 'Unvoted B', 603);
+    await upsertVotes(env.DB, 'ga_u2', [{ voterRole: 'DRep', voterId: 'other4', voterHex: null, vote: 'Abstain' }], 1);
+
+    // Decided before registration: excluded by the epoch window even though it has a DRep vote.
+    await seedAction('ga_excluded_epoch', 'Before Registration', 599);
+    await upsertVotes(env.DB, 'ga_excluded_epoch', [{ voterRole: 'DRep', voterId: 'other5', voterHex: null, vote: 'Yes' }], 1);
+
+    // Decided after registration but carries no DRep vote at all: not votable, excluded.
+    await seedAction('ga_excluded_novote', 'No DRep Vote', 604);
+
+    const [participation, unvoted] = await Promise.all([
+      getDrepParticipation(env.DB, drepId, registeredEpoch),
+      listUnvotedEligibleActions(env.DB, drepId, registeredEpoch),
+    ]);
+
+    expect(participation).not.toBeNull();
+    expect(participation!.eligible - participation!.voted).toBe(unvoted.total);
+    expect(participation).toEqual({ eligible: 4, voted: 2 });
+    expect(unvoted.total).toBe(2);
   });
 });
 
