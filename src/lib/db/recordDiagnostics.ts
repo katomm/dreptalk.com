@@ -55,6 +55,7 @@ export interface OwnVoteTiming {
   submittedAt: number;
   decidedEpoch: number | null;
   expiryEpoch: number | null;
+  status: string;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -322,16 +323,18 @@ export async function getWindowThirds(db: D1Database, anchor: { epoch: number; u
 
 /**
  * This DRep's own live timed votes (both block_time and submitted_at present),
- * with the action's type and decided/expiry epochs, for the own-vs-network
- * timing comparison and the early/middle/late window classification (done in
- * the view layer, which needs the epochs to compute the voting window).
+ * with the action's type, decided/expiry epochs, and status, for the
+ * own-vs-network timing comparison and the early/middle/late window
+ * classification (done in the view layer, which needs the epochs and status
+ * to compute the voting window: an enacted action's decided_epoch is the
+ * enactment epoch, one past ratification, same as getWindowThirds).
  */
 export async function listOwnVoteTimings(db: D1Database, drepId: string): Promise<OwnVoteTiming[]> {
   return (
     await db
       .prepare(
         `SELECT g.type AS type, v.block_time AS blockTime, g.submitted_at AS submittedAt,
-                g.decided_epoch AS decidedEpoch, g.expiry_epoch AS expiryEpoch
+                g.decided_epoch AS decidedEpoch, g.expiry_epoch AS expiryEpoch, g.status AS status
          FROM drep_votes v
          JOIN governance_actions g ON g.id = v.ga_id
          WHERE v.voter_id = ? AND v.voter_role = 'DRep' AND ${liveVoteSql('v')}

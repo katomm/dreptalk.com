@@ -2,7 +2,7 @@
 // histogram (own report-card figure against every cohort member's) and the
 // own-vs-network vote-timing breakdown (per-type medians plus an
 // early/middle/late split of where in the voting window each own vote landed).
-import { votingEndEpoch } from '../governance/voteTrendAssembly.js';
+import { classificationEndEpoch } from '../governance/voteTrendAssembly.js';
 import { epochStartMs, type NetworkConfig } from '../config/network.js';
 import type { NetworkTypeTiming, OwnVoteTiming } from '../db/recordDiagnostics.js';
 
@@ -84,8 +84,11 @@ function median(values: number[]): number | null {
  * type ascending.
  *
  * early/middle/late: the voting window runs from submittedAt to the start of
- * votingEndEpoch(decidedEpoch, expiryEpoch). position is how far into that
- * window (in ms) the vote landed, floored at 0 (position < 1/3 early,
+ * classificationEndEpoch(vote) (decidedEpoch, expiryEpoch, and status, an
+ * enacted action's window ends at the ratification epoch, one before its
+ * decidedEpoch enactment epoch, matching the public getWindowThirds read).
+ * position is how far into that window (in ms) the vote landed, floored at 0
+ * (position < 1/3 early,
  * <= 2/3 middle, else late). A vote whose window cannot be resolved (both
  * epochs null), is non-positive (submittedAt at or past the window end), or
  * whose position exceeds 1 (cast after the window closed, so it never
@@ -126,7 +129,7 @@ export function buildTimingDetail(
   let late = 0;
   let skippedWindows = 0;
   for (const t of timed) {
-    const endEpoch = votingEndEpoch(t.vote.decidedEpoch, t.vote.expiryEpoch);
+    const endEpoch = classificationEndEpoch(t.vote);
     if (endEpoch == null) {
       skippedWindows += 1;
       continue;

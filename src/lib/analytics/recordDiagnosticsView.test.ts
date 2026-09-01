@@ -22,6 +22,7 @@ const ownVote = (over: Partial<OwnVoteTiming>): OwnVoteTiming => ({
   submittedAt: 0,
   decidedEpoch: 1,
   expiryEpoch: null,
+  status: 'ratified',
   ...over,
 });
 
@@ -169,6 +170,24 @@ describe('buildTimingDetail: early/middle/late window classification', () => {
     // decidedEpoch 1 -> window end = epochStartMs(1, cfg) = 432_000_000 ms.
     // blockTime lands the vote at day 6 (518_400_000 ms), past the window end.
     const vote = ownVote({ submittedAt: 0, blockTime: 518_400_000 / 1000, decidedEpoch: 1 });
+
+    const detail = buildTimingDetail([vote], [], cfg);
+
+    expect(detail.skippedWindows).toBe(1);
+    expect(detail.early).toBe(0);
+    expect(detail.middle).toBe(0);
+    expect(detail.late).toBe(0);
+    expect(detail.windowBasis).toBe(0);
+  });
+
+  it('classifies a vote cast inside an enacted actions ratification epoch as after the window', () => {
+    // decidedEpoch 2 is the ENACTMENT epoch, one past ratification epoch 1. The
+    // status-adjusted window end is epochStartMs(1, cfg) = 432_000_000 ms. A vote
+    // cast at day ~5.79 (500_000_000 ms) sits inside ratification epoch 1, past
+    // that adjusted end, so it lands in skippedWindows rather than middle, which
+    // is where the unadjusted votingEndEpoch(2, null) (epoch 2 start) would have
+    // placed it.
+    const vote = ownVote({ submittedAt: 0, blockTime: 500_000_000 / 1000, decidedEpoch: 2, expiryEpoch: null, status: 'enacted' });
 
     const detail = buildTimingDetail([vote], [], cfg);
 

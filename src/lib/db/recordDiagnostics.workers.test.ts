@@ -491,6 +491,8 @@ describe('listOwnVoteTimings', () => {
     await upsertVotes(env.DB, 'ga_own2', [{ voterRole: 'DRep', voterId: drepId, voterHex: null, vote: 'Abstain' }], 1);
 
     const rows = await listOwnVoteTimings(env.DB, drepId);
-    expect(rows).toEqual([{ type: 'TreasuryWithdrawals', blockTime, submittedAt, decidedEpoch: 950, expiryEpoch: 955 }]);
+    expect(rows).toEqual([
+      { type: 'TreasuryWithdrawals', blockTime, submittedAt, decidedEpoch: 950, expiryEpoch: 955, status: 'enacted' },
+    ]);
   });
 });
