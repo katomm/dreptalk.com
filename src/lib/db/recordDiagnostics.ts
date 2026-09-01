@@ -219,6 +219,11 @@ export async function getNetworkTimingOverall(db: D1Database, role: 'DRep' | 'SP
  * block_time. That is the point at which half the action's timed turnout had
  * voted. Returns the raw day values, the caller computes the median across
  * actions.
+ *
+ * The status filter excludes 'dropped': tallySync also sets decided_epoch on
+ * a dropped action, so decided_epoch IS NOT NULL alone is not a safe proxy
+ * for "voting concluded normally". A dropped action's votes must not leak
+ * into this public timing figure.
  */
 export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
   const rows = (
@@ -232,6 +237,7 @@ export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
              JOIN governance_actions g ON g.id = v.ga_id
             WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
               AND g.decided_epoch IS NOT NULL
+              AND g.status IN ('enacted', 'ratified', 'expired', 'closed')
               AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
               AND v.block_time * 1000.0 >= g.submitted_at
          )
@@ -256,6 +262,11 @@ export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
  * per row. position is where the vote falls between submission (0) and the
  * window end (1), rows where the window end is at or before submission are
  * skipped as degenerate.
+ *
+ * The status filter excludes 'dropped', same reasoning as getHalfTurnoutDays:
+ * tallySync sets decided_epoch on a dropped action too, so decided_epoch
+ * IS NOT NULL alone would let a dropped action's votes into this public
+ * bucketing.
  */
 export async function getWindowThirds(db: D1Database, anchor: { epoch: number; unixSeconds: number }): Promise<WindowThirds> {
   const row = await db
@@ -269,6 +280,7 @@ export async function getWindowThirds(db: D1Database, anchor: { epoch: number; u
            JOIN governance_actions g ON g.id = v.ga_id
           WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
             AND g.decided_epoch IS NOT NULL
+            AND g.status IN ('enacted', 'ratified', 'expired', 'closed')
             AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
        ), q AS (
          SELECT (block_ms - submitted_at) / (end_ms - submitted_at) AS position

@@ -17,13 +17,22 @@ async function seedAction(
   id: string,
   title: string,
   decidedEpoch: number | null,
-  opts: { type?: string; submittedAt?: number | null; expiryEpoch?: number | null; topicId?: string | null } = {},
+  opts: { type?: string; submittedAt?: number | null; expiryEpoch?: number | null; topicId?: string | null; status?: string } = {},
 ) {
   await env.DB.prepare(
     `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_at, expiry_epoch, topic_id, created_at, last_synced_at)
-     VALUES (?, ?, ?, 'enacted', ?, ?, ?, ?, 0, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
   )
-    .bind(id, opts.type ?? 'InfoAction', title, decidedEpoch, opts.submittedAt ?? null, opts.expiryEpoch ?? null, opts.topicId ?? null)
+    .bind(
+      id,
+      opts.type ?? 'InfoAction',
+      title,
+      opts.status ?? 'enacted',
+      decidedEpoch,
+      opts.submittedAt ?? null,
+      opts.expiryEpoch ?? null,
+      opts.topicId ?? null,
+    )
     .run();
 }
 
@@ -388,6 +397,33 @@ describe('getWindowThirds', () => {
 
     const thirds = await getWindowThirds(env.DB, anchor);
     expect(thirds).toEqual({ early: 1, middle: 1, late: 1, afterClose: 1, basis: 3 });
+  });
+});
+
+describe('dropped actions excluded from decided-timing reads', () => {
+  it('contributes nothing to half-turnout days or window thirds despite carrying decided_epoch', async () => {
+    // tallySync also sets decided_epoch from dropped_epoch, so decided_epoch IS NOT NULL
+    // alone is not a safe "voting concluded normally" proxy. Two timed votes so this
+    // action would qualify for both reads if the status filter were missing.
+    const anchor = { epoch: 0, unixSeconds: 0 };
+    const daySec = 86_400;
+
+    await seedAction('ga_dropped', 'Dropped Action', 100, { submittedAt: 0, expiryEpoch: 1, status: 'dropped' });
+    await upsertVotes(
+      env.DB,
+      'ga_dropped',
+      [
+        { voterRole: 'DRep', voterId: 'd1', voterHex: null, vote: 'Yes', blockTime: 1 * daySec },
+        { voterRole: 'DRep', voterId: 'd2', voterHex: null, vote: 'Yes', blockTime: 2.5 * daySec },
+      ],
+      1,
+    );
+
+    const days = await getHalfTurnoutDays(env.DB);
+    expect(days).toEqual([]);
+
+    const thirds = await getWindowThirds(env.DB, anchor);
+    expect(thirds).toEqual({ early: 0, middle: 0, late: 0, afterClose: 0, basis: 0 });
   });
 });
 
