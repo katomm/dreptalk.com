@@ -19,6 +19,8 @@ faqs:
     a: "The smallest-group numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure."
   - q: "Does a missing rationale mean a DRep voted carelessly?"
     a: "No. The rationale figures measure whether a vote carries a published explanation, nothing about its reasoning. Some DReps explain their votes in other places, and a vote without an attached rationale can be as considered as any other."
+  - q: "Why do committee counts differ from the seat count?"
+    a: "Membership changes over time. A member who resigned, whose term expired, or who had not yet registered a voting key does not count as eligible for an action decided in that period, so each action is measured against the committee as it stood at the time."
 ---
 
 The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day.
@@ -52,6 +54,12 @@ Only actions whose complete vote history has been swept from the chain are count
 Every on-chain vote can carry a metadata document explaining the decision, the rationale. The rationales panel measures how many DRep votes on decided actions carry that link, both as a share of votes and weighted by the voting power behind them. A linked document is not always retrievable, so these figures can read higher than the readable rationales on an action's own page. It also shows which decided actions were best and least covered, and how many rationales arrived only later, through a re-vote on the same action.
 
 Coverage is a presence check, nothing more. A vote with a rationale is not automatically better reasoned than one without, and the panel makes no attempt to judge content. The power-weighted figure only counts actions where the voting power behind every single vote is recorded, and says how many actions that excludes.
+
+## The Constitutional Committee
+
+The committee panel shows how the Constitutional Committee participates: the median share of members voting on decided actions, how often the committee split rather than voting one way, how many actions finished below its approval threshold, and each member's participation by name. Eligibility follows the committee's actual membership at each action's tally epoch, so resignations, term expirations and hot-key rotations are accounted for, and only a member's final vote on an action counts.
+
+A committee vote against an action expresses that the member did not find it constitutional under the interim constitution. The panel reports these outcomes as numbers and takes no position on any individual judgment.
 
 ## Concentration of delegated power
 
@@ -92,3 +100,7 @@ No. The rationale figures measure whether a vote carries a published explanation
 ### Could the largest DReps really decide an action on their own?
 
 The smallest-group numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure.
+
+### Why do committee counts differ from the seat count?
+
+Membership changes over time. A member who resigned, whose term expired, or who had not yet registered a voting key does not count as eligible for an action decided in that period, so each action is measured against the committee as it stood at the time.
