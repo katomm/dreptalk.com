@@ -33,7 +33,7 @@ import {
   type OwnVoteTiming,
 } from '@/lib/db/recordDiagnostics';
 import { buildHistogram, buildTimingDetail, type HistogramBucket } from '@/lib/analytics/recordDiagnosticsView';
-import { participationStat, rationaleStat, voteTimingStat } from '@/lib/dreps/voteStatsView';
+import { participationStat, rationaleStat, voteTimingStat, type ParticipationStat } from '@/lib/dreps/voteStatsView';
 import { readableType, shortGovActionId } from '@/lib/governance/view';
 
 const user = Astro.locals.user;
@@ -95,6 +95,13 @@ const participationMax = histMax(participationHistogram);
 const rationaleMax = histMax(rationaleHistogram);
 const participationOwnRange = ownRangeLabel(participationHistogram);
 const rationaleOwnRange = ownRangeLabel(rationaleHistogram);
+
+// Plain participation figure for the no-cohort fallback, one branch per tagged state.
+function participationLine(stat: ParticipationStat): string {
+  if (stat.kind === 'ok') return `${stat.pct}% (${stat.voted} of ${stat.eligible})`;
+  if (stat.kind === 'pending') return 'Registration date pending';
+  return 'No concluded governance actions yet';
+}
 ---
 <Layout
   title="Your governance record - DRepTalk"
@@ -180,7 +187,7 @@ const rationaleOwnRange = ownRangeLabel(rationaleHistogram);
                 Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so this section shows the plain numbers without a percentile.
               </div>
             </div>
-            <p class="mgr-line">{`Participation: ${pStat.kind === 'ok' ? `${pStat.pct}% (${pStat.voted} of ${pStat.eligible})` : pStat.kind === 'pending' ? 'Registration date pending' : 'No concluded governance actions yet'}`}</p>
+            <p class="mgr-line">{`Participation: ${participationLine(pStat)}`}</p>
             <p class="mgr-line">{`Rationale coverage: ${rStat ? `${rStat.pct}% (${rStat.withRationale} of ${rStat.total})` : 'No votes yet'}`}</p>
           </div>
         )}

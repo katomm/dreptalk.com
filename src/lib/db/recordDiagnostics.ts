@@ -124,12 +124,11 @@ export async function listUnrationaledVotes(
  * swaps it atomically each sync).
  */
 export async function listCohortValues(db: D1Database): Promise<CohortValues[]> {
-  const rows = (
+  return (
     await db
       .prepare('SELECT participation_pct AS participationPct, rationale_pct AS rationalePct FROM drep_report_card')
       .all<CohortValues>()
   ).results ?? [];
-  return rows;
 }
 
 /**
@@ -174,7 +173,7 @@ export async function getNetworkTimingByType(db: D1Database): Promise<NetworkTyp
  * the view layer, which needs the epochs to compute the voting window).
  */
 export async function listOwnVoteTimings(db: D1Database, drepId: string): Promise<OwnVoteTiming[]> {
-  const rows = (
+  return (
     await db
       .prepare(
         `SELECT g.type AS type, v.block_time AS blockTime, g.submitted_at AS submittedAt,
@@ -187,5 +186,4 @@ export async function listOwnVoteTimings(db: D1Database, drepId: string): Promis
       .bind(drepId)
       .all<OwnVoteTiming>()
   ).results ?? [];
-  return rows;
 }
