@@ -14,6 +14,7 @@ import { RECENT_VOTING_WINDOW_EPOCHS } from '../analytics/epochStatsContract.js'
 import type { NclStatus } from '../governance/ncl.js';
 import { voteDisplay } from '../governance/voteStatement.js';
 import { accentForType, BRAND_ACCENT, statusColor, tint, TALLY, MUTED } from './theme.js';
+import { sparklinePaths } from './sparkline.js';
 
 /** Hard character caps so a long title/name can never overflow the fixed canvas.
     When it has to cut, it prefers the last word boundary within the limit so the
@@ -338,37 +339,96 @@ export function moversCardModel(input: {
   };
 }
 
-export interface AnalyticsCardModel {
-  accent: string;
-  /** Small meta line above the headline, e.g. "Epoch 643". */
-  epochLabel: string;
-  /** Powered-DRep count, pre-formatted with thousands separators. */
-  poweredCount: string;
-  /** Total delegated voting power, already ada-formatted by the caller. */
-  totalPowerLabel: string;
-  /** e.g. "128 voted in the last 12 epochs". */
-  votingLine: string;
-  /** e.g. "Always abstain holds 1.2M ₳", or null when the option holds no power. */
-  abstainLine: string | null;
+export interface AnalyticsCardStat {
+  value: string;
+  label: string;
 }
 
-// The endpoint pre-formats the ada amounts (same formatAda the page itself
-// uses), so this model only composes the sentences, it does no lovelace math.
+export interface AnalyticsCardChart {
+  line: string;
+  area: string;
+  end: { x: number; y: number };
+  fromLabel: string;
+  toLabel: string;
+}
+
+export interface AnalyticsCardModel {
+  accent: string;
+  /** e.g. "Epoch 652". */
+  epochLabel: string;
+  /** Compact total delegated voting power, e.g. "15.6B ₳". */
+  totalPowerLabel: string;
+  /** e.g. "delegated to 705 DReps". */
+  poweredLine: string;
+  /** Delegated power over the contiguous epoch series, null while fewer than two epochs are on record. */
+  chart: AnalyticsCardChart | null;
+  /** Up to three headline facts under the chart. */
+  stats: AnalyticsCardStat[];
+}
+
+export const ANALYTICS_CHART_WIDTH = 1104;
+export const ANALYTICS_CHART_HEIGHT = 170;
+/** Horizontal inset so the stroke and the end marker are not clipped at the image edges. */
+export const ANALYTICS_CHART_INSET = 8;
+
+/** Lovelace string to whole ada as a number (well inside Number range after the division). */
+function lovelaceToAda(lovelace: string): number {
+  return Number(BigInt(lovelace) / 1_000_000n);
+}
+
 export function analyticsCardModel(input: {
   epoch: number;
   powered: number;
   recentlyVoting: number;
-  totalPowerLabel: string;
-  abstainLabel: string | null;
+  totalPowerLovelace: string;
+  abstainLovelace: string | null;
+  /** Fewest DReps whose combined power reaches half of the delegated total, null when unknown. */
+  halfCount: number | null;
+  circulationLovelace: string | null;
+  /** Contiguous epoch series, oldest first, ending in the current epoch. */
+  series: { epoch: number; totalDrepPower: string }[];
 }): AnalyticsCardModel {
+  const paths = sparklinePaths(
+    input.series.map((r) => lovelaceToAda(r.totalDrepPower)),
+    ANALYTICS_CHART_WIDTH - 2 * ANALYTICS_CHART_INSET,
+    ANALYTICS_CHART_HEIGHT - ANALYTICS_CHART_INSET,
+  );
+  const chart =
+    paths && input.series.length >= 2
+      ? {
+          ...paths,
+          fromLabel: `Epoch ${input.series[0].epoch}`,
+          toLabel: `Epoch ${input.series[input.series.length - 1].epoch}`,
+        }
+      : null;
+  const stats: AnalyticsCardStat[] = [
+    { value: input.recentlyVoting.toLocaleString('en-US'), label: `voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs` },
+  ];
+  if (input.halfCount != null && input.halfCount > 0) {
+    stats.push({ value: input.halfCount.toLocaleString('en-US'), label: 'DReps hold half of the power' });
+  }
+  const share = circulationShare(input.totalPowerLovelace, input.circulationLovelace);
+  if (share != null) {
+    stats.push({ value: `${share}%`, label: 'of circulating ada delegated' });
+  } else if (input.abstainLovelace != null) {
+    stats.push({ value: formatAdaCompact(input.abstainLovelace) ?? '', label: 'held by always abstain' });
+  }
   return {
     accent: BRAND_ACCENT,
     epochLabel: `Epoch ${input.epoch}`,
-    poweredCount: input.powered.toLocaleString('en-US'),
-    totalPowerLabel: input.totalPowerLabel,
-    votingLine: `${input.recentlyVoting.toLocaleString('en-US')} voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`,
-    abstainLine: input.abstainLabel != null ? `Always abstain holds ${input.abstainLabel}` : null,
+    totalPowerLabel: formatAdaCompact(input.totalPowerLovelace) ?? '',
+    poweredLine: `delegated to ${input.powered.toLocaleString('en-US')} DReps`,
+    chart,
+    stats: stats.slice(0, 3),
   };
+}
+
+/** Whole-percent share of the circulating supply, null when the supply is unknown or zero. */
+function circulationShare(totalPowerLovelace: string, circulationLovelace: string | null): number | null {
+  if (circulationLovelace == null) return null;
+  const circ = BigInt(circulationLovelace);
+  if (circ <= 0n) return null;
+  return Number((BigInt(totalPowerLovelace) * 1000n) / circ) / 10;
 }
 
 export interface VoteCardInput {
