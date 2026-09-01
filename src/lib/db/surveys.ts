@@ -498,6 +498,8 @@ export interface PendingSurveyResponse {
   surveyRef: string;
   userId: string;
   txHash: string;
+  /** CIP-179 credential ("key:<hex>") the session derived at record time. */
+  credential: string;
   createdAt: number;
 }
 
@@ -505,14 +507,21 @@ export interface PendingSurveyResponse {
 export async function getPendingSurveyResponses(db: D1Database): Promise<PendingSurveyResponse[]> {
   const { results } = await db
     .prepare(
-      `SELECT survey_ref, user_id, tx_hash, created_at
+      `SELECT survey_ref, user_id, tx_hash, credential, created_at
        FROM survey_response_local WHERE status = 'pending'`,
     )
-    .all<{ survey_ref: string; user_id: string; tx_hash: string; created_at: number }>();
+    .all<{
+      survey_ref: string;
+      user_id: string;
+      tx_hash: string;
+      credential: string;
+      created_at: number;
+    }>();
   return results.map(r => ({
     surveyRef: r.survey_ref,
     userId: r.user_id,
     txHash: r.tx_hash,
+    credential: r.credential,
     createdAt: r.created_at,
   }));
 }

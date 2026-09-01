@@ -795,4 +795,44 @@ describe('syncSurveys', () => {
     });
     expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-old'))?.status).toBe('pending');
   });
+
+  it('keeps a row pending when the indexed response is another credential or role', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const tx = '44'.repeat(32);
+    const mine = `key:${'aa'.repeat(28)}`;
+    const theirs = `key:${'bb'.repeat(28)}`;
+    // The transaction is indexed, and carries responses to this very survey —
+    // but one is another DRep's credential and the other is the same wallet
+    // answering in a non-DRep role. Neither is the answer the row claims.
+    const responses = [
+      { surveyKey: KEY_LINKED, responseIndex: 0, role: Role.DRep, credential: theirs, slot: 1 },
+      { surveyKey: KEY_LINKED, responseIndex: 1, role: Role.SPO, credential: mine, slot: 1 },
+    ];
+    const tessera = fakeTessera({
+      responsesByTx: async () => ({ ready: true, value: responses }),
+    });
+    await syncSurveys(deps(tessera, now));
+    await recordLocalSurveyResponse(env.DB, {
+      surveyRef: KEY_LINKED,
+      userId: 'u-cred',
+      txHash: tx,
+      credential: mine,
+      now: now - 1_000,
+    });
+
+    expect((await syncSurveys(deps(tessera, now))).settled).toBe(0);
+    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-cred'))?.status).toBe('pending');
+
+    // The account's own DRep response lands: the row settles.
+    responses.push({
+      surveyKey: KEY_LINKED,
+      responseIndex: 2,
+      role: Role.DRep,
+      credential: mine,
+      slot: 2,
+    });
+    expect((await syncSurveys(deps(tessera, now))).settled).toBe(1);
+    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-cred')).toBeNull();
+  });
 });

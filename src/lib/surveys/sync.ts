@@ -465,9 +465,18 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     for (const [txHash, rows] of byTx) {
       const result = await tessera.responsesByTx(txHash);
       if (!result.ready) break;
-      const answered = new Set(result.value.map(r => r.surveyKey));
+      // The row is this account's own claim, so settling it needs the response
+      // to be the one it claims: same survey, answered as a DRep, by the
+      // credential the session derived at record time. One transaction can
+      // carry responses to several surveys and in several roles, and a wallet
+      // holding more than one DRep credential can answer for another of them —
+      // matching the survey alone would clear a row nothing on chain answers.
+      const asDrep = result.value.filter(r => r.role === Role.DRep);
       for (const row of rows) {
-        if (answered.has(row.surveyRef)) {
+        const onChain = asDrep.some(
+          r => r.surveyKey === row.surveyRef && r.credential === row.credential,
+        );
+        if (onChain) {
           await deleteLocalSurveyResponse(db, row.surveyRef, row.userId);
           settled++;
         }
