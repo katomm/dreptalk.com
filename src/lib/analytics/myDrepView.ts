@@ -23,6 +23,12 @@ export interface MyDrepView {
   power: {
     start: { epoch: number; label: string; firstOnRecord: boolean } | null;
     now: { epoch: number; label: string } | null;
+    /**
+     * True when both columns read the same snapshot row, either because only one
+     * snapshot is on record or because the start epoch is the current one. There
+     * is no change to state in that case, so every delta below stays null.
+     */
+    sameEpoch: boolean;
     deltaLabel: string | null;
   };
   delegators: { start: number | null; now: number | null; delta: number | null };
@@ -79,6 +85,8 @@ function powerLabel(point: PowerPoint | null): string | null {
  * precision, and both are null on an empty basis rather than a misleading 0.
  * A power snapshot whose amount cannot be read drops out entirely instead of
  * rendering as zero ada, and its delegator count (a separate column) survives.
+ * When both reads return the same snapshot row, no change exists to state, so
+ * the deltas are null rather than a zero that would read as "nothing moved".
  */
 export function buildMyDrep(input: MyDrepInput): MyDrepView {
   const { sinceEpoch, sinceStartMs, actions, voteChanges, powerThen, powerNow } = input;
@@ -94,6 +102,9 @@ export function buildMyDrep(input: MyDrepInput): MyDrepView {
   const nowLabel = powerLabel(powerNow);
   const thenCount = powerThen?.delegatorCount ?? null;
   const nowCount = powerNow?.delegatorCount ?? null;
+  // One snapshot on record, or a delegation that started in the current epoch:
+  // both columns then describe the same moment and a change cannot be computed.
+  const sameEpoch = powerThen != null && powerNow != null && powerThen.epoch === powerNow.epoch;
 
   return {
     sinceEpoch,
@@ -111,12 +122,14 @@ export function buildMyDrep(input: MyDrepInput): MyDrepView {
           ? { epoch: powerThen.epoch, label: thenLabel, firstOnRecord: powerThen.epoch > sinceEpoch }
           : null,
       now: powerNow && nowLabel != null ? { epoch: powerNow.epoch, label: nowLabel } : null,
-      deltaLabel: thenLabel != null && nowLabel != null ? powerDeltaLabel(powerThen, powerNow) : null,
+      sameEpoch,
+      deltaLabel:
+        !sameEpoch && thenLabel != null && nowLabel != null ? powerDeltaLabel(powerThen, powerNow) : null,
     },
     delegators: {
       start: thenCount,
       now: nowCount,
-      delta: thenCount != null && nowCount != null ? nowCount - thenCount : null,
+      delta: !sameEpoch && thenCount != null && nowCount != null ? nowCount - thenCount : null,
     },
   };
 }

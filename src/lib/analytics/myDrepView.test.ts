@@ -51,6 +51,7 @@ describe('buildMyDrep', () => {
 
     expect(view.power.start).toEqual({ epoch: 640, label: '1M ₳', firstOnRecord: false });
     expect(view.power.now).toEqual({ epoch: 650, label: '1.5M ₳' });
+    expect(view.power.sameEpoch).toBe(false);
     expect(view.power.deltaLabel).toBe('+500K ₳');
 
     expect(view.delegators.start).toBe(12);
@@ -92,6 +93,28 @@ describe('buildMyDrep', () => {
     expect(view.delegators.delta).toBe(0);
   });
 
+  it('states no change when both reads return the same snapshot row', () => {
+    const same = { epoch: 650, amount: '1000000000000', delegatorCount: 7 };
+    const view = buildMyDrep({
+      sinceEpoch: 650,
+      sinceStartMs: SINCE_START_MS,
+      actions: [],
+      voteChanges: 0,
+      powerThen: same,
+      powerNow: same,
+    });
+
+    // Both figures stay readable, only the change is withheld: with one epoch on
+    // record a "0" would claim the power held steady, which nothing here shows.
+    expect(view.power.start).toEqual({ epoch: 650, label: '1M ₳', firstOnRecord: false });
+    expect(view.power.now).toEqual({ epoch: 650, label: '1M ₳' });
+    expect(view.power.sameEpoch).toBe(true);
+    expect(view.power.deltaLabel).toBeNull();
+    expect(view.delegators.start).toBe(7);
+    expect(view.delegators.now).toBe(7);
+    expect(view.delegators.delta).toBeNull();
+  });
+
   it('leaves the percentages null on an empty basis and the power null when no snapshot exists', () => {
     const view = buildMyDrep({
       sinceEpoch: 640,
@@ -110,6 +133,7 @@ describe('buildMyDrep', () => {
     expect(view.missed).toEqual([]);
     expect(view.power.start).toBeNull();
     expect(view.power.now).toBeNull();
+    expect(view.power.sameEpoch).toBe(false);
     expect(view.power.deltaLabel).toBeNull();
     expect(view.delegators.start).toBeNull();
     expect(view.delegators.now).toBeNull();

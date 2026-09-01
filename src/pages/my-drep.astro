@@ -28,6 +28,7 @@ import {
 } from '@/lib/db/myDrep';
 import { buildMyDrep, buildDefaultOptionView, type DefaultOption } from '@/lib/analytics/myDrepView';
 import { fmtPct, shortGovActionId } from '@/lib/governance/view';
+import { isWriter } from '@/lib/auth/roles';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -116,7 +117,16 @@ const nowColLabel = powerNow ? `Epoch ${powerNow.epoch}` : 'Now';
 const NO_FIGURE = 'No figure for that epoch';
 
 const missedCount = m1?.missed.length ?? 0;
-const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
+
+// A member who signed in through the delegator door holds no writer role, so
+// the account settings that carry the stake-wallet flow have nothing for them.
+const canLinkStake = isWriter(user.roles);
+// Only the resolved states carry the flag, and it means the last refresh failed
+// while the baseline still stands, the same state the home card reports.
+const staleError = 'staleError' in view && view.staleError;
+
+/** Same fallback in both change cells: a change needs two epochs to exist. */
+const NO_CHANGE = 'Needs a figure for both epochs';
 ---
 <Layout
   title="My DRep - DRepTalk"
@@ -131,7 +141,7 @@ const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
 
   <div class="mdr">
     <div class="mdr-head">
-      <h1 class="mdr-head__title">{h1}</h1>
+      <h1 class="mdr-head__title">My DRep</h1>
       {/* No line break between the name and the period below: Astro keeps
           template whitespace, so a wrapped expression would render "Name ." */}
       {view.kind === 'drep' && (
@@ -146,15 +156,26 @@ const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
       )}
     </div>
 
+    {staleError && (
+      <p class="mdr-line">Last refresh failed. Showing the last confirmed state.</p>
+    )}
+
     {view.kind === 'no-follow' && (
       <section class="mdr-section">
         <h2 class="mdr-section__title">No tracked delegation yet</h2>
         <p class="mdr-line">
-          This page reads your own delegation, so it needs a stake wallet linked to your account. Once the
-          link is in place, DRepTalk resolves who your voting power sits with and this page shows what has
-          happened since.
+          This page reads your own delegation, so it needs a stake wallet proven to belong to you. Once
+          DRepTalk knows which stake address is yours, it resolves who your voting power sits with and this
+          page shows what has happened since.
         </p>
-        <p class="mdr-line"><a href="/settings/account/">Link your stake wallet in your account settings</a></p>
+        {canLinkStake ? (
+          <p class="mdr-line"><a href="/settings/account/">Link your stake wallet in your account settings</a></p>
+        ) : (
+          <>
+            <p class="mdr-line"><a href="/login/">Sign in with your stake wallet</a></p>
+            <p class="mdr-line"><a href="/help/for-delegators/">How delegators track what their DRep does</a></p>
+          </>
+        )}
       </section>
     )}
 
@@ -244,24 +265,24 @@ const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
             <table class="mdr-table">
               <thead>
                 <tr>
-                  <th></th>
-                  <th>{startColLabel}</th>
-                  <th>{nowColLabel}</th>
-                  <th>Change</th>
+                  <th scope="col"><span class="sr-only">Figure</span></th>
+                  <th scope="col">{startColLabel}</th>
+                  <th scope="col">{nowColLabel}</th>
+                  <th scope="col">Change</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td>Voting power</td>
+                  <th scope="row">Voting power</th>
                   <td>{m1.power.start?.label ?? NO_FIGURE}</td>
                   <td>{m1.power.now?.label ?? NO_FIGURE}</td>
-                  <td>{m1.power.deltaLabel ?? 'Needs a figure for both epochs'}</td>
+                  <td>{m1.power.deltaLabel ?? NO_CHANGE}</td>
                 </tr>
                 <tr>
-                  <td>Delegators</td>
+                  <th scope="row">Delegators</th>
                   <td>{m1.delegators.start != null ? num(m1.delegators.start) : NO_FIGURE}</td>
                   <td>{m1.delegators.now != null ? num(m1.delegators.now) : NO_FIGURE}</td>
-                  <td>{m1.delegators.delta != null ? signed(m1.delegators.delta) : 'Needs a figure for both epochs'}</td>
+                  <td>{m1.delegators.delta != null ? signed(m1.delegators.delta) : NO_CHANGE}</td>
                 </tr>
               </tbody>
             </table>
@@ -317,7 +338,7 @@ const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
     {m2 && (
       <>
         <section class="mdr-section">
-          <h2 class="mdr-section__title">What your choice meant</h2>
+          <h2 class="mdr-section__title">Your default delegation</h2>
           <p class="mdr-line">{m2.rule}</p>
           {m2.rows.length === 0 ? (
             <p class="mdr-line">No governance action has been decided yet, so there is nothing to show here.</p>
@@ -337,9 +358,11 @@ const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
               ))}
             </div>
           )}
-          <p class="mdr-note">
-            {`Basis: the ${num(RECENT_LIMIT)} most recent decided actions. A default option applies automatically, there is nothing to cast and no rationale to read.`}
-          </p>
+          {m2.rows.length > 0 && (
+            <p class="mdr-note">
+              {`Basis: the ${m2.rows.length === 1 ? 'most recent decided action' : `${num(m2.rows.length)} most recent decided actions`}. A default option applies automatically, there is nothing to cast and no rationale to read.`}
+            </p>
+          )}
         </section>
 
         <p class="mdr-sub">
@@ -466,7 +489,7 @@ const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
     border-collapse: collapse;
     font-size: 0.875rem;
   }
-  .mdr-table th {
+  .mdr-table thead th {
     text-align: left;
     font-size: 0.6875rem;
     font-weight: 600;
@@ -476,12 +499,20 @@ const h1 = defaultOption ? 'Your default delegation' : 'My DRep';
     padding: 0 0.5rem 0.5rem 0;
     border-bottom: 1px solid var(--border);
   }
-  .mdr-table td {
+  /* The row labels are header cells for assistive tech, but they read as body
+     cells on screen, so they take the data-cell styling. */
+  .mdr-table td,
+  .mdr-table tbody th {
     padding: 0.5rem 0.5rem 0.5rem 0;
     border-bottom: 1px solid var(--border);
     font-variant-numeric: tabular-nums;
   }
-  .mdr-table tr:last-child td {
+  .mdr-table tbody th {
+    text-align: left;
+    font-weight: 600;
+  }
+  .mdr-table tbody tr:last-child td,
+  .mdr-table tbody tr:last-child th {
     border-bottom: none;
   }
 

@@ -31,13 +31,13 @@ Re-delegating restarts the clock, including a re-delegation to the same DRep. Th
 
 **Actions without a vote.** The specific decided actions in the window that carry no vote from your DRep, each with its type, the epoch it was decided in and a link to the discussion.
 
-**Voting power and delegators.** The recorded voting power and delegator headcount at your delegation and now, plus the change between the two. Both come from per-epoch snapshots. If your delegation started before the oldest snapshot on record, the page uses the earliest epoch it has and says which one that is. Where no snapshot exists for an epoch, the page says so instead of showing a zero, because no figure and a figure of zero are different statements.
+**Voting power and delegators.** The recorded voting power and delegator headcount at your delegation and now, plus the change between the two. Both come from per-epoch snapshots. If your delegation started before the oldest snapshot on record, the page uses the earliest epoch it has and says which one that is. Where no snapshot exists for an epoch, the page says so instead of showing a zero, because no figure and a figure of zero are different statements. A change needs two different epochs, so when both columns read the same snapshot the change stays blank rather than reading as a steady zero.
 
 Figures never appear without their basis. "3 of 4 decided actions since epoch 640" is the honest form, a bare percentage is not.
 
 ## What the page shows for a default option
 
-If your voting power sits with always abstain or always no confidence, there is no DRep to follow, so the page shows what your standing choice did instead. It lists the ten most recent decided actions and what your stake counted as on each one.
+If your voting power sits with always abstain or always no confidence, there is no DRep to follow, so the page shows what your standing choice did instead. It lists up to the ten most recent decided actions, and what your stake counted as on each one. The page states how many actions that basis actually holds, so a young chain with fewer decided actions is not described as ten.
 
 The rules come from the ledger, not from DRepTalk:
 

@@ -2,7 +2,8 @@
 // Settings > Account tab. Shows the signed-in identity and, for writers, the
 // "Link your stake wallet" flow (prove ownership of a stake wallet to track
 // your delegation on the home page). A plain member sees only the identity and
-// a note that role settings are not available yet. The tab bar (via
+// a note that role settings are not available yet, plus the "My DRep" link when
+// a delegation of their own is on record. The tab bar (via
 // SettingsShell) only appears for DReps, who also have Profile and Danger tabs.
 export const prerender = false;
 
@@ -38,15 +39,19 @@ const isProposer = grantGuard !== null && 'row' in grantGuard;
 const canLinkStake = isWriter(user.roles);
 const selfRow = canLinkStake && db ? await getUserById(db, user.id) : null;
 const stakeAddr = selfRow?.stake_addr ?? null;
-const follow = stakeAddr && db ? await getFollow(db, user.id) : null;
+// The follow row is keyed by the user, not by writer status: a member who signed
+// in through the delegator door has one too, and the "My DRep" link below is for
+// them as much as for a writer.
+const follow = db ? await getFollow(db, user.id) : null;
 const followDrep =
   follow?.delegation_type === 'drep' && follow.drep_id && db ? await getDrepById(db, follow.drep_id) : null;
 // The "My DRep" link only shows for a resolved follow that has something to
-// report on (a DRep or one of the two default options), the same condition the
-// home card uses. A pending or undelegated follow would open an empty page.
+// report on (a DRep with an id, or one of the two default options), the same
+// condition the home card uses. A pending or undelegated follow would open an
+// empty page, and a 'drep' row without a drep_id resolves to no delegation.
 const trackedType =
   follow?.resolution_status === 'resolved' &&
-  (follow.delegation_type === 'drep' ||
+  ((follow.delegation_type === 'drep' && follow.drep_id != null) ||
     follow.delegation_type === 'abstain' ||
     follow.delegation_type === 'no_confidence')
     ? follow.delegation_type
@@ -78,20 +83,21 @@ const initialTracking = follow
         initialTracking={initialTracking}
         client:load
       />
-      {trackedType && (
-        <p style="margin:1rem 0 0;font-size:0.9375rem;">
-          <a href="/my-drep/" style="color:var(--accent);font-weight:600;">
-            {trackedType === 'drep'
-              ? 'See what your DRep did since you delegated'
-              : 'See what your default choice meant'}
-          </a>
-        </p>
-      )}
     </section>
   ) : (
     <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
       Settings specific to your role are not available yet. They will appear
       here as they are added.
+    </p>
+  )}
+
+  {trackedType && (
+    <p style="margin:1rem 0 0;font-size:0.9375rem;">
+      <a href="/my-drep/" style="color:var(--accent);font-weight:600;">
+        {trackedType === 'drep'
+          ? 'See what your DRep did since you delegated'
+          : 'See what your default choice meant'}
+      </a>
     </p>
   )}
 </SettingsShell>
