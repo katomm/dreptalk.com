@@ -87,32 +87,28 @@ export interface SurveysSyncResult {
 const BACKSTOP_MS = 24 * 60 * 60 * 1000;
 /** Hard cap on list pages one run walks (paranoia bound, 200 surveys each). */
 const MAX_LIST_PAGES = 25;
-/** Bundle audits per run, so re-auditing a large due set spreads over a few
- * runs instead of stretching one cron invocation; audit_due_at ordering makes
- * the next run continue where this one stopped. */
+/** Bundle audits per run: a large due set spreads over several cron
+ * invocations, which due-order makes safe — the next run resumes where this
+ * one stopped. */
 const AUDIT_LIMIT = 20;
 /** Re-audit cadence for a held survey: a proof verdict can flip without the
- * raw count moving, so success re-arms the schedule this far out. */
+ * raw count moving, so no trigger would ever fire. */
 const AUDIT_RECHECK_MS = 24 * 60 * 60 * 1000;
-/** Failure backoff: one cron interval, doubling per consecutive failure. */
+/** Failure backoff, from one cron interval to the recheck cadence. */
 const AUDIT_RETRY_BASE_MS = 5 * 60 * 1000;
 const AUDIT_RETRY_MAX_MS = 24 * 60 * 60 * 1000;
-/** Failures after which a decided survey's audit concedes (~21 h of retrying)
- * and clears its count. A held survey never concedes by exhaustion: it is
- * still changing, costs at most one attempt a day at the backoff cap, and
- * exits by finalizing or rolling back instead. */
+/** Failures (~21 h) after which a decided survey concedes. Only a decided one:
+ * a held survey is still changing, so giving up on it would re-create the
+ * frozen-count bug this scheduling exists to kill. */
 const MAX_AUDIT_ATTEMPTS = 8;
 /** Response pages one bundle collection reads (200 responses each). */
 const MAX_BUNDLE_PAGES = 50;
 /** Restarts a page walk tolerates when the snapshot moves mid-walk (resync). */
 const MAX_RESYNC_RESTARTS = 2;
-/** How long a rolled-back (unavailable) survey keeps being named in ?refs=
- * calls before its refresh slot is released. Four days outlasts Tessera's
- * rolling ~3-day settlement window (SETTLEMENT_MARGIN_SLOTS, about twice its
- * 36 h stability window): a ref still absent after that is not coming back.
- * The thread, the card and the "Record missing" badge all stay; the audit
- * side needs no TTL of its own, because a bundle for a ref outside the
- * corpus answers 404, which is terminal. */
+/** How long an absent ref keeps its refresh slot. Four days outlasts
+ * Tessera's rolling ~3-day settlement window, past which a rolled-back record
+ * is not coming back. Only the slot is released — the thread and its card
+ * stay. */
 const UNAVAILABLE_TTL_MS = 4 * 24 * 60 * 60 * 1000;
 
 /** Binds of the per-survey statement groups batchByBinds packs (see db/surveys.ts). */
@@ -379,12 +375,10 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
           const h = byRef.get(a.key);
           const claimedCount = set.responseCounts[a.key] ?? 0;
           const finalState = set.finalState[a.key]?.state ?? null;
-          // An audit is due when the raw count moved, the tip crossed the end
-          // epoch this refresh, or a final state arrived (every row here was
-          // held, so any non-null finalState is the arrival). Verdicts land
-          // late — a count can look settled while a proof verdict still flips
-          // a counted response — which is why finalization demands one more
-          // audit instead of freezing the stored count.
+          // Every row here was held, so any non-null finalState is its
+          // arrival — and it must trigger an audit rather than freeze the
+          // stored count, because verdicts land late: a proof verdict can
+          // still flip a counted response after the count itself settles.
           const triggered =
             h !== undefined &&
             (claimedCount !== h.claimedCount ||
@@ -425,14 +419,11 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     counters.failed++;
   }
 
-  // --- Pass 3: audit counts. Recompute counted_dreps through Tessera's
-  // published auditResponses for every survey whose audit is due, decided rows
-  // first. Success stamps audited_at and schedules the next look; failure
-  // backs off on the row itself, so a not-ready or crashed run changes nothing
-  // and the same rows are simply due again. A decided row that exhausts its
-  // attempts concedes — count cleared, schedule closed — and a bundle 404 is
-  // terminal outright: Tessera is saying the survey is not in its corpus, and
-  // its SINCE floor means it will not re-enter it.
+  // --- Pass 3: audit counts through Tessera's published auditResponses, for
+  // every survey whose audit is due. Every outcome is persisted on the row, so
+  // a crashed or snapshot-less run leaves those surveys simply due again. A
+  // 404 is terminal even on the first failure: Tessera is saying the survey is
+  // outside its corpus, and its SINCE floor means it will not re-enter it.
   try {
     for (const due of await getAuditDueSurveys(db, now, AUDIT_LIMIT)) {
       try {

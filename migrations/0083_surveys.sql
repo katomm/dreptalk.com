@@ -27,26 +27,21 @@ CREATE TABLE survey (
   claimed_count      INTEGER NOT NULL DEFAULT 0,
   -- NULL while the survey can still change; set once Tessera decides it for
   -- good ('finalized' | 'cancelled' | 'untalliable'). A non-NULL row is no
-  -- longer refreshed — but its count still needs one successful audit at or
-  -- after that moment (proof verdicts land late), a debt audit_due_at carries.
+  -- longer refreshed, but still owes one audit: proof verdicts land late, so
+  -- the count is not settled just because the state is.
   final_state        TEXT,
-  -- Audit scheduling, one row at a time. audit_due_at is the only scheduler:
-  -- admission, a moved claimed_count, the tip crossing end_epoch and an
-  -- arriving final_state all set it to "now"; success on a still-open survey
-  -- re-arms it a day out (a verdict can flip without the count moving), and a
-  -- failure backs off exponentially. NULL means no audit will ever run again —
-  -- for a decided row that is the terminal state, reached by one successful
-  -- post-final audit or by giving up, which clears counted_dreps: a decided
-  -- row's count is either the audited final count or absent.
+  -- audit_due_at is the sole audit scheduler; NULL means never again, which on
+  -- a decided row is terminal — reached by the post-final audit succeeding, or
+  -- by giving up, which clears counted_dreps. Hence the invariant the sync
+  -- keeps: a decided row's count is the audited final count, or absent.
   audited_at         INTEGER,            -- last successful audit (unix ms)
   audit_due_at       INTEGER,            -- next attempt due (unix ms)
   audit_attempts     INTEGER NOT NULL DEFAULT 0,  -- consecutive failures
   -- The on-chain record disappeared from a complete Tessera answer (rolled
   -- back). Hides answering, keeps the thread; cleared if the ref reappears.
-  -- unavailable_since stamps the first such answer (unix ms) and is the
-  -- rollback exit from the refresh set: a held row unavailable longer than
-  -- the sync's TTL stops being named in ?refs= calls. Only that slot is
-  -- released — the thread, the card and the badge all stay.
+  -- unavailable_since (unix ms) is the rollback exit from the refresh set:
+  -- past the sync's TTL the row stops being named in ?refs= calls, since no
+  -- final state is ever coming for a record that is gone.
   unavailable        INTEGER NOT NULL DEFAULT 0,
   unavailable_since  INTEGER,
   tip_epoch          INTEGER NOT NULL,   -- chain tip epoch of the mirrored snapshot

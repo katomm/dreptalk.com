@@ -16,10 +16,9 @@ export interface HeldSurvey {
 }
 
 /** Every survey not yet decided for good — the set pass 2 keeps refreshing.
- * Unavailable rows stay in it so a rolled-back ref that reappears is cleared,
- * until they have been unavailable since before `retiredCutoff` (unix ms):
- * that is the rollback exit from the set, or a genuinely rolled-back record
- * would be named in every ?refs= call for all time. */
+ * Unavailable rows stay in it so a reappearing ref is cleared, but only until
+ * `retiredCutoff` (unix ms): without that exit a rolled-back record, which
+ * never gets a final state, would be named in every ?refs= call for all time. */
 export async function getHeldSurveys(db: D1Database, retiredCutoff: number): Promise<HeldSurvey[]> {
   const { results } = await db
     .prepare(
@@ -117,9 +116,8 @@ export function buildDeleteGovLinks(db: D1Database, surveyRef: string): D1Prepar
 
 /** The fields a Tessera answer refreshes on a held row. Reappearing clears
  * `unavailable` unconditionally: presence in a complete answer is the proof.
- * A non-null `auditDueAt` schedules an audit and restarts its backoff ladder
- * (the chain changed under the row, so past failures no longer describe it);
- * null leaves whatever schedule the row already carries. */
+ * A non-null `auditDueAt` also resets the backoff ladder — the chain moved
+ * under the row, so past failures no longer describe it. */
 export interface SurveyRefresh {
   ref: string;
   claimedCount: number;
@@ -159,8 +157,8 @@ export async function markSurveysUnavailable(
   refs: readonly string[],
   now: number,
 ): Promise<void> {
-  // Two binds are taken by `now`, the rest by the IN list. The COALESCE keeps
-  // the FIRST disappearance time: the retirement clock must not restart while
+  // Two binds are taken by `now`, the rest by the IN list. COALESCE keeps the
+  // first disappearance: the retirement clock must not restart on every run
   // the ref stays absent.
   for (const chunk of chunked(refs, D1_MAX_BINDS - 2)) {
     await db
@@ -174,17 +172,15 @@ export async function markSurveysUnavailable(
   }
 }
 
-/** One due entry of the audit queue. `finalState`/`auditAttempts` are read
- * back so the sync can pick the outcome transition without a second query. */
 export interface AuditDueSurvey {
   ref: string;
   finalState: string | null;
   auditAttempts: number;
 }
 
-/** The audits due now, oldest first — except decided rows, which cut the
- * line: their stored count is frozen wrong until their one post-final audit
- * lands (or is conceded), while a held row merely gets its next look late. */
+/** The audits due now, oldest first — except decided rows, which cut the line:
+ * their count stays frozen wrong until the post-final audit lands, while a held
+ * row only gets its next look late. */
 export async function getAuditDueSurveys(
   db: D1Database,
   now: number,
@@ -206,8 +202,8 @@ export async function getAuditDueSurveys(
   }));
 }
 
-/** A successful audit: the count, the stamp, and the next look — a day out
- * for a held row (`nextDueAt`), never again (null) for a decided one. */
+/** A successful audit. `nextDueAt` is null for a decided row: nothing it
+ * counts can change again. */
 export async function markSurveyAudited(
   db: D1Database,
   ref: string,
@@ -225,7 +221,6 @@ export async function markSurveyAudited(
     .run();
 }
 
-/** A failed audit attempt: count it and back off to `nextDueAt`. */
 export async function markSurveyAuditFailed(
   db: D1Database,
   ref: string,
@@ -241,10 +236,9 @@ export async function markSurveyAuditFailed(
     .run();
 }
 
-/** Stop auditing a survey for good. `clearCount` is set when a decided row
- * concedes: its stored count was never confirmed at-or-after finalization, so
- * it must show no number rather than a possibly wrong one. (A refresh trigger
- * can still revive the schedule if the chain changes under a held row.) */
+/** Stop auditing a survey for good. `clearCount` when a decided row concedes:
+ * its count was never confirmed at-or-after finalization, and no number beats a
+ * possibly wrong one. */
 export async function abandonSurveyAudit(
   db: D1Database,
   ref: string,
@@ -301,8 +295,8 @@ export interface SurveyRow {
   definitionJson: string;
   countedDreps: number | null;
   finalState: string | null;
-  /** Next audit attempt (unix ms), null when none is scheduled — for a
-   * decided row that means the count is settled, confirmed or conceded. */
+  /** Next audit attempt (unix ms); null on a decided row means its count is
+   * settled, whether confirmed or conceded. */
   auditDueAt: number | null;
   unavailable: boolean;
   tipEpoch: number;
