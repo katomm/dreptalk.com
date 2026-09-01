@@ -27,6 +27,12 @@ Changes between epochs are shown as net change. If a chart shows 2,000 more dele
 
 The "voted in the last 12 epochs" figure counts DReps with at least one on-chain vote in that window, including votes that were later changed. Twelve epochs is roughly two months, long enough that a quiet stretch between governance actions does not make the whole network look inactive.
 
+## Voting concentration in practice
+
+The effective-representation panel and the Positions tab of a governance action also read how concentrated the cast votes were. These numbers describe exercised power, the voting power that actually voted, not the distribution of all delegated power. The half-count says how few of the largest voters together cast at least half of the voted power. The action page adds the largest voter's share, the combined top-5 share, and, where the action has an approval threshold, how many of the largest voters alone held enough power to cross it. That last reading is arithmetic on cast votes, it does not claim those voters coordinated or voted the same way.
+
+These stats only appear when the voting power behind every single vote on the action is recorded. An action with incomplete per-vote power shows no concentration numbers at all rather than a misleading partial sum.
+
 ## Where the numbers come from
 
 DRepTalk records one row of governance aggregates per epoch, built from the same chain data that powers the rest of the site. Voting power snapshots come from the per-epoch stake distribution, vote counts from the on-chain votes themselves, and the concentration figures from the full distribution of delegated power across DReps, with the two default options excluded. The effective-representation panel measures each action against its decision epoch, while the tally bar on an action page uses the epoch of the latest tally, so the two can sit one epoch apart for the same action. The threshold marker on the full-stake bar maps the approval threshold onto the abstain-reduced representative stake, a deliberate simplification stated here so nobody mistakes it for a hand-computed break-even.
@@ -44,3 +50,7 @@ An epoch's vote activity is only final once the epoch has ended. The page treats
 ### What is the difference between active and with voting power?
 
 Active follows the on-chain registration state. A DRep can be active with zero delegated stake, and stake can still sit with a DRep whose registration has lapsed. The activity section shows both layers separately.
+
+### Why do some actions show no concentration numbers?
+
+The per-vote voting power for at least one vote on that action is not recorded. Concentration stats are computed only over complete data, a partial reading would understate how concentrated the vote really was.
