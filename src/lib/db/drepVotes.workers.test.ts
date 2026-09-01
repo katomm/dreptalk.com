@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId, buildVoteUpsertStatements, classifyVoteJobs, getVoteTrendRows } from './drepVotes.js';
+import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId, buildVoteUpsertStatements, classifyVoteJobs, getVoteTrendRows, listDrepVotePowers, listDrepVotePowersByAction } from './drepVotes.js';
 import { loadExistingVotes } from './voteHistory.js';
 import { addChannel, getPrefs, getPendingCounts } from './notificationChannels.js';
 import { resolvePendingLead } from '../notifications/pendingLead.js';
@@ -596,5 +596,42 @@ describe('rationale-ready notification', () => {
     ], 5_000, { notifyRationaleReady: true });
 
     expect(await rationaleReadyRows('userRR7')).toHaveLength(0);
+  });
+});
+
+describe('listDrepVotePowers', () => {
+  it('returns only live DRep vote powers including NULLs', async () => {
+    const db = env.DB;
+    // Same-action rows: two DRep votes (one power missing), one SPO vote,
+    // one locally failed DRep vote that liveVoteSql must exclude.
+    await upsertVotes(db, 'ga_conc#0', [
+      { voterRole: 'DRep', voterId: 'drep_a', voterHex: null, vote: 'Yes', votedPower: 100 },
+      { voterRole: 'DRep', voterId: 'drep_b', voterHex: null, vote: 'No' },
+      { voterRole: 'SPO', voterId: 'pool_x', voterHex: null, vote: 'Yes', votedPower: 999 },
+      { voterRole: 'DRep', voterId: 'drep_c', voterHex: null, vote: 'Abstain', votedPower: 50 },
+    ], 1);
+    await db.prepare(`UPDATE drep_votes SET local_status = 'failed' WHERE ga_id = 'ga_conc#0' AND voter_id = 'drep_a'`).run();
+    const powers = await listDrepVotePowers(db, 'ga_conc#0');
+    expect(powers).toHaveLength(2);
+    expect(powers).toContain(50);
+    expect(powers).toContain(null);
+  });
+});
+
+describe('listDrepVotePowersByAction', () => {
+  it('groups powers by action id and returns an empty map for no ids', async () => {
+    const db = env.DB;
+    await upsertVotes(db, 'ga_batch_a#0', [
+      { voterRole: 'DRep', voterId: 'drep_a', voterHex: null, vote: 'Yes', votedPower: 10 },
+      { voterRole: 'DRep', voterId: 'drep_b', voterHex: null, vote: 'No', votedPower: 20 },
+    ], 1);
+    await upsertVotes(db, 'ga_batch_b#0', [
+      { voterRole: 'DRep', voterId: 'drep_a', voterHex: null, vote: 'Yes', votedPower: 30 },
+    ], 1);
+    const map = await listDrepVotePowersByAction(db, ['ga_batch_a#0', 'ga_batch_b#0', 'ga_absent#0']);
+    expect(map.get('ga_batch_a#0')).toHaveLength(2);
+    expect(map.get('ga_batch_b#0')).toEqual([30]);
+    expect(map.has('ga_absent#0')).toBe(false);
+    expect((await listDrepVotePowersByAction(db, [])).size).toBe(0);
   });
 });

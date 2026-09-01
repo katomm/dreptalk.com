@@ -897,3 +897,54 @@ export async function getVoteTrendRows(db: D1Database, gaId: string): Promise<Tr
   ).results ?? [];
   return rows;
 }
+
+/**
+ * voted_power of every live DRep vote on one action, NULLs included so the
+ * caller can apply the completeness rule (any NULL disables the concentration
+ * stats). Same live predicate as countActionVoters, so the count matches the
+ * Positions list this feeds.
+ */
+export async function listDrepVotePowers(db: D1Database, gaId: string): Promise<(number | null)[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT voted_power FROM drep_votes
+          WHERE ga_id = ? AND voter_role = 'DRep' AND ${liveVoteSql()}`,
+      )
+      .bind(gaId)
+      .all<{ voted_power: number | null }>()
+  ).results ?? [];
+  return rows.map((r) => r.voted_power);
+}
+
+/**
+ * Batch variant for the analytics hub: live DRep vote powers grouped by action
+ * id. Chunked IN lists to respect D1's 100-bound-parameter limit. Actions with
+ * no votes are simply absent from the map.
+ */
+export async function listDrepVotePowersByAction(
+  db: D1Database,
+  gaIds: string[],
+): Promise<Map<string, (number | null)[]>> {
+  const map = new Map<string, (number | null)[]>();
+  const CHUNK = 90;
+  for (let i = 0; i < gaIds.length; i += CHUNK) {
+    const chunk = gaIds.slice(i, i + CHUNK);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = (
+      await db
+        .prepare(
+          `SELECT ga_id, voted_power FROM drep_votes
+            WHERE ga_id IN (${placeholders}) AND voter_role = 'DRep' AND ${liveVoteSql()}`,
+        )
+        .bind(...chunk)
+        .all<{ ga_id: string; voted_power: number | null }>()
+    ).results ?? [];
+    for (const r of rows) {
+      const list = map.get(r.ga_id);
+      if (list) list.push(r.voted_power);
+      else map.set(r.ga_id, [r.voted_power]);
+    }
+  }
+  return map;
+}
