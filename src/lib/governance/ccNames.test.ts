@@ -43,3 +43,24 @@ describe('CcNameIndex (current display name, no as-of)', () => {
     expect(idx.byCold('coldz')).toBeNull();
   });
 });
+
+describe('curated committee names', () => {
+  const phil = '13493790d9b03483a1e1e684ea4faf1ee48a58f402574e7f2246f4d4';
+
+  it('fills the gap for a credential without a self-declared name, by cold and by hot key', () => {
+    const hotToCold = new Map([['68bb0b4276021f82364056aa9f4d38ba5ac59b26c166cbeaa9408746', phil]]);
+    const index = buildCcNameIndex([], hotToCold);
+    expect(index.byCold(phil)).toBe('Phil_uplc');
+    expect(index.byCold(phil.toUpperCase())).toBe('Phil_uplc');
+    expect(index.byHot('68bb0b4276021f82364056aa9f4d38ba5ac59b26c166cbeaa9408746')).toBe('Phil_uplc');
+    expect(index.byCold('0000000000000000000000000000000000000000000000000000000000')).toBeNull();
+  });
+
+  it('keeps a self-declared on-chain name ahead of the curated table', () => {
+    const hot = '68bb0b4276021f82364056aa9f4d38ba5ac59b26c166cbeaa9408746';
+    const hotToCold = new Map([[hot, phil]]);
+    const index = buildCcNameIndex([{ hotKeyHex: hot, name: 'Declared Name', sourceBlockTime: 1 } as never], hotToCold);
+    expect(index.byCold(phil)).toBe('Declared Name');
+    expect(index.byHot(hot)).toBe('Declared Name');
+  });
+});

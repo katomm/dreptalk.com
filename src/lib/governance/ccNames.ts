@@ -10,6 +10,21 @@ import { type CcNameRow, normalizeKeyHex } from '../db/ccMemberName.js';
 
 export const MAX_CC_NAME = 80;
 
+/**
+ * Curated display names for committee credentials that never declared a
+ * CIP-100 author name on any vote anchor. Keyed by the cold key, each entry
+ * cites its public source so the provenance is auditable. A self-declared
+ * on-chain name always wins over this table, it only fills gaps.
+ */
+export const CC_KNOWN_NAMES: Readonly<Record<string, { name: string; source: string }>> = {
+  // Elected in the 2025 Constitutional Committee election (Intersect election
+  // report), the only elected seat whose rationale anchors carry no authors.
+  '13493790d9b03483a1e1e684ea4faf1ee48a58f402574e7f2246f4d4': {
+    name: 'Phil_uplc',
+    source: '2025 Constitutional Committee election result',
+  },
+};
+
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 }
@@ -60,8 +75,15 @@ export function buildCcNameIndex(rows: CcNameRow[], hotToCold: Map<string, strin
     const prev = byColdKey.get(cold);
     if (prev == null || r.sourceBlockTime >= prev.bt) byColdKey.set(cold, { name: r.name, bt: r.sourceBlockTime });
   }
+  const knownByCold = (coldHex: string): string | null => CC_KNOWN_NAMES[normalizeKeyHex(coldHex)]?.name ?? null;
   return {
-    byHot: (hotHex) => byHotKey.get(normalizeKeyHex(hotHex)) ?? null,
-    byCold: (coldHex) => byColdKey.get(normalizeKeyHex(coldHex))?.name ?? null,
+    byHot: (hotHex) => {
+      const hot = normalizeKeyHex(hotHex);
+      const declared = byHotKey.get(hot);
+      if (declared != null) return declared;
+      const cold = hotToCold.get(hot);
+      return cold != null ? knownByCold(cold) : null;
+    },
+    byCold: (coldHex) => byColdKey.get(normalizeKeyHex(coldHex))?.name ?? knownByCold(coldHex),
   };
 }
