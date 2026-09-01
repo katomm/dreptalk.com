@@ -248,8 +248,13 @@ const [surveyLinks, linkedSurvey, viewerSurveyResponse] = await Promise.all([
 // actually take an answer: DRep-eligible, open, not cancelled, not rolled
 // back, and not external-content (its prompts live behind an anchor Tessera's
 // API does not serve, so the widget could not show what is being signed).
+// It also needs the mirror to still be configured: everything that follows an
+// answer — settling the optimistic row against the chain, or aging it to
+// failed — happens in the sync, so with TESSERA_BACKEND_URL gone a submitted
+// answer would sit "confirming…" forever against a row nothing refreshes.
 const canAnswerSurvey =
   !!surveyRow &&
+  Boolean(env.TESSERA_BACKEND_URL) &&
   !!user?.roles.includes('drep') &&
   !surveyRow.cancelled &&
   !surveyRow.unavailable &&

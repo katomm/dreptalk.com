@@ -524,10 +524,20 @@ const breadcrumbLd = {
               ))}
             </nav>
 
+            {/* Rows outlive the mirror: they are on-chain records with forum
+                threads and human replies, so they stay. What they must not do
+                is look current — nothing refreshes them, and answering is off. */}
+            {!surveysIndexed && surveyEntries.length > 0 && (
+              <p class="svy-stale">
+                Surveys are no longer indexed on this network. These records are shown as last
+                mirrored; they are not being refreshed and cannot be answered here.
+              </p>
+            )}
+
             {surveyEntries.length === 0 ? (
               surveysIndexed ? (
                 <p style="color:var(--muted);">
-                  No surveys yet. A survey appears here once it is open to DReps and linked by a
+                  No surveys yet. A survey appears here once a DRep-eligible survey is linked by a
                   governance action.
                 </p>
               ) : (
@@ -650,6 +660,17 @@ const breadcrumbLd = {
 )}
 
 <style>
+  /* Disclosure above a survey listing whose mirror has been switched off: the
+     rows are real records, the freshness claim on them is not. */
+  .svy-stale {
+    font-size: 0.875rem;
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin: 0 0 1rem;
+  }
+
   /* DRep shortcut to the personal voting dashboard: a quiet accent-tinted pill
      that sits with the Sort/Type dropdowns. */
   .ga-dashlink {

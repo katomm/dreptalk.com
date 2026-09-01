@@ -31,6 +31,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const env = runtimeEnv(locals as App.Locals);
   const db = env.DB as D1Database | undefined;
   if (!db) return jsonResponse({ error: 'service unavailable' }, 503);
+  // No mirror configured means no sync, and the sync is what settles this row
+  // against the chain or ages it to failed. Recording one here would strand a
+  // permanent "confirming…" on the card, so refuse before touching the DB —
+  // missing deployment configuration, like the binding check above it.
+  if (!env.TESSERA_BACKEND_URL) return jsonResponse({ error: 'surveys not indexed' }, 503);
 
   let raw: unknown;
   try {
@@ -48,7 +53,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // the panel is key-only); a script DRep session recording a row would leave
   // a pending marker no transaction can ever settle.
   const cred = parseDrepId(drepId);
-  if (!cred || cred.kind !== 'key') return jsonResponse({ error: 'not a key DRep' }, 403);
+  if (cred?.kind !== 'key') return jsonResponse({ error: 'not a key DRep' }, 403);
 
   if (!(await surveyRefExists(db, parsed.data.surveyRef))) {
     return jsonResponse({ error: 'unknown survey' }, 404);
