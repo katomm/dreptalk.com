@@ -174,7 +174,7 @@ export function buildCcPanel(input: {
       eligible: m.eligible,
       pct: m.eligible > 0 ? (m.voted / m.eligible) * 100 : 0,
       tenure: computeTenure(termsByCold.get(coldKeyHex) ?? [], currentEpoch),
-      sequence: actionEpochs.map((_, i) => m.seq.get(i) ?? 'ineligible') as CcMemberRow['sequence'],
+      sequence: actionEpochs.map((_, i) => m.seq.get(i) ?? 'ineligible'),
     }))
     .sort((x, y) => y.pct - x.pct || (x.name ?? x.coldKeyHex).localeCompare(y.name ?? y.coldKeyHex));
 

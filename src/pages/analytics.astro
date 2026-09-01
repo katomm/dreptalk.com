@@ -124,6 +124,12 @@ const shortCold = (hex: string): string => `${hex.slice(0, 10)}...`;
 // Best and worst five members by participation share. Under ten members
 // everything is "top" and there is no separate bottom list.
 const ccExtremes = selectExtremes(ccPanel.members, 5);
+// Grouped for the template so both lists render from one map instead of two
+// near-identical blocks. The empty bottom list drops out on its own.
+const ccMemberLists = [
+  { title: 'Highest participation', members: ccExtremes.top },
+  { title: 'Lowest participation', members: ccExtremes.bottom },
+].filter((list) => list.members.length > 0);
 const tenureLabel = (t: { from: number; to: number | null }): string =>
   t.to == null ? `since epoch ${t.from}` : `epochs ${t.from} to ${t.to}`;
 
@@ -399,30 +405,11 @@ const activityBars = activity
         {ccExtremes.total > 0 && (
           <>
             <div class="hub-cc__lists">
-              <div>
-                <h4 class="hub-cc__subtitle">Highest participation</h4>
-                <ul class="hub-cc__members">
-                  {ccExtremes.top.map((m) => (
-                    <li class="hub-cc__member">
-                      <div class="hub-cc__member-head">
-                        <span class="hub-cc__member-name">{m.name ?? shortCold(m.coldKeyHex)}</span>
-                        <span class="hub-cc__member-tenure">{tenureLabel(m.tenure)}</span>
-                        <span class="hub-cc__member-value">{m.voted} of {m.eligible}</span>
-                      </div>
-                      <div class="hub-cc__raster" role="img" aria-label={`Voted on ${m.voted} of ${m.eligible} eligible actions, oldest to newest`}>
-                        {m.sequence.map((s) => (
-                          <span class={`hub-cc__dot hub-cc__dot--${s}`}></span>
-                        ))}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              {ccExtremes.bottom.length > 0 && (
+              {ccMemberLists.map((list) => (
                 <div>
-                  <h4 class="hub-cc__subtitle">Lowest participation</h4>
+                  <h4 class="hub-cc__subtitle">{list.title}</h4>
                   <ul class="hub-cc__members">
-                    {ccExtremes.bottom.map((m) => (
+                    {list.members.map((m) => (
                       <li class="hub-cc__member">
                         <div class="hub-cc__member-head">
                           <span class="hub-cc__member-name">{m.name ?? shortCold(m.coldKeyHex)}</span>
@@ -438,7 +425,7 @@ const activityBars = activity
                     ))}
                   </ul>
                 </div>
-              )}
+              ))}
             </div>
             <p class="hub-cc__raster-note">Each square is one decided action from the oldest to the newest, filled when the member voted, outlined when eligible without a vote, faded outside the member's eligibility window.</p>
           </>
@@ -936,18 +923,26 @@ const activityBars = activity
     background: var(--surface-2);
     border: 1px solid var(--border);
   }
-  .hub-cbar__seg {
+  /* Segments and legend are shared with the DRep activity bars further down:
+     one accent segment for the first quantity, one muted segment for the rest,
+     and a dot legend below. Kept in one rule family so the two panels cannot
+     drift apart. Only the track backgrounds differ, those stay per panel. */
+  .hub-cbar__seg,
+  .hub-activity__seg {
     display: block;
     height: 100%;
   }
-  .hub-cbar__seg--accent {
+  .hub-cbar__seg--accent,
+  .hub-activity__seg:first-child {
     background: var(--accent);
   }
-  .hub-cbar__seg--kept {
+  .hub-cbar__seg--kept,
+  .hub-activity__seg:last-child {
     background: var(--surface-2);
     box-shadow: inset 0 0 0 1px var(--border);
   }
-  .hub-cbar__legend {
+  .hub-cbar__legend,
+  .hub-activity__legend {
     list-style: none;
     margin: 0.6rem 0 0;
     padding: 0;
@@ -955,22 +950,26 @@ const activityBars = activity
     flex-wrap: wrap;
     gap: 0.4rem 1.25rem;
   }
-  .hub-cbar__legend-item {
+  .hub-cbar__legend-item,
+  .hub-activity__legend-item {
     display: flex;
     align-items: center;
     gap: 0.4rem;
     font-size: 0.8rem;
     color: var(--muted);
   }
-  .hub-cbar__dot {
+  .hub-cbar__dot,
+  .hub-activity__legend-dot {
     width: 8px;
     height: 8px;
     border-radius: 999px;
   }
-  .hub-cbar__dot--accent {
+  .hub-cbar__dot--accent,
+  .hub-activity__legend-dot {
     background: var(--accent);
   }
-  .hub-cbar__dot--kept {
+  .hub-cbar__dot--kept,
+  .hub-activity__legend-item:last-child .hub-activity__legend-dot {
     background: var(--surface-2);
     box-shadow: inset 0 0 0 1px var(--muted);
   }
@@ -1339,48 +1338,14 @@ const activityBars = activity
     font-size: 0.875rem;
     font-weight: 600;
   }
+  /* Segments and legend come from the shared composition-bar rules in the
+     changed-votes block above. */
   .hub-activity__bar {
     display: flex;
     height: 10px;
     border-radius: 999px;
     overflow: hidden;
     background: var(--border);
-  }
-  .hub-activity__seg {
-    display: block;
-    height: 100%;
-  }
-  .hub-activity__seg:first-child {
-    background: var(--accent);
-  }
-  .hub-activity__seg:last-child {
-    background: var(--surface-2);
-    box-shadow: inset 0 0 0 1px var(--border);
-  }
-  .hub-activity__legend {
-    list-style: none;
-    margin: 0.6rem 0 0;
-    padding: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem 1.25rem;
-  }
-  .hub-activity__legend-item {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.8rem;
-    color: var(--muted);
-  }
-  .hub-activity__legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--accent);
-  }
-  .hub-activity__legend-item:last-child .hub-activity__legend-dot {
-    background: var(--surface-2);
-    box-shadow: inset 0 0 0 1px var(--muted);
   }
   .hub-activity__sub {
     margin: 0.5rem 0 0;
