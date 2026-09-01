@@ -64,8 +64,12 @@ export function buildRationaleCoverage(
       continue;
     }
     try {
-      powerTotal += BigInt(r.power);
-      powerCovered += BigInt(r.powerWithRationale);
+      // Parse both before mutating anything, so one malformed value cannot
+      // leave a half-applied contribution behind.
+      const total = BigInt(r.power);
+      const covered = BigInt(r.powerWithRationale);
+      powerTotal += total;
+      powerCovered += covered;
       powerActions += 1;
     } catch {
       powerExcluded += 1;
