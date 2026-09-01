@@ -49,6 +49,14 @@ A DRep can re-vote on an action at any time while voting is open, and the analyt
 
 Only actions whose complete vote history has been swept from the chain are counted, and the panel says how many are still queued. The same honest split appears on each action's Votes tab.
 
+## Voting timing
+
+The timing panel reads when votes arrive. It counts votes, not weight: every vote counts once, whatever voting power stands behind it, so the figures describe the behavior of the voters rather than the movement of the stake. The headline numbers are the median day after submission for DRep votes and for SPO votes, and the day by which half of an action's votes had arrived, taken as a median across decided actions. A vote can only be timed when both the action's submission and the vote's block time are on record.
+
+The window split reads every vote against its own action's voting window instead of the calendar. The span from submission to the close of voting is cut into three equal parts, and each vote falls in the early, middle or late third of that action's window, so an action open for twenty days and one open for five are read on the same scale. Votes recorded after the window closed are counted separately and never as late, because they never had a third to fall into.
+
+None of this is a quality measure. Timing describes when votes arrive, not how carefully they were cast. An early vote is not more diligent than a late one, and a late vote can be the result of waiting for a discussion to run its course.
+
 ## Vote rationales
 
 Every on-chain vote can carry a metadata document explaining the decision, the rationale. The rationales panel measures how many DRep votes on decided actions carry that link, both as a share of votes and weighted by the voting power behind them. A linked document is not always retrievable, so these figures can read higher than the readable rationales on an action's own page. It also shows which decided actions were best and least covered, and how many rationales arrived only later, through a re-vote on the same action.
@@ -63,7 +71,7 @@ A committee vote against an action expresses that the member did not find it con
 
 ## SPO participation
 
-Stake pool operators vote alongside DReps and the Constitutional Committee, but only on a subset of governance actions: hard forks, motions of no confidence, committee changes and security-relevant parameter changes. The panel counts how many decided actions fall in that eligible set, then reports two figures over them. Median SPO turnout weighs each pool's stake against the stake of every pool that could vote, the pools permanently set to abstain included and the No side counted the way the ledger counts it, the same denominator the on-chain ratification check uses. The second figure counts how often the SPO verdict and the DRep verdict on the same action fell on opposite sides of their respective thresholds.
+Stake pool operators vote alongside DReps and the Constitutional Committee, but only on a subset of governance actions: hard forks, motions of no confidence, committee changes and security-relevant parameter changes. The panel counts how many decided actions fall in that eligible set, then reports two figures over them. Median SPO turnout weighs each pool's stake against the stake of every pool that could vote, the pools permanently set to abstain included and the No side counted the way the ledger counts it, the same denominator the on-chain ratification check uses. The second figure counts how often the SPO verdict and the DRep verdict on the same action fell on opposite sides of their respective thresholds. The actions behind that count are listed under the tiles, each one naming the body whose tally stayed below its own threshold.
 
 Both figures only cover actions with a complete reading. An action whose stake tally is missing or unparseable is left out of the turnout median rather than folded in as a guess, and the panel states how many actions that affected.
 
