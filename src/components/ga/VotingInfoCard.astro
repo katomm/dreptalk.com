@@ -8,11 +8,13 @@
 // actions have neither (their percentages are advisory). The voting window lives in the
 // Status card above, so it is not repeated here.
 import CompositionBar from './CompositionBar.astro';
+import FullStakeBar from './FullStakeBar.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendChart } from '@/lib/governance/voteTrend.js';
 import { evaluateThresholds, hasOnchainThreshold, readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope } from '@/lib/governance/onchain.js';
+import { buildFullStakeBar } from '@/lib/governance/fullStakeView.js';
 import {
   fmtPct,
   fmtPctFine,
@@ -28,6 +30,11 @@ interface Props {
   // Total active DRep voting power: the denominator for the DRep composition and
   // turnout. Null for SPO-led types or before a tally syncs.
   drepStakeTotal: number | null;
+  // governance_epoch_stats.total_drep_power at the action's decided (or current)
+  // epoch: the denominator for the DRep full-stake bar. Null before that epoch's
+  // stats row exists, in which case the DRep body falls back to the existing
+  // active-only composition bar.
+  reprTotalPower: string | null;
   // Render instant, for the tally-freshness note ("Tallies as of ...").
   now: number;
   /** Compact multi-body step sparkline for the History-tab teaser; null when empty. */
@@ -36,7 +43,7 @@ interface Props {
   trendHref: string;
 }
 
-const { action, params, drepStakeTotal, now, miniChart, trendHref } = Astro.props;
+const { action, params, drepStakeTotal, reprTotalPower, now, miniChart, trendHref } = Astro.props;
 
 // ParameterChange voting bodies depend on which parameters change: SPOs vote only on
 // security-relevant ones. Derive that from the payload; null for other types.
@@ -81,6 +88,22 @@ const rows = bodies.map((b) => {
       : b.body === 'CC' && snapshot?.ccBelowMinSize
         ? false
         : yes >= thr;
+  // Full-stake bar: only the DRep body has the four captured columns this
+  // reads (see fullStakeView.ts). Null on every old action and every other
+  // body, in which case the row below falls back to the existing bar exactly.
+  const fullStake =
+    b.body === 'DRep'
+      ? buildFullStakeBar({
+          actionType: action.type,
+          activeYesPower: action.drepYesPower,
+          activeNoPower: action.drepNoPower,
+          activeAbstainPower: action.drepAbstainPower,
+          alwaysAbstainPower: action.drepAlwaysAbstainPower,
+          alwaysNoConfidencePower: action.drepAlwaysNoConfidencePower,
+          reprTotalPower,
+          approvalThresholdPct: thr,
+        })
+      : null;
   return {
     body: b.body,
     label: b.label,
@@ -89,6 +112,7 @@ const rows = bodies.map((b) => {
     participation: b.participation,
     thresholdPct: thr,
     met,
+    fullStake,
   };
 });
 
@@ -134,7 +158,11 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
                 )}
               </div>
 
-              <CompositionBar bar={r.composition} thresholdPct={r.thresholdPct} />
+              {r.fullStake ? (
+                <FullStakeBar view={r.fullStake} />
+              ) : (
+                <CompositionBar bar={r.composition} thresholdPct={r.thresholdPct} />
+              )}
 
               {r.amounts && (
                 <div class="vote-amounts">
@@ -144,7 +172,7 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
                 </div>
               )}
 
-              {(r.thresholdPct != null || r.amounts?.hasAbstain) && (
+              {!r.fullStake && (r.thresholdPct != null || r.amounts?.hasAbstain) && (
                 <div class="vbody__foot">
                   {r.thresholdPct != null && (
                     <span class="vbody__thr">Threshold {fmtPctFine(r.thresholdPct)}</span>

@@ -71,6 +71,7 @@ import { ogCardVersion } from '@/lib/og/version.js';
 import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
+import { getEpochStatsByEpoch } from '@/lib/db/governanceEpochStats.js';
 import NclPanel from '@/components/ncl/NclPanel.astro';
 import NclMiniCard from '@/components/ncl/NclMiniCard.astro';
 import { NCL_PERIODS } from '../../../config/ncl-periods.js';
@@ -417,6 +418,16 @@ if (db && govAction && tab === 'history') {
 // instead of a second protocol-params read.
 const currentEpoch = params?.epoch ?? null;
 const ccEpoch = govAction ? committeeEpochForAction(govAction.decidedEpoch, currentEpoch) : null;
+
+// Full-stake tally denominator: governance_epoch_stats.total_drep_power at
+// whichever epoch identifies this action's tally, tallyEpoch preferred (the
+// epoch the DRep tally was actually computed at), falling back to
+// decidedEpoch, then the live current epoch for an action still voting. Null
+// when that epoch has no stored stats row yet, in which case the Voting
+// Information card's full-stake bar falls back to the existing composition bar.
+const reprEpoch = govAction ? govAction.tallyEpoch ?? govAction.decidedEpoch ?? currentEpoch : null;
+const epochStats = db && reprEpoch != null ? await getEpochStatsByEpoch(db, reprEpoch) : null;
+const reprTotalPower = epochStats?.totalDrepPower ?? null;
 let ccRows: CcPositionRow[] = [];
 let ccTotal = 0;
 if (db && govAction && tab === 'positions' && committee.members.length > 0 && ccEpoch != null && isCcEligible(govAction.type)) {
@@ -766,6 +777,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               action={govAction}
               params={params}
               drepStakeTotal={drepStakeTotal}
+              reprTotalPower={reprTotalPower}
               network={network}
               topVoters={topVoters}
               dreps={drepsMap}

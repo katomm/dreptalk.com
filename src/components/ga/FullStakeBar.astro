@@ -1,0 +1,129 @@
+---
+// Full-stake tally bar: the DRep composition rendered against the FULL
+// representative denominator (the epoch's total_drep_power plus both
+// default-vote pools), not just the active-vote total. See buildFullStakeBar
+// in lib/governance/fullStakeView.ts for the view model this reads. The track
+// segments and the threshold marker are decorative (aria-hidden). The legend
+// below carries the real numbers for screen readers, and the track itself
+// carries a summary aria-label. Marker styling mirrors CompositionBar's
+// threshold tick, this bar's own equivalent for the same on-chain axis.
+import { fmtPctFine, TONE_BAR_COLORS } from '@/lib/governance/view.js';
+import type { FullStakeBarView, FullStakeSegmentKey } from '@/lib/governance/fullStakeView.js';
+
+interface Props {
+  view: FullStakeBarView;
+  height?: number;
+}
+
+const { view, height = 12 } = Astro.props;
+const clamp = (n: number): number => Math.min(100, Math.max(0, n));
+
+// Fill per segment. Yes/No reuse CompositionBar's tone fills so the two bars
+// read as the same visual language across the sidebar. The remaining three
+// are muted variants built from existing tokens, distinct enough to tell
+// apart at a glance: activeAbstain leans on the accent (violet), alwaysAbstain
+// is a plain muted gray, alwaysNoConfidence is that same gray with a negative
+// tint (a default vote, but one that still resolves toward opposition on most
+// action types).
+const FILL: Record<FullStakeSegmentKey, string> = {
+  yes: TONE_BAR_COLORS.positive,
+  no: TONE_BAR_COLORS.negative,
+  activeAbstain: 'color-mix(in srgb, var(--accent) 55%, var(--surface-2))',
+  alwaysAbstain: 'color-mix(in srgb, var(--muted) 55%, var(--surface-2))',
+  alwaysNoConfidence: 'color-mix(in srgb, var(--c-neg) 35%, var(--muted))',
+  notVoted: 'color-mix(in srgb, var(--muted) 42%, var(--surface-2))',
+};
+
+const pctOf = (key: FullStakeSegmentKey): number => view.segments.find((s) => s.key === key)?.pct ?? 0;
+// Text alternative so the color-only bar is not lost to screen readers.
+const barLabel =
+  `Voting power: yes ${Math.round(pctOf('yes'))}%, no ${Math.round(pctOf('no'))}%, ` +
+  `not voted ${Math.round(pctOf('notVoted'))}%`;
+---
+
+<div class="fsbar">
+  <div class="fsbar__bar">
+    <div class="fsbar__track" style={`height:${height}px`} role="img" aria-label={barLabel}>
+      {view.segments.map((seg) => (
+        <span class="fsbar__seg" style={`width:${seg.pct}%;background:${FILL[seg.key]}`} aria-hidden="true"></span>
+      ))}
+    </div>
+    {view.thresholdPct != null && (
+      <span class="fsbar__marker" style={`left:${clamp(view.thresholdPct)}%`} aria-hidden="true"></span>
+    )}
+  </div>
+
+  <ul class="fsbar__legend">
+    {view.segments.map((seg) => (
+      <li class="fsbar__chip">
+        <span class="fsbar__dot" style={`background:${FILL[seg.key]}`}></span>
+        <span class="fsbar__chip-label">{seg.label}</span>
+        <span class="fsbar__chip-value">{fmtPctFine(seg.pct)} &middot; {seg.amountLabel}</span>
+      </li>
+    ))}
+  </ul>
+  <p class="fsbar__note">Always no confidence counts toward {view.ancEffect} on this action.</p>
+</div>
+
+<style>
+  .fsbar__bar { position: relative; }
+  .fsbar__track {
+    display: flex;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .fsbar__seg { height: 100%; }
+  .fsbar__marker {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: var(--fg);
+    transform: translateX(-1px);
+    border-radius: 1px;
+  }
+  .fsbar__marker::before {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-top: 4px solid var(--fg);
+  }
+
+  .fsbar__legend {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    font-size: 0.6875rem;
+    color: var(--muted);
+  }
+  .fsbar__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .fsbar__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    display: inline-block;
+    flex: none;
+  }
+  .fsbar__chip-label { color: var(--fg); font-weight: 600; }
+  .fsbar__chip-value { font-variant-numeric: tabular-nums; }
+
+  .fsbar__note {
+    margin: 0.375rem 0 0;
+    font-size: 0.6875rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+</style>
