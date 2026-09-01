@@ -14,6 +14,7 @@ import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import type { Pool } from '@/lib/db/pools.js';
 import type { CcPositionRow } from '@/lib/governance/ccPositions.js';
+import type { VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
@@ -37,9 +38,16 @@ interface Props {
   now: number;
   ccRows: CcPositionRow[];
   ccTotal: number;
+  /** Effective voting concentration over the DRep list, null when incomputable. */
+  concentration: VoteConcentrationView | null;
+  /** The frozen DRep approval threshold percent backing the thresholdCount line. */
+  concentrationThresholdPct: number | null;
 }
 
-const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted, voteHistory, now, ccRows, ccTotal } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted, voteHistory, now, ccRows, ccTotal, concentration, concentrationThresholdPct } = Astro.props;
+
+// One-decimal percent for the concentration strip, matching the hub's fmtShare.
+const fmtConcPct = (pct: number): string => `${pct.toFixed(1)}%`;
 
 // Determine active role from the query string; default to DReps.
 const roleParam = Astro.url.searchParams.get('role');
@@ -141,6 +149,25 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
 
   {lateOnPage > 0 && (
     <p class="ga-positions__hint">Struck-through weight was cast after ratification and did not count in the tally.</p>
+  )}
+
+  {role === 'drep' && concentration && (
+    <div class="ga-conc" aria-label="Voting concentration">
+      <p class="ga-conc__title">Voting concentration</p>
+      <p class="ga-conc__line">
+        <b>{concentration.halfCount}</b> of {concentration.voterCount} DReps cast half of the voted power.
+      </p>
+      <p class="ga-conc__line ga-conc__line--muted">
+        Largest voter {fmtConcPct(concentration.largestPct)}{concentration.top5Pct != null && `, top 5 combined ${fmtConcPct(concentration.top5Pct)}`} of {formatAdaCompact(String(concentration.votedPower))} voted.
+      </p>
+      {concentration.thresholdCount != null && concentrationThresholdPct != null && (
+        <p class="ga-conc__line ga-conc__line--muted">
+          {concentration.thresholdCount === 1
+            ? `The largest voter alone held enough voting power to cross the ${fmtConcPct(concentrationThresholdPct)} threshold.`
+            : `The ${concentration.thresholdCount} largest voters together held enough voting power to cross the ${fmtConcPct(concentrationThresholdPct)} threshold on their own.`}
+        </p>
+      )}
+    </div>
   )}
 
   {activeVoters.length > 0 && (
@@ -314,6 +341,34 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     display: flex;
     flex-direction: column;
     gap: 0;
+  }
+
+  /* Voting concentration strip: sits directly above the DRep voter list. */
+  .ga-conc {
+    margin: 0.75rem 0 1rem;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .ga-conc__title {
+    margin: 0 0 0.25rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .ga-conc__line {
+    margin: 0.15rem 0 0;
+    font-size: 0.85rem;
+  }
+
+  .ga-conc__line--muted {
+    color: var(--muted);
+    font-size: 0.8rem;
   }
 
   .ga-positions__row {

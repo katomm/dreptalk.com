@@ -33,8 +33,10 @@ import {
 } from '@/lib/db/governance.js';
 import { headlineComposition, isSpoLedType, isCcEligible } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows, committeeEpochForAction } from '@/lib/db/committee.js';
+import { buildVoteConcentration, requiredYesPower, type VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
+import { readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
@@ -449,6 +451,19 @@ if (db && govAction && tab === 'positions' && committee.members.length > 0 && cc
   ccTotal = activeCommitteeSizeAt(committee.members, ccEpoch);
 }
 
+// Effective voting concentration for the Positions tab's DRep list: computed
+// from the voted power of every live DRep vote. The threshold reading uses the
+// frozen per-action snapshot only, on the same abstain-reduced base as the
+// full-stake bar's marker, so the two surfaces never disagree.
+let voteConcentration: VoteConcentrationView | null = null;
+let concThresholdPct: number | null = null;
+if (db && govAction && tab === 'positions') {
+  const powers = await listDrepVotePowers(db, govAction.id);
+  concThresholdPct = readThresholdSnapshot(govAction.thresholdsJson)?.drep ?? null;
+  const required = requiredYesPower(reprTotalPower, govAction.drepAbstainPower, concThresholdPct);
+  voteConcentration = buildVoteConcentration(powers, required);
+}
+
 // Compact multi-body step sparkline for the Voting Information card's teaser link
 // into the History tab. Built from the same trend rows loaded above, no second
 // read. Null when there is no vote data yet.
@@ -705,6 +720,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 now={now}
                 ccRows={ccRows}
                 ccTotal={ccTotal}
+                concentration={voteConcentration}
+                concentrationThresholdPct={concThresholdPct}
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />
