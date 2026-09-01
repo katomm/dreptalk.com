@@ -39,7 +39,7 @@ The trend chart on a profile reaches all the way back to the start of the DRep e
 
 ## For DRep owners
 
-Signed-in DReps can access a private detail page at /my-governance-record/ showing the complete data behind the governance record card. The page displays the full distributions underlying your participation and rationale percentiles, lists eligible actions you have not yet voted on, shows votes without a published rationale, and compares your voting timing pattern to the network median. The page is private to you, but every underlying fact is public blockchain data.
+Signed-in DReps can access a [private detail page](/my-governance-record/) showing the complete data behind the governance record card. The page displays the full distributions underlying your participation and rationale percentiles, lists eligible actions you have not yet voted on, shows votes without a published rationale, and compares your voting timing pattern to the network median. The page is private to you, but every underlying fact is public blockchain data.
 
 ## Frequently asked questions
 
