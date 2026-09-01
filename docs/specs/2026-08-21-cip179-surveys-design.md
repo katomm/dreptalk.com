@@ -465,3 +465,44 @@ have refreshed forever; with all three states stored, increment 3's
 "a held survey refreshes until `final_state`" holds as written.
 `artifactHash` arrives for free and stays unused — this mirror shows
 participation, never a result.
+
+## 10. Ambient runtime env vs. route testability — for the maintainer
+
+Surfaced by increment 1's feature gate, not caused by it, and deliberately
+not fixed on this branch.
+
+`canAnswerSurvey` and the record API now fork on `TESSERA_BACKEND_URL`
+being present. That is the first route behaviour here to depend on a
+**config var** rather than on a binding, and it exposes a shape that
+predates surveys: Astro 6 / adapter 13 removed `Astro.locals.runtime.env`,
+so `runtimeEnv(_locals)` (`src/lib/api/response.ts`) ignores its argument
+and returns the `cloudflare:workers` module env. A handler's configuration
+therefore arrives ambiently and cannot be passed in — the framework fixes
+the handler signature.
+
+The consequence is only visible in tests. Bindings are fine: the workers
+pool provides real D1, KV and R2, so `env.DB` needs nothing. A var does not
+exist in the pool at all, so a test that needs one present or absent has to
+assign to the module env object —
+`src/pages/api/survey/response/__tests__/record.workers.test.ts` sets
+`TESSERA_BACKEND_URL` in `beforeEach` (a deployment that mirrors surveys)
+and clears it in the 503 test (one that does not). It is sound — the object
+is the real runtime env, the assignment is visible through `runtimeEnv()`,
+and each test file gets its own environment, so nothing leaks — but the
+test reaches around the handler instead of describing an input.
+
+Measured scope: `Cloudflare.Env` declares 17 config vars, and roughly 13
+places outside tests fork behaviour on a network or URL var. Every one of
+them is reachable only the same way.
+
+The project already owns the fix. `src/lib/legal.ts` splits it — "Pure
+parser, exported for tests; getLegalInfo wires it to the runtime env" — so
+the rule exists; it just has not been applied to routes. Applied here the
+route would stay a thin adapter that reads the ambient env and passes
+explicit inputs (`{ db, surveysIndexed, ... }`) to a function the tests call
+directly.
+
+Left alone on purpose. Converting one route would make it the only one of
+its shape among ~40 API routes, and the buy is three lines of test setup;
+the pattern belongs to `main` and is worth deciding once, for all of the
+sites, rather than once badly for this one.
