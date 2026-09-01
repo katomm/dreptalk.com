@@ -3,11 +3,11 @@
 // eligibility epoch, the same active-member set and the same final-vote
 // dedup, so the hub can never disagree with an action's own Votes tab.
 // Actions that cannot be resolved are skipped and disclosed, and the
-// below-threshold rate only uses the frozen per-action snapshot. The real
-// committee has held two separate cold-key credentials for the Cardano
-// Japan Council at once (two seats at the same organization), so two Japan
-// Council rows in the member list is real committee structure, not a
-// name-dedup bug.
+// below-threshold rate only uses the frozen per-action snapshot. The Cardano
+// Japan Council appears twice on purpose: its interim-committee credential
+// (epochs 507 to 580) and its elected-committee credential (since 581) are
+// two cold keys with their own eligibility windows, so merging them by name
+// would misstate eligibility.
 import { activeCommitteeMembersAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { finalCcVoteByMember } from '../koios/corrections.js';
 import { committeeEpochForAction, type CcVoteRow, type DecidedCcAction } from '../db/committee.js';
