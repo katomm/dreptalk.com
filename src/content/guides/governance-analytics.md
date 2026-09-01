@@ -16,14 +16,14 @@ faqs:
   - q: "What counts as a changed vote?"
     a: "Only a re-vote whose final position differs from the voter's first recorded one. Re-votes that keep the position, for example to attach or update a rationale, are counted separately and never shown as changed votes."
   - q: "Could the largest DReps really decide an action on their own?"
-    a: "The smallest-group numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure."
+    a: "The minimum coalition numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure."
   - q: "Does a missing rationale mean a DRep voted carelessly?"
     a: "No. The rationale figures measure whether a vote carries a published explanation, nothing about its reasoning. Some DReps explain their votes in other places, and a vote without an attached rationale can be as considered as any other."
   - q: "Why do committee counts differ from the seat count?"
     a: "Membership changes over time. A member who resigned, whose term expired, or who had not yet registered a voting key does not count as eligible for an action decided in that period, so each action is measured against the committee as it stood at the time."
 ---
 
-The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day.
+The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in four chapters: governance today, representation and participation, accountability and behaviour, and decentralization.
 
 ## The two layers
 
@@ -65,7 +65,7 @@ A committee vote against an action expresses that the member did not find it con
 
 The lower part of the page looks at how concentrated the delegated voting power itself is, independent of who actually votes. The Gini coefficient summarizes how unevenly power is spread across DReps, from 0 for a perfectly even spread to values near 1 when a few DReps hold most of it. The top-10 share and the minimum-coalition counts make the same idea concrete: how much the ten largest DReps hold, and how few of the largest DReps together reach half or two thirds of all delegated power.
 
-The smallest-group table applies the live approval thresholds to the current distribution: for each threshold it shows how few of the largest DReps together hold that share of the delegated power, and which action types the threshold gates. This is arithmetic on delegated power, not a claim that those DReps coordinate or vote at all. How the power that actually voted concentrates is a separate reading, described under voting concentration above.
+The minimum coalition table applies the live approval thresholds to the current distribution: for each threshold it shows how few of the largest DReps together hold that share of the delegated power, and which action types the threshold gates. This is arithmetic on delegated power, not a claim that those DReps coordinate or vote at all. How the power that actually voted concentrates is a separate reading, described under voting concentration above.
 
 ## Where the numbers come from
 
@@ -99,7 +99,7 @@ No. The rationale figures measure whether a vote carries a published explanation
 
 ### Could the largest DReps really decide an action on their own?
 
-The smallest-group numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure.
+The minimum coalition numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure.
 
 ### Why do committee counts differ from the seat count?
 
