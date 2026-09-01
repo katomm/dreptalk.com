@@ -1,12 +1,21 @@
 ---
-// Sidebar card: one row per voting body (DRep, SPO, CC) with a Yes / No / Not-voted
-// composition bar over that body's whole eligible voting power. The headline "X% yes
-// of eligible" is the stored ratification percentage (matches gov.tools/adastats), so
-// non-voting stake is shown as its own Not-voted segment rather than folded into a
-// misleading "No", and a low-turnout action never reads as "100% yes". Types with an
-// on-chain threshold also carry the threshold marker and a Met / Not met verdict; Info
-// actions have neither (their percentages are advisory). The voting window lives in the
-// Status card above, so it is not repeated here.
+// Sidebar card: one row per voting body (DRep, SPO, CC), compact by default and
+// expandable to the full stake behind the number.
+//
+// Compact carries only what cannot be misread on its own: the ratification yes share
+// WITH the denominator it is measured against, the Yes-against-No-side bar with the
+// threshold marker, and the amount of stake the tally excludes. That last figure is
+// also the affordance to expand, because on most actions it is the biggest and most
+// surprising number in the card (half the pool stake on a typical NewCommittee), and a
+// bare chevron would promise nothing.
+//
+// Everything that needs its denominator explained is in the expanded state: the
+// per-segment breakdown, how much of the No side never actually voted, and turnout.
+// The old compact row showed "X% yes of eligible" next to a turnout on a different
+// denominator, which let 51% yes sit beside 28% turnout with no way to tell that both
+// were right. Types with an on-chain threshold carry the marker and a Met / Not met
+// verdict; Info actions have neither (their percentages are advisory). The voting
+// window lives in the Status card above, so it is not repeated here.
 import CompositionBar from './CompositionBar.astro';
 import FullStakeBar from './FullStakeBar.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
@@ -14,12 +23,11 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendChart } from '@/lib/governance/voteTrend.js';
 import { evaluateThresholds, hasOnchainThreshold, readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope } from '@/lib/governance/onchain.js';
-import { buildFullStakeBar } from '@/lib/governance/fullStakeView.js';
 import {
-  fmtPct,
   fmtPctFine,
   overviewRowVoting,
   compositionAmounts,
+  bodyStake,
   absentBodyNote,
 } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
@@ -30,13 +38,6 @@ interface Props {
   // Total active DRep voting power: the denominator for the DRep composition and
   // turnout. Null for SPO-led types or before a tally syncs.
   drepStakeTotal: number | null;
-  // governance_epoch_stats.total_drep_power at whichever epoch identifies this
-  // action's tally: tallyEpoch preferred, falling back to decidedEpoch, then the
-  // live current epoch for an action still voting (see t/[slug].astro). The
-  // denominator for the DRep full-stake bar. Null before that epoch's stats row
-  // exists, in which case the DRep body falls back to the existing active-only
-  // composition bar.
-  reprTotalPower: string | null;
   // Render instant, for the tally-freshness note ("Tallies as of ...").
   now: number;
   /** Compact multi-body step sparkline for the History-tab teaser; null when empty. */
@@ -45,7 +46,7 @@ interface Props {
   trendHref: string;
 }
 
-const { action, params, drepStakeTotal, reprTotalPower, now, miniChart, trendHref } = Astro.props;
+const { action, params, drepStakeTotal, now, miniChart, trendHref } = Astro.props;
 
 // ParameterChange voting bodies depend on which parameters change: SPOs vote only on
 // security-relevant ones. Derive that from the payload; null for other types.
@@ -90,22 +91,10 @@ const rows = bodies.map((b) => {
       : b.body === 'CC' && snapshot?.ccBelowMinSize
         ? false
         : yes >= thr;
-  // Full-stake bar: only the DRep body has the four captured columns this
-  // reads (see fullStakeView.ts). Null on every old action and every other
-  // body, in which case the row below falls back to the existing bar exactly.
-  const fullStake =
-    b.body === 'DRep'
-      ? buildFullStakeBar({
-          actionType: action.type,
-          activeYesPower: action.drepYesPower,
-          activeNoPower: action.drepNoPower,
-          activeAbstainPower: action.drepAbstainPower,
-          alwaysAbstainPower: action.drepAlwaysAbstainPower,
-          alwaysNoConfidencePower: action.drepAlwaysNoConfidencePower,
-          reprTotalPower,
-          approvalThresholdPct: thr,
-        })
-      : null;
+  // The captured stake model, for both stake bodies now that the No side is stored.
+  // Null for CC (seats, not stake) and for actions whose buckets predate the capture,
+  // in which case the row renders compact-only with no expander.
+  const stake = bodyStake(action, b.body, thr);
   return {
     body: b.body,
     label: b.label,
@@ -114,15 +103,14 @@ const rows = bodies.map((b) => {
     participation: b.participation,
     thresholdPct: thr,
     met,
-    fullStake,
+    stake,
   };
 });
 
-// Whether the DRep row rendered the full-stake bar. When it did, that bar's own
-// legend already states the full-stake denominator and abstain handling, so the
-// "no on-chain threshold" note below drops the eligible/abstain clause that only
-// describes the fallback active-only bar.
-const drepFullStake = rows.some((r) => r.body === 'DRep' && r.fullStake != null);
+// Whether every rendered body states its own denominator inline. When they do, the
+// "no on-chain threshold" note below drops the eligible/abstain clause, which only
+// describes the pre-capture fallback rendering.
+const allStated = rows.every((r) => r.stake != null);
 
 // Names the bodies that cannot vote on this action type ("SPOs do not vote on
 // treasury withdrawals"), shown here rather than repeated on every overview row.
@@ -158,46 +146,52 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
           </div>
 
           {r.composition ? (
-            <>
-              <div class="vbody__lead">
-                <span class="vbody__yes">
-                  <b>{fmtPctFine(r.composition.yes)}</b> yes{' '}
-                  {r.fullStake ? (
-                    <span class="vbody__lead-note">of the vote-eligible stake</span>
-                  ) : (
-                    'of eligible'
-                  )}
-                </span>
-                {r.participation != null && (
-                  <span class="vbody__turnout">{fmtPct(r.participation)} turnout</span>
+            r.stake ? (
+              <details class="vbody__more">
+                <summary>
+                  <div class="vbody__lead">
+                    <span class="vbody__yes"><b>{fmtPctFine(r.composition.yes)}</b> yes</span>
+                    <span class="vbody__basis">of {r.stake.countedLabel} counted</span>
+                  </div>
+                  <div class="vbody__bar"><CompositionBar bar={r.composition} thresholdPct={r.thresholdPct} /></div>
+                  <div class="vbody__foot">
+                    {r.thresholdPct != null && (
+                      <span class="vbody__thr">Threshold {fmtPctFine(r.thresholdPct)}</span>
+                    )}
+                    <span class="vbody__expand">{r.stake.excludedLabel} excluded</span>
+                  </div>
+                </summary>
+                <FullStakeBar view={r.stake} />
+              </details>
+            ) : (
+              <>
+                <div class="vbody__lead">
+                  <span class="vbody__yes"><b>{fmtPctFine(r.composition.yes)}</b> yes</span>
+                  <span class="vbody__basis">of the counted stake</span>
+                </div>
+
+                <div class="vbody__bar"><CompositionBar bar={r.composition} thresholdPct={r.thresholdPct} /></div>
+
+                {r.amounts && (
+                  <div class="vote-amounts">
+                    <span><b>{r.amounts.yes}</b> yes</span>
+                    <span>{r.amounts.no} no</span>
+                    <span>{r.amounts.notVoted} not voted</span>
+                  </div>
                 )}
-              </div>
 
-              {r.fullStake ? (
-                <FullStakeBar view={r.fullStake} />
-              ) : (
-                <CompositionBar bar={r.composition} thresholdPct={r.thresholdPct} />
-              )}
-
-              {!r.fullStake && r.amounts && (
-                <div class="vote-amounts">
-                  <span><b>{r.amounts.yes}</b> yes</span>
-                  <span>{r.amounts.no} no</span>
-                  <span>{r.amounts.notVoted} not voted</span>
-                </div>
-              )}
-
-              {!r.fullStake && (r.thresholdPct != null || r.amounts?.hasAbstain) && (
-                <div class="vbody__foot">
-                  {r.thresholdPct != null && (
-                    <span class="vbody__thr">Threshold {fmtPctFine(r.thresholdPct)}</span>
-                  )}
-                  {r.amounts?.hasAbstain && (
-                    <span>{r.amounts.abstainExcluded} abstain excluded</span>
-                  )}
-                </div>
-              )}
-            </>
+                {(r.thresholdPct != null || r.amounts?.hasAbstain) && (
+                  <div class="vbody__foot">
+                    {r.thresholdPct != null && (
+                      <span class="vbody__thr">Threshold {fmtPctFine(r.thresholdPct)}</span>
+                    )}
+                    {r.amounts?.hasAbstain && (
+                      <span>{r.amounts.abstainExcluded} abstain excluded</span>
+                    )}
+                  </div>
+                )}
+              </>
+            )
           ) : (
             <p class="vbody__none">No votes recorded.</p>
           )}
@@ -219,9 +213,9 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
 
   {!hasThreshold && rows.length > 0 && (
     <p class="info-note">
-      {drepFullStake
+      {allStated
         ? 'No on-chain threshold for this action type.'
-        : 'No on-chain threshold for this action type. Shares are of eligible voting power, abstentions excluded.'}
+        : 'No on-chain threshold for this action type. Shares are of the counted stake, abstentions excluded.'}
     </p>
   )}
   {absentNote && <p class="info-note info-note--absent">{absentNote}</p>}
@@ -279,8 +273,8 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
   .vbody__met--yes { color: var(--c-pos); }
   .vbody__met--no { color: var(--muted); }
 
-  /* Headline: the ratification yes-share (matches gov.tools), with turnout to the
-     right so a big Yes off a tiny turnout is never read out of context. */
+  /* Headline: the ratification yes-share with the denominator it belongs to, on
+     the same line, so the two can never be quoted apart. */
   .vbody__lead {
     display: flex;
     justify-content: space-between;
@@ -297,18 +291,70 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     font-weight: 600;
     font-size: 0.95rem;
   }
-  .vbody__turnout {
+  .vbody__basis {
     font-size: 0.72rem;
     color: var(--muted);
     white-space: nowrap;
   }
-  /* Disambiguates the headline's ratification share from the full-stake bar's own
-     yes% below (a different denominator), styled like the card's other footnotes
-     (.info-footnote) so it reads as a clarifying aside, not part of the number. */
-  .vbody__lead-note {
-    font-size: 0.6875rem;
-    color: var(--muted);
-    font-style: italic;
+
+  /* Clearance for the threshold tick's overhang on both sides of the track, so the
+     line reads against the bar and never against a digit. */
+  .vbody__bar {
+    margin: 0.1875rem 0;
+  }
+
+  /* Expandable body row. <details> keeps this working with no JavaScript, so it
+     survives SSR and needs no CSP hash, and each body opens independently. */
+  .vbody__more > summary {
+    list-style: none;
+    cursor: pointer;
+    /* summary is its own box, so it does not inherit .vbody's row gap. Without
+       this the headline and footer sit flush against the bar and the threshold
+       tick, which overhangs the track by design, crosses into the text. */
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+  .vbody__more > summary::-webkit-details-marker { display: none; }
+  .vbody__more > summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 0.25rem;
+  }
+  /* The excluded amount doubles as the expander: it is the number most likely to
+     make a reader want the breakdown, so it carries the affordance. */
+  .vbody__expand {
+    color: var(--accent);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+  .vbody__expand::after {
+    content: '';
+    width: 0.3rem;
+    height: 0.3rem;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-1px) rotate(45deg);
+    transition: transform 0.12s ease;
+  }
+  .vbody__more[open] > summary .vbody__expand::after {
+    transform: translateY(1px) rotate(225deg);
+  }
+  .vbody__more > summary:hover .vbody__expand { text-decoration: underline; }
+  /* Grid trick: animates to the content's own height without hard-coding one. */
+  .vbody__more[open] > :global(.fsbar) {
+    display: grid;
+    grid-template-rows: 1fr;
+    animation: vbody-open 0.14s ease;
+  }
+  @keyframes vbody-open {
+    from { grid-template-rows: 0fr; opacity: 0; }
+    to { grid-template-rows: 1fr; opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vbody__more[open] > :global(.fsbar) { animation: none; }
+    .vbody__expand::after { transition: none; }
   }
 
   .vote-amounts {

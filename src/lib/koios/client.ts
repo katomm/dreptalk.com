@@ -192,6 +192,10 @@ const votingSummarySchema = z
     drep_active_yes_vote_power: z.string().nullable().optional(),
     drep_active_no_vote_power: z.string().nullable().optional(),
     drep_active_abstain_vote_power: z.string().nullable().optional(),
+    // The ratification No side: cast No plus the non-voting default No plus the
+    // always-no-confidence bucket, all in one figure (see eligibleStake in
+    // koios/corrections.ts for why it must never be summed with the ANC field).
+    drep_no_vote_power: z.string().nullable().optional(),
     drep_always_abstain_vote_power: z.string().nullable().optional(),
     drep_always_no_confidence_vote_power: z.string().nullable().optional(),
     pool_yes_votes_cast: z.number().nullable().optional(),

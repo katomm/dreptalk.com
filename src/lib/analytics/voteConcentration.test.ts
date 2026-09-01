@@ -70,26 +70,26 @@ describe('buildVoteConcentration', () => {
 });
 
 describe('requiredYesPower', () => {
-  it('scales the abstain-reduced representative stake by the threshold', () => {
-    // reprTotal 1000, activeAbstain 200, threshold 67% → 536
-    expect(requiredYesPower('1000', 200, 67)).toBe(536n);
+  it('scales the ratification denominator (yes plus the No side) by the threshold', () => {
+    // activeYes 300, noSide 500 -> counted 800, 67% -> 536
+    expect(requiredYesPower(300, '500', 67)).toBe(536n);
   });
 
   it('handles a fractional threshold percent exactly', () => {
-    // reprTotal 10000, no abstain, 60.5% → 6050
-    expect(requiredYesPower('10000', null, 60.5)).toBe(6050n);
+    // no active yes yet, noSide 10000, 60.5% -> 6050
+    expect(requiredYesPower(null, '10000', 60.5)).toBe(6050n);
   });
 
   it('returns null when any input is missing', () => {
-    expect(requiredYesPower(null, 0, 67)).toBeNull();
-    expect(requiredYesPower('1000', 0, null)).toBeNull();
+    expect(requiredYesPower(300, null, 67)).toBeNull();
+    expect(requiredYesPower(300, '500', null)).toBeNull();
   });
 
   it('returns null on malformed stored text', () => {
-    expect(requiredYesPower('not-a-number', 0, 67)).toBeNull();
+    expect(requiredYesPower(300, 'not-a-number', 67)).toBeNull();
   });
 
-  it('returns null when abstain meets or exceeds the total', () => {
-    expect(requiredYesPower('1000', 1000, 67)).toBeNull();
+  it('returns null when the denominator is not positive', () => {
+    expect(requiredYesPower(null, '0', 67)).toBeNull();
   });
 });

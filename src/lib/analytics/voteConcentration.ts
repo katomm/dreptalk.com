@@ -34,29 +34,30 @@ function pct4(part: bigint, total: bigint): number {
 
 /**
  * Yes power required to cross the ratification threshold, on the same base the
- * full-stake bar's marker uses (fullStakeView.ts), threshold percent of the
- * abstain-reduced representative stake, reprTotal from governance_epoch_stats.
- * Null when any input is absent, malformed, or the base is not positive.
+ * full-stake bar's marker uses (fullStakeView.ts): the threshold percent of the
+ * ratification denominator, activeYes plus the No side as the ledger counts it
+ * (cast No, non-voting default No and always-no-confidence, folded by Koios).
+ * Null when either input is absent, malformed, or the denominator is not
+ * positive.
  */
 export function requiredYesPower(
-  reprTotalPower: string | null,
-  activeAbstainPower: number | null,
+  activeYesPower: number | null,
+  noSidePower: string | null,
   approvalThresholdPct: number | null,
 ): bigint | null {
-  if (reprTotalPower === null || approvalThresholdPct === null) return null;
-  let reprTotal: bigint;
+  if (noSidePower === null || approvalThresholdPct === null) return null;
+  let noSide: bigint;
   try {
-    reprTotal = BigInt(reprTotalPower);
+    noSide = BigInt(noSidePower);
   } catch {
     return null;
   }
-  const abstain = activeAbstainPower === null ? 0n : BigInt(activeAbstainPower);
-  const base = reprTotal - abstain;
-  if (base <= 0n) return null;
+  const counted = (activeYesPower === null ? 0n : BigInt(activeYesPower)) + noSide;
+  if (counted <= 0n) return null;
   // Threshold percent to 4 decimals as an integer scale, so 60.5% stays exact.
   const thrScaled = BigInt(Math.round(approvalThresholdPct * 10_000));
   if (thrScaled <= 0n) return null;
-  return (base * thrScaled) / 1_000_000n;
+  return (counted * thrScaled) / 1_000_000n;
 }
 
 export function buildVoteConcentration(

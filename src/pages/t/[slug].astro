@@ -74,7 +74,6 @@ import { ogCardVersion } from '@/lib/og/version.js';
 import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
-import { getEpochStatsByEpoch } from '@/lib/db/governanceEpochStats.js';
 import NclPanel from '@/components/ncl/NclPanel.astro';
 import NclMiniCard from '@/components/ncl/NclMiniCard.astro';
 import { NCL_PERIODS } from '../../../config/ncl-periods.js';
@@ -429,15 +428,6 @@ if (db && govAction && tab === 'history') {
 const currentEpoch = params?.epoch ?? null;
 const ccEpoch = govAction ? committeeEpochForAction(govAction.decidedEpoch, currentEpoch) : null;
 
-// Full-stake tally denominator: governance_epoch_stats.total_drep_power at
-// whichever epoch identifies this action's tally, tallyEpoch preferred (the
-// epoch the DRep tally was actually computed at), falling back to
-// decidedEpoch, then the live current epoch for an action still voting. Null
-// when that epoch has no stored stats row yet, in which case the Voting
-// Information card's full-stake bar falls back to the existing composition bar.
-const reprEpoch = govAction ? govAction.tallyEpoch ?? govAction.decidedEpoch ?? currentEpoch : null;
-const epochStats = db && reprEpoch != null ? await getEpochStatsByEpoch(db, reprEpoch) : null;
-const reprTotalPower = epochStats?.totalDrepPower ?? null;
 let ccRows: CcPositionRow[] = [];
 let ccTotal = 0;
 if (db && govAction && tab === 'positions' && committee.members.length > 0 && ccEpoch != null && isCcEligible(govAction.type)) {
@@ -461,14 +451,14 @@ if (db && govAction && tab === 'positions' && committee.members.length > 0 && cc
 
 // Effective voting concentration for the Positions tab's DRep list: computed
 // from the voted power of every live DRep vote. The threshold reading uses the
-// frozen per-action snapshot only, on the same abstain-reduced base as the
-// full-stake bar's marker, so the two surfaces never disagree.
+// frozen per-action snapshot only, on the same ratification denominator as
+// the full-stake bar's marker (yes plus the No side), so the two never disagree.
 let voteConcentration: VoteConcentrationView | null = null;
 let concThresholdPct: number | null = null;
 if (db && govAction && tab === 'positions') {
   const powers = await listDrepVotePowers(db, govAction.id);
   concThresholdPct = readThresholdSnapshot(govAction.thresholdsJson)?.drep ?? null;
-  const required = requiredYesPower(reprTotalPower, govAction.drepAbstainPower, concThresholdPct);
+  const required = requiredYesPower(govAction.drepYesPower, govAction.drepNoSidePower, concThresholdPct);
   // Skew guard: the per-vote rows sync separately from the tally counts, so a
   // freshly decided action can hold fewer vote rows than the tally counted.
   // Late votes only ever push the row count above the tally count.
@@ -809,7 +799,6 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               action={govAction}
               params={params}
               drepStakeTotal={drepStakeTotal}
-              reprTotalPower={reprTotalPower}
               network={network}
               topVoters={topVoters}
               dreps={drepsMap}

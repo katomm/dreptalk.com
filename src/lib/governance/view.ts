@@ -6,6 +6,7 @@
 
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
+import { buildBodyStake } from './fullStakeView.js';
 import type { Body } from './thresholds.js';
 
 // Re-exported so governance components keep importing the ada formatters from
@@ -482,39 +483,30 @@ export function absentBodyNote(
 
 
 /**
- * Turnout (0..100) for one body; null when its denominator is unknown or zero.
+ * Turnout (0..100) for one body: the stake that actually cast a vote over ALL of
+ * that body's eligible stake. One basis for every body, so the DRep and SPO numbers
+ * in the same card answer the same question and can be read against each other.
  *
- * Note the DRep and SPO denominators are not strictly like-for-like: DRep turnout
- * divides by opts.drepStakeTotal, which comes from getActiveDrepStake and sums
- * only rows with active = 1, excluding the predefined always-abstain and
- * always-no-confidence stake. SPO turnout divides by a.spoEligiblePower (see
- * spoEligiblePower in koios/corrections.ts), which does include the two passive
- * always-abstain/always-no-confidence buckets alongside the active pools. So a
- * higher SPO participation percentage is not automatically "more engaged" than
- * the same DRep percentage; part of the SPO denominator is stake that can never
- * cast an explicit vote.
+ * This used to differ per body. DRep turnout divided by the active DRep stake, which
+ * already has the always-abstain delegations removed, while SPO turnout divided by
+ * every pool's stake including them. The same action then reported 71% DRep turnout
+ * next to 28% SPO turnout, a gap that was mostly denominator, not behaviour.
+ *
+ * Null until the action's stake buckets are captured (see buildBodyStake), so an
+ * un-backfilled action shows no turnout rather than one on the old basis. CC turnout
+ * stays a seat count, which has no stake denominator to get wrong.
  */
 function participationFor(
   a: RowVotingInput,
   body: Body,
   opts: { drepStakeTotal: number | null; committeeSize: number | null },
 ): number | null {
-  switch (body) {
-    case 'DRep': {
-      if (a.drepVotedPower == null || !opts.drepStakeTotal) return null;
-      return clampPct((a.drepVotedPower / opts.drepStakeTotal) * 100);
-    }
-    case 'SPO': {
-      if (!a.spoEligiblePower) return null;
-      const cast = (a.spoYesPower ?? 0) + (a.spoNoPower ?? 0) + (a.spoAbstainPower ?? 0);
-      return clampPct((cast / a.spoEligiblePower) * 100);
-    }
-    case 'CC': {
-      if (!opts.committeeSize) return null;
-      const cast = (a.ccYes ?? 0) + (a.ccNo ?? 0) + (a.ccAbstain ?? 0);
-      return clampPct((cast / opts.committeeSize) * 100);
-    }
+  if (body === 'CC') {
+    if (!opts.committeeSize) return null;
+    const cast = (a.ccYes ?? 0) + (a.ccNo ?? 0) + (a.ccAbstain ?? 0);
+    return clampPct((cast / opts.committeeSize) * 100);
   }
+  return bodyStake(a, body)?.turnoutPct ?? null;
 }
 
 // The fields overviewRowVoting reads off a governance action: type (for
@@ -546,6 +538,13 @@ export interface RowVotingInput {
   spoAbstainPower: number | null;
   drepVotedPower: number | null;
   spoEligiblePower: number | null;
+  // The captured stake buckets (raw lovelace strings), read only through bodyStake.
+  drepNoSidePower: string | null;
+  spoNoSidePower: string | null;
+  drepAlwaysAbstainPower: string | null;
+  drepAlwaysNoConfidencePower: string | null;
+  spoAlwaysAbstainPower: string | null;
+  spoAlwaysNoConfidencePower: string | null;
 }
 
 export interface RowBodyVoting {
@@ -620,7 +619,7 @@ export function overviewRowVoting(
     body,
     label: BODY_LABEL[body],
     participation: participationFor(a, body, opts),
-    composition: bodyComposition(a, body, opts),
+    composition: bodyComposition(a, body),
   }));
   // absentBodies are the normally-expected CIP-1694 bodies (the full DRep/SPO/CC
   // set) that are not eligible here, e.g. SPO for a treasury withdrawal. Compared
@@ -632,96 +631,56 @@ export function overviewRowVoting(
 }
 
 /**
- * A composition bar over one body's whole eligible voting power: Yes / No / Not
- * voted, summing to 100. Abstain is excluded from the denominator (the ledger
- * ratification rule), so it is not a segment; the abstained stake is surfaced
- * separately as a footnote. Unlike a share of only the votes actually cast (which can
- * read "100% yes" off a single voter) this never hides the silent majority: a body
- * where almost no stake voted renders a near-empty bar dominated by Not voted.
+ * The ratification split for one body: Yes and the No side, over the denominator the
+ * threshold is actually measured against (yes + no side). The two always sum to 100.
+ *
+ * The No side is not "everyone who voted No". It is what the ledger counts against the
+ * action: the cast No votes, the always-no-confidence stake, AND every eligible holder
+ * who never voted at all. Abstain is the only thing that leaves the denominator.
+ *
+ * An earlier version drew a third, neutral Not-voted segment so a low-turnout action
+ * would not read as a wall of opposition. Well meant, but it described a tally rule
+ * that does not exist: non-voting stake is not neutral, it defeats the action exactly
+ * like a No. The nuance it was reaching for is real and now lives where it is true, in
+ * the per-segment breakdown (buildBodyStake), which names how much of the No side never
+ * voted. The bar itself states the rule.
  */
 export interface CompositionBar {
-  yes: number;      // 0..100, equals the stored ratification pct (matches gov.tools)
-  no: number;       // 0..100
-  notVoted: number; // 0..100; yes + no + notVoted === 100 when the split is known
-  // False when the eligible denominator is unknown, so No and Not voted could not be
-  // split: the whole non-yes remainder is shown as a single neutral (Not voted) block
-  // rather than being guessed as opposition.
-  splitKnown: boolean;
+  yes: number; // 0..100, the stored ratification pct (matches gov.tools)
+  no: number;  // 0..100, the remainder; yes + no === 100
+}
+
+/** The ratification split from the stored percentage. Null before a tally syncs. */
+export function compositionBar(input: { yesPct: number | null }): CompositionBar | null {
+  if (input.yesPct == null) return null;
+  const yes = clampPct(input.yesPct);
+  return { yes, no: 100 - yes };
+}
+
+/** The stored ratification pct for one body. */
+export function bodyComposition(a: RowVotingInput, body: Body): CompositionBar | null {
+  const yesPct = body === 'DRep' ? a.drepYesPct : body === 'SPO' ? a.spoYesPct : a.ccYesPct;
+  return compositionBar({ yesPct });
 }
 
 /**
- * Builds a Yes/No/Not-voted composition from the stored ratification percentage plus
- * the raw stakes. The Yes segment is pinned to yesPct (the Koios ratification pct we
- * already validate against gov.tools), so the headline number and the green segment
- * always agree. The remaining 100 - yes is split into No and Not voted by the true
- * ratio of their stakes; when the eligible denominator is missing we cannot split and
- * show the remainder as Not voted (never as a false "No"). Returns null when no tally
- * has synced yet (yesPct null), so callers render "no votes" instead of an empty bar.
+ * The captured stake model for one body, or null for CC (seat counts, no stake) and
+ * for any action whose buckets predate the capture. The one place the view layer
+ * reads them, so turnout, the excluded total and the breakdown cannot drift apart.
  */
-export function compositionBar(input: {
-  yesPct: number | null;
-  yesStake: number | null;
-  noStake: number | null;
-  abstainStake: number | null;
-  eligible: number | null;
-}): CompositionBar | null {
-  if (input.yesPct == null) return null;
-  const yes = clampPct(input.yesPct);
-  const remaining = Math.max(0, 100 - yes);
-  const yesStake = input.yesStake ?? 0;
-  const noStake = input.noStake ?? 0;
-  const abstainStake = input.abstainStake ?? 0;
-  const eligible = input.eligible;
-  if (eligible == null || !(eligible > 0)) {
-    return { yes, no: 0, notVoted: remaining, splitKnown: false };
-  }
-  // Denominator excludes abstain (ratification rule); Not voted is whatever eligible
-  // stake is left once Yes, No and Abstain are removed.
-  const denom = Math.max(0, eligible - abstainStake);
-  const notVotedStake = Math.max(0, denom - yesStake - noStake);
-  const rest = noStake + notVotedStake;
-  if (!(rest > 0)) return { yes, no: 0, notVoted: remaining, splitKnown: true };
-  return {
-    yes,
-    no: remaining * (noStake / rest),
-    notVoted: remaining * (notVotedStake / rest),
-    splitKnown: true,
-  };
-}
-
-/** compositionBar for one body, pulling the right stored pct, stakes and eligible
-    denominator (DRep total active stake / SPO eligible power / CC seat count). */
-export function bodyComposition(
-  a: RowVotingInput,
-  body: Body,
-  opts: { drepStakeTotal: number | null; committeeSize: number | null },
-): CompositionBar | null {
-  switch (body) {
-    case 'DRep':
-      return compositionBar({
-        yesPct: a.drepYesPct,
-        yesStake: a.drepYesPower,
-        noStake: a.drepNoPower,
-        abstainStake: a.drepAbstainPower,
-        eligible: opts.drepStakeTotal,
-      });
-    case 'SPO':
-      return compositionBar({
-        yesPct: a.spoYesPct,
-        yesStake: a.spoYesPower,
-        noStake: a.spoNoPower,
-        abstainStake: a.spoAbstainPower,
-        eligible: a.spoEligiblePower,
-      });
-    case 'CC':
-      return compositionBar({
-        yesPct: a.ccYesPct,
-        yesStake: a.ccYes,
-        noStake: a.ccNo,
-        abstainStake: a.ccAbstain,
-        eligible: opts.committeeSize,
-      });
-  }
+export function bodyStake(a: RowVotingInput, body: Body, thresholdPct: number | null = null) {
+  if (body === 'CC') return null;
+  const drep = body === 'DRep';
+  return buildBodyStake({
+    actionType: a.type,
+    activeYesPower: drep ? a.drepYesPower : a.spoYesPower,
+    activeNoPower: drep ? a.drepNoPower : a.spoNoPower,
+    activeAbstainPower: drep ? a.drepAbstainPower : a.spoAbstainPower,
+    noSidePower: drep ? a.drepNoSidePower : a.spoNoSidePower,
+    alwaysAbstainPower: drep ? a.drepAlwaysAbstainPower : a.spoAlwaysAbstainPower,
+    alwaysNoConfidencePower: drep ? a.drepAlwaysNoConfidencePower : a.spoAlwaysNoConfidencePower,
+    approvalThresholdPct: thresholdPct,
+  });
 }
 
 // Pre-formatted amounts behind a composition bar: Yes / No / Not voted, plus the
