@@ -38,6 +38,7 @@ export function netChange(
 export type ChartableMetric =
   | 'totalDrepPower'
   | 'poweredDrepCount'
+  | 'recentlyVotingDrepCount'
   | 'delegatorTotal'
   | 'abstainPower'
   | 'ancPower'

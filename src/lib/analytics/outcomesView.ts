@@ -20,6 +20,17 @@ export interface SpoSnapshot {
   divergent: number;
   /** Actions where both the DRep and SPO verdicts are known. */
   divergenceBasis: number;
+  /** The divergent actions themselves, one entry per row counted in divergent. */
+  divergentActions: DivergentAction[];
+}
+
+export interface DivergentAction {
+  gaId: string;
+  title: string;
+  href: string | null;
+  type: string;
+  /** The body whose tally fell below its own threshold. */
+  missedBy: 'DRep' | 'SPO';
 }
 
 export interface ThroughputView {
@@ -110,6 +121,7 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
   let divergent = 0;
   let divergenceBasis = 0;
   const turnouts: number[] = [];
+  const divergentActions: DivergentAction[] = [];
 
   for (const row of rows) {
     const snapshot = readThresholdSnapshot(row.thresholdsJson);
@@ -133,7 +145,20 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
     const spoVerdict = chainProven && snapshot?.spo != null ? true : verdict(snapshot?.spo, row.spoYesPct);
     if (drepVerdict !== null && spoVerdict !== null) {
       divergenceBasis += 1;
-      if (drepVerdict !== spoVerdict) divergent += 1;
+      if (drepVerdict !== spoVerdict) {
+        divergent += 1;
+        // Exactly one body's verdict is false when they differ, since both are
+        // known here (divergenceBasis already guards that) and a chain-proven
+        // row (enacted/ratified) forces both verdicts true, so it never reaches
+        // this branch at all.
+        divergentActions.push({
+          gaId: row.gaId,
+          title: row.title ?? row.type,
+          href: row.topicSlug != null ? `/t/${row.topicSlug}/` : null,
+          type: row.type,
+          missedBy: drepVerdict === false ? 'DRep' : 'SPO',
+        });
+      }
     }
   }
 
@@ -144,6 +169,7 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
     turnoutExcluded,
     divergent,
     divergenceBasis,
+    divergentActions,
   };
 }
 

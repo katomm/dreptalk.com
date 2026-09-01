@@ -3,6 +3,8 @@ import { env } from 'cloudflare:test';
 import { listDecidedOutcomeRows, countSubmittedSince, countActionsByStatus } from './hubOutcomes.js';
 
 interface SeedOpts {
+  title?: string | null;
+  topicId?: string | null;
   status?: string;
   submittedEpoch?: number | null;
   decidedEpoch?: number | null;
@@ -19,14 +21,16 @@ interface SeedOpts {
 async function seedAction(id: string, type: string, opts: SeedOpts = {}) {
   await env.DB.prepare(
     `INSERT INTO governance_actions
-       (id, type, status, submitted_epoch, decided_epoch, thresholds_json,
+       (id, type, title, topic_id, status, submitted_epoch, decided_epoch, thresholds_json,
         drep_yes_pct, spo_yes_pct, spo_yes_power, spo_no_power, spo_abstain_power,
         spo_always_abstain_power, spo_no_side_power, created_at, last_synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
   )
     .bind(
       id,
       type,
+      opts.title ?? null,
+      opts.topicId ?? null,
       opts.status ?? 'enacted',
       opts.submittedEpoch ?? null,
       opts.decidedEpoch ?? null,
@@ -39,6 +43,15 @@ async function seedAction(id: string, type: string, opts: SeedOpts = {}) {
       opts.spoAlwaysAbstainPower ?? null,
       opts.spoNoSidePower ?? null,
     )
+    .run();
+}
+
+async function seedTopic(id: string, slug: string) {
+  await env.DB.prepare(
+    `INSERT INTO topics (id, category_slug, author_id, title, slug, last_post_at, created_at)
+     VALUES (?, 'general', 'author1', 't', ?, 0, 0)`,
+  )
+    .bind(id, slug)
     .run();
 }
 
@@ -62,7 +75,10 @@ describe('listDecidedOutcomeRows', () => {
   });
 
   it('maps every field, including all SPO columns when set and when null', async () => {
+    await seedTopic('t1', 'my-action-slug');
     await seedAction('ga_full', 'ParameterChange', {
+      title: 'Full action',
+      topicId: 't1',
       status: 'enacted',
       submittedEpoch: 590,
       decidedEpoch: 600,
@@ -76,6 +92,8 @@ describe('listDecidedOutcomeRows', () => {
       spoNoSidePower: '250',
     });
     await seedAction('ga_nulls', 'InfoAction', {
+      title: null,
+      topicId: null,
       status: 'expired',
       submittedEpoch: null,
       decidedEpoch: 601,
@@ -95,6 +113,8 @@ describe('listDecidedOutcomeRows', () => {
 
     expect(full).toEqual({
       gaId: 'ga_full',
+      title: 'Full action',
+      topicSlug: 'my-action-slug',
       type: 'ParameterChange',
       status: 'enacted',
       submittedEpoch: 590,
@@ -110,6 +130,8 @@ describe('listDecidedOutcomeRows', () => {
     });
     expect(nulls).toEqual({
       gaId: 'ga_nulls',
+      title: null,
+      topicSlug: null,
       type: 'InfoAction',
       status: 'expired',
       submittedEpoch: null,

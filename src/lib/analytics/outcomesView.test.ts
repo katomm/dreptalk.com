@@ -7,6 +7,8 @@ const thresholds = (over: { drep?: number | null; spo?: number | null } = {}) =>
 
 const row = (over: Partial<DecidedOutcomeRow> = {}): DecidedOutcomeRow => ({
   gaId: 'ga1',
+  title: 'Action ga1',
+  topicSlug: 'action-ga1',
   type: 'ParameterChange',
   status: 'enacted',
   submittedEpoch: 600,
@@ -31,6 +33,7 @@ describe('buildSpoSnapshot', () => {
       turnoutExcluded: 0,
       divergent: 0,
       divergenceBasis: 0,
+      divergentActions: [],
     });
   });
 
@@ -108,6 +111,50 @@ describe('buildSpoSnapshot', () => {
     const v = buildSpoSnapshot([divergentRow, missingDrepPct]);
     expect(v.divergenceBasis).toBe(1);
     expect(v.divergent).toBe(1);
+  });
+
+  it('lists a divergent expired action, missedBy the body whose tally fell below its threshold', () => {
+    const v = buildSpoSnapshot([
+      row({
+        gaId: 'ga1',
+        title: 'Widen the treasury withdrawal cap',
+        topicSlug: 'widen-cap',
+        type: 'ParameterChange',
+        status: 'expired',
+        thresholdsJson: thresholds({ drep: 67, spo: 51 }),
+        drepYesPct: 80, // meets 67
+        spoYesPct: 40, // misses 51
+      }),
+    ]);
+    expect(v.divergentActions).toEqual([
+      { gaId: 'ga1', title: 'Widen the treasury withdrawal cap', href: '/t/widen-cap/', type: 'ParameterChange', missedBy: 'SPO' },
+    ]);
+  });
+
+  it('falls back to the type when an action has no title, and to a null href without a topic', () => {
+    const v = buildSpoSnapshot([
+      row({
+        gaId: 'ga1',
+        title: null,
+        topicSlug: null,
+        type: 'ParameterChange',
+        status: 'expired',
+        thresholdsJson: thresholds({ drep: 67, spo: 51 }),
+        drepYesPct: 40, // misses 67
+        spoYesPct: 80, // meets 51
+      }),
+    ]);
+    expect(v.divergentActions).toEqual([
+      { gaId: 'ga1', title: 'ParameterChange', href: null, type: 'ParameterChange', missedBy: 'DRep' },
+    ]);
+  });
+
+  it('never lists an enacted or ratified row as divergent, since chain proof forces both verdicts true', () => {
+    const v = buildSpoSnapshot([
+      row({ status: 'enacted', thresholdsJson: thresholds({ drep: 67, spo: 51 }), drepYesPct: 80, spoYesPct: 40 }),
+      row({ gaId: 'ga2', status: 'ratified', thresholdsJson: thresholds({ drep: 67, spo: 51 }), drepYesPct: 80, spoYesPct: 40 }),
+    ]);
+    expect(v.divergentActions).toEqual([]);
   });
 
   it('treats an enacted action as proving both verdicts, even when the stored SPO pct is below its threshold', () => {

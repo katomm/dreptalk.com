@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildVitals, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
-import { RECENT_VOTING_WINDOW_EPOCHS } from './epochStatsContract.js';
+import { RECENT_VOTING_WINDOW_EPOCHS, seriesStartFromRows } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';
 
 function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
@@ -55,6 +55,20 @@ describe('metricSeries', () => {
   });
   it('returns empty when the start is unknown', () => {
     expect(metricSeries([row(540)], 'delegatorTotal', null)).toEqual([]);
+  });
+  it('does not clip a trailing incomplete row for recentlyVotingDrepCount: seriesStartFromRows only decides the start, so the page must still clip the tail itself', () => {
+    const rows = [
+      row(538, { voteDataComplete: true, recentlyVotingDrepCount: 100 }),
+      row(539, { voteDataComplete: true, recentlyVotingDrepCount: 110 }),
+      row(540, { voteDataComplete: false, recentlyVotingDrepCount: 120 }),
+    ];
+    const start = seriesStartFromRows(rows, 'recentlyVotingDrepCount');
+    expect(start).toBe(538); // the first complete row, not the last
+    expect(metricSeries(rows, 'recentlyVotingDrepCount', start)).toEqual([
+      { epoch: 538, value: 100 },
+      { epoch: 539, value: 110 },
+      { epoch: 540, value: 120 }, // still included despite voteDataComplete: false
+    ]);
   });
 });
 

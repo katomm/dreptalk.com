@@ -1,9 +1,13 @@
 /// <reference types="@cloudflare/workers-types" />
 // Decided-outcome and SPO tally reads for the analytics hub. Read-only, no
-// writes here, the columns are populated by the tally sync elsewhere.
+// writes here, the columns are populated by the tally sync elsewhere. title
+// and topicSlug come from a LEFT JOIN against topics (an action without a
+// forum topic still counts, so the join must not filter it out).
 
 export interface DecidedOutcomeRow {
   gaId: string;
+  title: string | null;
+  topicSlug: string | null;
   type: string;
   status: string;
   submittedEpoch: number | null;
@@ -22,6 +26,8 @@ export interface DecidedOutcomeRow {
 
 interface DecidedOutcomeD1Row {
   id: string;
+  title: string | null;
+  topic_slug: string | null;
   type: string;
   status: string;
   submitted_epoch: number | null;
@@ -42,17 +48,22 @@ export async function listDecidedOutcomeRows(db: D1Database): Promise<DecidedOut
     (
       await db
         .prepare(
-          `SELECT id, type, status, submitted_epoch, decided_epoch, thresholds_json,
-                  drep_yes_pct, spo_yes_pct, spo_yes_power, spo_no_power, spo_abstain_power,
-                  spo_always_abstain_power, spo_no_side_power
-             FROM governance_actions
-            WHERE decided_epoch IS NOT NULL
-              AND status IN ('enacted', 'ratified', 'expired', 'closed')`,
+          `SELECT g.id AS id, g.title AS title, t.slug AS topic_slug, g.type AS type, g.status AS status,
+                  g.submitted_epoch AS submitted_epoch, g.decided_epoch AS decided_epoch, g.thresholds_json AS thresholds_json,
+                  g.drep_yes_pct AS drep_yes_pct, g.spo_yes_pct AS spo_yes_pct, g.spo_yes_power AS spo_yes_power,
+                  g.spo_no_power AS spo_no_power, g.spo_abstain_power AS spo_abstain_power,
+                  g.spo_always_abstain_power AS spo_always_abstain_power, g.spo_no_side_power AS spo_no_side_power
+             FROM governance_actions g
+             LEFT JOIN topics t ON t.id = g.topic_id
+            WHERE g.decided_epoch IS NOT NULL
+              AND g.status IN ('enacted', 'ratified', 'expired', 'closed')`,
         )
         .all<DecidedOutcomeD1Row>()
     ).results ?? [];
   return rows.map((r) => ({
     gaId: r.id,
+    title: r.title,
+    topicSlug: r.topic_slug,
     type: r.type,
     status: r.status,
     submittedEpoch: r.submitted_epoch,
