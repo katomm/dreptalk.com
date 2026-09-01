@@ -59,7 +59,7 @@ Coverage is a presence check, nothing more. A vote with a rationale is not autom
 
 The committee panel shows how the Constitutional Committee participates: the median share of members voting on decided actions, how often the committee split rather than voting one way, how many actions finished below its approval threshold, and each member's participation by name. Eligibility follows the committee's actual membership at each action's tally epoch, so resignations, term expirations and hot-key rotations are accounted for, and only a member's final vote on an action counts.
 
-A committee vote against an action expresses that the member did not find it constitutional under the interim constitution. The panel reports these outcomes as numbers and takes no position on any individual judgment.
+A committee vote against an action expresses that the member did not find it consistent with the constitution in force at the time. The panel reports these outcomes as numbers and takes no position on any individual judgment.
 
 ## Concentration of delegated power
 

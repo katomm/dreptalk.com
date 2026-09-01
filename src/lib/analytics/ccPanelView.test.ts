@@ -87,4 +87,12 @@ describe('buildCcPanel', () => {
     expect(v.medianLatencyDays).toBeNull();
     expect(v.medianTurnoutPct).toBe(50);
   });
+
+  it('converts millisecond submission times against second vote times', () => {
+    // submitted_at is stored in unix milliseconds, vote block times in seconds.
+    const actions = [action({ gaId: 'ga1', submittedAt: 1 * DAY * 1000 })];
+    const votesByAction = new Map([['ga1', [vote('hot1', 'Yes', 3 * DAY)]]]);
+    const v = buildCcPanel({ actions, votesByAction, members, hotToCold, nameIndex, currentEpoch: 650 });
+    expect(v.medianLatencyDays).toBe(2);
+  });
 });

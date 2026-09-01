@@ -73,8 +73,10 @@ export function buildCcPanel(input: {
     for (const v of finalByCold.values()) {
       if (v.vote === 'Yes') hasYes = true;
       else if (v.vote === 'No') hasNo = true;
-      if (a.submittedAt != null && v.blockTime != null && v.blockTime >= a.submittedAt) {
-        latencies.push((v.blockTime - a.submittedAt) / 86_400);
+      // submitted_at is unix milliseconds (the sync writes block_time * 1000),
+      // vote block times are unix seconds, so normalize before comparing.
+      if (a.submittedAt != null && v.blockTime != null && v.blockTime * 1000 >= a.submittedAt) {
+        latencies.push((v.blockTime * 1000 - a.submittedAt) / 86_400_000);
       }
     }
     if (hasYes && hasNo) splitCount += 1;
