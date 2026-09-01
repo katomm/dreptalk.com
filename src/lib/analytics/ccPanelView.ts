@@ -6,8 +6,7 @@
 // below-threshold rate only uses the frozen per-action snapshot.
 import { activeCommitteeMembersAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { finalCcVoteByMember } from '../koios/corrections.js';
-import { committeeEpochForAction } from '../db/committee.js';
-import type { CcVoteRow, DecidedCcAction } from '../db/committee.js';
+import { committeeEpochForAction, type CcVoteRow, type DecidedCcAction } from '../db/committee.js';
 import type { CcNameIndex } from '../governance/ccNames.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 import { isCcEligible } from '../governance/view.js';
@@ -59,8 +58,12 @@ export function buildCcPanel(input: {
   for (const a of actions) {
     if (!isCcEligible(a.type)) continue;
     const epoch = committeeEpochForAction(a.decidedEpoch, currentEpoch);
-    const active = epoch != null ? activeCommitteeMembersAt(members, epoch) : new Set<string>();
-    if (epoch == null || active.size === 0) {
+    if (epoch == null) {
+      skipped += 1;
+      continue;
+    }
+    const active = activeCommitteeMembersAt(members, epoch);
+    if (active.size === 0) {
       skipped += 1;
       continue;
     }
@@ -84,7 +87,7 @@ export function buildCcPanel(input: {
     const snap = readThresholdSnapshot(a.thresholdsJson);
     if (snap?.cc != null && a.ccYesPct != null) {
       verdictBasis += 1;
-      const met = snap.ccBelowMinSize ? false : a.ccYesPct >= snap.cc;
+      const met = !snap.ccBelowMinSize && a.ccYesPct >= snap.cc;
       if (!met) belowThreshold += 1;
     }
 

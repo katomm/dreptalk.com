@@ -107,11 +107,10 @@ const ccPanel = buildCcPanel({
   nameIndex: buildCcNameIndex(ccNameRows, committee.hotToCold),
   currentEpoch: params?.epoch ?? null,
 });
-const fmtDays = (d: number): string => (Number.isInteger(d) ? String(d) : d.toFixed(1));
 const shortCold = (hex: string): string => `${hex.slice(0, 10)}...`;
 
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
-// Median half-counts can end in .5 with an even action count, render as-is.
+// Medians can end in .5 with an even action count, render as-is.
 const fmtCount = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 // Parse lovelace defensively so a single malformed stored value cannot 500 the
@@ -379,7 +378,7 @@ const activityRows = activity
       <h2 id="hub-cc-title">Constitutional Committee</h2>
       <p class="hub-cc__lede">Across {ccPanel.considered} decided actions the committee could vote on, a median of {fmtShare(ccPanel.medianTurnoutPct)} of its members cast a vote.{ccPanel.splitCount > 0 && ` ${ccPanel.splitCount} ${ccPanel.splitCount === 1 ? 'action' : 'actions'} saw a split committee.`}{ccPanel.verdictBasis > 0 && ` ${ccPanel.belowThreshold} of ${ccPanel.verdictBasis} finished below the committee's approval threshold.`}</p>
       {ccPanel.medianLatencyDays != null && (
-        <p class="hub-cc__latency">Committee votes came a median of {fmtDays(ccPanel.medianLatencyDays)} days after an action was submitted.</p>
+        <p class="hub-cc__latency">Committee votes came a median of {fmtCount(ccPanel.medianLatencyDays)} days after an action was submitted.</p>
       )}
       {ccPanel.members.length > 0 && (
         <ul class="hub-cc__members">

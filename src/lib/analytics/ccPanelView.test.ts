@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCcPanel } from './ccPanelView.js';
 import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
-import type { CcVoteRow } from '../db/committee.js';
-import type { DecidedCcAction } from '../db/committee.js';
+import type { CcVoteRow, DecidedCcAction } from '../db/committee.js';
 
 // Two members active from epoch 500 with long terms, cold1 votes, cold2 mostly not.
 const members: CommitteeMemberTerm[] = [
