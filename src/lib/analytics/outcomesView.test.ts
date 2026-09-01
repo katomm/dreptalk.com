@@ -132,7 +132,7 @@ describe('buildSpoSnapshot', () => {
     expect(v.divergent).toBe(0);
   });
 
-  it('agrees when both verdicts land the same way', () => {
+  it('agrees when both verdicts point the same way', () => {
     const v = buildSpoSnapshot([
       row({ thresholdsJson: thresholds({ drep: 67, spo: 51 }), drepYesPct: 80, spoYesPct: 80 }),
     ]);

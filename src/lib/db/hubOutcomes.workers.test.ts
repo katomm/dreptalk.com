@@ -29,7 +29,7 @@ async function seedAction(id: string, type: string, opts: SeedOpts = {}) {
       type,
       opts.status ?? 'enacted',
       opts.submittedEpoch ?? null,
-      opts.decidedEpoch === undefined ? null : opts.decidedEpoch,
+      opts.decidedEpoch ?? null,
       opts.thresholdsJson ?? null,
       opts.drepYesPct ?? null,
       opts.spoYesPct ?? null,
