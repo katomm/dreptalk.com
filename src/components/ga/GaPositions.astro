@@ -163,8 +163,8 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
       {concentration.thresholdCount != null && concentrationThresholdPct != null && (
         <p class="ga-conc__line ga-conc__line--muted">
           {concentration.thresholdCount === 1
-            ? `The largest voter alone held enough voting power to cross the ${fmtConcPct(concentrationThresholdPct)} threshold.`
-            : `The ${concentration.thresholdCount} largest voters together held enough voting power to cross the ${fmtConcPct(concentrationThresholdPct)} threshold on their own.`}
+            ? `The largest voter held as much voting power as the ${fmtConcPct(concentrationThresholdPct)} threshold required in yes votes.`
+            : `The ${concentration.thresholdCount} largest voters together held as much voting power as the ${fmtConcPct(concentrationThresholdPct)} threshold required in yes votes.`}
         </p>
       )}
     </div>

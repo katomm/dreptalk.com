@@ -111,8 +111,8 @@ describe('buildEffRep', () => {
   describe('concentration extension', () => {
     it('attaches halfCount from the powers map and computes the median', () => {
       const actions = [
-        a('ga1', 540, { votedPower: 100, totalDrepPower: '1000' }),
-        a('ga2', 539, { votedPower: 100, totalDrepPower: '1000' }),
+        a('ga1', 540, { votedPower: 100, totalDrepPower: '1000', votesCast: 3 }),
+        a('ga2', 539, { votedPower: 100, totalDrepPower: '1000', votesCast: 4 }),
       ];
       const powers = new Map([
         ['ga1', [50, 30, 20]],
@@ -128,8 +128,8 @@ describe('buildEffRep', () => {
 
     it('leaves halfCount null on incomplete power data and excludes it from the median', () => {
       const actions = [
-        a('ga1', 540, { votedPower: 100, totalDrepPower: '1000' }),
-        a('ga2', 539, { votedPower: 100, totalDrepPower: '1000' }),
+        a('ga1', 540, { votedPower: 100, totalDrepPower: '1000', votesCast: 3 }),
+        a('ga2', 539, { votedPower: 100, totalDrepPower: '1000', votesCast: 4 }),
       ];
       const powers = new Map([
         ['ga1', [50, null, 20]],
@@ -147,6 +147,23 @@ describe('buildEffRep', () => {
       expect(view.rows[0].halfCount).toBeNull();
       expect(view.rows[0].voterCount).toBeNull();
       expect(view.medianHalfCount).toBeNull();
+    });
+
+    it('nulls the concentration when synced vote rows undercount the tally', () => {
+      const actions = [
+        a('ga1', 540, { votedPower: 100, totalDrepPower: '1000', votesCast: 5 }),
+        a('ga2', 539, { votedPower: 100, totalDrepPower: '1000', votesCast: 4 }),
+      ];
+      const powers = new Map([
+        ['ga1', [50, 30, 20]],
+        ['ga2', [10, 10, 10, 10]],
+      ]);
+      const view = buildEffRep(actions, powers);
+      expect(view.rows[0].halfCount).toBeNull();
+      expect(view.rows[0].voterCount).toBeNull();
+      expect(view.rows[1].halfCount).toBe(2);
+      expect(view.rows[1].voterCount).toBe(4);
+      expect(view.medianHalfCount).toBe(2);
     });
   });
 });

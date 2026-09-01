@@ -31,7 +31,7 @@ The "voted in the last 12 epochs" figure counts DReps with at least one on-chain
 
 ## Voting concentration in practice
 
-The effective-representation panel and the Positions tab of a governance action also read how concentrated the cast votes were. These numbers describe exercised power, the voting power that actually voted, not the distribution of all delegated power. The half-count says how few of the largest voters together cast at least half of the voted power. The action page adds the largest voter's share, the combined top-5 share, and, where the action has an approval threshold, how many of the largest voters alone held enough power to cross it. That last reading is arithmetic on cast votes, it does not claim those voters coordinated or voted the same way.
+The effective-representation panel and the Positions tab of a governance action also read how concentrated the cast votes were. These numbers describe exercised power, the voting power that actually voted, not the distribution of all delegated power. The half-count says how few of the largest voters together cast at least half of the voted power. The action page adds the largest voter's share, the combined top-5 share, and, where the action has an approval threshold, how many of the largest voters together held as much power as the threshold required in yes votes. That reading is arithmetic on cast votes, it does not claim those voters coordinated or voted the same way.
 
 These stats only appear when the voting power behind every single vote on the action is recorded. An action with incomplete per-vote power shows no concentration numbers at all rather than a misleading partial sum.
 

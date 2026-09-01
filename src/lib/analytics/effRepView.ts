@@ -9,7 +9,9 @@
 // are computed from buildVoteConcentration. The concentration honesty rule
 // matches the vote-power rule: any missing per-voter power makes the whole
 // concentration absent, never zero. Absent concentrations are excluded from
-// the medianHalfCount.
+// the medianHalfCount. A second completeness condition also nulls the
+// concentration when voterCount falls short of the action's own votesCast
+// tally, since the per-vote rows sync separately and can lag behind it.
 import type { DecidedActionRepresentation } from '../db/effectiveRepresentation.js';
 import { buildVoteConcentration } from './voteConcentration.js';
 
@@ -60,7 +62,11 @@ export function buildEffRep(
       action.poweredDrepCount != null && action.poweredDrepCount !== 0
         ? clampPct((action.votesCast / action.poweredDrepCount) * 100)
         : null;
-    const conc = powersByAction ? buildVoteConcentration(powersByAction.get(action.id) ?? [], null) : null;
+    const rawConc = powersByAction ? buildVoteConcentration(powersByAction.get(action.id) ?? [], null) : null;
+    // Skew guard: the per-vote rows sync separately from the tally counts, so a
+    // freshly decided action can hold fewer vote rows than the tally counted.
+    // Late votes only ever push voterCount above votesCast, so this never fires falsely.
+    const conc = rawConc && rawConc.voterCount < action.votesCast ? null : rawConc;
     rows.push({
       id: action.id,
       title: action.title ?? action.type,

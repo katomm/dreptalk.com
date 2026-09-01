@@ -55,6 +55,10 @@ describe('buildVoteConcentration', () => {
     expect(buildVoteConcentration([50, 30, 20], null)?.thresholdCount).toBeNull();
   });
 
+  it('returns null when every voted power is zero', () => {
+    expect(buildVoteConcentration([0, 0, 0], null)).toBeNull();
+  });
+
   it('stays exact beyond 2^53 total via BigInt sums', () => {
     // Two voters of 4.6e15 lovelace each: the sum exceeds Number.MAX_SAFE_INTEGER.
     const big = 4_600_000_000_000_000;

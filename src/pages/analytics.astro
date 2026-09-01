@@ -244,11 +244,7 @@ const activityRows = activity
               <span class="hub-effrep__value">{fmtShare(row.powerSharePct)}</span>
             </div>
             {(row.countSharePct != null || row.halfCount != null) && (
-              <p class="hub-effrep__note">
-                {row.countSharePct != null && `${fmtShare(row.countSharePct)} of DReps voted`}
-                {row.countSharePct != null && row.halfCount != null && ', '}
-                {row.halfCount != null && `${row.halfCount} of ${row.voterCount} voters cast half of the voted power`}
-              </p>
+              <p class="hub-effrep__note">{row.countSharePct != null && `${fmtShare(row.countSharePct)} of DReps voted`}{row.countSharePct != null && row.halfCount != null && ', '}{row.halfCount != null && `${row.halfCount} of ${row.voterCount} voters cast half of the voted power`}</p>
             )}
           </li>
         ))}

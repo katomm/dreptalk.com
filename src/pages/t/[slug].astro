@@ -461,7 +461,11 @@ if (db && govAction && tab === 'positions') {
   const powers = await listDrepVotePowers(db, govAction.id);
   concThresholdPct = readThresholdSnapshot(govAction.thresholdsJson)?.drep ?? null;
   const required = requiredYesPower(reprTotalPower, govAction.drepAbstainPower, concThresholdPct);
-  voteConcentration = buildVoteConcentration(powers, required);
+  // Skew guard: the per-vote rows sync separately from the tally counts, so a
+  // freshly decided action can hold fewer vote rows than the tally counted.
+  // Late votes only ever push the row count above the tally count.
+  const tallyCount = (govAction.drepYes ?? 0) + (govAction.drepNo ?? 0) + (govAction.drepAbstain ?? 0);
+  voteConcentration = powers.length >= tallyCount ? buildVoteConcentration(powers, required) : null;
 }
 
 // Compact multi-body step sparkline for the Voting Information card's teaser link
