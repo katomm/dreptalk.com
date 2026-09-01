@@ -25,17 +25,24 @@ export interface DelegatorFollowRow {
 }
 
 /**
- * The SQL fragment that keeps since_attempts honest on a capture write: a
+ * The SQL clause that keeps since_attempts honest on a capture write: a
  * successful lookup that came back with no start counts up, a captured start
- * resets the run to 0. A failed lookup (a throw, a timeout, or an address the
- * batch response omitted while others in it came back) leaves the count as it
- * is, since it never confirmed an empty history, only that the lookup could
- * not be completed. Chosen by the caller's own arguments, so no value is
- * interpolated.
+ * resets the run to 0. A failed lookup (a throw, a timeout, an address the
+ * batch response omitted while others in it came back, or a whole
+ * multi-address batch that came back with no rows at all) never confirmed an
+ * empty history, only that the lookup could not be completed, so the count is
+ * left untouched by omitting the clause entirely. Returns an empty string for
+ * the failed case, which the caller drops from the SET list. Chosen from the
+ * caller's own arguments, so no value is interpolated.
  */
 function attemptsFragment(epoch: number | null, failed: boolean): string {
-  if (epoch != null) return 'since_attempts = 0';
-  return failed ? 'since_attempts = since_attempts' : 'since_attempts = since_attempts + 1';
+  if (failed) return '';
+  return epoch != null ? 'since_attempts = 0' : 'since_attempts = since_attempts + 1';
+}
+
+/** Prefixes a non-empty SQL fragment with ", " so it can be appended to a SET list, or drops it. */
+function optionalSetClause(fragment: string): string {
+  return fragment === '' ? '' : `, ${fragment}`;
 }
 
 function columnsFor(state: DelegationState): { type: string; drepId: string | null } {
@@ -201,7 +208,7 @@ export async function setDelegatedSince(
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?, ${attemptsFragment(epoch, failed)}
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?${optionalSetClause(attemptsFragment(epoch, failed))}
         WHERE user_id = ?`,
     )
     .bind(epoch, now, userId)
@@ -274,11 +281,13 @@ export async function listFollowsMissingSince(
  * `observedSinceCheckedAt` null means the row was observed never attempted, which
  * the predicate expresses as the sentinel -1 (since_checked_at is unix seconds,
  * so no real stamp can collide with it).
- * `failed` marks a lookup that could not be completed (a throw, a timeout, or an
- * address a batch response omitted while other addresses in it came back): the
- * row still records the attempt time, but since_attempts is left unchanged,
- * because only a successful lookup that came back empty confirms anything about
- * the account's history. Defaults to false, an ordinary confirmed-empty capture.
+ * `failed` marks a lookup that could not be completed or trusted (a throw, a
+ * timeout, an address a batch response omitted while other addresses in it
+ * came back, or a whole multi-address batch that came back with no rows at
+ * all): the row still records the attempt time, but since_attempts is left
+ * unchanged, because only a successful, trustworthy lookup that came back
+ * empty confirms anything about the account's history. Defaults to false, an
+ * ordinary confirmed-empty capture.
  * Returns whether this call wrote the row.
  */
 export async function captureDelegatedSince(
@@ -291,7 +300,7 @@ export async function captureDelegatedSince(
 ): Promise<boolean> {
   const res = await db
     .prepare(
-      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?, ${attemptsFragment(epoch, failed)}
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?${optionalSetClause(attemptsFragment(epoch, failed))}
         WHERE user_id = ? AND delegated_since_epoch IS NULL AND COALESCE(since_checked_at, -1) = ?`,
     )
     .bind(epoch, now, userId, observedSinceCheckedAt ?? -1)

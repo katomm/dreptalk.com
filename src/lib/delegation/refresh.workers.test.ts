@@ -265,6 +265,23 @@ describe('delegation start capture in refreshBulk', () => {
     expect(dropped?.since_attempts).toBe(0); // a partial drop, not a confirmed empty history
   });
 
+  it('treats an all-empty response for a batch of three addresses as a Koios failure, not a confirmed empty history', async () => {
+    await ensureFollow(db(), 'ze1', 'stake_test1ze1', 0);
+    await ensureFollow(db(), 'ze2', 'stake_test1ze2', 0);
+    await ensureFollow(db(), 'ze3', 'stake_test1ze3', 0);
+
+    const { koios, historyCalls } = fakeKoios({ history: () => [] });
+    await refreshBulk(db(), koios as never, 900_000, 50);
+
+    expect(historyCalls).toEqual([['stake_test1ze1', 'stake_test1ze2', 'stake_test1ze3']]);
+    for (const id of ['ze1', 'ze2', 'ze3']) {
+      const row = await getFollow(db(), id);
+      expect(row?.delegated_since_epoch).toBeNull();
+      expect(row?.since_checked_at).toBe(900_000);
+      expect(row?.since_attempts).toBe(0);
+    }
+  });
+
   it('re-captures the start of a follow whose delegation changed in the same batch', async () => {
     await ensureFollow(db(), 'bc1', 'stake_test1bc1', 0);
     const first = fakeKoios({});

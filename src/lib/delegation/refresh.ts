@@ -201,11 +201,15 @@ export async function refreshBulk(
  *
  * An address with no rows in the response only counts toward the give-up
  * threshold when the call as a whole can be trusted to have reported it
- * honestly: either every requested address came back empty (a plausible, if
- * unlikely, genuine batch of unstarted accounts), or this address's own rows
- * came back. An address missing while OTHER requested addresses in the same
- * batch did come back is a partial drop, not a confirmed empty history, so it
- * is recorded as a failed lookup for that address alone and does not count.
+ * honestly. For a single-address batch, an empty response is taken at face
+ * value: the one account genuinely has no delegation certificate. For a batch
+ * of two or more addresses, a response with literally zero rows across all of
+ * them is treated as a Koios failure for every address in the batch instead:
+ * a degraded Koios answering 200 with an empty array is far more likely than
+ * every address in a multi-address batch lacking a delegation certificate. An
+ * address missing while OTHER requested addresses in the same batch did come
+ * back is a partial drop, not a confirmed empty history, so it is recorded as
+ * a failed lookup for that address alone and does not count either.
  */
 async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: string[], now: number): Promise<void> {
   try {
@@ -229,12 +233,18 @@ async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: strin
       else byStake.set(row.stake_address, [row]);
     }
     const anyAddressResponded = byStake.size > 0;
+    // A batch of two or more addresses that comes back with zero rows for all of
+    // them is a degraded Koios answering 200 with an empty array, not a genuine
+    // batch of unstarted accounts. A single-address batch keeps the ordinary
+    // rule (see the doc comment above).
+    const wholeBatchEmpty = !batchFailed && pending.length >= 2 && !anyAddressResponded;
     for (const { userId, stakeAddr, sinceCheckedAt } of pending) {
       try {
         const responded = byStake.has(stakeAddr);
-        // A per-address failure: the whole call threw, or this address has no
-        // rows while some other requested address in the batch did come back.
-        const failed = batchFailed || (!responded && anyAddressResponded);
+        // A per-address failure: the whole call threw, the whole multi-address
+        // batch came back with no rows at all, or this address has no rows
+        // while some other requested address in the batch did come back.
+        const failed = batchFailed || wholeBatchEmpty || (!responded && anyAddressResponded);
         // Compare and set on what the listing observed: a login that captured the
         // start while this bulk call was in flight keeps its value.
         await captureDelegatedSince(
