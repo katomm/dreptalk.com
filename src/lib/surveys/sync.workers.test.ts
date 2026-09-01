@@ -24,7 +24,12 @@ import {
   TesseraHttpError,
   type TesseraTip,
 } from '../tessera/client.js';
-import { type SurveysSyncDeps, type SurveysTessera, syncSurveys } from './sync.js';
+import {
+  reconcileSurveyResponses,
+  type SurveysSyncDeps,
+  type SurveysTessera,
+  syncSurveys,
+} from './sync.js';
 
 const TX_LINKED = 'a'.repeat(64);
 const TX_SECOND = 'b'.repeat(64);
@@ -548,7 +553,6 @@ describe('syncSurveys', () => {
       rolledBack: 0,
       audited: 0,
       settled: 0,
-      agedFailed: 0,
       failed: 0,
     });
     expect((await getSurveySyncState(env.DB)).lastFullWalkAt).toBeNull();
@@ -874,7 +878,9 @@ describe('syncSurveys', () => {
 
     const r = await syncSurveys(deps(tessera, now));
     expect(r.settled).toBe(1);
-    expect(r.agedFailed).toBe(1);
+    // Ageing belongs to the reconcile step, not to the sync: it reads the
+    // clock and nothing else, so it runs whether or not Tessera answered.
+    expect(await reconcileSurveyResponses(env.DB, now)).toBe(1);
     // The indexed answer's row is gone (the on-chain record supersedes it);
     // the fresh one still reads "confirming"; the stale one invites a retry.
     expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-settle')).toBeNull();
@@ -890,6 +896,45 @@ describe('syncSurveys', () => {
       now,
     });
     expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-old'))?.status).toBe('pending');
+  });
+
+  it('settles the answers queued behind a transaction whose lookup failed', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const txBroken = '55'.repeat(32);
+    const txGood = '66'.repeat(32);
+    const cred = `key:${'aa'.repeat(28)}`;
+    const tessera = fakeTessera({
+      responsesByTx: async txHash => {
+        if (txHash === txBroken) throw new TesseraHttpError(500);
+        return {
+          ready: true,
+          value: [{ surveyKey: KEY_LINKED, responseIndex: 0, role: 0, credential: cred, slot: 1 }],
+        };
+      },
+    });
+    await syncSurveys(deps(tessera, now));
+
+    // The failing lookup belongs to the older row, so the oldest-first poll
+    // reaches it before the one that can settle.
+    await recordLocalSurveyResponse(env.DB, {
+      surveyRef: KEY_LINKED,
+      userId: 'u-broken',
+      txHash: txBroken,
+      credential: cred,
+      now: now - 2_000,
+    });
+    await recordLocalSurveyResponse(env.DB, {
+      surveyRef: KEY_LINKED,
+      userId: 'u-good',
+      txHash: txGood,
+      credential: cred,
+      now: now - 1_000,
+    });
+
+    expect(await syncSurveys(deps(tessera, now))).toMatchObject({ settled: 1, failed: 1 });
+    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-broken'))?.status).toBe('pending');
+    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-good')).toBeNull();
   });
 
   it('keeps a row pending when the indexed response is another credential or role', async () => {

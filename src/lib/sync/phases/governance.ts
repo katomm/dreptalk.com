@@ -27,7 +27,7 @@ import { dispatchTelegram, dispatchWebPush } from '../../notifications/dispatch.
 import { runFanout } from '../../notifications/fanout.js';
 import { sendTelegramMessage } from '../../push/telegram.js';
 import { sendWebPush, type VapidConfig } from '../../push/webPush.js';
-import { type SurveysTessera, syncSurveys } from '../../surveys/sync.js';
+import { reconcileSurveyResponses, type SurveysTessera, syncSurveys } from '../../surveys/sync.js';
 import type { CoreSyncContext } from './context.js';
 import type { SyncPhaseDef } from './registry.js';
 
@@ -92,9 +92,23 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       console.log(
         `[surveys] notReady=${r.notReady} admitted=${r.admitted} refreshed=${r.refreshed}` +
           ` rolledBack=${r.rolledBack} audited=${r.audited} settled=${r.settled}` +
-          ` agedFailed=${r.agedFailed} failed=${r.failed}`,
+          ` failed=${r.failed}`,
       );
       return { items: r.admitted + r.refreshed + r.audited + r.settled, failed: r.failed };
+    },
+  },
+  {
+    // Optimistic survey answers that never appeared on chain, aged to
+    // 'failed'. Its own phase, and ungated, for the same reasons
+    // reconcile-pending is on the vote side: the cutoff is a clock, so neither
+    // a Tessera outage nor the maintainer's off switch may leave a card
+    // claiming an answer is still being checked. After the surveys phase, so
+    // anything that did land has already had its row settled.
+    name: 'survey-reconcile',
+    run: async ctx => {
+      const changed = await reconcileSurveyResponses(ctx.db, ctx.now);
+      if (changed > 0) console.log(`[surveys-reconcile] failed=${changed}`);
+      return { items: changed };
     },
   },
   {

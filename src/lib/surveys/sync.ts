@@ -77,8 +77,6 @@ export interface SurveysSyncResult {
   audited: number;
   /** Local answer rows deleted because their exact tx is indexed upstream. */
   settled: number;
-  /** Pending local answers aged to 'failed' past the confirmation cutoff. */
-  agedFailed: number;
   failed: number;
 }
 
@@ -100,6 +98,10 @@ const AUDIT_RETRY_MAX_MS = 24 * 60 * 60 * 1000;
  * a held survey is still changing, so giving up on it would re-create the
  * frozen-count bug this scheduling exists to kill. */
 const MAX_AUDIT_ATTEMPTS = 8;
+/** Pending answers one run polls, oldest first: pass 4 spends one request per
+ * distinct transaction, so an unpolled backlog must not be able to walk the
+ * Worker's subrequest budget. What is left over waits one cron interval. */
+const SETTLE_LIMIT = 50;
 /** Response pages one bundle collection reads (200 responses each). */
 const MAX_BUNDLE_PAGES = 50;
 /** Restarts a page walk tolerates when the snapshot moves mid-walk (resync). */
@@ -291,7 +293,6 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   let rolledBack = 0;
   let audited = 0;
   let settled = 0;
-  let agedFailed = 0;
 
   const state = await getSurveySyncState(db);
   const known = await getKnownSurveyRefs(db);
@@ -310,7 +311,6 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       rolledBack: 0,
       audited: 0,
       settled: 0,
-      agedFailed: 0,
       failed: 0,
     };
   }
@@ -332,7 +332,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         : await tessera.surveyList({ filter: 'linked', limit: MAX_REFS_PER_CALL });
     for (let n = 0; n < MAX_LIST_PAGES; n++) {
       if (!page.ready) {
-        return { notReady: true, ...counters, refreshed, rolledBack, audited, settled, agedFailed };
+        return { notReady: true, ...counters, refreshed, rolledBack, audited, settled };
       }
       // Read before the page is used for anything: `resync` says the snapshot
       // moved under the cursor, so these rows belong to a generation this walk
@@ -467,11 +467,11 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   // the transaction, not just the survey, is what makes a replacement visible
   // where /api/responded would hide it. An unindexed hash answers 200 with an
   // empty list — "submitted, not indexed yet" is the state this pass polls —
-  // so an empty answer leaves the row pending until the GA-vote cutoff ages it
-  // to 'failed'. The overlay never claims validity: "counted" is only knowable
-  // at finalization.
+  // so an empty answer leaves the row pending for reconcileSurveyResponses to
+  // age once the cutoff passes. The overlay never claims validity: "counted"
+  // is only knowable at finalization.
   try {
-    const pending = await getPendingSurveyResponses(db);
+    const pending = await getPendingSurveyResponses(db, SETTLE_LIMIT);
     const byTx = new Map<string, typeof pending>();
     for (const row of pending) {
       const rows = byTx.get(row.txHash);
@@ -479,30 +479,50 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       else byTx.set(row.txHash, [row]);
     }
     for (const [txHash, rows] of byTx) {
-      const result = await tessera.responsesByTx(txHash);
-      if (!result.ready) break;
-      // The row is this account's own claim, so settling it needs the response
-      // to be the one it claims: same survey, answered as a DRep, by the
-      // credential the session derived at record time. One transaction can
-      // carry responses to several surveys and in several roles, and a wallet
-      // holding more than one DRep credential can answer for another of them —
-      // matching the survey alone would clear a row nothing on chain answers.
-      const asDrep = result.value.filter(r => r.role === Role.DRep);
-      for (const row of rows) {
-        const onChain = asDrep.some(
-          r => r.surveyKey === row.surveyRef && r.credential === row.credential,
-        );
-        if (onChain) {
-          await deleteLocalSurveyResponse(db, row.surveyRef, row.userId);
-          settled++;
+      try {
+        const result = await tessera.responsesByTx(txHash);
+        if (!result.ready) break;
+        // The row is this account's own claim, so settling it needs the
+        // response to be the one it claims: same survey, answered as a DRep,
+        // by the credential the session derived at record time. One
+        // transaction can carry responses to several surveys and in several
+        // roles, and a wallet holding more than one DRep credential can answer
+        // for another of them — matching the survey alone would clear a row
+        // nothing on chain answers.
+        const asDrep = result.value.filter(r => r.role === Role.DRep);
+        for (const row of rows) {
+          const onChain = asDrep.some(
+            r => r.surveyKey === row.surveyRef && r.credential === row.credential,
+          );
+          if (onChain) {
+            await deleteLocalSurveyResponse(db, row.surveyRef, row.userId);
+            settled++;
+          }
         }
+      } catch (err) {
+        // Each transaction is a separate claim: one that errors must not hold
+        // back the rows queued behind it, which would otherwise reach their
+        // cutoff having never been polled at all.
+        console.error(`[surveys] settling ${txHash} failed`, err);
+        counters.failed++;
       }
     }
-    agedFailed = await markStaleSurveyResponsesFailed(db, now - PENDING_VOTE_TTL_SEC * 1000);
   } catch (err) {
     console.error('[surveys] settle pass failed', err);
     counters.failed++;
   }
 
-  return { notReady: false, ...counters, refreshed, rolledBack, audited, settled, agedFailed };
+  return { notReady: false, ...counters, refreshed, rolledBack, audited, settled };
+}
+
+/**
+ * Ages optimistic answers past the confirmation cutoff (the GA-vote one — one
+ * cutoff for both lifecycles) to 'failed'. Deliberately outside syncSurveys
+ * and outside the mirror's switch: it is a statement about the clock, not
+ * about Tessera, and a row it stops ageing sits on the survey card promising
+ * to be checked against the chain every few minutes while nothing checks it.
+ * Runs after the settle pass, so an answer that did land is already gone.
+ */
+export async function reconcileSurveyResponses(db: D1Database, now: number): Promise<number> {
+  return markStaleSurveyResponsesFailed(db, now - PENDING_VOTE_TTL_SEC * 1000);
 }

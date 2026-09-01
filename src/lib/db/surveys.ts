@@ -506,13 +506,22 @@ export interface PendingSurveyResponse {
   createdAt: number;
 }
 
-/** Every local answer still awaiting its transaction — the set pass 4 polls. */
-export async function getPendingSurveyResponses(db: D1Database): Promise<PendingSurveyResponse[]> {
+/** The local answers still awaiting their transaction — the set pass 4 polls,
+ * bounded because it spends one request per distinct transaction. Oldest
+ * first, so the rows nearest the confirmation cutoff get their last look
+ * before it passes and the next run resumes on what is left. */
+export async function getPendingSurveyResponses(
+  db: D1Database,
+  limit: number,
+): Promise<PendingSurveyResponse[]> {
   const { results } = await db
     .prepare(
       `SELECT survey_ref, user_id, tx_hash, credential, created_at
-       FROM survey_response_local WHERE status = 'pending'`,
+       FROM survey_response_local WHERE status = 'pending'
+       ORDER BY created_at, tx_hash
+       LIMIT ?`,
     )
+    .bind(limit)
     .all<{
       survey_ref: string;
       user_id: string;
