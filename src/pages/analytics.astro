@@ -111,7 +111,6 @@ const ancDelta = netChange(
 
 const fmtAdaCompact = (v: number) => formatAdaCompact(String(Math.round(v)));
 const fmtTwoDec = (v: number) => v.toFixed(2);
-const fmtPct1 = (v: number) => `${v.toFixed(1)}%`;
 const hasBackbone = current != null;
 
 // Cache-busted by the same stats fields the OG card renders, so a scraper's
@@ -345,12 +344,12 @@ const activityRows = activity
     </section>
   )}
 
-  {stats.length > 0 && (
+  {hasBackbone && (
     <section class="hub-conc-trends" aria-labelledby="hub-conc-trends-title">
       <h2 id="hub-conc-trends-title">Concentration over time</h2>
       <div class="hub-trends__grid">
         <EpochSeriesChart title="Gini coefficient" points={metricSeries(stats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={starts.gini} />
-        <EpochSeriesChart title="Top-10 share" points={metricSeries(stats, 'top10SharePct', starts.top10SharePct)} format={fmtPct1} sinceEpoch={starts.top10SharePct} />
+        <EpochSeriesChart title="Top-10 share" points={metricSeries(stats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={starts.top10SharePct} />
         <EpochSeriesChart title="DReps for 50% of delegated power" points={metricSeries(stats, 'minCoalition50', starts.minCoalition50)} sinceEpoch={starts.minCoalition50} />
         <EpochSeriesChart title="DReps for 67% of delegated power" points={metricSeries(stats, 'minCoalition67', starts.minCoalition67)} sinceEpoch={starts.minCoalition67} />
       </div>

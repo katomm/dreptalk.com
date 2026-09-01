@@ -1,13 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildCoalitionTable, buildThresholdMarkers } from './thresholdMarkers.js';
 
-// No shared ProtocolParams fixture existed in this file before this change
-// (each test above builds its own partial object), so this fixture is new,
-// built to match the plan's assumed dvt values exactly: treasury 0.67, hard
-// fork 0.6, constitution 0.75, no confidence 0.67, committee normal 0.67,
-// committee no-confidence 0.6, pp network/economic/technical 0.67, pp
-// governance 0.75. No adjustment to the plan's expected pct/count/label
-// values was needed.
+// All ten DRep thresholds set, spread over three distinct percents so the
+// grouping is exercised. The other tests here pass partial objects on purpose.
 const paramsFixture = {
   dvtTreasuryWithdrawal: 0.67,
   dvtHardFork: 0.6,
