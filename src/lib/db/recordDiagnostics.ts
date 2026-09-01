@@ -2,8 +2,11 @@
 // Parameterized D1 reads for the private DRep diagnostics page: eligible actions
 // the DRep never voted on, own votes missing a rationale anchor, the cohort's
 // report-card values (for a histogram), and vote-timing (own vs network) by
-// action type. Read-only, no writes.
+// action type. Also count-based network-wide timing reads (overall median,
+// half-turnout day, early/middle/late window buckets) for a public panel.
+// Read-only, no writes.
 import { liveVoteSql } from './drepVotes.js';
+import { EPOCH_LENGTH_SECONDS } from '@/lib/config/network.js';
 
 export interface UnvotedAction {
   gaId: string;
@@ -31,6 +34,19 @@ export interface NetworkTypeTiming {
   type: string;
   medianDay: number;
   timedVotes: number;
+}
+
+export interface NetworkOverallTiming {
+  medianDay: number;
+  timedVotes: number;
+}
+
+export interface WindowThirds {
+  early: number;
+  middle: number;
+  late: number;
+  afterClose: number;
+  basis: number;
 }
 
 export interface OwnVoteTiming {
@@ -133,9 +149,11 @@ export async function listCohortValues(db: D1Database): Promise<CohortValues[]> 
 
 /**
  * Median vote-timing (days from an action's submission to the vote), per
- * action type, over every live timed DRep vote network-wide. Only rows with
- * both timestamps present and a non-negative delta qualify (submitted_at is
- * milliseconds, block_time is seconds, hence the *1000.0 normalization).
+ * action type, over every live timed vote network-wide for the given voter
+ * role (DRep by default, kept for the record page's existing callers). Only
+ * rows with both timestamps present and a non-negative delta qualify
+ * (submitted_at is milliseconds, block_time is seconds, hence the *1000.0
+ * normalization).
  *
  * The rn-pair median trick: within each type partition, rows are numbered by
  * ROW_NUMBER() over the sorted day deltas (rn), alongside the partition's row
@@ -144,7 +162,7 @@ export async function listCohortValues(db: D1Database): Promise<CohortValues[]> 
  * halves land on the same rn), and to the two true middle rows when n is even.
  * AVG(day) over the kept rows is therefore exactly the median for both parities.
  */
-export async function getNetworkTimingByType(db: D1Database): Promise<NetworkTypeTiming[]> {
+export async function getNetworkTimingByType(db: D1Database, role: 'DRep' | 'SPO' = 'DRep'): Promise<NetworkTypeTiming[]> {
   const rows = (
     await db
       .prepare(
@@ -154,16 +172,122 @@ export async function getNetworkTimingByType(db: D1Database): Promise<NetworkTyp
                   COUNT(*) OVER (PARTITION BY g.type) AS n
              FROM drep_votes v
              JOIN governance_actions g ON g.id = v.ga_id
-            WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
+            WHERE v.voter_role = ? AND ${liveVoteSql('v')}
               AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
               AND v.block_time * 1000.0 >= g.submitted_at
          )
          SELECT type, AVG(day) AS median_day, MAX(n) AS timed_votes
            FROM t WHERE rn IN ((n + 1) / 2, (n + 2) / 2) GROUP BY type ORDER BY type`,
       )
+      .bind(role)
       .all<{ type: string; median_day: number; timed_votes: number }>()
   ).results ?? [];
   return rows.map((r) => ({ type: r.type, medianDay: r.median_day, timedVotes: r.timed_votes }));
+}
+
+/**
+ * Same rn-pair median trick as getNetworkTimingByType, but without the type
+ * partition: one overall median across every live timed vote network-wide
+ * for the given voter role. Null when the role has no timed votes at all.
+ */
+export async function getNetworkTimingOverall(db: D1Database, role: 'DRep' | 'SPO'): Promise<NetworkOverallTiming | null> {
+  const row = await db
+    .prepare(
+      `WITH t AS (
+         SELECT (v.block_time * 1000.0 - g.submitted_at) / 86400000.0 AS day,
+                ROW_NUMBER() OVER (ORDER BY (v.block_time * 1000.0 - g.submitted_at)) AS rn,
+                COUNT(*) OVER () AS n
+           FROM drep_votes v
+           JOIN governance_actions g ON g.id = v.ga_id
+          WHERE v.voter_role = ? AND ${liveVoteSql('v')}
+            AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
+            AND v.block_time * 1000.0 >= g.submitted_at
+       )
+       SELECT AVG(day) AS median_day, MAX(n) AS timed_votes
+         FROM t WHERE rn IN ((n + 1) / 2, (n + 2) / 2)`,
+    )
+    .bind(role)
+    .first<{ median_day: number | null; timed_votes: number | null }>();
+  if (!row || row.median_day === null || row.timed_votes === null) return null;
+  return { medianDay: row.median_day, timedVotes: row.timed_votes };
+}
+
+/**
+ * Half-turnout day per decided action: for every decided action with at
+ * least two live timed DRep votes, the day (from submission) of the vote at
+ * rn = (n+1)/2 (SQLite integer division), i.e. the ceil(n/2)-th vote by
+ * block_time. That is the point at which half the action's timed turnout had
+ * voted. Returns the raw day values, the caller computes the median across
+ * actions.
+ */
+export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
+  const rows = (
+    await db
+      .prepare(
+        `WITH t AS (
+           SELECT (v.block_time * 1000.0 - g.submitted_at) / 86400000.0 AS day,
+                  ROW_NUMBER() OVER (PARTITION BY v.ga_id ORDER BY v.block_time) AS rn,
+                  COUNT(*) OVER (PARTITION BY v.ga_id) AS n
+             FROM drep_votes v
+             JOIN governance_actions g ON g.id = v.ga_id
+            WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
+              AND g.decided_epoch IS NOT NULL
+              AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
+              AND v.block_time * 1000.0 >= g.submitted_at
+         )
+         SELECT day FROM t WHERE n >= 2 AND rn = (n + 1) / 2`,
+      )
+      .all<{ day: number }>()
+  ).results ?? [];
+  return rows.map((r) => r.day);
+}
+
+/**
+ * Buckets every live timed DRep vote on a decided action into early/middle/
+ * late thirds of its voting window, plus a separate afterClose bucket for
+ * votes past the window end (basis excludes afterClose).
+ *
+ * The window end epoch is MIN(decided_epoch, expiry_epoch) when both are
+ * present, else whichever one is (SQLite's MIN() returns NULL if either
+ * argument is NULL, hence the CASE instead of a plain MIN(a, b)). anchor
+ * converts that epoch to milliseconds via the same epoch-start formula as
+ * epochStartUnix (unixSeconds + (epoch - anchorEpoch) * EPOCH_LENGTH_SECONDS),
+ * inlined here because the conversion has to happen inside the SQL to bucket
+ * per row. position is where the vote falls between submission (0) and the
+ * window end (1), rows where the window end is at or before submission are
+ * skipped as degenerate.
+ */
+export async function getWindowThirds(db: D1Database, anchor: { epoch: number; unixSeconds: number }): Promise<WindowThirds> {
+  const row = await db
+    .prepare(
+      `WITH t AS (
+         SELECT v.block_time * 1000.0 AS block_ms, g.submitted_at AS submitted_at,
+                (? + ((CASE WHEN g.decided_epoch IS NOT NULL AND g.expiry_epoch IS NOT NULL
+                            THEN MIN(g.decided_epoch, g.expiry_epoch)
+                            ELSE COALESCE(g.decided_epoch, g.expiry_epoch) END) - ?) * ${EPOCH_LENGTH_SECONDS}) * 1000.0 AS end_ms
+           FROM drep_votes v
+           JOIN governance_actions g ON g.id = v.ga_id
+          WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
+            AND g.decided_epoch IS NOT NULL
+            AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL
+       ), q AS (
+         SELECT (block_ms - submitted_at) / (end_ms - submitted_at) AS position
+           FROM t WHERE end_ms > submitted_at AND block_ms >= submitted_at
+       )
+       SELECT
+         COALESCE(SUM(CASE WHEN position <= 1.0 AND position < 1.0 / 3 THEN 1 ELSE 0 END), 0) AS early,
+         COALESCE(SUM(CASE WHEN position <= 1.0 AND position >= 1.0 / 3 AND position <= 2.0 / 3 THEN 1 ELSE 0 END), 0) AS middle,
+         COALESCE(SUM(CASE WHEN position <= 1.0 AND position > 2.0 / 3 THEN 1 ELSE 0 END), 0) AS late,
+         COALESCE(SUM(CASE WHEN position > 1.0 THEN 1 ELSE 0 END), 0) AS afterClose
+         FROM q`,
+    )
+    .bind(anchor.unixSeconds, anchor.epoch)
+    .first<{ early: number; middle: number; late: number; afterClose: number }>();
+  const early = row?.early ?? 0;
+  const middle = row?.middle ?? 0;
+  const late = row?.late ?? 0;
+  const afterClose = row?.afterClose ?? 0;
+  return { early, middle, late, afterClose, basis: early + middle + late };
 }
 
 /**

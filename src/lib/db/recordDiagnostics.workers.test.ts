@@ -5,6 +5,9 @@ import {
   listUnrationaledVotes,
   listCohortValues,
   getNetworkTimingByType,
+  getNetworkTimingOverall,
+  getHalfTurnoutDays,
+  getWindowThirds,
   listOwnVoteTimings,
 } from './recordDiagnostics.js';
 import { upsertVotes, getDrepParticipation } from './drepVotes.js';
@@ -228,6 +231,163 @@ describe('getNetworkTimingByType', () => {
     expect(byType.get('TreasuryWithdrawals')?.medianDay).toBeCloseTo(2);
     expect(byType.get('ParameterChange')?.timedVotes).toBe(2);
     expect(byType.get('ParameterChange')?.medianDay).toBeCloseTo(3);
+  });
+});
+
+describe('getNetworkTimingByType role filter', () => {
+  it('defaults to DRep votes and filters to SPO votes when role is SPO', async () => {
+    // Realistic units: submitted_at in milliseconds, block_time in seconds.
+    const submittedAt = 1_780_000_000_000; // ms
+    const baseSec = 1_780_000_000; // seconds
+    const daySec = 86_400;
+
+    await seedAction('ga_role_drep', 'DRep Action', 900, { type: 'InfoAction', submittedAt });
+    await upsertVotes(
+      env.DB,
+      'ga_role_drep',
+      [{ voterRole: 'DRep', voterId: 'voterD', voterHex: null, vote: 'Yes', blockTime: baseSec + 1 * daySec }],
+      1,
+    );
+
+    await seedAction('ga_role_spo', 'SPO Action', 901, { type: 'InfoAction', submittedAt });
+    await upsertVotes(
+      env.DB,
+      'ga_role_spo',
+      [{ voterRole: 'SPO', voterId: 'voterS', voterHex: null, vote: 'Yes', blockTime: baseSec + 5 * daySec }],
+      1,
+    );
+
+    const drepResults = await getNetworkTimingByType(env.DB);
+    const drepByType = new Map(drepResults.map((r) => [r.type, r]));
+    expect(drepByType.get('InfoAction')?.timedVotes).toBe(1);
+    expect(drepByType.get('InfoAction')?.medianDay).toBeCloseTo(1);
+
+    const spoResults = await getNetworkTimingByType(env.DB, 'SPO');
+    const spoByType = new Map(spoResults.map((r) => [r.type, r]));
+    expect(spoByType.get('InfoAction')?.timedVotes).toBe(1);
+    expect(spoByType.get('InfoAction')?.medianDay).toBeCloseTo(5);
+  });
+});
+
+describe('getNetworkTimingOverall', () => {
+  it('computes the overall median across types, and returns null when no timed votes exist for the role', async () => {
+    const submittedAt = 1_780_000_000_000; // ms
+    const baseSec = 1_780_000_000; // seconds
+    const daySec = 86_400;
+
+    async function seedTimedDrepVote(gaId: string, type: string, dayOffset: number, voterId: string, decidedEpoch: number | null) {
+      await seedAction(gaId, `Action ${gaId}`, decidedEpoch, { type, submittedAt });
+      await upsertVotes(
+        env.DB,
+        gaId,
+        [{ voterRole: 'DRep', voterId, voterHex: null, vote: 'Yes', blockTime: baseSec + dayOffset * daySec }],
+        1,
+      );
+    }
+
+    // Odd n=3 spread across different types: overall median ignores the type partition.
+    await seedTimedDrepVote('ga_ov1', 'InfoAction', 1, 'voterOv1', 900);
+    await seedTimedDrepVote('ga_ov2', 'TreasuryWithdrawals', 2, 'voterOv2', 901);
+    await seedTimedDrepVote('ga_ov3', 'ParameterChange', 10, 'voterOv3', 902);
+
+    const overall = await getNetworkTimingOverall(env.DB, 'DRep');
+    expect(overall?.timedVotes).toBe(3);
+    expect(overall?.medianDay).toBeCloseTo(2);
+
+    const noSpo = await getNetworkTimingOverall(env.DB, 'SPO');
+    expect(noSpo).toBeNull();
+  });
+});
+
+describe('getHalfTurnoutDays', () => {
+  it('returns the day of the ceil(n/2)-th vote per decided action with at least 2 timed DRep votes', async () => {
+    const submittedAt = 1_780_000_000_000; // ms
+    const baseSec = 1_780_000_000; // seconds
+    const daySec = 86_400;
+
+    // 3 votes at days 1, 3, 5 -> n=3, rn=(3+1)/2=2 -> day 3.
+    await seedAction('ga_ht3', 'Half Turnout 3', 900, { submittedAt });
+    await upsertVotes(
+      env.DB,
+      'ga_ht3',
+      [
+        { voterRole: 'DRep', voterId: 'v1', voterHex: null, vote: 'Yes', blockTime: baseSec + 1 * daySec },
+        { voterRole: 'DRep', voterId: 'v2', voterHex: null, vote: 'Yes', blockTime: baseSec + 3 * daySec },
+        { voterRole: 'DRep', voterId: 'v3', voterHex: null, vote: 'Yes', blockTime: baseSec + 5 * daySec },
+      ],
+      1,
+    );
+
+    // 4 votes at days 1, 2, 3, 4 -> n=4, rn=(4+1)/2=2 (integer division) -> day 2.
+    await seedAction('ga_ht4', 'Half Turnout 4', 901, { submittedAt });
+    await upsertVotes(
+      env.DB,
+      'ga_ht4',
+      [
+        { voterRole: 'DRep', voterId: 'v4', voterHex: null, vote: 'Yes', blockTime: baseSec + 1 * daySec },
+        { voterRole: 'DRep', voterId: 'v5', voterHex: null, vote: 'Yes', blockTime: baseSec + 2 * daySec },
+        { voterRole: 'DRep', voterId: 'v6', voterHex: null, vote: 'Yes', blockTime: baseSec + 3 * daySec },
+        { voterRole: 'DRep', voterId: 'v7', voterHex: null, vote: 'Yes', blockTime: baseSec + 4 * daySec },
+      ],
+      1,
+    );
+
+    // A single timed vote: excluded, n < 2.
+    await seedAction('ga_ht_single', 'Single Vote', 902, { submittedAt });
+    await upsertVotes(
+      env.DB,
+      'ga_ht_single',
+      [{ voterRole: 'DRep', voterId: 'v8', voterHex: null, vote: 'Yes', blockTime: baseSec + 1 * daySec }],
+      1,
+    );
+
+    // Open action (not decided) with 2 timed votes: excluded.
+    await seedAction('ga_ht_open', 'Open Action', null, { submittedAt });
+    await upsertVotes(
+      env.DB,
+      'ga_ht_open',
+      [
+        { voterRole: 'DRep', voterId: 'v9', voterHex: null, vote: 'Yes', blockTime: baseSec + 1 * daySec },
+        { voterRole: 'DRep', voterId: 'v10', voterHex: null, vote: 'Yes', blockTime: baseSec + 2 * daySec },
+      ],
+      1,
+    );
+
+    const days = await getHalfTurnoutDays(env.DB);
+    const sorted = days.slice().sort((a, b) => a - b);
+    expect(sorted.length).toBe(2);
+    expect(sorted[0]).toBeCloseTo(2);
+    expect(sorted[1]).toBeCloseTo(3);
+  });
+});
+
+describe('getWindowThirds', () => {
+  it('classifies votes into early/middle/late/afterClose against a hand-built window', async () => {
+    // Fake anchor: epoch 0 at unix 0, so realistic ms/s values expose a unit mix-up.
+    const anchor = { epoch: 0, unixSeconds: 0 };
+    const daySec = 86_400;
+
+    // Submitted at the anchor. Expiry one epoch (5 days) after the anchor, decided_epoch
+    // is set far later so MIN(decided, expiry) picks the expiry epoch as the window end.
+    await seedAction('ga_win', 'Window Action', 100, { submittedAt: 0, expiryEpoch: 1 });
+    await upsertVotes(
+      env.DB,
+      'ga_win',
+      [
+        // position 1/5 (< 1/3): early.
+        { voterRole: 'DRep', voterId: 'w1', voterHex: null, vote: 'Yes', blockTime: 1 * daySec },
+        // position 1/2 (between 1/3 and 2/3): middle.
+        { voterRole: 'DRep', voterId: 'w2', voterHex: null, vote: 'Yes', blockTime: 2.5 * daySec },
+        // position 9/10 (> 2/3, <= 1): late.
+        { voterRole: 'DRep', voterId: 'w3', voterHex: null, vote: 'Yes', blockTime: 4.5 * daySec },
+        // position 6/5 (> 1): afterClose, not part of the basis.
+        { voterRole: 'DRep', voterId: 'w4', voterHex: null, vote: 'Yes', blockTime: 6 * daySec },
+      ],
+      1,
+    );
+
+    const thirds = await getWindowThirds(env.DB, anchor);
+    expect(thirds).toEqual({ early: 1, middle: 1, late: 1, afterClose: 1, basis: 3 });
   });
 });
 
