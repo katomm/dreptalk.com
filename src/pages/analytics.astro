@@ -335,13 +335,13 @@ const activityRows = activity
       <ul class="hub-coalition__rows">
         {coalitionRows.map((row) => (
           <li class="hub-coalition__row">
-            <span class="hub-coalition__count">{row.count} DReps</span>
+            <span class="hub-coalition__count">{row.count} {row.count === 1 ? 'DRep' : 'DReps'}</span>
             <span class="hub-coalition__pct">{row.pct}%</span>
             <span class="hub-coalition__actions">{row.actions.join(', ')}</span>
           </li>
         ))}
       </ul>
-      <p class="hub-coalition__footnote">Based on the current delegated voting power, not actual coordination. Thresholds and stake{thresholdsAsOf && ` as of ${thresholdsAsOf}`}.</p>
+      <p class="hub-coalition__footnote">Based on the current delegated voting power, not actual coordination. Thresholds{thresholdsAsOf && ` as of ${thresholdsAsOf}`}, stake as of the latest sync.</p>
     </section>
   )}
 

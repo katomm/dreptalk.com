@@ -90,8 +90,11 @@ export interface CoalitionRow {
  * smallest number of the largest DReps whose combined delegated power reaches
  * that share of the total. Same simplification as the stored per-epoch
  * min_coalition columns and the concentration island (share of representative
- * power, not the abstain-adjusted on-chain denominator), so all three surfaces
- * agree. Empty when the distribution is empty (count 0 rows are meaningless).
+ * power, not the abstain-adjusted on-chain denominator). The surfaces agree in
+ * METHOD, not necessarily in number: the stored columns read the epoch's power
+ * snapshot while this table reads the live dreps distribution, so the counts
+ * can differ slightly mid-epoch. That drift is expected, do not "fix" it.
+ * Empty when the distribution is empty (count 0 rows are meaningless).
  */
 export function buildCoalitionTable(
   params: ProtocolParams | null,
