@@ -6,13 +6,7 @@
 // mirroring handleLinkStake's convention.
 import { getUserById } from '../db/users.js';
 import { ensureFollow, getFollow } from '../db/delegatorFollows.js';
-import { resolveFollow } from './refresh.js';
-import type { AccountInfo } from '../koios/client.js';
-
-interface KoiosLike {
-  accountInfo(stakeAddr: string): Promise<AccountInfo | null>;
-  accountInfoBatch(stakeAddrs: string[]): Promise<AccountInfo[]>;
-}
+import { resolveFollow, type KoiosLike } from './refresh.js';
 
 export interface TrackInput {
   db: D1Database;

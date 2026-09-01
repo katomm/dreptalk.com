@@ -18,6 +18,8 @@ export interface DelegatorFollowRow {
   delegation_set_at: number | null;
   refresh_attempted_at: number | null;
   refresh_error_at: number | null;
+  delegated_since_epoch: number | null;
+  since_checked_at: number | null;
 }
 
 function columnsFor(state: DelegationState): { type: string; drepId: string | null } {
@@ -150,6 +152,63 @@ export async function getFollowedDrepIds(db: D1Database): Promise<Set<string>> {
     )
     .all<{ drep_id: string }>();
   return new Set(results.map((row) => row.drep_id));
+}
+
+/**
+ * Records a delegation-start capture attempt. `epoch` null means the attempt ran
+ * but produced no start (Koios failed, or the account has no delegation_drep
+ * event), so the row keeps a NULL start and waits out the retry window instead
+ * of being re-queried on every login.
+ */
+export async function setDelegatedSince(
+  db: D1Database,
+  userId: string,
+  epoch: number | null,
+  now: number,
+): Promise<void> {
+  await db
+    .prepare('UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ? WHERE user_id = ?')
+    .bind(epoch, now, userId)
+    .run();
+}
+
+/**
+ * The follows among `userIds` that still need a start captured: no start yet and
+ * either never attempted or last attempted before `staleBefore` (unix seconds).
+ * Stalest first (never-attempted rows sort first, COALESCE to 0), capped at
+ * `limit` so one bulk pass stays within a single Koios chunk.
+ * The id list is chunked because D1 caps a statement at 100 bound parameters,
+ * so each chunk is ordered and capped in SQL and the merged result is ordered
+ * and capped again in JS.
+ */
+export async function listFollowsMissingSince(
+  db: D1Database,
+  userIds: string[],
+  staleBefore: number,
+  limit: number,
+): Promise<{ userId: string; stakeAddr: string }[]> {
+  if (userIds.length === 0 || limit <= 0) return [];
+  const found: { userId: string; stakeAddr: string; checkedAt: number }[] = [];
+  for (let i = 0; i < userIds.length; i += 90) {
+    const chunk = userIds.slice(i, i + 90);
+    const { results } = await db
+      .prepare(
+        `SELECT user_id, stake_addr, COALESCE(since_checked_at, 0) AS since_order
+           FROM delegator_follows
+          WHERE user_id IN (${sqlPlaceholders(chunk)})
+            AND delegated_since_epoch IS NULL
+            AND (since_checked_at IS NULL OR since_checked_at < ?)
+          ORDER BY since_order, user_id
+          LIMIT ?`,
+      )
+      .bind(...chunk, staleBefore, limit)
+      .all<{ user_id: string; stake_addr: string; since_order: number }>();
+    for (const row of results) {
+      found.push({ userId: row.user_id, stakeAddr: row.stake_addr, checkedAt: row.since_order });
+    }
+  }
+  found.sort((a, b) => a.checkedAt - b.checkedAt || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+  return found.slice(0, limit).map(({ userId, stakeAddr }) => ({ userId, stakeAddr }));
 }
 
 /** Marks a whole failed bulk batch: attempt + error, so rows wait the due window and errors are visible. */

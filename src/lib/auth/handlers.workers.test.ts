@@ -47,6 +47,7 @@ function koiosRejectAll() {
   return {
     drepInfo: async () => null,
     accountInfo: async () => null,
+    accountUpdateHistoryBatch: async () => [],
     proposalsByReturnAddress: async () => [],
   };
 }

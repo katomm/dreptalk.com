@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep } from './resolveRole';
-import type { DrepInfo, AccountInfo, PoolCalidusKeyRow, CommitteeMember, ScriptInfo } from '../koios/client';
+import type { DrepInfo, AccountInfo, PoolCalidusKeyRow, CommitteeMember, ScriptInfo, AccountUpdateHistoryRow } from '../koios/client';
 
 // Minimal fake koios client: only the methods under test need to be present.
 type FakeKoios = {
   drepInfo: (id: string) => Promise<DrepInfo | null>;
   accountInfo: (addr: string) => Promise<AccountInfo | null>;
   accountInfoBatch: (addrs: string[]) => Promise<AccountInfo[]>;
+  accountUpdateHistoryBatch: (addrs: string[]) => Promise<AccountUpdateHistoryRow[]>;
   proposalsByReturnAddress: (addr: string) => Promise<Array<{ proposal_id: string; return_address: string; proposal_type: string }>>;
   poolCalidusKey: (pubKeyHex: string) => Promise<PoolCalidusKeyRow | null>;
   committeeInfo: () => Promise<CommitteeMember[]>;
@@ -18,6 +19,7 @@ function makeKoios(overrides: Partial<FakeKoios> = {}): FakeKoios {
     drepInfo: () => Promise.resolve(null),
     accountInfo: () => Promise.resolve(null),
     accountInfoBatch: () => Promise.resolve([]),
+    accountUpdateHistoryBatch: () => Promise.resolve([]),
     proposalsByReturnAddress: () => Promise.resolve([]),
     poolCalidusKey: () => Promise.resolve(null),
     committeeInfo: () => Promise.resolve([]),

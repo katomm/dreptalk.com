@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds } from './delegatorFollows.js';
+import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds, setDelegatedSince, listFollowsMissingSince } from './delegatorFollows.js';
 import { getNotificationsPage } from './notifications.js';
 
 const db = () => env.DB as D1Database;
@@ -126,5 +126,63 @@ describe('delegatorFollows module', () => {
     expect(ids.size).toBe(2);
     expect(ids.has('drep1gfA')).toBe(true);
     expect(ids.has('drep1gfB')).toBe(true);
+  });
+});
+
+describe('delegation start columns (migration 0089)', () => {
+  const since = async (userId: string) =>
+    db().prepare('SELECT delegated_since_epoch, since_checked_at FROM delegator_follows WHERE user_id = ?')
+      .bind(userId).first<{ delegated_since_epoch: number | null; since_checked_at: number | null }>();
+
+  it('starts NULL on a fresh follow', async () => {
+    await ensureFollow(db(), 's1', 'stake_test1s1', 1000);
+    const row = await since('s1');
+    expect(row?.delegated_since_epoch).toBeNull();
+    expect(row?.since_checked_at).toBeNull();
+  });
+
+  it('setDelegatedSince stores the epoch and the attempt time', async () => {
+    await ensureFollow(db(), 's2', 'stake_test1s2', 1000);
+    await setDelegatedSince(db(), 's2', 655, 4000);
+    expect(await since('s2')).toEqual({ delegated_since_epoch: 655, since_checked_at: 4000 });
+  });
+
+  it('setDelegatedSince with a null epoch records the attempt and clears a stale start', async () => {
+    await ensureFollow(db(), 's3', 'stake_test1s3', 1000);
+    await setDelegatedSince(db(), 's3', 655, 4000);
+    await setDelegatedSince(db(), 's3', null, 9000);
+    expect(await since('s3')).toEqual({ delegated_since_epoch: null, since_checked_at: 9000 });
+  });
+
+  it('listFollowsMissingSince returns only the missing and stale rows, stalest first, capped', async () => {
+    await ensureFollow(db(), 'ls-a', 'stake_test1lsa', 0);
+    await ensureFollow(db(), 'ls-b', 'stake_test1lsb', 0);
+    await ensureFollow(db(), 'ls-c', 'stake_test1lsc', 0);
+    await ensureFollow(db(), 'ls-d', 'stake_test1lsd', 0);
+    await setDelegatedSince(db(), 'ls-a', 640, 100); // has a start, never a candidate
+    await setDelegatedSince(db(), 'ls-b', null, 500); // attempted, stale against 1000
+    await setDelegatedSince(db(), 'ls-c', null, 300); // attempted, staler
+    // ls-d was never attempted, since_checked_at IS NULL sorts first
+
+    const ids = ['ls-a', 'ls-b', 'ls-c', 'ls-d'];
+    expect(await listFollowsMissingSince(db(), ids, 1000, 10)).toEqual([
+      { userId: 'ls-d', stakeAddr: 'stake_test1lsd' },
+      { userId: 'ls-c', stakeAddr: 'stake_test1lsc' },
+      { userId: 'ls-b', stakeAddr: 'stake_test1lsb' },
+    ]);
+    expect(await listFollowsMissingSince(db(), ids, 1000, 2)).toEqual([
+      { userId: 'ls-d', stakeAddr: 'stake_test1lsd' },
+      { userId: 'ls-c', stakeAddr: 'stake_test1lsc' },
+    ]);
+  });
+
+  it('listFollowsMissingSince skips rows attempted at or after staleBefore and rows outside the id list', async () => {
+    await ensureFollow(db(), 'lf-fresh', 'stake_test1lff', 0);
+    await ensureFollow(db(), 'lf-other', 'stake_test1lfo', 0);
+    await setDelegatedSince(db(), 'lf-fresh', null, 1000);
+    expect(await listFollowsMissingSince(db(), ['lf-fresh'], 1000, 10)).toEqual([]);
+    expect(await listFollowsMissingSince(db(), ['lf-fresh'], 1001, 10))
+      .toEqual([{ userId: 'lf-fresh', stakeAddr: 'stake_test1lff' }]);
+    expect(await listFollowsMissingSince(db(), [], 9999, 10)).toEqual([]);
   });
 });

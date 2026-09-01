@@ -31,7 +31,7 @@ describe('handleTrack: account has a linked stake wallet', () => {
     const userId = 'writer-track-1';
     const stakeAddr = 'stake_test1rtrack1';
     await insertUser(userId, stakeAddr);
-    const koios = { accountInfo: async () => acct(stakeAddr, VALID_DREP_A), accountInfoBatch: async () => [] };
+    const koios = { accountInfo: async () => acct(stakeAddr, VALID_DREP_A), accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
 
     const result = await handleTrack({ db: env.DB, koios, userId, now: 1_700_000_000 });
 
@@ -50,7 +50,7 @@ describe('handleTrack: account has a linked stake wallet', () => {
     const userId = 'writer-track-2';
     const stakeAddr = 'stake_test1rtrack2';
     await insertUser(userId, stakeAddr);
-    const koios = { accountInfo: async () => { throw new Error('down'); }, accountInfoBatch: async () => [] };
+    const koios = { accountInfo: async () => { throw new Error('down'); }, accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
 
     const result = await handleTrack({ db: env.DB, koios, userId, now: 1_700_000_000 });
 
@@ -67,7 +67,7 @@ describe('handleTrack: account has a linked stake wallet', () => {
     const userId = 'writer-track-3';
     const stakeAddr = 'stake_test1rtrack3';
     await insertUser(userId, stakeAddr);
-    const koios = { accountInfo: async () => acct(stakeAddr, null), accountInfoBatch: async () => [] };
+    const koios = { accountInfo: async () => acct(stakeAddr, null), accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
 
     const first = await handleTrack({ db: env.DB, koios, userId, now: 1_700_000_000 });
     const second = await handleTrack({ db: env.DB, koios, userId, now: 1_700_000_100 });
@@ -83,7 +83,7 @@ describe('handleTrack: account has no stake wallet linked', () => {
   it('returns 400 without creating a delegator_follows row', async () => {
     const userId = 'writer-track-no-stake';
     await insertUser(userId, null);
-    const koios = { accountInfo: async () => null, accountInfoBatch: async () => [] };
+    const koios = { accountInfo: async () => null, accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
 
     const result = await handleTrack({ db: env.DB, koios, userId, now: 1_700_000_000 });
 
@@ -98,7 +98,7 @@ describe('handleTrack: account has no stake wallet linked', () => {
 
 describe('handleTrack: unknown user id', () => {
   it('returns 400 (treated the same as no stake wallet linked)', async () => {
-    const koios = { accountInfo: async () => null, accountInfoBatch: async () => [] };
+    const koios = { accountInfo: async () => null, accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
     const result = await handleTrack({ db: env.DB, koios, userId: 'ghost-user', now: 1_700_000_000 });
     expect(result.status).toBe(400);
   });
