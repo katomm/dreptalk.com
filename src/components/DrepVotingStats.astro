@@ -183,12 +183,22 @@ const participationLine =
   .vstats__h { font-size: 1.125rem; margin: 0 0 1rem; }
   .vstats__empty { color: var(--muted); margin: 0; }
 
-  /* Equal-width blocks (up to four: participation, rationale, timing, voting
-     pattern), each folding to full width on narrow screens. auto-fit already
-     wraps cleanly whether the timing cell is present or not. */
+  /* Up to four equal-width blocks (participation, rationale, timing, voting
+     pattern). Explicit column counts per breakpoint, not auto-fit: auto-fit
+     sizes tracks off the widest content and can strand the last cell alone on
+     its own row next to empty tracks whenever the item count doesn't divide
+     evenly into however many tracks happen to fit. Fixed counts (4 / 2 / 1)
+     always wrap a short final row flush left instead. Breakpoints are sized
+     off the widest cell (the voting-pattern chart, whose fixed-width donut
+     plus legend need about 248px) against this card's own content width
+     (container minus the page's own padding, minus this card's padding), so
+     each track always has room for it: 1250px keeps 4 columns at >=252px each
+     down to just above that width; 700px keeps 2 columns at >=286px each down
+     to just above that width; a single column below 700px never has a width
+     problem. */
   .vstats__body {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 1.25rem 2rem;
     align-items: start;
   }
@@ -259,6 +269,17 @@ const participationLine =
     font-size: 0.75rem;
   }
 
+  /* Card content width steps down with the viewport (the page container's own
+     padding and this card's padding both shrink the available width before
+     the grid ever sees it), so the column count steps down before a track
+     gets too narrow for the voting-pattern chart. See the .vstats__body
+     comment above for the math. */
+  @media (max-width: 1250px) {
+    .vstats__body { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 700px) {
+    .vstats__body { grid-template-columns: 1fr; }
+  }
   @media (max-width: 560px) {
     .vstats { padding: 1.1rem; }
   }
