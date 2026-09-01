@@ -39,6 +39,8 @@ const HOUR_MS = 60 * MIN_MS;
 /** Mirrors the sync's AUDIT_RECHECK_MS / AUDIT_RETRY_BASE_MS. */
 const DAY_MS = 24 * HOUR_MS;
 const RETRY_MS = 5 * MIN_MS;
+/** Mirrors the sync's UNAVAILABLE_TTL_MS. */
+const ROLLBACK_TTL_MS = 4 * DAY_MS;
 
 const LINKED_LINKS: SurveySet['govLinks'] = [
   { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
@@ -231,12 +233,13 @@ async function surveyRows(): Promise<
     audit_due_at: number | null;
     audit_attempts: number;
     unavailable: number;
+    unavailable_since: number | null;
     cancelled: number;
   }[]
 > {
   const { results } = await env.DB.prepare(
     `SELECT ref, topic_id, counted_dreps, final_state, audited_at, audit_due_at, audit_attempts,
-            unavailable, cancelled
+            unavailable, unavailable_since, cancelled
      FROM survey ORDER BY ref`,
   ).all<{
     ref: string;
@@ -247,6 +250,7 @@ async function surveyRows(): Promise<
     audit_due_at: number | null;
     audit_attempts: number;
     unavailable: number;
+    unavailable_since: number | null;
     cancelled: number;
   }>();
   return results;
@@ -309,7 +313,9 @@ describe('syncSurveys', () => {
     });
     const r = await syncSurveys(deps(gone));
     expect(r.rolledBack).toBe(1);
-    expect((await surveyRows())[0].unavailable).toBe(1);
+    let [row] = await surveyRows();
+    expect(row.unavailable).toBe(1);
+    expect(row.unavailable_since).toBe(1_780_000_500_000);
 
     // An incomplete answer proves nothing: no rollback, and no clearing either.
     const incomplete = fakeTessera({
@@ -321,9 +327,55 @@ describe('syncSurveys', () => {
     expect((await syncSurveys(deps(incomplete))).rolledBack).toBe(0);
     expect((await surveyRows())[0].unavailable).toBe(1);
 
-    // The ref reappears in a complete answer: cleared.
+    // Still absent on a later run: the retirement clock keeps its first stamp.
+    expect((await syncSurveys(deps(gone, 1_780_000_500_000 + HOUR_MS))).rolledBack).toBe(1);
+    expect((await surveyRows())[0].unavailable_since).toBe(1_780_000_500_000);
+
+    // The ref reappears in a complete answer: cleared, clock and all.
     await syncSurveys(deps(fakeTessera()));
-    expect((await surveyRows())[0].unavailable).toBe(0);
+    [row] = await surveyRows();
+    expect(row.unavailable).toBe(0);
+    expect(row.unavailable_since).toBeNull();
+  });
+
+  it('retires a survey unavailable past the rollback TTL from the refresh set', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    await syncSurveys(deps(fakeTessera(), now));
+    const gone = fakeTessera({
+      surveysByRefs: async () => ({ ready: true, value: setOf([], [], {}) }),
+      // The rolled-back ref is outside Tessera's corpus: its bundle 404s,
+      // which closes the audit schedule on the same terms.
+      surveyBundle: async () => {
+        throw new TesseraHttpError(404);
+      },
+    });
+    await syncSurveys(deps(gone, now + HOUR_MS));
+    // The re-audit due a day out meets the 404 and closes.
+    expect(await syncSurveys(deps(gone, now + 25 * HOUR_MS))).toMatchObject({
+      audited: 0,
+      failed: 1,
+    });
+
+    // Within the TTL the ref is still asked about (the refs call runs and
+    // reports it absent); past the TTL the row leaves the refresh set and the
+    // run goes fully quiet — while the thread and row stay for the pages.
+    expect((await syncSurveys(deps(gone, now + 2 * DAY_MS))).rolledBack).toBe(1);
+    const guard = fakeTessera({
+      surveysByRefs: async () => {
+        throw new Error('a retired ref must not be refreshed');
+      },
+    });
+    const after = await syncSurveys(deps(guard, now + HOUR_MS + ROLLBACK_TTL_MS + 1));
+    expect(after).toMatchObject({ refreshed: 0, rolledBack: 0, audited: 0, failed: 0 });
+    const [row] = await surveyRows();
+    expect(row).toMatchObject({
+      unavailable: 1,
+      unavailable_since: now + HOUR_MS,
+      audit_due_at: null,
+      counted_dreps: 2,
+    });
+    expect(await listSurveysWithTopics(env.DB, { limit: 10, offset: 0 })).toHaveLength(1);
   });
 
   it('freezes a survey at any final state, and only "cancelled" reads as a cancellation', async () => {
@@ -345,7 +397,7 @@ describe('syncSurveys', () => {
         }),
       ),
     );
-    expect((await getHeldSurveys(env.DB)).map(h => h.ref).sort()).toEqual([KEY_LINKED, KEY_SECOND]);
+    expect((await getHeldSurveys(env.DB, 0)).map(h => h.ref).sort()).toEqual([KEY_LINKED, KEY_SECOND]);
 
     // The refresh answer declares both decided for good — one cancelled, one
     // finalized with an artifact. Only the cancelled one may surface as a
@@ -372,7 +424,7 @@ describe('syncSurveys', () => {
       { ref: KEY_LINKED, cancelled: 1, final_state: 'cancelled' },
       { ref: KEY_SECOND, cancelled: 0, final_state: 'finalized' },
     ]);
-    expect(await getHeldSurveys(env.DB)).toEqual([]);
+    expect(await getHeldSurveys(env.DB, 0)).toEqual([]);
 
     // Both frozen: the next run's refresh set is empty — the bounded working
     // set the finalState wire change buys.

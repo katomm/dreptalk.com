@@ -106,6 +106,14 @@ const MAX_AUDIT_ATTEMPTS = 8;
 const MAX_BUNDLE_PAGES = 50;
 /** Restarts a page walk tolerates when the snapshot moves mid-walk (resync). */
 const MAX_RESYNC_RESTARTS = 2;
+/** How long a rolled-back (unavailable) survey keeps being named in ?refs=
+ * calls before its refresh slot is released. Four days outlasts Tessera's
+ * rolling ~3-day settlement window (SETTLEMENT_MARGIN_SLOTS, about twice its
+ * 36 h stability window): a ref still absent after that is not coming back.
+ * The thread, the card and the "Record missing" badge all stay; the audit
+ * side needs no TTL of its own, because a bundle for a ref outside the
+ * corpus answers 404, which is terminal. */
+const UNAVAILABLE_TTL_MS = 4 * 24 * 60 * 60 * 1000;
 
 /** Binds of the per-survey statement groups batchByBinds packs (see db/surveys.ts). */
 const REFRESH_BINDS = 9;
@@ -357,7 +365,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   // --- Pass 2: refresh every held (not-yet-final) survey by explicit refs,
   // rolled-back detection included.
   try {
-    const held = await getHeldSurveys(db);
+    const held = await getHeldSurveys(db, now - UNAVAILABLE_TTL_MS);
     for (let i = 0; i < held.length; i += MAX_REFS_PER_CALL) {
       const chunk = held.slice(i, i + MAX_REFS_PER_CALL);
       const byRef = new Map(chunk.map(h => [h.ref, h]));

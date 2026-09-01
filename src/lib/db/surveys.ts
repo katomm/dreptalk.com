@@ -16,13 +16,18 @@ export interface HeldSurvey {
 }
 
 /** Every survey not yet decided for good — the set pass 2 keeps refreshing.
- * Unavailable rows stay in it so a rolled-back ref that reappears is cleared. */
-export async function getHeldSurveys(db: D1Database): Promise<HeldSurvey[]> {
+ * Unavailable rows stay in it so a rolled-back ref that reappears is cleared,
+ * until they have been unavailable since before `retiredCutoff` (unix ms):
+ * that is the rollback exit from the set, or a genuinely rolled-back record
+ * would be named in every ?refs= call for all time. */
+export async function getHeldSurveys(db: D1Database, retiredCutoff: number): Promise<HeldSurvey[]> {
   const { results } = await db
     .prepare(
       `SELECT ref, end_epoch, tip_epoch, claimed_count, unavailable
-       FROM survey WHERE final_state IS NULL`,
+       FROM survey
+       WHERE final_state IS NULL AND (unavailable_since IS NULL OR unavailable_since > ?)`,
     )
+    .bind(retiredCutoff)
     .all<{
       ref: string;
       end_epoch: number;
@@ -129,7 +134,8 @@ export interface SurveyRefresh {
 export function buildRefreshSurvey(db: D1Database, r: SurveyRefresh): D1PreparedStatement {
   return db
     .prepare(
-      `UPDATE survey SET claimed_count = ?, cancelled = ?, final_state = ?, unavailable = 0,
+      `UPDATE survey SET claimed_count = ?, cancelled = ?, final_state = ?,
+         unavailable = 0, unavailable_since = NULL,
          audit_due_at = COALESCE(?, audit_due_at),
          audit_attempts = CASE WHEN ? IS NULL THEN audit_attempts ELSE 0 END,
          tip_epoch = ?, tessera_fetched_at = ?, synced_at = ?
@@ -153,13 +159,17 @@ export async function markSurveysUnavailable(
   refs: readonly string[],
   now: number,
 ): Promise<void> {
-  // One bind is taken by `now`, the rest by the IN list.
-  for (const chunk of chunked(refs, D1_MAX_BINDS - 1)) {
+  // Two binds are taken by `now`, the rest by the IN list. The COALESCE keeps
+  // the FIRST disappearance time: the retirement clock must not restart while
+  // the ref stays absent.
+  for (const chunk of chunked(refs, D1_MAX_BINDS - 2)) {
     await db
       .prepare(
-        `UPDATE survey SET unavailable = 1, synced_at = ? WHERE ref IN (${sqlPlaceholders(chunk)})`,
+        `UPDATE survey SET unavailable = 1, unavailable_since = COALESCE(unavailable_since, ?),
+           synced_at = ?
+         WHERE ref IN (${sqlPlaceholders(chunk)})`,
       )
-      .bind(now, ...chunk)
+      .bind(now, now, ...chunk)
       .run();
   }
 }

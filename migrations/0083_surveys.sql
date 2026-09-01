@@ -43,7 +43,12 @@ CREATE TABLE survey (
   audit_attempts     INTEGER NOT NULL DEFAULT 0,  -- consecutive failures
   -- The on-chain record disappeared from a complete Tessera answer (rolled
   -- back). Hides answering, keeps the thread; cleared if the ref reappears.
+  -- unavailable_since stamps the first such answer (unix ms) and is the
+  -- rollback exit from the refresh set: a held row unavailable longer than
+  -- the sync's TTL stops being named in ?refs= calls. Only that slot is
+  -- released — the thread, the card and the badge all stay.
   unavailable        INTEGER NOT NULL DEFAULT 0,
+  unavailable_since  INTEGER,
   tip_epoch          INTEGER NOT NULL,   -- chain tip epoch of the mirrored snapshot
   tessera_fetched_at INTEGER NOT NULL,   -- snapshot time (unix s) — the "as of" the UI shows
   submitted_at       INTEGER,            -- survey publication time (unix ms, slot-derived)
