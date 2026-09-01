@@ -4,6 +4,11 @@
 // reads unchanged, and a click copies the absolute link to the section
 // instead of only jumping to it.
 //
+// The link is a SIBLING of the heading, not a child: nested inside, its
+// "Link to this section" label and the status span became part of the
+// heading's accessible name, so every aria-labelledby section name and the
+// screen-reader heading list ended with that boilerplate.
+//
 // One delegated, bundled listener handles every heading on the page (same
 // pattern as ShareButton.astro), because the strict CSP forbids inline
 // handlers.
@@ -19,15 +24,15 @@ const { level, id, class: className } = Astro.props;
 const Tag = level === 2 ? 'h2' : 'h3';
 ---
 
-<Tag id={id} class={className} data-anchor-heading>
-  <slot />
+<div class="heading-anchor-wrap">
+  <Tag id={id} class={className} data-anchor-heading><slot /></Tag>
   <a class="heading-anchor" href={`#${id}`} aria-label="Link to this section">
     <span aria-hidden="true">#</span>
     {/* Confirmation text, announced by the implicit polite live region and
         visible next to the anchor for the same 1.5 seconds. */}
     <span class="heading-anchor__status" data-anchor-status role="status"></span>
   </a>
-</Tag>
+</div>
 
 <script>
   // Copy the section link and set the hash without the jump the default
@@ -37,6 +42,8 @@ const Tag = level === 2 ? 'h2' : 'h3';
   document.addEventListener('click', (event) => {
     const link = (event.target as Element | null)?.closest<HTMLAnchorElement>('.heading-anchor');
     if (!link) return;
+    // The id comes from the link's own href, never from a parent heading: the
+    // link sits next to the heading, not inside it.
     const id = link.getAttribute('href')?.slice(1);
     if (!id) return;
     // A modified click (new tab, new window) or a non-primary button should
@@ -62,20 +69,28 @@ const Tag = level === 2 ? 'h2' : 'h3';
 </script>
 
 <style>
+  /* The heading keeps whatever margins the page gives it. The wrapper adds
+     none of its own, so the spacing around a heading reads as it did before
+     the link became a sibling. */
+  .heading-anchor-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4em;
+    flex-wrap: wrap;
+  }
   /* The sticky site header would otherwise cover a heading jumped to by its
      own fragment link. */
   [data-anchor-heading] {
     scroll-margin-top: 5rem;
   }
   .heading-anchor {
-    margin-left: 0.4rem;
     color: var(--muted);
     text-decoration: none;
     font-weight: 400;
     opacity: 0;
     transition: opacity 0.15s ease;
   }
-  [data-anchor-heading]:hover .heading-anchor,
+  .heading-anchor-wrap:hover .heading-anchor,
   .heading-anchor:focus,
   .heading-anchor:focus-visible {
     opacity: 1;

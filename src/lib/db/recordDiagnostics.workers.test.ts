@@ -418,6 +418,27 @@ describe('getWindowThirds', () => {
     const thirds = await getWindowThirds(env.DB, anchor);
     expect(thirds).toEqual({ early: 1, middle: 1, late: 1, afterClose: 1, basis: 3 });
   });
+
+  it('ends an enacted action one epoch before its decided epoch, the enactment epoch', async () => {
+    // Same hand-built anchor: epoch 0 at unix 0, one epoch is 5 days.
+    const anchor = { epoch: 0, unixSeconds: 0 };
+    const daySec = 86_400;
+
+    // Enacted, so decided_epoch 2 is the ENACTMENT epoch and voting stopped at the
+    // start of the ratification epoch 1 (day 5). The vote on day 6 sits inside
+    // epoch 1, past the window end, so it is afterClose and not a late vote. No
+    // expiry epoch, so the end comes from decided_epoch alone.
+    await seedAction('ga_enacted_win', 'Enacted Window Action', 2, { submittedAt: 0, status: 'enacted' });
+    await upsertVotes(
+      env.DB,
+      'ga_enacted_win',
+      [{ voterRole: 'DRep', voterId: 'e1', voterHex: null, vote: 'Yes', blockTime: 6 * daySec }],
+      1,
+    );
+
+    const thirds = await getWindowThirds(env.DB, anchor);
+    expect(thirds).toEqual({ early: 0, middle: 0, late: 0, afterClose: 1, basis: 0 });
+  });
 });
 
 describe('dropped actions excluded from decided-timing reads', () => {

@@ -539,8 +539,10 @@ const activityBars = activity
             <ul class="hub-spo__rows">
               {spo.divergentActions.map((a) => (
                 <li class="hub-spo__row">
-                  <span class="hub-spo__row-title">{a.href ? <a href={a.href}>{a.title}</a> : a.title}</span>
-                  <span class="hub-spo__row-type">{readableType(a.type)}</span>
+                  {/* An untitled action is named by its readable type, and the type
+                      line is dropped so the same label does not appear twice. */}
+                  <span class="hub-spo__row-title">{a.href ? <a href={a.href}>{a.title ?? readableType(a.type)}</a> : (a.title ?? readableType(a.type))}</span>
+                  {a.title != null && <span class="hub-spo__row-type">{readableType(a.type)}</span>}
                   <span class="hub-spo__row-missed">{a.missedBy === 'DRep' ? 'DRep tally below its threshold' : 'SPO tally below its threshold'}</span>
                 </li>
               ))}
@@ -692,7 +694,7 @@ const activityBars = activity
           {timing.halfTurnoutMedianDay != null && (
             <div class="hub-tile">
               <p class="hub-tile__value">Day {fmtCount(timing.halfTurnoutMedianDay)}</p>
-              <p class="hub-tile__label">Half of an action's votes cast</p>
+              <p class="hub-tile__label">Half of an action's DRep votes cast</p>
               <p class="hub-tile__sub">median across {timing.halfBasis.toLocaleString('en-US')} decided actions</p>
             </div>
           )}
@@ -701,7 +703,7 @@ const activityBars = activity
           <div class="hub-cbar-group">
             <div class="hub-cbar">
               <p class="hub-cbar__title">Where in the voting window votes arrived</p>
-              <div class="hub-cbar__track" role="img" aria-label={`Of ${timing.thirds.basis} votes inside the window, ${timing.thirds.early} in the early third, ${timing.thirds.middle} in the middle third, ${timing.thirds.late} in the late third`}>
+              <div class="hub-cbar__track" role="img" aria-label={`Of ${timing.thirds.basis} DRep votes inside the window, ${timing.thirds.early} in the early third, ${timing.thirds.middle} in the middle third, ${timing.thirds.late} in the late third`}>
                 <span class="hub-cbar__seg hub-cbar__seg--early" style={`width:${((timing.thirds.early / timing.thirds.basis) * 100).toFixed(1)}%`}></span>
                 <span class="hub-cbar__seg hub-cbar__seg--middle" style={`width:${((timing.thirds.middle / timing.thirds.basis) * 100).toFixed(1)}%`}></span>
                 <span class="hub-cbar__seg hub-cbar__seg--late" style={`width:${((timing.thirds.late / timing.thirds.basis) * 100).toFixed(1)}%`}></span>
@@ -714,7 +716,7 @@ const activityBars = activity
                   <li class="hub-cbar__legend-item">{timing.thirds.afterClose.toLocaleString('en-US')} arrived after the window closed, counted apart from the thirds</li>
                 )}
               </ul>
-              <p class="hub-timing__basis">Across {timing.thirds.basis.toLocaleString('en-US')} votes on decided actions with a resolvable voting window.</p>
+              <p class="hub-timing__basis">Across {timing.thirds.basis.toLocaleString('en-US')} DRep votes on decided actions with a resolvable voting window.</p>
             </div>
           </div>
         )}
@@ -742,7 +744,7 @@ const activityBars = activity
             </table>
           </div>
         )}
-        <p class="hub-timing__footnote">A vote is timed when both the action's submission and the vote's block time are on record, and days are counted from submission. Only decided actions are counted, an open action would only show its early votes so far. The thirds split each action's own voting window into three equal parts, so a long-running action and a short one are read on the same scale. Types with fewer than 20 timed DRep votes are left out of the table, and a median SPO day needs 20 timed SPO votes of its own, otherwise the cell shows n/a.</p>
+        <p class="hub-timing__footnote">A vote is timed when both the action's submission and the vote's block time are on record, and days are counted from submission. Only decided actions are counted, an open action would only show its early votes so far. The thirds split each action's own voting window into three equal parts, so a long-running action and a short one are read on the same scale. A DRep who changed a vote is timed at the final vote. Types with fewer than 20 timed DRep votes are left out of the table, and a median SPO day needs 20 timed SPO votes of its own, otherwise the cell shows n/a.</p>
       </section>
     )}
   </section>

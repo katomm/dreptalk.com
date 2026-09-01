@@ -131,7 +131,7 @@ describe('buildSpoSnapshot', () => {
     ]);
   });
 
-  it('falls back to the type when an action has no title, and to a null href without a topic', () => {
+  it('leaves the title null when an action has no title, and the href null without a topic', () => {
     const v = buildSpoSnapshot([
       row({
         gaId: 'ga1',
@@ -145,7 +145,7 @@ describe('buildSpoSnapshot', () => {
       }),
     ]);
     expect(v.divergentActions).toEqual([
-      { gaId: 'ga1', title: 'ParameterChange', href: null, type: 'ParameterChange', missedBy: 'DRep' },
+      { gaId: 'ga1', title: null, href: null, type: 'ParameterChange', missedBy: 'DRep' },
     ]);
   });
 

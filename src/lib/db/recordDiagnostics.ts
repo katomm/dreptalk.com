@@ -267,7 +267,11 @@ export async function getHalfTurnoutDays(db: D1Database): Promise<number[]> {
  *
  * The window end epoch is MIN(decided_epoch, expiry_epoch) when both are
  * present, else whichever one is (SQLite's MIN() returns NULL if either
- * argument is NULL, hence the CASE instead of a plain MIN(a, b)). anchor
+ * argument is NULL, hence the CASE instead of a plain MIN(a, b)). For an
+ * enacted action decided_epoch is the ENACTMENT epoch, always one past the
+ * ratification epoch, and voting stopped mattering at the start of the
+ * ratification epoch, so an enacted row goes into the MIN as
+ * decided_epoch - 1. anchor
  * converts that epoch to milliseconds via the same epoch-start formula as
  * epochStartUnix (unixSeconds + (epoch - anchorEpoch) * EPOCH_LENGTH_SECONDS),
  * inlined here because the conversion has to happen inside the SQL to bucket
@@ -286,8 +290,10 @@ export async function getWindowThirds(db: D1Database, anchor: { epoch: number; u
       `WITH t AS (
          SELECT v.block_time * 1000.0 AS block_ms, g.submitted_at AS submitted_at,
                 (? + ((CASE WHEN g.decided_epoch IS NOT NULL AND g.expiry_epoch IS NOT NULL
-                            THEN MIN(g.decided_epoch, g.expiry_epoch)
-                            ELSE COALESCE(g.decided_epoch, g.expiry_epoch) END) - ?) * ${EPOCH_LENGTH_SECONDS}) * 1000.0 AS end_ms
+                            THEN MIN(CASE WHEN g.status = 'enacted' THEN g.decided_epoch - 1 ELSE g.decided_epoch END,
+                                     g.expiry_epoch)
+                            ELSE COALESCE(CASE WHEN g.status = 'enacted' THEN g.decided_epoch - 1 ELSE g.decided_epoch END,
+                                          g.expiry_epoch) END) - ?) * ${EPOCH_LENGTH_SECONDS}) * 1000.0 AS end_ms
            FROM drep_votes v
            JOIN governance_actions g ON g.id = v.ga_id
           WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
@@ -299,8 +305,8 @@ export async function getWindowThirds(db: D1Database, anchor: { epoch: number; u
            FROM t WHERE end_ms > submitted_at AND block_ms >= submitted_at
        )
        SELECT
-         COALESCE(SUM(CASE WHEN position <= 1.0 AND position < 1.0 / 3 THEN 1 ELSE 0 END), 0) AS early,
-         COALESCE(SUM(CASE WHEN position <= 1.0 AND position >= 1.0 / 3 AND position <= 2.0 / 3 THEN 1 ELSE 0 END), 0) AS middle,
+         COALESCE(SUM(CASE WHEN position < 1.0 / 3 THEN 1 ELSE 0 END), 0) AS early,
+         COALESCE(SUM(CASE WHEN position >= 1.0 / 3 AND position <= 2.0 / 3 THEN 1 ELSE 0 END), 0) AS middle,
          COALESCE(SUM(CASE WHEN position <= 1.0 AND position > 2.0 / 3 THEN 1 ELSE 0 END), 0) AS late,
          COALESCE(SUM(CASE WHEN position > 1.0 THEN 1 ELSE 0 END), 0) AS afterClose
          FROM q`,

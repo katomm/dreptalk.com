@@ -26,7 +26,8 @@ export interface SpoSnapshot {
 
 export interface DivergentAction {
   gaId: string;
-  title: string;
+  /** Null when the action has no title, so the caller can name it by its readable type. */
+  title: string | null;
   href: string | null;
   type: string;
   /** The body whose tally fell below its own threshold. */
@@ -153,7 +154,7 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
         // this branch at all.
         divergentActions.push({
           gaId: row.gaId,
-          title: row.title ?? row.type,
+          title: row.title ?? null,
           href: row.topicSlug != null ? `/t/${row.topicSlug}/` : null,
           type: row.type,
           missedBy: drepVerdict === false ? 'DRep' : 'SPO',
