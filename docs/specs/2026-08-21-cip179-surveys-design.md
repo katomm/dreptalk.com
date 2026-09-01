@@ -1,213 +1,71 @@
-# CIP-179 surveys in DRepTalk — MVP
+# CIP-179 surveys in DRepTalk
 
-> **Status: design for review.** First commit of the feature branch so the
-> shape can be discussed before code exists (thread: katomm/dreptalk.com#379).
-> Deleted by the last increment, like earlier `docs/specs/` documents.
-> Revised 2026-08-25 to answer the maintainer's review.
+> **Status: as-built summary, for review** (thread: katomm/dreptalk.com#379;
+> began as the design under discussion there, rewritten once the code
+> existed). The README's architecture/feature update, the
+> `docs/deployment.md` correction and the deletion of this document are
+> deliberately the branch's **last commit, after the review is validated** —
+> a review that notes the README unchanged is reading the branch mid-flight,
+> not finding an oversight.
 
-## Progress
-
-_(one line per completed increment; record deviations here)_
-
-- 2026-08-25 — revised for the maintainer's review: audited DRep count,
-  refresh-until-final, rollback rule, tx-exact settling. No code yet.
-- 2026-08-31 — increment 2: Tessera client (`src/lib/tessera/client.ts`,
-  node-tested) and `TESSERA_BACKEND_URL` config, preprod only. Deviation:
-  the network guard is enforced inside the client (memoized `/health` check
-  before the first snapshot request) rather than left to callers.
-  Increment 1 (manual preprod wallet loop) still to be run by hand.
-- 2026-08-31 — increment 3: migration `0083_surveys.sql`, `src/lib/db/surveys.ts`,
-  `src/lib/surveys/sync.ts` as the `surveys` entry in the `*/5` registry,
-  workers-tested. Passes 1–3; pass 4 lands with increment 7's settle rule.
-  Deviations: lifecycle/cancellation come from `cip-179/domain`'s published
-  `aggregate()` (§5 gains that import — still zero own CIP-179 rules); audits
-  are capped at 20/run, a truncated daily re-audit stays due for the next run.
-- 2026-08-31 — increment 4: `surveys` category (kind `'survey'`, position 5),
-  `src/components/survey/` (card + list row), the `/c/surveys/` branch with
-  the not-indexed state, the card on survey threads, `/s/[ref]` → thread
-  redirect. Deviation: new optional `TESSERA_APP_URL` var for the card's
-  deep link (display-only; link omitted when unset) — the backend URL is an
-  API origin, not a page a reader can open.
-- 2026-08-31 — increment 5: linkage both directions. The survey card lists
-  its linking actions (thread link when imported, Tessera's anchor title
-  otherwise); the action thread's sidebar gains a Linked-survey card. The
-  branch now pauses before increment 6 (needs the acceptance pair), as
-  planned; increment 1's manual wallet loop also still pending.
-- 2026-08-31 — Tessera shipped everything §3 waited on (backend commit
-  `cf65710`, live on preprod): the acceptance pair exists, the responses
-  route is up, and `finalState` landed as a **breaking replacement** of
-  `finalizedCancelled`. §9 is the delta this branch owes it — until that
-  lands, the landed sync fails schema validation against the live backend.
-  Increments 6–7 are unblocked.
-- 2026-08-31 — §9 landed: the client schema pins
-  `finalState: record(key → {state})` (states enumerated, `artifactHash`
-  passes through unread), `decodeSet` derives `aggregate()`'s
-  finalized-cancelled set from the `cancelled` entries, and both write sites
-  store the wire state. Beyond §9's list: a workers test pins that any final
-  state freezes the row out of the refresh set and that only `cancelled`
-  surfaces as a cancellation; a node test pins the three-state decode and
-  that an unknown state fails at the envelope.
-- 2026-08-31 — increment 1 done by hand: one local `*/5` run imported the
-  preprod governance actions and admitted the acceptance survey
-  (`admitted=1`, thread + gov link verified in D1), `/c/surveys` renders it,
-  and the maintainer signed in as `drep` with the preprod wallet and posted
-  a reply. No code; only increments 6–8 and §8's gov-link guard remain.
-- 2026-08-31 — increment 6: `cardano-tessera-respond` 0.1.3 (pinned),
-  `RespondPanel.astro` + bundled sibling script, and
-  `castSurveyResponse`/`queueSurveyResponseOps` in `drepTx.ts` (reusing its
-  private client/UTxO/sign helpers and recorder-stub tests rather than a
-  second evolution tx module; the SDK's duplicate-label rejection enforces
-  one label-17 payload per tx for free). Panel gate additionally excludes
-  external-content surveys (§7's "listed but not answerable"). Bundle
-  weight (§8): widget chunk ~327 KB raw + ~91 KB panel script, loaded only
-  when the panel renders; sealing chunks stay lazy. Evolution skew checked:
-  peer `^0.5.9`, installed 0.5.12, deduped. On-chain acceptance run still
-  pending (needs the wallet).
-- 2026-08-31 — increment 7: `POST /api/survey/response/record`
-  (session-derived `key:<hex>` credential via `parseDrepId`; script DReps
-  403 — a row no key witness could settle), `survey_response_local` helpers
-  in `db/surveys.ts`, the card's confirming/didn't-confirm overlay, and
-  pass 4 settling by exact tx via `responsesByTx` with pending rows aged to
-  `failed` past `PENDING_VOTE_TTL_SEC` (imported from tallySync — one
-  cutoff for both optimistic lifecycles). Workers tests pin the endpoint
-  (401/400/404/403/200 + credential-injection rejection) and the
-  settle/wait/age triad. End-to-end confirm-overlay-clears run pending with
-  increment 6's wallet run.
-- 2026-08-31 — increments 6 + 7 acceptance runs done by hand, both
-  done-whens met: the maintainer answered the acceptance survey from its
-  thread, the transaction confirmed on chain, the card overlaid *Your
-  answer · confirming…*, and once Tessera indexed the tx a sync run
-  settled the row and the overlay cleared on its own. A re-answer showed
-  the same cycle and the counted figure stayed at 1 — the replacement,
-  observed latest-wins. The run surfaced one spec gap, now in §8: the
-  viewer's own answer is invisible once settled, and a re-answer opens an
-  empty form although `<tessera-respond>` supports pre-fill.
-- 2026-08-31 — polish beyond the plan, none of it visible on mainnet
-  (no survey topics exist there): `<tessera-respond>` rethemed to
-  DRepTalk's tokens via host CSS (both themes follow automatically; also
-  fixed the connect button's nonexistent `--accent-contrast` token), and
-  surveys got their own type icon — a checklist, shared as
-  `CHECKLIST_PATH`/`topicTypeIconPath` in `forum/icons.ts` and used by the
-  category sidebar, topic rows, and the activity feed, whose view model
-  now carries `topic.source` instead of the derived `isGovernance`.
-- 2026-09-01 — PR review response, part one: §11 records the wallet/session
-  identity gap as a platform finding (the vote flow runs the same model, so
-  the fix spans both panels and is not taken here), and increment 8's README,
-  deployment-doc and document-deletion steps are pinned as the last commit on
-  the branch, after the maintainer's review is validated.
-- 2026-09-01 — PR review response, part two: the discovery walk restarts on a
-  stale list page instead of taking its terminal cursor as a finished walk; a
-  held survey's audit schedule survives a bundle 404 and is re-armed by
-  reappearance; optimistic answers age in their own ungated phase; and the
-  three category-kind branches of `/c/<slug>/` collapse onto one shell
-  component. Decisions in §7.
-
----
-
-## 1. What is being built
+## 1. Why
 
 [CIP-179](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0179)
 puts surveys and polls in transaction metadata under label 17. Tessera is
 the reference implementation: a browser app plus a serving backend that
-scans the label, validates responses, and finalizes results.
+scans the label, validates responses and finalizes results.
 
 Ownership split (agreed in #379): **Tessera owns the protocol behind its
-HTTP API**; **DRepTalk owns wallet, transaction building, forum, and
-presentation**. DRepTalk implements no CIP-179 rule of its own; it mirrors
-Tessera's API into D1 as it mirrors Koios.
+HTTP API**; **DRepTalk owns wallet, transaction building, forum and
+presentation**. DRepTalk implements no CIP-179 rule of its own — parsing,
+lifecycle and counting all come from Tessera's published packages
+(`fromJsonSafe`, `aggregate()`, `auditResponses()`); its API is mirrored
+into D1 the way Koios is.
 
-**Admission rule** (maintainer, 2026-08-21): a survey is shown when it is
-DRep-eligible **and** linked by a governance action DRepTalk has imported.
-Linkage is a discovery relation declared in the action's CIP-108 anchor; the
-gate is editorial policy, not a claim about the survey.
+What this buys DRepTalk: when a governance action under discussion links a
+survey, the DReps already debating that action can find it, answer it from
+the thread with the wallet they are signed in with, and watch the answer
+come back through the index — without leaving the site or trusting it with
+any counting.
 
-**Each admitted survey is a thread in its own `surveys` category**, not a
-card on the linking action's thread: links are N-to-1 (several actions may
-link one survey), so a card has no canonical home and `/s/<ref>` no single
-destination; the survey and the action are different discussions; and
-admission is policy that will move — a category survives any widening.
+## 2. Scope and non-goals
 
-**The MVP proves:** a DRep signed into DRepTalk on preprod can find an open
-survey, answer it, and see the answer come back through the index.
+**In:** preprod only. gov-sync mirrors admitted surveys into D1; one
+auto-opened thread per admitted survey in a read-only `surveys` category;
+governance linkage rendered in both directions; DRep-only answering via
+`<tessera-respond>` with DRepTalk building, signing and submitting the
+transaction; an optimistic local record until the index confirms.
 
-## 2. Scope
+**Out, deliberately:**
 
-**In.**
+- Mainnet and Preview. The category ships everywhere and renders an
+  explicit "not indexed on this network" state where the switch is off.
+- Results rendering, interim or final. CIP-179 does not mandate a tally;
+  the survey maker owns the counting policy. The card shows the audited
+  DRep participation count and a deep link — no figure as "the result".
+  Named follow-up: a live *weighted* estimate for DRep questions (DRepTalk
+  already syncs per-epoch DRep voting power; Tessera's tally math takes
+  weights as inputs).
+- A nav link and activity-feed events (both would show on mainnet with the
+  feature off; both are one-line additions later), creating surveys, roles
+  other than DRep, the artifact routes, sealed surveys as a *tested* path.
 
-- Preprod only.
-- gov-sync mirrors admitted surveys from Tessera's list into D1, and reads
-  each survey's bundle — never from a page — to derive the audited DRep
-  count the card shows.
-- One auto-opened thread per admitted survey; category and thread pages read
-  D1 only.
-- DRep-only answering via `<tessera-respond>`; DRepTalk builds, signs and
-  submits the transaction.
-- Governance linkage in both directions; optimistic local record of a
-  just-submitted response.
-
-**Out, deliberately.**
-
-- Mainnet and Preview.
-- A nav link; activity-feed events; creating surveys; roles other than DRep.
-- External-content surveys as an answerable path (§7).
-- Results rendering, interim or final. CIP-179 does not specify tallying;
-  Tessera's views are one profile. The card shows the audited DRep count and
-  a deep link — no figure as "the result". Named follow-up: a live *weighted*
-  estimate for DRep questions on public surveys (DRepTalk already syncs
-  per-epoch DRep voting power; Tessera's tally math takes weights as inputs).
-- The artifact routes: a one-time mirror for when results rendering lands.
-- Sealed surveys as a *tested* path. Nothing blocks them; the acceptance run
-  targets a public survey.
-
-## 3. Prerequisites
-
-**Tessera side.**
-
-- Backend: `https://tessera-backend-preprod.matthieu-pizenberg.workers.dev`.
-- **The acceptance survey** — shipped 2026-08-31: `49389974…d70c:0`,
-  DRep-eligible, linked, end epoch 316, one DRep response already counted.
-  Its `end_epoch` = Koios `expiration` − 1 (DRepTalk's `expiryEpoch` is
-  that +1): survey and vote close at the same boundary.
-  (`ccaa8baa…1547:0` remains standalone: never admitted, still useful for
-  testing.)
-- `GET /api/responses/{txHash}` — live 2026-08-31: the responses one
-  transaction carried — `surveyKey`, `responseIndex`, `role`, `credential`,
-  `slot` (plus `txHash`, redundant with the path). Needed because
-  `/api/responded` cannot tell a *replacement* from the response it
-  supersedes. A well-formed hash the backend has not indexed answers
-  `200 {"responses":[]}`, never 404 — "submitted, not indexed yet" is the
-  normal state increment 7's sweep polls; only a malformed hash 404s.
-- `finalState` on list payloads — live 2026-08-31, as a **breaking
-  replacement**: `finalizedCancelled` is gone from the wire. A map
-  `surveyKey → {state: "finalized"|"cancelled", artifactHash} |
-  {state: "untalliable"}`, always present (possibly empty), naming every
-  survey decided for good. §9 lists the changes this branch owes it.
-
-**Where the work paused.** The branch stopped after increment 5 waiting for
-the items above; all three shipped 2026-08-31, so increments 6–7 are
-unblocked.
-
-**DRepTalk side.** Branch `feat/cip179-surveys` off `main`. `.dev.vars` with
-`CARDANO_NETWORK=preprod`, `KOIOS_API_KEY`, the new `TESSERA_BACKEND_URL`. A
-preprod wallet with tADA and a registered **key** DRep credential
-(`resolveDRep` rejects script DReps; mechanism A needs a key witness).
-
-## 4. How data flows
+## 3. Architecture as built
 
 ```
 Tessera preprod backend
-  GET /api/surveys?filter=linked&limit&cursor  discover: records, govLinks, counts, tip
-  GET /api/surveys?refs=a:0,b:1,…          refresh held not-yet-final surveys (≤200 refs)
-  GET /api/surveys/{tx}/{i}                bundle: responses + verdicts → audited DRep count
-  GET /api/responses/{txHash}              settle pending local rows (prerequisite, §3)
-  GET /health                              network guard
-        │   server-side only, from gov-sync; never from a page request, never from the browser
+  GET /api/surveys?filter=linked&…   discover: records, govLinks, counts, tip
+  GET /api/surveys?refs=…            refresh held not-yet-final surveys
+  GET /api/surveys/{tx}/{i}          bundle: responses + verdicts → audited count
+  GET /api/responses/{txHash}        settle pending local rows by exact tx
+  GET /health                        network guard
+        │   server-side only, from gov-sync; never from a page request or the browser
         ▼
-gov-sync worker  (*/5 cron, one entry in the phase registry)
-        │        writes D1: survey, survey_gov_link, topics + posts; settles survey_response_local
-        ▼
-app worker (Astro SSR)   reads D1 only — the same invariant every other on-chain value obeys
-        ▼
+gov-sync worker  (*/5 cron; `surveys` + `survey-reconcile` phase entries)
+        │        writes D1: survey, survey_gov_link, topics + posts; settles
+        ▼        survey_response_local
+app worker (Astro SSR)   reads D1 only, with an "as of" time — the same
+        ▼                invariant every other on-chain value obeys
 browser: bundled client script → <tessera-respond> → RespondResult
         ▼
 DRepTalk's own transaction path (evolution-sdk + CIP-30/95 wallet) → chain
@@ -215,375 +73,149 @@ DRepTalk's own transaction path (evolution-sdk + CIP-30/95 wallet) → chain
 POST /api/survey/response/record → survey_response_local until the sync settles it
 ```
 
-**Nothing reaches Tessera from the browser** (the CSP `connect-src` blocks
-it: no proxy route, no CSP amendment) **and nothing from a page request**:
-everything rendered is mirrored into D1 by the sync, and the ~5-minute
-staleness is shown as an "as of" time.
+Nothing reaches Tessera from the browser (CSP `connect-src` blocks it; no
+proxy route) and nothing from a page request.
 
-## 5. Packages to add
+**Feature switch.** The mirror and the answer path exist iff
+`TESSERA_BACKEND_URL` is set — preprod only today — and the client refuses
+a backend whose `/health` network differs from `CARDANO_NETWORK`.
+`TESSERA_APP_URL` (optional, display-only) feeds the card's deep link.
 
-| Package | Why | Deps |
-| :-- | :-- | :-- |
-| `cip-179` (`0.3.0`) | Types, `Role`, `fromJsonSafe` (wire form), `auditResponses` (the ruleset-pinned counting), `METADATA_LABEL`, `cip-179/evolution`'s `toTxMetadatum` | `@noble/hashes`; `@evolution-sdk/evolution` an **optional** peer, already a DRepTalk dependency |
-| `cardano-tessera-respond` (`0.1.3`) | The `<tessera-respond>` element | none — everything is bundled |
+**Schema** (`0083_surveys.sql`): `survey` (one row per admitted survey;
+`counted_dreps` is the audited display count, `claimed_count` the list's
+raw change-detector, `final_state` NULL until decided for good,
+`unavailable` marks an upstream rollback), `survey_gov_link`,
+`survey_response_local` (the optimistic rows), `survey_sync_state` (one
+row: linked-set size, last complete walk, audit bookkeeping).
 
-Check `@evolution-sdk/evolution` version skew against `cip-179/evolution`
-before increment 6.
+**The sync**, four passes inside the `surveys` phase:
 
-## 6. Increments
+1. **Discover.** Page one of `?filter=linked` covers the whole linked set
+   while it fits one page; the walk goes deeper only when the set size
+   moved, this run imported new governance actions, or on a daily
+   backstop. A page answering from an older snapshot (`resync`) restarts
+   the walk; only a walk that completed within one generation stamps the
+   set size and walk time. Admission — DRep-eligible *and* linked by an
+   imported action — creates the survey row, its topic and its gov links
+   in one batch.
+2. **Refresh held.** Every held row with NULL `final_state`, by `?refs=`
+   in chunks of 200. A ref absent from a *complete* answer is rolled back:
+   `unavailable` hides answering and erases the row's gov links (erasure
+   is the contract — a rolled-back action must take its link down), but
+   keeps the thread; the row stays in this set for 4 days because
+   Tessera's settlement window can bring the transaction back, then
+   retires. From an `incomplete` answer, absence proves nothing.
+3. **Audit counts.** Triggered by a count change, the tip crossing
+   `end_epoch`, `final_state` landing, reappearance after `unavailable`,
+   or a daily re-audit (a verdict can flip without the count moving):
+   fetch the bundle (paginated, restarting on generation changes), run
+   Tessera's `auditResponses`, store the counted-DRep figure. Capped at
+   20 rows per run; a bundle failure backs the row off exponentially
+   (5 min → 24 h) and only a *decided* row's audit is ever conceded.
+4. **Settle.** `GET /api/responses/{txHash}` per pending optimistic row
+   (oldest-first, 50 per run, failures isolated per transaction) deletes
+   the row once the exact transaction names a response for the survey —
+   which is what makes a *replacement* observable.
 
-One commit per increment (after the first), `npm run preflight` green.
+A separate **`survey-reconcile` phase**, never gated by the feature
+switch, ages optimistic rows still `pending` after 6 h to `failed`
+(`PENDING_VOTE_TTL_SEC`, shared with the vote lifecycle), so "confirming…"
+cannot outlive a Tessera outage or the switch being turned off.
 
-### 1 — Local preprod loop
+**Answering.** `RespondPanel.astro` renders `<tessera-respond>` for a
+`drep` session on a DRep-eligible, open, available survey (bundled sibling
+script, so the CSP hash is automatic). On `tessera:response` the existing
+transaction path attaches the widget's payload at label 17 via the
+published `toTxMetadatum` and adds the DRep key hash to
+`required_signers` — proof mechanism A; the CIP-20 note rides at label 674
+as on votes. `POST /api/survey/response/record` then writes the optimistic
+row with a credential derived from the *session*, never the client; script
+DReps get a 403 (no key witness could ever settle such a row). The card
+overlays *Your answer · confirming…* until pass 4 or the reconcile phase
+resolves it.
 
-No product code, no commit. Local setup per `docs/development.md`, one manual
-sync, sign in with the preprod DRep wallet.
+**Freshness.** Surveys have a row in `src/lib/freshness.ts` and the
+`data-freshness` guide; the existing drift test holds the pair together.
 
-*Done when:* signed in locally as `drep` against preprod and able to post.
+**Packages:** `cip-179` 0.3.0 and `cardano-tessera-respond` 0.1.3
+(pinned), both Tessera's published code.
 
-### 2 — Config and the Tessera client
+## 4. Decisions
 
-`src/lib/tessera/client.ts`: `surveyList({ filter, cursor })`,
-`surveysByRefs(keys)`, `surveyBundle(ref)`, `responsesByTx(txHash)` (§3),
-`health()`. Injectable fetch, so it tests in the node project. A `503
-snapshot not ready` decodes to a "not ready" result rather than throwing.
-
-`TESSERA_BACKEND_URL` as a Worker var, preprod only: `[env.preprod.vars]` in
-the gov-sync `wrangler.toml`, `cfg.vars` in `scripts/preprod-config.mjs` for
-the app worker. The feature is on iff the var is non-empty — the maintainer's
-off switch. The client refuses a backend whose `/health` network differs
-from `CARDANO_NETWORK`.
-
-*Done when:* node tests cover the four decodes, the not-ready result, and a
-network-mismatch refusal.
-
-### 3 — Schema and the sync phase
-
-One migration (numbered when written; `0081`/`0082` are already taken):
-
-- `survey` — `ref` (`<txHashHex>:<index>`) PK, `topic_id`, `title`,
-  `end_epoch`, `eligible_roles` (JSON int array), `sealed`, `cancelled`,
-  `external_content`, `definition` (wire-form JSON), `counted_dreps` (the
-  audited count the card shows), `claimed_count` (the list's raw number —
-  change detector, never rendered), `final_state` (NULL until decided for
-  good), `unavailable` (rolled back upstream), `tip_epoch`,
-  `tessera_fetched_at` (the "as of" time), `submitted_at`, `synced_at`.
-- `survey_gov_link` — `(survey_ref, action_id)` PK, `title`; index on
-  `action_id`, joining `governance_actions.proposal_id`.
-- `survey_response_local` — `(survey_ref, user_id)` PK, `tx_hash`,
-  `credential` (`key:<hex>`, derived at record time), `status`
-  (`pending` | `failed`), `created_at`.
-- `survey_sync_state` — one row: last seen `counts.linked`, time of the last
-  complete walk (pass 1) and of the last unconditional re-audit (pass 3).
-
-`src/lib/surveys/sync.ts` is one entry in the `*/5` registry of
-`src/lib/sync/phases/`. Four passes:
-
-1. **Discover.** Read page one of `?filter=linked` (limit 200); its
-   `counts.linked` is the size of the whole linked set, so while that fits
-   one page every run re-evaluates all of it for one request. Walk further
-   only when the count moved, when this run imported new governance actions
-   (the DRepTalk half of admission turning true late), or on the daily
-   backstop. Admit when `eligibleRoles` contains DRep and a `govLink`
-   matches `governance_actions.proposal_id`; a miss is re-evaluated next
-   run, and a closed linked survey still gets its thread. Each admission:
-   `createTopic({ …, source: 'survey', batchWith: <survey row> })`, atomic.
-2. **Refresh held.** `?refs=` over every held survey with NULL `final_state`,
-   chunks of 200: upsert `claimed_count`, `cancelled`, links, `tip_epoch`,
-   `tessera_fetched_at`, `final_state` — 5 rows per statement, as
-   `drepVotes.ts` `UPSERT_CHUNK` does: D1 caps bound params at 100 per
-   query (~19 columns here) and miniflare ignores the cap. Closed surveys
-   stay in this set — `end_epoch` is inclusive, verdicts land late, so a
-   row freezes at `final_state`, never at close. A ref absent from a *complete*
-   answer (no `incomplete` in the body) is rolled back: set `unavailable`
-   (hides answering, keeps the thread; cleared if the ref reappears). From
-   an incomplete answer, absence proves nothing — touch no row.
-3. **Audit counts.** When a survey's `claimed_count` changed, its
-   `tip_epoch` crossed `end_epoch`, or the daily re-audit is due (a verdict
-   can flip without the count moving): fetch the bundle, run Tessera's
-   published `auditResponses(responses, definition, verdicts)`, store
-   `counted_dreps` = counted records with role DRep. Same code the ruleset
-   pins; per-role because roles are separate electorates.
-4. **Settle pending.** `GET /api/responses/{txHash}` per pending local row;
-   settle rule in increment 7.
-
-`topics.source` gains `'survey'`; every `=== 'governance'` consumer falls
-into its neutral branch (the maintainer verified this against main). The
-`when` gate holds the entry off while `TESSERA_BACKEND_URL` is empty.
-
-*Done when:* a local sync creates one topic per admitted survey with an
-audited `counted_dreps`; a DRep-eligible standalone survey and a linked
-non-DRep survey are both absent; a second run changes nothing.
-
-### 4 — Category and pages
-
-`config/categories.ts` gains `{ slug: 'surveys', kind: 'survey', … }`,
-extending `CategoryKind` (§7); `isDiscussion()` already makes the category
-read-only. It ships to mainnet; with the var empty, `/c/surveys/` renders an
-explicit "not indexed on this network" state.
-
-`src/components/survey/` mirrors `src/components/ga/`: a card with title,
-description, questions, eligible roles, deadline, the audited count labelled
-"N DRep responses counted", a deep link to Tessera, and the "as of" time —
-no tally figure of any kind (§2). An `unavailable` survey keeps its card and
-thread, with an "on-chain record no longer found" note where the answering
-panel would be. `src/pages/s/[ref].astro` redirects a ref to `/t/<slug>/`.
-
-*Done when:* `/c/surveys/` lists the admitted surveys; each thread renders
-definition, deadline, counted DReps; var unset shows the not-indexed state.
-
-### 5 — Governance linkage, both directions
-
-Survey card: *Linked by N governance actions*, each resolved to its thread.
-Action thread: *Linked survey* — at most one by construction. Tessera
-validates links; DRepTalk re-checks nothing. "Linked by", never "official".
-
-*Done when:* both directions render for the acceptance pair; the section is
-absent on an action with no linked survey.
-
-### 6 — Answering
-
-`RespondPanel.astro` renders `<tessera-respond>` plus a connect button,
-server-side gated to a `drep` session and a survey that is DRep-eligible,
-open, not `cancelled`, not `unavailable`. Its sibling script is bundled —
-**not** `is:inline` — so Astro hashes it into the CSP automatically.
-
-- Wallet via the existing `connectAsDrep`, unchanged.
-- Object props are assigned as **DOM properties**, never attributes:
-  `el.definition`, `el.surveyRef`, `el.responder`, `el.tipEpoch` (mirrored
-  `tip_epoch` — a 5-minute-old tip is harmless against a 5-day epoch),
-  `el.cancelled`. The element renders once every required prop is set.
-- On `tessera:response`, build with evolution-sdk:
-  `attachMetadata({ label: 17n, metadata: toTxMetadatum(payload) })`, then
-  `addSigner({ keyHash })` per `proveCredentials` entry — mechanism A. The
-  existing CIP-20 metadatum stays at label 674: different label, no conflict
-  with CIP-179's one-payload-per-transaction rule.
-- Sign and submit through the wallet, reusing `voteFlowClient`'s
-  `PreSignError` taxonomy.
-
-*Done when:* a preprod DRep answers a survey from a DRepTalk thread and the
-transaction confirms on chain.
-
-### 7 — Optimistic record
-
-`POST /api/survey/response/record`, mirroring `api/vote/record.ts`:
-session-gated, zod-validated `{ surveyRef, txHash }`, credential derived from
-the session — never from the client. Writes `survey_response_local`.
-
-The card overlays *Your answer · confirming…* from that row. Pass 4 deletes
-the row once `GET /api/responses/{txHash}` names a response for this survey —
-the exact transaction, which makes a replacement observable. A row still
-`pending` past the GA-vote sweep's cutoff turns `failed`
-(`drep_votes.local_status` lifecycle) and the overlay becomes *didn't
-confirm — you can answer again*. The overlay never claims validity:
-"counted" is only knowable at finalization. Worst-case latency ≈ 8 minutes
-(Tessera's `*/3` cron plus DRepTalk's `*/5`).
-
-*Done when:* the answer appears right after submit and the overlay clears on
-its own; a replacement shows the same cycle; a tx that never lands ages to
-*didn't confirm*.
-
-### 8 — Freshness, docs, PR
-
-The freshness row landed (both places; the drift test enforces the pair).
-Everything else in this increment is **held until the maintainer's review of
-the PR is validated** — deliberately, so a later review that notes the README
-is unchanged is reading the branch mid-flight rather than finding an
-oversight:
-
-- the README's architecture diagram and feature summary, which still name
-  Koios as the only chain-data source and the cron worker as ingesting
-  governance actions alone;
-- `docs/deployment.md`'s "both environments build from the same source, only
-  `CARDANO_NETWORK`, the bindings and the route differ" — untrue from the
-  moment `TESSERA_BACKEND_URL` and `TESSERA_APP_URL` exist, the first of them
-  the feature switch in both workers;
-- the deletion of this document (its Decisions move into the PR description).
-
-All three describe a shape the review can still move, and writing them now
-buys a rewrite every round. PR title: `feat: index CIP-179 surveys and let
-DReps answer them` — say explicitly that surveys come from Tessera's HTTP
-API, DRepTalk does no label-17 indexing, and no page request reads Tessera.
-
-## 7. Decisions
-
-- **List mirrored into D1; no Tessera read on a page request.** Supersedes
-  "bundle fetched per request", which only bought an SSR exception.
+- **Admission: DRep-eligible *and* linked by an imported action**
+  (maintainer). Alternatives: every survey, or DRep-eligible alone. Cost:
+  a standalone DRep survey is invisible. It is editorial policy, so the
+  data model does not encode it — widening later is one predicate.
+- **Each admitted survey is a thread in its own category**, not a card on
+  the linking action's thread: links are N-to-1, so a card has no
+  canonical home and `/s/<ref>` no single destination; and admission is
+  policy that will move — a category survives any widening.
 - **The displayed count is the audited DRep count, from the bundle**
-  (2026-08-25, maintainer's review). The list's `responseCounts` — the
-  earlier display value — filters nothing and sums across roles.
-  `auditResponses` is Tessera's published, ruleset-pinned counting, so no
-  second CIP-179 implementation appears.
-- **A held survey refreshes until `final_state`, never freezing at close**
-  (2026-08-25). The earlier "refresh what is not yet closed" froze a survey
-  at whatever snapshot its deadline landed on.
-- **A ref missing from a complete snapshot means rolled back →
-  `unavailable`** (2026-08-25). The earlier log-and-keep left DRepTalk
-  inviting answers to a survey that no longer exists.
-- **Pending rows settle by `GET /api/responses/{txHash}` and age to
-  `failed`** (2026-08-25) — the GA-vote lifecycle DRepTalk already runs.
-  `/api/responded` (the earlier settle read) is replacement-blind.
-- **Admission: DRep-eligible *and* linked by an imported action** (maintainer,
-  2026-08-21). Alternatives: every survey, or DRep-eligible alone. Cost: a
-  standalone DRep survey is invisible. It is policy, so the data model does
-  not encode it — widening later is one predicate.
+  (maintainer's review). The list's `responseCounts` filters nothing and
+  sums across roles; `auditResponses` is Tessera's ruleset-pinned
+  counting, so no second CIP-179 implementation appears.
+- **A held survey refreshes until `final_state`, never freezing at
+  close** — verdicts land after the deadline, so freezing at close would
+  pin whatever snapshot the deadline landed on.
+- **A ref missing from a complete snapshot means rolled back**, and the
+  link rewrite stands unguarded: erasure is part of the contract.
+- **The audit schedule follows the row's held/retired lifecycle** rather
+  than a bundle 404 being read as "gone for good" (PR review). The
+  narrower fix — reappearance as the only re-trigger — fails when an
+  `incomplete` refs answer hides the rollback, so both landed: back off
+  and retire, *and* re-arm on reappearance.
+- **Pending rows settle by exact transaction and age to `failed`** — the
+  GA-vote lifecycle DRepTalk already runs; `/api/responded` is
+  replacement-blind. Ageing is its own ungated phase (PR review) because
+  any cleanup inside `syncSurveys` still sits under the feature switch.
 - **`CategoryKind` and `topics.source` each gain `'survey'`** rather than
   reusing `'governance'` or `'discussion'`: consumers branching on those
-  values must not answer questions about surveys nobody asked.
-- **No result figure of any kind in the MVP.** CIP-179 does not mandate a
-  tally; the survey maker owns the counting policy. Revisit with
-  `<tessera-results>`; first candidate is the live weighted estimate (§2).
-- **No nav link, no activity event.** Both would show on mainnet with the
-  feature off; both are one-line additions later.
-- **External-content surveys are listed but not answerable.** Their prompts
-  live off-chain behind a `content_anchor` Tessera's API does not serve;
-  they render with a ref-derived title and a "document not loaded" note.
-- **Mechanism A now; mechanism B later, for linked surveys.** A (DRep key
-  hash in `required_signers`) exists for every survey at every moment. B
-  proves by voting on a linked action in the same transaction, so its place
-  is the vote panel, riding with A. Deferred, not rejected.
-- **Preprod gating by `TESSERA_BACKEND_URL` presence** plus the `/health`
-  network match. One switch, owned by whoever deploys the site.
-- **Pass 2's link rewrite (delete, re-insert what the answer carries)
-  stands unguarded: erasure is part of the contract** — a rolled-back
-  action must take its link down with it (2026-08-31).
-- **The audit schedule follows the row's held/retired lifecycle, rather than
-  Tessera's 404 being read as "gone for good"** (2026-09-01, PR review). The
-  narrower alternative was to keep the terminal 404 and add reappearance as a
-  refresh trigger, but an incomplete `?refs=` answer can hide a rollback, so
-  there is no reappearance to detect and the schedule would still be lost.
-  Both landed: a held row backs off and retires out of the due set, and
-  reappearance re-arms it at once. `abandonSurveyAudit` then had one meaning
-  left and became `concedeSurveyAudit`.
-- **Ageing optimistic answers is its own ungated sync phase**
-  (`survey-reconcile`, 2026-09-01, PR review), not a guaranteed-cleanup path
-  inside `syncSurveys`. A cleanup path would still have sat under the
-  `TESSERA_BACKEND_URL` switch, which gates the whole surveys phase; the
-  separate phase is also the shape the vote side already uses
-  (`reconcile-pending`).
-- **The `/c/<slug>/` scaffold was unified inside this PR** (2026-09-01, PR
-  review) rather than deferred to the dedicated task the simplify backlog
-  held. This branch added the third copy of the frame, so removing it here
-  leaves the page smaller than the branch found it; the three rendered
-  category pages were diffed before and after to keep it a pure move.
+  values must not answer questions about surveys nobody asked. The three
+  category-page branches this created share one `CategoryShell` scaffold
+  (PR review), so the frame exists once.
+- **External-content surveys are listed but not answerable.** Their
+  prompts live off-chain behind a `content_anchor` Tessera's API does not
+  serve; they render with a ref-derived title and a "document not loaded"
+  note.
+- **Mechanism A now; mechanism B later.** B proves by voting on a linked
+  action in the same transaction, so its place is the vote panel, riding
+  with A. Deferred, not rejected.
+- **One deploy switch: `TESSERA_BACKEND_URL` presence** plus the
+  `/health` network match, owned by whoever deploys the site.
 
-## 8. Risks and open items
+## 5. Open items, out of scope for this PR
+
+Each has a destination; none may silently die with this document.
 
 - **The voter's own settled answer is invisible, and a re-answer starts
-  blank — although `<tessera-respond>` ships a `priorResponses`
-  edit/replace flow — because DRepTalk persists no response content**
-  (pass 3 discards the bundle's responses after `auditResponses`; pass 4
-  reads identity only). The fix the architecture points at is a D1 mirror
-  of the audited latest-valid responses, written in pass 3 and read at
-  SSR — a new table, to raise with the maintainer before the code exists.
+  blank** although `<tessera-respond>` ships a `priorResponses`
+  edit/replace flow — DRepTalk persists no response content (pass 3
+  discards the bundle after auditing; pass 4 reads identity only). The
+  fix the architecture points at is a D1 mirror of the audited
+  latest-valid responses, written in pass 3 and read at SSR — a new
+  table, to raise with the maintainer before the code exists.
+- **The connected wallet is not bound to the session's DRep** (PR review,
+  confirmed). `connectAsDrep` preflights that the wallet is *a*
+  registered active DRep, never that it is the session's; the record
+  endpoint stores the session's credential. Answering with another DRep's
+  wallet puts that DRep's answer on chain and the session's credential in
+  a row that can never settle; a script-DRep session is shown a panel
+  whose record call 403s. Nothing is forged — but the vote flow
+  (`VotePanel`, `MultiVoteBar`, `/api/vote/record`) runs the identical
+  model, so the fix spans both: give `connectVerifiedDrep` the
+  active-registration preflight, use it for both panels, and resolve the
+  viewer's DRep id (and credential kind) server-side. → file as an
+  upstream issue before this document is deleted.
+- **Route behaviour forks on ambient config vars and cannot be passed
+  in** (`runtimeEnv()` ignores its argument since the adapter dropped
+  `Astro.locals.runtime.env`), so tests assign to the module env instead
+  of describing an input. ~13 sites across ~40 API routes share the
+  shape; `src/lib/legal.ts` already models the fix (pure core, thin
+  ambient adapter). Worth deciding once on `main`, not once badly here.
+  → file as an upstream issue before this document is deleted.
+- **Mechanism B** (vote-in-same-transaction proof) — lands in the vote
+  panel when scheduled.
 
-## 9. The finalState wire change (2026-08-31)
-
-Tessera's deployed backend (commit `cf65710`) replaced `finalizedCancelled`
-— an array of cancelled survey keys — with the `finalState` map (§3) on both
-`/api/surveys` selections. No transition period: this branch is the only
-consumer and absorbs the change before anything deploys. The published
-packages are untouched, so no version bumps; `aggregate()` still takes a
-`ReadonlySet` of cancelled keys — the caller now derives it.
-
-What changes here:
-
-- `src/lib/tessera/client.ts` — `surveySetSchema` drops
-  `finalizedCancelled: z.array(z.string())` for a `finalState` record whose
-  entries are `{state: 'finalized' | 'cancelled', artifactHash: string}` or
-  `{state: 'untalliable'}`.
-- `src/lib/surveys/sync.ts` — `decodeSet` builds the `aggregate()` argument
-  from the entries whose state is `cancelled`; the two
-  `set.finalizedCancelled.has(a.key) ? 'cancelled' : null` sites become
-  `set.finalState[a.key]?.state ?? null`.
-- Test fixtures (`client.test.ts`, `sync.workers.test.ts`):
-  `finalizedCancelled: []` → `finalState: {}`.
-- `migrations/0083_surveys.sql` needs nothing: `final_state` is bare TEXT
-  and the refresh set is `WHERE final_state IS NULL`, so the two new values
-  slot in.
-
-What it buys: pass 2's working set becomes bounded. Previously only
-`cancelled` ever froze a row, so finalized and untalliable surveys would
-have refreshed forever; with all three states stored, increment 3's
-"a held survey refreshes until `final_state`" holds as written.
-`artifactHash` arrives for free and stays unused — this mirror shows
-participation, never a result.
-
-## 10. Ambient runtime env vs. route testability — for the maintainer
-
-Surfaced by increment 1's feature gate, not caused by it, and deliberately
-not fixed on this branch.
-
-`canAnswerSurvey` and the record API now fork on `TESSERA_BACKEND_URL`
-being present. That is the first route behaviour here to depend on a
-**config var** rather than on a binding, and it exposes a shape that
-predates surveys: Astro 6 / adapter 13 removed `Astro.locals.runtime.env`,
-so `runtimeEnv(_locals)` (`src/lib/api/response.ts`) ignores its argument
-and returns the `cloudflare:workers` module env. A handler's configuration
-therefore arrives ambiently and cannot be passed in — the framework fixes
-the handler signature.
-
-The consequence is only visible in tests. Bindings are fine: the workers
-pool provides real D1, KV and R2, so `env.DB` needs nothing. A var does not
-exist in the pool at all, so a test that needs one present or absent has to
-assign to the module env object —
-`src/pages/api/survey/response/__tests__/record.workers.test.ts` sets
-`TESSERA_BACKEND_URL` in `beforeEach` (a deployment that mirrors surveys)
-and clears it in the 503 test (one that does not). It is sound — the object
-is the real runtime env, the assignment is visible through `runtimeEnv()`,
-and each test file gets its own environment, so nothing leaks — but the
-test reaches around the handler instead of describing an input.
-
-Measured scope: `Cloudflare.Env` declares 17 config vars, and roughly 13
-places outside tests fork behaviour on a network or URL var. Every one of
-them is reachable only the same way.
-
-The project already owns the fix. `src/lib/legal.ts` splits it — "Pure
-parser, exported for tests; getLegalInfo wires it to the runtime env" — so
-the rule exists; it just has not been applied to routes. Applied here the
-route would stay a thin adapter that reads the ambient env and passes
-explicit inputs (`{ db, surveysIndexed, ... }`) to a function the tests call
-directly.
-
-Left alone on purpose. Converting one route would make it the only one of
-its shape among ~40 API routes, and the buy is three lines of test setup;
-the pattern belongs to `main` and is worth deciding once, for all of the
-sites, rather than once badly for this one.
-
-## 11. The wallet is not bound to the session's DRep — for the maintainer
-
-Raised in review of this PR, confirmed, and deliberately not fixed here: it is
-the identity model the shipped vote flow already runs, so the fix belongs to
-both flows at once rather than to surveys alone.
-
-The answer panel renders for any session holding the `drep` role.
-`connectAsDrep` then preflights that the *selected wallet* exposes a
-registered, active DRep key — but never that it is the DRep the session signed
-in as. The label-17 response is built from and signed by the wallet's key
-hash, while `POST /api/survey/response/record` derives the credential it
-stores from the session's `drep_id`. Signed in as DRep A and answering with
-DRep B's wallet therefore puts B's answer on chain and A's credential in the
-local row; pass 4 settles on the exact transaction *and* credential, never
-finds A in it, and the row ages to "didn't confirm" while B's answer stands
-counted. The same missing server-side lookup shows the key-only panel to a
-script-DRep session, whose record call then 403s — non-fatal on the client, so
-the panel reports a submitted answer with no optimistic row behind it.
-
-Nothing is forged: the wallet still proves control of the credential it signs
-with, and the recorded credential is the session's own, never the client's.
-What breaks is the optimistic overlay, for a user who deliberately connected a
-different DRep's wallet.
-
-`src/components/vote/VotePanel.astro`, `MultiVoteBar.astro` and `POST
-/api/vote/record` are the same shape: `connectAsDrep` compares nothing against
-the session there either, and the vote row is likewise keyed by the session's
-DRep. `src/lib/wallet/drepWalletConnect.ts` documents the pair on purpose —
-`connectAsDrep` preflights registration, `connectVerifiedDrep` checks the
-wallet against a signed-in DRep id, and only DRep settings and retirement use
-the second. Fixing surveys alone would fork that split rather than settle it.
-
-The fix, when it is scheduled: give `connectVerifiedDrep` the
-active-registration preflight `connectAsDrep` does, use it for the vote and
-survey panels alike, and resolve the viewer's DRep id server-side — including
-its credential kind — so a script DRep is told why it cannot answer instead of
-being handed a panel that 403s.
+At deletion time: the architecture summary above feeds the README and
+`docs/deployment.md` updates, the Decisions move into the PR description,
+and the two flagged items become upstream issues.
