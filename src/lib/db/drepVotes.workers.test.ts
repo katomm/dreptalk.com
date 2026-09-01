@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId, buildVoteUpsertStatements, classifyVoteJobs, getVoteTrendRows, listDrepVotePowers, listDrepVotePowersByAction } from './drepVotes.js';
+import { upsertVotes, getDrepVotingHistory, countDrepVotes, recordLocalVote, getViewerVote, markStalePendingVotesFailed, getActionSpoVoters, countActionSpoVoters, getVotesByGaId, buildVoteUpsertStatements, classifyVoteJobs, getVoteTrendRows, listDrepVotePowers, listDrepVotePowersByAction, listDrepVoteTimings } from './drepVotes.js';
 import { loadExistingVotes } from './voteHistory.js';
 import { addChannel, getPrefs, getPendingCounts } from './notificationChannels.js';
 import { resolvePendingLead } from '../notifications/pendingLead.js';
@@ -633,6 +633,59 @@ describe('listDrepVotePowers', () => {
     expect(powers).toHaveLength(2);
     expect(powers).toContain(50);
     expect(powers).toContain(null);
+  });
+});
+
+describe('listDrepVoteTimings', () => {
+  it('returns block_time/submitted_at pairs, including a still-open action, excluding a row missing submitted_at', async () => {
+    // Decided action, both timestamps present. submitted_at is milliseconds, block_time seconds.
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_at, topic_id, created_at, last_synced_at)
+       VALUES ('gaTimed', 'InfoAction', 'Timed', 'enacted', 500, 1700000000000, NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(env.DB, 'gaTimed', [
+      { voterRole: 'DRep', voterId: 'drepT', voterHex: null, vote: 'Yes', blockTime: 1700000500 },
+    ], 1);
+
+    // Still-open action (no decided_epoch) with a submitted_at: must still be included.
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_at, topic_id, created_at, last_synced_at)
+       VALUES ('gaOpenTimed', 'InfoAction', 'Open Timed', 'voting', NULL, 1700100000000, NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(env.DB, 'gaOpenTimed', [
+      { voterRole: 'DRep', voterId: 'drepT', voterHex: null, vote: 'No', blockTime: 1700100500 },
+    ], 1);
+
+    // An action whose submitted_at has not been backfilled yet: excluded.
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_at, topic_id, created_at, last_synced_at)
+       VALUES ('gaNoSubmit', 'InfoAction', 'No Submit', 'enacted', 500, NULL, NULL, 0, 0)`,
+    ).run();
+    await upsertVotes(env.DB, 'gaNoSubmit', [
+      { voterRole: 'DRep', voterId: 'drepT', voterHex: null, vote: 'Yes', blockTime: 1700000600 },
+    ], 1);
+
+    const rows = await listDrepVoteTimings(env.DB, 'drepT');
+    expect(rows).toHaveLength(2);
+    expect(rows).toContainEqual({ blockTime: 1700000500, submittedAt: 1700000000000 });
+    expect(rows).toContainEqual({ blockTime: 1700100500, submittedAt: 1700100000000 });
+  });
+
+  it('excludes a locally failed vote and a vote with no recorded block_time', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_at, topic_id, created_at, last_synced_at)
+       VALUES ('gaFailedTiming', 'InfoAction', 'Failed Timing', 'enacted', 500, 1700000000000, NULL, 0, 0)`,
+    ).run();
+    await env.DB.prepare(
+      `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at, local_status)
+       VALUES ('gaFailedTiming', 'DRep', 'drepT2', NULL, 'Yes', 1700000500, 1, 'failed')`,
+    ).run();
+    await upsertVotes(env.DB, 'gaFailedTiming', [
+      { voterRole: 'DRep', voterId: 'drepT3', voterHex: null, vote: 'Yes' }, // no blockTime
+    ], 1);
+
+    expect(await listDrepVoteTimings(env.DB, 'drepT2')).toEqual([]);
+    expect(await listDrepVoteTimings(env.DB, 'drepT3')).toEqual([]);
   });
 });
 

@@ -665,6 +665,38 @@ export async function getDrepParticipation(
   return { eligible: row?.eligible ?? 0, voted: row?.voted ?? 0 };
 }
 
+/** One vote's raw timing pair for the report card: the vote's block_time (unix
+ *  seconds) and its action's submitted_at (unix milliseconds). */
+export interface DrepVoteTimingRow {
+  blockTime: number;
+  submittedAt: number;
+}
+
+/**
+ * Live DRep vote timing pairs (block_time joined to the action's submitted_at),
+ * for the "how many days after submission does this DRep vote" report-card
+ * stat. Open (still-voting) actions are included, decided_epoch plays no part.
+ * Only rows with BOTH timestamps present are returned: a vote synced before
+ * block_time capture existed, or an action whose submitted_at has not yet been
+ * backfilled (see migration 0033), is excluded rather than guessed. Feeds
+ * voteTimingStat in voteStatsView.ts, which owns the unit conversion.
+ */
+export async function listDrepVoteTimings(db: D1Database, voterId: string): Promise<DrepVoteTimingRow[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT v.block_time AS block_time, g.submitted_at AS submitted_at
+         FROM drep_votes v
+         JOIN governance_actions g ON g.id = v.ga_id
+         WHERE v.voter_id = ? AND v.voter_role = 'DRep' AND ${liveVoteSql('v')}
+           AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL`,
+      )
+      .bind(voterId)
+      .all<{ block_time: number; submitted_at: number }>()
+  ).results ?? [];
+  return rows.map((r) => ({ blockTime: r.block_time, submittedAt: r.submitted_at }));
+}
+
 /**
  * Optimistic local vote written immediately after the wallet submits, before
  * the hourly sync sees it on chain. INSERT OR REPLACE on (ga_id, voter_id) so a

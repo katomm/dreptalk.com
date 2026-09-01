@@ -95,6 +95,32 @@ export function participationStat(p: DrepParticipation | null): ParticipationSta
   return { kind: 'ok', voted: p.voted, eligible: p.eligible, pct: Math.round((p.voted / p.eligible) * 100) };
 }
 
+export interface VoteTimingStat {
+  /** Median days from an action's submission to the DRep's vote. */
+  medianDay: number;
+  /** Number of votes carrying both timestamps and used in the median. */
+  timed: number;
+}
+
+/**
+ * Median "day N after submission" a DRep casts its vote, from raw
+ * block_time/submitted_at pairs (listDrepVoteTimings). block_time is unix
+ * SECONDS, submitted_at is unix MILLISECONDS, so block_time is scaled up
+ * before subtracting and the result divided down to days. A negative day (the
+ * vote timestamp predates the action's own submission, a data anomaly) is
+ * skipped rather than distorting the median. Null when nothing usable remains.
+ */
+export function voteTimingStat(rows: { blockTime: number; submittedAt: number }[]): VoteTimingStat | null {
+  const days = rows
+    .map((r) => (r.blockTime * 1000 - r.submittedAt) / 86_400_000)
+    .filter((d) => d >= 0);
+  if (days.length === 0) return null;
+  const sorted = [...days].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const medianDay = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return { medianDay, timed: days.length };
+}
+
 export interface VoteChangeStat {
   /** Actions where the recorded vote actually switched at least once. */
   actionsChanged: number;

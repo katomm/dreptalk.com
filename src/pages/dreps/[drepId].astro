@@ -23,7 +23,7 @@ import { getPostsByAuthor } from '@/lib/db/forum.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import {
   getDrepVotingHistory, countDrepVotes,
-  getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation,
+  getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation, listDrepVoteTimings,
 } from '@/lib/db/drepVotes.js';
 import { getVoterVoteHistory } from '@/lib/db/voteHistory.js';
 import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
@@ -31,7 +31,8 @@ import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
 import { isIndexableProfile, influencePct, formatSharePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary } from '@/lib/dreps/profile.js';
 import { buildRecentActivity } from '@/lib/dreps/recentActivity.js';
-import { voteChangeStat } from '@/lib/dreps/voteStatsView.js';
+import { voteChangeStat, voteTimingStat } from '@/lib/dreps/voteStatsView.js';
+import { getReportCard } from '@/lib/db/drepReportCard.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -88,7 +89,7 @@ const isOwner =
 
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap] =
+const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows] =
   await Promise.all([
     drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
     db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
@@ -108,7 +109,11 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     drep && db ? getBadgeHolderCounts(db) : Promise.resolve(new Map<string, number>()),
     drep && db ? getDrepVotingPowerSeries(db, drep.drepId) : Promise.resolve([]),
     drep && db ? getVoterVoteHistory(db, drep.drepId) : Promise.resolve(new Map()),
+    drep && db ? getReportCard(db, drep.drepId) : Promise.resolve(null),
+    drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([]),
   ]);
+
+const timingStat = voteTimingStat(timingRows);
 
 const showcase = pickShowcase(earnedBadges, holderCounts, 3);
 
@@ -398,7 +403,9 @@ const profileSummary = drep
       </div>
     </section>
 
-    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} changes={changeStat} />
+    <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} changes={changeStat}
+      percentiles={reportCard ? { participationAheadPct: reportCard.participationAheadPct, rationaleAheadPct: reportCard.rationaleAheadPct, cohortSize: reportCard.cohortSize } : null}
+      timing={timingStat ? { ...timingStat, totalVotes: rationaleStats.total } : null} />
 
     <div class="drep-summary">
       <DrepPowerSparkline series={powerSeries} />
