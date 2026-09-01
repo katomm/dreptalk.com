@@ -272,11 +272,8 @@ const participationLine =
     font-size: 0.75rem;
   }
 
-  /* Card content width steps down with the viewport (the page container's own
-     padding and this card's padding both shrink the available width before
-     the grid ever sees it), so the column count steps down before a track
-     gets too narrow for the voting-pattern chart. See the .vstats__body
-     comment above for the math. */
+  /* Step the column count down before a track gets too narrow for the
+     voting-pattern chart. See the .vstats__body comment above for the math. */
   @media (max-width: 1250px) {
     .vstats__body { grid-template-columns: repeat(2, 1fr); }
   }

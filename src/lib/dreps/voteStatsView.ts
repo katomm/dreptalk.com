@@ -113,11 +113,11 @@ export interface VoteTimingStat {
 export function voteTimingStat(rows: { blockTime: number; submittedAt: number }[]): VoteTimingStat | null {
   const days = rows
     .map((r) => (r.blockTime * 1000 - r.submittedAt) / 86_400_000)
-    .filter((d) => d >= 0);
+    .filter((d) => d >= 0)
+    .sort((a, b) => a - b);
   if (days.length === 0) return null;
-  const sorted = [...days].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const medianDay = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  const mid = Math.floor(days.length / 2);
+  const medianDay = days.length % 2 === 0 ? (days[mid - 1] + days[mid]) / 2 : days[mid];
   return { medianDay, timed: days.length };
 }
 

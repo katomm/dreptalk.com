@@ -111,10 +111,11 @@ export async function syncDrepVotingPowerHistory(
   const { koios, db, currentEpoch } = deps;
   const windowSize = deps.windowSize ?? DEFAULT_WINDOW;
   const budget = deps.maxFetchPerRun ?? DEFAULT_MAX_FETCH_PER_RUN;
-  const hasAbsoluteFloor = deps.floorEpoch != null && deps.floorEpoch <= currentEpoch;
-  const floor = hasAbsoluteFloor
-    ? (deps.floorEpoch as number)
-    : Math.max(0, currentEpoch - windowSize + 1);
+  // Null unless the caller supplied a usable absolute floor, in which case it
+  // both extends retention and is the only floor pruning is allowed to use.
+  const absoluteFloor =
+    deps.floorEpoch != null && deps.floorEpoch <= currentEpoch ? deps.floorEpoch : null;
+  const floor = absoluteFloor ?? Math.max(0, currentEpoch - windowSize + 1);
   const window = Array.from({ length: currentEpoch - floor + 1 }, (_, i) => floor + i);
 
   const stored = await getStoredEpochs(db);
@@ -134,7 +135,7 @@ export async function syncDrepVotingPowerHistory(
   // Only an absolute floor is a confirmed retention boundary: a run stuck on the
   // relative window (legacy caller, or the phase's .catch(() => null) fallback
   // after a Koios flake) must never delete rows an earlier run backfilled.
-  const pruned = hasAbsoluteFloor ? await pruneVotingPowerHistoryBefore(db, floor) : 0;
+  const pruned = absoluteFloor !== null ? await pruneVotingPowerHistoryBefore(db, absoluteFloor) : 0;
   // Re-project onto the dreps rows only when a recent epoch actually landed: a
   // backfill drip fetches only old epochs and would otherwise rewrite ~2000 rows
   // for no change to the current snapshot. The cold backfill always includes the
