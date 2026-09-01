@@ -29,7 +29,7 @@ The "voted in the last 12 epochs" figure counts DReps with at least one on-chain
 
 ## Where the numbers come from
 
-DRepTalk records one row of governance aggregates per epoch, built from the same chain data that powers the rest of the site. Voting power snapshots come from the per-epoch stake distribution, vote counts from the on-chain votes themselves, and the concentration figures from the full distribution of delegated power across DReps, with the two default options excluded.
+DRepTalk records one row of governance aggregates per epoch, built from the same chain data that powers the rest of the site. Voting power snapshots come from the per-epoch stake distribution, vote counts from the on-chain votes themselves, and the concentration figures from the full distribution of delegated power across DReps, with the two default options excluded. The effective-representation panel measures each action against its decision epoch, while the tally bar on an action page uses the epoch of the latest tally, so the two can sit one epoch apart for the same action. The threshold marker on the full-stake bar maps the approval threshold onto the abstain-reduced representative stake, a deliberate simplification stated here so nobody mistakes it for a hand-computed break-even.
 
 ## Frequently asked questions
 
