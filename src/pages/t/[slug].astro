@@ -36,6 +36,7 @@ import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows, committeeEpochForAction } from '@/lib/db/committee.js';
 import { buildVoteConcentration, requiredYesPower, type VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
+import { buildActionVoteChanges, describeActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
 import { readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
@@ -359,6 +360,13 @@ const poolsMap = db && poolIds.length > 0 ? await getPoolsByIds(db, poolIds) : n
 const [rationales, voteHistory] = tab === 'positions' && db && govAction
   ? await Promise.all([getActionRationales(db, govAction.id), getActionVoteHistory(db, govAction.id)])
   : [new Map<string, { bodyHtml: string | null; source: string; voterRole: string }>(), new Map<string, SupersededVote[]>()];
+
+// Net vote-change summaries per role for the Positions tab. History alone
+// cannot say a vote changed (anchor-only re-votes archive too), so the
+// classifier compares each voter's first recorded vote with the current one.
+const drepChanges = tab === 'positions' && govAction ? buildActionVoteChanges(voteHistory, govVotes, 'DRep') : null;
+const spoChanges = tab === 'positions' && govAction ? buildActionVoteChanges(voteHistory, govVotes, 'SPO') : null;
+const drepChangeLine = drepChanges ? describeActionVoteChanges(drepChanges) : null;
 
 // Votes cast too late to count in the frozen tally (on/after the ratification
 // epoch). Shown distinctly on the Positions tab so they don't read as counted.
@@ -726,6 +734,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 ccTotal={ccTotal}
                 concentration={voteConcentration}
                 concentrationThresholdPct={concThresholdPct}
+                drepChanges={drepChanges}
+                spoChanges={spoChanges}
+                drepChangeLine={drepChangeLine}
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />
