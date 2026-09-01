@@ -741,6 +741,17 @@ const activityBars = activity
     color: var(--fg);
   }
 
+  /* The hero grid reuses the directory's stat cards. On a phone two cards
+     share a row and a 1fr track cannot shrink below the longest unbreakable
+     figure, which pushed the page wider than the viewport. Let the items
+     shrink and let the figures break instead. */
+  .drep-stats > .drep-stat {
+    min-width: 0;
+  }
+  .drep-stat__value,
+  .drep-stat__delta {
+    overflow-wrap: anywhere;
+  }
   .hub-intro {
     color: var(--muted);
     max-width: 60ch;
