@@ -21,6 +21,12 @@ export interface MyDrepView {
   rationalePct: number | null;
   voteChanges: number;
   power: {
+    /**
+     * `firstOnRecord` means the snapshot is later than the start epoch, so it is
+     * the earliest figure available rather than the figure for the start itself.
+     * It says nothing about why: a rolling history that no longer reaches back
+     * and a single missed capture both produce it.
+     */
     start: { epoch: number; label: string; firstOnRecord: boolean } | null;
     now: { epoch: number; label: string } | null;
     /**

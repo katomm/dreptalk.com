@@ -28,6 +28,7 @@ import {
 } from '@/lib/db/myDrep';
 import { buildMyDrep, buildDefaultOptionView, type DefaultOption } from '@/lib/analytics/myDrepView';
 import { fmtPct, shortGovActionId } from '@/lib/governance/view';
+import { isoDate } from '@/lib/format/date';
 import { isWriter } from '@/lib/auth/roles';
 
 const user = Astro.locals.user;
@@ -56,33 +57,58 @@ const sinceEpoch = follow?.delegated_since_epoch ?? null;
 // One ternary per read (the pattern /my-governance-record uses), so each
 // position keeps its own type without a tuple-wide cast. Only the reads the
 // current state actually needs run, the others resolve to their empty value.
-const [drep, actions, voteChanges, powerThen, powerNow, recent] = await Promise.all([
+// The DRep row comes first because the since-window depends on it: a delegation
+// older than the registration cannot be measured from the delegation epoch.
+const [drep, recent] = await Promise.all([
   db && drepId ? getDrepById(db, drepId) : Promise.resolve(null),
-  db && drepId && sinceEpoch != null
-    ? listDrepActionsSince(db, drepId, sinceEpoch)
+  db && defaultOption && sinceEpoch != null
+    ? listRecentDecidedActions(db, RECENT_LIMIT, sinceEpoch)
+    : Promise.resolve([] as RecentDecidedAction[]),
+]);
+
+// getDrepParticipation counts from the DRep's first registration, so a window
+// that opened before it would report since-figures the profile cannot match. The
+// later of the two epochs is the only one both sides can speak for, and the note
+// below says out loud when the registration moved the start.
+const effectiveSince =
+  sinceEpoch != null ? Math.max(sinceEpoch, drep?.registeredEpoch ?? sinceEpoch) : null;
+const clampedToRegistration = effectiveSince != null && sinceEpoch != null && effectiveSince > sinceEpoch;
+
+const [actions, voteChanges, powerThen, powerNow] = await Promise.all([
+  db && drepId && effectiveSince != null
+    ? listDrepActionsSince(db, drepId, effectiveSince)
     : Promise.resolve([] as SinceActionRow[]),
-  db && drepId && sinceEpoch != null
-    ? countVoteChangesSince(db, drepId, epochStartUnix(sinceEpoch, cfg))
+  db && drepId && effectiveSince != null
+    ? countVoteChangesSince(db, drepId, epochStartUnix(effectiveSince, cfg))
     : Promise.resolve(0),
-  db && drepId && sinceEpoch != null
-    ? getPowerAtOrAfter(db, drepId, sinceEpoch)
+  db && drepId && effectiveSince != null
+    ? getPowerAtOrAfter(db, drepId, effectiveSince)
     : Promise.resolve(null as PowerPoint | null),
-  db && drepId && sinceEpoch != null ? getPowerLatest(db, drepId) : Promise.resolve(null as PowerPoint | null),
-  db && defaultOption ? listRecentDecidedActions(db, RECENT_LIMIT) : Promise.resolve([] as RecentDecidedAction[]),
+  db && drepId && effectiveSince != null
+    ? getPowerLatest(db, drepId)
+    : Promise.resolve(null as PowerPoint | null),
 ]);
 
 const m1 =
-  drepId != null && sinceEpoch != null
+  drepId != null && effectiveSince != null
     ? buildMyDrep({
-        sinceEpoch,
-        sinceStartMs: epochStartMs(sinceEpoch, cfg),
+        sinceEpoch: effectiveSince,
+        sinceStartMs: epochStartMs(effectiveSince, cfg),
         actions,
         voteChanges,
         powerThen,
         powerNow,
       })
     : null;
-const m2 = defaultOption ? buildDefaultOptionView(defaultOption, recent) : null;
+const m2 = defaultOption && sinceEpoch != null ? buildDefaultOptionView(defaultOption, recent) : null;
+
+// The delegation itself, stated in the header, keeps the epoch the certificate
+// was submitted in even when the figures below start later.
+const delegationDateIso = sinceEpoch != null ? isoDate(new Date(epochStartMs(sinceEpoch, cfg))) : null;
+
+// Both the DRep view and a default option count from the delegation start, so
+// neither can say anything until the capture has run for this follow.
+const startPending = (drepId != null || defaultOption != null) && sinceEpoch == null;
 
 // The profile link works before the dreps row has synced, drepPath falls back
 // to the raw id when there is no slug.
@@ -104,19 +130,24 @@ const num = (n: number) => n.toLocaleString('en-US');
 const signed = (n: number) => (n > 0 ? `+${num(n)}` : num(n));
 
 // Both power figures come from the same snapshot row, so one epoch labels the
-// whole "at your delegation" column. A start epoch later than the delegation
-// epoch means the history no longer reaches that far back, which the column
-// says out loud instead of passing the later figure off as the start.
-const startIsFirstOnRecord = m1 != null && powerThen != null && powerThen.epoch > m1.sinceEpoch;
-const startColLabel = powerThen
-  ? startIsFirstOnRecord
-    ? `Epoch ${powerThen.epoch}, first figure on record`
-    : `Epoch ${powerThen.epoch}`
-  : 'At your delegation';
-const nowColLabel = powerNow ? `Epoch ${powerNow.epoch}` : 'Now';
+// whole start column. The header follows the view's own start figure, so a
+// snapshot the view dropped as unreadable does not leave an epoch heading over a
+// cell that says there is no figure. A snapshot later than the start epoch is
+// the earliest one available, not the figure for that epoch, and the column says
+// so instead of passing it off as the start.
+const startColLabel = m1?.power.start
+  ? m1.power.start.firstOnRecord
+    ? `Epoch ${m1.power.start.epoch}, earliest figure available`
+    : `Epoch ${m1.power.start.epoch}`
+  : 'Delegation start';
+// Same rule on the current column, for the same reason.
+const nowColLabel = m1?.power.now ? `Epoch ${m1.power.now.epoch}` : 'Now';
 const NO_FIGURE = 'No figure for that epoch';
 
 const missedCount = m1?.missed.length ?? 0;
+// A DRep whose registration has ended cannot vote, so actions decided after that
+// point are not misses in the sense the list otherwise carries.
+const drepRetired = drep != null && !drep.active;
 
 // A member who signed in through the delegator door holds no writer role, so
 // the account settings that carry the stake-wallet flow have nothing for them.
@@ -145,7 +176,7 @@ const NO_CHANGE = 'Needs a figure for both epochs';
       {/* No line break between the name and the period below: Astro keeps
           template whitespace, so a wrapped expression would render "Name ." */}
       {view.kind === 'drep' && (
-        <p class="mdr-head__sub">You delegated your voting power to {profileHref ? <a href={profileHref}>{drepLabel}</a> : drepLabel}.{m1 && ` Since your latest delegation in epoch ${m1.sinceEpoch}, ${m1.sinceDateIso}.`}</p>
+        <p class="mdr-head__sub">You delegated your voting power to {profileHref ? <a href={profileHref}>{drepLabel}</a> : drepLabel}.{sinceEpoch != null && ` Since your latest delegation in epoch ${sinceEpoch}, ${delegationDateIso}.`}</p>
       )}
       {defaultOption && (
         <p class="mdr-head__sub">
@@ -208,13 +239,13 @@ const NO_CHANGE = 'Needs a figure for both epochs';
       </div>
     )}
 
-    {view.kind === 'drep' && !m1 && (
+    {startPending && (
       <section class="mdr-section">
         <h2 class="mdr-section__title">Delegation start pending</h2>
         <p class="mdr-line">
           The epoch your latest delegation was submitted in is being looked up and is normally on record
-          within a day. Until then this page shows no since-figures, because every figure on it counts from
-          that epoch.
+          within a day. Until then this page shows no figures and no actions, because everything on it counts
+          from that epoch.
         </p>
         {profileHref && (
           <p class="mdr-line"><a href={profileHref}>Open the DRep profile for the full public record</a></p>
@@ -255,6 +286,7 @@ const NO_CHANGE = 'Needs a figure for both epochs';
             A decided action counts here once at least one DRep voted on it, so actions no DRep could vote on
             stay out of every figure. Actions decided before epoch {m1.sinceEpoch} are never counted against
             this DRep on your behalf. Rationale coverage counts the actions this DRep voted on, not all of them.
+            {clampedToRegistration && ` This DRep registered in epoch ${m1.sinceEpoch}, later than your delegation, so the figures start there.`}
           </p>
           {statusLine && <p class="mdr-line">{statusLine}</p>}
         </section>
@@ -288,9 +320,10 @@ const NO_CHANGE = 'Needs a figure for both epochs';
             </table>
           </div>
           <p class="mdr-note">
-            Both figures come from the per-epoch snapshots DRepTalk records. A delegation that started before
-            the first snapshot on record shows the earliest epoch that is available instead, which the column
-            header states. Delegator counts exist only from the epoch DRepTalk began recording them.
+            Both figures come from the per-epoch snapshots DRepTalk records. When no snapshot exists for the
+            start epoch, whether because the history no longer reaches that far back or because that epoch was
+            never captured, the column header names the earliest figure available instead of passing it off as
+            the start. Delegator counts exist only from the epoch DRepTalk began recording them.
           </p>
         </section>
 
@@ -307,6 +340,11 @@ const NO_CHANGE = 'Needs a figure for both epochs';
               <p class="mdr-headline">
                 {`${num(missedCount)} of ${num(m1.eligible)} decided actions since epoch ${m1.sinceEpoch} carry no vote from this DRep`}
               </p>
+              {drepRetired && (
+                <p class="mdr-line">
+                  This DRep is no longer active, actions decided after its retirement could not be voted on.
+                </p>
+              )}
               <div class="mdr-list">
                 {m1.missed.map((row) => (
                   <div class="mdr-row">
@@ -341,7 +379,9 @@ const NO_CHANGE = 'Needs a figure for both epochs';
           <h2 class="mdr-section__title">Your default delegation</h2>
           <p class="mdr-line">{m2.rule}</p>
           {m2.rows.length === 0 ? (
-            <p class="mdr-line">No governance action has been decided yet, so there is nothing to show here.</p>
+            <p class="mdr-line">
+              {`No governance action has been decided since your delegation in epoch ${sinceEpoch}, so there is nothing to show here.`}
+            </p>
           ) : (
             <div class="mdr-list">
               {m2.rows.map((row) => (
@@ -360,7 +400,7 @@ const NO_CHANGE = 'Needs a figure for both epochs';
           )}
           {m2.rows.length > 0 && (
             <p class="mdr-note">
-              {`Basis: the ${m2.rows.length === 1 ? 'most recent decided action' : `${num(m2.rows.length)} most recent decided actions`}. A default option applies automatically, there is nothing to cast and no rationale to read.`}
+              {`Basis: the ${m2.rows.length === 1 ? 'most recent action' : `${num(m2.rows.length)} most recent actions`} decided since epoch ${sinceEpoch}, when your delegation started. A default option applies automatically, there is nothing to cast and no rationale to read.`}
             </p>
           )}
         </section>

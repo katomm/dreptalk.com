@@ -270,4 +270,29 @@ describe('listRecentDecidedActions', () => {
     const rows = await listRecentDecidedActions(env.DB, 10);
     expect(rows.map((r) => r.gaId)).toEqual(['ga_y', 'ga_z']);
   });
+
+  it('bounds the window below when a start epoch is given, inclusive, still newest first', async () => {
+    await seedAction('ga_p1', 'P1', 698);
+    await seedAction('ga_p2', 'P2', 699);
+    await seedAction('ga_p3', 'P3', 700);
+    await seedAction('ga_p4', 'P4', 701);
+    // Outside the window even though its status would qualify.
+    await seedAction('ga_p0', 'P0', 690);
+    // Inside the window but never a decision.
+    await seedAction('ga_pd', 'PD', 702, { status: 'dropped' });
+
+    const rows = await listRecentDecidedActions(env.DB, 10, 699);
+    expect(rows.map((r) => r.gaId)).toEqual(['ga_p4', 'ga_p3', 'ga_p2']);
+
+    // The limit still applies inside the bounded window.
+    const capped = await listRecentDecidedActions(env.DB, 2, 699);
+    expect(capped.map((r) => r.gaId)).toEqual(['ga_p4', 'ga_p3']);
+
+    // A start after everything on record leaves nothing to show.
+    expect(await listRecentDecidedActions(env.DB, 10, 800)).toEqual([]);
+
+    // Without the bound the older rows come back, so the filter is the bound.
+    const unbounded = await listRecentDecidedActions(env.DB, 10);
+    expect(unbounded.map((r) => r.gaId)).toEqual(['ga_p4', 'ga_p3', 'ga_p2', 'ga_p1', 'ga_p0']);
+  });
 });

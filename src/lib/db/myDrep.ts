@@ -155,12 +155,20 @@ export async function getPowerLatest(db: D1Database, drepId: string): Promise<Po
  * DESC, id ASC as tiebreaker). Same decided-status filter as the read above, so
  * a default-option delegator sees the decisions their standing choice was
  * applied to and no dropped rows. `limit` is clamped to 1..100.
+ *
+ * `sinceEpoch` bounds the window below (decided_epoch >= sinceEpoch). A standing
+ * default option only applied to actions decided from the delegation start on,
+ * so without that bound the list would tell a delegator their stake counted on
+ * decisions taken before they made the choice. Omit it only where no start is
+ * known, and then say so rather than labelling effects.
  */
 export async function listRecentDecidedActions(
   db: D1Database,
   limit: number,
+  sinceEpoch?: number,
 ): Promise<RecentDecidedAction[]> {
   const capped = Math.min(Math.max(limit, 1), MAX_RECENT);
+  const bounded = sinceEpoch != null;
   const rows = (
     await db
       .prepare(
@@ -169,11 +177,12 @@ export async function listRecentDecidedActions(
            FROM governance_actions g
            LEFT JOIN topics t ON t.id = g.topic_id
           WHERE g.decided_epoch IS NOT NULL
+            ${bounded ? 'AND g.decided_epoch >= ?' : ''}
             AND ${DECIDED_STATUS_SQL}
           ORDER BY g.decided_epoch DESC, g.id ASC
           LIMIT ?`,
       )
-      .bind(capped)
+      .bind(...(bounded ? [sinceEpoch, capped] : [capped]))
       .all<RecentDecidedAction>()
   ).results ?? [];
   return rows;
