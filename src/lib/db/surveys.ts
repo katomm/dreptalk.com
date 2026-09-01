@@ -255,31 +255,6 @@ export async function abandonSurveyAudit(
     .run();
 }
 
-/**
- * Commit prepared statements in db.batch() calls whose summed bound-parameter
- * count stays at or under D1's 100-per-query cap, without splitting a group
- * (one survey's refresh + link statements commit atomically). Same conservative
- * cap reading as drepVotes.ts UPSERT_CHUNK; miniflare doesn't enforce it, so a
- * looser reading would only fail in production.
- */
-export async function batchByBinds(
-  db: D1Database,
-  groups: readonly { statements: D1PreparedStatement[]; binds: number }[],
-): Promise<void> {
-  let pending: D1PreparedStatement[] = [];
-  let pendingBinds = 0;
-  for (const g of groups) {
-    if (pending.length > 0 && pendingBinds + g.binds > D1_MAX_BINDS) {
-      await db.batch(pending);
-      pending = [];
-      pendingBinds = 0;
-    }
-    pending.push(...g.statements);
-    pendingBinds += g.binds;
-  }
-  if (pending.length > 0) await db.batch(pending);
-}
-
 /** One mirrored survey, as the pages read it (booleans decoded from 0/1). */
 export interface SurveyRow {
   ref: string;

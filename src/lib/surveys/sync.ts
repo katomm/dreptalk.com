@@ -26,7 +26,6 @@ import { createTopic } from '../db/forum.js';
 import { getKnownProposalIds, hasActionsCreatedSince } from '../db/governance.js';
 import {
   abandonSurveyAudit,
-  batchByBinds,
   buildDeleteGovLinks,
   buildInsertGovLink,
   buildInsertSurvey,
@@ -110,11 +109,6 @@ const MAX_RESYNC_RESTARTS = 2;
  * is not coming back. Only the slot is released — the thread and its card
  * stay. */
 const UNAVAILABLE_TTL_MS = 4 * 24 * 60 * 60 * 1000;
-
-/** Binds of the per-survey statement groups batchByBinds packs (see db/surveys.ts). */
-const REFRESH_BINDS = 9;
-const DELETE_LINKS_BINDS = 1;
-const LINK_BINDS = 3;
 
 interface DecodedSet {
   aggregates: SurveyAggregate[];
@@ -369,40 +363,40 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       if (!result.ready) break;
       const set = decodeSet(result.value);
       const present = new Set(set.aggregates.map(a => a.key));
-      await batchByBinds(
-        db,
-        set.aggregates.map(a => {
-          const h = byRef.get(a.key);
-          const claimedCount = set.responseCounts[a.key] ?? 0;
-          const finalState = set.finalState[a.key]?.state ?? null;
-          // Every row here was held, so any non-null finalState is its
-          // arrival — and it must trigger an audit rather than freeze the
-          // stored count, because verdicts land late: a proof verdict can
-          // still flip a counted response after the count itself settles.
-          const triggered =
-            h !== undefined &&
-            (claimedCount !== h.claimedCount ||
-              (h.tipEpoch <= h.endEpoch && set.tip.epoch > h.endEpoch) ||
-              finalState !== null);
-          return {
-            statements: [
-              buildRefreshSurvey(db, {
-                ref: a.key,
-                claimedCount,
-                cancelled: a.cancelled,
-                finalState,
-                auditDueAt: triggered ? now : null,
-                tipEpoch: set.tip.epoch,
-                tesseraFetchedAt: set.fetchedAt,
-                now,
-              }),
-              buildDeleteGovLinks(db, a.key),
-              ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
-            ],
-            binds: REFRESH_BINDS + DELETE_LINKS_BINDS + a.govLinks.length * LINK_BINDS,
-          };
-        }),
-      );
+      // D1's 100-bind cap is per statement, not summed across a batch, and the
+      // widest statement here binds 9 — so one chunk's refreshes commit as a
+      // single batch, keeping the whole page's rewrite atomic. An empty answer
+      // (every held ref rolled back) yields no statements: D1 rejects an empty
+      // batch, so it must not be issued.
+      const refreshStatements = set.aggregates.flatMap(a => {
+        const h = byRef.get(a.key);
+        const claimedCount = set.responseCounts[a.key] ?? 0;
+        const finalState = set.finalState[a.key]?.state ?? null;
+        // Every row here was held, so any non-null finalState is its
+        // arrival — and it must trigger an audit rather than freeze the
+        // stored count, because verdicts land late: a proof verdict can
+        // still flip a counted response after the count itself settles.
+        const triggered =
+          h !== undefined &&
+          (claimedCount !== h.claimedCount ||
+            (h.tipEpoch <= h.endEpoch && set.tip.epoch > h.endEpoch) ||
+            finalState !== null);
+        return [
+          buildRefreshSurvey(db, {
+            ref: a.key,
+            claimedCount,
+            cancelled: a.cancelled,
+            finalState,
+            auditDueAt: triggered ? now : null,
+            tipEpoch: set.tip.epoch,
+            tesseraFetchedAt: set.fetchedAt,
+            now,
+          }),
+          buildDeleteGovLinks(db, a.key),
+          ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
+        ];
+      });
+      if (refreshStatements.length > 0) await db.batch(refreshStatements);
       refreshed += set.aggregates.length;
       // A ref absent from a COMPLETE answer names a rolled-back record; from an
       // incomplete one, absence proves nothing — touch no row.

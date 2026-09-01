@@ -26,11 +26,13 @@ import {
   updateActionOnchainPayload,
   getLatestActionWithVotes,
   getGovernanceActionSlugsByIds,
+  getKnownProposalIds,
   getCompareCandidates,
   getCompareActionBySlug,
   type NewGovernanceAction,
 } from './governance.js';
 import { getAllTopicsByCategory } from './forum.js';
+import { D1_MAX_BINDS } from './sql.js';
 import { sortGovActionTopics, trendingOrderKey, type GovActionTopic } from '../governance/sort.js';
 import { THRESHOLD_SNAPSHOT_VERSION } from '../governance/thresholds.js';
 
@@ -369,6 +371,40 @@ describe('getGovernanceActionsByTopicIds', () => {
   it('returns an empty map for empty input', async () => {
     const map = await getGovernanceActionsByTopicIds(db(), []);
     expect(map.size).toBe(0);
+  });
+});
+
+describe('getKnownProposalIds', () => {
+  it('unions matches across chunk boundaries', async () => {
+    // The surveys sync asks about every gov link on a Tessera page — 200 surveys
+    // with one-or-more links each — so the id list spans several chunks. Miniflare
+    // does not enforce D1's bind cap, so what this pins is the merge: no chunk,
+    // least of all a short trailing one, may be dropped from the union.
+    const total = 2 * D1_MAX_BINDS + 7;
+    const imported: string[] = [];
+    for (let i = 0; i < total; i++) {
+      const proposalId = `gov_action_known${i}`;
+      imported.push(proposalId);
+      await db()
+        .prepare(
+          `INSERT INTO governance_actions (id, type, anchor_status, status, topic_id, proposal_id, created_at, last_synced_at)
+           VALUES (?, 'InfoAction', 'no-anchor', 'active', NULL, ?, ?, ?)`,
+        )
+        .bind(`ga-known-${i}`, proposalId, NOW, NOW)
+        .run();
+    }
+
+    const known = await getKnownProposalIds(db(), [...imported, 'gov_action_absent']);
+
+    expect(known.size).toBe(total);
+    expect(known.has(imported[0])).toBe(true);
+    expect(known.has(imported[D1_MAX_BINDS])).toBe(true);
+    expect(known.has(imported[total - 1])).toBe(true);
+    expect(known.has('gov_action_absent')).toBe(false);
+  });
+
+  it('queries nothing for an empty id list', async () => {
+    expect((await getKnownProposalIds(db(), [])).size).toBe(0);
   });
 });
 
