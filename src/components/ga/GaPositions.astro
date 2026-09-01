@@ -14,6 +14,8 @@ import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import type { Pool } from '@/lib/db/pools.js';
 import type { CcPositionRow } from '@/lib/governance/ccPositions.js';
+import type { VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
+import type { ActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { formatAdaCompact } from '@/lib/governance/view.js';
@@ -37,9 +39,22 @@ interface Props {
   now: number;
   ccRows: CcPositionRow[];
   ccTotal: number;
+  /** Effective voting concentration over the DRep list, null when incomputable. */
+  concentration: VoteConcentrationView | null;
+  /** The frozen DRep approval threshold percent backing the thresholdCount line. */
+  concentrationThresholdPct: number | null;
+  /** Net DRep vote-change counts for this action, null off the positions tab. */
+  drepChanges: ActionVoteChanges | null;
+  /** Net SPO vote-change counts for this action, null off the positions tab. */
+  spoChanges: ActionVoteChanges | null;
+  /** One-sentence DRep change summary (direction counts, moved power), null when nothing changed. */
+  drepChangeLine: string | null;
 }
 
-const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted, voteHistory, now, ccRows, ccTotal } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted, voteHistory, now, ccRows, ccTotal, concentration, concentrationThresholdPct, drepChanges, spoChanges, drepChangeLine } = Astro.props;
+
+// One-decimal percent for the concentration strip, matching the hub's fmtShare.
+const fmtConcPct = (pct: number): string => `${pct.toFixed(1)}%`;
 
 // Determine active role from the query string; default to DReps.
 const roleParam = Astro.url.searchParams.get('role');
@@ -52,13 +67,6 @@ const activeVoters = role === 'spo' ? spoVoters : role === 'cc' ? [] : voters;
 // page). The map also carries CC rationales (Task 5's join), so count per role.
 const withRationale = [...rationales.values()].filter((r) => r.voterRole === 'DRep').length;
 const spoWithRationale = [...rationales.values()].filter((r) => r.voterRole === 'SPO').length;
-
-// Action-wide count of voters who changed their vote, per role (the history map
-// covers the whole action too; each voter's entries all carry the same role).
-const changedByRole = (r: 'DRep' | 'SPO') =>
-  [...voteHistory.values()].filter((list) => list[0]?.voter_role === r).length;
-const drepChanged = changedByRole('DRep');
-const spoChanged = changedByRole('SPO');
 
 // Late votes among the rows shown on this page (cast after ratification).
 const lateOnPage = activeVoters.filter((v) => notCounted.has(v.voter_id)).length;
@@ -115,8 +123,11 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
       {withRationale > 0 && (
         <span class="ga-positions__count-rationale">{` · ${withRationale} with a rationale`}</span>
       )}
-      {drepChanged > 0 && (
-        <span class="ga-positions__count-changed">{` · ${drepChanged} changed their vote`}</span>
+      {drepChanges != null && drepChanges.changed > 0 && (
+        <span class="ga-positions__count-changed">{` · ${drepChanges.changed} changed their vote`}</span>
+      )}
+      {drepChanges != null && drepChanges.samePosition > 0 && (
+        <span class="ga-positions__count-changed">{` · ${drepChanges.samePosition} re-voted unchanged`}</span>
       )}
     </p>
   )}
@@ -129,8 +140,11 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
       {spoWithRationale > 0 && (
         <span class="ga-positions__count-rationale">{` · ${spoWithRationale} with a rationale`}</span>
       )}
-      {spoChanged > 0 && (
-        <span class="ga-positions__count-changed">{` · ${spoChanged} changed their vote`}</span>
+      {spoChanges != null && spoChanges.changed > 0 && (
+        <span class="ga-positions__count-changed">{` · ${spoChanges.changed} changed their vote`}</span>
+      )}
+      {spoChanges != null && spoChanges.samePosition > 0 && (
+        <span class="ga-positions__count-changed">{` · ${spoChanges.samePosition} re-voted unchanged`}</span>
       )}
     </p>
   )}
@@ -141,6 +155,29 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
 
   {lateOnPage > 0 && (
     <p class="ga-positions__hint">Struck-through weight was cast after ratification and did not count in the tally.</p>
+  )}
+
+  {role === 'drep' && drepChangeLine && (
+    <p class="ga-positions__changes">{drepChangeLine}</p>
+  )}
+
+  {role === 'drep' && concentration && (
+    <div class="ga-conc" aria-label="Voting concentration">
+      <p class="ga-conc__title">Voting concentration</p>
+      <p class="ga-conc__line">
+        <b>{concentration.halfCount}</b> of {concentration.voterCount} DReps cast half of the voted power.
+      </p>
+      <p class="ga-conc__line ga-conc__line--muted">
+        Largest voter {fmtConcPct(concentration.largestPct)}{concentration.top5Pct != null && `, top 5 combined ${fmtConcPct(concentration.top5Pct)}`} of {formatAdaCompact(String(concentration.votedPower))} voted.
+      </p>
+      {concentration.thresholdCount != null && concentrationThresholdPct != null && (
+        <p class="ga-conc__line ga-conc__line--muted">
+          {concentration.thresholdCount === 1
+            ? `The largest voter held as much voting power as the ${fmtConcPct(concentrationThresholdPct)} threshold required in yes votes.`
+            : `The ${concentration.thresholdCount} largest voters together held as much voting power as the ${fmtConcPct(concentrationThresholdPct)} threshold required in yes votes.`}
+        </p>
+      )}
+    </div>
   )}
 
   {activeVoters.length > 0 && (
@@ -307,6 +344,12 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     margin: 0 0 0.875rem;
   }
 
+  .ga-positions__changes {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin: 0 0 0.875rem;
+  }
+
   .ga-positions__list {
     list-style: none;
     padding: 0;
@@ -314,6 +357,34 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     display: flex;
     flex-direction: column;
     gap: 0;
+  }
+
+  /* Voting concentration strip: sits directly above the DRep voter list. */
+  .ga-conc {
+    margin: 0.75rem 0 1rem;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .ga-conc__title {
+    margin: 0 0 0.25rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .ga-conc__line {
+    margin: 0.15rem 0 0;
+    font-size: 0.85rem;
+  }
+
+  .ga-conc__line--muted {
+    color: var(--muted);
+    font-size: 0.8rem;
   }
 
   .ga-positions__row {

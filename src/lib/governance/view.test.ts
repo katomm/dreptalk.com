@@ -355,10 +355,13 @@ describe('overviewRowVoting', () => {
     spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
     drepVotedPower: null,
     spoEligiblePower: null,
+    drepNoSidePower: null, spoNoSidePower: null,
+    drepAlwaysAbstainPower: null, drepAlwaysNoConfidencePower: null,
+    spoAlwaysAbstainPower: null, spoAlwaysNoConfidencePower: null,
     ...over,
   });
 
-  it('treasury withdrawals: DRep + CC only (no SPO), composition leads with the stored yes pct, participation from stake totals', () => {
+  it('treasury withdrawals: DRep + CC only (no SPO), composition leads with the stored yes pct', () => {
     const a = makeRow({
       type: 'TreasuryWithdrawals',
       drepYesPct: 79, drepNoPct: 21,
@@ -373,7 +376,10 @@ describe('overviewRowVoting', () => {
 
     const drep = result.bodies[0];
     expect(drep.composition?.yes).toBe(79); // pinned to the stored ratification pct
-    expect(drep.participation).toBe(25); // 250M / 1B * 100
+    // Turnout needs the captured stake buckets. Without them it degrades to null
+    // rather than falling back to the active-DRep denominator, which reported a
+    // systematically higher number than the SPO row beside it.
+    expect(drep.participation).toBeNull();
 
     const cc = result.bodies[1];
     expect(cc.composition?.yes).toBe(83);
@@ -464,7 +470,36 @@ describe('overviewRowVoting', () => {
     expect(result.absentBodies).toEqual([]);
     const spo = result.bodies.find((b) => b.body === 'SPO')!;
     expect(spo.composition).toBeNull(); // no spoYesPct yet, but still an eligible body
-    expect(spo.participation).toBe(0);
+    expect(spo.participation).toBeNull(); // no captured buckets, so no turnout
+  });
+
+  it('turnout is cast stake over the full stake, on the same basis for both bodies', () => {
+    // Mainnet NewCommittee snapshot. Both bodies divide by every eligible lovelace,
+    // so the two percentages in one card answer the same question.
+    const a = makeRow({
+      type: 'NewCommittee',
+      drepYesPct: 68.76, spoYesPct: 51.12,
+      drepYesPower: 3_495_040_778_691_676,
+      drepNoPower: 14_080_895_011_611,
+      drepAbstainPower: 23_769_302_134_251,
+      drepNoSidePower: '1587872967435543',
+      drepAlwaysAbstainPower: '9776721978688292',
+      drepAlwaysNoConfidencePower: '150047859757520',
+      spoYesPower: 5_566_247_741_885_681,
+      spoNoPower: 2_007_788_303_239,
+      spoAbstainPower: 492_792_127_920_271,
+      spoNoSidePower: '5322837822257538',
+      spoAlwaysAbstainPower: '9991941509557618',
+      spoAlwaysNoConfidencePower: '52030156128297',
+    });
+    const result = overviewRowVoting(a, { drepStakeTotal: null, committeeSize: null });
+    const drep = result.bodies.find((b) => b.body === 'DRep')!;
+    const spo = result.bodies.find((b) => b.body === 'SPO')!;
+    expect(drep.participation).toBeCloseTo(23.74, 1);
+    expect(spo.participation).toBeCloseTo(28.36, 1);
+    // The reading that used to be impossible: a hair over half the counted stake
+    // said yes, while barely a quarter of the stake that exists voted at all.
+    expect(spo.composition!.yes).toBeCloseTo(51.12, 2);
   });
 
   it('non-security parameter change: SPO stays absent with zero cast votes', () => {
@@ -512,68 +547,29 @@ describe('fmtPctFine', () => {
 
 describe('compositionBar', () => {
   it('returns null before any tally has synced (yesPct null)', () => {
-    expect(
-      compositionBar({ yesPct: null, yesStake: null, noStake: null, abstainStake: null, eligible: null }),
-    ).toBeNull();
+    expect(compositionBar({ yesPct: null })).toBeNull();
   });
 
-  it('pins Yes to the stored pct and splits the rest into No / Not voted by stake', () => {
-    // 5.33B eligible, 364.6M yes (6.84%), 479.6M no; the huge remainder never voted.
-    const bar = compositionBar({
-      yesPct: 6.84,
-      yesStake: 364_600_000,
-      noStake: 479_600_000,
-      abstainStake: 0,
-      eligible: 5_330_000_000,
-    })!;
-    expect(bar.yes).toBeCloseTo(6.84, 5);
-    expect(bar.splitKnown).toBe(true);
-    // Segments sum to 100, and Not voted dominates (the silent majority).
-    expect(bar.yes + bar.no + bar.notVoted).toBeCloseTo(100, 5);
-    expect(bar.notVoted).toBeGreaterThan(80);
-    // No is far smaller than Not voted, so the bar never reads as an opposition wall.
-    expect(bar.no).toBeLessThan(bar.notVoted);
+  it('is the ratification split: yes and the No side, summing to 100', () => {
+    const bar = compositionBar({ yesPct: 51.12 })!;
+    expect(bar.yes).toBeCloseTo(51.12, 5);
+    expect(bar.no).toBeCloseTo(48.88, 5);
+    expect(bar.yes + bar.no).toBeCloseTo(100, 5);
   });
 
-  it('never renders the SPO 100%-yes illusion: one yes voter is a sliver, not a full bar', () => {
-    const bar = compositionBar({
-      yesPct: 0.4,
-      yesStake: 44_000_000,
-      noStake: 0,
-      abstainStake: 0,
-      eligible: 11_020_000_000,
-    })!;
-    expect(bar.yes).toBeCloseTo(0.4, 5);
-    expect(bar.no).toBe(0);
-    expect(bar.notVoted).toBeCloseTo(99.6, 5);
+  it('puts stake that never voted on the No side, because that is what defeats an action', () => {
+    // The mainnet NewCommittee SPO tally: 267 pools voted yes, exactly one voted no,
+    // and the No side is still 48.88% because 5.27B ada never voted at all. The bar
+    // used to render that as a neutral third segment, which described a tally rule
+    // that does not exist.
+    const bar = compositionBar({ yesPct: 51.12 })!;
+    expect(bar.no).toBeCloseTo(48.88, 2);
   });
 
-  it('excludes abstain from the denominator', () => {
-    // Everyone eligible either voted yes or abstained; with abstain removed, yes fills
-    // the whole (non-abstain) denominator, so nothing is left for No / Not voted.
-    const bar = compositionBar({
-      yesPct: 100,
-      yesStake: 500,
-      noStake: 0,
-      abstainStake: 500,
-      eligible: 1000,
-    })!;
-    expect(bar.yes).toBe(100);
-    expect(bar.no).toBe(0);
-    expect(bar.notVoted).toBe(0);
-  });
-
-  it('cannot split without an eligible denominator: remainder is Not voted, never No', () => {
-    const bar = compositionBar({
-      yesPct: 30,
-      yesStake: 300,
-      noStake: 200,
-      abstainStake: 0,
-      eligible: null,
-    })!;
-    expect(bar.splitKnown).toBe(false);
-    expect(bar.no).toBe(0);
-    expect(bar.notVoted).toBe(70);
+  it('clamps a stored percentage outside 0..100', () => {
+    expect(compositionBar({ yesPct: 140 })!.yes).toBe(100);
+    expect(compositionBar({ yesPct: -5 })!.yes).toBe(0);
+    expect(compositionBar({ yesPct: -5 })!.no).toBe(100);
   });
 });
 
@@ -590,27 +586,24 @@ describe('bodyComposition / compositionAmounts', () => {
     spoYesPower: null, spoNoPower: null, spoAbstainPower: null,
     drepVotedPower: null,
     spoEligiblePower: null,
+    drepNoSidePower: null, spoNoSidePower: null,
+    drepAlwaysAbstainPower: null, drepAlwaysNoConfidencePower: null,
+    spoAlwaysAbstainPower: null, spoAlwaysNoConfidencePower: null,
     ...over,
   });
 
-  it('DRep composition uses the total active DRep stake as the denominator', () => {
-    const a = makeRow({
-      drepYesPct: 6.84,
-      drepYesPower: 364_600_000, drepNoPower: 479_600_000, drepAbstainPower: 0,
-      drepVotedPower: 844_200_000,
-    });
-    const bar = bodyComposition(a, 'DRep', { drepStakeTotal: 5_330_000_000, committeeSize: null })!;
+  it('DRep composition reads the stored ratification percentage', () => {
+    const a = makeRow({ drepYesPct: 6.84 });
+    const bar = bodyComposition(a, 'DRep')!;
     expect(bar.yes).toBeCloseTo(6.84, 5);
-    expect(bar.notVoted).toBeGreaterThan(80);
+    expect(bar.no).toBeCloseTo(93.16, 5);
   });
 
-  it('CC composition uses the committee seat count as the denominator', () => {
+  it('CC composition reads the seat-based percentage the same way', () => {
     const a = makeRow({ ccYesPct: 80, ccYes: 4, ccNo: 1, ccAbstain: 0 });
-    const bar = bodyComposition(a, 'CC', { drepStakeTotal: null, committeeSize: 7 })!;
+    const bar = bodyComposition(a, 'CC')!;
     expect(bar.yes).toBe(80);
-    // 2 of 7 seats silent -> Not voted present, No the smaller slice.
-    expect(bar.notVoted).toBeGreaterThan(0);
-    expect(bar.no).toBeGreaterThan(0);
+    expect(bar.no).toBe(20);
   });
 
   it('formats Not voted from the un-voted eligible stake and flags abstain', () => {

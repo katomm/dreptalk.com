@@ -21,6 +21,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   '/dreps/': 'delegate representatives directory voting power',
   '/c/governance-actions/': 'proposals votes ga',
   '/discussions/': 'forum topics threads',
+  '/analytics/': 'analytics stats governance health concentration abstain',
 };
 
 export const STATIC_ENTRIES: readonly StaticEntry[] = [
@@ -29,6 +30,7 @@ export const STATIC_ENTRIES: readonly StaticEntry[] = [
   { group: 'Pages', label: 'Help', href: '/help/', keywords: 'documentation guide faq guides' },
   { group: 'Pages', label: 'Glossary', href: '/glossary/', keywords: 'definitions terms vocabulary governance glossary' },
   { group: 'Pages', label: 'Find your DRep', href: '/match/', keywords: 'match quiz find a drep delegate voting compare' },
+  { group: 'Pages', label: 'Governance analytics', href: '/analytics/', keywords: PAGE_KEYWORDS['/analytics/'] },
 ];
 
 /** Case-insensitive label/keyword/description filter; empty query returns everything. */

@@ -16,7 +16,7 @@ const P: ProtocolParams = {
   pvtMotionNoConfidence: 0.51, pvtCommitteeNormal: 0.51, pvtCommitteeNoConfidence: 0.51,
   pvtHardFork: 0.51, pvtSecurityGroup: 0.51, ccThreshold: 0.67, committeeMinSize: 7, committeeSize: 8,
   syncedAt: 0, rawJson: null,
-  treasuryLovelace: null, reservesLovelace: null, treasuryEpoch: null,
+  treasuryLovelace: null, reservesLovelace: null, circulationLovelace: null, treasuryEpoch: null,
 };
 
 describe('evaluateThresholds', () => {

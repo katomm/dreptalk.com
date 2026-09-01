@@ -8,9 +8,12 @@ import {
   upsertCommitteeHotKeys,
   syncCurrentCommitteeMembership,
   recomputeCommitteePct,
+  listDecidedCcActions,
+  listDecidedCcVoteRows,
 } from './committee.js';
 import { activeCommitteeSizeAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import type { CommitteeMember } from '../koios/client.js';
+import { upsertVotes } from './drepVotes.js';
 
 const db = () => env.DB;
 
@@ -138,5 +141,48 @@ describe('recomputeCommitteePct', () => {
     // Second pass is a no-op (only-changed).
     const again = await recomputeCommitteePct(db(), 641, 100);
     expect(again.updated).toBe(0);
+  });
+});
+
+describe('listDecidedCcActions + listDecidedCcVoteRows', () => {
+  it('returns decided actions and CC votes grouped by action', async () => {
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_at, cc_yes_pct, thresholds_json, topic_id, created_at, last_synced_at)
+         VALUES ('ga_cc1#0', 'InfoAction', 'CC One', 'enacted', 600, 1000, 66.7, '{"cc":66.7,"ccBelowMinSize":false,"v":2}', NULL, 0, 0)`,
+      )
+      .run();
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_at, topic_id, created_at, last_synced_at)
+         VALUES ('ga_cc_open#0', 'InfoAction', 'Open', 'active', NULL, 1000, NULL, 0, 0)`,
+      )
+      .run();
+    await upsertVotes(
+      db(),
+      'ga_cc1#0',
+      [
+        { voterRole: 'ConstitutionalCommittee', voterId: 'cc_hot_a', voterHex: 'AABB01', vote: 'Yes', blockTime: 2000 },
+        { voterRole: 'ConstitutionalCommittee', voterId: 'cc_hot_b', voterHex: '', vote: 'Yes', blockTime: 2000 },
+        { voterRole: 'DRep', voterId: 'drep_x', voterHex: null, vote: 'Yes' },
+      ],
+      1,
+    );
+    await upsertVotes(
+      db(),
+      'ga_cc_open#0',
+      [{ voterRole: 'ConstitutionalCommittee', voterId: 'cc_hot_a', voterHex: 'AABB01', vote: 'No', blockTime: 3000 }],
+      1,
+    );
+
+    const actions = await listDecidedCcActions(db());
+    const a = actions.find((x) => x.gaId === 'ga_cc1#0');
+    expect(a).toMatchObject({ decidedEpoch: 600, submittedAt: 1000, ccYesPct: 66.7 });
+    expect(actions.some((x) => x.gaId === 'ga_cc_open#0')).toBe(false);
+
+    const votes = await listDecidedCcVoteRows(db());
+    expect(votes.get('ga_cc1#0')).toHaveLength(1);
+    expect(votes.get('ga_cc1#0')?.[0]).toMatchObject({ hotKeyHex: 'aabb01', vote: 'Yes', blockTime: 2000 });
+    expect(votes.has('ga_cc_open#0')).toBe(false);
   });
 });

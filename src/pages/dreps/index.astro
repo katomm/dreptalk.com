@@ -5,7 +5,6 @@ import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
-import DrepConcentration from '@/components/DrepConcentration.tsx';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
 import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import DrepSelfCard from '@/components/DrepSelfCard.astro';
@@ -16,7 +15,6 @@ import { getSelfDrepId } from '@/lib/db/users.js';
 import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
-import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { influencePct } from '@/lib/dreps/profile.js';
 import { computeVotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
@@ -34,17 +32,16 @@ const sort = Astro.url.searchParams.get('sort') === 'delegators' ? 'delegators' 
 // (rank = offset + row index + 1), so ranks stay continuous across pages.
 const listOffset = pageToOffset(page, PAGE_SIZE);
 
-// The directory listing, the concentration aggregate, and the cached protocol
-// params are independent reads; fetch them concurrently so a cold (uncached)
+// The directory listing, the concentration aggregate, and the power-history
+// aggregates are independent reads, fetch them concurrently so a cold (uncached)
 // render pays one round-trip of latency, not three.
-const [dreps, concentrationRows, params, powerAggregates] = db
+const [dreps, concentrationRows, powerAggregates] = db
   ? await Promise.all([
       listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: listOffset, sort }),
       listDrepsForConcentration(db),
-      getProtocolParams(db),
       getVotingPowerEpochAggregates(db),
     ])
-  : [[], [], null, []];
+  : [[], [], []];
 
 // Voting power concentration: all active, non-special DReps as BigInt powers.
 // Parse lovelace defensively so a single malformed row cannot 500 the page
@@ -102,63 +99,7 @@ const statCards: {
   { label: 'Top 10 control', value: `${top10Pct.toFixed(1)}%`, icon: 'share', alt: true, sub: 'held by the 10 largest' },
 ];
 
-// Donut slider markers: each DRep voting threshold (dvt_* fraction) paired with
-// the governance action it gates, grouped by rounded percent (several actions
-// share a threshold). Canonical Conway genesis defaults label the markers before
-// the protocol params have synced; synced params override them when present.
-const DEFAULT_DVT: { fraction: number; label: string }[] = [
-  { fraction: 0.67, label: 'No confidence' },
-  { fraction: 0.67, label: 'Committee (normal state)' },
-  { fraction: 0.6, label: 'Committee (no confidence)' },
-  { fraction: 0.75, label: 'Constitution update' },
-  { fraction: 0.6, label: 'Hard fork' },
-  { fraction: 0.67, label: 'Protocol params (network)' },
-  { fraction: 0.67, label: 'Protocol params (economic)' },
-  { fraction: 0.67, label: 'Protocol params (technical)' },
-  { fraction: 0.75, label: 'Protocol params (governance)' },
-  { fraction: 0.67, label: 'Treasury withdrawal' },
-];
-const syncedDvt: { value: number | null; label: string }[] = params
-  ? [
-      { value: params.dvtTreasuryWithdrawal, label: 'Treasury withdrawal' },
-      { value: params.dvtHardFork, label: 'Hard fork' },
-      { value: params.dvtUpdateConstitution, label: 'Constitution update' },
-      { value: params.dvtMotionNoConfidence, label: 'No confidence' },
-      { value: params.dvtCommitteeNormal, label: 'Committee (normal state)' },
-      { value: params.dvtCommitteeNoConfidence, label: 'Committee (no confidence)' },
-      { value: params.dvtPpNetwork, label: 'Protocol params (network)' },
-      { value: params.dvtPpEconomic, label: 'Protocol params (economic)' },
-      { value: params.dvtPpTechnical, label: 'Protocol params (technical)' },
-      { value: params.dvtPpGov, label: 'Protocol params (governance)' },
-    ]
-  : [];
-const dvtSource = syncedDvt.some((d) => typeof d.value === 'number' && d.value > 0)
-  ? syncedDvt
-  : DEFAULT_DVT.map((d) => ({ value: d.fraction, label: d.label }));
-const actionsByPct = new Map<number, string[]>();
-for (const { value, label } of dvtSource) {
-  if (typeof value === 'number' && value > 0) {
-    const pct = Math.round(value * 100);
-    const list = actionsByPct.get(pct);
-    if (list) list.push(label);
-    else actionsByPct.set(pct, [label]);
-  }
-}
-// The raw grouped list is exhaustive (67% alone gates six action types), which
-// reads as a wall of text in the marker hint. Collapse the busy thresholds to a
-// short, illustrative phrase; others fall through to their grouped labels.
-const MARKER_SUMMARY: Record<number, string> = {
-  67: 'Treasury withdrawal and some network parameters',
-};
-const markers = [...actionsByPct.entries()].sort((a, b) => a[0] - b[0]).map(([pct, actions]) => {
-  const summary = MARKER_SUMMARY[pct];
-  return { pct, actions: summary ? [summary] : actions };
-});
-const markersPct = markers.map((m) => m.pct);
-const defaultThresholdPct = markersPct.includes(67) ? 67 : (markersPct[Math.floor(markersPct.length / 2)] ?? 67);
-const thresholdsAsOf = params ? new Date(params.syncedAt).toISOString().slice(0, 10) : null;
-
-// The island uses the deployment's real network for the delegation tx + explorer links.
+// DrepActionsMenu uses the deployment's real network for the delegation tx + explorer links.
 const network = currentNetwork().network;
 
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
@@ -385,16 +326,10 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
   />
 
   {concentration.drepCount > 0 && (
-    <DrepConcentration
-      client:visible
-      topK={concentration.topK}
-      byPercent={concentration.byPercent}
-      drepCount={concentration.drepCount}
-      totalLabel={concentration.totalLabel}
-      markers={markers}
-      defaultThresholdPct={defaultThresholdPct}
-      thresholdsAsOf={thresholdsAsOf}
-    />
+    <a class="drep-conc-teaser" href="/analytics/">
+      <strong>Voting power concentration</strong>
+      <span>The top 10 DReps hold {top10Pct.toFixed(1)}% of the delegated power. Explore the full picture, thresholds and trends on the analytics page.</span>
+    </a>
   )}
 
   {dreps.length > 0 && <DrepActionsMenu client:idle network={network} />}
@@ -423,6 +358,34 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
     font-size: 0.9375rem;
   }
   .drep-match-teaser span {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  /* Quiet banner linking to the /analytics/ page, reusing the directory's
+     stat-tile tokens (border, radius, surface) so it reads as part of the page. */
+  .drep-conc-teaser {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.85rem 1rem;
+    margin: 0 0 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-decoration: none;
+    color: var(--fg);
+    transition: border-color 0.15s ease;
+  }
+  .drep-conc-teaser:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .drep-conc-teaser strong {
+    font-size: 0.9375rem;
+  }
+  .drep-conc-teaser span {
     display: block;
     margin-top: 0.15rem;
     font-size: 0.8125rem;

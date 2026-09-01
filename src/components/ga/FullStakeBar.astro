@@ -1,0 +1,146 @@
+---
+// The breakdown behind one body's headline: every eligible lovelace, split into what
+// the tally counts and what it excludes. This is the expanded state of a row in the
+// Voting Information card, never the compact one, because it needs its own axis: the
+// bar above it runs 0 to 100 of the COUNTED stake, this one runs over the FULL stake,
+// and reading the two as one scale is the confusion the card exists to avoid.
+//
+// The counted segments come first and stay contiguous from the left, so the marker at
+// the end of them is a real boundary: everything left of it decides the action,
+// everything right of it sat the vote out or abstained. See buildBodyStake in
+// lib/governance/fullStakeView.ts for the model. Track segments are decorative
+// (aria-hidden), the rows below carry the numbers for screen readers.
+import { fmtPctFine, TONE_BAR_COLORS } from '@/lib/governance/view.js';
+import type { BodyStakeView, FullStakeSegmentKey } from '@/lib/governance/fullStakeView.js';
+
+interface Props {
+  view: BodyStakeView;
+  height?: number;
+}
+
+const { view, height = 10 } = Astro.props;
+const clamp = (n: number): number => Math.min(100, Math.max(0, n));
+
+// Yes and cast No reuse the compact bar's tone fills so the two read as one visual
+// language. The default No is that same negative tone at lower strength: it counts as
+// opposition, but nobody chose it. The two abstain fills are neutral grays, the
+// weaker one for the always-abstain default.
+const FILL: Record<FullStakeSegmentKey, string> = {
+  yes: TONE_BAR_COLORS.positive,
+  no: TONE_BAR_COLORS.negative,
+  defaultNo: 'color-mix(in srgb, var(--c-neg) 45%, var(--surface-2))',
+  alwaysNoConfidence: 'color-mix(in srgb, var(--c-neg) 65%, var(--muted))',
+  activeAbstain: 'color-mix(in srgb, var(--muted) 55%, var(--surface-2))',
+  alwaysAbstain: 'color-mix(in srgb, var(--muted) 30%, var(--surface-2))',
+};
+
+const countedSeg = view.segments.filter((s) => s.counted);
+const excludedSeg = view.segments.filter((s) => !s.counted);
+const barLabel =
+  `Full stake: ${fmtPctFine(view.countedSharePct)} counted toward the threshold, ` +
+  `the rest abstained out of the tally`;
+---
+
+<div class="fsbar">
+  <div class="fsbar__bar">
+    <div class="fsbar__track" style={`height:${height}px`} role="img" aria-label={barLabel}>
+      {view.segments.map((seg) => (
+        <span class="fsbar__seg" style={`width:${seg.pct}%;background:${FILL[seg.key]}`} aria-hidden="true"></span>
+      ))}
+    </div>
+    <span class="fsbar__marker" style={`left:${clamp(view.countedSharePct)}%`} aria-hidden="true"></span>
+  </div>
+
+  <dl class="fsbar__rows">
+    {countedSeg.map((seg) => (
+      <div class="fsbar__row">
+        <dt><span class="fsbar__dot" style={`background:${FILL[seg.key]}`}></span>{seg.label}</dt>
+        <dd>{seg.amountLabel}</dd>
+      </div>
+    ))}
+    <div class="fsbar__row fsbar__row--sum">
+      <dt>Counted toward the threshold</dt>
+      <dd>{view.countedLabel}</dd>
+    </div>
+    {excludedSeg.map((seg) => (
+      <div class="fsbar__row">
+        <dt><span class="fsbar__dot" style={`background:${FILL[seg.key]}`}></span>{seg.label}</dt>
+        <dd>{seg.amountLabel}</dd>
+      </div>
+    ))}
+    <div class="fsbar__row fsbar__row--sum">
+      <dt>Abstained, left the tally</dt>
+      <dd>{view.excludedLabel}</dd>
+    </div>
+    <div class="fsbar__row fsbar__row--total">
+      <dt>Turnout</dt>
+      <dd>{fmtPctFine(view.turnoutPct)} of {view.totalLabel}</dd>
+    </div>
+  </dl>
+</div>
+
+<style>
+  /* Clearance for the marker's overhang against the compact row above, same air
+     the threshold tick gets in the collapsed state. */
+  .fsbar__bar { position: relative; margin-top: 0.5rem; }
+  .fsbar__track {
+    display: flex;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .fsbar__seg { height: 100%; }
+  /* Boundary between the counted stake and the abstained tail. Same overhanging
+     treatment as CompositionBar's threshold tick, because it plays the same role
+     on this bar: the line the fill is read against. */
+  .fsbar__marker {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2px;
+    background: var(--fg);
+    box-shadow: 0 0 0 1px var(--surface);
+    transform: translateX(-1px);
+    border-radius: 1px;
+  }
+
+  .fsbar__rows {
+    margin: 0.5rem 0 0;
+    font-size: 0.6875rem;
+    color: var(--muted);
+  }
+  .fsbar__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.125rem 0;
+  }
+  .fsbar__row dt,
+  .fsbar__row dd {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.375rem;
+  }
+  .fsbar__row dd { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* The two subtotals and the turnout line are the reading, the segments are the
+     evidence: give the sums the foreground and a rule to sit on. */
+  .fsbar__row--sum,
+  .fsbar__row--total {
+    border-top: 1px solid var(--border);
+    margin-top: 0.125rem;
+    padding-top: 0.25rem;
+    color: var(--fg);
+  }
+  .fsbar__row--total { font-weight: 600; }
+  .fsbar__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    display: inline-block;
+    flex: none;
+    align-self: center;
+  }
+</style>

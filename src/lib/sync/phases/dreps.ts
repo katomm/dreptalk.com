@@ -8,7 +8,16 @@ import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../dr
 import { syncDrepVotingPowerHistory } from '../../dreps/votingPowerHistorySync.js';
 import { runDrepStatsDigest } from '../../db/drepStatsDigest.js';
 import { backfillVoteHistorySweep } from '../../governance/voteHistoryBackfill.js';
+import { syncCurrentEpochStats, backfillEpochStats } from '../../analytics/epochStatsSync.js';
 import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
+import {
+  listCohortCandidates,
+  listQualifyingDecidedEpochs,
+  listDrepVoteCounts,
+  listDrepRationaleCounts,
+  replaceReportCards,
+} from '../../db/drepReportCard.js';
+import { computeReportCards } from '../../analytics/reportCardView.js';
 import {
   storeDrepAvatars,
   gcDrepAvatars,
@@ -54,6 +63,12 @@ export interface DrepSyncContext extends CoreSyncContext {
 // runs fetch only changed anchors and never come near the cap.
 const DREP_ANCHOR_LIMIT = 400;
 
+// Historical epochs fetched per run. ~150 epochs exist per network at
+// introduction, at 12 per run and four 6-hour runs per day the backfill
+// drains in roughly three days while keeping each run's subrequest count
+// small (one totals call plus a few history pages per epoch).
+const EPOCH_STATS_BACKFILL_PER_RUN = 12;
+
 export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
   {
     name: 'dreps',
@@ -82,23 +97,30 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
   },
   {
     // Capture per-epoch voting power snapshots for the list delta chip and the
-    // profile sparkline. Self-healing: fetches only epochs not yet stored, prunes
-    // the rolling window, and projects the latest two snapshots onto the dreps rows.
-    // Inserts are chunked to stay under D1's 100 bound-parameter-per-query limit.
-    // A fetch failure here must not fail the DRep sync that already succeeded.
+    // profile sparkline. Self-healing: fetches only epochs not yet stored (newest
+    // first, budgeted per run), prunes below the retention floor, and projects the
+    // latest two snapshots onto the dreps rows. Inserts are chunked to stay under
+    // D1's 100 bound-parameter-per-query limit. A fetch failure here must not fail
+    // the DRep sync that already succeeded.
     name: 'voting-power-history',
     run: async (ctx) => {
       const tip = await ctx.koios.tip();
+      // Full-history retention: the absolute floor is the network's first DRep
+      // power epoch (mainnet 508, preprod 164), the same source the epoch-stats
+      // backfill uses. A Koios miss falls back to the legacy relative window.
+      const floorEpoch = await ctx.koios.firstDrepPowerEpoch().catch(() => null);
       const r = await syncDrepVotingPowerHistory({
         koios: ctx.koios,
         db: ctx.db,
         currentEpoch: tip.epoch_no,
+        floorEpoch,
         observedDelegatorCounts: ctx.state.observedDelegatorCounts,
       });
       ctx.state.vpHistoryEpoch = tip.epoch_no;
       console.log(
         `[drep-vp-history] window=${r.window[0]}..${r.window[r.window.length - 1]} ` +
-          `fetched=${r.fetchedEpochs.length} inserted=${r.inserted} pruned=${r.pruned} stamped=${r.stamped}`,
+          `fetched=${r.fetchedEpochs.length} inserted=${r.inserted} pruned=${r.pruned} ` +
+          `remaining=${r.remaining} stamped=${r.stamped}`,
       );
       return { items: r.inserted };
     },
@@ -118,6 +140,26 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
     },
   },
   {
+    // Report-card percentiles for the DRep profiles: batch the per-DRep
+    // participation and rationale rates with the exact profile semantics,
+    // rank them in the cohort, and atomically swap the small table. Runs on
+    // the same 6-hourly cadence as the profile sync. A failure here leaves
+    // the previous percentiles standing.
+    name: 'drep-report-card',
+    run: async (ctx) => {
+      const [candidates, qualifyingEpochs, voteCounts, rationaleCounts] = await Promise.all([
+        listCohortCandidates(ctx.db),
+        listQualifyingDecidedEpochs(ctx.db),
+        listDrepVoteCounts(ctx.db),
+        listDrepRationaleCounts(ctx.db),
+      ]);
+      const rows = computeReportCards({ candidates, qualifyingEpochs, voteCounts, rationaleCounts, now: Date.now() });
+      await replaceReportCards(ctx.db, rows);
+      console.log(`[drep-report-card] cohort=${rows.length} candidates=${candidates.length}`);
+      return { items: rows.length };
+    },
+  },
+  {
     // Sweep historical re-votes into drep_vote_history (drives the vote-change
     // stat and the "changed from X" chips for changes that predate live
     // tracking). A few actions drain per run; no-op once every action is swept.
@@ -130,6 +172,42 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
         );
       }
       return { items: sweep.inserted };
+    },
+  },
+  {
+    // One governance_epoch_stats row for the epoch the history phase captured
+    // this run. Runs after the vote-history sweep so the vote-derived columns
+    // see the freshest sweep state, and is recomputed every run: intra-epoch
+    // votes and late delegator stamps converge onto the same row until the
+    // epoch rolls. Metric definitions live in analytics/epochStatsContract.ts.
+    name: 'epoch-stats',
+    run: async (ctx) => {
+      if (ctx.state.vpHistoryEpoch === null) return { items: 0 };
+      const r = await syncCurrentEpochStats({
+        db: ctx.db, koios: ctx.koios, cfg: ctx.cfg, epoch: ctx.state.vpHistoryEpoch,
+      });
+      console.log(`[epoch-stats] epoch=${ctx.state.vpHistoryEpoch} written=${r.written}`);
+      return { items: r.written ? 1 : 0 };
+    },
+  },
+  {
+    // Self-draining historical backfill of governance_epoch_stats, oldest
+    // epoch first, EPOCH_STATS_BACKFILL_PER_RUN epochs per run (transient
+    // Koios fetches, nothing enters the history table). No-op once every
+    // epoch since the network's first DRep power data is stored. Also repairs
+    // the vote-derived columns of rows flagged incomplete once the
+    // vote-history sweep drained.
+    name: 'epoch-stats-backfill',
+    run: async (ctx) => {
+      if (ctx.state.vpHistoryEpoch === null) return { items: 0 };
+      const r = await backfillEpochStats({
+        db: ctx.db, koios: ctx.koios, cfg: ctx.cfg,
+        currentEpoch: ctx.state.vpHistoryEpoch, budget: EPOCH_STATS_BACKFILL_PER_RUN,
+      });
+      if (r.inserted > 0 || r.repaired > 0 || r.remaining > 0) {
+        console.log(`[epoch-stats-backfill] inserted=${r.inserted} repaired=${r.repaired} remaining=${r.remaining}`);
+      }
+      return { items: r.inserted + r.repaired };
     },
   },
   {

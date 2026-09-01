@@ -203,6 +203,36 @@ describe('buildPowerChart', () => {
     expect(wide.yTicks).toHaveLength(1); // clamped -> single reference line
     expect(Math.max(...wideYs) - Math.min(...wideYs)).toBeLessThan(20);
   });
+
+  it('spaces points by their epoch-true positions when provided', () => {
+    const c = buildPowerChart([10, 20, 30], {
+      width: 200,
+      height: 100,
+      padLeft: 0,
+      padRight: 0,
+      padTop: 0,
+      padBottom: 0,
+      positions: [0, 0.25, 1],
+    })!;
+    const xs = c.line.split(' ').map((p) => Number(p.split(',')[0]));
+    // A quarter of the plot width for the middle point, not a third: the sparse
+    // series does not compress toward evenly-spaced index positions.
+    expect(xs).toEqual([0, 50, 200]);
+  });
+
+  it('falls back to index spacing when positions has the wrong length', () => {
+    const c = buildPowerChart([10, 20, 30], {
+      width: 200,
+      height: 100,
+      padLeft: 0,
+      padRight: 0,
+      padTop: 0,
+      padBottom: 0,
+      positions: [0, 1],
+    })!;
+    const xs = c.line.split(' ').map((p) => Number(p.split(',')[0]));
+    expect(xs).toEqual([0, 100, 200]);
+  });
 });
 
 describe('buildOverlaySeries', () => {

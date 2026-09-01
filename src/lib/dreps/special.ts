@@ -1,5 +1,18 @@
-// The two predefined pseudo-DReps Koios returns in drep_list. They are not real
-// voters: "always abstain" stake is excluded from active voting stake, and
-// "always no confidence" is a standing no. Both are excluded from the directory
-// and the concentration view so the figures reflect real DReps.
+// The two predefined pseudo-DReps Koios answers for on POST /drep_info (GET
+// /drep_list does NOT list them, verified against live Koios mainnet, so the
+// sync needs a dedicated drep_info fetch for these two ids, see syncDreps).
+// They are not real voters: "always abstain" stake is excluded from active
+// voting stake, and "always no confidence" is a standing no.
+//
+// Two-layer convention (binding for every metric, see also
+// analytics/epochStatsContract.ts):
+// - Representative DRep layer: real registered DReps only. Any aggregate that
+//   makes a statement about DReps as actors (counts, concentration, gini,
+//   coalitions, denominators of representative percentages, vote counts) MUST
+//   exclude these ids, enforced in the query itself where possible.
+// - Default delegation layer: these two ids, always reported separately
+//   (their power and delegator counts are governance options people chose,
+//   not representation).
+// getActiveDrepStake (db/stakeParticipation.ts) is a compliant representative
+// layer consumer: it excludes these ids from the active DRep stake denominator.
 export const SPECIAL_DREP_IDS = ['drep_always_abstain', 'drep_always_no_confidence'] as const;

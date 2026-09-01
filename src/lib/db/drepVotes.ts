@@ -551,20 +551,20 @@ export async function countActionSpoVoters(db: D1Database, gaId: string): Promis
 export async function getVotesByGaId(
   db: D1Database,
   gaId: string,
-): Promise<Map<string, { role: string; vote: string; meta_url: string | null }>> {
+): Promise<Map<string, { role: string; vote: string; meta_url: string | null; voted_power: number | null }>> {
   const rows = (
     await db
       .prepare(
-        `SELECT voter_id, voter_role, vote, meta_url FROM drep_votes
+        `SELECT voter_id, voter_role, vote, meta_url, voted_power FROM drep_votes
          WHERE ga_id = ? AND ${liveVoteSql()}`,
       )
       .bind(gaId)
-      .all<{ voter_id: string; voter_role: string; vote: string; meta_url: string | null }>()
+      .all<{ voter_id: string; voter_role: string; vote: string; meta_url: string | null; voted_power: number | null }>()
   ).results ?? [];
 
-  const map = new Map<string, { role: string; vote: string; meta_url: string | null }>();
+  const map = new Map<string, { role: string; vote: string; meta_url: string | null; voted_power: number | null }>();
   for (const r of rows) {
-    map.set(r.voter_id, { role: r.voter_role, vote: r.vote, meta_url: r.meta_url ?? null });
+    map.set(r.voter_id, { role: r.voter_role, vote: r.vote, meta_url: r.meta_url ?? null, voted_power: r.voted_power ?? null });
   }
   return map;
 }
@@ -663,6 +663,38 @@ export async function getDrepParticipation(
     .bind(voterId, registeredEpoch)
     .first<{ eligible: number; voted: number }>();
   return { eligible: row?.eligible ?? 0, voted: row?.voted ?? 0 };
+}
+
+/** One vote's raw timing pair for the report card: the vote's block_time (unix
+ *  seconds) and its action's submitted_at (unix milliseconds). */
+export interface DrepVoteTimingRow {
+  blockTime: number;
+  submittedAt: number;
+}
+
+/**
+ * Live DRep vote timing pairs (block_time joined to the action's submitted_at),
+ * for the "how many days after submission does this DRep vote" report-card
+ * stat. Open (still-voting) actions are included, decided_epoch plays no part.
+ * Only rows with BOTH timestamps present are returned: a vote synced before
+ * block_time capture existed, or an action whose submitted_at has not yet been
+ * backfilled (see migration 0033), is excluded rather than guessed. Feeds
+ * voteTimingStat in voteStatsView.ts, which owns the unit conversion.
+ */
+export async function listDrepVoteTimings(db: D1Database, voterId: string): Promise<DrepVoteTimingRow[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT v.block_time AS block_time, g.submitted_at AS submitted_at
+         FROM drep_votes v
+         JOIN governance_actions g ON g.id = v.ga_id
+         WHERE v.voter_id = ? AND v.voter_role = 'DRep' AND ${liveVoteSql('v')}
+           AND v.block_time IS NOT NULL AND g.submitted_at IS NOT NULL`,
+      )
+      .bind(voterId)
+      .all<{ block_time: number; submitted_at: number }>()
+  ).results ?? [];
+  return rows.map((r) => ({ blockTime: r.block_time, submittedAt: r.submitted_at }));
 }
 
 /**
@@ -896,4 +928,52 @@ export async function getVoteTrendRows(db: D1Database, gaId: string): Promise<Tr
       .all<TrendVoteRow>()
   ).results ?? [];
   return rows;
+}
+
+/**
+ * voted_power of every live DRep vote on one action, NULLs included so the
+ * caller can apply the completeness rule (any NULL disables the concentration
+ * stats). Same live predicate as countActionVoters, so the count matches the
+ * Positions list this feeds.
+ */
+export async function listDrepVotePowers(db: D1Database, gaId: string): Promise<(number | null)[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT voted_power FROM drep_votes
+          WHERE ga_id = ? AND voter_role = 'DRep' AND ${liveVoteSql()}`,
+      )
+      .bind(gaId)
+      .all<{ voted_power: number | null }>()
+  ).results ?? [];
+  return rows.map((r) => r.voted_power);
+}
+
+/**
+ * Batch variant for the analytics hub: live DRep vote powers grouped by action
+ * id. Chunked IN lists to respect D1's 100-bound-parameter limit. Actions with
+ * no votes are simply absent from the map.
+ */
+export async function listDrepVotePowersByAction(
+  db: D1Database,
+  gaIds: string[],
+): Promise<Map<string, (number | null)[]>> {
+  const map = new Map<string, (number | null)[]>();
+  for (const chunk of chunked(gaIds, D1_MAX_BINDS)) {
+    const rows = (
+      await db
+        .prepare(
+          `SELECT ga_id, voted_power FROM drep_votes
+            WHERE ga_id IN (${sqlPlaceholders(chunk)}) AND voter_role = 'DRep' AND ${liveVoteSql()}`,
+        )
+        .bind(...chunk)
+        .all<{ ga_id: string; voted_power: number | null }>()
+    ).results ?? [];
+    for (const r of rows) {
+      const list = map.get(r.ga_id);
+      if (list) list.push(r.voted_power);
+      else map.set(r.ga_id, [r.voted_power]);
+    }
+  }
+  return map;
 }

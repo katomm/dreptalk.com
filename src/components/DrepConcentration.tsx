@@ -82,7 +82,7 @@ export default function DrepConcentration(props: Props) {
 
   return (
     <section id="concentration" className="drep-conc" aria-labelledby="drep-conc-title">
-      <h2 id="drep-conc-title" className="drep-conc__title">Voting power concentration</h2>
+      <h3 id="drep-conc-title" className="drep-conc__title">Voting power concentration</h3>
       <p className="drep-conc__summary">
         {summarySentence(coalition.count, threshold)}. Total {totalLabel} across {drepCount.toLocaleString('en-US')} DReps.
       </p>

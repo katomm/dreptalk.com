@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildVoteDonut, rationaleStat, participationStat, voteChangeStat } from './voteStatsView.js';
+import { buildVoteDonut, rationaleStat, participationStat, voteChangeStat, voteTimingStat } from './voteStatsView.js';
+
+const DAY = 86_400;
 
 describe('buildVoteDonut', () => {
   it('skips zero-count slices, keeps all three in the legend with percentages', () => {
@@ -35,6 +37,39 @@ describe('participationStat', () => {
   });
   it('flags none when there are no concluded actions', () => {
     expect(participationStat({ eligible: 0, voted: 0 })).toEqual({ kind: 'none' });
+  });
+});
+
+describe('voteTimingStat', () => {
+  it('converts millisecond submission times against second vote times', () => {
+    // submitted_at is stored in unix milliseconds, block_time in unix seconds.
+    const rows = [{ blockTime: 3 * DAY, submittedAt: 1 * DAY * 1000 }];
+    expect(voteTimingStat(rows)).toEqual({ medianDay: 2, timed: 1 });
+  });
+
+  it('returns the median of an even count', () => {
+    const rows = [
+      { blockTime: 2 * DAY, submittedAt: 0 },
+      { blockTime: 4 * DAY, submittedAt: 0 },
+    ];
+    expect(voteTimingStat(rows)).toEqual({ medianDay: 3, timed: 2 });
+  });
+
+  it('skips a negative day (vote timestamp predates the action submission)', () => {
+    const rows = [
+      { blockTime: 1 * DAY, submittedAt: 5 * DAY * 1000 }, // would be -4 days
+      { blockTime: 3 * DAY, submittedAt: 1 * DAY * 1000 }, // 2 days
+    ];
+    expect(voteTimingStat(rows)).toEqual({ medianDay: 2, timed: 1 });
+  });
+
+  it('returns null with no usable rows', () => {
+    expect(voteTimingStat([])).toBeNull();
+  });
+
+  it('returns null when every row is negative', () => {
+    const rows = [{ blockTime: 1 * DAY, submittedAt: 5 * DAY * 1000 }];
+    expect(voteTimingStat(rows)).toBeNull();
   });
 });
 

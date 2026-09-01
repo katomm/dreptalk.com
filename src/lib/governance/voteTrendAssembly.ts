@@ -49,6 +49,24 @@ export function votingEndEpoch(decidedEpoch: number | null, expiryEpoch: number 
 }
 
 /**
+ * Same window-end computation as votingEndEpoch, but status-aware: an
+ * 'enacted' action's decidedEpoch is the ENACTMENT epoch, always one past the
+ * ratification epoch, and votes stop mattering at the start of the
+ * ratification epoch, so an enacted row is adjusted to decidedEpoch - 1
+ * before the min. Matches the SQL adjustment in getWindowThirds, used to
+ * classify a DRep's own votes on the private record page against the same
+ * ratification-epoch boundary the public thirds read uses.
+ *
+ * votingEndEpoch itself is left unchanged on purpose: the trend chart and the
+ * compare picker key their axis and labels off the plain decided/expiry min,
+ * and every existing caller of votingEndEpoch depends on that.
+ */
+export function classificationEndEpoch(row: { status: string; decidedEpoch: number | null; expiryEpoch: number | null }): number | null {
+  const decidedEpoch = row.status === 'enacted' && row.decidedEpoch != null ? row.decidedEpoch - 1 : row.decidedEpoch;
+  return votingEndEpoch(decidedEpoch, row.expiryEpoch);
+}
+
+/**
  * Builds the voting window and per-body TrendBodyInput[] shared by every voting-trend
  * chart. DRep/SPO are power-weighted yes votes (voted_power); CC is the committee-
  * timeline-deduped final vote per active member, weighted 1 each.

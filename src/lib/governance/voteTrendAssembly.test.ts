@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assembleTrendInputs, votingEndEpoch, type TrendAssemblyInputs } from './voteTrendAssembly.js';
+import { assembleTrendInputs, votingEndEpoch, classificationEndEpoch, type TrendAssemblyInputs } from './voteTrendAssembly.js';
 import { resolveNetwork, epochStartUnix } from '@/lib/config/network.js';
 import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
@@ -174,5 +174,23 @@ describe('votingEndEpoch', () => {
 
   it('is null when neither epoch is known', () => {
     expect(votingEndEpoch(null, null)).toBeNull();
+  });
+});
+
+describe('classificationEndEpoch', () => {
+  it('adjusts an enacted actions decided epoch back to the ratification epoch before the min', () => {
+    expect(classificationEndEpoch({ status: 'enacted', decidedEpoch: 602, expiryEpoch: 605 })).toBe(601);
+  });
+
+  it('leaves an expired actions min unchanged', () => {
+    expect(classificationEndEpoch({ status: 'expired', decidedEpoch: 602, expiryEpoch: 605 })).toBe(602);
+  });
+
+  it('leaves a closed actions min unchanged', () => {
+    expect(classificationEndEpoch({ status: 'closed', decidedEpoch: 602, expiryEpoch: 605 })).toBe(602);
+  });
+
+  it('leaves an enacted action with a null decided epoch unchanged', () => {
+    expect(classificationEndEpoch({ status: 'enacted', decidedEpoch: null, expiryEpoch: 605 })).toBe(605);
   });
 });

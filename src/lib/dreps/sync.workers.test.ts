@@ -12,6 +12,7 @@ import { putDrepMetadata, getDrepMetadataByHash } from '../db/drepMetadata.js';
 import type { DrepListRow, DrepInfoRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
+import { SPECIAL_DREP_IDS } from './special.js';
 
 const NOW = 1_748_000_000_000;
 
@@ -624,7 +625,10 @@ describe('stored-avatar preservation', () => {
     };
     const koios = {
       drepList: async () => [seedListRow],
-      drepInfoBatch: async () => [seedInfoRow],
+      // Filters by the requested ids, like real /drep_info: otherwise the
+      // dedicated specials fetch (a separate drepInfoBatch call for the two
+      // predefined ids) would also receive this same row and clobber it.
+      drepInfoBatch: async (ids: string[]) => (ids.includes(drepId) ? [seedInfoRow] : []),
     };
 
     const result = await syncDreps({ koios, db: env.DB, now: 2_000 });
@@ -867,6 +871,91 @@ describe('syncDreps delegator counts', () => {
 
     expect(result.observedDelegatorCounts.get(idWithCount)).toBe(42);
     expect(result.observedDelegatorCounts.has(idWithoutCount)).toBe(false);
+  });
+
+  it('syncs the two predefined delegation options via a dedicated drep_info fetch', async () => {
+    // GET /drep_list never returns drep_always_abstain / drep_always_no_confidence
+    // (verified against live Koios mainnet), so they are absent from the
+    // drep_list page here, same as reality. Only POST /drep_info answers for
+    // them, with hex: null since they have no credential.
+    const [abstainId, ancId] = SPECIAL_DREP_IDS;
+    const reg = 'drep1-alongside-specials';
+    const { koios } = fakeKoios({
+      pages: [[listRow(reg)]],
+      infoById: new Map([
+        [reg, infoRow(reg, { live_delegator_count: 5 })],
+        [
+          abstainId,
+          infoRow(abstainId, {
+            hex: null, drep_status: 'registered', amount: '9776721978688292', live_delegator_count: 193070,
+          }),
+        ],
+        [
+          ancId,
+          infoRow(ancId, {
+            hex: null, drep_status: 'registered', amount: '1234500000000', live_delegator_count: 321,
+          }),
+        ],
+      ]),
+    });
+
+    const r = await syncDreps({ koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    // The registered DRep enumeration only counts the one real DRep.
+    expect(r.total).toBe(1);
+    expect(r.failed).toBe(0);
+
+    // (a) observedDelegatorCounts holds both specials, driving the epoch stats
+    // abstain_delegators / anc_delegators stamp.
+    expect(r.observedDelegatorCounts.get(abstainId)).toBe(193070);
+    expect(r.observedDelegatorCounts.get(ancId)).toBe(321);
+
+    // (b) the dreps table now holds both rows. hex stays null (the column is
+    // nullable, and Koios itself sends null here, so no placeholder is written).
+    const abstainRow = await getDrepById(env.DB, abstainId);
+    expect(abstainRow).not.toBeNull();
+    expect(abstainRow!.hex).toBeNull();
+    expect(abstainRow!.status).toBe('registered');
+    expect(abstainRow!.active).toBe(true);
+    expect(abstainRow!.votingPower).toBe('9776721978688292');
+    expect(abstainRow!.delegatorCount).toBe(193070);
+    expect(abstainRow!.delegatorCountSyncedAt).toBe(NOW);
+    // No CIP-119 profile machinery ran for it: it has no anchor.
+    expect(abstainRow!.name).toBeNull();
+    expect(abstainRow!.anchorStatus).toBe('no-anchor');
+
+    const ancRow = await getDrepById(env.DB, ancId);
+    expect(ancRow).not.toBeNull();
+    expect(ancRow!.votingPower).toBe('1234500000000');
+    expect(ancRow!.delegatorCount).toBe(321);
+  });
+
+  it('does not fail the sync when the specials drep_info fetch throws', async () => {
+    const reg = 'drep1-specials-fetch-throws';
+    const koios = {
+      async drepList(): Promise<DrepListRow[]> {
+        return [listRow(reg)];
+      },
+      async drepInfoBatch(ids: string[]): Promise<DrepInfoRow[]> {
+        if (ids.some((id) => (SPECIAL_DREP_IDS as readonly string[]).includes(id))) {
+          throw new Error('Koios /drep_info unavailable');
+        }
+        return ids.filter((id) => id === reg).map((id) => infoRow(id));
+      },
+    };
+
+    const r = await syncDreps({ koios, db: env.DB, fetchImpl: noFetch, now: NOW });
+
+    // The regular DRep synced fine despite the specials step failing.
+    expect(r.total).toBe(1);
+    expect(r.updated).toBe(1);
+    expect(r.failed).toBe(1); // the specials step counted as one failure, no throw
+    expect(await getDrepById(env.DB, reg)).not.toBeNull();
+
+    // Neither special id got a row or an observed count.
+    const [abstainId] = SPECIAL_DREP_IDS;
+    expect(await getDrepById(env.DB, abstainId)).toBeNull();
+    expect(r.observedDelegatorCounts.has(abstainId)).toBe(false);
   });
 
   it('observes a count even when the row is unchanged and the write is skipped', async () => {

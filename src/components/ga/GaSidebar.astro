@@ -64,6 +64,13 @@ const {
   <ProposerCard returnAddress={action.returnAddress} />
   <AuthorsCard authors={action.authors} />
   <RelatedActionsCard actions={related} />
+  {/* Always-on cross-link to the governance analytics hub, not tied to this
+      action's data, so it renders unconditionally regardless of related
+      actions or voter counts. */}
+  <a class="sidebar-card sidebar-card--link" href="/analytics/">
+    <span class="sidebar-card__title">Governance analytics</span>
+    <span class="sidebar-card__desc">Network-wide participation, concentration and the default options.</span>
+  </a>
   <TopParticipantsCard voters={topVoters} dreps={dreps} slug={slug} total={positionsTotal} rationaleCount={rationaleCount} />
 </aside>
 
@@ -72,5 +79,41 @@ const {
     display: flex;
     flex-direction: column;
     gap: 1rem;
+  }
+
+  /* Matches the .sidebar-card/.sidebar-card__title convention the sibling
+     cards (RelatedActionsCard, ProposerCard, AuthorsCard, TopParticipantsCard)
+     each redeclare in their own scoped styles. */
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+
+  .sidebar-card--link {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    transition: border-color 0.15s ease;
+  }
+  .sidebar-card--link:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .sidebar-card--link:hover .sidebar-card__title {
+    color: var(--accent);
+  }
+  .sidebar-card__desc {
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: var(--fg);
   }
 </style>

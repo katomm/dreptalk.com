@@ -117,13 +117,16 @@ export type DrepListRow = z.infer<typeof drepListRowSchema>;
 // DrepInfoRow schema: full shape returned by POST /drep_info (batch).
 // Includes anchor fields (meta_url, meta_hash) for CIP-119 metadata resolution
 // and voting power amount. All nullable fields follow the live Koios response.
+// hex is nullable: the two predefined pseudo-DReps (see dreps/special.ts) have
+// no credential, and Koios answers them with hex: null, verified against live
+// Koios mainnet.
 // live_delegator_count is Koios's per-DRep delegator headcount ("delegators whose
 // last voting power delegation was to this DRep"); optional so a network that has
 // not yet exposed it parses cleanly, in which case the count is treated as unknown.
 const drepInfoRowSchema = z
   .object({
     drep_id: z.string(),
-    hex: z.string(),
+    hex: z.string().nullable(),
     has_script: z.boolean(),
     drep_status: z.string(),
     deposit: z.string().nullable(),
@@ -189,6 +192,12 @@ const votingSummarySchema = z
     drep_active_yes_vote_power: z.string().nullable().optional(),
     drep_active_no_vote_power: z.string().nullable().optional(),
     drep_active_abstain_vote_power: z.string().nullable().optional(),
+    // The ratification No side: cast No plus the non-voting default No plus the
+    // always-no-confidence bucket, all in one figure (see eligibleStake in
+    // koios/corrections.ts for why it must never be summed with the ANC field).
+    drep_no_vote_power: z.string().nullable().optional(),
+    drep_always_abstain_vote_power: z.string().nullable().optional(),
+    drep_always_no_confidence_vote_power: z.string().nullable().optional(),
     pool_yes_votes_cast: z.number().nullable().optional(),
     pool_no_votes_cast: z.number().nullable().optional(),
     pool_abstain_votes_cast: z.number().nullable().optional(),
@@ -388,12 +397,14 @@ const epochParamsRowSchema = z.object({
 
 export type EpochParamsRow = z.infer<typeof epochParamsRowSchema>;
 
-// /totals row: per-epoch treasury and reserves balances (lovelace, as strings
-// since they exceed safe integer range).
+// /totals row: per-epoch treasury, reserves, and circulating supply balances
+// (lovelace, as strings since they exceed safe integer range). Circulation is
+// nullable and optional since older Koios responses may omit it.
 const totalsRowSchema = z.object({
   epoch_no: z.number(),
   treasury: z.string(),
   reserves: z.string(),
+  circulation: z.string().nullable().optional(),
 }).passthrough();
 
 // /drep_delegators row: a stake account currently vote-delegated to a DRep.
@@ -874,13 +885,28 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
     },
 
-    // Latest epoch's treasury and reserves balances (lovelace). One row
-    // (newest epoch first, limit 1).
-    async totals(): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string } | null> {
-      const data = await request('/totals?order=epoch_no.desc&limit=1', { method: 'GET' });
+    // Treasury, reserves, and circulating supply balances (lovelace), the
+    // latest epoch by default, or one specific epoch for the stats backfill.
+    async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null } | null> {
+      const path = epochNo != null ? `/totals?_epoch_no=${epochNo}` : '/totals?order=epoch_no.desc&limit=1';
+      const data = await request(path, { method: 'GET' });
       const row = z.array(totalsRowSchema).parse(data)[0] ?? null;
       if (!row) return null;
-      return { epochNo: row.epoch_no, treasuryLovelace: row.treasury, reservesLovelace: row.reserves };
+      return {
+        epochNo: row.epoch_no,
+        treasuryLovelace: row.treasury,
+        reservesLovelace: row.reserves,
+        circulationLovelace: row.circulation ?? null,
+      };
+    },
+
+    // Oldest epoch with DRep voting power data on this network, from
+    // /drep_epoch_summary. One row, used as the epoch-stats backfill floor so
+    // no start epoch is ever hardcoded per network.
+    async firstDrepPowerEpoch(): Promise<number | null> {
+      const data = await request('/drep_epoch_summary?order=epoch_no.asc&limit=1', { method: 'GET' });
+      const rows = z.array(z.object({ epoch_no: z.number() }).passthrough()).parse(data);
+      return rows[0]?.epoch_no ?? null;
     },
 
     // Pages the current delegator set of a DRep, callers increment offset by

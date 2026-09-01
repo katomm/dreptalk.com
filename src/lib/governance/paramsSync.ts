@@ -14,7 +14,7 @@ import { syncCurrentCommitteeMembership } from '../db/committee.js';
 export interface ParamsSyncKoios {
   epochParams(): Promise<EpochParamsRow | null>;
   committeeSummary(): Promise<{ quorum: number | null; members: CommitteeMember[] | null }>;
-  totals(): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string } | null>;
+  totals(): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null } | null>;
 }
 
 export interface ParamsSyncResult {
@@ -37,7 +37,7 @@ export async function syncProtocolParams(deps: {
   // Treasury/reserves balances from a separate Koios endpoint. On a transient
   // failure, carry forward the currently-stored values instead of nulling them
   // out, since this upsert is a full-row replace.
-  let totals: { epochNo: number; treasuryLovelace: string; reservesLovelace: string } | null = null;
+  let totals: { epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null } | null = null;
   try {
     totals = await koios.totals();
   } catch (err) {
@@ -74,6 +74,7 @@ export async function syncProtocolParams(deps: {
     // or failed, so a transient Koios error never wipes them via this full-row upsert.
     treasuryLovelace: totals?.treasuryLovelace ?? cur?.treasuryLovelace ?? null,
     reservesLovelace: totals?.reservesLovelace ?? cur?.reservesLovelace ?? null,
+    circulationLovelace: totals?.circulationLovelace ?? cur?.circulationLovelace ?? null,
     treasuryEpoch: totals?.epochNo ?? cur?.treasuryEpoch ?? null,
   };
   let written = 0;
@@ -88,6 +89,7 @@ export async function syncProtocolParams(deps: {
     cur.rawJson !== next.rawJson ||
     cur.treasuryLovelace !== next.treasuryLovelace ||
     cur.reservesLovelace !== next.reservesLovelace ||
+    cur.circulationLovelace !== next.circulationLovelace ||
     cur.treasuryEpoch !== next.treasuryEpoch
   ) {
     await upsertProtocolParams(db, next);

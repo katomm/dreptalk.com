@@ -25,9 +25,10 @@ function powerNum(v: string | null | undefined): number | null {
  * "For HardForkInitiation ... if an SPO didn't vote, their vote will always count
  * as No.") Koios instead drops the always-abstain stake from the denominator for
  * hard forks too, which inflates yes%. For that one type we recompute from the raw
- * power buckets, folding the always-abstain / always-no-confidence stake back into
- * the No side:
- *   yesPct = yes / (yes + no + always_abstain + always_no_confidence)
+ * power buckets, folding the always-abstain stake back into the No side:
+ *   yesPct = yes / (yes + no_vote_power + always_abstain)
+ * The always-no-confidence stake needs no term of its own: no_vote_power already
+ * contains it (see eligibleStake below).
  * Falls back to Koios' percentages for every other type, and for hard forks when
  * the power fields are absent (older Koios) or the denominator is zero.
  */
@@ -37,31 +38,57 @@ export function spoTallyPct(s: VotingSummary): { yesPct: number | null; noPct: n
   const yes = powerNum(s.pool_active_yes_vote_power);
   const no = powerNum(s.pool_no_vote_power);
   if (yes == null || no == null) return fallback;
-  const noSide =
-    no +
-    (powerNum(s.pool_passive_always_abstain_vote_power) ?? 0) +
-    (powerNum(s.pool_passive_always_no_confidence_vote_power) ?? 0);
+  // pool_no_vote_power already carries the always-no-confidence bucket (see
+  // eligibleStake below), so only the always-abstain stake is folded back in here.
+  const noSide = no + (powerNum(s.pool_passive_always_abstain_vote_power) ?? 0);
   const denom = yes + noSide;
   if (denom <= 0) return fallback;
   const round2 = (n: number) => Math.round(n * 100) / 100;
   return { yesPct: round2((yes / denom) * 100), noPct: round2((noSide / denom) * 100) };
 }
 
-/** Eligible SPO voting stake (lovelace): the denominator for SPO turnout. Sums the
-    active yes/abstain, both passive default buckets, and pool_no_vote_power (which
-    already folds in active no plus non-voting-default no). Absent summands count as 0;
-    null only when every pool power field is absent (older Koios without power data). */
-export function spoEligiblePower(s: VotingSummary | null): number | null {
+/**
+ * Total eligible voting stake (lovelace) for one body: the turnout denominator,
+ * and the base the full-stake breakdown is drawn against.
+ *
+ *   eligible = active yes + no side + active abstain + always-abstain
+ *
+ * The No side (drep_no_vote_power / pool_no_vote_power) is a single Koios figure
+ * that already folds in three things: the cast No votes, the non-voting default No,
+ * and the always-no-confidence bucket. That last inclusion is easy to get wrong and
+ * was wrong here: the reported percentage is exactly yes / (yes + no_vote_power),
+ * verified across ParameterChange, TreasuryWithdrawals, InfoAction and NewCommittee
+ * on mainnet, and adding always-no-confidence a second time breaks the identity
+ * (65.92 becomes 64.03). So the always-no-confidence power must NEVER be summed in
+ * here on top of the No side.
+ *
+ * Null when Koios served neither a No side nor any power bucket (older responses),
+ * so callers can degrade instead of dividing by a fabricated denominator.
+ */
+export function eligibleStake(s: VotingSummary | null, body: 'DRep' | 'SPO'): number | null {
   if (!s) return null;
-  const parts = [
-    s.pool_active_yes_vote_power,
-    s.pool_active_abstain_vote_power,
-    s.pool_passive_always_abstain_vote_power,
-    s.pool_passive_always_no_confidence_vote_power,
-    s.pool_no_vote_power,
-  ];
+  const parts =
+    body === 'DRep'
+      ? [
+          s.drep_active_yes_vote_power,
+          s.drep_no_vote_power,
+          s.drep_active_abstain_vote_power,
+          s.drep_always_abstain_vote_power,
+        ]
+      : [
+          s.pool_active_yes_vote_power,
+          s.pool_no_vote_power,
+          s.pool_active_abstain_vote_power,
+          s.pool_passive_always_abstain_vote_power,
+        ];
   if (parts.every((v) => v == null)) return null;
   return parts.reduce((sum, v) => sum + (v == null ? 0 : Number(v)), 0);
+}
+
+/** Eligible SPO voting stake (lovelace), the SPO case of eligibleStake. Kept as a
+    named export because the tally mapping and the view layer both read it by name. */
+export function spoEligiblePower(s: VotingSummary | null): number | null {
+  return eligibleStake(s, 'SPO');
 }
 
 /** A single on-chain committee vote, keyed by the voter's hot-key hash. */

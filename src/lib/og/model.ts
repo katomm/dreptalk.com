@@ -10,6 +10,7 @@ import { computeVotingPowerDelta, formatTrendDelta } from '../dreps/votingPowerT
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
 import { getCategory } from '../../../config/categories.js';
+import { RECENT_VOTING_WINDOW_EPOCHS } from '../analytics/epochStatsContract.js';
 import type { NclStatus } from '../governance/ncl.js';
 import { voteDisplay } from '../governance/voteStatement.js';
 import { accentForType, BRAND_ACCENT, statusColor, tint, TALLY, MUTED } from './theme.js';
@@ -41,7 +42,7 @@ export interface GovCardModel {
   subtitle: string | null;
   status: { label: string; color: string; tint: string };
   meta: string;
-  // Number-led headline: the leading body's Yes-of-eligible share. Denominator-independent
+  // Number-led headline: the leading body's yes share of the counted stake. Denominator-independent
   // (the stored ratification pct), so no non-voting stake is ever mislabeled as No.
   tally: { yesPct: number; role: string } | null;
 }
@@ -77,7 +78,7 @@ export interface CommitteeCardInput extends GovCardInput {
   removedCount: number;
 }
 
-// One voting body's Yes-of-eligible share on a committee action. Committee changes
+// One voting body's yes share of the counted stake on a committee action. Committee changes
 // are decided by DReps and SPOs; the committee itself does not vote on them.
 export interface CommitteeBar {
   label: string;
@@ -95,7 +96,7 @@ export interface CommitteeCardModel {
 }
 
 // Committee membership change as a share card: a joining/leaving count summary
-// over the DRep and SPO Yes-of-eligible bars (the two bodies that vote on a
+// over the DRep and SPO yes-of-counted bars (the two bodies that vote on a
 // committee action). Deliberately no per-member names: incoming seats are not yet
 // seated, so their key has no hot-to-cold mapping and would render as a raw hash.
 export function committeeCardModel(
@@ -334,6 +335,39 @@ export function moversCardModel(input: {
         : 'The biggest DRep voting-power shifts this epoch',
     gainers: input.gainers.map(moverRow),
     losers: input.losers.map(moverRow),
+  };
+}
+
+export interface AnalyticsCardModel {
+  accent: string;
+  /** Small meta line above the headline, e.g. "Epoch 643". */
+  epochLabel: string;
+  /** Powered-DRep count, pre-formatted with thousands separators. */
+  poweredCount: string;
+  /** Total delegated voting power, already ada-formatted by the caller. */
+  totalPowerLabel: string;
+  /** e.g. "128 voted in the last 12 epochs". */
+  votingLine: string;
+  /** e.g. "Always abstain holds 1.2M ₳", or null when the option holds no power. */
+  abstainLine: string | null;
+}
+
+// The endpoint pre-formats the ada amounts (same formatAda the page itself
+// uses), so this model only composes the sentences, it does no lovelace math.
+export function analyticsCardModel(input: {
+  epoch: number;
+  powered: number;
+  recentlyVoting: number;
+  totalPowerLabel: string;
+  abstainLabel: string | null;
+}): AnalyticsCardModel {
+  return {
+    accent: BRAND_ACCENT,
+    epochLabel: `Epoch ${input.epoch}`,
+    poweredCount: input.powered.toLocaleString('en-US'),
+    totalPowerLabel: input.totalPowerLabel,
+    votingLine: `${input.recentlyVoting.toLocaleString('en-US')} voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`,
+    abstainLine: input.abstainLabel != null ? `Always abstain holds ${input.abstainLabel}` : null,
   };
 }
 

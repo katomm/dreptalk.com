@@ -33,8 +33,11 @@ import {
 } from '@/lib/db/governance.js';
 import { headlineComposition, isSpoLedType, isCcEligible } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows, committeeEpochForAction } from '@/lib/db/committee.js';
+import { buildVoteConcentration, requiredYesPower, type VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
+import { buildActionVoteChanges, describeActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
+import { readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
@@ -275,7 +278,7 @@ const related: RelatedActionRow[] = isGovernanceTopic && govAction && db
       limit: 6,
     })
   : [];
-const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string; meta_url: string | null }>();
+const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string; meta_url: string | null; voted_power: number | null }>();
 
 // DRep vote panel: only for logged-in DReps on votable (active) actions.
 // Gate on ga.status === 'active'; deriveStatus already accounts for expiry boundary.
@@ -357,6 +360,13 @@ const [rationales, voteHistory] = tab === 'positions' && db && govAction
   ? await Promise.all([getActionRationales(db, govAction.id), getActionVoteHistory(db, govAction.id)])
   : [new Map<string, { bodyHtml: string | null; source: string; voterRole: string }>(), new Map<string, SupersededVote[]>()];
 
+// Net vote-change summaries per role for the Positions tab. History alone
+// cannot say a vote changed (anchor-only re-votes archive too), so the
+// classifier compares each voter's first recorded vote with the current one.
+const drepChanges = tab === 'positions' && govAction ? buildActionVoteChanges(voteHistory, govVotes, 'DRep') : null;
+const spoChanges = tab === 'positions' && govAction ? buildActionVoteChanges(voteHistory, govVotes, 'SPO') : null;
+const drepChangeLine = drepChanges ? describeActionVoteChanges(drepChanges) : null;
+
 // Votes cast too late to count in the frozen tally (on/after the ratification
 // epoch). Shown distinctly on the Positions tab so they don't read as counted.
 const notCountedVoters = govAction
@@ -417,6 +427,7 @@ if (db && govAction && tab === 'history') {
 // instead of a second protocol-params read.
 const currentEpoch = params?.epoch ?? null;
 const ccEpoch = govAction ? committeeEpochForAction(govAction.decidedEpoch, currentEpoch) : null;
+
 let ccRows: CcPositionRow[] = [];
 let ccTotal = 0;
 if (db && govAction && tab === 'positions' && committee.members.length > 0 && ccEpoch != null && isCcEligible(govAction.type)) {
@@ -436,6 +447,23 @@ if (db && govAction && tab === 'positions' && committee.members.length > 0 && cc
     rationales: ccRationales,
   });
   ccTotal = activeCommitteeSizeAt(committee.members, ccEpoch);
+}
+
+// Effective voting concentration for the Positions tab's DRep list: computed
+// from the voted power of every live DRep vote. The threshold reading uses the
+// frozen per-action snapshot only, on the same ratification denominator as
+// the full-stake bar's marker (yes plus the No side), so the two never disagree.
+let voteConcentration: VoteConcentrationView | null = null;
+let concThresholdPct: number | null = null;
+if (db && govAction && tab === 'positions') {
+  const powers = await listDrepVotePowers(db, govAction.id);
+  concThresholdPct = readThresholdSnapshot(govAction.thresholdsJson)?.drep ?? null;
+  const required = requiredYesPower(govAction.drepYesPower, govAction.drepNoSidePower, concThresholdPct);
+  // Skew guard: the per-vote rows sync separately from the tally counts, so a
+  // freshly decided action can hold fewer vote rows than the tally counted.
+  // Late votes only ever push the row count above the tally count.
+  const tallyCount = (govAction.drepYes ?? 0) + (govAction.drepNo ?? 0) + (govAction.drepAbstain ?? 0);
+  voteConcentration = powers.length >= tallyCount ? buildVoteConcentration(powers, required) : null;
 }
 
 // Compact multi-body step sparkline for the Voting Information card's teaser link
@@ -694,6 +722,11 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 now={now}
                 ccRows={ccRows}
                 ccTotal={ccTotal}
+                concentration={voteConcentration}
+                concentrationThresholdPct={concThresholdPct}
+                drepChanges={drepChanges}
+                spoChanges={spoChanges}
+                drepChangeLine={drepChangeLine}
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />

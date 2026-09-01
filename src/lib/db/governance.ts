@@ -152,6 +152,22 @@ export interface GovernanceAction {
   /** Eligible SPO voting stake (lovelace): the denominator for SPO turnout.
       Numerator is spoYesPower + spoNoPower + spoAbstainPower. */
   spoEligiblePower: number | null;
+  // Stake of DReps/SPOs with a predefined delegation option (always-abstain,
+  // always-no-confidence), captured from Koios at tally time. RAW LOVELACE
+  // STRINGS on purpose: the always-abstain bucket exceeds
+  // Number.MAX_SAFE_INTEGER, so these bypass powerNum and stay strings end to
+  // end (BigInt or display formatting only, never Number()).
+  drepAlwaysAbstainPower: string | null;
+  drepAlwaysNoConfidencePower: string | null;
+  spoAlwaysAbstainPower: string | null;
+  spoAlwaysNoConfidencePower: string | null;
+  // The ratification No side per body: cast No + non-voting default No +
+  // always-no-confidence, as Koios reports it in one figure. With the Yes power it
+  // gives the exact ratification denominator. Same raw-string discipline as the
+  // buckets above, and never summed with *AlwaysNoConfidencePower, which it
+  // already contains (see eligibleStake in koios/corrections.ts).
+  drepNoSidePower: string | null;
+  spoNoSidePower: string | null;
   drepYesPct: number | null;
   drepNoPct: number | null;
   spoYesPct: number | null;
@@ -210,6 +226,12 @@ interface GovernanceActionRow {
   spo_no_power: number | null;
   spo_abstain_power: number | null;
   spo_eligible_power: number | null;
+  drep_no_side_power: string | null;
+  spo_no_side_power: string | null;
+  drep_always_abstain_power: string | null;
+  drep_always_no_confidence_power: string | null;
+  spo_always_abstain_power: string | null;
+  spo_always_no_confidence_power: string | null;
   drep_yes_pct: number | null;
   drep_no_pct: number | null;
   spo_yes_pct: number | null;
@@ -287,6 +309,12 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     spoNoPower: r.spo_no_power,
     spoAbstainPower: r.spo_abstain_power,
     spoEligiblePower: r.spo_eligible_power,
+    drepNoSidePower: r.drep_no_side_power,
+    spoNoSidePower: r.spo_no_side_power,
+    drepAlwaysAbstainPower: r.drep_always_abstain_power,
+    drepAlwaysNoConfidencePower: r.drep_always_no_confidence_power,
+    spoAlwaysAbstainPower: r.spo_always_abstain_power,
+    spoAlwaysNoConfidencePower: r.spo_always_no_confidence_power,
     drepYesPct: r.drep_yes_pct,
     drepNoPct: r.drep_no_pct,
     spoYesPct: r.spo_yes_pct,
@@ -659,11 +687,16 @@ export async function batchUpdateTrendingScores(
 
 /**
  * Terminal actions still missing power data: the turnout sum (drep_voted_power),
- * the per-option power buckets (drep_yes_power), or the eligible SPO stake
- * (spo_eligible_power). Active/pending actions get these from the normal tally, so
- * they are excluded here. Re-fetching the summary also corrects any older SPO power
- * that predates the active/passive split. Bounded by `limit` so a cron tick stays
- * within Koios/subrequest budgets.
+ * the per-option power buckets (drep_yes_power), the eligible SPO stake
+ * (spo_eligible_power), or the default-option power buckets
+ * (drep_always_abstain_power), or the ratification No side (drep_no_side_power).
+ * Active/pending actions get these from the normal tally, so they are excluded
+ * here. Re-fetching the summary also corrects any older SPO power that predates
+ * the active/passive split, and any spo_eligible_power written before the
+ * always-no-confidence double count was removed from that sum. The last two
+ * clauses each re-queue every terminal action exactly once when their column is
+ * first introduced (draining at the backfill's existing per-run budget). Bounded
+ * by `limit` so a cron tick stays within Koios/subrequest budgets.
  */
 export async function getActionsNeedingVotedPower(db: D1Database, limit: number): Promise<GovernanceAction[]> {
   const rows = (
@@ -671,7 +704,8 @@ export async function getActionsNeedingVotedPower(db: D1Database, limit: number)
       .prepare(
         `SELECT * FROM governance_actions
          WHERE proposal_id IS NOT NULL
-           AND (drep_voted_power IS NULL OR drep_yes_power IS NULL OR spo_eligible_power IS NULL)
+           AND (drep_voted_power IS NULL OR drep_yes_power IS NULL OR spo_eligible_power IS NULL
+                OR drep_always_abstain_power IS NULL OR drep_no_side_power IS NULL)
            AND status NOT IN ('active', 'pending')
          LIMIT ?`,
       )
@@ -751,8 +785,10 @@ export async function getGovActionsWithStaleTopicTitle(db: D1Database, limit: nu
   return rows.map(rowToGovernanceAction);
 }
 
-/** The power fields the backfill sets: turnout sum plus per-option DRep/SPO buckets.
-    All optional; an omitted field writes null. */
+/** The power fields the backfill sets: turnout sum plus per-option DRep/SPO buckets
+    plus the default-option (always-abstain / always-no-confidence) buckets.
+    All optional; an omitted field writes null. The default-option fields are raw
+    lovelace strings (not run through powerNum), see GovernanceAction. */
 export interface VotePowerFields {
   votedPower?: number | null;
   drepYesPower?: number | null;
@@ -762,6 +798,12 @@ export interface VotePowerFields {
   spoNoPower?: number | null;
   spoAbstainPower?: number | null;
   spoEligiblePower?: number | null;
+  drepAlwaysAbstainPower?: string | null;
+  drepAlwaysNoConfidencePower?: string | null;
+  spoAlwaysAbstainPower?: string | null;
+  spoAlwaysNoConfidencePower?: string | null;
+  drepNoSidePower?: string | null;
+  spoNoSidePower?: string | null;
 }
 
 /** Surgically sets the power columns for one action (leaves status/tally/pct untouched). */
@@ -771,7 +813,10 @@ export async function updateVotedPower(db: D1Database, id: string, p: VotePowerF
       `UPDATE governance_actions
          SET drep_voted_power = ?,
              drep_yes_power = ?, drep_no_power = ?, drep_abstain_power = ?,
-             spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?, spo_eligible_power = ?
+             spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?, spo_eligible_power = ?,
+             drep_always_abstain_power = ?, drep_always_no_confidence_power = ?,
+             spo_always_abstain_power = ?, spo_always_no_confidence_power = ?,
+             drep_no_side_power = ?, spo_no_side_power = ?
        WHERE id = ?`,
     )
     .bind(
@@ -783,6 +828,12 @@ export async function updateVotedPower(db: D1Database, id: string, p: VotePowerF
       p.spoNoPower ?? null,
       p.spoAbstainPower ?? null,
       p.spoEligiblePower ?? null,
+      p.drepAlwaysAbstainPower ?? null,
+      p.drepAlwaysNoConfidencePower ?? null,
+      p.spoAlwaysAbstainPower ?? null,
+      p.spoAlwaysNoConfidencePower ?? null,
+      p.drepNoSidePower ?? null,
+      p.spoNoSidePower ?? null,
       id,
     )
     .run();
@@ -1157,6 +1208,9 @@ export type GovernanceTally = Pick<
       GovernanceAction,
       | 'drepYesPower' | 'drepNoPower' | 'drepAbstainPower'
       | 'spoYesPower' | 'spoNoPower' | 'spoAbstainPower' | 'spoEligiblePower'
+      | 'drepAlwaysAbstainPower' | 'drepAlwaysNoConfidencePower'
+      | 'spoAlwaysAbstainPower' | 'spoAlwaysNoConfidencePower'
+      | 'drepNoSidePower' | 'spoNoSidePower'
     >
   >;
 
@@ -1211,6 +1265,9 @@ export async function updateGovernanceTallyAndStatus(
              cc_yes = ?, cc_no = ?, cc_abstain = ?,
              drep_yes_power = ?, drep_no_power = ?, drep_abstain_power = ?,
              spo_yes_power = ?, spo_no_power = ?, spo_abstain_power = ?, spo_eligible_power = ?,
+             drep_always_abstain_power = ?, drep_always_no_confidence_power = ?,
+             spo_always_abstain_power = ?, spo_always_no_confidence_power = ?,
+             drep_no_side_power = ?, spo_no_side_power = ?,
              drep_yes_pct = ?, drep_no_pct = ?, spo_yes_pct = ?, spo_no_pct = ?,
              cc_yes_pct = ?, cc_no_pct = ?,
              drep_voted_power = ?,
@@ -1237,6 +1294,12 @@ export async function updateGovernanceTallyAndStatus(
       u.spoNoPower ?? null,
       u.spoAbstainPower ?? null,
       u.spoEligiblePower ?? null,
+      u.drepAlwaysAbstainPower ?? null,
+      u.drepAlwaysNoConfidencePower ?? null,
+      u.spoAlwaysAbstainPower ?? null,
+      u.spoAlwaysNoConfidencePower ?? null,
+      u.drepNoSidePower ?? null,
+      u.spoNoSidePower ?? null,
       u.drepYesPct,
       u.drepNoPct,
       u.spoYesPct,

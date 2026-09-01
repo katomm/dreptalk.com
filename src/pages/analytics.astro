@@ -1,0 +1,1795 @@
+---
+// Public governance analytics hub: network-wide health, participation,
+// concentration and the default delegation options, tracked per epoch. All
+// reads are D1 only (no Koios calls here), and every representative metric
+// excludes the two predefined auto-voting options (see dreps/special.ts),
+// which get their own default-options layer below instead.
+export const prerender = false;
+import Layout from '@/layouts/Layout.astro';
+import DrepStatIcon from '@/components/DrepStatIcon.astro';
+import DrepConcentration from '@/components/DrepConcentration.tsx';
+import EpochSeriesChart from '@/components/EpochSeriesChart.astro';
+import HeadingAnchor from '@/components/HeadingAnchor.astro';
+import { runtimeEnv, currentNetwork } from '@/lib/api/response';
+import { cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
+import { listEpochStats } from '@/lib/db/governanceEpochStats.js';
+import { getDefaultDelegationCurrent } from '@/lib/db/defaultDelegation.js';
+import { getDrepActivityBreakdown } from '@/lib/db/drepActivityBreakdown.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { listDrepsForConcentration } from '@/lib/db/dreps.js';
+import { listDecidedActionsForRepresentation } from '@/lib/db/effectiveRepresentation.js';
+import { listDrepVotePowersByAction } from '@/lib/db/drepVotes.js';
+import { listDecidedVoteChangeRows, countVoteChangeCoverage } from '@/lib/db/voteChangeStats.js';
+import { listDecidedActionRationaleCoverage, countRationaleAddedViaRevote } from '@/lib/db/rationaleCoverage.js';
+import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, type CcVoteRow } from '@/lib/db/committee.js';
+import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
+import { listDecidedOutcomeRows, countSubmittedSince, countActionsByStatus } from '@/lib/db/hubOutcomes.js';
+import {
+  getNetworkTimingByType,
+  getNetworkTimingOverall,
+  getHalfTurnoutDays,
+  getWindowThirds,
+  type WindowThirds,
+} from '@/lib/db/recordDiagnostics.js';
+import { readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
+import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
+import { computeConcentration } from '@/lib/dreps/concentration.js';
+import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
+import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
+import { buildVitals, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from '@/lib/analytics/hubView.js';
+import { buildEffRep } from '@/lib/analytics/effRepView.js';
+import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
+import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
+import { buildCcPanel, selectExtremes } from '@/lib/analytics/ccPanelView.js';
+import { buildSpoSnapshot, buildThroughput } from '@/lib/analytics/outcomesView.js';
+import { buildVotingTiming } from '@/lib/analytics/votingTimingView.js';
+import { ogCardVersion } from '@/lib/og/version.js';
+import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
+
+// The site's governance actions list route, same href as the header nav's
+// "Governance Actions" link (src/lib/config/nav.ts).
+const ACTIONS_LIST_HREF = '/c/governance-actions/';
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+if (db) Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+
+const [stats, defaults, activity, params, concRows, repActions] = db
+  ? await Promise.all([
+      listEpochStats(db),
+      getDefaultDelegationCurrent(db),
+      getDrepActivityBreakdown(db),
+      getProtocolParams(db),
+      listDrepsForConcentration(db),
+      listDecidedActionsForRepresentation(db),
+    ])
+  : [[], { abstain: null, noConfidence: null }, null, null, [], []];
+
+// Charts only ever draw the gapless head of the series: during the one-time
+// epoch backfill the stored rows are a growing prefix plus the live current
+// epoch, and a line across that hole would read as data. Once the backfill
+// has drained, chartStats === stats and the note below disappears for good.
+const chartStats = contiguousPrefix(stats);
+const backfillGap = chartStats.length < stats.length;
+
+// All starts are derivable from the already-loaded rows, so this resolves
+// them in memory instead of sequential DB round-trips (chartStats is [] with
+// no db, and seriesStartFromRows([], _) is null, same as before).
+const starts = {
+  totalDrepPower: seriesStartFromRows(chartStats, 'totalDrepPower'),
+  poweredDrepCount: seriesStartFromRows(chartStats, 'poweredDrepCount'),
+  delegatorTotal: seriesStartFromRows(chartStats, 'delegatorTotal'),
+  abstainPower: seriesStartFromRows(chartStats, 'abstainPower'),
+  ancPower: seriesStartFromRows(chartStats, 'ancPower'),
+  gini: seriesStartFromRows(chartStats, 'gini'),
+  top10SharePct: seriesStartFromRows(chartStats, 'top10SharePct'),
+  minCoalition50: seriesStartFromRows(chartStats, 'minCoalition50'),
+  minCoalition67: seriesStartFromRows(chartStats, 'minCoalition67'),
+};
+
+// Vote-derived metrics are provisional until an epoch has ended, and the
+// running epoch's row carries vote_data_complete = 0 until then. The series
+// start rule only decides where a series begins and metricSeries never looks
+// at the flag, so the trailing provisional rows are dropped here, before the
+// start rule runs, rather than drawn as if they were final.
+const withoutProvisionalVotes = (rows: EpochStatsRow[]): EpochStatsRow[] => {
+  let end = rows.length;
+  while (end > 0 && !rows[end - 1].voteDataComplete) end -= 1;
+  return rows.slice(0, end);
+};
+const voteChartStats = withoutProvisionalVotes(chartStats);
+const recentlyVotingSeries = metricSeries(
+  voteChartStats,
+  'recentlyVotingDrepCount',
+  seriesStartFromRows(voteChartStats, 'recentlyVotingDrepCount'),
+);
+// The caption states the first epoch actually drawn, not the contract start,
+// so it cannot claim data the chart does not show.
+const recentlyVotingSince = recentlyVotingSeries[0]?.epoch ?? null;
+
+const current = stats.length > 0 ? stats[stats.length - 1] : null;
+// The true previous epoch's row, never a positional neighbor: mid-backfill
+// stats[length - 2] would be an ancient epoch and every delta would lie.
+const prev = current ? rowBeforeEpoch(stats, current.epoch) : null;
+const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
+// Per-action vote powers for the concentration read, one batched query for the
+// listed actions. Completeness gating happens in the builder: an action with
+// any missing per-vote power renders no half-count, never a zero.
+const votePowers = db ? await listDrepVotePowersByAction(db, repActions.map((a) => a.id)) : undefined;
+const effRep = buildEffRep(repActions, votePowers);
+
+// Vote-change analytics over all decided actions with swept history: one read
+// for the classified pairs, one for the coverage denominators and the
+// unclassifiable-pair disclosure.
+const [changeRows, changeCoverage] = db
+  ? await Promise.all([listDecidedVoteChangeRows(db), countVoteChangeCoverage(db)])
+  : [[], { decidedSwept: 0, decidedUnswept: 0, orphanPairs: 0 }];
+const voteChanges = buildVoteChangeView(changeRows, changeCoverage);
+
+// Rationale coverage over decided actions: one aggregate read plus the
+// re-vote-added count. Quality is never claimed, coverage is measured.
+const [coverageRows, revoteAdded] = db
+  ? await Promise.all([listDecidedActionRationaleCoverage(db), countRationaleAddedViaRevote(db)])
+  : [[], 0];
+const rationaleCoverage = buildRationaleCoverage(coverageRows, revoteAdded);
+
+// Constitutional Committee panel: batch CC reads plus the shared committee
+// timeline and name index, aggregated with the exact per-action logic the
+// GA pages use.
+const [ccActions, ccVotesByAction, committee, ccNameRows] = db
+  ? await Promise.all([
+      listDecidedCcActions(db),
+      listDecidedCcVoteRows(db),
+      getCommitteeTimeline(db),
+      getAllCcMemberNames(db),
+    ])
+  : [[], new Map<string, CcVoteRow[]>(), { members: [], hotToCold: new Map<string, string>() }, []];
+const ccPanel = buildCcPanel({
+  actions: ccActions,
+  votesByAction: ccVotesByAction,
+  members: committee.members,
+  hotToCold: committee.hotToCold,
+  nameIndex: buildCcNameIndex(ccNameRows, committee.hotToCold),
+  currentEpoch: params?.epoch ?? null,
+});
+const shortCold = (hex: string): string => `${hex.slice(0, 10)}...`;
+// Best and worst five members by participation share. Under ten members
+// everything is "top" and there is no separate bottom list.
+const ccExtremes = selectExtremes(ccPanel.members, 5);
+// Grouped for the template so both lists render from one map instead of two
+// near-identical blocks. The empty bottom list drops out on its own.
+const ccMemberLists = [
+  { title: 'Highest participation', members: ccExtremes.top },
+  { title: 'Lowest participation', members: ccExtremes.bottom },
+].filter((list) => list.members.length > 0);
+const tenureLabel = (t: { from: number; to: number | null }): string =>
+  t.to == null ? `since epoch ${t.from}` : `epochs ${t.from} to ${t.to}`;
+
+// Decided-outcome rows feed both the SPO snapshot (chapter 2) and the
+// governance throughput chapter (chapter 5), so they share one read plus the
+// two whole-table reads those panels also need. The 12-epoch submitted
+// window counts back from the current epoch, or from epoch 0 (and is not
+// rendered) while the current epoch is not yet known.
+// The voting-timing reads (chapter 3) share this batch instead of opening
+// their own round-trip: they are action-level reads like the outcome ones.
+// The window thirds need the network's epoch anchor to turn an epoch number
+// into a timestamp inside SQL.
+const emptyThirds: WindowThirds = { early: 0, middle: 0, late: 0, afterClose: 0, basis: 0 };
+const [
+  outcomeRows,
+  submittedRecent,
+  statusCounts,
+  drepTimingByType,
+  spoTimingByType,
+  drepTimingOverall,
+  spoTimingOverall,
+  halfTurnoutDays,
+  windowThirds,
+] = db
+  ? await Promise.all([
+      listDecidedOutcomeRows(db),
+      countSubmittedSince(db, (params?.epoch ?? 0) - 11),
+      countActionsByStatus(db),
+      getNetworkTimingByType(db, 'DRep'),
+      getNetworkTimingByType(db, 'SPO'),
+      getNetworkTimingOverall(db, 'DRep'),
+      getNetworkTimingOverall(db, 'SPO'),
+      getHalfTurnoutDays(db),
+      getWindowThirds(db, currentNetwork().epochAnchor),
+    ])
+  : [[], 0, {}, [], [], null, null, [], emptyThirds];
+const spo = buildSpoSnapshot(outcomeRows);
+const throughput = buildThroughput(outcomeRows, statusCounts, submittedRecent);
+const showSubmittedRecent = params?.epoch != null;
+const timing = buildVotingTiming({
+  drepByType: drepTimingByType,
+  spoByType: spoTimingByType,
+  drepOverall: drepTimingOverall,
+  spoOverall: spoTimingOverall,
+  halfDays: halfTurnoutDays,
+  thirds: windowThirds,
+});
+
+const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
+// Medians can end in .5 with an even action count, render as-is.
+const fmtCount = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+// Parse lovelace defensively so a single malformed stored value cannot 500 the
+// page (Koios writes plain integer strings, but the column is untrusted text).
+// Same helper as the concentration donut on dreps/index.astro.
+const toLovelace = (s: string | null): bigint => {
+  try {
+    return BigInt(s ?? '0');
+  } catch {
+    return 0n;
+  }
+};
+const concentration = computeConcentration(
+  concRows.map((r) => ({ drepId: r.drepId, name: r.name, slug: r.slug, power: toLovelace(r.votingPower) })),
+);
+const { markers, defaultThresholdPct, thresholdsAsOf } = buildThresholdMarkers(params);
+// Smallest group per threshold, from the same distribution the island renders.
+const coalitionRows = buildCoalitionTable(params, concentration.byPercent);
+
+const abstainSeries = metricSeries(chartStats, 'abstainPower', starts.abstainPower);
+const ancSeries = metricSeries(chartStats, 'ancPower', starts.ancPower);
+const abstainDelta = netChange(
+  defaults.abstain?.delegatorCount ?? null,
+  prev?.abstainDelegators ?? null,
+  (n) => n.toLocaleString('en-US'),
+);
+const ancDelta = netChange(
+  defaults.noConfidence?.delegatorCount ?? null,
+  prev?.ancDelegators ?? null,
+  (n) => n.toLocaleString('en-US'),
+);
+// Non-null only once the two default pools and the represented total all
+// parse, so the comparison line quietly disappears rather than half-render.
+const defaultsComparison = defaultOptionsComparison(
+  defaults.abstain?.votingPower,
+  defaults.noConfidence?.votingPower,
+  current?.totalDrepPower ?? null,
+);
+
+const fmtAdaCompact = (v: number) => formatAdaCompact(String(Math.round(v)));
+const fmtTwoDec = (v: number) => v.toFixed(2);
+const hasBackbone = current != null;
+
+// Cache-busted by the same stats fields the OG card renders, so a scraper's
+// cached image refreshes whenever any of those fields actually changes.
+const ogImage = current
+  ? `/og/analytics.png?v=${ogCardVersion([current.epoch, current.poweredDrepCount, current.recentlyVotingDrepCount, current.totalDrepPower, current.abstainPower])}`
+  : undefined;
+
+// formatAda renders a NULL amount as "0 ₳", which would misreport an absent
+// reading as a real zero. A missing votingPower (fresh DB, or the row simply
+// not synced yet) instead gets the same pending wording the delegator count
+// already uses below.
+const powerLabel = (votingPower: string | null | undefined): string =>
+  votingPower != null ? formatAda(votingPower) : 'Voting power pending';
+
+// The two default-option cards, grouped for the template so the grid renders
+// from one map instead of two near-identical blocks.
+const defaultCards = [
+  {
+    title: 'Always abstain',
+    ariaLabel: 'Always abstain voting power per epoch',
+    power: powerLabel(defaults.abstain?.votingPower),
+    delegatorCount: defaults.abstain?.delegatorCount ?? null,
+    chip: abstainDelta,
+    series: abstainSeries,
+    sinceEpoch: starts.abstainPower,
+  },
+  {
+    title: 'Always no confidence',
+    ariaLabel: 'Always no confidence voting power per epoch',
+    power: powerLabel(defaults.noConfidence?.votingPower),
+    delegatorCount: defaults.noConfidence?.delegatorCount ?? null,
+    chip: ancDelta,
+    series: ancSeries,
+    sinceEpoch: starts.ancPower,
+  },
+];
+
+// DRep activity as two composition bars, each pair of segments summing to
+// the registered count. Guards the division so a fresh, empty table renders
+// zero-width bars instead of NaN.
+const activityBars = activity
+  ? [
+      {
+        title: 'Registration state',
+        segments: [
+          { label: 'Active registrations', value: activity.active },
+          { label: 'Inactive or retired', value: activity.inactiveCount },
+        ],
+        sub: `${activity.powered.toLocaleString('en-US')} of the active registrations hold delegated power`,
+      },
+      {
+        title: 'Voting history',
+        segments: [
+          { label: 'Ever voted on chain', value: activity.everVoted },
+          { label: 'Never voted', value: Math.max(0, activity.registered - activity.everVoted) },
+        ],
+      },
+    ].map((bar) => ({
+      ...bar,
+      segments: bar.segments.map((seg) => ({
+        ...seg,
+        pct: activity.registered > 0 ? Math.min(100, (seg.value / activity.registered) * 100) : 0,
+      })),
+    }))
+  : [];
+---
+<Layout
+  title="Cardano Governance Analytics - DRepTalk"
+  description="Health, participation, concentration and the default delegation options of Cardano governance, tracked per epoch."
+  wide
+  ogImage={ogImage}
+>
+  <nav class="hub-crumbs" aria-label="Breadcrumb">
+    <a href="/">DRepTalk</a>
+    <span aria-hidden="true">/</span>
+    <span>Governance analytics</span>
+  </nav>
+
+  <h1>Governance analytics</h1>
+  <p class="hub-intro">How healthy, representative and decentralized Cardano governance is right now, and how it moves per epoch. <a href="/help/governance-analytics/">How to read this page</a></p>
+
+  {vitals.length > 0 && (
+    <div class="drep-stats">
+      {vitals.map((card) => (
+        <div class={`drep-stat${card.alt ? ' drep-stat--alt' : ''}`}>
+          <span class="drep-stat__icon"><DrepStatIcon name={card.icon} /></span>
+          <span class="drep-stat__body">
+            <span class="drep-stat__label">{card.label}</span>
+            <span class="drep-stat__value">{card.value}</span>
+            {card.trend && (
+              <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
+                {card.trend.direction !== 'flat' && (
+                  <span class="drep-stat__arrow" aria-hidden="true">{card.trend.direction === 'up' ? '↑' : '↓'}</span>
+                )}
+                {card.trend.label}
+              </span>
+            )}
+            {card.sub && <span class="drep-stat__sub">{card.sub}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  )}
+  {current && <p class="hub-asof">As of epoch {current.epoch}</p>}
+  {!hasBackbone && (
+    <p class="hub-empty">Per-epoch data starts filling in with the next sync run. Vitals and the per-epoch trend charts fill in once the first epoch is recorded.</p>
+  )}
+  {backfillGap && (
+    <p class="hub-empty">Historical epochs are still being backfilled. The trend charts show the epochs recorded so far and complete on their own over the next days, and panels that need the missing epochs appear as they fill in.</p>
+  )}
+
+  <section class="hub-chapter" aria-labelledby="chapter-today-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <HeadingAnchor level={2} id="chapter-today-title" class="hub-chapter__title">Governance today</HeadingAnchor>
+      <p class="hub-chapter__intro">The current state of DRep governance, the two default options kept apart, and how the core figures moved epoch by epoch.</p>
+    </header>
+
+    <section class="hub-defaults" aria-labelledby="hub-defaults-title">
+      <HeadingAnchor level={3} id="hub-defaults-title">The default options</HeadingAnchor>
+      <p class="hub-defaults__lede">Not everyone delegates to a person. These two predefined options hold real voting weight, and they are kept apart from every DRep statistic on this site. <a href="/help/default-delegation-options/">What they do</a></p>
+      <div class="hub-defaults__grid">
+        {defaultCards.map((opt) => (
+          <div class="hub-defaults__card">
+            <h4 class="hub-defaults__name">{opt.title}</h4>
+            <p class="hub-defaults__power">{opt.power}</p>
+            <p class="hub-defaults__meta">
+              <span>
+                {opt.delegatorCount != null
+                  ? `${opt.delegatorCount.toLocaleString('en-US')} ${opt.delegatorCount === 1 ? 'delegator' : 'delegators'}`
+                  : 'Delegator count pending'}
+              </span>
+              {opt.chip && (
+                <span class={`hub-defaults__chip hub-defaults__chip--${opt.chip.direction}`}>{opt.chip.label}</span>
+              )}
+            </p>
+            <EpochSeriesChart title="Voting power" ariaLabel={opt.ariaLabel} points={opt.series} format={fmtAdaCompact} sinceEpoch={opt.sinceEpoch} />
+          </div>
+        ))}
+      </div>
+      {defaultsComparison && (
+        <p class="hub-defaults__compare">Default options hold {defaultsComparison.defaultsLabel}, compared with {defaultsComparison.reprLabel} delegated to representative DReps.</p>
+      )}
+      <p class="hub-defaults__note">Changes are net movement per epoch. Arrivals and departures inside an epoch are not individually visible on chain aggregates, so this page never claims inflow or outflow.</p>
+    </section>
+
+    {hasBackbone && (
+      <section class="hub-trends" aria-labelledby="hub-trends-title">
+        <HeadingAnchor level={3} id="hub-trends-title">Per-epoch trends</HeadingAnchor>
+        <div class="hub-trends__grid">
+          <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={starts.totalDrepPower} />
+          <EpochSeriesChart title="DReps holding delegated power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
+          <EpochSeriesChart title="Delegators" points={metricSeries(chartStats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={starts.delegatorTotal} />
+          <EpochSeriesChart title="DReps voting in the last 12 epochs" points={recentlyVotingSeries} sinceEpoch={recentlyVotingSince} note="Counted per epoch over the twelve epochs up to it. The running epoch appears once it has ended." />
+        </div>
+      </section>
+    )}
+  </section>
+
+  <section class="hub-chapter" aria-labelledby="chapter-representation-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <HeadingAnchor level={2} id="chapter-representation-title" class="hub-chapter__title">Representation and participation</HeadingAnchor>
+      <p class="hub-chapter__intro">How much of the delegated power actually shows up in votes, and who takes part.</p>
+    </header>
+
+    {effRep.rows.length > 0 && (
+      <section class="hub-effrep" aria-labelledby="hub-effrep-title">
+        <HeadingAnchor level={3} id="hub-effrep-title">Effective representation</HeadingAnchor>
+        <p class="hub-effrep__lede">Across the last {effRep.rows.length} decided actions, a median of {fmtShare(effRep.medianPowerSharePct)} of the delegated voting power was actually represented in the vote.{effRep.medianHalfCount != null && ` A median of ${fmtCount(effRep.medianHalfCount)} DReps was enough to cast half of the voted power.`}</p>
+        <ul class="hub-effrep__rows">
+          {effRep.rows.slice(0, 6).map((row) => (
+            <li class="hub-effrep__row">
+              <div class="hub-effrep__head">
+                <span class="hub-effrep__title">
+                  {row.href ? <a href={row.href}>{row.title}</a> : row.title}
+                </span>
+                <span class="hub-effrep__type">{readableType(row.type)}</span>
+                <span class="hub-effrep__epoch">Epoch {row.decidedEpoch}</span>
+              </div>
+              <div class="hub-effrep__meter">
+                <span class="hub-effrep__bar" aria-hidden="true"><span class="hub-effrep__fill" style={`width:${row.powerSharePct.toFixed(1)}%`}></span></span>
+                <span class="hub-effrep__value">{fmtShare(row.powerSharePct)}</span>
+              </div>
+              {(row.countSharePct != null || row.halfCount != null) && (
+                <p class="hub-effrep__note">{row.countSharePct != null && `${fmtShare(row.countSharePct)} of DReps voted`}{row.countSharePct != null && row.halfCount != null && ', '}{row.halfCount != null && `${row.halfCount} of ${row.voterCount} voters cast half of the voted power`}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+        <p class="hub-effrep__more">Showing the six most recent decided actions. <a href={ACTIONS_LIST_HREF}>View all governance actions</a></p>
+        <p class="hub-effrep__footnote">Denominator: the delegated voting power in each action's decision epoch, the predefined default options excluded. Concentration reads use the voting power each DRep voted with and appear only when it is recorded for every vote.{effRep.skipped > 0 && ` ${effRep.skipped} older actions without epoch data are not shown.`}</p>
+      </section>
+    )}
+
+    {activity && (
+      <section class="hub-activity" aria-labelledby="hub-activity-title">
+        <HeadingAnchor level={3} id="hub-activity-title">DRep activity</HeadingAnchor>
+        {activityBars.map((bar) => (
+          <div class="hub-activity__group">
+            <p class="hub-activity__title">{bar.title}</p>
+            <div class="hub-activity__bar">
+              {bar.segments.map((seg) => (
+                <span class="hub-activity__seg" style={`width:${seg.pct.toFixed(1)}%`}></span>
+              ))}
+            </div>
+            <ul class="hub-activity__legend">
+              {bar.segments.map((seg) => (
+                <li class="hub-activity__legend-item"><span class="hub-activity__legend-dot" aria-hidden="true"></span>{seg.label}: {seg.value.toLocaleString('en-US')}</li>
+              ))}
+            </ul>
+            {bar.sub && <p class="hub-activity__sub">{bar.sub}</p>}
+          </div>
+        ))}
+        <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)} across {activity.inactiveCount.toLocaleString('en-US')} DReps.</p>
+        <p class="hub-activity__note">Definitions: active registrations follow the on-chain registration state, voted counts any on-chain vote including later-changed ones, counts are live as of the latest sync.</p>
+      </section>
+    )}
+
+    {ccPanel.considered > 0 && (
+      <section class="hub-cc" aria-labelledby="hub-cc-title">
+        <HeadingAnchor level={3} id="hub-cc-title">Constitutional Committee</HeadingAnchor>
+        <p class="hub-cc__lede">Across {ccPanel.considered} decided actions the committee could vote on, a median of {fmtShare(ccPanel.medianTurnoutPct)} of its members cast a vote.{ccPanel.splitCount > 0 && ` ${ccPanel.splitCount} ${ccPanel.splitCount === 1 ? 'action' : 'actions'} saw a split committee.`}{ccPanel.verdictBasis > 0 && ` ${ccPanel.belowThreshold} of ${ccPanel.verdictBasis} finished below the committee's approval threshold.`}</p>
+        {ccPanel.medianLatencyDays != null && (
+          <p class="hub-cc__latency">Committee votes came a median of {fmtCount(ccPanel.medianLatencyDays)} days after an action was submitted.</p>
+        )}
+        {ccExtremes.total > 0 && (
+          <>
+            <div class="hub-cc__lists">
+              {ccMemberLists.map((list) => (
+                <div>
+                  <h4 class="hub-cc__subtitle">{list.title}</h4>
+                  <ul class="hub-cc__members">
+                    {list.members.map((m) => (
+                      <li class="hub-cc__member">
+                        <div class="hub-cc__member-head">
+                          <span class="hub-cc__member-name">{m.name ?? shortCold(m.coldKeyHex)}</span>
+                          <span class="hub-cc__member-tenure">{tenureLabel(m.tenure)}</span>
+                          <span class="hub-cc__member-value">{m.voted} of {m.eligible}</span>
+                        </div>
+                        <div class="hub-cc__raster" role="img" aria-label={`Voted on ${m.voted} of ${m.eligible} eligible actions, oldest to newest`}>
+                          {m.sequence.map((s) => (
+                            <span class={`hub-cc__dot hub-cc__dot--${s}`}></span>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <p class="hub-cc__raster-note">Each square is one decided action from the oldest to the newest, filled when the member voted, outlined when eligible without a vote, faded outside the member's eligibility window.</p>
+          </>
+        )}
+        <p class="hub-cc__footnote">Eligibility follows the committee membership at each action's tally epoch, and only a member's final vote counts.{ccPanel.skipped > 0 && ` ${ccPanel.skipped} actions without a resolvable committee are not counted.`}{ccPanel.verdictBasis < ccPanel.considered && ` The threshold reading covers ${ccPanel.verdictBasis} actions with a frozen committee threshold.`}</p>
+      </section>
+    )}
+
+    {spo.eligible > 0 && (
+      <section class="hub-spo" aria-labelledby="hub-spo-title">
+        <HeadingAnchor level={3} id="hub-spo-title">SPO participation</HeadingAnchor>
+        <p class="hub-spo__lede">SPOs vote on {spo.eligible} of the decided actions (hard forks, motions of no confidence, committee changes and security-relevant parameter changes).</p>
+        <div class="hub-tiles">
+          {spo.medianTurnoutPct != null && (
+            <div class="hub-tile">
+              <p class="hub-tile__value">{fmtShare(spo.medianTurnoutPct)}</p>
+              <p class="hub-tile__label">Median SPO turnout</p>
+              <p class="hub-tile__sub">power-weighted, over {spo.turnoutBasis} actions</p>
+            </div>
+          )}
+          {spo.divergenceBasis > 0 && (
+            <div class="hub-tile">
+              <p class="hub-tile__value">{spo.divergent} of {spo.divergenceBasis}</p>
+              <p class="hub-tile__label">Verdicts differing from DReps</p>
+              <p class="hub-tile__sub">actions where the two bodies reached different verdicts against their own thresholds</p>
+            </div>
+          )}
+        </div>
+        {spo.divergentActions.length > 0 && (
+          <>
+            <h4 class="hub-spo__subtitle">Where the two verdicts differed</h4>
+            <ul class="hub-spo__rows">
+              {spo.divergentActions.map((a) => {
+                // An untitled action is named by its readable type, and the type
+                // line is dropped so the same label does not appear twice.
+                const label = a.title ?? readableType(a.type);
+                return (
+                  <li class="hub-spo__row">
+                    <span class="hub-spo__row-title">{a.href ? <a href={a.href}>{label}</a> : label}</span>
+                    {a.title != null && <span class="hub-spo__row-type">{readableType(a.type)}</span>}
+                    <span class="hub-spo__row-missed">{a.missedBy} tally below its threshold</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+        <p class="hub-spo__footnote">{spo.medianTurnoutPct != null ? (
+          <>Turnout weighs each pool's stake against the pools that could vote, the always-abstain pools included and the No side as the ledger counts it.{spo.turnoutExcluded > 0 && ` ${spo.turnoutExcluded} actions without complete stake figures are left out.`}</>
+        ) : (
+          spo.turnoutExcluded > 0 && `No turnout figure yet, ${spo.turnoutExcluded} of ${spo.eligible} actions still lack complete stake figures.`
+        )}</p>
+      </section>
+    )}
+  </section>
+
+  <section class="hub-chapter" aria-labelledby="chapter-accountability-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <HeadingAnchor level={2} id="chapter-accountability-title" class="hub-chapter__title">Accountability and behavior</HeadingAnchor>
+      <p class="hub-chapter__intro">What DReps do beyond the vote itself: reconsidering positions and publishing rationales.</p>
+    </header>
+
+    {voteChanges.decidedSwept > 0 && voteChanges.changedCount + voteChanges.samePositionCount > 0 && (
+      <section class="hub-votechange" aria-labelledby="hub-votechange-title">
+        <HeadingAnchor level={3} id="hub-votechange-title">Changed votes</HeadingAnchor>
+        <p class="hub-votechange__lede">Across {voteChanges.decidedSwept} decided actions, {voteChanges.actionsWithChange} saw at least one DRep change their position. {voteChanges.changedCount} votes changed position in total, while {voteChanges.samePositionCount} re-votes kept the voter's position.</p>
+        <div class="hub-cbar-group">
+          {voteChanges.changedCount > 0 && (
+            <div class="hub-cbar">
+              <p class="hub-cbar__title">Where changed votes moved</p>
+              <div class="hub-cbar__track" role="img" aria-label={`${voteChanges.toYes} changed to yes, ${voteChanges.toNo} to no, ${voteChanges.toAbstain} to abstain`}>
+                <span class="hub-cbar__seg" style={`width:${((voteChanges.toYes / voteChanges.changedCount) * 100).toFixed(1)}%;background:${TONE_BAR_COLORS.positive}`}></span>
+                <span class="hub-cbar__seg" style={`width:${((voteChanges.toNo / voteChanges.changedCount) * 100).toFixed(1)}%;background:${TONE_BAR_COLORS.negative}`}></span>
+                <span class="hub-cbar__seg" style={`width:${((voteChanges.toAbstain / voteChanges.changedCount) * 100).toFixed(1)}%;background:${TONE_BAR_COLORS.neutral}`}></span>
+              </div>
+              <ul class="hub-cbar__legend">
+                <li class="hub-cbar__legend-item"><span class="hub-cbar__dot" style={`background:${TONE_BAR_COLORS.positive}`}></span>To yes: {voteChanges.toYes}</li>
+                <li class="hub-cbar__legend-item"><span class="hub-cbar__dot" style={`background:${TONE_BAR_COLORS.negative}`}></span>To no: {voteChanges.toNo}</li>
+                <li class="hub-cbar__legend-item"><span class="hub-cbar__dot" style={`background:${TONE_BAR_COLORS.neutral}`}></span>To abstain: {voteChanges.toAbstain}</li>
+              </ul>
+            </div>
+          )}
+          {voteChanges.changedCount + voteChanges.samePositionCount > 0 && (
+            <div class="hub-cbar">
+              <p class="hub-cbar__title">Re-votes</p>
+              <div class="hub-cbar__track" role="img" aria-label={`Position changed ${voteChanges.changedCount}, position kept ${voteChanges.samePositionCount}`}>
+                <span class="hub-cbar__seg hub-cbar__seg--accent" style={`width:${((voteChanges.changedCount / (voteChanges.changedCount + voteChanges.samePositionCount)) * 100).toFixed(1)}%`}></span>
+                <span class="hub-cbar__seg hub-cbar__seg--kept" style={`width:${((voteChanges.samePositionCount / (voteChanges.changedCount + voteChanges.samePositionCount)) * 100).toFixed(1)}%`}></span>
+              </div>
+              <ul class="hub-cbar__legend">
+                <li class="hub-cbar__legend-item"><span class="hub-cbar__dot hub-cbar__dot--accent"></span>Position changed: {voteChanges.changedCount}</li>
+                <li class="hub-cbar__legend-item"><span class="hub-cbar__dot hub-cbar__dot--kept"></span>Position kept: {voteChanges.samePositionCount}</li>
+              </ul>
+            </div>
+          )}
+        </div>
+        {voteChanges.topActions.length > 0 && (
+          <>
+            <h4 class="hub-votechange__subtitle">Most reconsidered actions</h4>
+            <ul class="hub-votechange__rows">
+              {voteChanges.topActions.map((a) => (
+                <li class="hub-votechange__row">
+                  <span class="hub-votechange__title">{a.href ? <a href={a.href}>{a.title}</a> : a.title}</span>
+                  <span class="hub-votechange__type">{readableType(a.type)}</span>
+                  <span class="hub-votechange__epoch">Epoch {a.decidedEpoch}</span>
+                  <span class="hub-votechange__count">{a.changedCount} changed</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <p class="hub-votechange__footnote">Counts cover decided actions with a fully swept vote history and compare each voter's first recorded vote with the final one.{voteChanges.decidedUnswept > 0 && ` ${voteChanges.decidedUnswept} decided actions are still queued for the sweep.`}{voteChanges.orphanPairs > 0 && ` ${voteChanges.orphanPairs} re-votes whose final vote is not on record are left out.`}</p>
+      </section>
+    )}
+
+    {rationaleCoverage.countPct != null && (
+      <section class="hub-rationale" aria-labelledby="hub-rationale-title">
+        <HeadingAnchor level={3} id="hub-rationale-title">Vote rationales</HeadingAnchor>
+        <div class="hub-tiles">
+          <div class="hub-tile">
+            <p class="hub-tile__value">{fmtShare(rationaleCoverage.countPct)}</p>
+            <p class="hub-tile__label">Votes with a rationale link</p>
+            <p class="hub-tile__sub">{rationaleCoverage.totalWithRationale.toLocaleString('en-US')} of {rationaleCoverage.totalVotes.toLocaleString('en-US')} votes</p>
+          </div>
+          {rationaleCoverage.powerPct != null && (
+            <div class="hub-tile">
+              <p class="hub-tile__value">{fmtShare(rationaleCoverage.powerPct)}</p>
+              <p class="hub-tile__label">Voting power with a rationale link</p>
+              <p class="hub-tile__sub">weighted by the voting power behind each vote</p>
+            </div>
+          )}
+        </div>
+        {rationaleCoverage.revoteAdded > 0 && (
+          <p class="hub-rationale__lede">{rationaleCoverage.revoteAdded.toLocaleString('en-US')} rationales arrived later through a re-vote.</p>
+        )}
+        {rationaleCoverage.epochSeries.length > 1 && (
+          <div class="hub-rationale__chart">
+            <EpochSeriesChart title="Coverage of decided actions" ariaLabel="Median rationale coverage per decision epoch" points={rationaleCoverage.epochSeries} format={fmtShare} />
+          </div>
+        )}
+        {rationaleCoverage.byType.length > 1 && (
+          <ul class="hub-rationale__types">
+            {rationaleCoverage.byType.map((t) => (
+              <li class="hub-rationale__type"><span class="hub-rationale__type-name">{readableType(t.type)}</span><span class="hub-rationale__type-value">{fmtShare(t.medianPct)} median, {t.actions} {t.actions === 1 ? 'action' : 'actions'}</span></li>
+            ))}
+          </ul>
+        )}
+        {rationaleCoverage.best.length > 0 && (
+          <div class="hub-rationale__lists">
+            <div>
+              <h4 class="hub-rationale__subtitle">Best covered</h4>
+              <ul class="hub-rationale__rows">
+                {rationaleCoverage.best.map((x) => (
+                  <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
+                ))}
+              </ul>
+            </div>
+            {rationaleCoverage.worst.length > 0 && (
+              <div>
+                <h4 class="hub-rationale__subtitle">Least covered</h4>
+                <ul class="hub-rationale__rows">
+                  {rationaleCoverage.worst.map((x) => (
+                    <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        <p class="hub-rationale__footnote">Coverage counts the rationale link attached to the vote on chain. A linked document is not always retrievable, so an action can read higher here than the readable rationales on its own page. Coverage measures presence, not quality.{rationaleCoverage.powerExcluded > 0 && ` The power-weighted figure leaves out ${rationaleCoverage.powerExcluded} actions with incomplete per-vote power.`}{rationaleCoverage.belowFloor > 0 && ` Best and least covered consider actions with at least 20 votes, ${rationaleCoverage.belowFloor} smaller ones are not ranked.`}</p>
+      </section>
+    )}
+
+    {timing.drepMedianDay != null && timing.drepTimed > 0 && (
+      <section class="hub-timing" aria-labelledby="hub-timing-title">
+        <HeadingAnchor level={3} id="hub-timing-title">Voting timing</HeadingAnchor>
+        <p class="hub-timing__lede">Every vote counts once here, whatever voting power stands behind it. Timing describes when votes arrive, not how carefully they were cast.</p>
+        <div class="hub-tiles">
+          <div class="hub-tile">
+            <p class="hub-tile__value">Day {fmtCount(timing.drepMedianDay)}</p>
+            <p class="hub-tile__label">Median DRep vote</p>
+            <p class="hub-tile__sub">after submission, over {timing.drepTimed.toLocaleString('en-US')} timed votes on decided actions</p>
+          </div>
+          <div class="hub-tile">
+            <p class="hub-tile__value">{timing.spoTimed > 0 && timing.spoMedianDay != null ? `Day ${fmtCount(timing.spoMedianDay)}` : 'n/a'}</p>
+            <p class="hub-tile__label">Median SPO vote</p>
+            <p class="hub-tile__sub">{timing.spoTimed > 0 ? `after submission, over ${timing.spoTimed.toLocaleString('en-US')} timed votes on decided actions` : 'no timed SPO votes on record'}</p>
+          </div>
+          {timing.halfTurnoutMedianDay != null && (
+            <div class="hub-tile">
+              <p class="hub-tile__value">Day {fmtCount(timing.halfTurnoutMedianDay)}</p>
+              <p class="hub-tile__label">Half of an action's DRep votes cast</p>
+              <p class="hub-tile__sub">median across {timing.halfBasis.toLocaleString('en-US')} decided actions</p>
+            </div>
+          )}
+        </div>
+        {timing.thirds.basis > 0 && (
+          <div class="hub-cbar-group">
+            <div class="hub-cbar">
+              <p class="hub-cbar__title">Where in the voting window votes arrived</p>
+              <div class="hub-cbar__track" role="img" aria-label={`Of ${timing.thirds.basis} DRep votes inside the window, ${timing.thirds.early} in the early third, ${timing.thirds.middle} in the middle third, ${timing.thirds.late} in the late third`}>
+                <span class="hub-cbar__seg hub-cbar__seg--early" style={`width:${((timing.thirds.early / timing.thirds.basis) * 100).toFixed(1)}%`}></span>
+                <span class="hub-cbar__seg hub-cbar__seg--middle" style={`width:${((timing.thirds.middle / timing.thirds.basis) * 100).toFixed(1)}%`}></span>
+                <span class="hub-cbar__seg hub-cbar__seg--late" style={`width:${((timing.thirds.late / timing.thirds.basis) * 100).toFixed(1)}%`}></span>
+              </div>
+              <ul class="hub-cbar__legend">
+                <li class="hub-cbar__legend-item"><span class="hub-cbar__dot hub-cbar__dot--early"></span>Early third: {timing.thirds.early.toLocaleString('en-US')}</li>
+                <li class="hub-cbar__legend-item"><span class="hub-cbar__dot hub-cbar__dot--middle"></span>Middle third: {timing.thirds.middle.toLocaleString('en-US')}</li>
+                <li class="hub-cbar__legend-item"><span class="hub-cbar__dot hub-cbar__dot--late"></span>Late third: {timing.thirds.late.toLocaleString('en-US')}</li>
+                {timing.thirds.afterClose > 0 && (
+                  <li class="hub-cbar__legend-item">{timing.thirds.afterClose.toLocaleString('en-US')} arrived after the window closed, counted apart from the thirds</li>
+                )}
+              </ul>
+              <p class="hub-timing__basis">Across {timing.thirds.basis.toLocaleString('en-US')} DRep votes on decided actions with a resolvable voting window.</p>
+            </div>
+          </div>
+        )}
+        {timing.byType.length > 0 && (
+          <div class="hub-table-wrap">
+            <table class="hub-table">
+              <thead>
+                <tr>
+                  <th scope="col">Type</th>
+                  <th scope="col" class="hub-table__num">Median DRep day</th>
+                  <th scope="col" class="hub-table__num">Timed DRep votes</th>
+                  <th scope="col" class="hub-table__num">Median SPO day</th>
+                </tr>
+              </thead>
+              <tbody>
+                {timing.byType.map((t) => (
+                  <tr>
+                    <td>{readableType(t.type)}</td>
+                    <td class="hub-table__num">{fmtCount(t.drepMedianDay)}</td>
+                    <td class="hub-table__num">{t.drepTimed.toLocaleString('en-US')}</td>
+                    <td class="hub-table__num">{t.spoMedianDay != null ? fmtCount(t.spoMedianDay) : 'n/a'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p class="hub-timing__footnote">A vote is timed when both the action's submission and the vote's block time are on record, and days are counted from submission. Only decided actions are counted, an open action would only show its early votes so far. The thirds split each action's own voting window into three equal parts, so a long-running action and a short one are read on the same scale. A DRep who changed a vote is timed at the final vote. Types with fewer than 20 timed DRep votes are left out of the table, and a median SPO day needs 20 timed SPO votes of its own, otherwise the cell shows n/a.</p>
+      </section>
+    )}
+  </section>
+
+  <section class="hub-chapter" aria-labelledby="chapter-decentralization-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <HeadingAnchor level={2} id="chapter-decentralization-title" class="hub-chapter__title">Decentralization</HeadingAnchor>
+      <p class="hub-chapter__intro">How concentrated delegated voting power is, today and over time.</p>
+    </header>
+
+    {concentration.drepCount > 0 && (
+      <DrepConcentration
+        client:visible
+        topK={concentration.topK}
+        byPercent={concentration.byPercent}
+        drepCount={concentration.drepCount}
+        totalLabel={concentration.totalLabel}
+        markers={markers}
+        defaultThresholdPct={defaultThresholdPct}
+        thresholdsAsOf={thresholdsAsOf}
+      />
+    )}
+
+    {coalitionRows.length > 0 && (
+      <section class="hub-coalition" aria-labelledby="hub-coalition-title">
+        <HeadingAnchor level={3} id="hub-coalition-title">Minimum coalition by threshold</HeadingAnchor>
+        <p class="hub-coalition__lede">How few of the largest DReps currently hold each threshold share.</p>
+        <ul class="hub-coalition__rows">
+          {coalitionRows.map((row) => (
+            <li class="hub-coalition__row">
+              <span class="hub-coalition__count">{row.count} {row.count === 1 ? 'DRep' : 'DReps'}</span>
+              <span class="hub-coalition__pct">{row.pct}%</span>
+              <span class="hub-coalition__actions">{row.actions.join(', ')}</span>
+            </li>
+          ))}
+        </ul>
+        <p class="hub-coalition__footnote">Based on the current delegated voting power, not actual coordination. Thresholds{thresholdsAsOf && ` as of ${thresholdsAsOf}`}, stake as of the latest sync.</p>
+      </section>
+    )}
+
+    {hasBackbone && (
+      <section class="hub-conc-trends" aria-labelledby="hub-conc-trends-title">
+        <HeadingAnchor level={3} id="hub-conc-trends-title">Concentration over time</HeadingAnchor>
+        <div class="hub-conc-trends__grid">
+          <EpochSeriesChart title="Gini coefficient" points={metricSeries(chartStats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={starts.gini} note="Higher means voting power is more concentrated." />
+          <EpochSeriesChart title="Top-10 share" points={metricSeries(chartStats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={starts.top10SharePct} note="Share held by the ten largest DReps." />
+          <EpochSeriesChart title="DReps for 50% of delegated power" points={metricSeries(chartStats, 'minCoalition50', starts.minCoalition50)} sinceEpoch={starts.minCoalition50} note="Fewer DReps means more concentrated." />
+          <EpochSeriesChart title="DReps for 67% of delegated power" points={metricSeries(chartStats, 'minCoalition67', starts.minCoalition67)} sinceEpoch={starts.minCoalition67} note="Fewer DReps means more concentrated." />
+        </div>
+      </section>
+    )}
+  </section>
+
+  {throughput.enacted + throughput.expired + throughput.closed > 0 && (
+  <section class="hub-chapter" aria-labelledby="chapter-throughput-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <HeadingAnchor level={2} id="chapter-throughput-title" class="hub-chapter__title">Governance throughput</HeadingAnchor>
+      <p class="hub-chapter__intro">What happens to governance actions: how many arrive, how they conclude, and how long a decision takes.</p>
+    </header>
+
+    <div class="hub-throughput">
+      <div class="hub-tiles">
+        {showSubmittedRecent && (
+          <div class="hub-tile">
+            <p class="hub-tile__value">{throughput.submittedRecent.toLocaleString('en-US')}</p>
+            <p class="hub-tile__label">Submitted, last 12 epochs</p>
+          </div>
+        )}
+        <div class="hub-tile">
+          <p class="hub-tile__value">{throughput.enacted.toLocaleString('en-US')}</p>
+          <p class="hub-tile__label">Enacted</p>
+          <p class="hub-tile__sub">all-time</p>
+        </div>
+        <div class="hub-tile">
+          <p class="hub-tile__value">{throughput.expired.toLocaleString('en-US')}</p>
+          <p class="hub-tile__label">Expired</p>
+          <p class="hub-tile__sub">all-time</p>
+        </div>
+        <div class="hub-tile">
+          <p class="hub-tile__value">{throughput.closed.toLocaleString('en-US')}</p>
+          <p class="hub-tile__label">Closed without enactment</p>
+          <p class="hub-tile__sub">all-time</p>
+        </div>
+      </div>
+
+      {throughput.medianEpochsToDecision != null && (
+        <p class="hub-throughput__median">Decisions took a median of {fmtCount(throughput.medianEpochsToDecision)} epochs from submission, across {throughput.decisionBasis} decided actions.</p>
+      )}
+
+      {throughput.byType.length > 0 && (
+        <div class="hub-table-wrap">
+          <table class="hub-table">
+            <thead>
+              <tr>
+                <th scope="col">Type</th>
+                <th scope="col" class="hub-table__num">Decided</th>
+                <th scope="col" class="hub-table__num">Enacted</th>
+                <th scope="col" class="hub-table__num">Expired</th>
+                <th scope="col" class="hub-table__num">Closed</th>
+                <th scope="col" class="hub-table__num">Median epochs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {throughput.byType.map((t) => (
+                <tr>
+                  <td>{readableType(t.type)}</td>
+                  <td class="hub-table__num">{t.decided}</td>
+                  <td class="hub-table__num">{t.enacted}</td>
+                  <td class="hub-table__num">{t.expired}</td>
+                  <td class="hub-table__num">{t.closed}</td>
+                  <td class="hub-table__num">{t.medianEpochs != null ? fmtCount(t.medianEpochs) : 'fewer than 3'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p class="hub-throughput__footnote">Closed is the outcome of info actions, which conclude without enactment. Timing is counted in epochs because decisions are recorded per epoch.{throughput.dropped > 0 && ` ${throughput.dropped} ${throughput.dropped === 1 ? 'action was' : 'actions were'} dropped before a decision.`}{throughput.active > 0 && ` ${throughput.active} ${throughput.active === 1 ? 'action is' : 'actions are'} still open.`}</p>
+    </div>
+  </section>
+  )}
+
+  <p class="hub-back"><a href="/dreps/">Browse the DRep directory</a></p>
+</Layout>
+
+<style>
+  .hub-crumbs {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+  }
+  .hub-crumbs a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .hub-crumbs a:hover {
+    color: var(--fg);
+  }
+
+  /* The hero grid reuses the directory's stat cards. On a phone two cards
+     share a row and a 1fr track cannot shrink below the longest unbreakable
+     figure, which pushed the page wider than the viewport. Let the items
+     shrink and let the figures break instead. */
+  .drep-stats > .drep-stat {
+    min-width: 0;
+  }
+  .drep-stat__value,
+  .drep-stat__delta {
+    overflow-wrap: anywhere;
+  }
+  .hub-intro {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0.4rem 0 1.5rem;
+  }
+
+  .hub-asof {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin: 0.5rem 0 1.5rem;
+  }
+
+  .hub-empty {
+    color: var(--muted);
+    margin: 0 0 1.5rem;
+  }
+
+  /* Chapters read as the page's top-level structure: a restrained eyebrow plus
+     title plus one-sentence intro, and a top border that separates one chapter
+     from the next (and from the hero above the first one). Panels inside keep
+     their own existing spacing untouched. */
+  .hub-chapter {
+    margin: 0 0 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+  }
+  .hub-chapter__head {
+    margin: 0 0 2rem;
+  }
+  .hub-chapter__eyebrow {
+    margin: 0 0 0.35rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  /* Chapter and panel headings render through HeadingAnchor, so their markup
+     sits outside this page's scoped selectors and has to be addressed
+     globally. The stylesheet itself only ships with this page, so the reach
+     stays the same in practice. */
+  :global(.hub-chapter__title) {
+    margin: 0 0 0.5rem;
+    font-size: 1.5rem;
+  }
+  .hub-chapter__intro {
+    margin: 0;
+    color: var(--muted);
+    max-width: 60ch;
+  }
+
+  /* The one visually distinct surface on the page: the default-options layer is
+     deliberately set apart from every DRep statistic above and below it, so the
+     tint makes that split visible rather than just stating it in prose. */
+  .hub-defaults {
+    margin: 0 0 2.5rem;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+  }
+  :global(#hub-defaults-title) {
+    margin: 0 0 0.4rem;
+  }
+  .hub-defaults__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-defaults__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+  @media (min-width: 720px) {
+    .hub-defaults__grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .hub-defaults__card {
+    padding: 1.1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-defaults__name {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+    font-weight: 650;
+  }
+  .hub-defaults__power {
+    margin: 0 0 0.35rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-defaults__meta {
+    margin: 0 0 1rem;
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .hub-defaults__chip {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-defaults__chip--up {
+    color: var(--c-pos);
+  }
+  .hub-defaults__chip--down {
+    color: var(--c-neg);
+  }
+  .hub-defaults__chip--flat {
+    color: var(--muted);
+  }
+  .hub-defaults__compare {
+    margin: 1.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .hub-defaults__note {
+    margin: 0.5rem 0 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-trends {
+    margin: 0 0 2.5rem;
+  }
+  /* Every panel heading on this page is a HeadingAnchor h3, so one rule
+     replaces the id list that used to carry this spacing. */
+  :global(.hub-chapter h3[data-anchor-heading]) {
+    margin: 0 0 1rem;
+    font-size: 1.2rem;
+  }
+  /* Four charts read best as a 2 by 2 block, the same shape the
+     concentration trends use. */
+  .hub-trends__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  @media (min-width: 720px) {
+    .hub-trends__grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  .hub-effrep {
+    margin: 0 0 2.5rem;
+  }
+  .hub-effrep__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-effrep__rows {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.9rem;
+  }
+  @media (min-width: 900px) {
+    .hub-effrep__rows {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .hub-effrep__row {
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-effrep__head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 0.5rem;
+  }
+  .hub-effrep__title {
+    font-weight: 600;
+    min-width: 0;
+  }
+  .hub-effrep__title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-effrep__title a:hover {
+    text-decoration: underline;
+  }
+  .hub-effrep__type {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .hub-effrep__epoch {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .hub-effrep__meter {
+    display: grid;
+    grid-template-columns: 1fr 4rem;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .hub-effrep__bar {
+    display: block;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .hub-effrep__fill {
+    /* Both spans default to inline, and an inline element ignores explicit
+       width/height entirely, silently dropping the proportional fill. Block
+       makes the inline-styled width actually take effect. */
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .hub-effrep__value {
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-effrep__note {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  @media (max-width: 480px) {
+    .hub-effrep__meter {
+      grid-template-columns: 1fr 3.25rem;
+      gap: 0.5rem;
+    }
+    .hub-effrep__epoch {
+      margin-left: 0;
+    }
+  }
+  .hub-effrep__more {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .hub-effrep__more a {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .hub-effrep__more a:hover {
+    text-decoration: underline;
+  }
+  .hub-effrep__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-votechange {
+    margin: 0 0 2.5rem;
+  }
+  .hub-votechange__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 0.5rem;
+  }
+  .hub-cbar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    margin: 0 0 1.5rem;
+    max-width: 32rem;
+  }
+  .hub-cbar__title {
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .hub-cbar__track {
+    display: flex;
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  /* Segments and legend are shared with the DRep activity bars further down:
+     one accent segment for the first quantity, one muted segment for the rest,
+     and a dot legend below. Kept in one rule family so the two panels cannot
+     drift apart. Only the track backgrounds differ, those stay per panel. */
+  .hub-cbar__seg,
+  .hub-activity__seg {
+    display: block;
+    height: 100%;
+  }
+  .hub-cbar__seg--accent,
+  .hub-activity__seg:first-child {
+    background: var(--accent);
+  }
+  .hub-cbar__seg--kept,
+  .hub-activity__seg:last-child {
+    background: var(--surface-2);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .hub-cbar__legend,
+  .hub-activity__legend {
+    list-style: none;
+    margin: 0.6rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.25rem;
+  }
+  .hub-cbar__legend-item,
+  .hub-activity__legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .hub-cbar__dot,
+  .hub-activity__legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+  }
+  .hub-cbar__dot--accent,
+  .hub-activity__legend-dot {
+    background: var(--accent);
+  }
+  .hub-cbar__dot--kept,
+  .hub-activity__legend-item:last-child .hub-activity__legend-dot {
+    background: var(--surface-2);
+    box-shadow: inset 0 0 0 1px var(--muted);
+  }
+  /* Early, middle and late are one accent ramp, not a traffic light: the
+     three thirds are a sequence, and no third is better than another. */
+  .hub-cbar__seg--early,
+  .hub-cbar__dot--early {
+    background: var(--accent);
+  }
+  .hub-cbar__seg--middle,
+  .hub-cbar__dot--middle {
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .hub-cbar__seg--late,
+  .hub-cbar__dot--late {
+    background: color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  .hub-votechange__subtitle {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+  }
+  .hub-votechange__rows {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hub-votechange__row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-votechange__title {
+    font-weight: 600;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .hub-votechange__title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-votechange__title a:hover {
+    text-decoration: underline;
+  }
+  .hub-votechange__type {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .hub-votechange__epoch,
+  .hub-votechange__count {
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .hub-votechange__epoch {
+    margin-left: auto;
+  }
+  @media (max-width: 480px) {
+    .hub-votechange__epoch {
+      margin-left: 0;
+    }
+  }
+  .hub-votechange__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-rationale {
+    margin: 0 0 2.5rem;
+  }
+  .hub-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.9rem;
+    margin: 0 0 1.25rem;
+  }
+  .hub-tile {
+    /* Fixed width so the row wraps predictably: four across at 1440px, two
+       around 720px, one on mobile, without a grid leaving empty tracks
+       when a panel has fewer tiles than the row's column count. */
+    width: 16rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-tile__value {
+    margin: 0 0 0.15rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-tile__label {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .hub-tile__sub {
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .hub-rationale__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-rationale__chart {
+    max-width: 420px;
+    margin: 0 0 1.25rem;
+  }
+  .hub-rationale__types {
+    list-style: none;
+    margin: 0 0 1.25rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-width: 40ch;
+  }
+  .hub-rationale__type {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+  }
+  .hub-rationale__type-name {
+    color: var(--fg);
+  }
+  .hub-rationale__type-value {
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .hub-rationale__lists {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    margin: 0 0 1.25rem;
+  }
+  @media (min-width: 720px) {
+    .hub-rationale__lists {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .hub-rationale__subtitle {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+  }
+  .hub-rationale__rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hub-rationale__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-rationale__row-title {
+    font-weight: 600;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .hub-rationale__row-title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-rationale__row-title a:hover {
+    text-decoration: underline;
+  }
+  .hub-rationale__row-value {
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .hub-rationale__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-cc {
+    margin: 0 0 2.5rem;
+  }
+  .hub-cc__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 0.5rem;
+  }
+  .hub-cc__latency {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-cc__lists {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    margin: 0 0 1rem;
+  }
+  @media (min-width: 720px) {
+    .hub-cc__lists {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .hub-cc__subtitle {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+  }
+  .hub-cc__members {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .hub-cc__member {
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-cc__member-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 0.5rem;
+  }
+  .hub-cc__member-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hub-cc__member-tenure {
+    font-size: 0.75rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .hub-cc__member-value {
+    margin-left: auto;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .hub-cc__raster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  .hub-cc__dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 auto;
+  }
+  .hub-cc__dot--voted {
+    background: var(--accent);
+  }
+  .hub-cc__dot--missed {
+    background: transparent;
+    border: 1px solid var(--muted);
+  }
+  .hub-cc__dot--ineligible {
+    background: var(--muted);
+    opacity: 0.4;
+  }
+  .hub-cc__raster-note {
+    margin: 0 0 1.1rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+    max-width: 60ch;
+  }
+  .hub-cc__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-spo {
+    margin: 0 0 2.5rem;
+  }
+  .hub-spo__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-spo__subtitle {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+  }
+  .hub-spo__rows {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hub-spo__row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-spo__row-title {
+    font-weight: 600;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .hub-spo__row-title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-spo__row-title a:hover {
+    text-decoration: underline;
+  }
+  .hub-spo__row-type {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .hub-spo__row-missed {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .hub-spo__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-timing {
+    margin: 0 0 2.5rem;
+  }
+  .hub-timing__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-timing__basis {
+    margin: 0.5rem 0 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .hub-timing__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-coalition {
+    margin: 0 0 2.5rem;
+  }
+  .hub-coalition__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-coalition__rows {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hub-coalition__row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-coalition__count {
+    font-weight: 600;
+  }
+  .hub-coalition__pct {
+    font-size: 0.8rem;
+    color: var(--muted);
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .hub-coalition__actions {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .hub-coalition__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-conc-trends {
+    margin: 0 0 2.5rem;
+  }
+  .hub-conc-trends__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  @media (min-width: 720px) {
+    .hub-conc-trends__grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  .hub-activity {
+    margin: 0 0 2.5rem;
+  }
+  .hub-activity__group {
+    margin: 0 0 1.5rem;
+  }
+  .hub-activity__title {
+    margin: 0 0 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  /* Segments and legend come from the shared composition-bar rules in the
+     changed-votes block above. */
+  .hub-activity__bar {
+    display: flex;
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--border);
+  }
+  .hub-activity__sub {
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .hub-activity__stake {
+    margin: 0 0 0.4rem;
+    font-size: 0.875rem;
+  }
+  .hub-activity__note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-throughput__median {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-throughput__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .hub-table-wrap {
+    overflow-x: auto;
+    margin: 0 0 1.25rem;
+  }
+  .hub-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .hub-table th {
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 0 0.5rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .hub-table td {
+    padding: 0.5rem 0.5rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .hub-table tr:last-child td {
+    border-bottom: none;
+  }
+  .hub-table__num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  /* The generic th rule above is equally specific and comes first, so a
+     numeric column header needs its own rule to sit over its figures. */
+  .hub-table th.hub-table__num {
+    text-align: right;
+  }
+
+  .hub-back {
+    margin-top: 2rem;
+    font-size: 0.9rem;
+  }
+  .hub-back a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .hub-back a:hover {
+    text-decoration: underline;
+  }
+</style>

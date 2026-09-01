@@ -1,0 +1,126 @@
+---
+// A section heading that carries its own permalink. The trailing "#" stays
+// invisible until the heading is hovered or the link focused, so the page
+// reads unchanged, and a click copies the absolute link to the section
+// instead of only jumping to it.
+//
+// The link is a SIBLING of the heading, not a child: nested inside, its
+// "Link to this section" label and the status span became part of the
+// heading's accessible name, so every aria-labelledby section name and the
+// screen-reader heading list ended with that boilerplate.
+//
+// One delegated, bundled listener handles every heading on the page (same
+// pattern as ShareButton.astro), because the strict CSP forbids inline
+// handlers.
+interface Props {
+  /** 2 for a chapter heading, 3 for a panel heading. */
+  level: 2 | 3;
+  /** Existing heading id, kept stable: aria-labelledby references depend on it. */
+  id: string;
+  /** Optional class for the heading element itself. */
+  class?: string;
+}
+const { level, id, class: className } = Astro.props;
+const Tag = level === 2 ? 'h2' : 'h3';
+---
+
+<div class="heading-anchor-wrap">
+  <Tag id={id} class={className} data-anchor-heading><slot /></Tag>
+  <a class="heading-anchor" href={`#${id}`} aria-label="Link to this section">
+    <span aria-hidden="true">#</span>
+    {/* Confirmation text, announced by the implicit polite live region and
+        visible next to the anchor for the same 1.5 seconds. */}
+    <span class="heading-anchor__status" data-anchor-status role="status"></span>
+  </a>
+</div>
+
+<script>
+  // Copy the section link and set the hash without the jump the default
+  // anchor behavior would do (the heading is already in view when its own
+  // anchor is clicked). Delegated to document so the single bundled listener
+  // covers every heading on the page.
+  document.addEventListener('click', (event) => {
+    const link = (event.target as Element | null)?.closest<HTMLAnchorElement>('.heading-anchor');
+    if (!link) return;
+    // The id comes from the link's own href, never from a parent heading: the
+    // link sits next to the heading, not inside it.
+    const id = link.getAttribute('href')?.slice(1);
+    if (!id) return;
+    // A modified click (new tab, new window) or a non-primary button should
+    // behave like a normal link, not trigger the copy-and-jump shortcut.
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    history.replaceState(null, '', `#${id}`);
+    const status = link.querySelector('[data-anchor-status]');
+    navigator.clipboard
+      ?.writeText(`${location.origin}${location.pathname}#${id}`)
+      .then(() => {
+        if (!status) return;
+        status.textContent = 'Link copied';
+        setTimeout(() => {
+          status.textContent = '';
+        }, 1500);
+      })
+      .catch(() => {
+        // Clipboard blocked (no permission, insecure context): nothing to do,
+        // the hash was set and the link itself still works.
+      });
+  });
+</script>
+
+<style>
+  /* The heading keeps whatever margins the page gives it. The wrapper adds
+     none of its own, so the spacing around a heading reads as it did before
+     the link became a sibling. */
+  .heading-anchor-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4em;
+    flex-wrap: wrap;
+  }
+  /* The sticky site header would otherwise cover a heading jumped to by its
+     own fragment link. */
+  [data-anchor-heading] {
+    scroll-margin-top: 5rem;
+  }
+  .heading-anchor {
+    color: var(--muted);
+    text-decoration: none;
+    font-weight: 400;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  /* :focus already covers :focus-visible, one selector is enough. */
+  .heading-anchor-wrap:hover .heading-anchor,
+  .heading-anchor:focus {
+    opacity: 1;
+  }
+  .heading-anchor:hover {
+    color: var(--accent);
+  }
+  .heading-anchor:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  /* Touch devices never hover, so the anchor stays readable but quiet. */
+  @media (hover: none) {
+    .heading-anchor {
+      opacity: 0.45;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .heading-anchor {
+      transition: none;
+    }
+  }
+  .heading-anchor__status {
+    margin-left: 0.35rem;
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .heading-anchor__status:empty {
+    margin-left: 0;
+  }
+</style>

@@ -1,19 +1,20 @@
 ---
-// A Yes / No / Not-voted composition bar over a body's whole eligible voting power
-// (see compositionBar in view.ts). Abstain is excluded from the denominator, so it
-// is never a segment. Not voted is a faint neutral fill, present but recessive, so a
-// low-turnout action reads as a near-empty bar dominated by the silent majority
-// rather than a false wall of opposition. An optional threshold marker sits on the
-// same ratification scale as the Yes segment, so the fill reaching (or not) the line
-// reads at a glance.
+// The ratification split for one body: Yes against the No side, over the denominator
+// the threshold is measured against (see compositionBar in view.ts). Abstain is not a
+// segment because it leaves that denominator entirely. Stake that never voted is part
+// of the No side, because that is what the ledger counts it as; how much of the No
+// side that is gets named in the breakdown below the bar, not by softening the bar.
+//
+// The threshold marker overhangs the track top and bottom rather than sitting inside
+// it, so the line reads against the fill instead of disappearing into it.
 import { TONE_BAR_COLORS, type CompositionBar } from '@/lib/governance/view.js';
 
 interface Props {
   bar: CompositionBar;
   height?: number;
   thresholdPct?: number | null;
-  // Dense lists (the overview) get a bare threshold line without the triangle cap,
-  // which reads as noise at small bar heights.
+  // Dense lists (the overview) get a shorter overhang, which keeps the line legible
+  // without letting it dominate an 8px bar.
   compactMarker?: boolean;
 }
 
@@ -21,7 +22,7 @@ const { bar, height = 10, thresholdPct = null, compactMarker = false } = Astro.p
 const clamp = (n: number): number => Math.min(100, Math.max(0, n));
 // Text alternative so the color-only bar is not lost to screen readers.
 const barLabel =
-  `Voting power: yes ${Math.round(bar.yes)}%, no ${Math.round(bar.no)}%, not voted ${Math.round(bar.notVoted)}%` +
+  `Yes ${Math.round(bar.yes)}% of the counted stake, no side ${Math.round(bar.no)}%` +
   (thresholdPct != null ? `, threshold ${Math.round(clamp(thresholdPct))}%` : '');
 ---
 
@@ -29,11 +30,10 @@ const barLabel =
   <div class="cbar__track" style={`height:${height}px`} role="img" aria-label={barLabel}>
     <span class="cbar__seg" style={`width:${bar.yes}%;background:${TONE_BAR_COLORS.positive}`} aria-hidden="true"></span>
     <span class="cbar__seg" style={`width:${bar.no}%;background:${TONE_BAR_COLORS.negative}`} aria-hidden="true"></span>
-    <span class="cbar__seg cbar__seg--nv" style={`width:${bar.notVoted}%`} aria-hidden="true"></span>
   </div>
   {thresholdPct != null && (
     <span
-      class:list={['cbar__marker', compactMarker && 'cbar__marker--bare']}
+      class:list={['cbar__marker', compactMarker && 'cbar__marker--compact']}
       style={`left:${clamp(thresholdPct)}%`}
       aria-hidden="true"
     ></span>
@@ -50,28 +50,21 @@ const barLabel =
     border: 1px solid var(--border);
   }
   .cbar__seg { height: 100%; }
-  /* Not voted: a faint neutral fill, clearly recessive against Yes/No, so the
-     silent majority is visible without reading as opposition. */
-  .cbar__seg--nv { background: color-mix(in srgb, var(--muted) 42%, var(--surface-2)); }
+  /* Overhanging tick: the line runs past the track on both sides, so it stays
+     readable wherever it falls, including on top of the Yes fill. A hairline of
+     the card background around it keeps it separated from the fill it crosses. */
   .cbar__marker {
     position: absolute;
-    top: -2px;
-    bottom: -2px;
+    top: -5px;
+    bottom: -5px;
     width: 2px;
     background: var(--fg);
+    box-shadow: 0 0 0 1px var(--surface);
     transform: translateX(-1px);
     border-radius: 1px;
   }
-  .cbar__marker::before {
-    content: '';
-    position: absolute;
+  .cbar__marker--compact {
     top: -3px;
-    left: 50%;
-    transform: translateX(-50%);
-    border-left: 3px solid transparent;
-    border-right: 3px solid transparent;
-    border-top: 4px solid var(--fg);
+    bottom: -3px;
   }
-  /* Bare line for dense lists: drop the triangle cap. */
-  .cbar__marker--bare::before { display: none; }
 </style>

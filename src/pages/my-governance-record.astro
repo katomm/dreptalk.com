@@ -1,0 +1,574 @@
+---
+// Private DRep diagnostics: the full distributions behind the report-card
+// percentiles, the specific eligible actions carrying no vote, the specific
+// votes carrying no rationale, and how this DRep's timing compares to the
+// network's, type by type. Gated to DReps only, mirroring /voting-power-origins'
+// gating block (no session or non-DRep session -> /login).
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import GovTypePill from '@/components/GovTypePill.astro';
+import { getSelfDrepId } from '@/lib/db/users';
+import { getDrepById } from '@/lib/db/dreps';
+import { runtimeEnv, currentNetwork } from '@/lib/api/response';
+import { resolveNetwork } from '@/lib/config/network';
+import { getReportCard } from '@/lib/db/drepReportCard';
+import {
+  getDrepParticipation,
+  getDrepRationaleStats,
+  listDrepVoteTimings,
+  type DrepParticipation,
+  type DrepVoteTimingRow,
+} from '@/lib/db/drepVotes';
+import {
+  listUnvotedEligibleActions,
+  listUnrationaledVotes,
+  listCohortValues,
+  getNetworkTimingByType,
+  listOwnVoteTimings,
+  type UnvotedAction,
+  type UnrationaledVote,
+  type CohortValues,
+  type NetworkTypeTiming,
+  type OwnVoteTiming,
+} from '@/lib/db/recordDiagnostics';
+import { buildHistogram, buildTimingDetail, type HistogramBucket } from '@/lib/analytics/recordDiagnosticsView';
+import { participationStat, rationaleStat, voteTimingStat, type ParticipationStat } from '@/lib/dreps/voteStatsView';
+import { readableType, shortGovActionId } from '@/lib/governance/view';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const isDrep = user.roles.includes('drep');
+if (!isDrep) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+
+const drepId = db ? await getSelfDrepId(db, user) : null;
+const drep = drepId && db ? await getDrepById(db, drepId) : null;
+
+// Same pattern /vote and /t/[slug] use to turn the runtime env's network
+// string into the config the timing view needs (epochStartMs).
+const network = currentNetwork().network;
+const cfg = resolveNetwork(network);
+
+// One ternary per read (mirroring home.astro's Promise.all block), rather than
+// one outer ternary switching between two whole tuples: each position keeps
+// its own natural type this way, no tuple-wide cast needed.
+const [reportCard, participation, rationaleStats, unvoted, unrationaled, cohortValues, networkTiming, ownTimings, timingRows] = await Promise.all([
+  drep && db ? getReportCard(db, drep.drepId) : Promise.resolve(null),
+  drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : Promise.resolve(null as DrepParticipation | null),
+  drep && db ? getDrepRationaleStats(db, drep.drepId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
+  drep && db && drep.registeredEpoch != null
+    ? listUnvotedEligibleActions(db, drep.drepId, drep.registeredEpoch)
+    : Promise.resolve({ rows: [] as UnvotedAction[], total: 0 }),
+  drep && db ? listUnrationaledVotes(db, drep.drepId) : Promise.resolve({ rows: [] as UnrationaledVote[], total: 0 }),
+  drep && db ? listCohortValues(db) : Promise.resolve([] as CohortValues[]),
+  drep && db ? getNetworkTimingByType(db) : Promise.resolve([] as NetworkTypeTiming[]),
+  drep && db ? listOwnVoteTimings(db, drep.drepId) : Promise.resolve([] as OwnVoteTiming[]),
+  drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([] as DrepVoteTimingRow[]),
+]);
+
+const timingStat = voteTimingStat(timingRows);
+const timingDetail = buildTimingDetail(ownTimings, networkTiming, cfg);
+
+const pStat = participationStat(participation);
+const rStat = rationaleStat(rationaleStats);
+
+const participationHistogram = reportCard ? buildHistogram(cohortValues.map((c) => c.participationPct), reportCard.participationPct) : null;
+const rationaleValues = cohortValues.map((c) => c.rationalePct).filter((v): v is number => v != null);
+const rationaleHistogram = reportCard && reportCard.rationalePct != null ? buildHistogram(rationaleValues, reportCard.rationalePct) : null;
+
+function histMax(buckets: HistogramBucket[] | null): number {
+  return buckets ? Math.max(1, ...buckets.map((b) => b.count)) : 1;
+}
+function ownRangeLabel(buckets: HistogramBucket[] | null): string | null {
+  const own = buckets?.find((b) => b.isOwn);
+  return own ? `${own.fromPct}% to ${own.toPct}%` : null;
+}
+const participationMax = histMax(participationHistogram);
+const rationaleMax = histMax(rationaleHistogram);
+const participationOwnRange = ownRangeLabel(participationHistogram);
+const rationaleOwnRange = ownRangeLabel(rationaleHistogram);
+
+// Plain participation figure for the no-cohort fallback, one branch per tagged state.
+function participationLine(stat: ParticipationStat): string {
+  if (stat.kind === 'ok') return `${stat.pct}% (${stat.voted} of ${stat.eligible})`;
+  if (stat.kind === 'pending') return 'Registration date pending';
+  return 'No concluded governance actions yet';
+}
+---
+<Layout
+  title="Your governance record - DRepTalk"
+  description="The full distributions behind your percentiles, the actions without a vote or a rationale, and how your timing compares to the network."
+  noindex={true}
+  wide
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Your governance record</span>
+  </nav>
+
+  {!drep && (
+    <div class="callout callout--info" role="status">
+      <div class="callout__body">
+        Your DRep id has not synced yet. Check back in a few minutes.
+      </div>
+    </div>
+  )}
+
+  {drep && (
+    <div class="mgr">
+      <div class="mgr-head">
+        <h1 class="mgr-head__title">Your governance record in detail</h1>
+        <p class="mgr-head__sub">The distributions behind your percentiles, the specific actions behind them, and how your timing compares to the network.</p>
+      </div>
+
+      <section class="mgr-section">
+        <h2 class="mgr-section__title">Where you stand</h2>
+        {reportCard ? (
+          <div class="mgr-metrics">
+            <div class="mgr-metric">
+              <span class="mgr-metric__label">Participation</span>
+              {pStat.kind === 'ok' && <span class="mgr-metric__value">{`${pStat.pct}%`}</span>}
+              <span class="mgr-metric__pctile">{`Ahead of ${reportCard.participationAheadPct}% of ${reportCard.cohortSize} active DReps`}</span>
+              {participationHistogram && (
+                <div class="mgr-hist" role="img" aria-label={`Distribution of participation rate across ${reportCard.cohortSize} active DReps, your rate falls in the ${participationOwnRange} bucket`}>
+                  <div class="mgr-hist__bars">
+                    {participationHistogram.map((b) => (
+                      <div class="mgr-hist__col">
+                        <div class={`mgr-hist__bar${b.isOwn ? ' mgr-hist__bar--own' : ''}`} style={`height:${(b.count / participationMax) * 100}%`}></div>
+                      </div>
+                    ))}
+                  </div>
+                  <div class="mgr-hist__axis">
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {reportCard.rationalePct != null && rStat && (
+              <div class="mgr-metric">
+                <span class="mgr-metric__label">Rationale coverage</span>
+                <span class="mgr-metric__value">{`${rStat.pct}%`}</span>
+                {reportCard.rationaleAheadPct != null && (
+                  <span class="mgr-metric__pctile">{`Ahead of ${reportCard.rationaleAheadPct}% of ${reportCard.rationaleCohortSize} active DReps`}</span>
+                )}
+                {rationaleHistogram && (
+                  <div class="mgr-hist" role="img" aria-label={`Distribution of rationale coverage across ${reportCard.rationaleCohortSize} active DReps, your rate falls in the ${rationaleOwnRange} bucket`}>
+                    <div class="mgr-hist__bars">
+                      {rationaleHistogram.map((b) => (
+                        <div class="mgr-hist__col">
+                          <div class={`mgr-hist__bar${b.isOwn ? ' mgr-hist__bar--own' : ''}`} style={`height:${(b.count / rationaleMax) * 100}%`}></div>
+                        </div>
+                      ))}
+                    </div>
+                    <div class="mgr-hist__axis">
+                      <span>0%</span>
+                      <span>100%</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div class="mgr-callout">
+            <div class="callout callout--info" role="status">
+              <div class="callout__body">
+                {cohortValues.length === 0
+                  ? 'Percentiles have not been computed yet. They are built on the next sync run, check back in a few hours.'
+                  : 'Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so this section shows the plain numbers without a percentile.'}
+              </div>
+            </div>
+            <p class="mgr-line">{`Participation: ${participationLine(pStat)}`}</p>
+            <p class="mgr-line">{`Rationale coverage: ${rStat ? `${rStat.pct}% (${rStat.withRationale} of ${rStat.total})` : 'No votes yet'}`}</p>
+          </div>
+        )}
+      </section>
+
+      <section class="mgr-section">
+        <h2 class="mgr-section__title">Eligible actions without your vote</h2>
+        {participation === null ? (
+          <p class="mgr-line">Registration date pending.</p>
+        ) : unvoted.total === 0 ? (
+          <p class="mgr-line">{participation.eligible > 0 ? 'Every eligible action carries your vote.' : 'No eligible actions yet.'}</p>
+        ) : (
+          <>
+            <p class="mgr-headline">{`${unvoted.total} of your ${participation.eligible} eligible actions have no vote from you`}</p>
+            <div class="mgr-list">
+              {unvoted.rows.map((row) => (
+                <div class="mgr-row">
+                  <span class="mgr-row__title">{row.topicSlug ? <a href={`/t/${row.topicSlug}/`}>{row.title ?? shortGovActionId(row.gaId)}</a> : (row.title ?? shortGovActionId(row.gaId))}</span>
+                  <GovTypePill type={row.type} />
+                  <span class="mgr-row__epoch">{`Epoch ${row.decidedEpoch}`}</span>
+                </div>
+              ))}
+            </div>
+            {unvoted.rows.length < unvoted.total && <p class="mgr-note">{`Showing ${unvoted.rows.length} of ${unvoted.total}`}</p>}
+          </>
+        )}
+      </section>
+
+      <section class="mgr-section">
+        <h2 class="mgr-section__title">Votes without a rationale</h2>
+        {unrationaled.total === 0 ? (
+          <p class="mgr-line">{rationaleStats.total > 0 ? 'Every vote carries a rationale link.' : 'No votes yet.'}</p>
+        ) : (
+          <>
+            <p class="mgr-headline">{`${unrationaled.total} of your ${rationaleStats.total} votes carry no rationale link`}</p>
+            <div class="mgr-list">
+              {unrationaled.rows.map((row) => (
+                <div class="mgr-row">
+                  <span class="mgr-row__title">
+                    {row.topicSlug ? <a href={`/t/${row.topicSlug}/`}>{row.title ?? shortGovActionId(row.gaId)}</a> : (row.title ?? shortGovActionId(row.gaId))}
+                    {row.decidedEpoch == null && <span class="mgr-row__open">still open</span>}
+                  </span>
+                  <GovTypePill type={row.type} />
+                  <span class="mgr-row__epoch">{row.decidedEpoch != null ? `Epoch ${row.decidedEpoch}` : ''}</span>
+                </div>
+              ))}
+            </div>
+            {unrationaled.rows.length < unrationaled.total && <p class="mgr-note">{`Showing ${unrationaled.rows.length} of ${unrationaled.total}`}</p>}
+            {unrationaled.rows.some((r) => r.decidedEpoch == null) && (
+              <p class="mgr-note">A still-open action can still gain a rationale, voting again with one attached replaces the earlier vote (see <a href="/help/voting/">how voting works</a>).</p>
+            )}
+          </>
+        )}
+      </section>
+
+      <section class="mgr-section">
+        <h2 class="mgr-section__title">Your voting timing</h2>
+        {timingStat ? (
+          <>
+            <p class="mgr-headline">{`Day ${timingStat.medianDay.toFixed(1)}`}</p>
+            <p class="mgr-line">{`Median point after submission across ${timingStat.timed} timed votes${timingStat.timed < rationaleStats.total ? ` (${timingStat.timed} of ${rationaleStats.total} votes could be timed)` : ''}`}</p>
+          </>
+        ) : (
+          <p class="mgr-line">No timed votes yet.</p>
+        )}
+
+        {timingDetail.types.length > 0 ? (
+          <div class="mgr-table-wrap">
+            <table class="mgr-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Your median day</th>
+                  <th>Network median day</th>
+                  <th>Your timed votes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {timingDetail.types.map((t) => (
+                  <tr>
+                    <td>{readableType(t.type)}</td>
+                    <td>{`Day ${t.ownMedianDay.toFixed(1)}`}</td>
+                    <td>{t.networkMedianDay != null ? `Day ${t.networkMedianDay.toFixed(1)}` : 'No network data'}</td>
+                    <td>{t.ownVotes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p class="mgr-note">Not enough timed votes in any single action type yet, each type needs at least 3.</p>
+        )}
+        {timingDetail.types.length > 0 && (
+          <p class="mgr-note">The network median covers decided actions only, an open action would only show its early votes so far.</p>
+        )}
+
+        {timingDetail.windowBasis > 0 ? (
+          <div class="mgr-timing">
+            <div class="mgr-timing-bar" role="img" aria-label={`Voting window position across ${timingDetail.windowBasis} classified votes: ${timingDetail.early} early, ${timingDetail.middle} middle, ${timingDetail.late} late`}>
+              <span class="mgr-timing-seg mgr-timing-seg--early" style={`flex-grow:${timingDetail.early}`}></span>
+              <span class="mgr-timing-seg mgr-timing-seg--middle" style={`flex-grow:${timingDetail.middle}`}></span>
+              <span class="mgr-timing-seg mgr-timing-seg--late" style={`flex-grow:${timingDetail.late}`}></span>
+            </div>
+            <div class="mgr-timing-legend">
+              <span class="mgr-timing-legend__item"><span class="mgr-timing-dot mgr-timing-dot--early" aria-hidden="true"></span>{`Early ${timingDetail.early}`}</span>
+              <span class="mgr-timing-legend__item"><span class="mgr-timing-dot mgr-timing-dot--middle" aria-hidden="true"></span>{`Middle ${timingDetail.middle}`}</span>
+              <span class="mgr-timing-legend__item"><span class="mgr-timing-dot mgr-timing-dot--late" aria-hidden="true"></span>{`Late ${timingDetail.late}`}</span>
+            </div>
+            <p class="mgr-note">{`Based on ${timingDetail.windowBasis} vote${timingDetail.windowBasis === 1 ? '' : 's'} with a resolvable voting window${timingDetail.skippedWindows > 0 ? `, ${timingDetail.skippedWindows} skipped` : ''}.`}</p>
+          </div>
+        ) : (
+          <p class="mgr-note">No votes with a resolvable voting window yet.</p>
+        )}
+
+        <p class="mgr-sub">This describes a style, not a quality. Earlier is not better, later is not worse.</p>
+      </section>
+    </div>
+  )}
+</Layout>
+
+<style>
+  .mgr {
+    display: flex;
+    flex-direction: column;
+    gap: 1.4rem;
+  }
+  .mgr-head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .mgr-head__title {
+    margin: 0;
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .mgr-head__sub {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9375rem;
+    max-width: 62ch;
+  }
+
+  .mgr-section {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .mgr-section__title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
+
+  .mgr-headline {
+    margin: 0;
+    font-size: 1.0625rem;
+    font-weight: 700;
+  }
+  .mgr-line {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--muted);
+  }
+  .mgr-note {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .mgr-sub {
+    margin: 0.4rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .mgr-callout {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  /* Section 1: two side-by-side metric blocks, stacking on narrow screens. */
+  .mgr-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  @media (max-width: 680px) {
+    .mgr-metrics {
+      grid-template-columns: 1fr;
+    }
+  }
+  .mgr-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .mgr-metric__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .mgr-metric__value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .mgr-metric__pctile {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+
+  /* Pure-CSS histogram: 10 bucket columns, own bucket in the accent color,
+     bar heights are percentages of a fixed-height container. */
+  .mgr-hist {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .mgr-hist__bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 56px;
+  }
+  .mgr-hist__col {
+    flex: 1 1 0;
+    display: flex;
+    align-items: flex-end;
+    height: 100%;
+  }
+  .mgr-hist__bar {
+    width: 100%;
+    min-height: 2px;
+    background: var(--border);
+    border-radius: 2px 2px 0 0;
+  }
+  .mgr-hist__bar--own {
+    background: var(--accent);
+  }
+  .mgr-hist__axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6875rem;
+    color: var(--muted);
+  }
+
+  /* Sections 2 and 3: shared row list. */
+  .mgr-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .mgr-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9375rem;
+  }
+  .mgr-row:last-child {
+    border-bottom: none;
+  }
+  .mgr-row__title {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .mgr-row__title a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+    font-weight: 600;
+  }
+  .mgr-row__open {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+  }
+  .mgr-row__epoch {
+    width: 5rem;
+    flex-shrink: 0;
+    text-align: right;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Section 4: per-type table. */
+  .mgr-table-wrap {
+    overflow-x: auto;
+  }
+  .mgr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .mgr-table th {
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 0 0.5rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mgr-table td {
+    padding: 0.5rem 0.5rem 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mgr-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Early/middle/late split: a three-segment bar plus a labeled legend. */
+  .mgr-timing {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .mgr-timing-bar {
+    display: flex;
+    height: 14px;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .mgr-timing-seg {
+    height: 100%;
+  }
+  .mgr-timing-seg--early {
+    background: color-mix(in srgb, var(--accent) 85%, var(--surface));
+  }
+  .mgr-timing-seg--middle {
+    background: color-mix(in srgb, var(--accent) 50%, var(--surface));
+  }
+  .mgr-timing-seg--late {
+    background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  }
+  .mgr-timing-legend {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .mgr-timing-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .mgr-timing-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+  }
+  .mgr-timing-dot--early {
+    background: color-mix(in srgb, var(--accent) 85%, var(--surface));
+  }
+  .mgr-timing-dot--middle {
+    background: color-mix(in srgb, var(--accent) 50%, var(--surface));
+  }
+  .mgr-timing-dot--late {
+    background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  }
+</style>

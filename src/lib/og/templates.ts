@@ -8,6 +8,7 @@
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
 import type {
+  AnalyticsCardModel,
   CommitteeCardModel,
   DiscussionCardModel,
   DrepCardModel,
@@ -79,7 +80,7 @@ function title(text: string, maxWidth = 1010): string {
   return `<div style="display:flex;font-size:56px;font-weight:800;line-height:1.15;letter-spacing:-1px;max-width:${maxWidth}px;">${esc(text)}</div>`;
 }
 
-// Number-led: the leading body's Yes-of-eligible share as a big figure, over a thin
+// Number-led: the leading body's yes share of the counted stake as a big figure, over a thin
 // bar whose green fill is that share and whose neutral remainder is everything else
 // (no, abstain and, dominant on low turnout, not-voted). The remainder is deliberately
 // left unlabeled here since the card has no room to split it honestly; the detail page
@@ -90,7 +91,7 @@ function tallyBlock(t: { yesPct: number; role: string }): string {
   return `<div style="display:flex;flex-direction:column;">
     <div style="display:flex;align-items:baseline;margin-bottom:14px;">
       <span style="display:flex;font-size:64px;font-weight:800;color:${INK};">${fmtPctFine(yes)}</span>
-      <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:14px;">${bodyLabel} yes of eligible</span>
+      <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:14px;">${bodyLabel} yes of the counted stake</span>
     </div>
     <div style="display:flex;width:1010px;height:20px;border-radius:10px;overflow:hidden;background:${TRACK};">
       <div style="display:flex;width:${yes}%;height:20px;background:${TALLY.yes};"></div>
@@ -134,14 +135,14 @@ function committeeChip(kind: 'add' | 'remove', count: number): string {
     </div>`;
 }
 
-// One Yes-of-eligible bar for a voting body (DReps / SPOs), compact enough that
+// One yes-of-counted bar for a voting body (DReps / SPOs), compact enough that
 // both bodies stack under the summary within the card height.
 function committeeBar(label: string, yesPct: number): string {
   const yes = Math.min(100, Math.max(0, yesPct));
   return `<div style="display:flex;flex-direction:column;margin-top:20px;">
       <div style="display:flex;align-items:baseline;margin-bottom:8px;">
         <span style="display:flex;font-size:40px;font-weight:800;color:${INK};">${fmtPctFine(yes)}</span>
-        <span style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-left:12px;">${esc(label)} yes of eligible</span>
+        <span style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-left:12px;">${esc(label)} yes of counted</span>
       </div>
       <div style="display:flex;width:1010px;height:16px;border-radius:8px;overflow:hidden;background:${TRACK};">
         <div style="display:flex;width:${yes}%;height:16px;background:${TALLY.yes};"></div>
@@ -150,7 +151,7 @@ function committeeBar(label: string, yesPct: number): string {
 }
 
 // Committee membership change card: a joining/leaving count summary over the DRep
-// and SPO Yes-of-eligible bars (the two bodies that vote on a committee action).
+// and SPO yes-of-counted bars (the two bodies that vote on a committee action).
 export function committeeCardHtml(m: CommitteeCardModel): string {
   const meta = m.meta
     ? `<span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-left:16px;">${esc(m.meta)}</span>`
@@ -304,6 +305,36 @@ export function moversCardHtml(m: MoversCardModel): string {
       ${moversColumn('Top losers', 'down', m.losers)}
     </div>`;
   return cardShell(m.accent, `Movers · ${m.epochLabel}`, body);
+}
+
+// Governance analytics hub card: a headline pairing the powered-DRep count
+// with total delegated power, the recent-voting line beneath it and, when the
+// always-abstain option holds power, a third line for it. No title() call
+// here (unlike the other cards), the eyebrow pill already carries the page's
+// name, so the headline figure is the first thing in the body.
+//
+// Two sibling blocks, not one wrapping div: cardShell's flex column uses
+// justify-content:space-between across [header, ...body children] to spread
+// content vertically (see moversCardHtml). A single body div is only one more
+// flex item after the header, so space-between just pushes it to the bottom,
+// leaving a dead gap under the header. Splitting the headline and the detail
+// lines into two items lets the same layout balance this card too.
+export function analyticsCardHtml(m: AnalyticsCardModel): string {
+  const abstainRow = m.abstainLine
+    ? `<div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:16px;">${esc(m.abstainLine)}</div>`
+    : '';
+  const headlineBlock = `<div style="display:flex;flex-direction:column;">
+      <div style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-bottom:10px;">${esc(m.epochLabel)}</div>
+      <div style="display:flex;align-items:baseline;">
+        <span style="display:flex;font-size:72px;font-weight:800;color:${INK};letter-spacing:-1px;">${esc(m.poweredCount)}</span>
+        <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:16px;">DReps hold ${esc(m.totalPowerLabel)}</span>
+      </div>
+    </div>`;
+  const detailBlock = `<div style="display:flex;flex-direction:column;">
+      <div style="display:flex;font-size:32px;font-weight:600;color:${INK};">${esc(m.votingLine)}</div>
+      ${abstainRow}
+    </div>`;
+  return cardShell(m.accent, 'Governance analytics', `${headlineBlock}${detailBlock}`);
 }
 
 // Also renders help-guide cards: helpCardModel returns the same shape with no

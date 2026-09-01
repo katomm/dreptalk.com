@@ -392,8 +392,8 @@ describe('getActionsNeedingVotedPower', () => {
     // Active action: excluded (active/pending are handled by normal tally).
     const active = await insertAction();
 
-    // Terminal but already filled (turnout, per-option power AND eligible SPO stake):
-    // excluded.
+    // Terminal but already filled (turnout, per-option power, eligible SPO stake
+    // AND the four default-option power fields): excluded.
     const filled = await insertAction();
     await updateGovernanceTallyAndStatus(db(), {
       id: filled.id,
@@ -406,6 +406,9 @@ describe('getActionsNeedingVotedPower', () => {
       drepVotedPower: 999_000_000,
       drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
       spoEligiblePower: 5_000_000_000,
+      drepAlwaysAbstainPower: '0', drepAlwaysNoConfidencePower: '0',
+      spoAlwaysAbstainPower: '0', spoAlwaysNoConfidencePower: '0',
+      drepNoSidePower: '0', spoNoSidePower: '0',
       tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });

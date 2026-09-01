@@ -1,8 +1,9 @@
 ---
-// Governance record: three equal metric blocks (participation, rationale
-// coverage, vote pattern donut). Shared by the DRep and SPO profiles, so the
-// copy stays role-neutral. Values are informational, never judgmental: no
-// warning colors on a low rate.
+// Governance record: metric blocks (participation, rationale coverage, vote
+// timing, vote pattern donut). Shared by the DRep and SPO profiles, so the
+// copy stays role-neutral: percentiles and timing are DRep-profile-only props
+// that default to null everywhere else. Values are informational, never
+// judgmental: no warning colors on a low rate.
 import {
   buildVoteDonut, rationaleStat, participationStat, DONUT_R, DONUT_STROKE, DONUT_C,
   type VoteChangeStat,
@@ -15,9 +16,15 @@ interface Props {
   participation: DrepParticipation | null;
   /** Real vote switches (see voteChangeStat); the line is omitted when null. */
   changes?: VoteChangeStat | null;
+  /** Report-card percentiles vs the active-DRep cohort. Only the DRep profile
+   *  passes these. The SPO and home cards stay role-neutral and omit them. */
+  percentiles?: { participationAheadPct: number; rationaleAheadPct: number | null; cohortSize: number } | null;
+  /** Median vote-timing stat (see voteTimingStat). Only the DRep profile passes
+   *  this. The SPO and home cards stay role-neutral and omit it. */
+  timing?: { medianDay: number; timed: number; totalVotes: number } | null;
 }
 
-const { breakdown, rationale, participation, changes = null } = Astro.props;
+const { breakdown, rationale, participation, changes = null, percentiles = null, timing = null } = Astro.props;
 const donut = buildVoteDonut(breakdown);
 const rStat = rationaleStat(rationale);
 const pStat = participationStat(participation);
@@ -36,7 +43,8 @@ const participationLine =
   {donut.total === 0 ? (
     <p class="vstats__empty">No recorded on-chain votes.</p>
   ) : (
-    <div class="vstats__body">
+    <Fragment>
+    <div class="vstats__body" style={`--vstats-cols:${timing ? 4 : 3}`}>
       <div class="vstats__cell">
         <span class="vstats__cell-title">
           <span class="vstats__icon vstats__icon--accent" aria-hidden="true">
@@ -51,6 +59,9 @@ const participationLine =
         </span>
         {pStat.kind === 'ok' && <span class="vstats__big">{pStat.pct}%</span>}
         <span class="vstats__cell-line">{participationLine}</span>
+        {percentiles && (
+          <span class="vstats__pctile">Ahead of {percentiles.participationAheadPct}% of {percentiles.cohortSize} active DReps</span>
+        )}
         {pStat.kind === 'ok' && (
           <span class="vstats__bar" aria-hidden="true">
             <span class="vstats__bar-fill vstats__bar-fill--accent" style={`width:${pStat.pct}%;`}></span>
@@ -74,9 +85,28 @@ const participationLine =
           </span>
           <span class="vstats__big">{rStat.pct}%</span>
           <span class="vstats__cell-line">{rStat.withRationale} of {rStat.total} votes with rationale</span>
+          {percentiles?.rationaleAheadPct != null && (
+            <span class="vstats__pctile">Ahead of {percentiles.rationaleAheadPct}% of {percentiles.cohortSize} active DReps</span>
+          )}
           <span class="vstats__bar" aria-hidden="true">
             <span class="vstats__bar-fill vstats__bar-fill--pos" style={`width:${rStat.pct}%;`}></span>
           </span>
+        </div>
+      )}
+
+      {timing && (
+        <div class="vstats__cell">
+          <span class="vstats__cell-title">
+            <span class="vstats__icon vstats__icon--accent" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 3" />
+              </svg>
+            </span>
+            Vote timing
+          </span>
+          <span class="vstats__big">Day {timing.medianDay.toFixed(1)}</span>
+          <span class="vstats__cell-line">Median point after submission across {timing.timed} timed votes{timing.timed < timing.totalVotes ? ` (${timing.timed} of ${timing.totalVotes} votes could be timed)` : ''}</span>
         </div>
       )}
 
@@ -132,6 +162,10 @@ const participationLine =
         )}
       </div>
     </div>
+    {percentiles && (
+      <p class="vstats__foot">Percentiles compare active DReps with at least five concluded actions since their registration. <a href="/help/drep-report-card/">What these numbers mean</a></p>
+    )}
+    </Fragment>
   )}
 </section>
 
@@ -149,10 +183,25 @@ const participationLine =
   .vstats__h { font-size: 1.125rem; margin: 0 0 1rem; }
   .vstats__empty { color: var(--muted); margin: 0; }
 
-  /* Three equal blocks, each folding to full width on narrow screens. */
+  /* Up to four equal-width blocks (participation, rationale, timing, voting
+     pattern). Timing is DRep-profile-only, so the SPO and home cards have
+     three. Explicit column counts per breakpoint, not auto-fit: auto-fit
+     sizes tracks off the widest content and can strand the last cell alone on
+     its own row next to empty tracks whenever the item count doesn't divide
+     evenly into however many tracks happen to fit. The wide breakpoint's
+     column count matches the actual cell count (--vstats-cols, set inline to
+     3 or 4), so a three-cell page never gets a permanently empty fourth
+     track. Below it, fixed counts (2 / 1) always wrap a short final row flush
+     left instead. Breakpoints are sized off the widest cell (the
+     voting-pattern chart, whose fixed-width donut plus legend need about
+     248px) against this card's own content width (container minus the page's
+     own padding, minus this card's padding), so each track always has room
+     for it: 1250px keeps up to 4 columns at >=252px each down to just above
+     that width, 700px keeps 2 columns at >=286px each down to just above that
+     width, and a single column below 700px never has a width problem. */
   .vstats__body {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    grid-template-columns: repeat(var(--vstats-cols, 3), 1fr);
     gap: 1.25rem 2rem;
     align-items: start;
   }
@@ -160,6 +209,9 @@ const participationLine =
   .vstats__cell-title { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; }
   .vstats__big { font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
   .vstats__cell-line { font-size: 0.8125rem; color: var(--muted); }
+  /* Report-card percentile: a quieter sub-line under the cell's own line, never
+     competing with the cell's own (informational, non-judgmental) big value. */
+  .vstats__pctile { display: block; font-size: 0.75rem; color: var(--muted); }
 
   /* Neutral progress track: informational fill, no warning tones at low rates. */
   .vstats__bar {
@@ -214,6 +266,20 @@ const participationLine =
   .vstats__changes-part { white-space: nowrap; }
   .vstats__changes-sep { margin: 0 0.1rem; }
 
+  .vstats__foot {
+    margin: 1rem 0 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  /* Step the column count down before a track gets too narrow for the
+     voting-pattern chart. See the .vstats__body comment above for the math. */
+  @media (max-width: 1250px) {
+    .vstats__body { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 700px) {
+    .vstats__body { grid-template-columns: 1fr; }
+  }
   @media (max-width: 560px) {
     .vstats { padding: 1.1rem; }
   }
