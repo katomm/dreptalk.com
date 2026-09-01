@@ -66,9 +66,10 @@ export function buildActionVoteChanges(
 ): ActionVoteChanges {
   const c: ActionVoteChanges = {
     changed: 0, samePosition: 0, toYes: 0, toNo: 0, toAbstain: 0,
-    movedPower: 0n, unclassified: 0,
+    movedPower: null, unclassified: 0,
   };
   let powerComplete = true;
+  let movedPower = 0n;
   for (const [voterId, history] of voteHistory) {
     if (history.length === 0 || history[0].voter_role !== role) continue;
     const current = currentVotes.get(voterId);
@@ -80,12 +81,12 @@ export function buildActionVoteChanges(
       c.changed += 1;
       bumpDirection(c, current.vote);
       if (current.voted_power == null) powerComplete = false;
-      else c.movedPower = (c.movedPower ?? 0n) + BigInt(current.voted_power);
+      else movedPower += BigInt(current.voted_power);
     } else {
       c.samePosition += 1;
     }
   }
-  if (!powerComplete || c.changed === 0) c.movedPower = null;
+  if (powerComplete && c.changed > 0) c.movedPower = movedPower;
   return c;
 }
 
