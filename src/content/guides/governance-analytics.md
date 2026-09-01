@@ -49,7 +49,7 @@ Only actions whose complete vote history has been swept from the chain are count
 
 ## Vote rationales
 
-Every on-chain vote can carry a metadata document explaining the decision, the rationale. The rationales panel measures how many DRep votes on decided actions come with one, both as a share of votes and weighted by the voting power behind them. It also shows which decided actions were best and least covered, and how many rationales arrived only later, through a re-vote on the same action.
+Every on-chain vote can carry a metadata document explaining the decision, the rationale. The rationales panel measures how many DRep votes on decided actions carry that link, both as a share of votes and weighted by the voting power behind them. A linked document is not always retrievable, so these figures can read higher than the readable rationales on an action's own page. It also shows which decided actions were best and least covered, and how many rationales arrived only later, through a re-vote on the same action.
 
 Coverage is a presence check, nothing more. A vote with a rationale is not automatically better reasoned than one without, and the panel makes no attempt to judge content. The power-weighted figure only counts actions where the voting power behind every single vote is recorded, and says how many actions that excludes.
 

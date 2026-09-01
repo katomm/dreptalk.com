@@ -24,12 +24,21 @@ describe('buildRationaleCoverage', () => {
   });
 
   it('handles power sums beyond 2^53 via BigInt', () => {
-    const big = '9007199254740993';
+    // 2^53+2 total, 2^53+1 covered: Number math would round both to the same
+    // value and report 100%. BigInt keeps the one-lovelace gap.
     const v = buildRationaleCoverage([
-      a({ gaId: 'g1', power: big, powerWithRationale: big }),
-      a({ gaId: 'g2', power: big, powerWithRationale: '0' }),
+      a({ gaId: 'g1', power: '9007199254740994', powerWithRationale: '9007199254740993' }),
     ], 0);
-    expect(v.powerPct).toBe(50);
+    expect(v.powerPct).toBe(99.9999);
+  });
+
+  it('excludes a malformed power value without dropping the rest of the total', () => {
+    const v = buildRationaleCoverage([
+      a({ gaId: 'g1', power: '1000', powerWithRationale: '600' }),
+      a({ gaId: 'g2', power: '100', powerWithRationale: 'x' }),
+    ], 0);
+    expect(v.powerPct).toBe(60);
+    expect(v.powerExcluded).toBe(1);
   });
 
   it('builds per-type medians and the per-epoch series', () => {

@@ -1,10 +1,12 @@
 /// <reference types="@cloudflare/workers-types" />
-// Rationale-coverage reads for the analytics hub. A rationale is the vote's
-// metadata anchor (meta_url non-empty), the same definition the vote pages
-// use. Power sums travel as TEXT: SQLite sums are exact in 64-bit integers,
-// but D1's JS bridge would round numbers above 2^53, and cross-action totals
-// cross that line. Sums are NULL whenever any live vote lacks a power reading,
-// a partial power sum must never pose as a total.
+// Rationale-coverage reads for the analytics hub. A rationale here is the
+// vote's metadata anchor (meta_url non-empty). The per-DRep stats read the
+// same anchor, but the positions tab counts fetched documents, which can be
+// fewer when an anchor is dead. Power sums travel as TEXT: SQLite sums are
+// exact in 64-bit integers, but D1's JS bridge would round numbers above
+// 2^53, and cross-action totals cross that line. Sums are NULL whenever any
+// live vote lacks a power reading, a partial power sum must never pose as a
+// total.
 import { liveVoteSql } from './drepVotes.js';
 
 export interface ActionRationaleCoverage {

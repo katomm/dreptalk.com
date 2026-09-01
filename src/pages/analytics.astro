@@ -309,7 +309,7 @@ const activityRows = activity
   {rationaleCoverage.countPct != null && (
     <section class="hub-rationale" aria-labelledby="hub-rationale-title">
       <h2 id="hub-rationale-title">Vote rationales</h2>
-      <p class="hub-rationale__lede">{fmtShare(rationaleCoverage.countPct)} of the {rationaleCoverage.totalVotes.toLocaleString('en-US')} DRep votes on decided actions carry a published rationale.{rationaleCoverage.powerPct != null && ` Weighted by voting power, coverage is ${fmtShare(rationaleCoverage.powerPct)}.`}{rationaleCoverage.revoteAdded > 0 && ` ${rationaleCoverage.revoteAdded.toLocaleString('en-US')} rationales arrived later through a re-vote.`}</p>
+      <p class="hub-rationale__lede">{fmtShare(rationaleCoverage.countPct)} of the {rationaleCoverage.totalVotes.toLocaleString('en-US')} DRep votes on decided actions carry an on-chain rationale link.{rationaleCoverage.powerPct != null && ` Weighted by voting power, coverage is ${fmtShare(rationaleCoverage.powerPct)}.`}{rationaleCoverage.revoteAdded > 0 && ` ${rationaleCoverage.revoteAdded.toLocaleString('en-US')} rationales arrived later through a re-vote.`}</p>
       {rationaleCoverage.epochSeries.length > 1 && (
         <div class="hub-rationale__chart">
           <EpochSeriesChart title="Coverage of decided actions" ariaLabel="Median rationale coverage per decision epoch" points={rationaleCoverage.epochSeries} format={fmtShare} />
@@ -344,7 +344,7 @@ const activityRows = activity
           )}
         </div>
       )}
-      <p class="hub-rationale__footnote">A rationale is the metadata document attached to the vote itself. Coverage measures presence, not quality.{rationaleCoverage.powerExcluded > 0 && ` The power-weighted figure leaves out ${rationaleCoverage.powerExcluded} actions with incomplete per-vote power.`}{rationaleCoverage.belowFloor > 0 && ` Best and least covered consider actions with at least 20 votes, ${rationaleCoverage.belowFloor} smaller ones are not ranked.`}</p>
+      <p class="hub-rationale__footnote">Coverage counts the rationale link attached to the vote on chain. A linked document is not always retrievable, so an action can read higher here than the readable rationales on its own page. Coverage measures presence, not quality.{rationaleCoverage.powerExcluded > 0 && ` The power-weighted figure leaves out ${rationaleCoverage.powerExcluded} actions with incomplete per-vote power.`}{rationaleCoverage.belowFloor > 0 && ` Best and least covered consider actions with at least 20 votes, ${rationaleCoverage.belowFloor} smaller ones are not ranked.`}</p>
     </section>
   )}
 

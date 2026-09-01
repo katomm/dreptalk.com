@@ -143,6 +143,8 @@ export interface PowerChartOptions {
    * than this scales naturally and fills the plot.
    */
   minSpanFrac?: number;
+  /** Normalized 0..1 x position per value, same length as values. Falls back to index spacing when missing or invalid, so a sparse series stops compressing its gaps. */
+  positions?: number[];
 }
 
 function round2(n: number): number {
@@ -190,7 +192,15 @@ export function buildPowerChart(values: number[], opts: PowerChartOptions = {}):
   }
 
   const yFor = (v: number): number => round2(plot.y + plot.h * (1 - (v - lo) / (hi - lo)));
-  const xFor = (i: number): number => round2(plot.x + (plot.w * i) / (values.length - 1));
+  // Epoch-true x spacing when the caller passes positions (a sparse series stops
+  // compressing its gaps), otherwise fall back to evenly-spaced index mapping.
+  const positions = opts.positions;
+  const validPositions =
+    positions != null &&
+    positions.length === values.length &&
+    positions.every((p, i) => Number.isFinite(p) && (i === 0 || p >= positions[i - 1]));
+  const xFor = (i: number): number =>
+    validPositions ? round2(plot.x + plot.w * positions[i]) : round2(plot.x + (plot.w * i) / (values.length - 1));
 
   const pts = values.map((v, i) => ({ x: xFor(i), y: yFor(v) }));
   const line = pts.map((p) => `${p.x},${p.y}`).join(' ');
