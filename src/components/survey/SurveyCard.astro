@@ -10,6 +10,7 @@ import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import {
   countStillExpected,
+  lifecycleLabel,
   questionViews,
   roleLabels,
   surveyDeadlineUnix,
@@ -37,7 +38,7 @@ const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
 const questions = questionViews(definition);
 const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
 
-const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Closed' : 'Cancelled';
+const statusLabel = lifecycleLabel(lifecycle);
 ---
 
 <section class="svy-card">

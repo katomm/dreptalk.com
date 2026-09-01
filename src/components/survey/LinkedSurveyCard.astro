@@ -6,7 +6,7 @@
 import type { NetworkConfig } from '@/lib/config/network.js';
 import type { SurveyRow } from '@/lib/db/surveys.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
-import { countStillExpected, surveyDeadlineUnix, surveyLifecycle } from '@/lib/surveys/view.js';
+import { countStillExpected, lifecycleLabel, surveyDeadlineUnix, surveyLifecycle } from '@/lib/surveys/view.js';
 
 interface Props {
   survey: SurveyRow;
@@ -18,7 +18,7 @@ interface Props {
 const { survey, topicSlug, cfg, now } = Astro.props;
 
 const lifecycle = surveyLifecycle(survey, now, cfg);
-const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Closed' : 'Cancelled';
+const statusLabel = lifecycleLabel(lifecycle);
 const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
 ---
 

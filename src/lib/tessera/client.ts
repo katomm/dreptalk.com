@@ -7,8 +7,10 @@ import { z } from 'zod';
 // package's `fromJsonSafe` is the one place they are parsed, and duplicating
 // its schema in zod would be a second CIP-179 implementation waiting to drift.
 //
-// Called from gov-sync only. No page request and no browser code may reach
-// Tessera: SSR reads D1, and the CSP's connect-src blocks the backend origin.
+// The client is called from gov-sync only. No page request and no browser code
+// may reach Tessera: SSR reads D1, and the CSP's connect-src blocks the backend
+// origin. SURVEY_KEY_RE below is the exception the routes do import — the key
+// shape is a contract, not a call.
 
 export interface TesseraClientOptions {
   /** Backend origin (TESSERA_BACKEND_URL), with or without a trailing slash. */
@@ -51,8 +53,11 @@ export type SnapshotResult<T> = { ready: true; value: T } | { ready: false };
 /** Server-side page ceiling for `/api/surveys` — both the list page and `refs=`. */
 export const MAX_REFS_PER_CALL = 200;
 
-/** Canonical survey key: `<txHashHex>:<index>`, index without leading zeros. */
-const SURVEY_KEY_RE = /^[0-9a-f]{64}:(0|[1-9][0-9]*)$/;
+/** Canonical survey key: `<txHashHex>:<index>`, index without leading zeros.
+ * The contract with Tessera, which keys every survey by this exact string and
+ * rejects any other spelling — so the routes and the record API validate a ref
+ * against this one shape rather than each carrying a copy of it. */
+export const SURVEY_KEY_RE = /^[0-9a-f]{64}:(0|[1-9][0-9]*)$/;
 
 const healthSchema = z.object({ ok: z.boolean(), network: z.string() });
 

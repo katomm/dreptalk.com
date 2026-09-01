@@ -44,6 +44,18 @@ export function surveyLifecycle(
   return epochFromUnix(nowMs / 1000, cfg) > row.endEpoch ? 'closed' : 'open';
 }
 
+const LIFECYCLE_LABELS: Record<SurveyLifecycle, string> = {
+  open: 'Open',
+  closed: 'Closed',
+  cancelled: 'Cancelled',
+};
+
+/** Badge text for a lifecycle, so the row, the card and the sidebar card
+ * cannot come to disagree about what a survey's state is called. */
+export function lifecycleLabel(lifecycle: SurveyLifecycle): string {
+  return LIFECYCLE_LABELS[lifecycle];
+}
+
 /** Whether a row storing no count can still gain one. False once a decided
  * survey's audit schedule closes without one: "pending" would be a lie, since
  * nothing is scheduled any more. */

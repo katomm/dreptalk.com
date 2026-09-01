@@ -6,6 +6,7 @@ export const prerender = false;
 
 import NotFound from '@/components/NotFound.astro';
 import { getTopicSlugBySurveyRef } from '@/lib/db/surveys.js';
+import { SURVEY_KEY_RE } from '@/lib/tessera/client.js';
 import { env } from 'cloudflare:workers';
 
 const { ref } = Astro.params;
@@ -13,7 +14,7 @@ const db = env.DB as D1Database | undefined;
 
 // Canonical key form only (lowercase hex, no leading zeros in the index) —
 // the same rule Tessera's API applies, so a link that works there works here.
-const key = ref && /^[0-9a-f]{64}:(0|[1-9][0-9]*)$/.test(ref) ? ref : null;
+const key = ref && SURVEY_KEY_RE.test(ref) ? ref : null;
 
 const slug = key && db ? await getTopicSlugBySurveyRef(db, key) : null;
 if (slug) return Astro.redirect(`/t/${slug}/`, 301);

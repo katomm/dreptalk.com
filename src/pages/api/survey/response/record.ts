@@ -12,13 +12,14 @@ import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { parseDrepId } from '@/lib/cardano/identity';
 import { recordLocalSurveyResponse, surveyRefExists } from '@/lib/db/surveys';
 import { getSelfDrepId } from '@/lib/db/users';
+import { SURVEY_KEY_RE } from '@/lib/tessera/client';
 
 export const prerender = false;
 
 const schema = z.object({
-  // Canonical survey key, as the survey table stores it (index without
-  // leading zeros — the same shape the Tessera client enforces).
-  surveyRef: z.string().regex(/^[0-9a-f]{64}:(0|[1-9][0-9]*)$/),
+  // Canonical survey key, as the survey table stores it: the same constant the
+  // Tessera client validates its own calls against.
+  surveyRef: z.string().regex(SURVEY_KEY_RE),
   txHash: z.string().regex(/^[0-9a-fA-F]{64}$/),
 });
 

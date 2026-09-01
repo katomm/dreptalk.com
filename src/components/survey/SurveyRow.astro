@@ -5,7 +5,7 @@ import type { NetworkConfig } from '@/lib/config/network.js';
 import type { SurveyListEntry } from '@/lib/db/surveys.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { countStillExpected, surveyDeadlineUnix, surveyLifecycle } from '@/lib/surveys/view.js';
+import { countStillExpected, lifecycleLabel, surveyDeadlineUnix, surveyLifecycle } from '@/lib/surveys/view.js';
 
 interface Props {
   entry: SurveyListEntry;
@@ -17,7 +17,7 @@ const { entry, cfg, now } = Astro.props;
 const { survey } = entry;
 
 const lifecycle = surveyLifecycle(survey, now, cfg);
-const statusLabel = lifecycle === 'open' ? 'Open' : lifecycle === 'closed' ? 'Closed' : 'Cancelled';
+const statusLabel = lifecycleLabel(lifecycle);
 const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
 const replies = Math.max(0, entry.postCount - 1);
 ---
