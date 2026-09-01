@@ -103,6 +103,10 @@ export async function resolveFollow(
     }
     if (capture) {
       let epoch: number | null = null;
+      // True only when the lookup itself could not be completed (a throw or a
+      // timeout), never for a lookup that ran and simply found nothing: only
+      // the latter is a confirmed empty history and counts toward giving up.
+      let failed = false;
       try {
         const rows = await withTimeout(
           koios.accountUpdateHistoryBatch([stakeAddr]),
@@ -112,11 +116,14 @@ export async function resolveFollow(
       } catch {
         // A failed capture is recorded as a NULL start below, so the attempt is
         // visible and the retry window applies instead of a per-login hammer.
+        // It does not count toward the give-up threshold: the lookup never ran
+        // to completion, so it confirmed nothing about the account's history.
+        failed = true;
       }
       // A fresh baseline owns the start it just captured, so it writes flat. The
       // retry path only writes while the row is still the one it read.
-      if (fresh) await setDelegatedSince(db, userId, epoch, now);
-      else await captureDelegatedSince(db, userId, epoch, now, observedSince);
+      if (fresh) await setDelegatedSince(db, userId, epoch, now, failed);
+      else await captureDelegatedSince(db, userId, epoch, now, observedSince, failed);
     }
   } catch {
     // Never throw: a D1 write failure here must not fail the login. The row
@@ -191,6 +198,14 @@ export async function refreshBulk(
  * since_checked_at observed when the row was listed, so a login capture that ran
  * while the Koios call was in flight is not overwritten. Never throws: the
  * capture is a bonus on top of the refresh, not a reason to fail it.
+ *
+ * An address with no rows in the response only counts toward the give-up
+ * threshold when the call as a whole can be trusted to have reported it
+ * honestly: either every requested address came back empty (a plausible, if
+ * unlikely, genuine batch of unstarted accounts), or this address's own rows
+ * came back. An address missing while OTHER requested addresses in the same
+ * batch did come back is a partial drop, not a confirmed empty history, so it
+ * is recorded as a failed lookup for that address alone and does not count.
  */
 async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: string[], now: number): Promise<void> {
   try {
@@ -198,11 +213,14 @@ async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: strin
     if (pending.length === 0) return;
 
     let rows: AccountUpdateHistoryRow[] = [];
+    let batchFailed = false;
     try {
       rows = await koios.accountUpdateHistoryBatch(pending.map((p) => p.stakeAddr));
     } catch {
       // Leave rows empty: every pending address gets a NULL start recorded below,
-      // so the whole group waits out the retry window instead of retrying at once.
+      // as a failed lookup, so the whole group waits out the retry window
+      // instead of retrying at once, without counting toward the give-up total.
+      batchFailed = true;
     }
     const byStake = new Map<string, AccountUpdateHistoryRow[]>();
     for (const row of rows) {
@@ -210,8 +228,13 @@ async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: strin
       if (list) list.push(row);
       else byStake.set(row.stake_address, [row]);
     }
+    const anyAddressResponded = byStake.size > 0;
     for (const { userId, stakeAddr, sinceCheckedAt } of pending) {
       try {
+        const responded = byStake.has(stakeAddr);
+        // A per-address failure: the whole call threw, or this address has no
+        // rows while some other requested address in the batch did come back.
+        const failed = batchFailed || (!responded && anyAddressResponded);
         // Compare and set on what the listing observed: a login that captured the
         // start while this bulk call was in flight keeps its value.
         await captureDelegatedSince(
@@ -220,6 +243,7 @@ async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: strin
           delegationStartEpoch(byStake.get(stakeAddr) ?? []),
           now,
           sinceCheckedAt,
+          failed,
         );
       } catch {
         // A per-row write failure must not abort the rest of the capture.

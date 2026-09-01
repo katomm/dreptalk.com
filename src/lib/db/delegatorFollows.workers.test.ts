@@ -241,6 +241,37 @@ describe('delegation start columns (migration 0089)', () => {
     expect(await attempts('at-2')).toBe(0);
   });
 
+  it('a failed lookup records the attempt time but does not count toward giving up', async () => {
+    const attempts = async (userId: string) =>
+      (await db().prepare('SELECT since_attempts FROM delegator_follows WHERE user_id = ?')
+        .bind(userId).first<{ since_attempts: number }>())?.since_attempts;
+
+    await ensureFollow(db(), 'fl-1', 'stake_test1fl1', 0);
+
+    // A failed setDelegatedSince (fresh baseline path) stamps the check time
+    // but leaves the run at 0.
+    await setDelegatedSince(db(), 'fl-1', null, 1000, true);
+    expect(await since('fl-1')).toEqual({ delegated_since_epoch: null, since_checked_at: 1000 });
+    expect(await attempts('fl-1')).toBe(0);
+
+    // A confirmed-empty lookup right after does increment, so the two are
+    // genuinely distinguished, not just always-zero.
+    await setDelegatedSince(db(), 'fl-1', null, 2000);
+    expect(await attempts('fl-1')).toBe(1);
+
+    // A failed captureDelegatedSince (retry path) behaves the same way: the
+    // stamp moves on, the run does not.
+    await ensureFollow(db(), 'fl-2', 'stake_test1fl2', 0);
+    expect(await captureDelegatedSince(db(), 'fl-2', null, 1000, null, true)).toBe(true);
+    expect(await since('fl-2')).toEqual({ delegated_since_epoch: null, since_checked_at: 1000 });
+    expect(await attempts('fl-2')).toBe(0);
+    expect(await captureDelegatedSince(db(), 'fl-2', null, 2000, 1000, true)).toBe(true);
+    expect(await attempts('fl-2')).toBe(0);
+    // A confirmed-empty capture on the same row does increment.
+    expect(await captureDelegatedSince(db(), 'fl-2', null, 3000, 2000)).toBe(true);
+    expect(await attempts('fl-2')).toBe(1);
+  });
+
   it('a changed delegation resets the attempt count with the start it belonged to', async () => {
     await ensureFollow(db(), 'at-3', 'stake_test1at3', 1000);
     await applyResolution(db(), 'at-3', drepState('drep1ata'), 1000);

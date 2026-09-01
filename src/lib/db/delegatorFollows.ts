@@ -20,17 +20,22 @@ export interface DelegatorFollowRow {
   refresh_error_at: number | null;
   delegated_since_epoch: number | null;
   since_checked_at: number | null;
-  /** Consecutive capture attempts that produced no start. 0 once one succeeds. */
+  /** Consecutive SUCCESSFUL lookups that came back with no start. 0 once one succeeds. */
   since_attempts: number;
 }
 
 /**
- * The SQL fragment that keeps since_attempts honest on a capture write: an
- * attempt that produced no start counts up, a captured start resets the run to
- * 0. Chosen by the caller's own epoch argument, so no value is interpolated.
+ * The SQL fragment that keeps since_attempts honest on a capture write: a
+ * successful lookup that came back with no start counts up, a captured start
+ * resets the run to 0. A failed lookup (a throw, a timeout, or an address the
+ * batch response omitted while others in it came back) leaves the count as it
+ * is, since it never confirmed an empty history, only that the lookup could
+ * not be completed. Chosen by the caller's own arguments, so no value is
+ * interpolated.
  */
-function attemptsFragment(epoch: number | null): string {
-  return epoch == null ? 'since_attempts = since_attempts + 1' : 'since_attempts = 0';
+function attemptsFragment(epoch: number | null, failed: boolean): string {
+  if (epoch != null) return 'since_attempts = 0';
+  return failed ? 'since_attempts = since_attempts' : 'since_attempts = since_attempts + 1';
 }
 
 function columnsFor(state: DelegationState): { type: string; drepId: string | null } {
@@ -176,9 +181,13 @@ export async function getFollowedDrepIds(db: D1Database): Promise<Set<string>> {
 
 /**
  * Records a delegation-start capture attempt unconditionally. `epoch` null means
- * the attempt ran but produced no start (Koios failed, or the account has no
- * delegation_drep event), so the row keeps a NULL start, counts the attempt and
- * waits out the retry window instead of being re-queried on every login.
+ * the attempt found no start: either the lookup succeeded and came back with no
+ * delegation_drep event (an empty history, so the row is retried but the attempt
+ * counts toward giving up), or the lookup itself failed (a throw, a timeout, or
+ * an address a batch response omitted while other addresses in it came back), in
+ * which case `failed` must be true so the attempt is NOT counted, only the retry
+ * window is advanced. Either way since_checked_at is stamped and the row waits
+ * out the retry window instead of being re-queried on every login.
  * Only for a capture that directly follows a created or changed baseline, where
  * this call owns the freshly written delegation. Retry paths that act on a row
  * they read earlier must use captureDelegatedSince instead.
@@ -188,10 +197,11 @@ export async function setDelegatedSince(
   userId: string,
   epoch: number | null,
   now: number,
+  failed = false,
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?, ${attemptsFragment(epoch)}
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?, ${attemptsFragment(epoch, failed)}
         WHERE user_id = ?`,
     )
     .bind(epoch, now, userId)
@@ -264,6 +274,11 @@ export async function listFollowsMissingSince(
  * `observedSinceCheckedAt` null means the row was observed never attempted, which
  * the predicate expresses as the sentinel -1 (since_checked_at is unix seconds,
  * so no real stamp can collide with it).
+ * `failed` marks a lookup that could not be completed (a throw, a timeout, or an
+ * address a batch response omitted while other addresses in it came back): the
+ * row still records the attempt time, but since_attempts is left unchanged,
+ * because only a successful lookup that came back empty confirms anything about
+ * the account's history. Defaults to false, an ordinary confirmed-empty capture.
  * Returns whether this call wrote the row.
  */
 export async function captureDelegatedSince(
@@ -272,10 +287,11 @@ export async function captureDelegatedSince(
   epoch: number | null,
   now: number,
   observedSinceCheckedAt: number | null,
+  failed = false,
 ): Promise<boolean> {
   const res = await db
     .prepare(
-      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?, ${attemptsFragment(epoch)}
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?, ${attemptsFragment(epoch, failed)}
         WHERE user_id = ? AND delegated_since_epoch IS NULL AND COALESCE(since_checked_at, -1) = ?`,
     )
     .bind(epoch, now, userId, observedSinceCheckedAt ?? -1)

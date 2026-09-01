@@ -153,6 +153,7 @@ describe('delegation start capture in resolveFollow', () => {
     const first = fakeKoios({ historyThrows: true });
     await resolveFollow(db(), first.koios as never, 'c4', 'stake_test1c4', 1000);
     expect((await getFollow(db(), 'c4'))?.delegated_since_epoch).toBeNull();
+    expect((await getFollow(db(), 'c4'))?.since_attempts).toBe(0); // the throw did not count
 
     const later = fakeKoios({});
     await resolveFollow(db(), later.koios as never, 'c4', 'stake_test1c4', 1000 + 86_401);
@@ -168,6 +169,9 @@ describe('delegation start capture in resolveFollow', () => {
     expect(row?.drep_id).toBe(VALID_DREP_A); // the delegation itself still resolved
     expect(row?.delegated_since_epoch).toBeNull();
     expect(row?.since_checked_at).toBe(1000);
+    // A Koios failure (throw/timeout) records the attempt time but must not
+    // count toward the give-up threshold: it never confirmed an empty history.
+    expect(row?.since_attempts).toBe(0);
 
     const soon = fakeKoios({});
     await resolveFollow(db(), soon.koios as never, 'c5', 'stake_test1c5', 1000 + 3600);
@@ -184,6 +188,8 @@ describe('delegation start capture in resolveFollow', () => {
     expect(row?.delegation_type).toBe('none');
     expect(row?.delegated_since_epoch).toBeNull();
     expect(row?.since_checked_at).toBe(1000);
+    // A successful lookup that came back empty DOES count toward giving up.
+    expect(row?.since_attempts).toBe(1);
   });
 });
 
@@ -208,9 +214,13 @@ describe('delegation start capture in refreshBulk', () => {
     expect(first?.delegated_since_epoch).toBe(700);
     expect(first?.since_checked_at).toBe(900_000);
 
+    // bs15 was requested in the same batch as bs01, which did come back, so its
+    // own absence from the response is a partial drop, not a confirmed empty
+    // history: the attempt time is recorded but the run does not count it.
     const empty = await getFollow(db(), 'bs15');
     expect(empty?.delegated_since_epoch).toBeNull();
     expect(empty?.since_checked_at).toBe(900_000); // attempt recorded even with no rows
+    expect(empty?.since_attempts).toBe(0);
 
     const untouched = await getFollow(db(), 'bs16');
     expect(untouched?.since_checked_at).toBeNull();
@@ -230,6 +240,29 @@ describe('delegation start capture in refreshBulk', () => {
     const failed = await getFollow(db(), 'bk2');
     expect(failed?.delegated_since_epoch).toBeNull();
     expect(failed?.since_checked_at).toBe(900_000);
+    // The whole batch call threw, so this is a failed lookup, not a confirmed
+    // empty history: it must not count toward the give-up threshold.
+    expect(failed?.since_attempts).toBe(0);
+  });
+
+  it('a bulk response missing one requested address, while another came back, only fails that address', async () => {
+    await ensureFollow(db(), 'bm1', 'stake_test1bm1', 0);
+    await ensureFollow(db(), 'bm2', 'stake_test1bm2', 0);
+
+    // Only bm1 comes back in the response, bm2 is silently omitted even though
+    // the call as a whole succeeded.
+    const { koios } = fakeKoios({
+      history: (addrs) => addrs.filter((a) => a === 'stake_test1bm1').map((a) => histRow(a, 700, 4200)),
+    });
+    await refreshBulk(db(), koios as never, 900_000, 50);
+
+    const responded = await getFollow(db(), 'bm1');
+    expect(responded?.delegated_since_epoch).toBe(700);
+
+    const dropped = await getFollow(db(), 'bm2');
+    expect(dropped?.delegated_since_epoch).toBeNull();
+    expect(dropped?.since_checked_at).toBe(900_000);
+    expect(dropped?.since_attempts).toBe(0); // a partial drop, not a confirmed empty history
   });
 
   it('re-captures the start of a follow whose delegation changed in the same batch', async () => {

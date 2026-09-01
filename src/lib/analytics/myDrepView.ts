@@ -165,8 +165,18 @@ const RULE: Record<DefaultOption, string> = {
  * Always-abstain leaves the denominator on every type. Always-no-confidence is
  * counted as Yes on a NoConfidence action, because that action IS the motion the
  * option stands for, and as No on every other type.
+ *
+ * Bounded (a real delegation-start window) states this as a past fact about the
+ * action, since the window proves the option applied to it. Unbounded (the
+ * give-up state, listing decided actions with no window because the start is
+ * not on record) cannot claim that as a fact, since some of the listed actions
+ * may predate the actual delegation, so it states the rule instead of a fact.
  */
-export function defaultOptionEffect(option: DefaultOption, type: string): string {
+export function defaultOptionEffect(option: DefaultOption, type: string, unbounded = false): string {
+  if (unbounded) {
+    if (option === 'abstain') return 'Your stake stays out of the threshold under this option';
+    return type === 'NoConfidence' ? 'Your stake counts as Yes under this option' : 'Your stake counts as No under this option';
+  }
   if (option === 'abstain') return 'Your stake was left out of the threshold on this action';
   return type === 'NoConfidence' ? 'Your stake counted as Yes' : 'Your stake counted as No';
 }
@@ -175,11 +185,14 @@ export function defaultOptionEffect(option: DefaultOption, type: string): string
  * The M2 list: the rule once, then the decided actions with the outcome and what
  * the option meant on each. An action with no title falls back to its readable
  * type, and one with no forum topic gets no link rather than a dead one.
+ * `unbounded` selects the give-up phrasing (see defaultOptionEffect).
  */
 export function buildDefaultOptionView(
   option: DefaultOption,
   actions: RecentDecidedAction[],
+  opts?: { unbounded?: boolean },
 ): DefaultOptionView {
+  const unbounded = opts?.unbounded ?? false;
   return {
     rule: RULE[option],
     rows: actions.map((a) => ({
@@ -188,7 +201,7 @@ export function buildDefaultOptionView(
       href: a.topicSlug != null ? `/t/${a.topicSlug}/` : null,
       type: a.type,
       outcome: statusBadge(a.status).label,
-      effect: defaultOptionEffect(option, a.type),
+      effect: defaultOptionEffect(option, a.type, unbounded),
     })),
   };
 }

@@ -111,8 +111,12 @@ const m1 =
         powerNow,
       })
     : null;
+// Without a real start the list runs unbounded (see the read above), so the
+// per-row effect states the rule rather than a past fact it cannot prove.
 const m2 =
-  defaultOption && (sinceEpoch != null || startGivenUp) ? buildDefaultOptionView(defaultOption, recent) : null;
+  defaultOption && (sinceEpoch != null || startGivenUp)
+    ? buildDefaultOptionView(defaultOption, recent, { unbounded: sinceEpoch == null })
+    : null;
 
 // The delegation itself, stated in the header, keeps the epoch the certificate
 // was submitted in even when the figures below start later.

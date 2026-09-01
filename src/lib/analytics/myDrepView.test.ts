@@ -197,6 +197,18 @@ describe('defaultOptionEffect', () => {
     expect(defaultOptionEffect('no_confidence', 'InfoAction')).toBe('Your stake counted as No');
     expect(defaultOptionEffect('no_confidence', 'TreasuryWithdrawals')).toBe('Your stake counted as No');
   });
+
+  it('states the rule instead of a past fact when unbounded (the give-up state)', () => {
+    expect(defaultOptionEffect('abstain', 'InfoAction', true)).toBe(
+      'Your stake stays out of the threshold under this option',
+    );
+    expect(defaultOptionEffect('no_confidence', 'NoConfidence', true)).toBe(
+      'Your stake counts as Yes under this option',
+    );
+    expect(defaultOptionEffect('no_confidence', 'InfoAction', true)).toBe(
+      'Your stake counts as No under this option',
+    );
+  });
 });
 
 describe('buildDefaultOptionView', () => {
@@ -256,5 +268,32 @@ describe('buildDefaultOptionView', () => {
 
   it('returns no rows when nothing has been decided yet', () => {
     expect(buildDefaultOptionView('abstain', []).rows).toEqual([]);
+  });
+
+  it('switches to rule-stated effects in the unbounded (give-up) mode, rule text unchanged', () => {
+    const abstainView = buildDefaultOptionView('abstain', rows, { unbounded: true });
+    expect(abstainView.rule).toBe(
+      'An always-abstain delegation is counted as abstaining on every governance action, so your stake stays out of the yes and no sides and out of the threshold.',
+    );
+    expect(abstainView.rows.map((r) => r.effect)).toEqual([
+      'Your stake stays out of the threshold under this option',
+      'Your stake stays out of the threshold under this option',
+      'Your stake stays out of the threshold under this option',
+    ]);
+
+    const ncView = buildDefaultOptionView('no_confidence', rows, { unbounded: true });
+    expect(ncView.rows.map((r) => r.effect)).toEqual([
+      'Your stake counts as No under this option',
+      'Your stake counts as Yes under this option',
+      'Your stake counts as No under this option',
+    ]);
+
+    // Omitting the option, or passing unbounded: false, keeps the bounded wording.
+    expect(buildDefaultOptionView('abstain', rows).rows[0].effect).toBe(
+      'Your stake was left out of the threshold on this action',
+    );
+    expect(buildDefaultOptionView('abstain', rows, { unbounded: false }).rows[0].effect).toBe(
+      'Your stake was left out of the threshold on this action',
+    );
   });
 });
