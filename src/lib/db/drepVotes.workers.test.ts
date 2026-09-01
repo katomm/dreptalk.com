@@ -107,6 +107,24 @@ describe('getDrepVotingHistory + countDrepVotes', () => {
   });
 });
 
+describe('getVotesByGaId', () => {
+  it('carries voted_power through in the map value', async () => {
+    await upsertVotes(env.DB, 'ga_power_map#0', [
+      { voterRole: 'DRep', voterId: 'drep_pm', voterHex: null, vote: 'Yes', votedPower: 42 },
+    ], 1);
+    const map = await getVotesByGaId(env.DB, 'ga_power_map#0');
+    expect(map.get('drep_pm')).toMatchObject({ role: 'DRep', vote: 'Yes', voted_power: 42 });
+  });
+
+  it('reads voted_power as null when unresolved', async () => {
+    await upsertVotes(env.DB, 'ga_power_map_null#0', [
+      { voterRole: 'DRep', voterId: 'drep_pm2', voterHex: null, vote: 'No' },
+    ], 1);
+    const map = await getVotesByGaId(env.DB, 'ga_power_map_null#0');
+    expect(map.get('drep_pm2')).toMatchObject({ role: 'DRep', vote: 'No', voted_power: null });
+  });
+});
+
 it('lists only SPO voters for an action, newest first', async () => {
   await env.DB.prepare(
     `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at, local_status)

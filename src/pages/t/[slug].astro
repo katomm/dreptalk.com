@@ -278,7 +278,7 @@ const related: RelatedActionRow[] = isGovernanceTopic && govAction && db
       limit: 6,
     })
   : [];
-const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string; meta_url: string | null }>();
+const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new Map<string, { role: string; vote: string; meta_url: string | null; voted_power: number | null }>();
 
 // DRep vote panel: only for logged-in DReps on votable (active) actions.
 // Gate on ga.status === 'active'; deriveStatus already accounts for expiry boundary.
