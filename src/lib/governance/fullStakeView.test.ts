@@ -45,6 +45,10 @@ describe('buildFullStakeBar', () => {
       expect(bar!.segments.map((s) => s.key)).toEqual(['activeAbstain', 'notVoted']);
       expect(bar!.segments.map((s) => s.pct)).toEqual([30, 70]);
     });
+
+    it('returns null instead of throwing when a TEXT power column holds malformed text', () => {
+      expect(buildFullStakeBar(makeInput({ alwaysAbstainPower: 'not-a-number' }))).toBeNull();
+    });
   });
 
   it('worked example: exact percentages and threshold position on the full-stake axis', () => {
@@ -70,6 +74,7 @@ describe('buildFullStakeBar', () => {
     ]);
     expect(bar.segments.map((s) => s.pct)).toEqual([30, 5, 5, 40, 10, 10]);
     expect(bar.thresholdPct).toBe(30.15);
+    expect(bar.approvalThresholdPct).toBe(67);
     expect(bar.ancEffect).toBe('no');
   });
 
@@ -81,9 +86,10 @@ describe('buildFullStakeBar', () => {
     expect(other.ancEffect).toBe('no');
   });
 
-  it('thresholdPct is null when the input threshold is null', () => {
+  it('thresholdPct and approvalThresholdPct are both null when the input threshold is null', () => {
     const bar = buildFullStakeBar(makeInput({ approvalThresholdPct: null }))!;
     expect(bar.thresholdPct).toBeNull();
+    expect(bar.approvalThresholdPct).toBeNull();
   });
 
   it('clamps a threshold position above 100 down to 100', () => {

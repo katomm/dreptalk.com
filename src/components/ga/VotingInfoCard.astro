@@ -30,10 +30,12 @@ interface Props {
   // Total active DRep voting power: the denominator for the DRep composition and
   // turnout. Null for SPO-led types or before a tally syncs.
   drepStakeTotal: number | null;
-  // governance_epoch_stats.total_drep_power at the action's decided (or current)
-  // epoch: the denominator for the DRep full-stake bar. Null before that epoch's
-  // stats row exists, in which case the DRep body falls back to the existing
-  // active-only composition bar.
+  // governance_epoch_stats.total_drep_power at whichever epoch identifies this
+  // action's tally: tallyEpoch preferred, falling back to decidedEpoch, then the
+  // live current epoch for an action still voting (see t/[slug].astro). The
+  // denominator for the DRep full-stake bar. Null before that epoch's stats row
+  // exists, in which case the DRep body falls back to the existing active-only
+  // composition bar.
   reprTotalPower: string | null;
   // Render instant, for the tally-freshness note ("Tallies as of ...").
   now: number;
@@ -115,6 +117,12 @@ const rows = bodies.map((b) => {
     fullStake,
   };
 });
+
+// Whether the DRep row rendered the full-stake bar. When it did, that bar's own
+// legend already states the full-stake denominator and abstain handling, so the
+// "no on-chain threshold" note below drops the eligible/abstain clause that only
+// describes the fallback active-only bar.
+const drepFullStake = rows.some((r) => r.body === 'DRep' && r.fullStake != null);
 
 // Names the bodies that cannot vote on this action type ("SPOs do not vote on
 // treasury withdrawals"), shown here rather than repeated on every overview row.
@@ -211,7 +219,9 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
 
   {!hasThreshold && rows.length > 0 && (
     <p class="info-note">
-      No on-chain threshold for this action type; shares are of eligible voting power, abstentions excluded.
+      {drepFullStake
+        ? 'No on-chain threshold for this action type.'
+        : 'No on-chain threshold for this action type. Shares are of eligible voting power, abstentions excluded.'}
     </p>
   )}
   {absentNote && <p class="info-note info-note--absent">{absentNote}</p>}

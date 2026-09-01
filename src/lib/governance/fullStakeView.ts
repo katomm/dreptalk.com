@@ -30,6 +30,8 @@ export interface FullStakeBarView {
   ancEffect: 'yes' | 'no';
   /** Threshold position mapped onto the full-stake axis, null without a threshold. */
   thresholdPct: number | null;
+  /** The raw input threshold in percent, e.g. 67, null without a threshold. */
+  approvalThresholdPct: number | null;
 }
 
 export interface FullStakeBarInput {
@@ -92,9 +94,20 @@ export function buildFullStakeBar(input: FullStakeBarInput): FullStakeBarView | 
     return null;
   }
 
-  const reprTotal = BigInt(input.reprTotalPower);
-  const alwaysAbstain = BigInt(input.alwaysAbstainPower);
-  const alwaysNoConfidence = BigInt(input.alwaysNoConfidencePower);
+  // The three TEXT columns are untrusted text, same rationale as toLovelace in
+  // analytics.astro: parse defensively so a single malformed stored value cannot
+  // 500 the governance action page, degrading to the existing active-only bar.
+  let reprTotal: bigint;
+  let alwaysAbstain: bigint;
+  let alwaysNoConfidence: bigint;
+  try {
+    reprTotal = BigInt(input.reprTotalPower);
+    alwaysAbstain = BigInt(input.alwaysAbstainPower);
+    alwaysNoConfidence = BigInt(input.alwaysNoConfidencePower);
+  } catch {
+    return null;
+  }
+
   const activeYes = activePower(input.activeYesPower);
   const activeNo = activePower(input.activeNoPower);
   const activeAbstain = activePower(input.activeAbstainPower);
@@ -135,5 +148,6 @@ export function buildFullStakeBar(input: FullStakeBarInput): FullStakeBarView | 
     totalLabel: formatAda(denominator.toString()),
     ancEffect: input.actionType === 'NoConfidence' ? 'yes' : 'no',
     thresholdPct,
+    approvalThresholdPct: input.approvalThresholdPct,
   };
 }

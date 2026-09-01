@@ -19,9 +19,11 @@ interface Props {
   params: ProtocolParams | null;
   // Total active DRep voting power, for the Voting Information card's DRep denominator.
   drepStakeTotal: number | null;
-  // governance_epoch_stats.total_drep_power at the action's decided (or current)
-  // epoch, for the Voting Information card's DRep full-stake bar. Null before
-  // that epoch's stats row exists.
+  // governance_epoch_stats.total_drep_power at whichever epoch identifies this
+  // action's tally: tallyEpoch preferred, falling back to decidedEpoch, then the
+  // live current epoch for an action still voting (see t/[slug].astro). For the
+  // Voting Information card's DRep full-stake bar. Null before that epoch's
+  // stats row exists.
   reprTotalPower: string | null;
   network: CardanoNetwork;
   topVoters: ActionVoterRow[];
