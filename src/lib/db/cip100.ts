@@ -267,7 +267,7 @@ export async function findStalePostIds(db: D1Database, graceCutoff: number, limi
         WHERE p.deleted = 0 AND t.deleted = 0
           AND p.hidden = 0
           AND COALESCE(p.source, '') <> 'vote_rationale'
-          AND NOT (t.source = 'governance' AND p.author_id = t.author_id)
+          AND NOT (t.source <> 'user' AND p.author_id = t.author_id)
           AND (
                (h.hash IS NULL AND p.created_at <= ?)
             OR (p.edited_at IS NOT NULL AND p.edited_at > COALESCE(h.source_edited_at, 0))
