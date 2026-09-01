@@ -93,12 +93,14 @@ describe('buildSpoSnapshot', () => {
   it('counts divergence only when both verdicts are known, and flags a real split', () => {
     const divergentRow = row({
       gaId: 'ga1',
+      status: 'expired',
       thresholdsJson: thresholds({ drep: 67, spo: 51 }),
       drepYesPct: 80, // meets 67
       spoYesPct: 40, // misses 51
     });
     const missingDrepPct = row({
       gaId: 'ga2',
+      status: 'expired',
       thresholdsJson: thresholds({ drep: 67, spo: 51 }),
       drepYesPct: null,
       spoYesPct: 90,
@@ -106,6 +108,19 @@ describe('buildSpoSnapshot', () => {
     const v = buildSpoSnapshot([divergentRow, missingDrepPct]);
     expect(v.divergenceBasis).toBe(1);
     expect(v.divergent).toBe(1);
+  });
+
+  it('treats an enacted action as proving both verdicts, even when the stored SPO pct is below its threshold', () => {
+    const v = buildSpoSnapshot([
+      row({
+        status: 'enacted',
+        thresholdsJson: thresholds({ drep: 67, spo: 51 }),
+        drepYesPct: 80, // meets 67
+        spoYesPct: 40, // the stored pct misses 51, but the chain enacted the action anyway
+      }),
+    ]);
+    expect(v.divergenceBasis).toBe(1);
+    expect(v.divergent).toBe(0);
   });
 
   it('does not count a row as divergent-basis when it is not SPO-eligible', () => {
@@ -200,6 +215,12 @@ describe('buildThroughput', () => {
     expect(v.byType).toEqual([
       { type: 'A', decided: 3, enacted: 1, expired: 1, closed: 1, medianEpochs: 9 },
     ]);
+  });
+
+  it('counts a ratified row as enacted, in both the tiles and the by-type breakdown', () => {
+    const v = buildThroughput([row({ status: 'ratified', type: 'A' })], { enacted: 2, ratified: 3 }, 0);
+    expect(v.enacted).toBe(5);
+    expect(v.byType).toEqual([{ type: 'A', decided: 1, enacted: 1, expired: 0, closed: 0, medianEpochs: null }]);
   });
 
   it('sorts byType by decided count descending, then type ascending on ties', () => {

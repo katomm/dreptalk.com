@@ -464,13 +464,19 @@ const activityBars = activity
               <p class="hub-tile__sub">power-weighted, over {spo.turnoutBasis} actions</p>
             </div>
           )}
-          <div class="hub-tile">
-            <p class="hub-tile__value">{spo.divergent} of {spo.divergenceBasis}</p>
-            <p class="hub-tile__label">Verdicts differing from DReps</p>
-            <p class="hub-tile__sub">actions where the two bodies did not agree</p>
-          </div>
+          {spo.divergenceBasis > 0 && (
+            <div class="hub-tile">
+              <p class="hub-tile__value">{spo.divergent} of {spo.divergenceBasis}</p>
+              <p class="hub-tile__label">Verdicts differing from DReps</p>
+              <p class="hub-tile__sub">actions where the two bodies reached different verdicts against their own thresholds</p>
+            </div>
+          )}
         </div>
-        <p class="hub-spo__footnote">Turnout weighs each pool's stake against the pools that could vote, the always-abstain pools included and the No side as the ledger counts it.{spo.turnoutExcluded > 0 && ` ${spo.turnoutExcluded} actions without complete stake figures are left out.`}</p>
+        <p class="hub-spo__footnote">{spo.medianTurnoutPct != null ? (
+          <>Turnout weighs each pool's stake against the pools that could vote, the always-abstain pools included and the No side as the ledger counts it.{spo.turnoutExcluded > 0 && ` ${spo.turnoutExcluded} actions without complete stake figures are left out.`}</>
+        ) : (
+          spo.turnoutExcluded > 0 && `No turnout figure yet, ${spo.turnoutExcluded} of ${spo.eligible} actions still lack complete stake figures.`
+        )}</p>
       </section>
     )}
   </section>
@@ -644,6 +650,7 @@ const activityBars = activity
     )}
   </section>
 
+  {throughput.enacted + throughput.expired + throughput.closed > 0 && (
   <section class="hub-chapter" aria-labelledby="chapter-throughput-title">
     <header class="hub-chapter__head">
       <p class="hub-chapter__eyebrow">Chapter</p>
@@ -685,12 +692,12 @@ const activityBars = activity
           <table class="hub-table">
             <thead>
               <tr>
-                <th>Type</th>
-                <th class="hub-table__num">Decided</th>
-                <th class="hub-table__num">Enacted</th>
-                <th class="hub-table__num">Expired</th>
-                <th class="hub-table__num">Closed</th>
-                <th class="hub-table__num">Median epochs</th>
+                <th scope="col">Type</th>
+                <th scope="col" class="hub-table__num">Decided</th>
+                <th scope="col" class="hub-table__num">Enacted</th>
+                <th scope="col" class="hub-table__num">Expired</th>
+                <th scope="col" class="hub-table__num">Closed</th>
+                <th scope="col" class="hub-table__num">Median epochs</th>
               </tr>
             </thead>
             <tbody>
@@ -712,6 +719,7 @@ const activityBars = activity
       <p class="hub-throughput__footnote">Closed is the outcome of info actions, which conclude without enactment. Timing is counted in epochs because decisions are recorded per epoch.{throughput.dropped > 0 && ` ${throughput.dropped} ${throughput.dropped === 1 ? 'action was' : 'actions were'} dropped before a decision.`}{throughput.active > 0 && ` ${throughput.active} ${throughput.active === 1 ? 'action is' : 'actions are'} still open.`}</p>
     </div>
   </section>
+  )}
 
   <p class="hub-back"><a href="/dreps/">Browse the DRep directory</a></p>
 </Layout>
@@ -1151,18 +1159,16 @@ const activityBars = activity
     margin: 0 0 2.5rem;
   }
   .hub-tiles {
-    display: grid;
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.9rem;
     margin: 0 0 1.25rem;
-    max-width: 32rem;
-  }
-  @media (min-width: 480px) {
-    .hub-tiles {
-      grid-template-columns: 1fr 1fr;
-    }
   }
   .hub-tile {
+    /* Fixed width so the row wraps predictably: four across at 1440px, two
+       around 720px, one on mobile, without a grid leaving empty tracks
+       when a panel has fewer tiles than the row's column count. */
+    width: 16rem;
     padding: 0.75rem 0.9rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);

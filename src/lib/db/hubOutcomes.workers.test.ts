@@ -52,6 +52,15 @@ describe('listDecidedOutcomeRows', () => {
     expect(rows.map((r) => r.gaId)).toEqual(['ga_decided']);
   });
 
+  it('excludes a dropped action even when it carries a decided_epoch', async () => {
+    await seedAction('ga_dropped', 'InfoAction', { status: 'dropped', decidedEpoch: 600 });
+    await seedAction('ga_expired', 'InfoAction', { status: 'expired', decidedEpoch: 600 });
+
+    const rows = await listDecidedOutcomeRows(env.DB);
+
+    expect(rows.map((r) => r.gaId)).toEqual(['ga_expired']);
+  });
+
   it('maps every field, including all SPO columns when set and when null', async () => {
     await seedAction('ga_full', 'ParameterChange', {
       status: 'enacted',

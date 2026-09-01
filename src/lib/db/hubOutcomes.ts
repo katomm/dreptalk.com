@@ -46,7 +46,8 @@ export async function listDecidedOutcomeRows(db: D1Database): Promise<DecidedOut
                   drep_yes_pct, spo_yes_pct, spo_yes_power, spo_no_power, spo_abstain_power,
                   spo_always_abstain_power, spo_no_side_power
              FROM governance_actions
-            WHERE decided_epoch IS NOT NULL`,
+            WHERE decided_epoch IS NOT NULL
+              AND status IN ('enacted', 'ratified', 'expired', 'closed')`,
         )
         .all<DecidedOutcomeD1Row>()
     ).results ?? [];

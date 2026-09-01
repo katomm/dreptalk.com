@@ -123,8 +123,14 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
       }
     }
 
-    const drepVerdict = verdict(snapshot?.drep, row.drepYesPct);
-    const spoVerdict = verdict(snapshot?.spo, row.spoYesPct);
+    // An enacted or ratified action proves both bodies met their threshold by the chain
+    // outcome itself, since the action could not have passed otherwise, so chain proof
+    // overrides the stored SPO percentage here, which for every action type but hard
+    // forks still reflects the pre-Plomin reading where a non-voting pool counts as No
+    // and can understate a real pass.
+    const chainProven = row.status === 'enacted' || row.status === 'ratified';
+    const drepVerdict = chainProven && snapshot?.drep != null ? true : verdict(snapshot?.drep, row.drepYesPct);
+    const spoVerdict = chainProven && snapshot?.spo != null ? true : verdict(snapshot?.spo, row.spoYesPct);
     if (drepVerdict !== null && spoVerdict !== null) {
       divergenceBasis += 1;
       if (drepVerdict !== spoVerdict) divergent += 1;
@@ -171,7 +177,9 @@ export function buildThroughput(
 
     const entry = byType.get(row.type) ?? { decided: 0, enacted: 0, expired: 0, closed: 0, spans: [] };
     entry.decided += 1;
-    if (row.status === 'enacted') entry.enacted += 1;
+    // A ratified row is still pending its enactment epoch on chain, so it counts as
+    // enacted here rather than getting its own bucket.
+    if (row.status === 'enacted' || row.status === 'ratified') entry.enacted += 1;
     else if (row.status === 'expired') entry.expired += 1;
     else if (row.status === 'closed') entry.closed += 1;
     if (span != null) entry.spans.push(span);
@@ -192,7 +200,9 @@ export function buildThroughput(
   return {
     submittedRecent,
     windowEpochs: WINDOW_EPOCHS,
-    enacted: statusCounts.enacted ?? 0,
+    // A ratified row is still pending its enactment epoch on chain, so it counts as
+    // enacted here rather than getting its own tile.
+    enacted: (statusCounts.enacted ?? 0) + (statusCounts.ratified ?? 0),
     expired: statusCounts.expired ?? 0,
     closed: statusCounts.closed ?? 0,
     dropped: statusCounts.dropped ?? 0,

@@ -67,6 +67,8 @@ Stake pool operators vote alongside DReps and the Constitutional Committee, but 
 
 Both figures only cover actions with a complete reading. An action whose stake tally is missing or unparseable is left out of the turnout median rather than folded in as a guess, and the panel states how many actions that affected.
 
+An enacted action counts as meeting both bodies' thresholds because the chain could not have enacted it otherwise. The stored SPO percentage for every action type other than hard forks still reflects the reading from before the Plomin hard fork, where a pool that did not vote counted as No rather than Abstain, so it can understate a real pass, which is why the chain outcome takes precedence over that stored figure.
+
 ## Concentration of delegated power
 
 The lower part of the page looks at how concentrated the delegated voting power itself is, independent of who actually votes. The Gini coefficient summarizes how unevenly power is spread across DReps, from 0 for a perfectly even spread to values near 1 when a few DReps hold most of it. The top-10 share and the minimum-coalition counts make the same idea concrete: how much the ten largest DReps hold, and how few of the largest DReps together reach half or two thirds of all delegated power.
