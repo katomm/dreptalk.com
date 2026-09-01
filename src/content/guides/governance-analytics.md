@@ -13,6 +13,8 @@ faqs:
     a: "Active follows the on-chain registration state. A DRep can be active with zero delegated stake, and stake can still sit with a DRep whose registration has lapsed. The activity section shows both layers separately."
   - q: "Why do some actions show no concentration numbers?"
     a: "The per-vote voting power for at least one vote on that action is not recorded. Concentration stats are computed only over complete data, a partial reading would understate how concentrated the vote really was."
+  - q: "What counts as a changed vote?"
+    a: "Only a re-vote whose final position differs from the voter's first recorded one. Re-votes that keep the position, for example to attach or update a rationale, are counted separately and never shown as changed votes."
 ---
 
 The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day.
@@ -35,6 +37,12 @@ The effective-representation panel and the Positions tab of a governance action 
 
 These stats only appear when the voting power behind every single vote on the action is recorded. An action with incomplete per-vote power shows no concentration numbers at all rather than a misleading partial sum.
 
+## Changed votes
+
+A DRep can re-vote on an action at any time while voting is open, and the analytics page tracks what those re-votes actually did. A re-vote only counts as a changed vote when the voter's final position differs from their first recorded one. Many re-votes keep the position and only update the attached rationale, and those are shown separately rather than inflated into change numbers. The panel also shows where changed votes moved, to yes, to no or to abstain, and which decided actions were reconsidered the most.
+
+Only actions whose complete vote history has been swept from the chain are counted, and the panel says how many are still queued. The same honest split appears on each action's Votes tab.
+
 ## Where the numbers come from
 
 DRepTalk records one row of governance aggregates per epoch, built from the same chain data that powers the rest of the site. Voting power snapshots come from the per-epoch stake distribution, vote counts from the on-chain votes themselves, and the concentration figures from the full distribution of delegated power across DReps, with the two default options excluded. The effective-representation panel measures each action against its decision epoch, while the tally bar on an action page uses the epoch of the latest tally, so the two can sit one epoch apart for the same action. The threshold marker on the full-stake bar maps the approval threshold onto the abstain-reduced representative stake, a deliberate simplification stated here so nobody mistakes it for a hand-computed break-even.
@@ -56,3 +64,7 @@ Active follows the on-chain registration state. A DRep can be active with zero d
 ### Why do some actions show no concentration numbers?
 
 The per-vote voting power for at least one vote on that action is not recorded. Concentration stats are computed only over complete data, a partial reading would understate how concentrated the vote really was.
+
+### What counts as a changed vote?
+
+Only a re-vote whose final position differs from the voter's first recorded one. Re-votes that keep the position, for example to attach or update a rationale, are counted separately and never shown as changed votes.
