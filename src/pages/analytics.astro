@@ -19,6 +19,7 @@ import { listDrepsForConcentration } from '@/lib/db/dreps.js';
 import { listDecidedActionsForRepresentation } from '@/lib/db/effectiveRepresentation.js';
 import { listDrepVotePowersByAction } from '@/lib/db/drepVotes.js';
 import { listDecidedVoteChangeRows, countVoteChangeCoverage } from '@/lib/db/voteChangeStats.js';
+import { listDecidedActionRationaleCoverage, countRationaleAddedViaRevote } from '@/lib/db/rationaleCoverage.js';
 import { readableType } from '@/lib/governance/view.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
@@ -26,6 +27,7 @@ import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
 import { buildVitals, metricSeries, netChange } from '@/lib/analytics/hubView.js';
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
+import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
 const env = runtimeEnv(Astro.locals);
@@ -74,6 +76,13 @@ const [changeRows, changeCoverage] = db
   ? await Promise.all([listDecidedVoteChangeRows(db), countVoteChangeCoverage(db)])
   : [[], { decidedSwept: 0, decidedUnswept: 0, orphanPairs: 0 }];
 const voteChanges = buildVoteChangeView(changeRows, changeCoverage);
+
+// Rationale coverage over decided actions: one aggregate read plus the
+// re-vote-added count. Quality is never claimed, coverage is measured.
+const [coverageRows, revoteAdded] = db
+  ? await Promise.all([listDecidedActionRationaleCoverage(db), countRationaleAddedViaRevote(db)])
+  : [[], 0];
+const rationaleCoverage = buildRationaleCoverage(coverageRows, revoteAdded);
 
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
 // Median half-counts can end in .5 with an even action count, render as-is.
@@ -297,6 +306,48 @@ const activityRows = activity
     </section>
   )}
 
+  {rationaleCoverage.countPct != null && (
+    <section class="hub-rationale" aria-labelledby="hub-rationale-title">
+      <h2 id="hub-rationale-title">Vote rationales</h2>
+      <p class="hub-rationale__lede">{fmtShare(rationaleCoverage.countPct)} of the {rationaleCoverage.totalVotes.toLocaleString('en-US')} DRep votes on decided actions carry a published rationale.{rationaleCoverage.powerPct != null && ` Weighted by voting power, coverage is ${fmtShare(rationaleCoverage.powerPct)}.`}{rationaleCoverage.revoteAdded > 0 && ` ${rationaleCoverage.revoteAdded.toLocaleString('en-US')} rationales arrived later through a re-vote.`}</p>
+      {rationaleCoverage.epochSeries.length > 1 && (
+        <div class="hub-rationale__chart">
+          <EpochSeriesChart title="Coverage of decided actions" ariaLabel="Median rationale coverage per decision epoch" points={rationaleCoverage.epochSeries} format={fmtShare} />
+        </div>
+      )}
+      {rationaleCoverage.byType.length > 1 && (
+        <ul class="hub-rationale__types">
+          {rationaleCoverage.byType.map((t) => (
+            <li class="hub-rationale__type"><span class="hub-rationale__type-name">{readableType(t.type)}</span><span class="hub-rationale__type-value">{fmtShare(t.medianPct)} median, {t.actions} actions</span></li>
+          ))}
+        </ul>
+      )}
+      {rationaleCoverage.best.length > 0 && (
+        <div class="hub-rationale__lists">
+          <div>
+            <h3 class="hub-rationale__subtitle">Best covered</h3>
+            <ul class="hub-rationale__rows">
+              {rationaleCoverage.best.map((x) => (
+                <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
+              ))}
+            </ul>
+          </div>
+          {rationaleCoverage.worst.length > 0 && (
+            <div>
+              <h3 class="hub-rationale__subtitle">Least covered</h3>
+              <ul class="hub-rationale__rows">
+                {rationaleCoverage.worst.map((x) => (
+                  <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+      <p class="hub-rationale__footnote">A rationale is the metadata document attached to the vote itself. Coverage measures presence, not quality.{rationaleCoverage.powerExcluded > 0 && ` The power-weighted figure leaves out ${rationaleCoverage.powerExcluded} actions with incomplete per-vote power.`}{rationaleCoverage.belowFloor > 0 && ` Best and least covered consider actions with at least 20 votes, ${rationaleCoverage.belowFloor} smaller ones are not ranked.`}</p>
+    </section>
+  )}
+
   {activity && (
     <section class="hub-activity" aria-labelledby="hub-activity-title">
       <h2 id="hub-activity-title">DRep activity</h2>
@@ -473,6 +524,7 @@ const activityRows = activity
   #hub-trends-title,
   #hub-effrep-title,
   #hub-votechange-title,
+  #hub-rationale-title,
   #hub-activity-title,
   #hub-coalition-title,
   #hub-conc-trends-title {
@@ -664,6 +716,97 @@ const activityRows = activity
     }
   }
   .hub-votechange__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-rationale {
+    margin: 0 0 2.5rem;
+  }
+  .hub-rationale__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-rationale__chart {
+    max-width: 420px;
+    margin: 0 0 1.25rem;
+  }
+  .hub-rationale__types {
+    list-style: none;
+    margin: 0 0 1.25rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-width: 40ch;
+  }
+  .hub-rationale__type {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+  }
+  .hub-rationale__type-name {
+    color: var(--fg);
+  }
+  .hub-rationale__type-value {
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .hub-rationale__lists {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    margin: 0 0 1.25rem;
+  }
+  @media (min-width: 720px) {
+    .hub-rationale__lists {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .hub-rationale__subtitle {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+  }
+  .hub-rationale__rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hub-rationale__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-rationale__row-title {
+    font-weight: 600;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .hub-rationale__row-title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-rationale__row-title a:hover {
+    text-decoration: underline;
+  }
+  .hub-rationale__row-value {
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .hub-rationale__footnote {
     margin: 0;
     color: var(--muted);
     font-size: 0.75rem;
