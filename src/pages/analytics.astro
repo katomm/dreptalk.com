@@ -20,7 +20,10 @@ import { listDecidedActionsForRepresentation } from '@/lib/db/effectiveRepresent
 import { listDrepVotePowersByAction } from '@/lib/db/drepVotes.js';
 import { listDecidedVoteChangeRows, countVoteChangeCoverage } from '@/lib/db/voteChangeStats.js';
 import { listDecidedActionRationaleCoverage, countRationaleAddedViaRevote } from '@/lib/db/rationaleCoverage.js';
+import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, type CcVoteRow } from '@/lib/db/committee.js';
+import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { readableType } from '@/lib/governance/view.js';
+import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
@@ -28,6 +31,7 @@ import { buildVitals, metricSeries, netChange } from '@/lib/analytics/hubView.js
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
+import { buildCcPanel } from '@/lib/analytics/ccPanelView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
 const env = runtimeEnv(Astro.locals);
@@ -83,6 +87,28 @@ const [coverageRows, revoteAdded] = db
   ? await Promise.all([listDecidedActionRationaleCoverage(db), countRationaleAddedViaRevote(db)])
   : [[], 0];
 const rationaleCoverage = buildRationaleCoverage(coverageRows, revoteAdded);
+
+// Constitutional Committee panel: batch CC reads plus the shared committee
+// timeline and name index, aggregated with the exact per-action logic the
+// GA pages use.
+const [ccActions, ccVotesByAction, committee, ccNameRows] = db
+  ? await Promise.all([
+      listDecidedCcActions(db),
+      listDecidedCcVoteRows(db),
+      getCommitteeTimeline(db),
+      getAllCcMemberNames(db),
+    ])
+  : [[], new Map<string, CcVoteRow[]>(), { members: [], hotToCold: new Map<string, string>() }, []];
+const ccPanel = buildCcPanel({
+  actions: ccActions,
+  votesByAction: ccVotesByAction,
+  members: committee.members,
+  hotToCold: committee.hotToCold,
+  nameIndex: buildCcNameIndex(ccNameRows, committee.hotToCold),
+  currentEpoch: params?.epoch ?? null,
+});
+const fmtDays = (d: number): string => (Number.isInteger(d) ? String(d) : d.toFixed(1));
+const shortCold = (hex: string): string => `${hex.slice(0, 10)}...`;
 
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
 // Median half-counts can end in .5 with an even action count, render as-is.
@@ -348,6 +374,24 @@ const activityRows = activity
     </section>
   )}
 
+  {ccPanel.considered > 0 && (
+    <section class="hub-cc" aria-labelledby="hub-cc-title">
+      <h2 id="hub-cc-title">Constitutional Committee</h2>
+      <p class="hub-cc__lede">Across {ccPanel.considered} decided actions the committee could vote on, a median of {fmtShare(ccPanel.medianTurnoutPct)} of its members cast a vote.{ccPanel.splitCount > 0 && ` ${ccPanel.splitCount} ${ccPanel.splitCount === 1 ? 'action' : 'actions'} saw a split committee.`}{ccPanel.verdictBasis > 0 && ` ${ccPanel.belowThreshold} of ${ccPanel.verdictBasis} finished below the committee's approval threshold.`}</p>
+      {ccPanel.medianLatencyDays != null && (
+        <p class="hub-cc__latency">Committee votes came a median of {fmtDays(ccPanel.medianLatencyDays)} days after an action was submitted.</p>
+      )}
+      {ccPanel.members.length > 0 && (
+        <ul class="hub-cc__members">
+          {ccPanel.members.map((m) => (
+            <li class="hub-cc__member"><span class="hub-cc__member-name">{m.name ?? shortCold(m.coldKeyHex)}</span><span class="hub-cc__member-bar" aria-hidden="true"><span class="hub-cc__member-fill" style={`width:${m.pct.toFixed(1)}%`}></span></span><span class="hub-cc__member-value">{m.voted} of {m.eligible}</span></li>
+          ))}
+        </ul>
+      )}
+      <p class="hub-cc__footnote">Eligibility follows the committee membership at each action's tally epoch, and only a member's final vote counts.{ccPanel.skipped > 0 && ` ${ccPanel.skipped} actions without a resolvable committee are not counted.`}{ccPanel.verdictBasis < ccPanel.considered && ` The threshold reading covers ${ccPanel.verdictBasis} actions with a frozen committee threshold.`}</p>
+    </section>
+  )}
+
   {activity && (
     <section class="hub-activity" aria-labelledby="hub-activity-title">
       <h2 id="hub-activity-title">DRep activity</h2>
@@ -525,6 +569,7 @@ const activityRows = activity
   #hub-effrep-title,
   #hub-votechange-title,
   #hub-rationale-title,
+  #hub-cc-title,
   #hub-activity-title,
   #hub-coalition-title,
   #hub-conc-trends-title {
@@ -807,6 +852,73 @@ const activityRows = activity
     white-space: nowrap;
   }
   .hub-rationale__footnote {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .hub-cc {
+    margin: 0 0 2.5rem;
+  }
+  .hub-cc__lede {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 0.5rem;
+  }
+  .hub-cc__latency {
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 1.25rem;
+  }
+  .hub-cc__members {
+    list-style: none;
+    margin: 0 0 1.1rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .hub-cc__member {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr 5rem;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .hub-cc__member-name {
+    font-size: 0.875rem;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hub-cc__member-bar {
+    display: block;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .hub-cc__member-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .hub-cc__member-value {
+    text-align: right;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  @media (max-width: 480px) {
+    .hub-cc__member {
+      grid-template-columns: 6.5rem 1fr 4rem;
+      gap: 0.5rem;
+    }
+    .hub-cc__member-name {
+      font-size: 0.8rem;
+    }
+  }
+  .hub-cc__footnote {
     margin: 0;
     color: var(--muted);
     font-size: 0.75rem;
