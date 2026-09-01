@@ -27,12 +27,16 @@ import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
-import { buildVitals, contiguousPrefix, metricSeries, netChange, rowBeforeEpoch } from '@/lib/analytics/hubView.js';
+import { buildVitals, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from '@/lib/analytics/hubView.js';
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
 import { buildCcPanel } from '@/lib/analytics/ccPanelView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
+
+// The site's governance actions list route, same href as the header nav's
+// "Governance Actions" link (src/lib/config/nav.ts).
+const ACTIONS_LIST_HREF = '/c/governance-actions/';
 
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
@@ -151,6 +155,13 @@ const ancDelta = netChange(
   prev?.ancDelegators ?? null,
   (n) => n.toLocaleString('en-US'),
 );
+// Non-null only once the two default pools and the represented total all
+// parse, so the comparison line quietly disappears rather than half-render.
+const defaultsComparison = defaultOptionsComparison(
+  defaults.abstain?.votingPower,
+  defaults.noConfidence?.votingPower,
+  current?.totalDrepPower ?? null,
+);
 
 const fmtAdaCompact = (v: number) => formatAdaCompact(String(Math.round(v)));
 const fmtTwoDec = (v: number) => v.toFixed(2);
@@ -192,19 +203,32 @@ const defaultCards = [
   },
 ];
 
-// DRep activity rows, each with its share of the registered count for the mini
-// bar. Guards the division so a fresh, empty table renders zero-width bars
-// instead of NaN.
-const activityRows = activity
+// DRep activity as two composition bars, each pair of segments summing to
+// the registered count. Guards the division so a fresh, empty table renders
+// zero-width bars instead of NaN.
+const activityBars = activity
   ? [
-      { label: 'Registered', value: activity.registered },
-      { label: 'Currently active', value: activity.active },
-      { label: 'Active with voting power', value: activity.powered },
-      { label: 'Ever voted on chain', value: activity.everVoted },
-      { label: 'Never voted', value: Math.max(0, activity.registered - activity.everVoted) },
-    ].map((row) => ({
-      ...row,
-      pct: activity.registered > 0 ? Math.min(100, (row.value / activity.registered) * 100) : 0,
+      {
+        title: 'Registration state',
+        segments: [
+          { label: 'Active registrations', value: activity.active },
+          { label: 'Inactive or retired', value: activity.inactiveCount },
+        ],
+        sub: `${activity.powered.toLocaleString('en-US')} of the active registrations hold delegated power`,
+      },
+      {
+        title: 'Voting history',
+        segments: [
+          { label: 'Ever voted on chain', value: activity.everVoted },
+          { label: 'Never voted', value: Math.max(0, activity.registered - activity.everVoted) },
+        ],
+      },
+    ].map((bar) => ({
+      ...bar,
+      segments: bar.segments.map((seg) => ({
+        ...seg,
+        pct: activity.registered > 0 ? Math.min(100, (seg.value / activity.registered) * 100) : 0,
+      })),
     }))
   : [];
 ---
@@ -253,214 +277,257 @@ const activityRows = activity
     <p class="hub-empty">Historical epochs are still being backfilled. The trend charts show the epochs recorded so far and complete on their own over the next days, and panels that need the missing epochs appear as they fill in.</p>
   )}
 
-  <section class="hub-defaults" aria-labelledby="hub-defaults-title">
-    <h2 id="hub-defaults-title">The default options</h2>
-    <p class="hub-defaults__lede">Not everyone delegates to a person. These two predefined options hold real voting weight, and they are kept apart from every DRep statistic on this site. <a href="/help/default-delegation-options/">What they do</a></p>
-    <div class="hub-defaults__grid">
-      {defaultCards.map((opt) => (
-        <div class="hub-defaults__card">
-          <h3 class="hub-defaults__name">{opt.title}</h3>
-          <p class="hub-defaults__power">{opt.power}</p>
-          <p class="hub-defaults__meta">
-            <span>
-              {opt.delegatorCount != null
-                ? `${opt.delegatorCount.toLocaleString('en-US')} ${opt.delegatorCount === 1 ? 'delegator' : 'delegators'}`
-                : 'Delegator count pending'}
-            </span>
-            {opt.chip && (
-              <span class={`hub-defaults__chip hub-defaults__chip--${opt.chip.direction}`}>{opt.chip.label}</span>
-            )}
-          </p>
-          <EpochSeriesChart title="Voting power" ariaLabel={opt.ariaLabel} points={opt.series} format={fmtAdaCompact} sinceEpoch={opt.sinceEpoch} />
+  <section class="hub-chapter" aria-labelledby="chapter-today-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <h2 id="chapter-today-title" class="hub-chapter__title">Governance today</h2>
+      <p class="hub-chapter__intro">The current state of DRep governance, the two default options kept apart, and how the core figures moved epoch by epoch.</p>
+    </header>
+
+    <section class="hub-defaults" aria-labelledby="hub-defaults-title">
+      <h3 id="hub-defaults-title">The default options</h3>
+      <p class="hub-defaults__lede">Not everyone delegates to a person. These two predefined options hold real voting weight, and they are kept apart from every DRep statistic on this site. <a href="/help/default-delegation-options/">What they do</a></p>
+      <div class="hub-defaults__grid">
+        {defaultCards.map((opt) => (
+          <div class="hub-defaults__card">
+            <h3 class="hub-defaults__name">{opt.title}</h3>
+            <p class="hub-defaults__power">{opt.power}</p>
+            <p class="hub-defaults__meta">
+              <span>
+                {opt.delegatorCount != null
+                  ? `${opt.delegatorCount.toLocaleString('en-US')} ${opt.delegatorCount === 1 ? 'delegator' : 'delegators'}`
+                  : 'Delegator count pending'}
+              </span>
+              {opt.chip && (
+                <span class={`hub-defaults__chip hub-defaults__chip--${opt.chip.direction}`}>{opt.chip.label}</span>
+              )}
+            </p>
+            <EpochSeriesChart title="Voting power" ariaLabel={opt.ariaLabel} points={opt.series} format={fmtAdaCompact} sinceEpoch={opt.sinceEpoch} />
+          </div>
+        ))}
+      </div>
+      {defaultsComparison && (
+        <p class="hub-defaults__compare">Default options hold {defaultsComparison.defaultsLabel}, compared with {defaultsComparison.reprLabel} delegated to representative DReps.</p>
+      )}
+      <p class="hub-defaults__note">Changes are net movement per epoch. Arrivals and departures inside an epoch are not individually visible on chain aggregates, so this page never claims inflow or outflow.</p>
+    </section>
+
+    {hasBackbone && (
+      <section class="hub-trends" aria-labelledby="hub-trends-title">
+        <h3 id="hub-trends-title">Per-epoch trends</h3>
+        <div class="hub-trends__grid">
+          <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={starts.totalDrepPower} />
+          <EpochSeriesChart title="DReps holding delegated power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
+          <EpochSeriesChart title="Delegators" points={metricSeries(chartStats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={starts.delegatorTotal} />
         </div>
-      ))}
-    </div>
-    <p class="hub-defaults__note">Changes are net movement per epoch. Arrivals and departures inside an epoch are not individually visible on chain aggregates, so this page never claims inflow or outflow.</p>
+      </section>
+    )}
   </section>
 
-  {hasBackbone && (
-    <section class="hub-trends" aria-labelledby="hub-trends-title">
-      <h2 id="hub-trends-title">Per-epoch trends</h2>
-      <div class="hub-trends__grid">
-        <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={starts.totalDrepPower} />
-        <EpochSeriesChart title="DReps with voting power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
-        <EpochSeriesChart title="Delegators" points={metricSeries(chartStats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={starts.delegatorTotal} />
-      </div>
-    </section>
-  )}
+  <section class="hub-chapter" aria-labelledby="chapter-representation-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <h2 id="chapter-representation-title" class="hub-chapter__title">Representation and participation</h2>
+      <p class="hub-chapter__intro">How much of the delegated power actually shows up in votes, and who takes part.</p>
+    </header>
 
-  {effRep.rows.length > 0 && (
-    <section class="hub-effrep" aria-labelledby="hub-effrep-title">
-      <h2 id="hub-effrep-title">Effective representation</h2>
-      <p class="hub-effrep__lede">Across the last {effRep.rows.length} decided actions, a median of {fmtShare(effRep.medianPowerSharePct)} of the delegated voting power was actually represented in the vote.{effRep.medianHalfCount != null && ` A median of ${fmtCount(effRep.medianHalfCount)} DReps was enough to cast half of the voted power.`}</p>
-      <ul class="hub-effrep__rows">
-        {effRep.rows.map((row) => (
-          <li class="hub-effrep__row">
-            <div class="hub-effrep__head">
-              <span class="hub-effrep__title">
-                {row.href ? <a href={row.href}>{row.title}</a> : row.title}
-              </span>
-              <span class="hub-effrep__type">{readableType(row.type)}</span>
-              <span class="hub-effrep__epoch">Epoch {row.decidedEpoch}</span>
-            </div>
-            <div class="hub-effrep__meter">
-              <span class="hub-effrep__bar" aria-hidden="true"><span class="hub-effrep__fill" style={`width:${row.powerSharePct.toFixed(1)}%`}></span></span>
-              <span class="hub-effrep__value">{fmtShare(row.powerSharePct)}</span>
-            </div>
-            {(row.countSharePct != null || row.halfCount != null) && (
-              <p class="hub-effrep__note">{row.countSharePct != null && `${fmtShare(row.countSharePct)} of DReps voted`}{row.countSharePct != null && row.halfCount != null && ', '}{row.halfCount != null && `${row.halfCount} of ${row.voterCount} voters cast half of the voted power`}</p>
-            )}
-          </li>
-        ))}
-      </ul>
-      <p class="hub-effrep__footnote">Denominator: the delegated voting power in each action's decision epoch, the predefined default options excluded. Concentration reads use the voting power each DRep voted with and appear only when it is recorded for every vote.{effRep.skipped > 0 && ` ${effRep.skipped} older actions without epoch data are not shown.`}</p>
-    </section>
-  )}
-
-  {voteChanges.decidedSwept > 0 && voteChanges.changedCount + voteChanges.samePositionCount > 0 && (
-    <section class="hub-votechange" aria-labelledby="hub-votechange-title">
-      <h2 id="hub-votechange-title">Changed votes</h2>
-      <p class="hub-votechange__lede">Across {voteChanges.decidedSwept} decided actions, {voteChanges.actionsWithChange} saw at least one DRep change their position. {voteChanges.changedCount} votes changed position in total, while {voteChanges.samePositionCount} re-votes kept the voter's position.</p>
-      {voteChanges.changedCount > 0 && (
-        <p class="hub-votechange__directions">{voteChanges.toYes} changed to yes, {voteChanges.toNo} to no and {voteChanges.toAbstain} to abstain.</p>
-      )}
-      {voteChanges.topActions.length > 0 && (
-        <>
-          <h3 class="hub-votechange__subtitle">Most reconsidered actions</h3>
-          <ul class="hub-votechange__rows">
-            {voteChanges.topActions.map((a) => (
-              <li class="hub-votechange__row">
-                <span class="hub-votechange__title">{a.href ? <a href={a.href}>{a.title}</a> : a.title}</span>
-                <span class="hub-votechange__type">{readableType(a.type)}</span>
-                <span class="hub-votechange__epoch">Epoch {a.decidedEpoch}</span>
-                <span class="hub-votechange__count">{a.changedCount} changed</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-      <p class="hub-votechange__footnote">Counts cover decided actions with a fully swept vote history and compare each voter's first recorded vote with the final one.{voteChanges.decidedUnswept > 0 && ` ${voteChanges.decidedUnswept} decided actions are still queued for the sweep.`}{voteChanges.orphanPairs > 0 && ` ${voteChanges.orphanPairs} re-votes whose final vote is not on record are left out.`}</p>
-    </section>
-  )}
-
-  {rationaleCoverage.countPct != null && (
-    <section class="hub-rationale" aria-labelledby="hub-rationale-title">
-      <h2 id="hub-rationale-title">Vote rationales</h2>
-      <p class="hub-rationale__lede">{fmtShare(rationaleCoverage.countPct)} of the {rationaleCoverage.totalVotes.toLocaleString('en-US')} DRep votes on decided actions carry an on-chain rationale link.{rationaleCoverage.powerPct != null && ` Weighted by voting power, coverage is ${fmtShare(rationaleCoverage.powerPct)}.`}{rationaleCoverage.revoteAdded > 0 && ` ${rationaleCoverage.revoteAdded.toLocaleString('en-US')} rationales arrived later through a re-vote.`}</p>
-      {rationaleCoverage.epochSeries.length > 1 && (
-        <div class="hub-rationale__chart">
-          <EpochSeriesChart title="Coverage of decided actions" ariaLabel="Median rationale coverage per decision epoch" points={rationaleCoverage.epochSeries} format={fmtShare} />
-        </div>
-      )}
-      {rationaleCoverage.byType.length > 1 && (
-        <ul class="hub-rationale__types">
-          {rationaleCoverage.byType.map((t) => (
-            <li class="hub-rationale__type"><span class="hub-rationale__type-name">{readableType(t.type)}</span><span class="hub-rationale__type-value">{fmtShare(t.medianPct)} median, {t.actions} {t.actions === 1 ? 'action' : 'actions'}</span></li>
+    {effRep.rows.length > 0 && (
+      <section class="hub-effrep" aria-labelledby="hub-effrep-title">
+        <h3 id="hub-effrep-title">Effective representation</h3>
+        <p class="hub-effrep__lede">Across the last {effRep.rows.length} decided actions, a median of {fmtShare(effRep.medianPowerSharePct)} of the delegated voting power was actually represented in the vote.{effRep.medianHalfCount != null && ` A median of ${fmtCount(effRep.medianHalfCount)} DReps was enough to cast half of the voted power.`}</p>
+        <ul class="hub-effrep__rows">
+          {effRep.rows.slice(0, 6).map((row) => (
+            <li class="hub-effrep__row">
+              <div class="hub-effrep__head">
+                <span class="hub-effrep__title">
+                  {row.href ? <a href={row.href}>{row.title}</a> : row.title}
+                </span>
+                <span class="hub-effrep__type">{readableType(row.type)}</span>
+                <span class="hub-effrep__epoch">Epoch {row.decidedEpoch}</span>
+              </div>
+              <div class="hub-effrep__meter">
+                <span class="hub-effrep__bar" aria-hidden="true"><span class="hub-effrep__fill" style={`width:${row.powerSharePct.toFixed(1)}%`}></span></span>
+                <span class="hub-effrep__value">{fmtShare(row.powerSharePct)}</span>
+              </div>
+              {(row.countSharePct != null || row.halfCount != null) && (
+                <p class="hub-effrep__note">{row.countSharePct != null && `${fmtShare(row.countSharePct)} of DReps voted`}{row.countSharePct != null && row.halfCount != null && ', '}{row.halfCount != null && `${row.halfCount} of ${row.voterCount} voters cast half of the voted power`}</p>
+              )}
+            </li>
           ))}
         </ul>
-      )}
-      {rationaleCoverage.best.length > 0 && (
-        <div class="hub-rationale__lists">
-          <div>
-            <h3 class="hub-rationale__subtitle">Best covered</h3>
-            <ul class="hub-rationale__rows">
-              {rationaleCoverage.best.map((x) => (
-                <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
+        <p class="hub-effrep__more">Showing the six most recent decided actions. <a href={ACTIONS_LIST_HREF}>View all governance actions</a></p>
+        <p class="hub-effrep__footnote">Denominator: the delegated voting power in each action's decision epoch, the predefined default options excluded. Concentration reads use the voting power each DRep voted with and appear only when it is recorded for every vote.{effRep.skipped > 0 && ` ${effRep.skipped} older actions without epoch data are not shown.`}</p>
+      </section>
+    )}
+
+    {activity && (
+      <section class="hub-activity" aria-labelledby="hub-activity-title">
+        <h3 id="hub-activity-title">DRep activity</h3>
+        {activityBars.map((bar) => (
+          <div class="hub-activity__group">
+            <p class="hub-activity__title">{bar.title}</p>
+            <div class="hub-activity__bar">
+              {bar.segments.map((seg) => (
+                <span class="hub-activity__seg" style={`width:${seg.pct.toFixed(1)}%`}></span>
+              ))}
+            </div>
+            <ul class="hub-activity__legend">
+              {bar.segments.map((seg) => (
+                <li class="hub-activity__legend-item"><span class="hub-activity__legend-dot" aria-hidden="true"></span>{seg.label}: {seg.value.toLocaleString('en-US')}</li>
               ))}
             </ul>
+            {bar.sub && <p class="hub-activity__sub">{bar.sub}</p>}
           </div>
-          {rationaleCoverage.worst.length > 0 && (
+        ))}
+        <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)} across {activity.inactiveCount.toLocaleString('en-US')} DReps.</p>
+        <p class="hub-activity__note">Definitions: active registrations follow the on-chain registration state, voted counts any on-chain vote including later-changed ones, counts are live as of the latest sync.</p>
+      </section>
+    )}
+
+    {ccPanel.considered > 0 && (
+      <section class="hub-cc" aria-labelledby="hub-cc-title">
+        <h3 id="hub-cc-title">Constitutional Committee</h3>
+        <p class="hub-cc__lede">Across {ccPanel.considered} decided actions the committee could vote on, a median of {fmtShare(ccPanel.medianTurnoutPct)} of its members cast a vote.{ccPanel.splitCount > 0 && ` ${ccPanel.splitCount} ${ccPanel.splitCount === 1 ? 'action' : 'actions'} saw a split committee.`}{ccPanel.verdictBasis > 0 && ` ${ccPanel.belowThreshold} of ${ccPanel.verdictBasis} finished below the committee's approval threshold.`}</p>
+        {ccPanel.medianLatencyDays != null && (
+          <p class="hub-cc__latency">Committee votes came a median of {fmtCount(ccPanel.medianLatencyDays)} days after an action was submitted.</p>
+        )}
+        {ccPanel.members.length > 0 && (
+          <ul class="hub-cc__members">
+            {ccPanel.members.map((m) => (
+              <li class="hub-cc__member"><span class="hub-cc__member-name">{m.name ?? shortCold(m.coldKeyHex)}</span><span class="hub-cc__member-bar" aria-hidden="true"><span class="hub-cc__member-fill" style={`width:${m.pct.toFixed(1)}%`}></span></span><span class="hub-cc__member-value">{m.voted} of {m.eligible}</span></li>
+            ))}
+          </ul>
+        )}
+        <p class="hub-cc__footnote">Eligibility follows the committee membership at each action's tally epoch, and only a member's final vote counts.{ccPanel.skipped > 0 && ` ${ccPanel.skipped} actions without a resolvable committee are not counted.`}{ccPanel.verdictBasis < ccPanel.considered && ` The threshold reading covers ${ccPanel.verdictBasis} actions with a frozen committee threshold.`}</p>
+      </section>
+    )}
+  </section>
+
+  <section class="hub-chapter" aria-labelledby="chapter-accountability-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <h2 id="chapter-accountability-title" class="hub-chapter__title">Accountability and behaviour</h2>
+      <p class="hub-chapter__intro">What DReps do beyond the vote itself: reconsidering positions and publishing rationales.</p>
+    </header>
+
+    {voteChanges.decidedSwept > 0 && voteChanges.changedCount + voteChanges.samePositionCount > 0 && (
+      <section class="hub-votechange" aria-labelledby="hub-votechange-title">
+        <h3 id="hub-votechange-title">Changed votes</h3>
+        <p class="hub-votechange__lede">Across {voteChanges.decidedSwept} decided actions, {voteChanges.actionsWithChange} saw at least one DRep change their position. {voteChanges.changedCount} votes changed position in total, while {voteChanges.samePositionCount} re-votes kept the voter's position.</p>
+        {voteChanges.changedCount > 0 && (
+          <p class="hub-votechange__directions">{voteChanges.toYes} changed to yes, {voteChanges.toNo} to no and {voteChanges.toAbstain} to abstain.</p>
+        )}
+        {voteChanges.topActions.length > 0 && (
+          <>
+            <h3 class="hub-votechange__subtitle">Most reconsidered actions</h3>
+            <ul class="hub-votechange__rows">
+              {voteChanges.topActions.map((a) => (
+                <li class="hub-votechange__row">
+                  <span class="hub-votechange__title">{a.href ? <a href={a.href}>{a.title}</a> : a.title}</span>
+                  <span class="hub-votechange__type">{readableType(a.type)}</span>
+                  <span class="hub-votechange__epoch">Epoch {a.decidedEpoch}</span>
+                  <span class="hub-votechange__count">{a.changedCount} changed</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <p class="hub-votechange__footnote">Counts cover decided actions with a fully swept vote history and compare each voter's first recorded vote with the final one.{voteChanges.decidedUnswept > 0 && ` ${voteChanges.decidedUnswept} decided actions are still queued for the sweep.`}{voteChanges.orphanPairs > 0 && ` ${voteChanges.orphanPairs} re-votes whose final vote is not on record are left out.`}</p>
+      </section>
+    )}
+
+    {rationaleCoverage.countPct != null && (
+      <section class="hub-rationale" aria-labelledby="hub-rationale-title">
+        <h3 id="hub-rationale-title">Vote rationales</h3>
+        <p class="hub-rationale__lede">{fmtShare(rationaleCoverage.countPct)} of the {rationaleCoverage.totalVotes.toLocaleString('en-US')} DRep votes on decided actions carry an on-chain rationale link.{rationaleCoverage.powerPct != null && ` Weighted by voting power, coverage is ${fmtShare(rationaleCoverage.powerPct)}.`}{rationaleCoverage.revoteAdded > 0 && ` ${rationaleCoverage.revoteAdded.toLocaleString('en-US')} rationales arrived later through a re-vote.`}</p>
+        {rationaleCoverage.epochSeries.length > 1 && (
+          <div class="hub-rationale__chart">
+            <EpochSeriesChart title="Coverage of decided actions" ariaLabel="Median rationale coverage per decision epoch" points={rationaleCoverage.epochSeries} format={fmtShare} />
+          </div>
+        )}
+        {rationaleCoverage.byType.length > 1 && (
+          <ul class="hub-rationale__types">
+            {rationaleCoverage.byType.map((t) => (
+              <li class="hub-rationale__type"><span class="hub-rationale__type-name">{readableType(t.type)}</span><span class="hub-rationale__type-value">{fmtShare(t.medianPct)} median, {t.actions} {t.actions === 1 ? 'action' : 'actions'}</span></li>
+            ))}
+          </ul>
+        )}
+        {rationaleCoverage.best.length > 0 && (
+          <div class="hub-rationale__lists">
             <div>
-              <h3 class="hub-rationale__subtitle">Least covered</h3>
+              <h3 class="hub-rationale__subtitle">Best covered</h3>
               <ul class="hub-rationale__rows">
-                {rationaleCoverage.worst.map((x) => (
+                {rationaleCoverage.best.map((x) => (
                   <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
                 ))}
               </ul>
             </div>
-          )}
-        </div>
-      )}
-      <p class="hub-rationale__footnote">Coverage counts the rationale link attached to the vote on chain. A linked document is not always retrievable, so an action can read higher here than the readable rationales on its own page. Coverage measures presence, not quality.{rationaleCoverage.powerExcluded > 0 && ` The power-weighted figure leaves out ${rationaleCoverage.powerExcluded} actions with incomplete per-vote power.`}{rationaleCoverage.belowFloor > 0 && ` Best and least covered consider actions with at least 20 votes, ${rationaleCoverage.belowFloor} smaller ones are not ranked.`}</p>
-    </section>
-  )}
+            {rationaleCoverage.worst.length > 0 && (
+              <div>
+                <h3 class="hub-rationale__subtitle">Least covered</h3>
+                <ul class="hub-rationale__rows">
+                  {rationaleCoverage.worst.map((x) => (
+                    <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        <p class="hub-rationale__footnote">Coverage counts the rationale link attached to the vote on chain. A linked document is not always retrievable, so an action can read higher here than the readable rationales on its own page. Coverage measures presence, not quality.{rationaleCoverage.powerExcluded > 0 && ` The power-weighted figure leaves out ${rationaleCoverage.powerExcluded} actions with incomplete per-vote power.`}{rationaleCoverage.belowFloor > 0 && ` Best and least covered consider actions with at least 20 votes, ${rationaleCoverage.belowFloor} smaller ones are not ranked.`}</p>
+      </section>
+    )}
+  </section>
 
-  {ccPanel.considered > 0 && (
-    <section class="hub-cc" aria-labelledby="hub-cc-title">
-      <h2 id="hub-cc-title">Constitutional Committee</h2>
-      <p class="hub-cc__lede">Across {ccPanel.considered} decided actions the committee could vote on, a median of {fmtShare(ccPanel.medianTurnoutPct)} of its members cast a vote.{ccPanel.splitCount > 0 && ` ${ccPanel.splitCount} ${ccPanel.splitCount === 1 ? 'action' : 'actions'} saw a split committee.`}{ccPanel.verdictBasis > 0 && ` ${ccPanel.belowThreshold} of ${ccPanel.verdictBasis} finished below the committee's approval threshold.`}</p>
-      {ccPanel.medianLatencyDays != null && (
-        <p class="hub-cc__latency">Committee votes came a median of {fmtCount(ccPanel.medianLatencyDays)} days after an action was submitted.</p>
-      )}
-      {ccPanel.members.length > 0 && (
-        <ul class="hub-cc__members">
-          {ccPanel.members.map((m) => (
-            <li class="hub-cc__member"><span class="hub-cc__member-name">{m.name ?? shortCold(m.coldKeyHex)}</span><span class="hub-cc__member-bar" aria-hidden="true"><span class="hub-cc__member-fill" style={`width:${m.pct.toFixed(1)}%`}></span></span><span class="hub-cc__member-value">{m.voted} of {m.eligible}</span></li>
+  <section class="hub-chapter" aria-labelledby="chapter-decentralization-title">
+    <header class="hub-chapter__head">
+      <p class="hub-chapter__eyebrow">Chapter</p>
+      <h2 id="chapter-decentralization-title" class="hub-chapter__title">Decentralization</h2>
+      <p class="hub-chapter__intro">How concentrated delegated voting power is, today and over time.</p>
+    </header>
+
+    {concentration.drepCount > 0 && (
+      <DrepConcentration
+        client:visible
+        topK={concentration.topK}
+        byPercent={concentration.byPercent}
+        drepCount={concentration.drepCount}
+        totalLabel={concentration.totalLabel}
+        markers={markers}
+        defaultThresholdPct={defaultThresholdPct}
+        thresholdsAsOf={thresholdsAsOf}
+      />
+    )}
+
+    {coalitionRows.length > 0 && (
+      <section class="hub-coalition" aria-labelledby="hub-coalition-title">
+        <h3 id="hub-coalition-title">Minimum coalition by threshold</h3>
+        <p class="hub-coalition__lede">How few of the largest DReps currently hold each threshold share.</p>
+        <ul class="hub-coalition__rows">
+          {coalitionRows.map((row) => (
+            <li class="hub-coalition__row">
+              <span class="hub-coalition__count">{row.count} {row.count === 1 ? 'DRep' : 'DReps'}</span>
+              <span class="hub-coalition__pct">{row.pct}%</span>
+              <span class="hub-coalition__actions">{row.actions.join(', ')}</span>
+            </li>
           ))}
         </ul>
-      )}
-      <p class="hub-cc__footnote">Eligibility follows the committee membership at each action's tally epoch, and only a member's final vote counts.{ccPanel.skipped > 0 && ` ${ccPanel.skipped} actions without a resolvable committee are not counted.`}{ccPanel.verdictBasis < ccPanel.considered && ` The threshold reading covers ${ccPanel.verdictBasis} actions with a frozen committee threshold.`}</p>
-    </section>
-  )}
+        <p class="hub-coalition__footnote">Based on the current delegated voting power, not actual coordination. Thresholds{thresholdsAsOf && ` as of ${thresholdsAsOf}`}, stake as of the latest sync.</p>
+      </section>
+    )}
 
-  {activity && (
-    <section class="hub-activity" aria-labelledby="hub-activity-title">
-      <h2 id="hub-activity-title">DRep activity</h2>
-      <ul class="hub-activity__rows">
-        {activityRows.map((row) => (
-          <li class="hub-activity__row">
-            <span class="hub-activity__label">{row.label}</span>
-            <span class="hub-activity__bar"><span class="hub-activity__fill" style={`width:${row.pct.toFixed(1)}%`}></span></span>
-            <span class="hub-activity__value">{row.value.toLocaleString('en-US')}</span>
-          </li>
-        ))}
-      </ul>
-      <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)} across {activity.inactiveCount.toLocaleString('en-US')} DReps.</p>
-      <p class="hub-activity__note">Definitions: active follows the on-chain registration state, voted counts any on-chain vote including later-changed ones, counts are live as of the latest sync.</p>
-    </section>
-  )}
-
-  {concentration.drepCount > 0 && (
-    <DrepConcentration
-      client:visible
-      topK={concentration.topK}
-      byPercent={concentration.byPercent}
-      drepCount={concentration.drepCount}
-      totalLabel={concentration.totalLabel}
-      markers={markers}
-      defaultThresholdPct={defaultThresholdPct}
-      thresholdsAsOf={thresholdsAsOf}
-    />
-  )}
-
-  {coalitionRows.length > 0 && (
-    <section class="hub-coalition" aria-labelledby="hub-coalition-title">
-      <h2 id="hub-coalition-title">Smallest group to pass</h2>
-      <p class="hub-coalition__lede">How few of the largest DReps together hold each approval threshold's share of the delegated voting power.</p>
-      <ul class="hub-coalition__rows">
-        {coalitionRows.map((row) => (
-          <li class="hub-coalition__row">
-            <span class="hub-coalition__count">{row.count} {row.count === 1 ? 'DRep' : 'DReps'}</span>
-            <span class="hub-coalition__pct">{row.pct}%</span>
-            <span class="hub-coalition__actions">{row.actions.join(', ')}</span>
-          </li>
-        ))}
-      </ul>
-      <p class="hub-coalition__footnote">Based on the current delegated voting power, not actual coordination. Thresholds{thresholdsAsOf && ` as of ${thresholdsAsOf}`}, stake as of the latest sync.</p>
-    </section>
-  )}
-
-  {hasBackbone && (
-    <section class="hub-conc-trends" aria-labelledby="hub-conc-trends-title">
-      <h2 id="hub-conc-trends-title">Concentration over time</h2>
-      <div class="hub-trends__grid">
-        <EpochSeriesChart title="Gini coefficient" points={metricSeries(chartStats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={starts.gini} />
-        <EpochSeriesChart title="Top-10 share" points={metricSeries(chartStats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={starts.top10SharePct} />
-        <EpochSeriesChart title="DReps for 50% of delegated power" points={metricSeries(chartStats, 'minCoalition50', starts.minCoalition50)} sinceEpoch={starts.minCoalition50} />
-        <EpochSeriesChart title="DReps for 67% of delegated power" points={metricSeries(chartStats, 'minCoalition67', starts.minCoalition67)} sinceEpoch={starts.minCoalition67} />
-      </div>
-    </section>
-  )}
+    {hasBackbone && (
+      <section class="hub-conc-trends" aria-labelledby="hub-conc-trends-title">
+        <h3 id="hub-conc-trends-title">Concentration over time</h3>
+        <div class="hub-conc-trends__grid">
+          <EpochSeriesChart title="Gini coefficient" points={metricSeries(chartStats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={starts.gini} note="Higher means voting power is more concentrated." />
+          <EpochSeriesChart title="Top-10 share" points={metricSeries(chartStats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={starts.top10SharePct} note="Share held by the ten largest DReps." />
+          <EpochSeriesChart title="DReps for 50% of delegated power" points={metricSeries(chartStats, 'minCoalition50', starts.minCoalition50)} sinceEpoch={starts.minCoalition50} note="Fewer DReps means more concentrated." />
+          <EpochSeriesChart title="DReps for 67% of delegated power" points={metricSeries(chartStats, 'minCoalition67', starts.minCoalition67)} sinceEpoch={starts.minCoalition67} note="Fewer DReps means more concentrated." />
+        </div>
+      </section>
+    )}
+  </section>
 
   <p class="hub-back"><a href="/dreps/">Browse the DRep directory</a></p>
 </Layout>
@@ -497,6 +564,36 @@ const activityRows = activity
   .hub-empty {
     color: var(--muted);
     margin: 0 0 1.5rem;
+  }
+
+  /* Chapters read as the page's top-level structure: a restrained eyebrow plus
+     title plus one-sentence intro, and a top border that separates one chapter
+     from the next (and from the hero above the first one). Panels inside keep
+     their own existing spacing untouched. */
+  .hub-chapter {
+    margin: 0 0 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+  }
+  .hub-chapter__head {
+    margin: 0 0 2rem;
+  }
+  .hub-chapter__eyebrow {
+    margin: 0 0 0.35rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .hub-chapter__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.5rem;
+  }
+  .hub-chapter__intro {
+    margin: 0;
+    color: var(--muted);
+    max-width: 60ch;
   }
 
   /* The one visually distinct surface on the page: the default-options layer is
@@ -567,8 +664,13 @@ const activityRows = activity
   .hub-defaults__chip--flat {
     color: var(--muted);
   }
-  .hub-defaults__note {
+  .hub-defaults__compare {
     margin: 1.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .hub-defaults__note {
+    margin: 0.5rem 0 0;
     color: var(--muted);
     font-size: 0.75rem;
   }
@@ -610,9 +712,14 @@ const activityRows = activity
     list-style: none;
     margin: 0 0 0.75rem;
     padding: 0;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr;
     gap: 0.9rem;
+  }
+  @media (min-width: 900px) {
+    .hub-effrep__rows {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
   .hub-effrep__row {
     padding: 0.75rem 0.9rem;
@@ -693,6 +800,19 @@ const activityRows = activity
     .hub-effrep__epoch {
       margin-left: 0;
     }
+  }
+  .hub-effrep__more {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .hub-effrep__more a {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .hub-effrep__more a:hover {
+    text-decoration: underline;
   }
   .hub-effrep__footnote {
     margin: 0;
@@ -986,57 +1106,75 @@ const activityRows = activity
   .hub-conc-trends {
     margin: 0 0 2.5rem;
   }
+  .hub-conc-trends__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  @media (min-width: 720px) {
+    .hub-conc-trends__grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
 
   .hub-activity {
     margin: 0 0 2.5rem;
   }
-  .hub-activity__rows {
-    list-style: none;
-    margin: 0 0 1.1rem;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
+  .hub-activity__group {
+    margin: 0 0 1.5rem;
   }
-  .hub-activity__row {
-    display: grid;
-    grid-template-columns: 9.5rem 1fr 4rem;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .hub-activity__label {
+  .hub-activity__title {
+    margin: 0 0 0.5rem;
     font-size: 0.875rem;
-    color: var(--muted);
+    font-weight: 600;
   }
   .hub-activity__bar {
-    display: block;
-    height: 6px;
+    display: flex;
+    height: 10px;
     border-radius: 999px;
-    background: var(--border);
     overflow: hidden;
+    background: var(--border);
   }
-  .hub-activity__fill {
-    /* Both spans default to inline, and an inline element ignores explicit
-       width/height entirely, silently dropping the proportional fill. Block
-       makes the inline-styled width actually take effect. */
+  .hub-activity__seg {
     display: block;
     height: 100%;
+  }
+  .hub-activity__seg:first-child {
+    background: var(--accent);
+  }
+  .hub-activity__seg:last-child {
+    background: var(--surface-2);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .hub-activity__legend {
+    list-style: none;
+    margin: 0.6rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.25rem;
+  }
+  .hub-activity__legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .hub-activity__legend-dot {
+    width: 8px;
+    height: 8px;
     border-radius: 999px;
     background: var(--accent);
   }
-  .hub-activity__value {
-    text-align: right;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
+  .hub-activity__legend-item:last-child .hub-activity__legend-dot {
+    background: var(--surface-2);
+    box-shadow: inset 0 0 0 1px var(--border);
   }
-  @media (max-width: 480px) {
-    .hub-activity__row {
-      grid-template-columns: 6.5rem 1fr 3.25rem;
-      gap: 0.5rem;
-    }
-    .hub-activity__label {
-      font-size: 0.8rem;
-    }
+  .hub-activity__sub {
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
   }
   .hub-activity__stake {
     margin: 0 0 0.4rem;
