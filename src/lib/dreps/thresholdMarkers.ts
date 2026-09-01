@@ -12,13 +12,8 @@ export interface ThresholdMarkersResult {
   thresholdsAsOf: string | null;
 }
 
-/**
- * Threshold markers for the donut slider, plus the default marker to preselect
- * and the date the synced thresholds are as of. Canonical Conway genesis
- * defaults label the markers before the protocol params have synced, synced
- * params override them when present.
- */
-export function buildThresholdMarkers(params: ProtocolParams | null): ThresholdMarkersResult {
+/** DRep thresholds grouped by rounded percent, full labels, ascending. */
+function dvtGroupedByPct(params: ProtocolParams | null): { pct: number; actions: string[] }[] {
   const DEFAULT_DVT: { fraction: number; label: string }[] = [
     { fraction: 0.67, label: 'No confidence' },
     { fraction: 0.67, label: 'Committee (normal state)' },
@@ -57,13 +52,23 @@ export function buildThresholdMarkers(params: ProtocolParams | null): ThresholdM
       else actionsByPct.set(pct, [label]);
     }
   }
+  return [...actionsByPct.entries()].sort((a, b) => a[0] - b[0]).map(([pct, actions]) => ({ pct, actions }));
+}
+
+/**
+ * Threshold markers for the donut slider, plus the default marker to preselect
+ * and the date the synced thresholds are as of. Canonical Conway genesis
+ * defaults label the markers before the protocol params have synced, synced
+ * params override them when present.
+ */
+export function buildThresholdMarkers(params: ProtocolParams | null): ThresholdMarkersResult {
   // The raw grouped list is exhaustive (67% alone gates six action types), which
   // reads as a wall of text in the marker hint. Collapse the busy thresholds to a
   // short, illustrative phrase, others fall through to their grouped labels.
   const MARKER_SUMMARY: Record<number, string> = {
     67: 'Treasury withdrawal and some network parameters',
   };
-  const markers = [...actionsByPct.entries()].sort((a, b) => a[0] - b[0]).map(([pct, actions]) => {
+  const markers = dvtGroupedByPct(params).map(({ pct, actions }) => {
     const summary = MARKER_SUMMARY[pct];
     return { pct, actions: summary ? [summary] : actions };
   });
@@ -72,4 +77,30 @@ export function buildThresholdMarkers(params: ProtocolParams | null): ThresholdM
   const thresholdsAsOf = params ? new Date(params.syncedAt).toISOString().slice(0, 10) : null;
 
   return { markers, defaultThresholdPct, thresholdsAsOf };
+}
+
+export interface CoalitionRow {
+  pct: number;
+  count: number;
+  actions: string[];
+}
+
+/**
+ * Minimum-coalition table for the hub: for each distinct DRep threshold, the
+ * smallest number of the largest DReps whose combined delegated power reaches
+ * that share of the total. Same simplification as the stored per-epoch
+ * min_coalition columns and the concentration island (share of representative
+ * power, not the abstain-adjusted on-chain denominator), so all three surfaces
+ * agree. Empty when the distribution is empty (count 0 rows are meaningless).
+ */
+export function buildCoalitionTable(
+  params: ProtocolParams | null,
+  byPercent: { count: number; cumPct: number }[],
+): CoalitionRow[] {
+  const rows: CoalitionRow[] = [];
+  for (const { pct, actions } of dvtGroupedByPct(params)) {
+    const count = byPercent[pct]?.count ?? 0;
+    if (count > 0) rows.push({ pct, count, actions });
+  }
+  return rows;
 }
