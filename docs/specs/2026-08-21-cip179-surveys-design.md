@@ -90,6 +90,11 @@ _(one line per completed increment; record deviations here)_
   `CHECKLIST_PATH`/`topicTypeIconPath` in `forum/icons.ts` and used by the
   category sidebar, topic rows, and the activity feed, whose view model
   now carries `topic.source` instead of the derived `isGovernance`.
+- 2026-09-01 — PR review response, part one: §11 records the wallet/session
+  identity gap as a platform finding (the vote flow runs the same model, so
+  the fix spans both panels and is not taken here), and increment 8's README,
+  deployment-doc and document-deletion steps are pinned as the last commit on
+  the branch, after the maintainer's review is validated.
 
 ---
 
@@ -374,12 +379,25 @@ its own; a replacement shows the same cycle; a tx that never lands ages to
 
 ### 8 — Freshness, docs, PR
 
-Add the freshness row (both places; the drift test enforces the pair) and
-mention the feature in the README. This document stays on the branch; the
-maintainer deletes it on acceptance (Decisions move into the PR
-description). PR: `feat: index CIP-179 surveys and let DReps answer
-them` — say explicitly that surveys come from Tessera's HTTP API, DRepTalk
-does no label-17 indexing, and no page request reads Tessera.
+The freshness row landed (both places; the drift test enforces the pair).
+Everything else in this increment is **held until the maintainer's review of
+the PR is validated** — deliberately, so a later review that notes the README
+is unchanged is reading the branch mid-flight rather than finding an
+oversight:
+
+- the README's architecture diagram and feature summary, which still name
+  Koios as the only chain-data source and the cron worker as ingesting
+  governance actions alone;
+- `docs/deployment.md`'s "both environments build from the same source, only
+  `CARDANO_NETWORK`, the bindings and the route differ" — untrue from the
+  moment `TESSERA_BACKEND_URL` and `TESSERA_APP_URL` exist, the first of them
+  the feature switch in both workers;
+- the deletion of this document (its Decisions move into the PR description).
+
+All three describe a shape the review can still move, and writing them now
+buys a rewrite every round. PR title: `feat: index CIP-179 surveys and let
+DReps answer them` — say explicitly that surveys come from Tessera's HTTP
+API, DRepTalk does no label-17 indexing, and no page request reads Tessera.
 
 ## 7. Decisions
 
@@ -506,3 +524,41 @@ Left alone on purpose. Converting one route would make it the only one of
 its shape among ~40 API routes, and the buy is three lines of test setup;
 the pattern belongs to `main` and is worth deciding once, for all of the
 sites, rather than once badly for this one.
+
+## 11. The wallet is not bound to the session's DRep — for the maintainer
+
+Raised in review of this PR, confirmed, and deliberately not fixed here: it is
+the identity model the shipped vote flow already runs, so the fix belongs to
+both flows at once rather than to surveys alone.
+
+The answer panel renders for any session holding the `drep` role.
+`connectAsDrep` then preflights that the *selected wallet* exposes a
+registered, active DRep key — but never that it is the DRep the session signed
+in as. The label-17 response is built from and signed by the wallet's key
+hash, while `POST /api/survey/response/record` derives the credential it
+stores from the session's `drep_id`. Signed in as DRep A and answering with
+DRep B's wallet therefore puts B's answer on chain and A's credential in the
+local row; pass 4 settles on the exact transaction *and* credential, never
+finds A in it, and the row ages to "didn't confirm" while B's answer stands
+counted. The same missing server-side lookup shows the key-only panel to a
+script-DRep session, whose record call then 403s — non-fatal on the client, so
+the panel reports a submitted answer with no optimistic row behind it.
+
+Nothing is forged: the wallet still proves control of the credential it signs
+with, and the recorded credential is the session's own, never the client's.
+What breaks is the optimistic overlay, for a user who deliberately connected a
+different DRep's wallet.
+
+`src/components/vote/VotePanel.astro`, `MultiVoteBar.astro` and `POST
+/api/vote/record` are the same shape: `connectAsDrep` compares nothing against
+the session there either, and the vote row is likewise keyed by the session's
+DRep. `src/lib/wallet/drepWalletConnect.ts` documents the pair on purpose —
+`connectAsDrep` preflights registration, `connectVerifiedDrep` checks the
+wallet against a signed-in DRep id, and only DRep settings and retirement use
+the second. Fixing surveys alone would fork that split rather than settle it.
+
+The fix, when it is scheduled: give `connectVerifiedDrep` the
+active-registration preflight `connectAsDrep` does, use it for the vote and
+survey panels alike, and resolve the viewer's DRep id server-side — including
+its credential kind — so a script DRep is told why it cannot answer instead of
+being handed a panel that 403s.
