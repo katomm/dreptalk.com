@@ -119,7 +119,7 @@ const columns: { key: 'up' | 'down'; title: string; items: Drep[] }[] = [
   {!hasData ? (
     <p class="movers-none">Not enough epoch snapshots yet to rank movers. Check back next epoch.</p>
   ) : (
-    <div class="movers-grid">
+    <div class="movers-grid" data-screenshot="movers-board">
       {columns.map((col) => (
         <section class="movers-col">
           <h2 class={`movers-col__title movers-col__title--${col.key}`}>
