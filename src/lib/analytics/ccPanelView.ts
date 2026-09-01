@@ -51,8 +51,8 @@ export function selectExtremes<T>(rows: T[], n: number): { top: T[]; bottom: T[]
  * Tenure across every term a cold key has held. `from` is the earliest term's
  * start, never below that term's own hot-key authorization epoch. `to` is
  * null while any term is still current (open version, not resigned, term not
- * yet expired), otherwise the latest of each term's end (its expiration, or
- * the epoch before resignation when it resigned).
+ * yet expired), otherwise the latest of each term's end (its expiration, the
+ * end of its committee version, or the epoch before resignation).
  */
 function computeTenure(terms: CommitteeMemberTerm[], currentEpoch: number | null): { from: number; to: number | null } {
   if (terms.length === 0) return { from: 0, to: null };
@@ -65,9 +65,16 @@ function computeTenure(terms: CommitteeMemberTerm[], currentEpoch: number | null
     (t) => t.versionTo == null && t.resignedAt == null && currentEpoch != null && t.termExpiration >= currentEpoch,
   );
   if (isCurrent) return { from, to: null };
+  // A term ends at the earliest of its expiration, the end of its committee
+  // version (a member dropped by an update-committee action keeps a far
+  // expiration on that row), and the epoch before a resignation.
   let to = -Infinity;
   for (const t of terms) {
-    const end = t.resignedAt != null ? Math.min(t.termExpiration, t.resignedAt - 1) : t.termExpiration;
+    const end = Math.min(
+      t.termExpiration,
+      t.versionTo ?? Number.POSITIVE_INFINITY,
+      t.resignedAt != null ? t.resignedAt - 1 : Number.POSITIVE_INFINITY,
+    );
     if (end > to) to = end;
   }
   return { from, to };

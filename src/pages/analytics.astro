@@ -409,7 +409,7 @@ const activityBars = activity
                         <span class="hub-cc__member-tenure">{tenureLabel(m.tenure)}</span>
                         <span class="hub-cc__member-value">{m.voted} of {m.eligible}</span>
                       </div>
-                      <div class="hub-cc__raster" aria-label={`Voted on ${m.voted} of ${m.eligible} eligible actions, oldest to newest`}>
+                      <div class="hub-cc__raster" role="img" aria-label={`Voted on ${m.voted} of ${m.eligible} eligible actions, oldest to newest`}>
                         {m.sequence.map((s) => (
                           <span class={`hub-cc__dot hub-cc__dot--${s}`}></span>
                         ))}
@@ -429,7 +429,7 @@ const activityBars = activity
                           <span class="hub-cc__member-tenure">{tenureLabel(m.tenure)}</span>
                           <span class="hub-cc__member-value">{m.voted} of {m.eligible}</span>
                         </div>
-                        <div class="hub-cc__raster" aria-label={`Voted on ${m.voted} of ${m.eligible} eligible actions, oldest to newest`}>
+                        <div class="hub-cc__raster" role="img" aria-label={`Voted on ${m.voted} of ${m.eligible} eligible actions, oldest to newest`}>
                           {m.sequence.map((s) => (
                             <span class={`hub-cc__dot hub-cc__dot--${s}`}></span>
                           ))}
@@ -440,7 +440,7 @@ const activityBars = activity
                 </div>
               )}
             </div>
-            <p class="hub-cc__raster-note">Each square is one decided action from the oldest to the newest, filled when the member voted, outlined when eligible without a vote, faded before or after the member's term.</p>
+            <p class="hub-cc__raster-note">Each square is one decided action from the oldest to the newest, filled when the member voted, outlined when eligible without a vote, faded outside the member's eligibility window.</p>
           </>
         )}
         <p class="hub-cc__footnote">Eligibility follows the committee membership at each action's tally epoch, and only a member's final vote counts.{ccPanel.skipped > 0 && ` ${ccPanel.skipped} actions without a resolvable committee are not counted.`}{ccPanel.verdictBasis < ccPanel.considered && ` The threshold reading covers ${ccPanel.verdictBasis} actions with a frozen committee threshold.`}</p>
@@ -451,7 +451,7 @@ const activityBars = activity
   <section class="hub-chapter" aria-labelledby="chapter-accountability-title">
     <header class="hub-chapter__head">
       <p class="hub-chapter__eyebrow">Chapter</p>
-      <h2 id="chapter-accountability-title" class="hub-chapter__title">Accountability and behaviour</h2>
+      <h2 id="chapter-accountability-title" class="hub-chapter__title">Accountability and behavior</h2>
       <p class="hub-chapter__intro">What DReps do beyond the vote itself: reconsidering positions and publishing rationales.</p>
     </header>
 
@@ -972,7 +972,7 @@ const activityBars = activity
   }
   .hub-cbar__dot--kept {
     background: var(--surface-2);
-    box-shadow: inset 0 0 0 1px var(--border);
+    box-shadow: inset 0 0 0 1px var(--muted);
   }
   .hub-votechange__subtitle {
     margin: 0 0 0.75rem;
@@ -1380,7 +1380,7 @@ const activityBars = activity
   }
   .hub-activity__legend-item:last-child .hub-activity__legend-dot {
     background: var(--surface-2);
-    box-shadow: inset 0 0 0 1px var(--border);
+    box-shadow: inset 0 0 0 1px var(--muted);
   }
   .hub-activity__sub {
     margin: 0.5rem 0 0;

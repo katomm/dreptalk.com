@@ -87,6 +87,46 @@ describe('buildCcPanel', () => {
     expect(cold2?.tenure).toEqual({ from: 500, to: null });
   });
 
+  it('closes tenure at the version end, the resignation, or the expiration, whichever comes first', () => {
+    // Three terms like a real multi-version member: dropped from the version
+    // at 601 despite a far expiration, then resigned mid-term at 597 in the
+    // shape the Atlantic Council left, so the tenure ends at 596.
+    const multi: CommitteeMemberTerm[] = [
+      { coldKeyHex: 'cold1', versionFrom: 507, versionTo: 580, termExpiration: 580, authorizedFrom: 507, resignedAt: null },
+      { coldKeyHex: 'cold1', versionFrom: 581, versionTo: 601, termExpiration: 726, authorizedFrom: 581, resignedAt: 597 },
+      { coldKeyHex: 'cold2', versionFrom: 581, versionTo: 601, termExpiration: 726, authorizedFrom: 581, resignedAt: null },
+      { coldKeyHex: 'cold2', versionFrom: 602, versionTo: null, termExpiration: 726, authorizedFrom: 602, resignedAt: null },
+    ];
+    // A skipped action (decided before any member existed) sits between two
+    // considered ones and must not consume a sequence index.
+    const actions = [
+      action({ gaId: 'ga1', decidedEpoch: 590 }),
+      action({ gaId: 'ga0', decidedEpoch: 400 }),
+      action({ gaId: 'ga2', decidedEpoch: 610 }),
+    ];
+    const votesByAction = new Map([
+      ['ga1', [vote('hot1', 'Yes', 2 * DAY), vote('hot2', 'Yes', 2 * DAY)]],
+      ['ga2', [vote('hot2', 'Yes', 2 * DAY)]],
+    ]);
+    const v = buildCcPanel({ actions, votesByAction, members: multi, hotToCold, nameIndex, currentEpoch: 650 });
+    expect(v.skipped).toBe(1);
+    expect(v.actionEpochs).toEqual([590, 610]);
+    const cold1 = v.members.find((m) => m.coldKeyHex === 'cold1');
+    expect(cold1?.tenure).toEqual({ from: 507, to: 596 });
+    expect(cold1?.sequence).toEqual(['voted', 'ineligible']);
+    const cold2 = v.members.find((m) => m.coldKeyHex === 'cold2');
+    expect(cold2?.tenure).toEqual({ from: 581, to: null });
+    expect(cold2?.sequence).toEqual(['voted', 'voted']);
+  });
+
+  it('ends a dropped member at the committee version end, not its far expiration', () => {
+    const dropped: CommitteeMemberTerm[] = [
+      { coldKeyHex: 'cold1', versionFrom: 581, versionTo: 601, termExpiration: 726, authorizedFrom: 581, resignedAt: null },
+    ];
+    const v = buildCcPanel({ actions: [action({ gaId: 'ga1', decidedEpoch: 590 })], votesByAction: new Map(), members: dropped, hotToCold, nameIndex, currentEpoch: 650 });
+    expect(v.members[0]?.tenure).toEqual({ from: 581, to: 601 });
+  });
+
   it('applies the quorum gate to the verdict', () => {
     const actions = [action({ gaId: 'ga1', ccYesPct: 100, thresholdsJson: '{"cc":66.7,"ccBelowMinSize":true,"v":2}' })];
     const v = buildCcPanel({ actions, votesByAction: new Map(), members, hotToCold, nameIndex, currentEpoch: 650 });

@@ -23,7 +23,7 @@ faqs:
     a: "Membership changes over time. A member who resigned, whose term expired, or who had not yet registered a voting key does not count as eligible for an action decided in that period, so each action is measured against the committee as it stood at the time."
 ---
 
-The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in four chapters: governance today, representation and participation, accountability and behaviour, and decentralization.
+The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in four chapters: governance today, representation and participation, accountability and behavior, and decentralization.
 
 ## The two layers
 
