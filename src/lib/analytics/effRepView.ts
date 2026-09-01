@@ -5,7 +5,13 @@
 // against the stake distribution that actually decided that action, not a
 // live snapshot from a later epoch. Lovelace-to-Number conversion here is
 // display-only, the shares are ratios and never need BigInt precision.
+// Concentration data: when a powers map is provided, halfCount and voterCount
+// are computed from buildVoteConcentration. The concentration honesty rule
+// matches the vote-power rule: any missing per-voter power makes the whole
+// concentration absent, never zero. Absent concentrations are excluded from
+// the medianHalfCount.
 import type { DecidedActionRepresentation } from '../db/effectiveRepresentation.js';
+import { buildVoteConcentration } from './voteConcentration.js';
 
 export interface EffRepRow {
   id: string;
@@ -15,11 +21,14 @@ export interface EffRepRow {
   decidedEpoch: number;
   powerSharePct: number;
   countSharePct: number | null;
+  halfCount: number | null;
+  voterCount: number | null;
 }
 
 export interface EffRepView {
   rows: EffRepRow[];
   medianPowerSharePct: number | null;
+  medianHalfCount: number | null;
   skipped: number;
 }
 
@@ -34,7 +43,10 @@ function median(values: number[]): number | null {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-export function buildEffRep(actions: DecidedActionRepresentation[]): EffRepView {
+export function buildEffRep(
+  actions: DecidedActionRepresentation[],
+  powersByAction?: Map<string, (number | null)[]>,
+): EffRepView {
   const rows: EffRepRow[] = [];
   let skipped = 0;
   for (const action of actions) {
@@ -48,6 +60,7 @@ export function buildEffRep(actions: DecidedActionRepresentation[]): EffRepView 
       action.poweredDrepCount != null && action.poweredDrepCount !== 0
         ? clampPct((action.votesCast / action.poweredDrepCount) * 100)
         : null;
+    const conc = powersByAction ? buildVoteConcentration(powersByAction.get(action.id) ?? [], null) : null;
     rows.push({
       id: action.id,
       title: action.title ?? action.type,
@@ -56,11 +69,14 @@ export function buildEffRep(actions: DecidedActionRepresentation[]): EffRepView 
       decidedEpoch: action.decidedEpoch,
       powerSharePct,
       countSharePct,
+      halfCount: conc?.halfCount ?? null,
+      voterCount: conc?.voterCount ?? null,
     });
   }
   return {
     rows,
     medianPowerSharePct: median(rows.map((r) => r.powerSharePct)),
+    medianHalfCount: median(rows.map((r) => r.halfCount).filter((n): n is number => n !== null)),
     skipped,
   };
 }

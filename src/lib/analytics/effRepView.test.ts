@@ -107,4 +107,46 @@ describe('buildEffRep', () => {
     const view = buildEffRep([a('g1', 540, { type: 'ParameterChange' })]);
     expect(view.rows[0]).toMatchObject({ id: 'g1', type: 'ParameterChange', decidedEpoch: 540 });
   });
+
+  describe('concentration extension', () => {
+    it('attaches halfCount from the powers map and computes the median', () => {
+      const actions = [
+        a('ga1', 540, { votedPower: 100, totalDrepPower: '1000' }),
+        a('ga2', 539, { votedPower: 100, totalDrepPower: '1000' }),
+      ];
+      const powers = new Map([
+        ['ga1', [50, 30, 20]],
+        ['ga2', [10, 10, 10, 10]],
+      ]);
+      const view = buildEffRep(actions, powers);
+      expect(view.rows[0].halfCount).toBe(1);
+      expect(view.rows[0].voterCount).toBe(3);
+      expect(view.rows[1].halfCount).toBe(2);
+      expect(view.rows[1].voterCount).toBe(4);
+      expect(view.medianHalfCount).toBe(1.5);
+    });
+
+    it('leaves halfCount null on incomplete power data and excludes it from the median', () => {
+      const actions = [
+        a('ga1', 540, { votedPower: 100, totalDrepPower: '1000' }),
+        a('ga2', 539, { votedPower: 100, totalDrepPower: '1000' }),
+      ];
+      const powers = new Map([
+        ['ga1', [50, null, 20]],
+        ['ga2', [10, 10, 10, 10]],
+      ]);
+      const view = buildEffRep(actions, powers);
+      expect(view.rows[0].halfCount).toBeNull();
+      expect(view.rows[0].voterCount).toBeNull();
+      expect(view.rows[1].halfCount).toBe(2);
+      expect(view.medianHalfCount).toBe(2);
+    });
+
+    it('keeps working without a powers map', () => {
+      const view = buildEffRep([a('ga1', 540)]);
+      expect(view.rows[0].halfCount).toBeNull();
+      expect(view.rows[0].voterCount).toBeNull();
+      expect(view.medianHalfCount).toBeNull();
+    });
+  });
 });
