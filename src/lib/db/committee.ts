@@ -163,6 +163,81 @@ export async function getActionCcVoteRows(db: D1Database, gaId: string): Promise
   return out;
 }
 
+/** One decided action's CC-relevant fields, for the analytics hub panel. */
+export interface DecidedCcAction {
+  gaId: string;
+  title: string | null;
+  topicSlug: string | null;
+  type: string;
+  decidedEpoch: number;
+  submittedAt: number | null;
+  ccYesPct: number | null;
+  thresholdsJson: string | null;
+}
+
+/** Every decided action, for the hub panel. The caller filters by isCcEligible. */
+export async function listDecidedCcActions(db: D1Database): Promise<DecidedCcAction[]> {
+  const res = await db
+    .prepare(
+      `SELECT g.id, g.title, t.slug AS topic_slug, g.type, g.decided_epoch, g.submitted_at, g.cc_yes_pct, g.thresholds_json
+         FROM governance_actions g
+         LEFT JOIN topics t ON t.id = g.topic_id
+        WHERE g.decided_epoch IS NOT NULL`,
+    )
+    .all<{
+      id: string;
+      title: string | null;
+      topic_slug: string | null;
+      type: string;
+      decided_epoch: number;
+      submitted_at: number | null;
+      cc_yes_pct: number | null;
+      thresholds_json: string | null;
+    }>();
+  return (res.results ?? []).map((r) => ({
+    gaId: r.id,
+    title: r.title,
+    topicSlug: r.topic_slug,
+    type: r.type,
+    decidedEpoch: r.decided_epoch,
+    submittedAt: r.submitted_at,
+    ccYesPct: r.cc_yes_pct,
+    thresholdsJson: r.thresholds_json,
+  }));
+}
+
+/**
+ * All CC votes on every decided action, grouped by ga_id, for the hub panel.
+ * Same filters and vote narrowing as getActionCcVoteRows, batched across actions
+ * so the hub and the per-action breakdown always agree.
+ */
+export async function listDecidedCcVoteRows(db: D1Database): Promise<Map<string, CcVoteRow[]>> {
+  const res = await db
+    .prepare(
+      `SELECT drep_votes.ga_id AS ga_id, voter_id, lower(voter_hex) AS hot_key_hex, vote, block_time, meta_url
+         FROM drep_votes
+         JOIN governance_actions g ON g.id = drep_votes.ga_id AND g.decided_epoch IS NOT NULL
+        WHERE voter_role = 'ConstitutionalCommittee' AND voter_hex IS NOT NULL AND voter_hex <> ''`,
+    )
+    .all<{
+      ga_id: string;
+      voter_id: string;
+      hot_key_hex: string;
+      vote: string;
+      block_time: number | null;
+      meta_url: string | null;
+    }>();
+  const out = new Map<string, CcVoteRow[]>();
+  for (const r of res.results ?? []) {
+    if (r.vote !== 'Yes' && r.vote !== 'No' && r.vote !== 'Abstain') continue;
+    const row: CcVoteRow = { voterId: r.voter_id, hotKeyHex: r.hot_key_hex, vote: r.vote, blockTime: r.block_time, metaUrl: r.meta_url };
+    const existing = out.get(r.ga_id);
+    if (existing) existing.push(row);
+    else out.set(r.ga_id, [row]);
+  }
+  return out;
+}
+
 /** The loaded membership timeline, read once and shared across a sync run. */
 export interface CommitteeTimeline {
   members: CommitteeMemberTerm[];
