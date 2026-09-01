@@ -204,6 +204,22 @@ function toEpochStatsRow(r: RawEpochStatsRow): EpochStatsRow {
 }
 
 /**
+ * Single-epoch backbone read, for callers that need one epoch's row (for
+ * example mapping a governance action to its epoch's total_drep_power) without
+ * pulling the whole series. Null when the epoch has no stored row yet.
+ */
+export async function getEpochStatsByEpoch(db: D1Database, epoch: number): Promise<EpochStatsRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${COLUMNS.split(', ').filter((c) => c !== 'computed_at').join(', ')}
+         FROM governance_epoch_stats WHERE epoch = ?`,
+    )
+    .bind(epoch)
+    .first<RawEpochStatsRow>();
+  return row ? toEpochStatsRow(row) : null;
+}
+
+/**
  * The stored stats series, epoch ascending, for the analytics hub. Callers
  * clip each metric to its seriesStartEpoch before charting, this read is
  * deliberately raw. The whole table is ~150 rows per network.

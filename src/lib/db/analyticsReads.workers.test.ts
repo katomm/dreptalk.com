@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { listEpochStats } from './governanceEpochStats.js';
+import { listEpochStats, getEpochStatsByEpoch } from './governanceEpochStats.js';
 import { getDefaultDelegationCurrent } from './defaultDelegation.js';
 import { getDrepActivityBreakdown } from './drepActivityBreakdown.js';
 
@@ -69,6 +69,22 @@ describe('listEpochStats', () => {
     await seedStats(539);
     const rows = await listEpochStats(env.DB, { fromEpoch: 539 });
     expect(rows.map((r) => r.epoch)).toEqual([539]);
+  });
+});
+
+describe('getEpochStatsByEpoch', () => {
+  it('returns the row mapped to camelCase on a hit', async () => {
+    await seedStats(540, { total_drep_power: '12345', top10_share_pct: 55.5 });
+    const row = await getEpochStatsByEpoch(env.DB, 540);
+    expect(row?.epoch).toBe(540);
+    expect(row?.totalDrepPower).toBe('12345');
+    expect(row?.top10SharePct).toBe(55.5);
+  });
+
+  it('returns null on a miss', async () => {
+    await seedStats(540);
+    const row = await getEpochStatsByEpoch(env.DB, 999);
+    expect(row).toBeNull();
   });
 });
 
