@@ -8,11 +8,26 @@
 import { parseSessionToken } from '../auth/session.js';
 
 /**
- * Cache key for a page: the URL only, GET. Never keyed on cookies or other request
- * headers, so every anonymous visitor shares one entry per URL.
+ * Cache key for a page: the URL plus the deploy it was rendered by, GET. Never
+ * keyed on cookies or other request headers, so every anonymous visitor on one
+ * deploy shares a single entry per URL.
+ *
+ * The deploy id is in the key because a stored page names hashed asset bundles,
+ * and a deploy replaces the asset manifest wholesale, so the bundles an earlier
+ * render points at stop existing. Without it, an entry written just before a
+ * deploy keeps being served afterwards for the rest of its TTL, and the page
+ * arrives with no stylesheet at all. Changing the key makes a deploy miss every
+ * older entry instead, and the strays age out on their own.
+ *
+ * The version is carried as a query parameter on the key. The key is only ever
+ * matched against, never fetched, so the parameter reaches no origin and no log.
+ * An absent version degrades to the old URL-only behaviour rather than throwing.
  */
-export function pageCacheKey(url: string): Request {
-  return new Request(url, { method: 'GET' });
+export function pageCacheKey(url: string, version?: string): Request {
+  if (!version) return new Request(url, { method: 'GET' });
+  const keyed = new URL(url);
+  keyed.searchParams.set('__deploy', version);
+  return new Request(keyed.toString(), { method: 'GET' });
 }
 
 /**

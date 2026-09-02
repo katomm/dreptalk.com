@@ -28,6 +28,7 @@
     "test:watch": "vitest",
     "test:live": "DREPTALK_LIVE=1 vitest run src/lib/governance/drepTx.live.test.ts",
     "preflight": "bash scripts/preflight.sh",
+    "check:deployed": "node scripts/check-deployed-assets.mjs",
     "sync:dev": "wrangler dev --config workers/gov-sync/wrangler.toml --test-scheduled --persist-to .wrangler/state --var CARDANO_NETWORK:preprod --port 8787",
     "deploy:app": "CONFIRM_PROD_SOFT=1 bash scripts/confirm-prod.sh 'app worker deploy (mainnet)' && wrangler deploy",
     "deploy:app:preprod": "node scripts/preprod-config.mjs && wrangler deploy -c dist/server/wrangler.preprod.json",

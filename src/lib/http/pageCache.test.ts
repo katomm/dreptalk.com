@@ -11,6 +11,28 @@ describe('pageCacheKey', () => {
     expect(key.url).toBe(PAGE);
     expect(key.method).toBe('GET');
   });
+
+  it('carries the deploy version so a new deploy cannot read an older entry', () => {
+    const key = pageCacheKey(PAGE, 'deploy-a');
+    expect(key.method).toBe('GET');
+    expect(new URL(key.url).searchParams.get('__deploy')).toBe('deploy-a');
+  });
+
+  it('gives two deploys different keys for the same page', () => {
+    expect(pageCacheKey(PAGE, 'deploy-a').url).not.toBe(pageCacheKey(PAGE, 'deploy-b').url);
+  });
+
+  it('keeps the page own query parameters alongside the version', () => {
+    const key = pageCacheKey(`${PAGE}?page=2`, 'deploy-a');
+    const params = new URL(key.url).searchParams;
+    expect(params.get('page')).toBe('2');
+    expect(params.get('__deploy')).toBe('deploy-a');
+  });
+
+  it('falls back to the bare URL when no version is available', () => {
+    expect(pageCacheKey(PAGE, undefined).url).toBe(PAGE);
+    expect(pageCacheKey(PAGE, '').url).toBe(PAGE);
+  });
 });
 
 describe('isCacheableRequest', () => {

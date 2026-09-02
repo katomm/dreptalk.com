@@ -14,6 +14,14 @@ import { buildServiceDescription } from './lib/cip100/service.js';
 import { originForNetwork } from './lib/cip100/origin.js';
 import { corsHeaders } from './lib/cip100/cors.js';
 
+// The id of the deploy serving this request, for the page cache key. Provided by
+// the version_metadata binding, which Cloudflare gives a fresh id on every
+// deploy. Absent in dev and in tests, where the page cache is off anyway, so an
+// undefined value simply leaves the key unversioned.
+function deployVersion(): string | undefined {
+  return (env as { CF_VERSION_METADATA?: { id?: string } })?.CF_VERSION_METADATA?.id;
+}
+
 export const onRequest = defineMiddleware(async (context, next) => {
   // Canonical host: permanently redirect www to the apex so clients and search
   // engines consolidate on https://dreptalk.com. Runs first to skip the session
@@ -58,7 +66,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // applied), so a hit is returned verbatim. See lib/http/pageCache for the rules.
   const cacheKey =
     !import.meta.env.DEV && isCacheableRequest(context.request)
-      ? pageCacheKey(context.request.url)
+      ? pageCacheKey(context.request.url, deployVersion())
       : null;
   const cache = cacheKey ? (caches as CacheStorage & { default: Cache }).default : null;
   if (cache && cacheKey) {
