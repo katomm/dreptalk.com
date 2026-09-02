@@ -8,6 +8,8 @@ import {
   summarizeOnchain,
   parameterChangeScope,
   treasuryTotalLovelace,
+  lineagePredecessor,
+  lineagePredecessorTxIds,
 } from './onchain.js';
 
 describe('formatValue', () => {
@@ -279,5 +281,42 @@ describe('treasuryTotalLovelace', () => {
     expect(treasuryTotalLovelace({ tag: 'InfoAction', contents: [] })).toBe(0n);
     expect(treasuryTotalLovelace(null)).toBe(0n);
     expect(treasuryTotalLovelace({})).toBe(0n);
+  });
+});
+
+describe('lineagePredecessor', () => {
+  const payload = (contents: unknown) => JSON.stringify({ tag: 'ParameterChange', contents });
+
+  it('reads the predecessor pointer of a lineage-tracked action', () => {
+    expect(lineagePredecessor(payload([{ txId: 'abc', govActionIx: 0 }, { committeeMinSize: 5 }]))).toBe('abc#0');
+  });
+
+  it('is null for the first action of a lineage, which names no predecessor', () => {
+    expect(lineagePredecessor(payload([null, { major: 10 }]))).toBeNull();
+  });
+
+  it('is null for a type whose first payload element is not a pointer', () => {
+    // Treasury withdrawals put the withdrawal list first, info actions carry
+    // no contents at all.
+    expect(lineagePredecessor(payload([[['addr', 1000]], 'hash']))).toBeNull();
+    expect(lineagePredecessor(JSON.stringify({ tag: 'InfoAction' }))).toBeNull();
+  });
+
+  it('is null for absent or malformed payloads instead of throwing', () => {
+    expect(lineagePredecessor(null)).toBeNull();
+    expect(lineagePredecessor('not json')).toBeNull();
+    expect(lineagePredecessor(payload([{ txId: 'abc' }]))).toBeNull();
+  });
+});
+
+describe('lineagePredecessorTxIds', () => {
+  const payload = (txId: string) => JSON.stringify({ tag: 'ParameterChange', contents: [{ txId, govActionIx: 0 }, {}] });
+
+  it('collects the distinct predecessor transaction ids', () => {
+    expect(lineagePredecessorTxIds([payload('a'), payload('b'), payload('a')])).toEqual(['a', 'b']);
+  });
+
+  it('skips payloads that name no predecessor', () => {
+    expect(lineagePredecessorTxIds([null, 'not json', JSON.stringify({ tag: 'InfoAction' })])).toEqual([]);
   });
 });

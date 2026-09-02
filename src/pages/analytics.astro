@@ -31,6 +31,7 @@ import {
   getWindowThirds,
   type WindowThirds,
 } from '@/lib/db/recordDiagnostics.js';
+import { lineagePredecessorTxIds } from '@/lib/governance/onchain.js';
 import { readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
@@ -41,7 +42,7 @@ import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
 import { buildCcPanel, selectExtremes } from '@/lib/analytics/ccPanelView.js';
-import { buildDroppedActions, buildSpoSnapshot, buildThroughput, lineagePredecessor } from '@/lib/analytics/outcomesView.js';
+import { buildDroppedActions, buildSpoSnapshot, buildThroughput } from '@/lib/analytics/outcomesView.js';
 import { buildVotingTiming } from '@/lib/analytics/votingTimingView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
@@ -203,6 +204,7 @@ const [
   spoTimingOverall,
   halfTurnoutDays,
   windowThirds,
+  droppedRows,
 ] = db
   ? await Promise.all([
       listDecidedOutcomeRows(db),
@@ -214,22 +216,22 @@ const [
       getNetworkTimingOverall(db, 'SPO'),
       getHalfTurnoutDays(db),
       getWindowThirds(db, currentNetwork().epochAnchor),
+      // A count of dropped actions with no way to see which ones raises more
+      // questions than it answers, so the panel lists them by name.
+      listDroppedActions(db),
     ])
-  : [[], 0, {}, [], [], null, null, [], emptyThirds];
+  : [[], 0, {}, [], [], null, null, [], emptyThirds, []];
 const spo = buildSpoSnapshot(outcomeRows);
 const throughput = buildThroughput(outcomeRows, statusCounts, submittedRecent);
-// A count of dropped actions with no way to see which ones raises more
-// questions than it answers, so the panel lists them by name. Dropped actions
-// are rare (usually none), and the successor lookup only runs when there is
-// one, so the common case costs a single indexed read.
-const droppedRows = db ? await listDroppedActions(db) : [];
-const successorRows = db && droppedRows.length > 0
-  ? await listLineageSuccessors(
-      db,
-      [...new Set(droppedRows.map((r) => lineagePredecessor(r.payload)?.split('#')[0]).filter((id): id is string => !!id))],
-    )
+// The successor lookup depends on the dropped rows, so it cannot join the
+// batch above. It returns without a query when there is nothing to look up,
+// which is the usual case: dropped actions are rare.
+const successorRows = db
+  ? await listLineageSuccessors(db, lineagePredecessorTxIds(droppedRows.map((r) => r.payload)))
   : [];
 const droppedActions = buildDroppedActions(droppedRows, successorRows);
+// Guards the footnote line and the number in it against drifting apart.
+const unlistedDropped = throughput.dropped - droppedActions.length;
 const showSubmittedRecent = params?.epoch != null;
 const timing = buildVotingTiming({
   drepByType: drepTimingByType,
@@ -906,12 +908,15 @@ const activityBars = activity
 
       {droppedActions.length > 0 && (
         <div class="hub-dropped">
-          <h4 class="hub-dropped__subtitle">{droppedActions.length === 1 ? 'Dropped without a decision' : `Dropped without a decision (${droppedActions.length})`}</h4>
+          <h4 class="hub-dropped__subtitle">Dropped without a decision{droppedActions.length > 1 && ` (${droppedActions.length})`}</h4>
           <p class="hub-dropped__lede">A dropped action left the proposal set before its voting window ended, so it never reached a verdict of its own. <a href="/help/governance-statuses/">What the statuses mean</a></p>
           <ul class="hub-dropped__rows">
-            {droppedActions.map((d) => (
+            {droppedActions.map((d) => {
+              const label = d.title ?? readableType(d.type);
+              const successorLabel = d.supersededBy ? d.supersededBy.title ?? readableType(d.supersededBy.type) : null;
+              return (
               <li class="hub-dropped__row">
-                <span class="hub-dropped__title">{d.href ? <a href={d.href}>{d.title ?? readableType(d.type)}</a> : (d.title ?? readableType(d.type))}</span>
+                <span class="hub-dropped__title">{d.href ? <a href={d.href}>{label}</a> : label}</span>
                 <span class="hub-dropped__meta">
                   <span class="hub-dropped__type">{readableType(d.type)}</span>
                   {d.droppedEpoch != null && <span class="hub-dropped__epoch">Dropped in epoch {d.droppedEpoch}</span>}
@@ -919,18 +924,19 @@ const activityBars = activity
                 </span>
                 <p class="hub-dropped__reason">
                   {d.supersededBy ? (
-                    <>Superseded by {d.supersededBy.href ? <a href={d.supersededBy.href}>{d.supersededBy.title ?? readableType(d.supersededBy.type)}</a> : (d.supersededBy.title ?? readableType(d.supersededBy.type))}, enacted{d.supersededBy.epoch != null && ` in epoch ${d.supersededBy.epoch}`}. Both actions extended the same predecessor, so enacting one left the other no path to enactment.</>
+                    <>Superseded by {d.supersededBy.href ? <a href={d.supersededBy.href}>{successorLabel}</a> : successorLabel}, enacted{d.supersededBy.epoch != null && ` in epoch ${d.supersededBy.epoch}`}. Both actions extended the same predecessor, so enacting one left the other no path to enactment.</>
                   ) : (
                     'The chain records no enacted action that took its place, so this page does not name a reason.'
                   )}
                 </p>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       )}
 
-      <p class="hub-throughput__footnote">Closed is the outcome of info actions, which conclude without enactment. Timing is counted in epochs because decisions are recorded per epoch.{throughput.dropped > droppedActions.length && ` ${throughput.dropped - droppedActions.length} further dropped ${throughput.dropped - droppedActions.length === 1 ? 'action is' : 'actions are'} not listed.`}{throughput.active > 0 && ` ${throughput.active} ${throughput.active === 1 ? 'action is' : 'actions are'} still open.`}</p>
+      <p class="hub-throughput__footnote">Closed is the outcome of info actions, which conclude without enactment. Timing is counted in epochs because decisions are recorded per epoch.{unlistedDropped > 0 && ` ${unlistedDropped} further dropped ${unlistedDropped === 1 ? 'action is' : 'actions are'} not listed.`}{throughput.active > 0 && ` ${throughput.active} ${throughput.active === 1 ? 'action is' : 'actions are'} still open.`}</p>
     </div>
   </section>
   )}
@@ -1084,7 +1090,6 @@ const activityBars = activity
       padding: 1.1rem 0 0;
       border: none;
       border-top: 1px solid var(--border);
-      border-radius: 0;
       background: none;
     }
     .hub-defaults__card:first-child {

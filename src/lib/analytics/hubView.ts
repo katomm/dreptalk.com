@@ -112,10 +112,13 @@ export function commonSeriesStart(starts: (number | null)[]): number | null {
     if (s == null) continue;
     counts.set(s, (counts.get(s) ?? 0) + 1);
   }
+  // Ascending epochs plus a strict comparison means the earliest start wins a
+  // tie, without a second clause to say so. The seed of 1 keeps a start that
+  // only one chart uses from counting as shared.
   let best: number | null = null;
   let bestCount = 1;
-  for (const [epoch, count] of counts) {
-    if (count > bestCount || (count === bestCount && best != null && epoch < best)) {
+  for (const [epoch, count] of [...counts].sort((a, b) => a[0] - b[0])) {
+    if (count > bestCount) {
       best = epoch;
       bestCount = count;
     }

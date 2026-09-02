@@ -74,6 +74,41 @@ const GROUP_TO_DREP: Record<string, ParamGroup> = {
 };
 
 /**
+ * The predecessor an action points at, as "txId#index", or null when it names
+ * none. A governance action of a lineage-tracked type (parameter change, hard
+ * fork, committee, constitution) carries its predecessor as the first payload
+ * element, and the ledger only ever enacts a child of the current tip. Types
+ * without a lineage (treasury withdrawals, info actions) put something else
+ * there, hence the shape check rather than a blind index read.
+ */
+export function lineagePredecessor(payloadJson: string | null): string | null {
+  if (!payloadJson) return null;
+  let payload: { contents?: unknown };
+  try {
+    payload = JSON.parse(payloadJson);
+  } catch {
+    return null;
+  }
+  const contents = payload?.contents;
+  if (!Array.isArray(contents)) return null;
+  const first = contents[0];
+  if (first == null) return null;
+  const { txId, govActionIx } = first as { txId?: unknown; govActionIx?: unknown };
+  if (typeof txId !== 'string' || typeof govActionIx !== 'number') return null;
+  return `${txId}#${govActionIx}`;
+}
+
+/** The distinct predecessor transaction ids of the given payloads, for a lineage lookup. */
+export function lineagePredecessorTxIds(payloads: (string | null)[]): string[] {
+  const ids = new Set<string>();
+  for (const p of payloads) {
+    const pointer = lineagePredecessor(p);
+    if (pointer) ids.add(pointer.slice(0, pointer.indexOf('#')));
+  }
+  return [...ids];
+}
+
+/**
  * The voting scope of a ParameterChange: which DRep groups it touches and whether
  * any changed parameter is security-relevant (which adds the SPO vote). Reads the
  * changed-parameter map (contents[1]) of the on-chain payload, the same shape

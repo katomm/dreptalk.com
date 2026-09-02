@@ -5,6 +5,7 @@
 // spoAlwaysAbstainPower and spoNoSidePower arrive as TEXT and can exceed
 // Number's safe-integer range. No I/O, deterministic, unit-tested.
 import type { DecidedOutcomeRow, LineageActionRow } from '../db/hubOutcomes.js';
+import { lineagePredecessor } from '../governance/onchain.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 
 export interface SpoSnapshot {
@@ -256,31 +257,6 @@ export interface DroppedActionView {
 }
 
 /**
- * The predecessor an action points at, as "txId#index", or null when it names
- * none. A governance action of a lineage-tracked type (parameter change, hard
- * fork, committee, constitution) carries its predecessor as the first payload
- * element, and the ledger only ever enacts a child of the current tip. Types
- * without a lineage (treasury withdrawals, info actions) put something else
- * there, hence the shape check rather than a blind index read.
- */
-export function lineagePredecessor(payload: string | null): string | null {
-  if (!payload) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payload);
-  } catch {
-    return null;
-  }
-  const contents = (parsed as { contents?: unknown })?.contents;
-  if (!Array.isArray(contents)) return null;
-  const first = contents[0];
-  if (first == null || typeof first !== 'object' || Array.isArray(first)) return null;
-  const { txId, govActionIx } = first as { txId?: unknown; govActionIx?: unknown };
-  if (typeof txId !== 'string' || typeof govActionIx !== 'number') return null;
-  return `${txId}#${govActionIx}`;
-}
-
-/**
  * Pairs each dropped action with the enacted action that took its place in
  * the lineage: same predecessor, decided no later than the drop. A dropped
  * action with no such sibling (a type without a lineage, or a drop caused by
@@ -292,21 +268,23 @@ export function buildDroppedActions(
   successors: LineageActionRow[],
 ): DroppedActionView[] {
   const href = (row: LineageActionRow) => (row.topicSlug ? `/t/${row.topicSlug}/` : null);
+  // Parsed once per successor, not once per successor per dropped action.
+  const withPrev = successors.map((row) => ({ row, prev: lineagePredecessor(row.payload) }));
   return dropped.map((row) => {
     const prev = lineagePredecessor(row.payload);
     const match = prev == null
       ? null
-      : successors
+      : withPrev
           .filter(
             (s) =>
-              s.gaId !== row.gaId &&
-              lineagePredecessor(s.payload) === prev &&
-              s.decidedEpoch != null &&
-              (row.decidedEpoch == null || s.decidedEpoch <= row.decidedEpoch),
+              s.row.gaId !== row.gaId &&
+              s.prev === prev &&
+              s.row.decidedEpoch != null &&
+              (row.decidedEpoch == null || s.row.decidedEpoch <= row.decidedEpoch),
           )
           // The latest one at or before the drop is the enactment that moved
           // the lineage tip past this action.
-          .sort((a, b) => (b.decidedEpoch ?? 0) - (a.decidedEpoch ?? 0))[0] ?? null;
+          .sort((a, b) => (b.row.decidedEpoch ?? 0) - (a.row.decidedEpoch ?? 0))[0]?.row ?? null;
     return {
       gaId: row.gaId,
       title: row.title,

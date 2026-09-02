@@ -117,8 +117,7 @@ function toLineageRow(r: LineageD1Row): LineageActionRow {
   };
 }
 
-const LINEAGE_COLUMNS = `g.id AS id, g.title AS title, t.slug AS topic_slug, g.type AS type,
-          g.decided_epoch AS decided_epoch, g.expiry_epoch AS expiry_epoch, g.onchain_payload AS onchain_payload`;
+const LINEAGE_COLUMNS = 'g.id, g.title, t.slug AS topic_slug, g.type, g.decided_epoch, g.expiry_epoch, g.onchain_payload';
 
 /** Dropped actions, newest decision first. Rare: usually none, a handful at most. */
 export async function listDroppedActions(db: D1Database, limit = 10): Promise<LineageActionRow[]> {

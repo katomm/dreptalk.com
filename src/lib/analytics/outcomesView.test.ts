@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DecidedOutcomeRow, LineageActionRow } from '../db/hubOutcomes.js';
-import { buildDroppedActions, buildSpoSnapshot, buildThroughput, lineagePredecessor } from './outcomesView.js';
+import { buildDroppedActions, buildSpoSnapshot, buildThroughput } from './outcomesView.js';
 
 const thresholds = (over: { drep?: number | null; spo?: number | null } = {}) =>
   JSON.stringify({ drep: 67, spo: 51, cc: 60, ccBelowMinSize: false, v: 2, ...over });
@@ -287,31 +287,6 @@ describe('buildThroughput', () => {
       0,
     );
     expect(v.byType.map((t) => t.type)).toEqual(['A', 'B', 'C']);
-  });
-});
-
-describe('lineagePredecessor', () => {
-  const payload = (contents: unknown) => JSON.stringify({ tag: 'ParameterChange', contents });
-
-  it('reads the predecessor pointer of a lineage-tracked action', () => {
-    expect(lineagePredecessor(payload([{ txId: 'abc', govActionIx: 0 }, { committeeMinSize: 5 }]))).toBe('abc#0');
-  });
-
-  it('is null for the first action of a lineage, which names no predecessor', () => {
-    expect(lineagePredecessor(payload([null, { major: 10 }]))).toBeNull();
-  });
-
-  it('is null for a type whose first payload element is not a pointer', () => {
-    // Treasury withdrawals put the withdrawal list first, info actions carry
-    // no contents at all.
-    expect(lineagePredecessor(payload([[['addr', 1000]], 'hash']))).toBeNull();
-    expect(lineagePredecessor(JSON.stringify({ tag: 'InfoAction' }))).toBeNull();
-  });
-
-  it('is null for absent or malformed payloads instead of throwing', () => {
-    expect(lineagePredecessor(null)).toBeNull();
-    expect(lineagePredecessor('not json')).toBeNull();
-    expect(lineagePredecessor(payload([{ txId: 'abc' }]))).toBeNull();
   });
 });
 
