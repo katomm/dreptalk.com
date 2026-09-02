@@ -64,10 +64,12 @@ export interface DrepSyncContext extends CoreSyncContext {
 const DREP_ANCHOR_LIMIT = 400;
 
 // Historical epochs fetched per run. ~150 epochs exist per network at
-// introduction, at 12 per run and four 6-hour runs per day the backfill
-// drains in roughly three days while keeping each run's subrequest count
-// small (one totals call plus a few history pages per epoch).
-const EPOCH_STATS_BACKFILL_PER_RUN = 12;
+// introduction. At 36 per run and four 6-hour runs per day the backfill
+// drains in about a day, so the homepage sparklines and the share card,
+// which draw only the gapless tail of the series, get their trend within
+// a day of a fresh deploy. Each epoch costs one totals call plus a few
+// history pages, well inside a run's subrequest budget.
+const EPOCH_STATS_BACKFILL_PER_RUN = 36;
 
 export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
   {
