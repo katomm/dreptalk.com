@@ -9,6 +9,7 @@ import {
   type VoteChangeStat,
 } from '@/lib/dreps/voteStatsView.js';
 import type { DrepVoteBreakdown, DrepRationaleStats, DrepParticipation } from '@/lib/db/drepVotes.js';
+import { participationAheadLabel, rationaleAheadLabel } from '@/lib/analytics/reportCardView.js';
 
 interface Props {
   breakdown: DrepVoteBreakdown;
@@ -60,7 +61,7 @@ const participationLine =
         {pStat.kind === 'ok' && <span class="vstats__big">{pStat.pct}%</span>}
         <span class="vstats__cell-line">{participationLine}</span>
         {percentiles && (
-          <span class="vstats__pctile">Ahead of {percentiles.participationAheadPct}% of {percentiles.cohortSize} active DReps</span>
+          <span class="vstats__pctile">{participationAheadLabel(percentiles)}</span>
         )}
         {pStat.kind === 'ok' && (
           <span class="vstats__bar" aria-hidden="true">
@@ -86,7 +87,7 @@ const participationLine =
           <span class="vstats__big">{rStat.pct}%</span>
           <span class="vstats__cell-line">{rStat.withRationale} of {rStat.total} votes with rationale</span>
           {percentiles?.rationaleAheadPct != null && (
-            <span class="vstats__pctile">Ahead of {percentiles.rationaleAheadPct}% of {percentiles.rationaleCohortSize} active DReps with votes</span>
+            <span class="vstats__pctile">{rationaleAheadLabel(percentiles)}</span>
           )}
           <span class="vstats__bar" aria-hidden="true">
             <span class="vstats__bar-fill vstats__bar-fill--pos" style={`width:${rStat.pct}%;`}></span>

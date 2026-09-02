@@ -33,6 +33,7 @@ import {
   type OwnVoteTiming,
 } from '@/lib/db/recordDiagnostics';
 import { buildHistogram, buildTimingDetail, type HistogramBucket } from '@/lib/analytics/recordDiagnosticsView';
+import { participationAheadLabel, rationaleAheadLabel } from '@/lib/analytics/reportCardView';
 import { participationStat, rationaleStat, voteTimingStat, type ParticipationStat } from '@/lib/dreps/voteStatsView';
 import { readableType, shortGovActionId } from '@/lib/governance/view';
 
@@ -137,7 +138,7 @@ function participationLine(stat: ParticipationStat): string {
             <div class="mgr-metric">
               <span class="mgr-metric__label">Participation</span>
               {pStat.kind === 'ok' && <span class="mgr-metric__value">{`${pStat.pct}%`}</span>}
-              <span class="mgr-metric__pctile">{`Ahead of ${reportCard.participationAheadPct}% of ${reportCard.cohortSize} active DReps`}</span>
+              <span class="mgr-metric__pctile">{participationAheadLabel(reportCard)}</span>
               {participationHistogram && (
                 <div class="mgr-hist" role="img" aria-label={`Distribution of participation rate across ${reportCard.cohortSize} active DReps, your rate falls in the ${participationOwnRange} bucket`}>
                   <div class="mgr-hist__bars">
@@ -160,7 +161,7 @@ function participationLine(stat: ParticipationStat): string {
                 <span class="mgr-metric__label">Rationale coverage</span>
                 <span class="mgr-metric__value">{`${rStat.pct}%`}</span>
                 {reportCard.rationaleAheadPct != null && (
-                  <span class="mgr-metric__pctile">{`Ahead of ${reportCard.rationaleAheadPct}% of ${reportCard.rationaleCohortSize} active DReps with votes`}</span>
+                  <span class="mgr-metric__pctile">{rationaleAheadLabel(reportCard)}</span>
                 )}
                 {rationaleHistogram && (
                   <div class="mgr-hist" role="img" aria-label={`Distribution of rationale coverage across ${reportCard.rationaleCohortSize} active DReps, your rate falls in the ${rationaleOwnRange} bucket`}>
