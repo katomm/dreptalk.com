@@ -182,29 +182,42 @@ export interface SurveyListParams {
   limit?: number;
 }
 
+/** A 503 with a non-JSON body is a gateway page, not the backend's not-ready answer. */
+function parseJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export function createTesseraClient(opts: TesseraClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const baseUrl = opts.baseUrl.replace(/\/+$/, '');
 
-  async function requestRaw(path: string): Promise<Response> {
+  // The body is read inside the timed window: `fetch` resolves at the headers,
+  // and a body that stalls with nothing armed parks this phase and every phase
+  // behind it until the platform kills the invocation.
+  async function request(path: string): Promise<{ status: number; ok: boolean; text: string }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetchImpl(`${baseUrl}${path}`, {
+      const res = await fetchImpl(`${baseUrl}${path}`, {
         method: 'GET',
         headers: { accept: 'application/json' },
         signal: controller.signal,
       });
+      return { status: res.status, ok: res.ok, text: await res.text() };
     } finally {
       clearTimeout(timer);
     }
   }
 
   async function health(): Promise<TesseraHealth> {
-    const res = await requestRaw('/health');
+    const res = await request('/health');
     if (!res.ok) throw new TesseraHttpError(res.status);
-    return healthSchema.parse(await res.json());
+    return healthSchema.parse(JSON.parse(res.text));
   }
 
   // One health check per client (one per cron run): the guard promise is
@@ -237,9 +250,9 @@ export function createTesseraClient(opts: TesseraClientOptions) {
     schema: z.ZodType<T>,
   ): Promise<SnapshotResult<T>> {
     await ensureNetwork();
-    const res = await requestRaw(path);
+    const res = await request(path);
     if (res.status === 503) {
-      const body: unknown = await res.json().catch(() => null);
+      const body = parseJsonOrNull(res.text);
       if (
         typeof body === 'object' &&
         body !== null &&
@@ -250,7 +263,7 @@ export function createTesseraClient(opts: TesseraClientOptions) {
       throw new TesseraHttpError(503);
     }
     if (!res.ok) throw new TesseraHttpError(res.status);
-    return { ready: true, value: schema.parse(await res.json()) };
+    return { ready: true, value: schema.parse(JSON.parse(res.text)) };
   }
 
   return {

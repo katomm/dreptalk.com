@@ -48,6 +48,26 @@ function fetchWithHealth(body: unknown, status = 200, health: unknown = healthBo
   );
 }
 
+// Mirrors real fetch: the pending stage, headers or body, rejects with the
+// signal's reason on abort.
+function stalledFetch(stage: 'headers' | 'body') {
+  return vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).endsWith('/health')) return Promise.resolve(jsonResponse(healthBody));
+    const signal = init?.signal;
+    if (stage === 'headers') {
+      return new Promise<Response>((_, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason));
+      });
+    }
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        signal?.addEventListener('abort', () => controller.error(signal.reason));
+      },
+    });
+    return Promise.resolve(new Response(body, { status: 200 }));
+  });
+}
+
 function client(fetchImpl: typeof fetch, network = 'preprod') {
   return createTesseraClient({
     baseUrl: 'https://tessera.example.dev/',
@@ -269,5 +289,19 @@ describe('network guard', () => {
     const result = await c.surveyList();
     expect(result.ready).toBe(true);
     expect(healthCalls).toBe(2);
+  });
+});
+
+describe('timeout', () => {
+  const opts = { baseUrl: 'https://tessera.example.dev', network: 'preprod', timeoutMs: 20 };
+
+  it('rejects within timeoutMs when the headers never arrive', async () => {
+    const c = createTesseraClient({ ...opts, fetchImpl: stalledFetch('headers') });
+    await expect(c.surveyList()).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('rejects within timeoutMs when the headers arrive and the body stalls', async () => {
+    const c = createTesseraClient({ ...opts, fetchImpl: stalledFetch('body') });
+    await expect(c.surveyList()).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
