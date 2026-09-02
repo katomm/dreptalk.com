@@ -7,7 +7,7 @@ import { parseSessionToken, getSession, buildSessionCookie, clearSessionCookie }
 import { sessionActivityHook } from './lib/auth/sessionActivity.js';
 import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
-import { isDatabaseUnavailable, serviceUnavailableResponse } from './lib/http/serviceUnavailable.js';
+import { internalErrorResponse, isDatabaseUnavailable, serviceUnavailableResponse } from './lib/http/serviceUnavailable.js';
 import { pageCacheKey, isCacheableRequest, isCacheableResponse } from './lib/http/pageCache.js';
 import { currentNetwork } from './lib/api/response.js';
 import { buildServiceDescription } from './lib/cip100/service.js';
@@ -118,16 +118,21 @@ export const onRequest = defineMiddleware(async (context, next) => {
   }
 
   // Render the page. If it throws because D1 is briefly unavailable (a
-  // Cloudflare-side storage hiccup, not our bug), serve a friendly 503 page
-  // instead of a blank 500. Any other error keeps its normal 500 so it stays
-  // visible. The shared post-processing below still runs on the 503.
+  // Cloudflare-side storage hiccup, not our bug), serve a friendly 503 page.
+  // Any other error keeps its 500 status, so it stays visible in logs and
+  // error rates, but gets a friendly page instead of a blank response. The
+  // shared post-processing below still runs on both.
   let response: Response;
   try {
     response = await next();
   } catch (err) {
-    if (!isDatabaseUnavailable(err)) throw err;
-    console.error('Serving 503 (database temporarily unavailable):', err);
-    response = serviceUnavailableResponse(url.pathname);
+    if (isDatabaseUnavailable(err)) {
+      console.error('Serving 503 (database temporarily unavailable):', err);
+      response = serviceUnavailableResponse(url.pathname);
+    } else {
+      console.error(`Serving 500 for ${url.pathname}:`, err);
+      response = internalErrorResponse(url.pathname);
+    }
   }
 
   applySecurityHeaders(response.headers);
