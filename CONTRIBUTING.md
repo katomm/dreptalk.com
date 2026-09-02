@@ -12,7 +12,7 @@ For suspected security issues, please do not open a public issue. See [Security]
 
 ## Getting set up
 
-Setup, local development, the database, and running governance syncs are all documented in the [README](README.md). In short:
+Setup, local development, the database, and running governance syncs are all documented in [docs/development.md](docs/development.md). In short:
 
 ```sh
 npm install
@@ -20,7 +20,7 @@ npm run db:migrate:local   # apply migrations to the local D1 database (required
 npm run dev                # app dev server
 ```
 
-Local and preview run against the Cardano preprod testnet. See the README for the full picture.
+Local and preview run against the Cardano preprod testnet. See [docs/development.md](docs/development.md) for the full picture and [docs/deployment.md](docs/deployment.md) for shipping.
 
 ## Development workflow
 

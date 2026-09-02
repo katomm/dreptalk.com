@@ -11,7 +11,7 @@ A couple of assumptions underpin everything below. They are deliberate design de
 
 ## Supported versions
 
-DRepTalk is a continuously deployed web application; there are no released versions to track. The live site at [dreptalk.com](https://dreptalk.com) always runs the latest code from `main`. Please report issues against the current `main` branch and the live site.
+DRepTalk is a continuously deployed web application. The live site at [dreptalk.com](https://dreptalk.com) always runs the latest code from `main`, and the GitHub releases (listed at [/help/whats-new](https://dreptalk.com/help/whats-new/)) are changelog markers, not maintained versions: only `main` receives fixes. Please report issues against the current `main` branch and the live site.
 
 ## Reporting a vulnerability
 
@@ -37,6 +37,8 @@ In scope:
 - The wallet-signature authentication and on-chain role gating.
 - The moderation and rate-limiting logic.
 - The governance sync worker and how it writes to the database.
+- The notification channels: browser push, the Telegram bot webhook, and the in-app inbox.
+- Device pairing and the signed-in device list.
 
 Out of scope:
 

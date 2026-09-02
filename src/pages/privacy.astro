@@ -6,7 +6,7 @@ import { getLegalInfo } from '@/lib/legal';
 export const prerender = false;
 
 const legal = getLegalInfo();
-const lastUpdated = '16 August 2026';
+const lastUpdated = '2 September 2026';
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 <Layout
@@ -42,10 +42,12 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       is no password. When you sign in, we store your public on-chain identifier (for
       example your DRep ID or stake address) and the on-chain role it proves (DRep, SPO,
       Constitutional Committee member, or proposer) in order to grant posting access.
-      You can also sign in as a delegator: in that case we store your stake address and
-      the delegation it currently points to (for example the DRep you delegate to),
-      refreshed periodically from public chain data, in order to show your delegation
-      dashboard and to enable the optional notifications described below.
+      You can also sign in as a delegator: in that case we store your stake address, the
+      delegation it currently points to (for example the DRep you delegate to), and the
+      epoch that delegation started in, refreshed periodically from public chain data, in
+      order to show your delegation dashboard and to enable the optional notifications
+      described below. For every account we also keep the time of its last activity, which
+      only feeds aggregate participation counts.
       Legal basis: Art. 6(1)(b) GDPR (providing the service you request) and (f)
       (legitimate interest in operating a forum with verifiable on-chain roles).
     </p>
@@ -56,11 +58,16 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       your public on-chain identifier. Legal basis: Art. 6(1)(b) and (f) GDPR.
     </p>
 
-    <h3>Session cookie</h3>
+    <h3>Session cookie and signed-in devices</h3>
     <p>
-      We set one strictly necessary cookie to keep you signed in. We set no advertising
-      or tracking cookies, so no consent banner is required. Legal basis: Art. 6(1)(f)
-      GDPR and &sect; 25(2) TDDDG (strictly necessary).
+      We set one strictly necessary cookie to keep you signed in. A session expires after
+      30 days without activity and after 90 days in any case. For each signed-in device we
+      store a coarse label derived from your browser's User-Agent header (for example the
+      browser and operating system), the sign-in time, and the last time the session was
+      used, so you can review and revoke your sessions on the devices page. When you pair
+      a new device, the pairing request holds that device's User-Agent for at most ten
+      minutes. We set no advertising or tracking cookies, so no consent banner is required.
+      Legal basis: Art. 6(1)(f) GDPR and &sect; 25(2) TDDDG (strictly necessary).
     </p>
 
     <h3>Notifications (optional)</h3>

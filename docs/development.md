@@ -5,12 +5,15 @@ Requires Node 20+. Local and preview run against the Cardano preprod testnet; se
 - `npm install`
 - `npm run db:migrate:local`: set up the local database (apply all migrations). Required before the first `npm run dev`; see [Database setup](#database-setup)
 - `npm run db:seed:local`: optional fake forum data for local UI work; see [Seeding fake data](#seeding-fake-data)
+- `npm run db:seed:from-main`: in a secondary git worktree, copy the primary worktree's local D1, KV and R2 state so the worktree renders real data without a sync (stop the dev server first)
 - `npm run dev`: app dev server (Astro, with HMR)
 - `npm test`: unit and integration tests
 - `npm run typecheck`: type check
 - `npm run lint`: lint with Biome (CI gate); `npm run lint:fix` applies safe fixes
 - `npm run format`: format with Biome (`npm run format:check` to verify only)
 - `npm run preview`: production build served via `wrangler dev`
+- `npm run preflight`: the CI checks in one go, run before opening a pull request
+- `npm run check:deployed`: verify the live site serves the assets its HTML references, after a deploy
 
 ## Database setup
 
@@ -38,14 +41,14 @@ It is re-runnable: every seeded row carries a recognizable id and is deleted and
 
 ## Running a governance sync locally
 
-On-chain data is ingested by a standalone Cloudflare cron worker at `workers/gov-sync` that shares the app's D1 database. It has three cron triggers, and the worker dispatches on the cron expression, so to run a specific sync locally you pass that expression to `/__scheduled`. Start the worker once, then trigger the run you need:
+On-chain data is ingested by a standalone Cloudflare cron worker at `workers/gov-sync` that shares the app's D1 database. It has three cron triggers, and the worker dispatches on the cron expression, so to run a specific sync locally you pass that expression to `/__scheduled`. An expression the worker does not know is refused with a logged error rather than falling back to a default. Start the worker once, then trigger the run you need:
 
 ```sh
 npm run sync:dev                                       # terminal 1: start the worker (wrangler dev, scheduled enabled)
 
 # terminal 2: trigger a single run. Keep the * inside quotes so the shell does not expand them.
-curl "http://localhost:8787/__scheduled"                       # governance actions + tallies (default */15 cron)
-curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"        # per-post DRep vote lists (hourly cron)
+curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"     # governance actions + notifications (5-min cron); tallies and backfills only when the current minute is a multiple of 15
+curl "http://localhost:8787/__scheduled?cron=*/20+*+*+*+*"    # per-post DRep vote lists (20-min cron)
 curl "http://localhost:8787/__scheduled?cron=0+*/6+*+*+*"      # DRep profiles + voting power (6-hourly cron)
 ```
 
