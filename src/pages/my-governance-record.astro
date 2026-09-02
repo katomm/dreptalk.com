@@ -160,7 +160,7 @@ function participationLine(stat: ParticipationStat): string {
                 <span class="mgr-metric__label">Rationale coverage</span>
                 <span class="mgr-metric__value">{`${rStat.pct}%`}</span>
                 {reportCard.rationaleAheadPct != null && (
-                  <span class="mgr-metric__pctile">{`Ahead of ${reportCard.rationaleAheadPct}% of ${reportCard.rationaleCohortSize} active DReps`}</span>
+                  <span class="mgr-metric__pctile">{`Ahead of ${reportCard.rationaleAheadPct}% of ${reportCard.rationaleCohortSize} active DReps with votes`}</span>
                 )}
                 {rationaleHistogram && (
                   <div class="mgr-hist" role="img" aria-label={`Distribution of rationale coverage across ${reportCard.rationaleCohortSize} active DReps, your rate falls in the ${rationaleOwnRange} bucket`}>

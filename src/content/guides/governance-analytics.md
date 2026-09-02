@@ -4,6 +4,7 @@ description: "What the governance analytics page shows, where its numbers come f
 cardLabel: "Analytics page"
 category: "Understanding governance"
 order: 90
+updated: 2026-09-02
 faqs:
   - q: "Why do some charts start later than others?"
     a: "Each metric shows data from the first epoch it can be measured reliably. Voting power can be reconstructed from chain history, but delegator counts only exist from the point DRepTalk started observing them live, so that chart starts later instead of pretending older data exists."
@@ -23,7 +24,7 @@ faqs:
     a: "Membership changes over time. A member who resigned, whose term expired, or who had not yet registered a voting key does not count as eligible for an action decided in that period, so each action is measured against the committee as it stood at the time."
 ---
 
-The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in five chapters: governance today, representation and participation, accountability and behavior, decentralization, and governance throughput.
+The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in five chapters: governance today, representation and participation, accountability and behavior, decentralization, and governance throughput. The [homepage](/) carries a "Governance at a glance" strip with four of its headline figures, DReps holding delegated power, delegated voting power, DReps that voted in the recent window, and the share held by the top 10 DReps, each with a sparkline of the last epochs and a link into the chapter that explains it.
 
 ## The two layers
 
@@ -41,6 +42,8 @@ The silent counterpart uses the same window but a different base: it counts the 
 
 The default options also get a share chart: the two predefined options together, as a percentage of everything delegated to them and to representative DReps. It is the per-epoch version of the comparison sentence under the two option cards.
 
+The "DRep activity" section reads the current registrations rather than a trend. Two bars split all registered DReps by registration state, active against inactive or retired, and by voting history, ever voted on chain against never voted, with a note on how many active registrations hold delegated power. Below them the section states how much stake is still delegated to inactive DReps, how much of it the ten largest hold, and lists the largest inactive DReps by voting power.
+
 ## Voting concentration in practice
 
 The effective-representation panel and the Positions tab of a governance action also read how concentrated the cast votes were. These numbers describe exercised power, the voting power that actually voted, not the distribution of all delegated power. The half-count says how few of the largest voters together cast at least half of the voted power. The action page adds the largest voter's share, the combined top-5 share, and, where the action has an approval threshold, how many of the largest voters together held as much power as the threshold required in yes votes. That reading is arithmetic on cast votes, it does not claim those voters coordinated or voted the same way.
@@ -57,13 +60,13 @@ Only actions whose complete vote history has been swept from the chain are count
 
 Every on-chain vote can carry a metadata document explaining the decision, the rationale. The rationales panel measures how many DRep votes on decided actions carry that link, both as a share of votes and weighted by the voting power behind them. A linked document is not always retrievable, so these figures can read higher than the readable rationales on an action's own page. It also shows which decided actions were best and least covered, and how many rationales arrived only later, through a re-vote on the same action.
 
-Coverage is a presence check, nothing more. A vote with a rationale is not automatically better reasoned than one without, and the panel makes no attempt to judge content. The power-weighted figure only counts actions where the voting power behind every single vote is recorded, and says how many actions that excludes.
+Coverage is a presence check, nothing more. A vote with a rationale is not automatically better reasoned than one without, and the panel makes no attempt to judge content. The power-weighted figure only counts actions where the voting power behind every single vote is recorded, and says how many actions that excludes. The best and least covered lists only rank actions with at least 20 votes, and the panel says how many smaller ones were left out.
 
 ## Voting timing
 
 The timing panel reads when votes arrive. It counts votes, not weight: every vote counts once, whatever voting power stands behind it, so the figures describe the behavior of the voters rather than the movement of the stake. The headline numbers are the median day after submission for DRep votes and for SPO votes, and the day by which half of an action's DRep votes had arrived, taken as a median across decided actions. A vote can only be timed when both the action's submission and the vote's block time are on record. A DRep who changed a vote is timed at the final vote. The medians only cover decided actions, an action still open can only hold its early votes so far.
 
-The window split reads every DRep vote against its own action's voting window instead of the calendar. The span from submission to the close of voting is cut into three equal parts, and each vote falls in the early, middle or late third of that action's window, so an action open for twenty days and one open for five are read on the same scale. Votes recorded after the window closed are counted separately and never as late, because they never had a third to fall into.
+The window split reads every DRep vote against its own action's voting window instead of the calendar. The span from submission to the close of voting is cut into three equal parts, and each vote falls in the early, middle or late third of that action's window, so an action open for twenty days and one open for five are read on the same scale. Votes recorded after the window closed are counted separately and never as late, because they never had a third to fall into. The per-type table only lists types with at least 20 timed DRep votes, and a type's median SPO day needs 20 timed SPO votes of its own, otherwise that cell shows n/a.
 
 None of this is a quality measure. Timing describes when votes arrive, not how carefully they were cast. An early vote is not more diligent than a late one, and a late vote can be the result of waiting for a discussion to run its course.
 

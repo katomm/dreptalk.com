@@ -4,7 +4,7 @@ description: "How to link to any Cardano DRep, governance action, or individual 
 cardLabel: "Linking to pages"
 category: "About DRepTalk"
 order: 5
-updated: 2026-08-12
+updated: 2026-09-02
 faqs:
   - q: "How do I link to a governance action without knowing its DRepTalk URL?"
     a: "Put the action's id after dreptalk.com/ga/, for example dreptalk.com/ga/gov_action1xyz. DRepTalk resolves the id and redirects to the action's page. The bech32 gov_action1 form and the hex forms used by explorers both work."
@@ -13,7 +13,7 @@ faqs:
   - q: "What happens when the id is unknown?"
     a: "You are redirected to search with the id prefilled, so you can see whether it matches anything on the current network."
   - q: "Can I link to one specific vote?"
-    a: "Yes. Every vote row on an action's Votes tab has a copy-link button, and votes with a rationale have their own shareable page with a preview card."
+    a: "Yes. On an action's Votes tab, rows with a rationale or a vote history expand, and the expanded part has a copy-link button. Votes with a rationale have their own shareable page with a preview card."
   - q: "Can another site link to the discussion for every governance action?"
     a: "Yes. Explorers, wallets, and dashboards can build the address from the action id with dreptalk.com/ga/, with no API key and no lookup step. Every governance action gets its discussion page as soon as it appears on chain, so the link is always valid and can be rendered unconditionally."
 ---
@@ -54,8 +54,10 @@ with the copy button on the profile itself.
 ## Individual votes
 
 Sometimes you want to point at one specific vote rather than a whole
-action. On an action's **Votes** tab, every row has a copy-link button that
-gives you a direct link to that vote. For votes with a rationale, the link
+action. On an action's **Votes** tab, rows with a rationale or a vote
+history expand, and the expanded part has a copy-link button that gives you
+a direct link to that vote. Rows without either do not expand and have no
+copy-link button. For votes with a rationale, the link
 leads to the vote's own page showing the vote, the full rationale, and the
 on-chain reference, and it renders a rich preview card when shared on
 social platforms and in messengers.
@@ -70,8 +72,13 @@ DRep](/help/promoting-your-drep/).
 The resolver also works in the other direction. When you paste a
 `gov_action1…` id into a post or a vote rationale on DRepTalk, it is
 rendered as a compact linked chip with a copy button, pointing at the
-action's page. You do not need to build a link by hand; the raw id is
-enough.
+action's page. The hex forms work too: the 64-character transaction hash
+with `#` and the action index, and the CIP-129 hex form. You do not need to
+build a link by hand, the raw id is enough.
+
+Other ids get the same treatment. A `drep1…` or `drep_script1…` id links
+to the DRep's profile, and an `addr1…` (or `addr_test1…` on preprod)
+payment address links out to the address page on the Cardano explorer.
 
 ## Sharing previews
 
@@ -130,8 +137,9 @@ one network.
 
 ### Can I link to one specific vote?
 
-Yes: use the copy-link button on the Votes tab, or share the vote's own
-page when it has a rationale.
+Yes: expand the row on the Votes tab and use its copy-link button. Only
+rows with a rationale or a vote history expand. You can also share the
+vote's own page when it has a rationale.
 
 ### Can another site link to the discussion for every governance action?
 

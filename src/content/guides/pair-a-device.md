@@ -4,6 +4,7 @@ description: "How to sign in to DRepTalk on a phone or tablet by approving a pai
 cardLabel: "Pair a device"
 category: "Start here"
 order: 5
+updated: 2026-09-02
 ---
 
 Signing in to DRepTalk normally means connecting a Cardano wallet or signing a
@@ -65,8 +66,10 @@ signature, or one pairing code on a device without a wallet.
 
 A paired phone or tablet is a normal signed-in device: you can read, post,
 and comment from it just like from a desktop. Voting is the exception, since
-casting a vote still requires a wallet signature, so votes are cast from a
-computer with a connected wallet.
+casting a vote still requires a wallet signature and the paired session has no
+wallet to sign with. A phone can vote when you open DRepTalk inside your
+wallet's in-app browser, otherwise votes are cast from a computer with a
+connected wallet.
 
 ## Related
 

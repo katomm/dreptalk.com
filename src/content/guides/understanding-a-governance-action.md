@@ -4,7 +4,7 @@ description: "A tour of a Cardano governance action page on DRepTalk: the Overvi
 cardLabel: "Reading a governance action"
 category: "Understanding governance"
 order: 1
-updated: 2026-08-02
+updated: 2026-09-02
 faqs:
   - q: "Who can post in a governance action's discussion?"
     a: "Reading is public, no sign-in needed. Posting requires signing in with an on-chain governance identity: DReps, proposers and their co-proposers, SPOs, and Constitutional Committee members. Delegator sign-ins are read-only."
@@ -22,7 +22,7 @@ in one place: what it proposes, what the community says about it, who voted
 and why, and where it stands in its lifecycle. This guide walks through each
 part of the page.
 
-You can reach an action from the [governance actions list](/discussions/),
+You can reach an action from the [governance actions list](/c/governance-actions/),
 from a DRep's voting record, or by pasting its id into the search box. The
 list offers several sort orders; [Sorting governance
 actions](/help/sorting/) explains what each one means.
@@ -54,15 +54,18 @@ The sidebar next to the content answers the status questions:
   and, while it is open, when the voting window ends. The labels are
   explained in [Governance action statuses](/help/governance-statuses/).
 - **Voting information.** One row per voting body (DReps, SPOs, the
-  Constitutional Committee) with a Yes / No / Not-voted bar over that body's
-  whole eligible voting power. Actions with an on-chain approval threshold
-  show the threshold as a marker on the bar and a Met or Not met verdict.
-  Not every body votes on every action; [Governance action
+  Constitutional Committee). Each row reads "X% yes of the counted stake":
+  the same basis the chain uses for ratification, where abstaining stake is
+  excluded and stake that did not vote is folded into the No side. Actions
+  with an on-chain approval threshold show the threshold as a marker on the
+  bar and a Met or Not met verdict. An "excluded" line under the bar expands
+  to a full-stake breakdown of what the tally counts and what it leaves out.
+  Not every body votes on every action: [Governance action
   types](/help/governance-action-types/) lists who votes on what.
 - **Proposer.** Who submitted the action, with more actions from the same
   proposer where available.
 
-<img class="shot" src="/help/shots/ga-voting-info.webp" alt="The voting information card: Yes, No, and Not-voted shares of eligible voting power for DReps, SPOs, and the Constitutional Committee, with a voting trend chart" width="320" height="672" loading="lazy" />
+<img class="shot" src="/help/shots/ga-voting-info.webp" alt="The voting information card: one row per voting body with the yes share of the counted stake, a threshold marker on the bar, a Met or Not met verdict, and an expander for the excluded stake" width="320" height="502" loading="lazy" />
 
 ## Discussion
 
@@ -95,15 +98,21 @@ discussion](https://dreptalk.com/t/withdraw-120-000-000-ada-for-alphagrowth-s-ca
 ## Votes
 
 The Votes tab lists every DRep and SPO vote on the action, ordered by voting
-power, with a toggle to switch between the two bodies. Each row shows the
+power, with a toggle to switch between the two bodies. A third **CC** segment
+appears when the action has Constitutional Committee votes. Each row shows the
 voter, their vote, and their voting power at the time. Rows with a rationale
-expand in place so you can read the reasoning without leaving the page.
+expand in place so you can read the reasoning without leaving the page. Above
+the list, a short concentration strip reads how few voters cast half of the
+voted power, the largest voter's share, the combined top 5, and how many of
+the largest voters together held as much power as the threshold required.
 
 Two markers are worth knowing:
 
 - **Changed votes.** While an action is open, a voter can vote again and the
   newer vote replaces the older one. When that happened, the row shows the
-  earlier votes too, so vote changes are transparent rather than silent.
+  earlier votes too, so vote changes are transparent rather than silent. A
+  re-vote that switched position carries a **Changed** tag, one that kept the
+  position (for example to attach a rationale) carries a **Revoted** tag.
 - **Not counted.** Votes can technically still be cast after an action is
   ratified, but the tally was frozen at ratification. Late votes appear in
   the list and are marked as not counted in the outcome.
@@ -132,7 +141,9 @@ The History tab shows the action's lifecycle as a timeline: when it was
 submitted, how support developed over the voting window, and how it ended.
 A chart tracks cumulative Yes support per voting body across the window, so
 you can see whether an action cleared its threshold early or crossed the
-line late. Epochs are shown with their calendar dates.
+line late. Epochs are shown with their calendar dates. A **Compare with**
+picker overlays a second, concluded action of the same type on the chart,
+both curves aligned on day 0 of their own voting window.
 
 ## Frequently asked questions
 

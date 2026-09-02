@@ -4,7 +4,7 @@ description: "Who can sign in to DRepTalk and with which Cardano keys: DReps (CI
 cardLabel: "Signing in"
 category: "Start here"
 order: 4
-updated: 2026-08-27
+updated: 2026-09-02
 ---
 
 DRepTalk has no passwords and no accounts to create. You sign in with your Cardano
@@ -13,16 +13,20 @@ governance identity. Signing in is **non-custodial**: it is a message
 signature, not a transaction, so there is nothing to send and no fees, and the server
 never sees your private keys. There are four writer roles, one for each on-chain
 governance identity, plus a read-only delegator sign-in for ada holders who want to
-follow their DRep. DReps, proposers, and delegators connect a CIP-30 wallet; SPOs and
+follow their DRep. DReps, proposers, and delegators connect a CIP-30 wallet. SPOs and
 CC members sign the challenge offline with cardano-signer and paste the result, because
-wallets cannot sign with those keys yet.
+wallets cannot sign with those keys yet. The offline signer path also offers the DRep
+role, so a DRep without a browser wallet can sign in that way too.
 
 <img class="shot" src="/help/shots/account-menu.webp" alt="The sign-in menu in the site header: enter as DRep, delegator, SPO, CC member, or proposer, or register as a DRep" width="237" height="285" loading="lazy" />
 
 ## DReps
 
 Pick the **DRep** role and connect a CIP-95 capable wallet
-(for example Lace, Eternl, or Typhon). You sign with your **DRep key**.
+(for example Lace, Eternl, or Typhon). On Brave, the browser's built-in Cardano
+provider cannot sign with a DRep key, so the DRep flows skip it in favor of a CIP-95
+capable wallet extension: Brave users should install one of the wallets above.
+You sign with your **DRep key**.
 We derive your DRep ID from that signature and confirm on-chain that it belongs to a
 registered, active DRep. If your wallet is not yet a registered DRep, you can
 [register as a DRep](/register-drep/) first.
@@ -69,7 +73,10 @@ CIP-30 wallet works; no governance features are required. You sign with your wal
 **reward (stake) address**, and DRepTalk reads your delegation from the chain. A
 delegator sign-in is **read-only**: you can follow your DRep's votes on your start
 page and get notified, but posting and voting stay reserved for the writer roles
-above. See [Tracking your delegation](/help/for-delegators/) for what you get.
+above. Signing in also records when your delegation started and unlocks the private
+[My DRep](/my-drep/) page, which shows what your DRep has done since then. See
+[Tracking your delegation](/help/for-delegators/) for what you get and
+[Following your own DRep](/help/my-drep/) for that page.
 
 ## On a phone or tablet
 
@@ -80,12 +87,16 @@ computer. See [Pair a phone or tablet](/help/pair-a-device/).
 
 A paired device is a normal signed-in device: it can read, post and comment,
 and it can receive push notifications. Voting still needs a wallet
-signature, so votes are cast from a computer.
+signature, and a paired session has no wallet to sign with. A phone can vote
+when you open DRepTalk inside your wallet's in-app browser, otherwise votes are
+cast from a computer.
 
 ## How long you stay signed in
 
-You stay signed in on a device for 30 days after you last used it, and for
-90 days at most, however often you visit. After that the device asks for a
+You stay signed in on a device for 30 days after you last used it (the clock
+is renewed at most once every few hours, so it counts from the last renewal
+rather than your very last click), and for 90 days at most, however often you
+visit. After that the device asks for a
 new signature, or a new pairing code on a phone.
 
 Every signed-in device is listed under **Devices** in the account menu, with
@@ -105,4 +116,5 @@ payment to sign in, stop: that is not how DRepTalk works.
 - [Become a DRep](/help/become-a-drep/)
 - [Delegate to a DRep](/help/delegate-to-a-drep/)
 - [Tracking your delegation](/help/for-delegators/)
+- [Following your own DRep](/help/my-drep/)
 - [Pair a phone or tablet](/help/pair-a-device/)

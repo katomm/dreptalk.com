@@ -4,7 +4,7 @@ description: "How DRepTalk shows who proposed a governance action, and how propo
 cardLabel: "Proposers"
 category: "Understanding governance"
 order: 5
-updated: 2026-08-02
+updated: 2026-09-02
 ---
 
 Every governance action has a proposer, identified on-chain by the reward
@@ -16,9 +16,10 @@ shown depends on where you are looking.
 The overview has one small slot per row, so it shows a single best label:
 
 - **Known organizations** (such as Intersect, Eternl, Blink Labs,
-  and others that propose regularly) are shown with their name and logo.
+  and others that propose regularly) are shown with their name and, where
+  available, logo. Entries without a logo show the name with an identicon.
   This is a list DRepTalk curates and maintains by matching the action's
-  reward address; it is not an on-chain verification of identity.
+  reward address, it is not an on-chain verification of identity.
 
 - **Actions whose metadata names authors** are shown with the first declared
   author's name. These names are self-declared in the action document and

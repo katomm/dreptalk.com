@@ -689,7 +689,7 @@ export default function MultiVoteBar({ network, actions }: MultiVoteBarProps) {
                 <span>
                   Also post the rationales under Discussion.
                   <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.8125rem', marginTop: '0.15rem' }}>
-                    Rationales are always recorded on-chain and shown under Positions. This only adds a copy to each discussion thread.
+                    Rationales are always recorded on-chain and shown under Votes. This only adds a copy to each discussion thread.
                   </span>
                 </span>
               </label>

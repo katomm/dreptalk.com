@@ -45,13 +45,13 @@ export const FRESHNESS: readonly FreshnessRow[] = [
   {
     key: 'drep-profiles',
     label: 'DRep profiles (name, bio, avatar) and status',
-    refresh: 'About every 4 to 6 hours',
+    refresh: 'Every 6 hours',
     notes: 'The drep-sync cron keeps every DRep profile current.',
   },
   {
     key: 'role-recheck',
     label: 'DRep role re-check (write access)',
-    refresh: 'About every 4 to 6 hours (with the DRep sync)',
+    refresh: 'Every 6 hours (with the DRep sync)',
     notes: 'Every post is checked against the synced DRep status, independent of the login session.',
   },
 ] as const;

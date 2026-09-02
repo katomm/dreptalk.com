@@ -650,7 +650,7 @@ export default function VotePanel({ gaId, network, initialViewerVote }: VotePane
                       <span>
                         Also post this rationale under Discussion.
                         <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.8125rem', marginTop: '0.15rem' }}>
-                          Your rationale is always recorded on-chain and shown under Positions. This only adds a copy to the discussion thread.
+                          Your rationale is always recorded on-chain and shown under Votes. This only adds a copy to the discussion thread.
                         </span>
                       </span>
                     </label>

@@ -4,7 +4,7 @@ description: "How a registered DRep casts a Yes, No, or Abstain vote on an open 
 cardLabel: "How to vote"
 category: "For DReps"
 order: 3
-updated: 2026-08-02
+updated: 2026-09-02
 ---
 
 As a registered DRep you can vote on open governance actions directly on DRepTalk and sign the vote in your own wallet. Voting is the core of the role: it is how you turn the voting power delegated to you into a decision on each action. This guide covers who can vote, how the flow works, and what happens to your vote and rationale.
@@ -27,7 +27,7 @@ The vote is built for you, but your wallet signs and submits it. Your private ke
 
 ## Adding a rationale
 
-A rationale is optional but encouraged. When you include one, it is recorded with your vote on-chain and shown on the action's Votes tab, and you can see the link to the on-chain record before you sign. A checkbox lets you also post a copy into the action's discussion thread so others can respond; that cross-post is off by default. The on-chain rationale is permanent and cannot be edited, since it reflects what was committed on-chain. For what makes a good rationale and how to structure it, see [Writing a vote rationale](/help/writing-a-vote-rationale/).
+A rationale is optional but encouraged. When you include one, it is recorded with your vote on-chain and shown on the action's Votes tab, and you can see the link to the on-chain record before you sign. A checkbox lets you also post a copy into the action's discussion thread so others can respond, that cross-post is off by default. The on-chain rationale is permanent and cannot be edited, since it reflects what was committed on-chain. A rationale written on DRepTalk is stored directly, whatever your voting power. For votes cast outside DRepTalk, the rationale document is fetched from the chain only for voters with at least 10,000 ada of voting weight. For what makes a good rationale and how to structure it, see [Writing a vote rationale](/help/writing-a-vote-rationale/).
 
 <img class="shot" src="/help/shots/vote-panel.webp" alt="The Cast your vote panel on a governance action: Yes selected, a rationale added, and the checkbox to also post the rationale under the discussion" width="322" height="459" loading="lazy" />
 

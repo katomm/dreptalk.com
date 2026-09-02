@@ -4,7 +4,7 @@ description: "Practical ways for a Cardano DRep to become more visible: a comple
 cardLabel: "Promoting your DRep"
 category: "For DReps"
 order: 4
-updated: 2026-08-02
+updated: 2026-09-02
 faqs:
   - q: "Can I pay to promote my DRep on DRepTalk?"
     a: "No. There is no paid placement. The DRep directory ranks by on-chain numbers such as voting power and delegator count, so visibility comes from verifiable activity only."
@@ -21,8 +21,8 @@ visibility out of verifiable activity, which is also what makes it convincing.
 
 ## Complete your on-chain profile
 
-Without a name and bio you are a bech32 id in a long list. Set a name, a short
-bio, your objectives, contact links, and a picture in your on-chain metadata:
+Without a name and objectives you are a bech32 id in a long list. Set a name,
+your objectives, contact links, and a picture in your on-chain metadata:
 that is what the directory and your profile page display, and a filled-out
 profile is also what people can find through a web search. How to set or change
 the metadata is covered in [Managing your DRep](/help/managing-your-drep/).
@@ -43,9 +43,11 @@ it work for you:
 ## Write a rationale for every vote
 
 A vote says what you decided, a rationale says why, and the why is what earns
-trust. Rationales are shown next to your vote on the action page, and standout
-rationales are featured more prominently there. A few clear sentences beat a
-long essay; [Writing a vote rationale](/help/writing-a-vote-rationale/) covers
+trust. Rationales are shown next to your vote on the action page. The rationale
+highlights on the action overview are picked by voting power, two Yes and two
+No, so a well written rationale from a smaller DRep is still found on the
+**Votes** tab and on its own vote page. A few clear sentences beat a long
+essay. [Writing a vote rationale](/help/writing-a-vote-rationale/) covers
 what to include.
 
 ## Be present in the discussions

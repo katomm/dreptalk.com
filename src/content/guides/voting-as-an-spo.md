@@ -4,12 +4,14 @@ description: "How a stake pool operator votes on Cardano governance actions: whi
 cardLabel: "Voting as an SPO"
 category: "Understanding governance"
 order: 6
-updated: 2026-08-21
+updated: 2026-09-02
 faqs:
   - q: "Can I cast my pool's vote on DRepTalk?"
     a: "No. DRepTalk builds votes only for DReps, signed in their own wallet. A pool vote must be witnessed by the pool cold key, which no browser wallet can do, so you cast it with your pool tooling. DRepTalk then shows your vote and rationale on the action's Votes tab."
   - q: "What happens if my pool does not vote?"
     a: "Since the Plomin hard fork, a pool that does not vote is counted as a No vote. There is one lever: if the pool's reward account delegates to the predefined Abstain DRep, the missing vote counts as Abstain instead. For hard fork initiations this lever does not apply, a missing vote is always a No."
+  - q: "Why is my rationale not shown next to my pool's vote?"
+    a: "DRepTalk fetches rationale documents from the chain only for voters with at least 10,000 ada of voting weight. A pool with less voted stake gets its vote listed without the rationale text."
   - q: "Do SPOs vote on treasury withdrawals?"
     a: "No. Treasury withdrawals are decided by DReps and the Constitutional Committee. SPO votes count on motions of no confidence, committee changes, hard fork initiations, security-relevant parameter changes, and Info actions."
 ---
@@ -26,7 +28,7 @@ An SPO vote is counted on these [governance action types](/help/governance-actio
 - **Protocol parameter changes** that touch security-relevant parameters
 - **Info actions**, where votes are recorded as a signal but there is no threshold to meet
 
-Treasury withdrawals, ordinary parameter changes, and constitution updates are decided by DReps and the Constitutional Committee without an SPO vote. Your pool's voting power is the stake delegated to it, and an action passes the SPO body when the share of participating pool stake voting Yes meets the threshold for that action type.
+Treasury withdrawals, ordinary parameter changes, and constitution updates are decided by DReps and the Constitutional Committee without an SPO vote. Your pool's voting power is the stake delegated to it. An action passes the SPO body when the Yes stake, measured against Yes plus No, meets the threshold for that action type. The No side includes the stake of pools that did not vote (see below), while abstaining stake is left out of the calculation.
 
 ## Not voting is also a vote
 
@@ -53,7 +55,9 @@ Like a DRep vote, a pool vote can carry a link to a rationale document explainin
 
 ## Your vote on DRepTalk
 
-Once your vote is on-chain, DRepTalk picks it up automatically: it appears on the action's Votes tab with your pool name, and your rationale is shown with it. [Sign in as an SPO](/help/signing-in/) with your Calidus key to also join the discussion under each action, before or after voting.
+Once your vote is on-chain, DRepTalk picks it up automatically: it appears on the action's Votes tab with your pool name, and your rationale is shown with it.
+
+One limit applies to the rationale text: DRepTalk fetches rationale documents from the chain only for voters with at least 10,000 ada of voting weight. A pool with less voted stake still gets its vote listed, but without the rationale text. Since a pool vote is always cast outside DRepTalk, there is no other path for it. [Sign in as an SPO](/help/signing-in/) with your Calidus key to also join the discussion under each action, before or after voting.
 
 ## Related
 

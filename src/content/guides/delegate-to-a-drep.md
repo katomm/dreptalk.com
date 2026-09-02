@@ -4,7 +4,7 @@ description: "How any ada holder hands their Cardano voting power to a DRep, wha
 cardLabel: "Delegating to a DRep"
 category: "Start here"
 order: 2
-updated: 2026-08-02
+updated: 2026-09-02
 ---
 
 Every ada holder on Cardano has voting power in the governance system. If you
@@ -65,7 +65,8 @@ standard Cardano transaction.
 
 1. Open the profile of the DRep you chose in the [DRep
    directory](/dreps/).
-2. Click **Delegate** and connect your wallet.
+2. Click **Delegate** and connect your wallet. Retired DReps have no
+   Delegate button, since they can no longer vote.
 3. Review the delegation in your wallet and confirm. The wallet shows the
    exact cost before anything is sent; DRepTalk never sees your keys.
 
@@ -112,11 +113,15 @@ Delegation is not the end of the story. You can sign in to DRepTalk as a
 delegator (a free, read-only message signature) to see your DRep's votes and
 rationales on your start page, spot open actions they have not voted on yet,
 and get notified when they act. See
-[Tracking your delegation](/help/for-delegators/).
+[Tracking your delegation](/help/for-delegators/). The private
+[My DRep](/my-drep/) page adds the longer view: everything your DRep has done
+since your delegation started, explained in [Following your own
+DRep](/help/my-drep/).
 
 ## Related
 
 - [Tracking your delegation](/help/for-delegators/)
+- [Following your own DRep](/help/my-drep/)
 - [How DRep matching works](/help/drep-matching/)
 - [How to become a DRep](/help/become-a-drep/)
 - [Governance action types](/help/governance-action-types/)
