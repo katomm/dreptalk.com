@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildVitals, commonSeriesStart, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
+import { buildGlanceTiles, buildVitals, commonSeriesStart, contiguousPrefix, contiguousTail, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
 import { RECENT_VOTING_WINDOW_EPOCHS, seriesStartFromRows } from './epochStatsContract.js';
+import { hubHref } from './hubSections.js';
 import type { EpochStatsRow } from './epochStats.js';
 
 function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
@@ -178,6 +179,53 @@ describe('defaultOptionsComparison', () => {
     expect(defaultOptionsComparison('not-a-number', '150000000000000', '5134000000000000')).toBeNull();
     expect(defaultOptionsComparison('9776000000000000', 'not-a-number', '5134000000000000')).toBeNull();
     expect(defaultOptionsComparison('9776000000000000', '150000000000000', 'not-a-number')).toBeNull();
+  });
+});
+
+describe('contiguousTail', () => {
+  it('keeps only the gapless run ending at the newest row', () => {
+    expect(contiguousTail([row(100), row(101), row(538), row(539), row(540)]).map((r) => r.epoch)).toEqual([538, 539, 540]);
+    expect(contiguousTail([row(540)]).map((r) => r.epoch)).toEqual([540]);
+    expect(contiguousTail([])).toEqual([]);
+  });
+});
+
+describe('buildGlanceTiles', () => {
+  const window = [538, 539, 540].map((e) => row(e, { poweredDrepCount: 700 + (e - 538) * 5, voteDataComplete: e < 540 }));
+  it('builds four linked tiles that each jump into a hub section', () => {
+    const tiles = buildGlanceTiles(window, '20000000000000000');
+    expect(tiles).toHaveLength(4);
+    expect(tiles.map((t) => t.href)).toEqual([hubHref('trends'), hubHref('today'), hubHref('activity'), hubHref('decentralization')]);
+    expect(tiles[0].trend?.direction).toBe('up'); // powered 705 -> 710
+    expect(tiles[1].value).toBe('2B ₳');
+    expect(tiles[1].sub).toBe('10.0% of circulating ada'); // 2e15 of 2e16
+    expect(tiles[3].value).toBe('50.0%');
+    expect(tiles[3].ring).toBe(50);
+  });
+  it('carries each metric series over the window, the voter series without the provisional epoch', () => {
+    const tiles = buildGlanceTiles(window, null);
+    expect(tiles[0].series).toEqual([700, 705, 710]);
+    expect(tiles[2].series).toHaveLength(2); // epoch 540 is still running
+    expect(tiles[3].series).toEqual([50, 50, 50]);
+  });
+  it('pairs the trend with the true previous epoch and draws only the gapless tail', () => {
+    const tiles = buildGlanceTiles([row(100, { poweredDrepCount: 1 }), row(540, { poweredDrepCount: 710 })], null);
+    expect(tiles[0].trend).toBeNull(); // 100 is not the epoch before 540
+    expect(tiles[0].series).toEqual([710]);
+  });
+  it('formats the power trend compactly so it fits a narrow tile', () => {
+    const tiles = buildGlanceTiles([row(539, { totalDrepPower: '2000000000000000' }), row(540, { totalDrepPower: '2030000000000000' })], null);
+    expect(tiles[1].trend?.label).toBe('+30M ₳ this epoch');
+  });
+  it('drops the circulating share when circulation is unknown', () => {
+    expect(buildGlanceTiles([row(540)], null)[1].sub).toBeUndefined();
+  });
+  it('flags the recent-voter count as provisional while the epoch is running', () => {
+    expect(buildGlanceTiles([row(540, { voteDataComplete: false })], null)[2].sub).toMatch(/running epoch/);
+    expect(buildGlanceTiles([row(540, { voteDataComplete: true })], null)[2].sub).toBeUndefined();
+  });
+  it('returns empty without rows', () => {
+    expect(buildGlanceTiles([], '1')).toEqual([]);
   });
 });
 

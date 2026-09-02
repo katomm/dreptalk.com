@@ -1,0 +1,55 @@
+---
+// One stat tile of a .drep-stats grid: icon, label, value, optional trend chip
+// and sub line. Renders as a link when `href` is given (the homepage strip),
+// as a plain block otherwise (the analytics hub vitals). The shared tokens
+// live in global.css under .drep-stat.
+//
+// `ring` swaps the icon for a donut filled to that percentage (DonutRing).
+// `series` adds a sparkline of the metric's recent epochs under the figure
+// (Sparkline) and drops the plain icon: the line is the picture.
+import DrepStatIcon from './DrepStatIcon.astro';
+import DonutRing from './DonutRing.astro';
+import Sparkline from './Sparkline.astro';
+import type { VitalCard } from '@/lib/analytics/hubView.js';
+
+interface Props {
+  card: VitalCard;
+  href?: string;
+  /** 0 to 100, draws a donut in place of the icon. */
+  ring?: number;
+  /** Recent values, oldest first, drawn as a sparkline under the figure. */
+  series?: number[];
+}
+const { card, href, ring, series } = Astro.props;
+const Tag = href ? 'a' : 'div';
+const hasSpark = (series?.filter((n) => Number.isFinite(n)).length ?? 0) >= 2;
+const showIcon = ring == null && !hasSpark;
+---
+
+<Tag class={`drep-stat${card.alt ? ' drep-stat--alt' : ''}${hasSpark ? ' drep-stat--chart' : ''}`} href={href}>
+  {showIcon && (
+    <span class="drep-stat__icon"><DrepStatIcon name={card.icon} /></span>
+  )}
+  {ring != null && <DonutRing pct={ring} />}
+  <span class="drep-stat__body">
+    <span class="drep-stat__label">{card.label}</span>
+    <span class="drep-stat__value">
+      {card.valueShort ? (
+        <>
+          <span class="drep-stat__value-long">{card.value}</span>
+          <span class="drep-stat__value-short">{card.valueShort}</span>
+        </>
+      ) : card.value}
+    </span>
+    {card.trend && (
+      <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
+        {card.trend.direction !== 'flat' && (
+          <span class="drep-stat__arrow" aria-hidden="true">{card.trend.direction === 'up' ? '↑' : '↓'}</span>
+        )}
+        {card.trend.label}
+      </span>
+    )}
+    {card.sub && <span class="drep-stat__sub">{card.sub}</span>}
+  </span>
+  {hasSpark && series && <Sparkline series={series} />}
+</Tag>

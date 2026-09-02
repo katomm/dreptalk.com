@@ -14,6 +14,8 @@ const COLUMNS =
   'epoch, total_drep_power, powered_drep_count, recently_voting_drep_count, abstain_power, anc_power, ' +
   'delegator_total, abstain_delegators, anc_delegators, gini, top10_share_pct, min_coalition_50, ' +
   'min_coalition_67, votes_cast, vote_data_complete, treasury_lovelace, computed_at';
+// Every reader projects the same columns minus the bookkeeping timestamp.
+const READ_COLUMNS = COLUMNS.split(', ').filter((c) => c !== 'computed_at').join(', ');
 
 const PLACEHOLDERS = Array.from({ length: 17 }, () => '?').join(', ');
 
@@ -211,12 +213,29 @@ function toEpochStatsRow(r: RawEpochStatsRow): EpochStatsRow {
 export async function getEpochStatsByEpoch(db: D1Database, epoch: number): Promise<EpochStatsRow | null> {
   const row = await db
     .prepare(
-      `SELECT ${COLUMNS.split(', ').filter((c) => c !== 'computed_at').join(', ')}
+      `SELECT ${READ_COLUMNS}
          FROM governance_epoch_stats WHERE epoch = ?`,
     )
     .bind(epoch)
     .first<RawEpochStatsRow>();
   return row ? toEpochStatsRow(row) : null;
+}
+
+/**
+ * The newest `limit` rows in ascending epoch order, for the homepage strip,
+ * which needs a short trailing window (current epoch, its predecessor and a
+ * sparkline's worth of history) and must not pay for the whole table on every
+ * request. Callers still pair rows with rowBeforeEpoch and contiguousTail:
+ * mid-backfill the older rows can be ancient epochs.
+ */
+export async function listLatestEpochStats(db: D1Database, limit: number): Promise<EpochStatsRow[]> {
+  const rows = (
+    await db
+      .prepare(`SELECT ${READ_COLUMNS} FROM governance_epoch_stats ORDER BY epoch DESC LIMIT ?`)
+      .bind(limit)
+      .all<RawEpochStatsRow>()
+  ).results ?? [];
+  return rows.map(toEpochStatsRow).reverse();
 }
 
 /**
@@ -231,7 +250,7 @@ export async function listEpochStats(
   const rows = (
     await db
       .prepare(
-        `SELECT ${COLUMNS.split(', ').filter((c) => c !== 'computed_at').join(', ')}
+        `SELECT ${READ_COLUMNS}
            FROM governance_epoch_stats WHERE epoch >= ? ORDER BY epoch ASC`,
       )
       .bind(opts.fromEpoch ?? 0)

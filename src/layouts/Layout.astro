@@ -685,7 +685,7 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         transition: color 0.15s ease, background-color 0.15s ease;
       }
       /* Compact-label swap: the full label yields to the short one in the zone
-         between the mobile menu cutoff (820px) and a comfortably wide header. */
+         between the mobile menu cutoff (940px) and a comfortably wide header. */
       .site-nav__label--short {
         display: none;
       }
@@ -852,7 +852,9 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
       }
 
       /* ---- Responsive --------------------------------------------------- */
-      @media (max-width: 820px) {
+      /* Five nav links plus the action cluster need about 930px even with the
+         compact labels, so the burger menu takes over below 940px. */
+      @media (max-width: 940px) {
         .site-nav,
         .header-actions__cta {
           display: none;

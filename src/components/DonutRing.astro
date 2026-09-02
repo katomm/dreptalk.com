@@ -1,0 +1,22 @@
+---
+// A small donut filled to a percentage, for a share-of-whole value like the
+// top-10 concentration. Pure SVG stroke math, no script: the arc is a
+// dasharray over a circumference of 100. Decorative, the number sits next to
+// it in text. Colours follow the surrounding .drep-stat tokens (global.css).
+interface Props {
+  /** 0 to 100. */
+  pct: number;
+  class?: string;
+}
+const { pct, class: className } = Astro.props;
+// r = 100 / (2 * PI) so one unit of dasharray is one percent.
+const RING_R = 15.9155;
+const clamped = Math.max(0, Math.min(100, pct));
+---
+
+<span class:list={['drep-stat__ring', className]} aria-hidden="true">
+  <svg viewBox="0 0 36 36">
+    <circle class="drep-stat__ring-track" cx="18" cy="18" r={RING_R} />
+    <circle class="drep-stat__ring-arc" cx="18" cy="18" r={RING_R} stroke-dasharray={`${clamped} ${100 - clamped}`} stroke-dashoffset="25" />
+  </svg>
+</span>

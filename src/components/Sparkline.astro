@@ -1,0 +1,36 @@
+---
+// A sparkline of recent values, oldest first: a line plus a soft area, scaled
+// into a fixed viewBox and stretched to its container. Renders nothing below
+// two points (a single value has no shape). Decorative, the figure it belongs
+// to is stated in text next to it. Colours follow the .drep-stat tokens.
+interface Props {
+  series: number[];
+  class?: string;
+}
+const { series, class: className } = Astro.props;
+
+const W = 100;
+const H = 28;
+const points = series.filter((n) => Number.isFinite(n));
+const spark = ((): { line: string; area: string } | null => {
+  if (points.length < 2) return null;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  // A flat series still gets a visible line, centred, instead of a divide by zero.
+  const span = max - min || 1;
+  const pad = 2;
+  const coords = points.map((v, i) => {
+    const x = (i / (points.length - 1)) * W;
+    const y = pad + (1 - (v - min) / span) * (H - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  return { line: coords.join(' '), area: `0,${H} ${coords.join(' ')} ${W},${H}` };
+})();
+---
+
+{spark && (
+  <svg class:list={['drep-stat__spark', className]} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+    <polygon class="drep-stat__spark-area" points={spark.area} />
+    <polyline class="drep-stat__spark-line" points={spark.line} />
+  </svg>
+)}
