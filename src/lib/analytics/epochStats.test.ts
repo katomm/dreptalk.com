@@ -7,7 +7,7 @@ function h(drepId: string, amount: string, delegatorCount: number | null = null)
 
 const baseInput = {
   epoch: 540,
-  recentlyVotingDrepCount: 3,
+  recentlyVotingDrepIds: new Set(['drep1a', 'drep1gone', 'drep1z']),
   votesCast: 7,
   voteDataComplete: true,
   treasuryLovelace: '1234',
@@ -118,5 +118,18 @@ describe('computeEpochStatsRow', () => {
     expect(() =>
       computeEpochStatsRow({ ...baseInput, history: [h('drep1a', '1'), h('drep1a', '2')] }),
     ).toThrow(/duplicate/i);
+  });
+});
+
+describe('silent powered DReps', () => {
+  it('counts power holders outside the recently-voting set, a voter without power is never silent', () => {
+    const row = computeEpochStatsRow({
+      ...baseInput,
+      history: [h('drep1a', '600'), h('drep1b', '400'), h('drep1zero', '0'), h('drep_always_abstain', '9000')],
+    });
+    // drep1a voted, drep1b did not, drep1zero holds nothing, the special is excluded.
+    expect(row.silentPoweredDrepCount).toBe(1);
+    // The recently-voting count is the set size, voters without power included.
+    expect(row.recentlyVotingDrepCount).toBe(3);
   });
 });

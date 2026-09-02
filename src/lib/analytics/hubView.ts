@@ -5,6 +5,7 @@
 // is display-only (documented precision).
 import { formatAda } from '../forum/view.js';
 import { formatAdaCompact } from '../format/ada.js';
+import { pct4 } from '../format/pct.js';
 import { RECENT_VOTING_WINDOW_EPOCHS, seriesStartFromRows } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';
 import { hubHref } from './hubSections.js';
@@ -46,6 +47,7 @@ export type ChartableMetric =
   | 'totalDrepPower'
   | 'poweredDrepCount'
   | 'recentlyVotingDrepCount'
+  | 'silentPoweredDrepCount'
   | 'delegatorTotal'
   | 'abstainPower'
   | 'ancPower'
@@ -72,6 +74,47 @@ export function metricSeries(
     const raw = r[metric];
     if (raw == null) continue;
     out.push({ epoch: r.epoch, value: Number(raw) });
+  }
+  return out;
+}
+
+/**
+ * Share of all delegated voting power held by the two default options, per
+ * epoch: defaults / (defaults + representative DReps). A row missing either
+ * option is skipped rather than drawn as if the option held nothing, which
+ * makes the series start where both option columns do.
+ */
+export function defaultsShareSeries(rows: EpochStatsRow[]): { epoch: number; value: number }[] {
+  const out: { epoch: number; value: number }[] = [];
+  for (const r of rows) {
+    if (r.abstainPower == null || r.ancPower == null) continue;
+    let defaults: bigint;
+    let repr: bigint;
+    try {
+      defaults = BigInt(r.abstainPower) + BigInt(r.ancPower);
+      repr = BigInt(r.totalDrepPower);
+    } catch {
+      continue;
+    }
+    const whole = defaults + repr;
+    if (whole > 0n) out.push({ epoch: r.epoch, value: pct4(defaults, whole) });
+  }
+  return out;
+}
+
+/**
+ * Share of the epoch's power-holding DReps that voted inside the recently
+ * voting window, per epoch: (powered - silent) / powered. Both counts are
+ * read against the same snapshot, unlike recently_voting_drep_count, whose
+ * voters need not hold power in the epoch. Rows without a silent count are
+ * skipped, so the series starts where that column does.
+ */
+export function votedShareSeries(rows: EpochStatsRow[]): { epoch: number; value: number }[] {
+  const out: { epoch: number; value: number }[] = [];
+  for (const r of rows) {
+    if (r.silentPoweredDrepCount == null || r.poweredDrepCount <= 0) continue;
+    const voted = Math.max(0, r.poweredDrepCount - r.silentPoweredDrepCount);
+    out.push({ epoch: r.epoch, value: pct4(BigInt(voted), BigInt(r.poweredDrepCount)) });
   }
   return out;
 }

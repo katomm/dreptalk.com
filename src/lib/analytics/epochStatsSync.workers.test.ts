@@ -166,5 +166,28 @@ describe('finalization after an epoch roll', () => {
     // Recomputed from the same local vote data, not just a flag flip.
     expect(row?.votes_cast).toBe(1);
     expect(row?.recently_voting_drep_count).toBe(1);
+    // drep1b holds power and did not vote, drep1a voted.
+    expect(row?.silent_powered_drep_count).toBe(1);
+  });
+});
+
+describe('silent-DRep column refill', () => {
+  it('fills a NULL silent count on an already complete row from a transient snapshot fetch', async () => {
+    await backfillEpochStats({ db: env.DB, koios: makeKoios(), cfg, currentEpoch: 540, budget: 2 });
+    // Rows stored before the column existed: complete, but with no silent count.
+    await env.DB.prepare('UPDATE governance_epoch_stats SET silent_powered_drep_count = NULL').run();
+    const r = await backfillEpochStats({ db: env.DB, koios: makeKoios(), cfg, currentEpoch: 540, budget: 1 });
+    // One fetch in the budget: one row refilled, the second waits for the next run.
+    expect(r.repaired).toBe(2);
+    expect((await statsRow(538))?.silent_powered_drep_count).toBe(1);
+    expect((await statsRow(539))?.silent_powered_drep_count).toBeNull();
+    expect((await statsRow(539))?.vote_data_complete).toBe(1);
+    // Nothing entered the history table on the way.
+    const hist = await env.DB.prepare('SELECT COUNT(*) AS n FROM drep_voting_power_history').first<{ n: number }>();
+    expect(hist?.n).toBe(0);
+
+    const r2 = await backfillEpochStats({ db: env.DB, koios: makeKoios(), cfg, currentEpoch: 540, budget: 1 });
+    expect(r2.repaired).toBe(1);
+    expect((await statsRow(539))?.silent_powered_drep_count).toBe(1);
   });
 });

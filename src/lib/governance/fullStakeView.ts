@@ -131,7 +131,7 @@ function activePower(v: number | null): bigint {
  * a breakdown from an untested assumption, buildBodyStake declines that one type and
  * the caller keeps the plain counted bar.
  */
-function ancIsNoSide(actionType: string): boolean {
+export function ancIsNoSide(actionType: string): boolean {
   return actionType !== 'NoConfidence';
 }
 

@@ -15,6 +15,7 @@ interface SeedOpts {
   spoNoPower?: number | null;
   spoAbstainPower?: number | null;
   spoAlwaysAbstainPower?: string | null;
+  spoAlwaysNoConfidencePower?: string | null;
   spoNoSidePower?: string | null;
 }
 
@@ -23,8 +24,8 @@ async function seedAction(id: string, type: string, opts: SeedOpts = {}) {
     `INSERT INTO governance_actions
        (id, type, title, topic_id, status, submitted_epoch, decided_epoch, thresholds_json,
         drep_yes_pct, spo_yes_pct, spo_yes_power, spo_no_power, spo_abstain_power,
-        spo_always_abstain_power, spo_no_side_power, created_at, last_synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+        spo_always_abstain_power, spo_always_no_confidence_power, spo_no_side_power, created_at, last_synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
   )
     .bind(
       id,
@@ -41,6 +42,7 @@ async function seedAction(id: string, type: string, opts: SeedOpts = {}) {
       opts.spoNoPower ?? null,
       opts.spoAbstainPower ?? null,
       opts.spoAlwaysAbstainPower ?? null,
+      opts.spoAlwaysNoConfidencePower ?? null,
       opts.spoNoSidePower ?? null,
     )
     .run();
@@ -89,6 +91,7 @@ describe('listDecidedOutcomeRows', () => {
       spoNoPower: 200,
       spoAbstainPower: 50,
       spoAlwaysAbstainPower: '9007199254740993',
+      spoAlwaysNoConfidencePower: '12',
       spoNoSidePower: '250',
     });
     await seedAction('ga_nulls', 'InfoAction', {
@@ -104,6 +107,7 @@ describe('listDecidedOutcomeRows', () => {
       spoNoPower: null,
       spoAbstainPower: null,
       spoAlwaysAbstainPower: null,
+      spoAlwaysNoConfidencePower: null,
       spoNoSidePower: null,
     });
 
@@ -126,6 +130,7 @@ describe('listDecidedOutcomeRows', () => {
       spoNoPower: 200,
       spoAbstainPower: 50,
       spoAlwaysAbstainPower: '9007199254740993',
+      spoAlwaysNoConfidencePower: '12',
       spoNoSidePower: '250',
     });
     expect(nulls).toEqual({
@@ -143,6 +148,7 @@ describe('listDecidedOutcomeRows', () => {
       spoNoPower: null,
       spoAbstainPower: null,
       spoAlwaysAbstainPower: null,
+      spoAlwaysNoConfidencePower: null,
       spoNoSidePower: null,
     });
   });

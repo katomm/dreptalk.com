@@ -1,0 +1,11 @@
+-- Per-epoch count of DReps that held delegated power in the epoch's snapshot
+-- but cast no vote in the trailing recently-voting window (see
+-- RECENT_VOTING_WINDOW_EPOCHS). The counterpart of recently_voting_drep_count
+-- on the same window, but read against the epoch's own power holders, so the
+-- two never share a denominator problem: a voter that has since retired is in
+-- the recently-voting count and not in this one.
+--
+-- NULL on every existing row: the backfill's repair pass fills it in, oldest
+-- epoch first, from the stored power history where it still exists and from
+-- a transient Koios fetch otherwise. Charts start at the first non-NULL row.
+ALTER TABLE governance_epoch_stats ADD COLUMN silent_powered_drep_count INTEGER;

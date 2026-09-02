@@ -11,13 +11,13 @@ import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 
 const COLUMNS =
-  'epoch, total_drep_power, powered_drep_count, recently_voting_drep_count, abstain_power, anc_power, ' +
-  'delegator_total, abstain_delegators, anc_delegators, gini, top10_share_pct, min_coalition_50, ' +
-  'min_coalition_67, votes_cast, vote_data_complete, treasury_lovelace, computed_at';
+  'epoch, total_drep_power, powered_drep_count, recently_voting_drep_count, silent_powered_drep_count, ' +
+  'abstain_power, anc_power, delegator_total, abstain_delegators, anc_delegators, gini, top10_share_pct, ' +
+  'min_coalition_50, min_coalition_67, votes_cast, vote_data_complete, treasury_lovelace, computed_at';
 // Every reader projects the same columns minus the bookkeeping timestamp.
 const READ_COLUMNS = COLUMNS.split(', ').filter((c) => c !== 'computed_at').join(', ');
 
-const PLACEHOLDERS = Array.from({ length: 17 }, () => '?').join(', ');
+const PLACEHOLDERS = COLUMNS.split(', ').map(() => '?').join(', ');
 
 // Everything except the PK, for the conflict update below. treasury_lovelace
 // gets its own clause: treasury is constant within an epoch, so if a later
@@ -34,7 +34,7 @@ const SPECIAL_PLACEHOLDERS = SPECIAL_DREP_IDS.map(() => '?').join(', ');
 
 function binds(row: EpochStatsRow, now: number): unknown[] {
   return [
-    row.epoch, row.totalDrepPower, row.poweredDrepCount, row.recentlyVotingDrepCount,
+    row.epoch, row.totalDrepPower, row.poweredDrepCount, row.recentlyVotingDrepCount, row.silentPoweredDrepCount,
     row.abstainPower, row.ancPower, row.delegatorTotal, row.abstainDelegators, row.ancDelegators,
     row.gini, row.top10SharePct, row.minCoalition50, row.minCoalition67,
     row.votesCast, row.voteDataComplete ? 1 : 0, row.treasuryLovelace, now,
@@ -100,31 +100,34 @@ export async function countDrepVotesInEpoch(db: D1Database, epoch: number, cfg: 
  * Distinct non-special DReps with at least one vote in the trailing
  * `windowEpochs` epochs ending at `epoch` (inclusive). Implements the
  * contract's recently-voting definition, see RECENT_VOTING_WINDOW_EPOCHS.
+ * Returns the ids, not just the count: the silent-DRep count needs to
+ * intersect them with the epoch's power holders.
  */
-export async function countRecentlyVotingDreps(
+export async function listRecentlyVotingDrepIds(
   db: D1Database,
   epoch: number,
   cfg: NetworkConfig,
   windowEpochs: number,
-): Promise<number> {
+): Promise<Set<string>> {
   const from = epochStartUnix(epoch - windowEpochs + 1, cfg);
   const to = epochStartUnix(epoch + 1, cfg);
-  const row = await db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM (
-         SELECT voter_id FROM drep_votes
+  const rows = (
+    await db
+      .prepare(
+        `SELECT voter_id FROM drep_votes
           WHERE voter_role = 'DRep' AND block_time >= ? AND block_time < ?
             AND voter_id NOT IN (${SPECIAL_PLACEHOLDERS})
          UNION
          SELECT voter_id FROM drep_vote_history
           WHERE voter_role = 'DRep' AND block_time >= ? AND block_time < ?
-            AND voter_id NOT IN (${SPECIAL_PLACEHOLDERS})
-       )`,
-    )
-    .bind(from, to, ...SPECIAL_DREP_IDS, from, to, ...SPECIAL_DREP_IDS)
-    .first<{ n: number }>();
-  return row?.n ?? 0;
+            AND voter_id NOT IN (${SPECIAL_PLACEHOLDERS})`,
+      )
+      .bind(from, to, ...SPECIAL_DREP_IDS, from, to, ...SPECIAL_DREP_IDS)
+      .all<{ voter_id: string }>()
+  ).results ?? [];
+  return new Set(rows.map((r) => r.voter_id));
 }
+
 
 /** Actions the vote-history sweep has not covered yet (vote_data_complete gate). */
 export async function countUnsweptActions(db: D1Database): Promise<number> {
@@ -134,34 +137,44 @@ export async function countUnsweptActions(db: D1Database): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Epochs whose vote-derived columns were computed while the sweep was pending. */
+/**
+ * Epochs whose vote-derived columns still need the repair pass: computed while
+ * the sweep was pending, or stored before the silent-DRep column existed.
+ */
 export async function listIncompleteVoteDataEpochs(db: D1Database): Promise<number[]> {
   const rows = (
     await db
-      .prepare('SELECT epoch FROM governance_epoch_stats WHERE vote_data_complete = 0 ORDER BY epoch')
+      .prepare(
+        'SELECT epoch FROM governance_epoch_stats WHERE vote_data_complete = 0 OR silent_powered_drep_count IS NULL ORDER BY epoch',
+      )
       .all<{ epoch: number }>()
   ).results ?? [];
   return rows.map((r) => r.epoch);
 }
 
 /**
- * Repairs one epoch's vote-derived columns after the sweep drained. Both
+ * Repairs one epoch's vote-derived columns after the sweep drained. The
  * columns move together with the flag, they share the same source tables.
+ * A null silent count keeps the stored value (the caller had no power
+ * snapshot to read it against), it never overwrites a real count with NULL.
  */
 export async function updateVoteDerivedStats(
   db: D1Database,
   epoch: number,
   votesCast: number,
   recentlyVotingDrepCount: number,
+  silentPoweredDrepCount: number | null,
   complete: boolean,
 ): Promise<void> {
   await db
     .prepare(
       `UPDATE governance_epoch_stats
-          SET votes_cast = ?, recently_voting_drep_count = ?, vote_data_complete = ?
+          SET votes_cast = ?, recently_voting_drep_count = ?,
+              silent_powered_drep_count = COALESCE(?, silent_powered_drep_count),
+              vote_data_complete = ?
         WHERE epoch = ?`,
     )
-    .bind(votesCast, recentlyVotingDrepCount, complete ? 1 : 0, epoch)
+    .bind(votesCast, recentlyVotingDrepCount, silentPoweredDrepCount, complete ? 1 : 0, epoch)
     .run();
 }
 
@@ -170,6 +183,7 @@ interface RawEpochStatsRow {
   total_drep_power: string;
   powered_drep_count: number;
   recently_voting_drep_count: number;
+  silent_powered_drep_count: number | null;
   abstain_power: string | null;
   anc_power: string | null;
   delegator_total: number | null;
@@ -190,6 +204,7 @@ function toEpochStatsRow(r: RawEpochStatsRow): EpochStatsRow {
     totalDrepPower: r.total_drep_power,
     poweredDrepCount: r.powered_drep_count,
     recentlyVotingDrepCount: r.recently_voting_drep_count,
+    silentPoweredDrepCount: r.silent_powered_drep_count,
     abstainPower: r.abstain_power,
     ancPower: r.anc_power,
     delegatorTotal: r.delegator_total,

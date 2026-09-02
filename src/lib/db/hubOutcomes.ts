@@ -21,6 +21,8 @@ export interface DecidedOutcomeRow {
   /** Raw lovelace string (exceeds 2^53), never parse to a JS number. */
   spoAlwaysAbstainPower: string | null;
   /** Raw lovelace string (exceeds 2^53), never parse to a JS number. */
+  spoAlwaysNoConfidencePower: string | null;
+  /** Raw lovelace string (exceeds 2^53), never parse to a JS number. */
   spoNoSidePower: string | null;
 }
 
@@ -39,6 +41,7 @@ interface DecidedOutcomeD1Row {
   spo_no_power: number | null;
   spo_abstain_power: number | null;
   spo_always_abstain_power: string | null;
+  spo_always_no_confidence_power: string | null;
   spo_no_side_power: string | null;
 }
 
@@ -52,7 +55,8 @@ export async function listDecidedOutcomeRows(db: D1Database): Promise<DecidedOut
                   g.submitted_epoch AS submitted_epoch, g.decided_epoch AS decided_epoch, g.thresholds_json AS thresholds_json,
                   g.drep_yes_pct AS drep_yes_pct, g.spo_yes_pct AS spo_yes_pct, g.spo_yes_power AS spo_yes_power,
                   g.spo_no_power AS spo_no_power, g.spo_abstain_power AS spo_abstain_power,
-                  g.spo_always_abstain_power AS spo_always_abstain_power, g.spo_no_side_power AS spo_no_side_power
+                  g.spo_always_abstain_power AS spo_always_abstain_power, g.spo_always_no_confidence_power AS spo_always_no_confidence_power,
+                  g.spo_no_side_power AS spo_no_side_power
              FROM governance_actions g
              LEFT JOIN topics t ON t.id = g.topic_id
             WHERE g.decided_epoch IS NOT NULL
@@ -75,6 +79,7 @@ export async function listDecidedOutcomeRows(db: D1Database): Promise<DecidedOut
     spoNoPower: r.spo_no_power,
     spoAbstainPower: r.spo_abstain_power,
     spoAlwaysAbstainPower: r.spo_always_abstain_power,
+    spoAlwaysNoConfidencePower: r.spo_always_no_confidence_power,
     spoNoSidePower: r.spo_no_side_power,
   }));
 }
