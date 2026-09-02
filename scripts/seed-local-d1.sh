@@ -4,7 +4,7 @@
 # without running a full on-chain sync. The primary worktree is auto-detected via
 # git, so there are no hardcoded paths and this works on any machine.
 #
-# Usage: npm run db:seed   (stop the dev server first; miniflare caches the DB on start)
+# Usage: npm run db:seed:from-main   (stop the dev server first; miniflare caches the DB on start)
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
