@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCcPanel, selectExtremes } from './ccPanelView.js';
+import { buildCcPanel, interimCommittee, selectExtremes } from './ccPanelView.js';
 import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import type { CcVoteRow, DecidedCcAction } from '../db/committee.js';
 
@@ -183,5 +183,49 @@ describe('selectExtremes', () => {
     expect(top).toEqual(rows);
     expect(bottom).toEqual([]);
     expect(total).toBe(8);
+  });
+});
+
+describe('interimCommittee', () => {
+  const term = (over: Partial<CommitteeMemberTerm>): CommitteeMemberTerm => ({
+    coldKeyHex: 'cold', versionFrom: 507, versionTo: 580, termExpiration: 580, authorizedFrom: 507, resignedAt: null,
+    ...over,
+  });
+
+  it('ends with the earliest membership version and counts who carried on', () => {
+    expect(
+      interimCommittee([
+        term({ coldKeyHex: 'a' }),
+        term({ coldKeyHex: 'b' }),
+        term({ coldKeyHex: 'a', versionFrom: 581, versionTo: null, termExpiration: 726 }),
+        term({ coldKeyHex: 'c', versionFrom: 581, versionTo: null, termExpiration: 726 }),
+      ]),
+    ).toEqual({ end: 580, carryOver: 1 });
+  });
+
+  it('counts a member carried across two later versions once', () => {
+    expect(
+      interimCommittee([
+        term({ coldKeyHex: 'a' }),
+        term({ coldKeyHex: 'a', versionFrom: 581, versionTo: 601, termExpiration: 653 }),
+        term({ coldKeyHex: 'a', versionFrom: 602, versionTo: null, termExpiration: 653 }),
+      ]),
+    ).toEqual({ end: 580, carryOver: 1 });
+  });
+
+  it('has no end while the first committee has never been replaced', () => {
+    expect(interimCommittee([term({ versionTo: null })])).toEqual({ end: null, carryOver: 0 });
+    expect(interimCommittee([])).toEqual({ end: null, carryOver: 0 });
+  });
+
+  it('ignores later versions when deciding the boundary', () => {
+    // A second replacement must not move the interim boundary forward.
+    expect(
+      interimCommittee([
+        term({}),
+        term({ coldKeyHex: 'x', versionFrom: 581, versionTo: 601, termExpiration: 653 }),
+        term({ coldKeyHex: 'x', versionFrom: 602, versionTo: null, termExpiration: 653 }),
+      ]).end,
+    ).toBe(580);
   });
 });

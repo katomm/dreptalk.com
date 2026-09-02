@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 // Small shared helpers for parameterized D1 SQL.
+import { CONCLUDED_STATUSES } from '../governance/view.js';
 
 /**
  * Builds a comma-separated list of `?` placeholders for a parameterized IN clause,
@@ -22,4 +23,16 @@ export function chunked<T>(xs: readonly T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size) as T[]);
   return out;
+}
+
+/**
+ * SQL predicate for "this action's voting window ran its course", for the
+ * given table alias. Built from CONCLUDED_STATUSES so the SQL and in-memory
+ * definitions cannot drift; the values are compile-time constants from that
+ * list, never caller input, so inlining them keeps call sites free of extra
+ * binds. Use it in every read whose count answers "of the actions you could
+ * have voted on", never `decided_epoch IS NOT NULL` alone.
+ */
+export function concludedStatusSql(alias: string): string {
+  return `${alias}.status IN (${CONCLUDED_STATUSES.map((s) => `'${s}'`).join(', ')})`;
 }

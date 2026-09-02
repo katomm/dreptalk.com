@@ -33,7 +33,14 @@ const showIcon = ring == null && !hasSpark;
   {ring != null && <DonutRing pct={ring} />}
   <span class="drep-stat__body">
     <span class="drep-stat__label">{card.label}</span>
-    <span class="drep-stat__value">{card.value}</span>
+    <span class="drep-stat__value">
+      {card.valueShort ? (
+        <>
+          <span class="drep-stat__value-long">{card.value}</span>
+          <span class="drep-stat__value-short">{card.valueShort}</span>
+        </>
+      ) : card.value}
+    </span>
     {card.trend && (
       <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
         {card.trend.direction !== 'flat' && (

@@ -4,6 +4,7 @@
 // decision epoch's representative total from governance_epoch_stats
 // (specials excluded by construction), never a live table sum, so every
 // action is measured against the stake distribution that actually decided it.
+import { concludedStatusSql } from './sql.js';
 export interface DecidedActionRepresentation {
   id: string;
   title: string | null;
@@ -31,7 +32,7 @@ export async function listDecidedActionsForRepresentation(
            FROM governance_actions g
            LEFT JOIN topics t ON t.id = g.topic_id
            LEFT JOIN governance_epoch_stats s ON s.epoch = g.decided_epoch
-          WHERE g.decided_epoch IS NOT NULL
+          WHERE g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}
           ORDER BY g.decided_epoch DESC, g.id ASC
           LIMIT ?`,
       )

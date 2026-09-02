@@ -4,7 +4,8 @@
 // inputs always produce the same numbers. Stake sums use BigInt end to end,
 // spoAlwaysAbstainPower and spoNoSidePower arrive as TEXT and can exceed
 // Number's safe-integer range. No I/O, deterministic, unit-tested.
-import type { DecidedOutcomeRow } from '../db/hubOutcomes.js';
+import type { DecidedOutcomeRow, LineageActionRow } from '../db/hubOutcomes.js';
+import { lineagePredecessor } from '../governance/onchain.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 
 export interface SpoSnapshot {
@@ -238,4 +239,65 @@ export function buildThroughput(
     decisionBasis: overallSpans.length,
     byType: byTypeRows,
   };
+}
+
+/**
+ * A dropped action as the hub lists it: what it was, when it left the
+ * proposal set, and, where the chain says so, the action that superseded it.
+ */
+export interface DroppedActionView {
+  gaId: string;
+  title: string | null;
+  href: string | null;
+  type: string;
+  droppedEpoch: number | null;
+  /** Epochs of voting the action still had left when it was removed, when both epochs are known. */
+  epochsLeft: number | null;
+  supersededBy: { title: string | null; href: string | null; type: string; epoch: number | null } | null;
+}
+
+/**
+ * Pairs each dropped action with the enacted action that took its place in
+ * the lineage: same predecessor, decided no later than the drop. A dropped
+ * action with no such sibling (a type without a lineage, or a drop caused by
+ * something else) keeps a null, the page then states no reason rather than
+ * guessing one.
+ */
+export function buildDroppedActions(
+  dropped: LineageActionRow[],
+  successors: LineageActionRow[],
+): DroppedActionView[] {
+  const href = (row: LineageActionRow) => (row.topicSlug ? `/t/${row.topicSlug}/` : null);
+  // Parsed once per successor, not once per successor per dropped action.
+  const withPrev = successors.map((row) => ({ row, prev: lineagePredecessor(row.payload) }));
+  return dropped.map((row) => {
+    const prev = lineagePredecessor(row.payload);
+    const match = prev == null
+      ? null
+      : withPrev
+          .filter(
+            (s) =>
+              s.row.gaId !== row.gaId &&
+              s.prev === prev &&
+              s.row.decidedEpoch != null &&
+              (row.decidedEpoch == null || s.row.decidedEpoch <= row.decidedEpoch),
+          )
+          // The latest one at or before the drop is the enactment that moved
+          // the lineage tip past this action.
+          .sort((a, b) => (b.row.decidedEpoch ?? 0) - (a.row.decidedEpoch ?? 0))[0]?.row ?? null;
+    return {
+      gaId: row.gaId,
+      title: row.title,
+      href: href(row),
+      type: row.type,
+      droppedEpoch: row.decidedEpoch,
+      epochsLeft:
+        row.decidedEpoch != null && row.expiryEpoch != null && row.expiryEpoch > row.decidedEpoch
+          ? row.expiryEpoch - row.decidedEpoch
+          : null,
+      supersededBy: match
+        ? { title: match.title, href: href(match), type: match.type, epoch: match.decidedEpoch }
+        : null,
+    };
+  });
 }

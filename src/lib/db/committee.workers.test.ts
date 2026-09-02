@@ -185,4 +185,27 @@ describe('listDecidedCcActions + listDecidedCcVoteRows', () => {
     expect(votes.get('ga_cc1#0')?.[0]).toMatchObject({ hotKeyHex: 'aabb01', vote: 'Yes', blockTime: 2000 });
     expect(votes.has('ga_cc_open#0')).toBe(false);
   });
+
+  it('leaves out a dropped action and its votes', async () => {
+    // A dropped action carries a decided_epoch but its voting window was cut
+    // short, so counting it marks every member who had not voted yet as having
+    // missed an action nobody could finish. Reported by a committee member who
+    // could not find the action the panel said they had missed.
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, decided_epoch, submitted_at, cc_yes_pct, thresholds_json, topic_id, created_at, last_synced_at)
+         VALUES ('ga_cc_dropped#0', 'ParameterChange', 'Superseded', 'dropped', 614, 1000, NULL, NULL, NULL, 0, 0)`,
+      )
+      .run();
+    await upsertVotes(
+      db(),
+      'ga_cc_dropped#0',
+      [{ voterRole: 'ConstitutionalCommittee', voterId: 'cc_hot_a', voterHex: 'AABB01', vote: 'Yes', blockTime: 2000 }],
+      1,
+    );
+
+    const actions = await listDecidedCcActions(db());
+    expect(actions.some((x) => x.gaId === 'ga_cc_dropped#0')).toBe(false);
+    expect((await listDecidedCcVoteRows(db())).has('ga_cc_dropped#0')).toBe(false);
+  });
 });

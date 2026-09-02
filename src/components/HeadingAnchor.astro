@@ -103,10 +103,14 @@ const Tag = level === 2 ? 'h2' : 'h3';
     outline-offset: 2px;
     border-radius: 2px;
   }
-  /* Touch devices never hover, so the anchor stays readable but quiet. */
+  /* Touch devices never hover, so the anchor would have to sit there
+     permanently to be reachable at all, and a stray "#" after every heading
+     reads as a rendering fault on a narrow screen. It is a desktop
+     convenience, so it is left out where hovering is impossible. The heading
+     ids stay, every existing section link keeps working. */
   @media (hover: none) {
     .heading-anchor {
-      opacity: 0.45;
+      display: none;
     }
   }
   @media (prefers-reduced-motion: reduce) {

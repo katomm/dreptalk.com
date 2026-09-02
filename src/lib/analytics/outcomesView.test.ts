@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DecidedOutcomeRow } from '../db/hubOutcomes.js';
-import { buildSpoSnapshot, buildThroughput } from './outcomesView.js';
+import type { DecidedOutcomeRow, LineageActionRow } from '../db/hubOutcomes.js';
+import { buildDroppedActions, buildSpoSnapshot, buildThroughput } from './outcomesView.js';
 
 const thresholds = (over: { drep?: number | null; spo?: number | null } = {}) =>
   JSON.stringify({ drep: 67, spo: 51, cc: 60, ccBelowMinSize: false, v: 2, ...over });
@@ -287,5 +287,65 @@ describe('buildThroughput', () => {
       0,
     );
     expect(v.byType.map((t) => t.type)).toEqual(['A', 'B', 'C']);
+  });
+});
+
+describe('buildDroppedActions', () => {
+  const lineageRow = (over: Partial<LineageActionRow> = {}): LineageActionRow => ({
+    gaId: 'ga-dropped',
+    title: 'Reduce committeeMinSize',
+    topicSlug: 'reduce-committee-min-size',
+    type: 'ParameterChange',
+    decidedEpoch: 614,
+    expiryEpoch: 619,
+    payload: JSON.stringify({ tag: 'ParameterChange', contents: [{ txId: 'prev', govActionIx: 0 }, {}] }),
+    ...over,
+  });
+
+  it('names the enacted sibling that took the lineage tip', () => {
+    const winner = lineageRow({
+      gaId: 'ga-enacted',
+      title: 'Increase memory units',
+      topicSlug: 'increase-memory-units',
+      decidedEpoch: 614,
+      expiryEpoch: 620,
+    });
+    const [view] = buildDroppedActions([lineageRow()], [winner]);
+    expect(view.supersededBy).toEqual({
+      title: 'Increase memory units',
+      href: '/t/increase-memory-units/',
+      type: 'ParameterChange',
+      epoch: 614,
+    });
+    expect(view.href).toBe('/t/reduce-committee-min-size/');
+    expect(view.epochsLeft).toBe(5);
+  });
+
+  it('claims no reason when no sibling shares the predecessor', () => {
+    const other = lineageRow({
+      gaId: 'ga-other',
+      payload: JSON.stringify({ tag: 'ParameterChange', contents: [{ txId: 'elsewhere', govActionIx: 0 }, {}] }),
+    });
+    expect(buildDroppedActions([lineageRow()], [other])[0].supersededBy).toBeNull();
+  });
+
+  it('ignores a sibling enacted after the drop', () => {
+    const later = lineageRow({ gaId: 'ga-later', decidedEpoch: 615 });
+    expect(buildDroppedActions([lineageRow()], [later])[0].supersededBy).toBeNull();
+  });
+
+  it('picks the latest qualifying sibling when several share the predecessor', () => {
+    const early = lineageRow({ gaId: 'ga-early', title: 'Early', decidedEpoch: 600 });
+    const late = lineageRow({ gaId: 'ga-late', title: 'Late', decidedEpoch: 613 });
+    expect(buildDroppedActions([lineageRow()], [early, late])[0].supersededBy?.title).toBe('Late');
+  });
+
+  it('leaves epochsLeft null when the action was removed at or after its expiry', () => {
+    expect(buildDroppedActions([lineageRow({ expiryEpoch: 614 })], [])[0].epochsLeft).toBeNull();
+    expect(buildDroppedActions([lineageRow({ expiryEpoch: null })], [])[0].epochsLeft).toBeNull();
+  });
+
+  it('has no href for an action without a forum topic', () => {
+    expect(buildDroppedActions([lineageRow({ topicSlug: null })], [])[0].href).toBeNull();
   });
 });

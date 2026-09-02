@@ -78,6 +78,12 @@ describe('listUnvotedEligibleActions', () => {
     // Decided after registration, but carries no DRep vote at all: not "votable", excluded by the EXISTS clause.
     await seedAction('ga_e', 'Action E', 603);
 
+    // Dropped: the ledger removed it before its window ended, so it was never
+    // an opportunity this DRep passed up. It carries a decided_epoch and a
+    // DRep vote all the same, which is what used to pull it in here.
+    await seedAction('ga_f', 'Action F', 604, { status: 'dropped' });
+    await upsertVotes(env.DB, 'ga_f', [{ voterRole: 'DRep', voterId: 'other5', voterHex: null, vote: 'Yes' }], 1);
+
     const { rows, total } = await listUnvotedEligibleActions(env.DB, drepId, registeredEpoch);
 
     expect(rows.map((r) => r.gaId)).toEqual(['ga_b', 'ga_a']);
