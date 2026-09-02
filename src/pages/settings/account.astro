@@ -2,7 +2,8 @@
 // Settings > Account tab. Shows the signed-in identity and, for writers, the
 // "Link your stake wallet" flow (prove ownership of a stake wallet to track
 // your delegation on the home page). A plain member sees only the identity and
-// a note that role settings are not available yet. The tab bar (via
+// a note that role settings are not available yet, plus the "My DRep" link when
+// a delegation of their own is on record. The tab bar (via
 // SettingsShell) only appears for DReps, who also have Profile and Danger tabs.
 export const prerender = false;
 
@@ -14,6 +15,7 @@ import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { getSelfDrepId, getUserById } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
 import { getFollow } from '@/lib/db/delegatorFollows';
+import { resolveDelegationView, trackedDelegationKind } from '@/lib/delegation/delegationView';
 import { requireGrantManager } from '@/lib/auth/coProposerManage';
 
 const user = Astro.locals.user;
@@ -38,9 +40,15 @@ const isProposer = grantGuard !== null && 'row' in grantGuard;
 const canLinkStake = isWriter(user.roles);
 const selfRow = canLinkStake && db ? await getUserById(db, user.id) : null;
 const stakeAddr = selfRow?.stake_addr ?? null;
-const follow = stakeAddr && db ? await getFollow(db, user.id) : null;
+// The follow row is keyed by the user, not by writer status: a member who signed
+// in through the delegator door has one too, and the "My DRep" link below is for
+// them as much as for a writer.
+const follow = db ? await getFollow(db, user.id) : null;
 const followDrep =
   follow?.delegation_type === 'drep' && follow.drep_id && db ? await getDrepById(db, follow.drep_id) : null;
+// The "My DRep" link only shows for a follow that has something to report on,
+// resolved through the same helper the home card uses.
+const trackedType = trackedDelegationKind(resolveDelegationView(follow));
 const initialTracking = follow
   ? {
       resolutionStatus: follow.resolution_status,
@@ -73,6 +81,16 @@ const initialTracking = follow
     <p style="margin:0;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
       Settings specific to your role are not available yet. They will appear
       here as they are added.
+    </p>
+  )}
+
+  {trackedType && (
+    <p style="margin:1rem 0 0;font-size:0.9375rem;">
+      <a href="/my-drep/" style="color:var(--accent);font-weight:600;">
+        {trackedType === 'drep'
+          ? 'See what your DRep did since you delegated'
+          : 'See what your default choice meant'}
+      </a>
     </p>
   )}
 </SettingsShell>

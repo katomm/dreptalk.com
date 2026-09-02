@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDelegationView, drepStatusHint } from './delegationView.js';
+import { resolveDelegationView, drepStatusHint, isRetiredStatus } from './delegationView.js';
 import type { DelegatorFollowRow } from '@/lib/db/delegatorFollows.js';
 
 function makeFollow(over: Partial<DelegatorFollowRow>): DelegatorFollowRow {
@@ -7,6 +7,7 @@ function makeFollow(over: Partial<DelegatorFollowRow>): DelegatorFollowRow {
     user_id: 'u', stake_addr: 'stake1x',
     resolution_status: 'resolved', delegation_type: 'drep', drep_id: 'drep1abc',
     checked_at: 100, delegation_set_at: 100, refresh_attempted_at: 100, refresh_error_at: null,
+    delegated_since_epoch: null, since_checked_at: null, since_attempts: 0,
     ...over,
   };
 }
@@ -39,4 +40,15 @@ describe('drepStatusHint', () => {
   it('active -> null', () => { expect(drepStatusHint(true, 'registered')).toBeNull(); });
   it('inactive non-retired -> inactive text', () => { expect(drepStatusHint(false, 'expired')).toContain('currently inactive'); });
   it('deregistered -> retired text', () => { expect(drepStatusHint(false, 'deregistered')).toContain('ended its registration'); });
+});
+
+describe('isRetiredStatus', () => {
+  it('is true only for the statuses that mean the registration ended', () => {
+    expect(isRetiredStatus('deregistered')).toBe(true);
+    expect(isRetiredStatus('RETIRED')).toBe(true);
+    // An inactive DRep is still allowed to vote, so it is not retired.
+    expect(isRetiredStatus('expired')).toBe(false);
+    expect(isRetiredStatus('registered')).toBe(false);
+    expect(isRetiredStatus('')).toBe(false);
+  });
 });

@@ -18,6 +18,26 @@ export interface DelegatorFollowRow {
   delegation_set_at: number | null;
   refresh_attempted_at: number | null;
   refresh_error_at: number | null;
+  delegated_since_epoch: number | null;
+  since_checked_at: number | null;
+  /** Consecutive SUCCESSFUL lookups that came back with no start. 0 once one succeeds. */
+  since_attempts: number;
+}
+
+/**
+ * The trailing SET clause that keeps since_attempts honest on a capture write:
+ * a successful lookup that came back with no start counts up, a captured start
+ * resets the run to 0, and a FAILED lookup leaves the count alone by dropping
+ * the clause entirely. A failure (a throw, a timeout, an address the batch
+ * response omitted while others in it came back, or a whole multi-address batch
+ * that came back with no rows at all) never confirmed an empty history, only
+ * that the lookup could not be completed. The clause is chosen from the caller's
+ * own arguments, so no value is interpolated.
+ */
+function attemptsSetClause(epoch: number | null, failed: boolean): string {
+  if (failed) return '';
+  if (epoch != null) return ', since_attempts = 0';
+  return ', since_attempts = since_attempts + 1';
 }
 
 function columnsFor(state: DelegationState): { type: string; drepId: string | null } {
@@ -69,7 +89,9 @@ export async function ensureFollow(db: D1Database, userId: string, stakeAddr: st
  *  - resolved that differs from the baseline: atomic conditional INSERT (gated by
  *    the change predicate, ON CONFLICT on the event_key index) + UPDATE with the
  *    same predicate, in one db.batch (INSERT first). The result is read from the
- *    UPDATE's meta.changes, not from the pre-read.
+ *    UPDATE's meta.changes, not from the pre-read. The same UPDATE clears the
+ *    captured delegation start, which described the delegation just replaced,
+ *    and the attempt count that belonged to it.
  *  - resolved equal to the baseline: advance checked_at, clear error.
  */
 export async function applyResolution(
@@ -118,9 +140,16 @@ export async function applyResolution(
          FROM delegator_follows WHERE user_id = ? AND ${pred}
        ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
     ).bind(crypto.randomUUID(), eventKey, payload, createdAtMs, userId, type, drepId),
+    // The delegation start belongs to the OLD delegation, so it is invalidated in
+    // the same statement that writes the new one. Nulling both columns makes the
+    // row "missing a start" by construction, so every capture path (the login
+    // follow-up here and the cron's listFollowsMissingSince) picks it up even if
+    // the immediate follow-up write never runs. The attempt count goes with them:
+    // the new delegation gets a full run of lookups before the page gives up.
     db.prepare(
       `UPDATE delegator_follows
-          SET delegation_type = ?, drep_id = ?, delegation_set_at = ?, checked_at = ?, refresh_attempted_at = ?, refresh_error_at = NULL
+          SET delegation_type = ?, drep_id = ?, delegation_set_at = ?, checked_at = ?, refresh_attempted_at = ?, refresh_error_at = NULL,
+              delegated_since_epoch = NULL, since_checked_at = NULL, since_attempts = 0
         WHERE user_id = ? AND ${pred}`,
     ).bind(type, drepId, now, now, now, userId, type, drepId),
   ]);
@@ -150,6 +179,126 @@ export async function getFollowedDrepIds(db: D1Database): Promise<Set<string>> {
     )
     .all<{ drep_id: string }>();
   return new Set(results.map((row) => row.drep_id));
+}
+
+/**
+ * Records a delegation-start capture attempt unconditionally. `epoch` null means
+ * the attempt found no start, and `failed` says whether that was a confirmed
+ * empty history or a lookup that could not be completed (see attemptsSetClause).
+ * Either way since_checked_at is stamped, so the row waits out the retry window
+ * instead of being re-queried on every login.
+ * Only for a capture that directly follows a created or changed baseline, where
+ * this call owns the freshly written delegation. Retry paths that act on a row
+ * they read earlier must use captureDelegatedSince instead.
+ */
+export async function setDelegatedSince(
+  db: D1Database,
+  userId: string,
+  epoch: number | null,
+  now: number,
+  failed = false,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?${attemptsSetClause(epoch, failed)}
+        WHERE user_id = ?`,
+    )
+    .bind(epoch, now, userId)
+    .run();
+}
+
+/** Code-point order, the same tiebreaker the SQL ORDER BY applies, so the merged
+ *  chunks sort exactly as one query would have. localeCompare would not. */
+function compareBinary(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** A follow awaiting a start capture, with the attempt stamp observed when it was listed. */
+export interface FollowMissingSince {
+  userId: string;
+  stakeAddr: string;
+  /** since_checked_at as read here, NULL when never attempted. The capture compares against it. */
+  sinceCheckedAt: number | null;
+}
+
+/**
+ * The follows among `userIds` that still need a start captured: no start yet and
+ * either never attempted or last attempted before `staleBefore` (unix seconds).
+ * Stalest first (never-attempted rows sort first, COALESCE to 0), capped at
+ * `limit` so one bulk pass stays within a single Koios chunk.
+ * The id list is chunked because D1 caps a statement at 100 bound parameters,
+ * so each chunk is ordered and capped in SQL and the merged result is ordered
+ * and capped again in JS.
+ * Each row carries the since_checked_at it was observed with, so the eventual
+ * write can compare and set on it instead of clobbering a capture that happened
+ * in between (see captureDelegatedSince).
+ */
+export async function listFollowsMissingSince(
+  db: D1Database,
+  userIds: string[],
+  staleBefore: number,
+  limit: number,
+): Promise<FollowMissingSince[]> {
+  if (userIds.length === 0 || limit <= 0) return [];
+  const found: { row: FollowMissingSince; order: number }[] = [];
+  for (let i = 0; i < userIds.length; i += 90) {
+    const chunk = userIds.slice(i, i + 90);
+    const { results } = await db
+      .prepare(
+        `SELECT user_id, stake_addr, since_checked_at, COALESCE(since_checked_at, 0) AS since_order
+           FROM delegator_follows
+          WHERE user_id IN (${sqlPlaceholders(chunk)})
+            AND delegated_since_epoch IS NULL
+            AND (since_checked_at IS NULL OR since_checked_at < ?)
+          ORDER BY since_order, user_id
+          LIMIT ?`,
+      )
+      .bind(...chunk, staleBefore, limit)
+      .all<{ user_id: string; stake_addr: string; since_checked_at: number | null; since_order: number }>();
+    for (const row of results) {
+      found.push({
+        row: { userId: row.user_id, stakeAddr: row.stake_addr, sinceCheckedAt: row.since_checked_at },
+        order: row.since_order,
+      });
+    }
+  }
+  found.sort((a, b) => a.order - b.order || compareBinary(a.row.userId, b.row.userId));
+  return found.slice(0, limit).map((f) => f.row);
+}
+
+/**
+ * Compare-and-set variant of setDelegatedSince for the retry paths, which act on
+ * a row they read earlier. Two capture paths run concurrently (a login and the
+ * daily cron), and an unconditional write would let the slower one overwrite the
+ * value the faster one just captured. The write only applies while the row still
+ * has no start AND still carries the since_checked_at that was observed, so a
+ * capture that happened in between wins and this one becomes a no-op.
+ * `observedSinceCheckedAt` null means the row was observed never attempted, which
+ * the predicate expresses as the sentinel -1 (since_checked_at is unix seconds,
+ * so no real stamp can collide with it).
+ * `failed` marks a lookup that could not be completed or trusted, which records
+ * the attempt time but leaves since_attempts alone (see attemptsSetClause). It
+ * defaults to false, an ordinary confirmed-empty capture.
+ * Returns whether this call wrote the row.
+ */
+export async function captureDelegatedSince(
+  db: D1Database,
+  userId: string,
+  epoch: number | null,
+  now: number,
+  observedSinceCheckedAt: number | null,
+  failed = false,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?${attemptsSetClause(epoch, failed)}
+        WHERE user_id = ? AND delegated_since_epoch IS NULL AND COALESCE(since_checked_at, -1) = ?`,
+    )
+    .bind(epoch, now, userId, observedSinceCheckedAt ?? -1)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 /** Marks a whole failed bulk batch: attempt + error, so rows wait the due window and errors are visible. */

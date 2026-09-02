@@ -3,13 +3,38 @@
 // the cron entry): the auth handler resolves one address after login (fail-soft,
 // short-bounded), the gov-sync cron re-resolves due addresses in one bulk call.
 import { resolveDelegation } from './resolve.js';
-import { applyResolution, markBatchError, type ResolutionOutcome, type DelegatorFollowRow } from '../db/delegatorFollows.js';
-import type { AccountInfo } from '../koios/client.js';
+import { delegationStartEpoch } from './delegationStart.js';
+import {
+  applyResolution,
+  captureDelegatedSince,
+  getFollow,
+  listFollowsMissingSince,
+  markBatchError,
+  setDelegatedSince,
+  type ResolutionOutcome,
+  type DelegatorFollowRow,
+} from '../db/delegatorFollows.js';
+import type { AccountInfo, AccountUpdateHistoryRow } from '../koios/client.js';
 
-interface KoiosLike {
+export interface KoiosLike {
   accountInfo(stakeAddr: string): Promise<AccountInfo | null>;
   accountInfoBatch(stakeAddrs: string[]): Promise<AccountInfo[]>;
+  accountUpdateHistoryBatch(stakeAddresses: string[]): Promise<AccountUpdateHistoryRow[]>;
 }
+
+// A missing delegation start is retried at most once a day, so a Koios outage or
+// an account Koios has no history for does not re-query on every single login.
+export const SINCE_RETRY_SEC = 86_400;
+// One bulk pass captures at most this many starts, matching the Koios
+// /account_update_history chunk size so the sweep is a single upstream chunk.
+export const SINCE_BULK_CAP = 15;
+// After this many attempts that produced no start, the page stops promising one.
+// The capture paths keep retrying daily regardless (one call, and a start that
+// only appears later is still worth having): this is a display threshold, not a
+// stop condition. Three daily lookups is long enough that a slow indexer or a
+// passing outage has been ruled out, and an account whose delegation certificate
+// simply is not in the history it returns will never produce one.
+export const SINCE_GIVE_UP_ATTEMPTS = 3;
 
 // Map the transport cases plus the resolver's fail-closed verdict onto a
 // resolution outcome. A NULL account (koios returned no row, or a bulk response
@@ -36,6 +61,33 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
+ * One delegation-start lookup: the epoch found (null when none was) and whether
+ * the lookup itself could not be completed or trusted. Only a lookup that ran
+ * and came back honestly empty says anything about the account's history, so
+ * `failed` is what keeps the give-up count honest on the write.
+ */
+interface SinceLookup {
+  epoch: number | null;
+  failed: boolean;
+}
+
+/**
+ * The delegation start for one address. A throw or a timeout is a failed lookup,
+ * a response without a delegation_drep event is a confirmed empty history. Both
+ * are recorded as a NULL start by the caller, so the retry window applies
+ * instead of a per-login hammer, but only the confirmed one counts toward
+ * giving up.
+ */
+async function lookupSince(koios: KoiosLike, stakeAddr: string, timeoutMs: number): Promise<SinceLookup> {
+  try {
+    const rows = await withTimeout(koios.accountUpdateHistoryBatch([stakeAddr]), timeoutMs);
+    return { epoch: delegationStartEpoch(rows.filter((r) => r.stake_address === stakeAddr)), failed: false };
+  } catch {
+    return { epoch: null, failed: true };
+  }
+}
+
+/**
  * Resolve one account's delegation. Fail-soft: any Koios error, timeout, a null
  * (no account row), or an invalid delegated_drep all become an 'error' outcome
  * (row stays pending or keeps its baseline, retried later); only a FOUND account
@@ -50,18 +102,37 @@ export async function resolveFollow(
   now: number,
   opts?: { timeoutMs?: number },
 ): Promise<void> {
+  const timeoutMs = opts?.timeoutMs ?? LOGIN_TIMEOUT_MS;
   try {
     let outcome: ResolutionOutcome;
     try {
-      const info = await withTimeout(koios.accountInfo(stakeAddr), opts?.timeoutMs ?? LOGIN_TIMEOUT_MS);
-      outcome = outcomeFor(info);
+      outcome = outcomeFor(await withTimeout(koios.accountInfo(stakeAddr), timeoutMs));
     } catch {
       outcome = { status: 'error' };
     }
-    await applyResolution(db, userId, outcome, now);
+    const applied = await applyResolution(db, userId, outcome, now);
+
+    // Capture the delegation start when it can have moved (a new baseline or a
+    // re-delegation) or when it is still missing and the retry window has passed.
+    // An unchanged follow that already has a start never touches the endpoint.
+    const fresh = applied === 'created' || applied === 'changed';
+    // Read only for the retry decision. Its since_checked_at is what the write
+    // compares against, so a cron capture that ran in between is not undone.
+    const row = fresh ? null : await getFollow(db, userId);
+    const dueRetry =
+      row != null &&
+      row.delegated_since_epoch == null &&
+      (row.since_checked_at == null || row.since_checked_at < now - SINCE_RETRY_SEC);
+    if (!fresh && !dueRetry) return;
+
+    const { epoch, failed } = await lookupSince(koios, stakeAddr, timeoutMs);
+    // A fresh baseline owns the start it just captured, so it writes flat. The
+    // retry path only writes while the row is still the one it read.
+    if (fresh) await setDelegatedSince(db, userId, epoch, now, failed);
+    else await captureDelegatedSince(db, userId, epoch, now, row?.since_checked_at ?? null, failed);
   } catch {
     // Never throw: a D1 write failure here must not fail the login. The row
-    // stays as-is (pending or its prior baseline); the cron retries later.
+    // stays as-is (pending or its prior baseline), the cron retries later.
   }
 }
 
@@ -118,5 +189,75 @@ export async function refreshBulk(
       failed++;
     }
   }
+
+  await captureBulkSince(db, koios, [...byAddr.values()], now);
   return { attempted: byAddr.size, resolved, failed, changed };
+}
+
+/**
+ * Fills in missing delegation starts for the rows of the batch that just ran, in
+ * ONE extra Koios call capped at SINCE_BULK_CAP addresses. No sweep beyond the
+ * batch: only addresses already being refreshed are touched. Every address in
+ * the call gets its attempt recorded, including the ones Koios returned no rows
+ * for and, on a total failure, all of them. Every write compares and sets on the
+ * since_checked_at observed when the row was listed, so a login capture that ran
+ * while the Koios call was in flight is not overwritten. Never throws: the
+ * capture is a bonus on top of the refresh, not a reason to fail it.
+ *
+ * An address with no rows in the response only counts toward the give-up
+ * threshold when the call as a whole can be trusted to have reported it
+ * honestly. For a single-address batch, an empty response is taken at face
+ * value: the one account genuinely has no delegation certificate. For a batch
+ * of two or more addresses, a response with literally zero rows across all of
+ * them is treated as a Koios failure for every address in the batch instead:
+ * a degraded Koios answering 200 with an empty array is far more likely than
+ * every address in a multi-address batch lacking a delegation certificate. An
+ * address missing while OTHER requested addresses in the same batch did come
+ * back is a partial drop, not a confirmed empty history, so it is recorded as
+ * a failed lookup for that address alone and does not count either.
+ */
+async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: string[], now: number): Promise<void> {
+  try {
+    const pending = await listFollowsMissingSince(db, userIds, now - SINCE_RETRY_SEC, SINCE_BULK_CAP);
+    if (pending.length === 0) return;
+
+    let rows: AccountUpdateHistoryRow[] = [];
+    let batchFailed = false;
+    try {
+      rows = await koios.accountUpdateHistoryBatch(pending.map((p) => p.stakeAddr));
+    } catch {
+      // Leave rows empty: every pending address gets a NULL start recorded below,
+      // as a failed lookup, so the whole group waits out the retry window
+      // instead of retrying at once, without counting toward the give-up total.
+      batchFailed = true;
+    }
+    const byStake = new Map<string, AccountUpdateHistoryRow[]>();
+    for (const row of rows) {
+      const list = byStake.get(row.stake_address);
+      if (list) list.push(row);
+      else byStake.set(row.stake_address, [row]);
+    }
+    const anyAddressResponded = byStake.size > 0;
+    // A batch of two or more addresses that comes back with zero rows for all of
+    // them is a degraded Koios answering 200 with an empty array, not a genuine
+    // batch of unstarted accounts. A single-address batch keeps the ordinary
+    // rule (see the doc comment above).
+    const wholeBatchEmpty = !batchFailed && pending.length >= 2 && !anyAddressResponded;
+    for (const { userId, stakeAddr, sinceCheckedAt } of pending) {
+      const addrRows = byStake.get(stakeAddr) ?? [];
+      // A per-address failure: the whole call threw, the whole multi-address
+      // batch came back with no rows at all, or this address has no rows while
+      // some other requested address in the batch did come back.
+      const failed = batchFailed || wholeBatchEmpty || (addrRows.length === 0 && anyAddressResponded);
+      try {
+        // Compare and set on what the listing observed: a login that captured the
+        // start while this bulk call was in flight keeps its value.
+        await captureDelegatedSince(db, userId, delegationStartEpoch(addrRows), now, sinceCheckedAt, failed);
+      } catch {
+        // A per-row write failure must not abort the rest of the capture.
+      }
+    }
+  } catch {
+    // A listing failure leaves every start as it was, picked up by the next run.
+  }
 }

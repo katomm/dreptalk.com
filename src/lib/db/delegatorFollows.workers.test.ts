@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds } from './delegatorFollows.js';
+import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds, setDelegatedSince, captureDelegatedSince, listFollowsMissingSince } from './delegatorFollows.js';
 import { getNotificationsPage } from './notifications.js';
 
 const db = () => env.DB as D1Database;
@@ -126,5 +126,179 @@ describe('delegatorFollows module', () => {
     expect(ids.size).toBe(2);
     expect(ids.has('drep1gfA')).toBe(true);
     expect(ids.has('drep1gfB')).toBe(true);
+  });
+});
+
+describe('delegation start columns (migration 0089)', () => {
+  const since = async (userId: string) =>
+    db().prepare('SELECT delegated_since_epoch, since_checked_at FROM delegator_follows WHERE user_id = ?')
+      .bind(userId).first<{ delegated_since_epoch: number | null; since_checked_at: number | null }>();
+
+  it('starts NULL on a fresh follow', async () => {
+    await ensureFollow(db(), 's1', 'stake_test1s1', 1000);
+    const row = await since('s1');
+    expect(row?.delegated_since_epoch).toBeNull();
+    expect(row?.since_checked_at).toBeNull();
+  });
+
+  it('setDelegatedSince stores the epoch and the attempt time', async () => {
+    await ensureFollow(db(), 's2', 'stake_test1s2', 1000);
+    await setDelegatedSince(db(), 's2', 655, 4000);
+    expect(await since('s2')).toEqual({ delegated_since_epoch: 655, since_checked_at: 4000 });
+  });
+
+  it('setDelegatedSince with a null epoch records the attempt and clears a stale start', async () => {
+    await ensureFollow(db(), 's3', 'stake_test1s3', 1000);
+    await setDelegatedSince(db(), 's3', 655, 4000);
+    await setDelegatedSince(db(), 's3', null, 9000);
+    expect(await since('s3')).toEqual({ delegated_since_epoch: null, since_checked_at: 9000 });
+  });
+
+  it('listFollowsMissingSince returns only the missing and stale rows, stalest first, capped', async () => {
+    await ensureFollow(db(), 'ls-a', 'stake_test1lsa', 0);
+    await ensureFollow(db(), 'ls-b', 'stake_test1lsb', 0);
+    await ensureFollow(db(), 'ls-c', 'stake_test1lsc', 0);
+    await ensureFollow(db(), 'ls-d', 'stake_test1lsd', 0);
+    await setDelegatedSince(db(), 'ls-a', 640, 100); // has a start, never a candidate
+    await setDelegatedSince(db(), 'ls-b', null, 500); // attempted, stale against 1000
+    await setDelegatedSince(db(), 'ls-c', null, 300); // attempted, staler
+    // ls-d was never attempted, since_checked_at IS NULL sorts first
+
+    const ids = ['ls-a', 'ls-b', 'ls-c', 'ls-d'];
+    expect(await listFollowsMissingSince(db(), ids, 1000, 10)).toEqual([
+      { userId: 'ls-d', stakeAddr: 'stake_test1lsd', sinceCheckedAt: null },
+      { userId: 'ls-c', stakeAddr: 'stake_test1lsc', sinceCheckedAt: 300 },
+      { userId: 'ls-b', stakeAddr: 'stake_test1lsb', sinceCheckedAt: 500 },
+    ]);
+    expect(await listFollowsMissingSince(db(), ids, 1000, 2)).toEqual([
+      { userId: 'ls-d', stakeAddr: 'stake_test1lsd', sinceCheckedAt: null },
+      { userId: 'ls-c', stakeAddr: 'stake_test1lsc', sinceCheckedAt: 300 },
+    ]);
+  });
+
+  it('listFollowsMissingSince skips rows attempted at or after staleBefore and rows outside the id list', async () => {
+    await ensureFollow(db(), 'lf-fresh', 'stake_test1lff', 0);
+    await ensureFollow(db(), 'lf-other', 'stake_test1lfo', 0);
+    await setDelegatedSince(db(), 'lf-fresh', null, 1000);
+    expect(await listFollowsMissingSince(db(), ['lf-fresh'], 1000, 10)).toEqual([]);
+    expect(await listFollowsMissingSince(db(), ['lf-fresh'], 1001, 10))
+      .toEqual([{ userId: 'lf-fresh', stakeAddr: 'stake_test1lff', sinceCheckedAt: 1000 }]);
+    expect(await listFollowsMissingSince(db(), [], 9999, 10)).toEqual([]);
+  });
+
+  it('captureDelegatedSince writes only while the row still matches what was observed', async () => {
+    await ensureFollow(db(), 'cas-1', 'stake_test1cas1', 0);
+    await ensureFollow(db(), 'cas-2', 'stake_test1cas2', 0);
+    await ensureFollow(db(), 'cas-3', 'stake_test1cas3', 0);
+
+    // Observed never attempted, still never attempted: the write applies.
+    expect(await captureDelegatedSince(db(), 'cas-1', 640, 4000, null)).toBe(true);
+    expect(await since('cas-1')).toEqual({ delegated_since_epoch: 640, since_checked_at: 4000 });
+
+    // Observed never attempted, but a start was captured in between: refused.
+    await setDelegatedSince(db(), 'cas-2', 700, 3000);
+    expect(await captureDelegatedSince(db(), 'cas-2', 640, 4000, null)).toBe(false);
+    expect(await since('cas-2')).toEqual({ delegated_since_epoch: 700, since_checked_at: 3000 });
+
+    // Observed at 300, but a failed attempt moved the stamp on: refused, so the
+    // newer attempt window stands.
+    await setDelegatedSince(db(), 'cas-3', null, 300);
+    await setDelegatedSince(db(), 'cas-3', null, 3500);
+    expect(await captureDelegatedSince(db(), 'cas-3', 640, 4000, 300)).toBe(false);
+    expect(await since('cas-3')).toEqual({ delegated_since_epoch: null, since_checked_at: 3500 });
+    // Observing the current stamp lets it through.
+    expect(await captureDelegatedSince(db(), 'cas-3', 640, 4000, 3500)).toBe(true);
+    expect(await since('cas-3')).toEqual({ delegated_since_epoch: 640, since_checked_at: 4000 });
+  });
+
+  it('counts the attempts that found no start and resets the run on a captured one', async () => {
+    const attempts = async (userId: string) =>
+      (await db().prepare('SELECT since_attempts FROM delegator_follows WHERE user_id = ?')
+        .bind(userId).first<{ since_attempts: number }>())?.since_attempts;
+
+    await ensureFollow(db(), 'at-1', 'stake_test1at1', 0);
+    expect(await attempts('at-1')).toBe(0);
+
+    await setDelegatedSince(db(), 'at-1', null, 1000);
+    expect(await attempts('at-1')).toBe(1);
+    await setDelegatedSince(db(), 'at-1', null, 2000);
+    expect(await attempts('at-1')).toBe(2);
+    // The compare-and-set path counts the same way.
+    expect(await captureDelegatedSince(db(), 'at-1', null, 3000, 2000)).toBe(true);
+    expect(await attempts('at-1')).toBe(3);
+    // A refused compare-and-set writes nothing, so it counts nothing either.
+    expect(await captureDelegatedSince(db(), 'at-1', null, 4000, 2000)).toBe(false);
+    expect(await attempts('at-1')).toBe(3);
+
+    // A captured start ends the run.
+    expect(await captureDelegatedSince(db(), 'at-1', 640, 5000, 3000)).toBe(true);
+    expect(await attempts('at-1')).toBe(0);
+
+    // And so does setDelegatedSince with an epoch.
+    await ensureFollow(db(), 'at-2', 'stake_test1at2', 0);
+    await setDelegatedSince(db(), 'at-2', null, 1000);
+    await setDelegatedSince(db(), 'at-2', 655, 2000);
+    expect(await attempts('at-2')).toBe(0);
+  });
+
+  it('a failed lookup records the attempt time but does not count toward giving up', async () => {
+    const attempts = async (userId: string) =>
+      (await db().prepare('SELECT since_attempts FROM delegator_follows WHERE user_id = ?')
+        .bind(userId).first<{ since_attempts: number }>())?.since_attempts;
+
+    await ensureFollow(db(), 'fl-1', 'stake_test1fl1', 0);
+
+    // A failed setDelegatedSince (fresh baseline path) stamps the check time
+    // but leaves the run at 0.
+    await setDelegatedSince(db(), 'fl-1', null, 1000, true);
+    expect(await since('fl-1')).toEqual({ delegated_since_epoch: null, since_checked_at: 1000 });
+    expect(await attempts('fl-1')).toBe(0);
+
+    // A confirmed-empty lookup right after does increment, so the two are
+    // genuinely distinguished, not just always-zero.
+    await setDelegatedSince(db(), 'fl-1', null, 2000);
+    expect(await attempts('fl-1')).toBe(1);
+
+    // A failed captureDelegatedSince (retry path) behaves the same way: the
+    // stamp moves on, the run does not.
+    await ensureFollow(db(), 'fl-2', 'stake_test1fl2', 0);
+    expect(await captureDelegatedSince(db(), 'fl-2', null, 1000, null, true)).toBe(true);
+    expect(await since('fl-2')).toEqual({ delegated_since_epoch: null, since_checked_at: 1000 });
+    expect(await attempts('fl-2')).toBe(0);
+    expect(await captureDelegatedSince(db(), 'fl-2', null, 2000, 1000, true)).toBe(true);
+    expect(await attempts('fl-2')).toBe(0);
+    // A confirmed-empty capture on the same row does increment.
+    expect(await captureDelegatedSince(db(), 'fl-2', null, 3000, 2000)).toBe(true);
+    expect(await attempts('fl-2')).toBe(1);
+  });
+
+  it('a changed delegation resets the attempt count with the start it belonged to', async () => {
+    await ensureFollow(db(), 'at-3', 'stake_test1at3', 1000);
+    await applyResolution(db(), 'at-3', drepState('drep1ata'), 1000);
+    await setDelegatedSince(db(), 'at-3', null, 1000);
+    await setDelegatedSince(db(), 'at-3', null, 2000);
+    await setDelegatedSince(db(), 'at-3', null, 3000);
+
+    expect(await applyResolution(db(), 'at-3', drepState('drep1atb'), 4000)).toBe('changed');
+    const row = await getFollow(db(), 'at-3');
+    expect(row?.since_attempts).toBe(0);
+    expect(row?.delegated_since_epoch).toBeNull();
+  });
+
+  it('a changed delegation clears the captured start so both capture paths pick it up', async () => {
+    await ensureFollow(db(), 'ch-1', 'stake_test1ch1', 1000);
+    await applyResolution(db(), 'ch-1', drepState('drep1cha'), 1000);
+    await setDelegatedSince(db(), 'ch-1', 640, 1000);
+    expect(await since('ch-1')).toEqual({ delegated_since_epoch: 640, since_checked_at: 1000 });
+
+    expect(await applyResolution(db(), 'ch-1', drepState('drep1chb'), 2000)).toBe('changed');
+    expect(await since('ch-1')).toEqual({ delegated_since_epoch: null, since_checked_at: null });
+    expect(await listFollowsMissingSince(db(), ['ch-1'], 2000, 10))
+      .toEqual([{ userId: 'ch-1', stakeAddr: 'stake_test1ch1', sinceCheckedAt: null }]);
+
+    // An unchanged re-resolution leaves a captured start alone.
+    await setDelegatedSince(db(), 'ch-1', 655, 2000);
+    expect(await applyResolution(db(), 'ch-1', drepState('drep1chb'), 3000)).toBe('unchanged');
+    expect(await since('ch-1')).toEqual({ delegated_since_epoch: 655, since_checked_at: 2000 });
   });
 });

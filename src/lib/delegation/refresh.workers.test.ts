@@ -1,8 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { resolveFollow, refreshBulk } from './refresh.js';
-import { ensureFollow, getFollow } from '../db/delegatorFollows.js';
+import { resolveFollow, refreshBulk, SINCE_GIVE_UP_ATTEMPTS, SINCE_RETRY_SEC } from './refresh.js';
+import { ensureFollow, getFollow, setDelegatedSince } from '../db/delegatorFollows.js';
 
 const db = () => env.DB as D1Database;
 // Real bech32-valid drep ids (parseDrepId-accepted), so resolveDelegation
@@ -77,5 +77,288 @@ describe('refreshBulk', () => {
     const row = await getFollow(db(), 'b2');
     expect(row?.refresh_error_at).toBe(300_000);
     expect(row?.refresh_attempted_at).toBe(300_000); // advanced, so it is not re-picked immediately
+  });
+});
+
+// Fake Koios with a recorded call log: every history call is appended so a test
+// can assert both that the endpoint was hit and with which addresses.
+const histRow = (stake: string, epoch: number, slot: number) =>
+  ({ stake_address: stake, action_type: 'delegation_drep', tx_hash: `t${slot}`, epoch_no: epoch, absolute_slot: slot });
+
+function fakeKoios(opts: {
+  drep?: string | null;
+  history?: (addrs: string[]) => ReturnType<typeof histRow>[];
+  historyThrows?: boolean;
+}) {
+  const historyCalls: string[][] = [];
+  return {
+    historyCalls,
+    koios: {
+      accountInfo: async (stake: string) => acct(stake, opts.drep === undefined ? VALID_DREP_A : opts.drep),
+      accountInfoBatch: async (addrs: string[]) => addrs.map((a) => acct(a, opts.drep === undefined ? VALID_DREP_A : opts.drep)),
+      accountUpdateHistoryBatch: async (addrs: string[]) => {
+        historyCalls.push(addrs);
+        if (opts.historyThrows) throw new Error('history down');
+        return opts.history ? opts.history(addrs) : addrs.map((a) => histRow(a, 640, 100));
+      },
+    },
+  };
+}
+
+describe('delegation start capture in resolveFollow', () => {
+  it('captures the start when the baseline is created', async () => {
+    await ensureFollow(db(), 'c1', 'stake_test1c1', 1000);
+    const { koios, historyCalls } = fakeKoios({});
+    await resolveFollow(db(), koios as never, 'c1', 'stake_test1c1', 1000);
+    expect(historyCalls).toEqual([['stake_test1c1']]);
+    const row = await getFollow(db(), 'c1');
+    expect(row?.delegated_since_epoch).toBe(640);
+    expect(row?.since_checked_at).toBe(1000);
+  });
+
+  it('re-captures the start when the delegation changes to another DRep', async () => {
+    await ensureFollow(db(), 'c2', 'stake_test1c2', 1000);
+    const first = fakeKoios({});
+    await resolveFollow(db(), first.koios as never, 'c2', 'stake_test1c2', 1000);
+    expect((await getFollow(db(), 'c2'))?.delegated_since_epoch).toBe(640);
+
+    // Re-delegation: a newer delegation_drep event moves the start forward.
+    const second = fakeKoios({
+      drep: VALID_DREP_B,
+      history: (addrs) => addrs.flatMap((a) => [histRow(a, 640, 100), histRow(a, 655, 900)]),
+    });
+    await resolveFollow(db(), second.koios as never, 'c2', 'stake_test1c2', 2000);
+    expect(second.historyCalls).toEqual([['stake_test1c2']]);
+    const row = await getFollow(db(), 'c2');
+    expect(row?.drep_id).toBe(VALID_DREP_B);
+    expect(row?.delegated_since_epoch).toBe(655);
+    expect(row?.since_checked_at).toBe(2000);
+  });
+
+  it('does not hit the history endpoint for an unchanged follow that already has a start', async () => {
+    await ensureFollow(db(), 'c3', 'stake_test1c3', 1000);
+    const first = fakeKoios({});
+    await resolveFollow(db(), first.koios as never, 'c3', 'stake_test1c3', 1000);
+
+    const again = fakeKoios({});
+    await resolveFollow(db(), again.koios as never, 'c3', 'stake_test1c3', 500_000);
+    expect(again.historyCalls).toEqual([]);
+    const row = await getFollow(db(), 'c3');
+    expect(row?.delegated_since_epoch).toBe(640);
+    expect(row?.since_checked_at).toBe(1000); // untouched, no new attempt
+  });
+
+  it('retries an unchanged follow whose start is missing and whose attempt is a day old', async () => {
+    await ensureFollow(db(), 'c4', 'stake_test1c4', 1000);
+    const first = fakeKoios({ historyThrows: true });
+    await resolveFollow(db(), first.koios as never, 'c4', 'stake_test1c4', 1000);
+    expect((await getFollow(db(), 'c4'))?.delegated_since_epoch).toBeNull();
+    expect((await getFollow(db(), 'c4'))?.since_attempts).toBe(0); // the throw did not count
+
+    const later = fakeKoios({});
+    await resolveFollow(db(), later.koios as never, 'c4', 'stake_test1c4', 1000 + 86_401);
+    expect(later.historyCalls).toEqual([['stake_test1c4']]);
+    expect((await getFollow(db(), 'c4'))?.delegated_since_epoch).toBe(640);
+  });
+
+  it('records a failed capture as a NULL start and does not retry within a day, without throwing', async () => {
+    await ensureFollow(db(), 'c5', 'stake_test1c5', 1000);
+    const failing = fakeKoios({ historyThrows: true });
+    await expect(resolveFollow(db(), failing.koios as never, 'c5', 'stake_test1c5', 1000)).resolves.toBeUndefined();
+    const row = await getFollow(db(), 'c5');
+    expect(row?.drep_id).toBe(VALID_DREP_A); // the delegation itself still resolved
+    expect(row?.delegated_since_epoch).toBeNull();
+    expect(row?.since_checked_at).toBe(1000);
+    // A Koios failure (throw/timeout) records the attempt time but must not
+    // count toward the give-up threshold: it never confirmed an empty history.
+    expect(row?.since_attempts).toBe(0);
+
+    const soon = fakeKoios({});
+    await resolveFollow(db(), soon.koios as never, 'c5', 'stake_test1c5', 1000 + 3600);
+    expect(soon.historyCalls).toEqual([]);
+    expect((await getFollow(db(), 'c5'))?.since_checked_at).toBe(1000);
+  });
+
+  it('records an empty history as a NULL start (account never delegated to a DRep)', async () => {
+    await ensureFollow(db(), 'c6', 'stake_test1c6', 1000);
+    const { koios, historyCalls } = fakeKoios({ drep: null, history: () => [] });
+    await resolveFollow(db(), koios as never, 'c6', 'stake_test1c6', 1000);
+    expect(historyCalls).toEqual([['stake_test1c6']]);
+    const row = await getFollow(db(), 'c6');
+    expect(row?.delegation_type).toBe('none');
+    expect(row?.delegated_since_epoch).toBeNull();
+    expect(row?.since_checked_at).toBe(1000);
+    // A successful lookup that came back empty DOES count toward giving up.
+    expect(row?.since_attempts).toBe(1);
+  });
+});
+
+describe('delegation start capture in refreshBulk', () => {
+  it('caps the capture at 15 addresses and records the attempt for addresses without rows', async () => {
+    for (let i = 1; i <= 17; i++) {
+      const id = `bs${String(i).padStart(2, '0')}`;
+      await ensureFollow(db(), id, `stake_test1${id}`, 0);
+    }
+    const { koios, historyCalls } = fakeKoios({
+      // Only the first address has a delegation_drep event, the rest come back empty.
+      history: (addrs) => addrs.filter((a) => a === 'stake_test1bs01').map((a) => histRow(a, 700, 4200)),
+    });
+    await refreshBulk(db(), koios as never, 900_000, 50);
+
+    expect(historyCalls.length).toBe(1);
+    expect(historyCalls[0].length).toBe(15);
+    expect(historyCalls[0]).toContain('stake_test1bs01');
+    expect(historyCalls[0]).not.toContain('stake_test1bs16');
+
+    const first = await getFollow(db(), 'bs01');
+    expect(first?.delegated_since_epoch).toBe(700);
+    expect(first?.since_checked_at).toBe(900_000);
+
+    // bs15 was requested in the same batch as bs01, which did come back, so its
+    // own absence from the response is a partial drop, not a confirmed empty
+    // history: the attempt time is recorded but the run does not count it.
+    const empty = await getFollow(db(), 'bs15');
+    expect(empty?.delegated_since_epoch).toBeNull();
+    expect(empty?.since_checked_at).toBe(900_000); // attempt recorded even with no rows
+    expect(empty?.since_attempts).toBe(0);
+
+    const untouched = await getFollow(db(), 'bs16');
+    expect(untouched?.since_checked_at).toBeNull();
+  });
+
+  it('skips follows that already have a start and records a failed bulk capture as an attempt', async () => {
+    await ensureFollow(db(), 'bk1', 'stake_test1bk1', 0);
+    await ensureFollow(db(), 'bk2', 'stake_test1bk2', 0);
+    await setDelegatedSince(db(), 'bk1', 611, 100);
+
+    const { koios, historyCalls } = fakeKoios({ historyThrows: true });
+    await refreshBulk(db(), koios as never, 900_000, 50);
+
+    expect(historyCalls).toEqual([['stake_test1bk2']]);
+    expect((await getFollow(db(), 'bk1'))?.delegated_since_epoch).toBe(611);
+    expect((await getFollow(db(), 'bk1'))?.since_checked_at).toBe(100); // untouched
+    const failed = await getFollow(db(), 'bk2');
+    expect(failed?.delegated_since_epoch).toBeNull();
+    expect(failed?.since_checked_at).toBe(900_000);
+    // The whole batch call threw, so this is a failed lookup, not a confirmed
+    // empty history: it must not count toward the give-up threshold.
+    expect(failed?.since_attempts).toBe(0);
+  });
+
+  it('a bulk response missing one requested address, while another came back, only fails that address', async () => {
+    await ensureFollow(db(), 'bm1', 'stake_test1bm1', 0);
+    await ensureFollow(db(), 'bm2', 'stake_test1bm2', 0);
+
+    // Only bm1 comes back in the response, bm2 is silently omitted even though
+    // the call as a whole succeeded.
+    const { koios } = fakeKoios({
+      history: (addrs) => addrs.filter((a) => a === 'stake_test1bm1').map((a) => histRow(a, 700, 4200)),
+    });
+    await refreshBulk(db(), koios as never, 900_000, 50);
+
+    const responded = await getFollow(db(), 'bm1');
+    expect(responded?.delegated_since_epoch).toBe(700);
+
+    const dropped = await getFollow(db(), 'bm2');
+    expect(dropped?.delegated_since_epoch).toBeNull();
+    expect(dropped?.since_checked_at).toBe(900_000);
+    expect(dropped?.since_attempts).toBe(0); // a partial drop, not a confirmed empty history
+  });
+
+  it('treats an all-empty response for a batch of three addresses as a Koios failure, not a confirmed empty history', async () => {
+    await ensureFollow(db(), 'ze1', 'stake_test1ze1', 0);
+    await ensureFollow(db(), 'ze2', 'stake_test1ze2', 0);
+    await ensureFollow(db(), 'ze3', 'stake_test1ze3', 0);
+
+    const { koios, historyCalls } = fakeKoios({ history: () => [] });
+    await refreshBulk(db(), koios as never, 900_000, 50);
+
+    expect(historyCalls).toEqual([['stake_test1ze1', 'stake_test1ze2', 'stake_test1ze3']]);
+    for (const id of ['ze1', 'ze2', 'ze3']) {
+      const row = await getFollow(db(), id);
+      expect(row?.delegated_since_epoch).toBeNull();
+      expect(row?.since_checked_at).toBe(900_000);
+      expect(row?.since_attempts).toBe(0);
+    }
+  });
+
+  it('re-captures the start of a follow whose delegation changed in the same batch', async () => {
+    await ensureFollow(db(), 'bc1', 'stake_test1bc1', 0);
+    const first = fakeKoios({});
+    await resolveFollow(db(), first.koios as never, 'bc1', 'stake_test1bc1', 0);
+    expect((await getFollow(db(), 'bc1'))?.delegated_since_epoch).toBe(640);
+
+    // The cron sees a re-delegation, and the history now carries a newer event.
+    const second = fakeKoios({
+      drep: VALID_DREP_B,
+      history: (addrs) => addrs.flatMap((a) => [histRow(a, 640, 100), histRow(a, 655, 900)]),
+    });
+    const res = await refreshBulk(db(), second.koios as never, 900_000, 50);
+
+    expect(res.changed).toBe(1);
+    expect(second.historyCalls).toEqual([['stake_test1bc1']]);
+    const row = await getFollow(db(), 'bc1');
+    expect(row?.drep_id).toBe(VALID_DREP_B);
+    expect(row?.delegated_since_epoch).toBe(655);
+    expect(row?.since_checked_at).toBe(900_000);
+  });
+
+  it('does not overwrite a start a login captured while the bulk call was in flight', async () => {
+    await ensureFollow(db(), 'race1', 'stake_test1race1', 0);
+    const koios = {
+      accountInfo: async (stake: string) => acct(stake, VALID_DREP_A),
+      accountInfoBatch: async (addrs: string[]) => addrs.map((a) => acct(a, VALID_DREP_A)),
+      accountUpdateHistoryBatch: async (addrs: string[]) => {
+        // Stands in for a login that captured the start between the listing and
+        // the write below, which is exactly the window the compare-and-set covers.
+        await setDelegatedSince(db(), 'race1', 700, 899_000);
+        return addrs.map((a) => histRow(a, 640, 100));
+      },
+    };
+    await refreshBulk(db(), koios as never, 900_000, 50);
+
+    const row = await getFollow(db(), 'race1');
+    expect(row?.delegated_since_epoch).toBe(700);
+    expect(row?.since_checked_at).toBe(899_000);
+  });
+});
+
+describe('give-up threshold for an unfindable delegation start', () => {
+  it('counts one attempt per daily retry and keeps retrying past the threshold', async () => {
+    await ensureFollow(db(), 'gu1', 'stake_test1gu1', 0);
+    const empty = { drep: VALID_DREP_A, history: () => [] as ReturnType<typeof histRow>[] };
+
+    let now = 1000;
+    // The first pass creates the baseline, every later pass is a due retry.
+    for (let i = 0; i < SINCE_GIVE_UP_ATTEMPTS; i++) {
+      const { koios, historyCalls } = fakeKoios(empty);
+      await resolveFollow(db(), koios as never, 'gu1', 'stake_test1gu1', now);
+      expect(historyCalls).toEqual([['stake_test1gu1']]);
+      const row = await getFollow(db(), 'gu1');
+      expect(row?.delegated_since_epoch).toBeNull();
+      expect(row?.since_attempts).toBe(i + 1);
+      now += SINCE_RETRY_SEC + 1;
+    }
+    expect((await getFollow(db(), 'gu1'))?.since_attempts).toBeGreaterThanOrEqual(SINCE_GIVE_UP_ATTEMPTS);
+
+    // Reaching the threshold is a display decision only: the capture path still
+    // runs, and a start that finally shows up is captured and ends the run.
+    const found = fakeKoios({ drep: VALID_DREP_A, history: (addrs) => addrs.map((a) => histRow(a, 661, 4200)) });
+    await resolveFollow(db(), found.koios as never, 'gu1', 'stake_test1gu1', now);
+    expect(found.historyCalls).toEqual([['stake_test1gu1']]);
+    const row = await getFollow(db(), 'gu1');
+    expect(row?.delegated_since_epoch).toBe(661);
+    expect(row?.since_attempts).toBe(0);
+  });
+
+  it('counts the bulk captures that found nothing too', async () => {
+    await ensureFollow(db(), 'gu2', 'stake_test1gu2', 0);
+    let now = 900_000;
+    for (let i = 0; i < SINCE_GIVE_UP_ATTEMPTS; i++) {
+      const { koios } = fakeKoios({ history: () => [] });
+      await refreshBulk(db(), koios as never, now, 50);
+      expect((await getFollow(db(), 'gu2'))?.since_attempts).toBe(i + 1);
+      now += SINCE_RETRY_SEC + 1;
+    }
   });
 });
