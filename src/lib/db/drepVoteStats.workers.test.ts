@@ -7,11 +7,14 @@ import {
   getDrepParticipation,
 } from './drepVotes.js';
 
-async function seedAction(id: string, opts: { decidedEpoch: number | null; expiryEpoch: number | null }) {
+async function seedAction(
+  id: string,
+  opts: { decidedEpoch: number | null; expiryEpoch: number | null; status?: string },
+) {
   await env.DB.prepare(
     `INSERT INTO governance_actions (id, type, title, status, expiry_epoch, decided_epoch, topic_id, created_at, last_synced_at)
-     VALUES (?, 'InfoAction', ?, 'enacted', ?, ?, NULL, 0, 0)`,
-  ).bind(id, id, opts.expiryEpoch, opts.decidedEpoch).run();
+     VALUES (?, 'InfoAction', ?, ?, ?, ?, NULL, 0, 0)`,
+  ).bind(id, id, opts.status ?? 'enacted', opts.expiryEpoch, opts.decidedEpoch).run();
 }
 
 function vote(voterId: string, choice: string, metaUrl: string | null = null) {
@@ -65,6 +68,19 @@ describe('getDrepParticipation', () => {
     await upsertVotes(env.DB, 'p4', vote('drepP', 'Yes'), 1);
 
     expect(await getDrepParticipation(env.DB, 'drepP', 100)).toEqual({ eligible: 2, voted: 1 });
+  });
+
+  it('excludes a dropped action, whose voting window was cut short', async () => {
+    // The ledger removes a dropped action from the proposal set before its
+    // window ends, so nobody had the full chance to vote on it. It carries a
+    // decided_epoch all the same, and counting it charges every DRep who had
+    // not voted yet for an opportunity that was taken away.
+    await seedAction('d1', { decidedEpoch: 110, expiryEpoch: 115 });
+    await seedAction('d2', { decidedEpoch: 112, expiryEpoch: 118, status: 'dropped' });
+    await upsertVotes(env.DB, 'd1', vote('drepOther', 'Yes'), 1);
+    await upsertVotes(env.DB, 'd2', vote('drepOther', 'Yes'), 1);
+
+    expect(await getDrepParticipation(env.DB, 'drepD', 100)).toEqual({ eligible: 1, voted: 0 });
   });
 
   it('windows eligibility on the decided epoch, not the nominal expiry', async () => {

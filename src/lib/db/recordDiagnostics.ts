@@ -6,6 +6,7 @@
 // half-turnout day, early/middle/late window buckets) for a public panel.
 // Read-only, no writes.
 import { liveVoteSql } from './drepVotes.js';
+import { concludedStatusSql } from './sql.js';
 import { EPOCH_LENGTH_SECONDS } from '@/lib/config/network.js';
 
 export interface UnvotedAction {
@@ -62,9 +63,9 @@ const DEFAULT_LIMIT = 50;
 
 // Shared by every network-wide timing read: an open action can only hold early
 // votes so far (it has not reached its window end yet), so including it would
-// bias the "how long after submission" figures early. Restricting to decided
+// bias the "how long after submission" figures early. Restricting to concluded
 // actions keeps these medians comparable to the decided-only thirds bucketing.
-const DECIDED_STATUS_SQL = "g.status IN ('enacted', 'ratified', 'expired', 'closed')";
+const DECIDED_STATUS_SQL = concludedStatusSql('g');
 
 // Shared by the timing reads that measure days from submission: both sides of
 // the delta have to be on record and the vote must not predate the submission
@@ -87,6 +88,7 @@ export async function listUnvotedEligibleActions(
 ): Promise<{ rows: UnvotedAction[]; total: number }> {
   const predicate = `
     g.decided_epoch IS NOT NULL
+    AND ${DECIDED_STATUS_SQL}
     AND g.decided_epoch >= ?
     AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep'
                   AND ${liveVoteSql('dv')})

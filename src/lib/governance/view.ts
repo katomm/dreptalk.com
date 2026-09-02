@@ -82,6 +82,16 @@ export function govStatusVerb(to: string): string {
 // in-memory and SQL definitions of "terminal" can never drift.
 export const TERMINAL_STATUSES = ['ratified', 'enacted', 'dropped', 'expired', 'closed'] as const;
 
+// The terminal statuses whose voting window actually ran its course. 'dropped' is
+// terminal but not concluded: the ledger removes such an action from the proposal
+// set before its window ends (a competing action of the same lineage was enacted),
+// so nobody had the full chance to vote on it. tallySync still records a
+// decided_epoch for it, which makes `decided_epoch IS NOT NULL` an unsafe proxy for
+// "the vote finished". Every participation denominator ("of the actions you could
+// have voted on") must use this set instead, or it charges voters for an
+// opportunity that was taken away from them.
+export const CONCLUDED_STATUSES = TERMINAL_STATUSES.filter((s) => s !== 'dropped');
+
 // The open lifecycle statuses: still counting down, no frozen outcome yet. Paired with
 // TERMINAL_STATUSES as the single source of truth for the governance status filter, so
 // the "open" and "decided" SQL sets cannot drift from the badge lifecycle.

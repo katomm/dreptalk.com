@@ -11,6 +11,7 @@
 
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { sqlPlaceholders } from './sql.js';
+import { concludedStatusSql } from './sql.js';
 import { liveVoteSql } from './drepVotes.js';
 
 export interface ReportCardRow {
@@ -117,7 +118,7 @@ export async function listQualifyingDecidedEpochs(db: D1Database): Promise<numbe
       .prepare(
         `SELECT g.decided_epoch AS decided_epoch
            FROM governance_actions g
-          WHERE g.decided_epoch IS NOT NULL
+          WHERE g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}
             AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep' AND ${liveVoteSql('dv')})
           ORDER BY g.decided_epoch ASC`,
       )
@@ -142,6 +143,7 @@ export async function listDrepVoteCounts(db: D1Database): Promise<Map<string, nu
            FROM drep_votes v
            JOIN dreps d ON d.drep_id = v.voter_id
            JOIN governance_actions g ON g.id = v.ga_id AND g.decided_epoch IS NOT NULL
+                AND ${concludedStatusSql('g')}
                 AND g.decided_epoch >= d.registered_epoch
           WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
             AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep' AND ${liveVoteSql('dv')})

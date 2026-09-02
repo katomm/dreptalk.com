@@ -6,6 +6,7 @@
 import type { CommitteeMember } from '../koios/client.js';
 import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { ccTallyPct, type CcVote } from '../koios/corrections.js';
+import { concludedStatusSql } from './sql.js';
 
 interface MemberRow {
   cold_key_hex: string;
@@ -182,7 +183,7 @@ export async function listDecidedCcActions(db: D1Database): Promise<DecidedCcAct
       `SELECT g.id, g.title, t.slug AS topic_slug, g.type, g.decided_epoch, g.submitted_at, g.cc_yes_pct, g.thresholds_json
          FROM governance_actions g
          LEFT JOIN topics t ON t.id = g.topic_id
-        WHERE g.decided_epoch IS NOT NULL`,
+        WHERE g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}`,
     )
     .all<{
       id: string;
@@ -217,6 +218,7 @@ export async function listDecidedCcVoteRows(db: D1Database): Promise<Map<string,
       `SELECT drep_votes.ga_id AS ga_id, voter_id, lower(voter_hex) AS hot_key_hex, vote, block_time, meta_url
          FROM drep_votes
          JOIN governance_actions g ON g.id = drep_votes.ga_id AND g.decided_epoch IS NOT NULL
+              AND ${concludedStatusSql('g')}
         WHERE voter_role = 'ConstitutionalCommittee' AND voter_hex IS NOT NULL AND voter_hex <> ''`,
     )
     .all<{
