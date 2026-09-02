@@ -524,14 +524,14 @@ const activityBars = activity
             <div class="hub-cc__lists">
               {ccMemberLists.map((list) => (
                 <div>
-                  <h4 class="hub-cc__subtitle">{list.title}</h4>
-                  <ul class="hub-cc__members">
+                  <h4 class="hub-rows__subtitle">{list.title}</h4>
+                  <ul class="hub-rows hub-cc__members">
                     {list.members.map((m) => (
-                      <li class="hub-cc__member">
+                      <li class="hub-row">
                         <div class="hub-cc__member-head">
                           <span class="hub-cc__member-name">{m.name ?? shortCold(m.coldKeyHex)}</span>
                           <span class="hub-cc__member-tenure">{tenureLabel(m.tenure)}</span>
-                          <span class="hub-cc__member-value">{m.voted} of {m.eligible}</span>
+                          <span class="hub-row__meta hub-cc__member-value">{m.voted} of {m.eligible}</span>
                         </div>
                         <div class="hub-cc__raster" role="img" aria-label={`Voted on ${m.voted} of ${m.eligible} eligible actions, oldest to newest`}>
                           {m.sequence.map((s) => (
@@ -645,14 +645,16 @@ const activityBars = activity
         </div>
         {voteChanges.topActions.length > 0 && (
           <>
-            <h4 class="hub-votechange__subtitle">Most reconsidered actions</h4>
-            <ul class="hub-votechange__rows">
+            <h4 class="hub-rows__subtitle">Most reconsidered actions</h4>
+            <ul class="hub-rows hub-votechange__rows">
               {voteChanges.topActions.map((a) => (
-                <li class="hub-votechange__row">
-                  <span class="hub-votechange__title">{a.href ? <a href={a.href}>{a.title}</a> : a.title}</span>
-                  <span class="hub-votechange__type">{readableType(a.type)}</span>
-                  <span class="hub-votechange__epoch">Epoch {a.decidedEpoch}</span>
-                  <span class="hub-votechange__count">{a.changedCount} changed</span>
+                <li class="hub-row hub-row--inline">
+                  <span class="hub-row__title">{a.href ? <a href={a.href}>{a.title}</a> : a.title}</span>
+                  <span class="hub-row__meta">
+                    <span class="hub-votechange__type">{readableType(a.type)}</span>
+                    <span class="hub-votechange__epoch">Epoch {a.decidedEpoch}</span>
+                    <span class="hub-votechange__count">{a.changedCount} changed</span>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -697,19 +699,19 @@ const activityBars = activity
         {rationaleCoverage.best.length > 0 && (
           <div class="hub-rationale__lists">
             <div>
-              <h4 class="hub-rationale__subtitle">Best covered</h4>
-              <ul class="hub-rationale__rows">
+              <h4 class="hub-rows__subtitle">Best covered</h4>
+              <ul class="hub-rows">
                 {rationaleCoverage.best.map((x) => (
-                  <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
+                  <li class="hub-row hub-row--inline hub-rationale__row"><span class="hub-row__title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
                 ))}
               </ul>
             </div>
             {rationaleCoverage.worst.length > 0 && (
               <div>
-                <h4 class="hub-rationale__subtitle">Least covered</h4>
-                <ul class="hub-rationale__rows">
+                <h4 class="hub-rows__subtitle">Least covered</h4>
+                <ul class="hub-rows">
                   {rationaleCoverage.worst.map((x) => (
-                    <li class="hub-rationale__row"><span class="hub-rationale__row-title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
+                    <li class="hub-row hub-row--inline hub-rationale__row"><span class="hub-row__title">{x.href ? <a href={x.href}>{x.title}</a> : x.title}</span><span class="hub-rationale__row-value">{fmtShare(x.pct)} of {x.votes}</span></li>
                   ))}
                 </ul>
               </div>
@@ -911,16 +913,16 @@ const activityBars = activity
 
       {droppedActions.length > 0 && (
         <div class="hub-dropped">
-          <h4 class="hub-dropped__subtitle">Dropped without a decision{droppedActions.length > 1 && ` (${droppedActions.length})`}</h4>
+          <h4 class="hub-rows__subtitle hub-dropped__subtitle">Dropped without a decision{droppedActions.length > 1 && ` (${droppedActions.length})`}</h4>
           <p class="hub-dropped__lede">A dropped action left the proposal set before its voting window ended, so it never reached a verdict of its own. <a href="/help/governance-statuses/">What the statuses mean</a></p>
-          <ul class="hub-dropped__rows">
+          <ul class="hub-rows">
             {droppedActions.map((d) => {
               const label = d.title ?? readableType(d.type);
               const successorLabel = d.supersededBy ? d.supersededBy.title ?? readableType(d.supersededBy.type) : null;
               return (
-              <li class="hub-dropped__row">
-                <span class="hub-dropped__title">{d.href ? <a href={d.href}>{label}</a> : label}</span>
-                <span class="hub-dropped__meta">
+              <li class="hub-row hub-dropped__row">
+                <span class="hub-row__title hub-dropped__title">{d.href ? <a href={d.href}>{label}</a> : label}</span>
+                <span class="hub-row__meta hub-dropped__meta">
                   <span class="hub-dropped__type">{readableType(d.type)}</span>
                   {d.droppedEpoch != null && <span class="hub-dropped__epoch">Dropped in epoch {d.droppedEpoch}</span>}
                   {d.epochsLeft != null && <span class="hub-dropped__early">{d.epochsLeft} {d.epochsLeft === 1 ? 'epoch' : 'epochs'} of voting left</span>}
@@ -1286,6 +1288,58 @@ const activityBars = activity
     font-size: 0.75rem;
   }
 
+  /* One shell for the page's list panels: rationale coverage, changed votes,
+     committee members and dropped actions. The panel classes below add only
+     what genuinely differs. */
+  .hub-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hub-rows__subtitle {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+  }
+  .hub-row {
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  /* Rows whose cells share one baseline and wrap when space runs out. */
+  .hub-row--inline {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .hub-row__title {
+    font-weight: 600;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .hub-row__title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-row__title a:hover {
+    text-decoration: underline;
+  }
+  /* Trailing metadata stays one group: it wraps as a unit and keeps the row's
+     alignment, so no single cell is ever stranded and no width breakpoint is
+     needed. */
+  .hub-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+
   .hub-votechange {
     margin: 0 0 2.5rem;
   }
@@ -1378,39 +1432,8 @@ const activityBars = activity
   .hub-cbar__dot--late {
     background: color-mix(in srgb, var(--accent) 25%, transparent);
   }
-  .hub-votechange__subtitle {
-    margin: 0 0 0.75rem;
-    font-size: 0.95rem;
-  }
   .hub-votechange__rows {
-    list-style: none;
-    margin: 0 0 0.75rem;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .hub-votechange__row {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    padding: 0.6rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-  }
-  .hub-votechange__title {
-    font-weight: 600;
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-  .hub-votechange__title a {
-    color: var(--fg);
-    text-decoration: none;
-  }
-  .hub-votechange__title a:hover {
-    text-decoration: underline;
+    margin-bottom: 0.75rem;
   }
   .hub-votechange__type {
     font-size: 0.7rem;
@@ -1424,17 +1447,7 @@ const activityBars = activity
   }
   .hub-votechange__epoch,
   .hub-votechange__count {
-    font-size: 0.8rem;
-    color: var(--muted);
     white-space: nowrap;
-  }
-  .hub-votechange__epoch {
-    margin-left: auto;
-  }
-  @media (max-width: 480px) {
-    .hub-votechange__epoch {
-      margin-left: 0;
-    }
   }
   .hub-votechange__footnote {
     margin: 0;
@@ -1528,39 +1541,10 @@ const activityBars = activity
       grid-template-columns: 1fr 1fr;
     }
   }
-  .hub-rationale__subtitle {
-    margin: 0 0 0.75rem;
-    font-size: 0.95rem;
-  }
-  .hub-rationale__rows {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
   .hub-rationale__row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.6rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-  }
-  .hub-rationale__row-title {
-    font-weight: 600;
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-  .hub-rationale__row-title a {
-    color: var(--fg);
-    text-decoration: none;
-  }
-  .hub-rationale__row-title a:hover {
-    text-decoration: underline;
+    /* Two cells only, so the value shares the title's line instead of wrapping
+       onto one of its own. */
+    flex-wrap: nowrap;
   }
   .hub-rationale__row-value {
     font-size: 0.8rem;
@@ -1597,23 +1581,8 @@ const activityBars = activity
       grid-template-columns: 1fr 1fr;
     }
   }
-  .hub-cc__subtitle {
-    margin: 0 0 0.75rem;
-    font-size: 0.95rem;
-  }
   .hub-cc__members {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
     gap: 0.6rem;
-  }
-  .hub-cc__member {
-    padding: 0.6rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
   }
   .hub-cc__member-head {
     display: flex;
@@ -1636,10 +1605,9 @@ const activityBars = activity
     white-space: nowrap;
   }
   .hub-cc__member-value {
+    /* The name does not grow, so the group needs the auto margin to sit right. */
     margin-left: auto;
-    font-size: 0.8rem;
     font-weight: 600;
-    color: var(--muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -1870,8 +1838,7 @@ const activityBars = activity
     margin: 0 0 1.25rem;
   }
   .hub-dropped__subtitle {
-    margin: 0 0 0.35rem;
-    font-size: 0.95rem;
+    margin-bottom: 0.35rem;
   }
   .hub-dropped__lede {
     margin: 0 0 0.75rem;
@@ -1879,38 +1846,14 @@ const activityBars = activity
     font-size: 0.85rem;
     max-width: 60ch;
   }
-  .hub-dropped__rows {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
   .hub-dropped__row {
-    padding: 0.7rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
+    padding-block: 0.7rem;
   }
   .hub-dropped__title {
     display: block;
-    font-weight: 600;
-  }
-  .hub-dropped__title a {
-    color: var(--fg);
-    text-decoration: none;
-  }
-  .hub-dropped__title a:hover {
-    text-decoration: underline;
   }
   .hub-dropped__meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem 0.75rem;
     margin-top: 0.15rem;
-    color: var(--muted);
-    font-size: 0.8rem;
   }
   .hub-dropped__reason {
     margin: 0.4rem 0 0;
