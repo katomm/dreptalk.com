@@ -4,30 +4,30 @@
 // 15), so those keep their old 15-minute cost while new actions and pending
 // notifications go out within 5 minutes.
 
-import { runCip100Sync } from '../../cip100/cron.js';
-import { originForNetwork } from '../../cip100/origin.js';
 import { bytesToHex } from '../../crypto/hex.js';
-import { runPostErasureSweep } from '../../db/postErasure.js';
-import { refreshBulk } from '../../delegation/refresh.js';
-import { syncProtocolParams } from '../../governance/paramsSync.js';
 import {
+  syncGovernanceActions,
   backfillActionMetadata,
   backfillGovTopicSubmittedAt,
   backfillGovTopicTitles,
   refreshTrendingScores,
-  syncGovernanceActions,
 } from '../../governance/sync.js';
 import {
-  backfillGovStatusTimes,
-  backfillThresholdSnapshots,
-  backfillVotedPower,
   syncGovernanceTallies,
+  backfillVotedPower,
+  backfillThresholdSnapshots,
+  backfillGovStatusTimes,
 } from '../../governance/tallySync.js';
-import { dispatchTelegram, dispatchWebPush } from '../../notifications/dispatch.js';
+import { syncProtocolParams } from '../../governance/paramsSync.js';
+import { runCip100Sync } from '../../cip100/cron.js';
+import { originForNetwork } from '../../cip100/origin.js';
+import { runPostErasureSweep } from '../../db/postErasure.js';
 import { runFanout } from '../../notifications/fanout.js';
-import { sendTelegramMessage } from '../../push/telegram.js';
+import { dispatchWebPush, dispatchTelegram } from '../../notifications/dispatch.js';
 import { sendWebPush, type VapidConfig } from '../../push/webPush.js';
-import { reconcileSurveyResponses, type SurveysTessera, syncSurveys } from '../../surveys/sync.js';
+import { sendTelegramMessage } from '../../push/telegram.js';
+import { refreshBulk } from '../../delegation/refresh.js';
+import { syncSurveys, reconcileSurveyResponses, type SurveysTessera } from '../../surveys/sync.js';
 import type { CoreSyncContext } from './context.js';
 import type { SyncPhaseDef } from './registry.js';
 
@@ -60,17 +60,11 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
   {
     name: 'discovery',
     primary: true,
-    run: async ctx => {
+    run: async (ctx) => {
       const disc = await syncGovernanceActions({
-        koios: ctx.koios,
-        db: ctx.db,
-        network: ctx.cfg.network,
-        now: ctx.now,
-        rand: randSuffix,
+        koios: ctx.koios, db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix,
       });
-      console.log(
-        `[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`,
-      );
+      console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
       return { items: disc.total, failed: disc.failed };
     },
   },
@@ -79,15 +73,11 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // so an action imported this run can admit its linked survey in the same
     // run. Every tick: the phase is one list request when nothing changed.
     name: 'surveys',
-    when: ctx => ctx.tessera !== null,
-    run: async ctx => {
+    when: (ctx) => ctx.tessera !== null,
+    run: async (ctx) => {
       if (!ctx.tessera) return { items: 0 };
       const r = await syncSurveys({
-        db: ctx.db,
-        tessera: ctx.tessera,
-        cfg: ctx.cfg,
-        now: ctx.now,
-        rand: randSuffix,
+        db: ctx.db, tessera: ctx.tessera, cfg: ctx.cfg, now: ctx.now, rand: randSuffix,
       });
       console.log(
         `[surveys] notReady=${r.notReady} admitted=${r.admitted} refreshed=${r.refreshed}` +
@@ -105,7 +95,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // claiming an answer is still being checked. After the surveys phase, so
     // anything that did land has already had its row settled.
     name: 'survey-reconcile',
-    run: async ctx => {
+    run: async (ctx) => {
       const changed = await reconcileSurveyResponses(ctx.db, ctx.now);
       if (changed > 0) console.log(`[surveys-reconcile] failed=${changed}`);
       return { items: changed };
@@ -116,7 +106,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // so a tip failure surfaces as a failed tallies phase, not a failed discovery.
     name: 'tallies',
     when: heavyOnly,
-    run: async ctx => {
+    run: async (ctx) => {
       const tip = await ctx.koios.tip();
       const tally = await syncGovernanceTallies({
         koios: ctx.koios,
@@ -127,9 +117,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
         limit: TALLY_LIMIT,
         paceMs: TALLY_PACE_MS,
       });
-      console.log(
-        `[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} reSynced=${tally.reSynced} failed=${tally.failed}`,
-      );
+      console.log(`[gov-tally] active=${tally.active} updated=${tally.updated} frozen=${tally.frozen} reSynced=${tally.reSynced} failed=${tally.failed}`);
       return { items: tally.updated + tally.reSynced, failed: tally.failed };
     },
   },
@@ -139,12 +127,8 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // would otherwise all read "just now"). Pure D1, only-changed; a no-op once settled.
     name: 'gov-status-times',
     when: heavyOnly,
-    run: async ctx => {
-      const fixed = await backfillGovStatusTimes({
-        db: ctx.db,
-        network: ctx.cfg.network,
-        limit: 500,
-      });
+    run: async (ctx) => {
+      const fixed = await backfillGovStatusTimes({ db: ctx.db, network: ctx.cfg.network, limit: 500 });
       console.log(`[gov-status-times] scanned=${fixed.scanned} updated=${fixed.updated}`);
       return { items: fixed.updated };
     },
@@ -152,24 +136,17 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
   {
     name: 'voted-power',
     when: heavyOnly,
-    run: async ctx => {
+    run: async (ctx) => {
       const backfill = await backfillVotedPower({ koios: ctx.koios, db: ctx.db, limit: 25 });
-      console.log(
-        `[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`,
-      );
+      console.log(`[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`);
       return { items: backfill.updated, failed: backfill.failed };
     },
   },
   {
     name: 'threshold-backfill',
     when: heavyOnly,
-    run: async ctx => {
-      const bf = await backfillThresholdSnapshots({
-        koios: ctx.koios,
-        db: ctx.db,
-        limit: 15,
-        paceMs: 100,
-      });
+    run: async (ctx) => {
+      const bf = await backfillThresholdSnapshots({ koios: ctx.koios, db: ctx.db, limit: 15, paceMs: 100 });
       console.log(`[gov-threshold-backfill] actions=${bf.actions} failed=${bf.failed}`);
       return { items: bf.actions, failed: bf.failed };
     },
@@ -177,16 +154,9 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
   {
     name: 'metadata',
     when: heavyOnly,
-    run: async ctx => {
-      const metaBackfill = await backfillActionMetadata({
-        db: ctx.db,
-        now: Date.now(),
-        fetchImpl: fetch,
-        limit: 10,
-      });
-      console.log(
-        `[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`,
-      );
+    run: async (ctx) => {
+      const metaBackfill = await backfillActionMetadata({ db: ctx.db, now: Date.now(), fetchImpl: fetch, limit: 10 });
+      console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
       return { items: metaBackfill.updated, failed: metaBackfill.failed };
     },
   },
@@ -196,12 +166,8 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // the same run. Pure D1, only-changed; a settled run writes nothing.
     name: 'gov-titles',
     when: heavyOnly,
-    run: async ctx => {
-      const titles = await backfillGovTopicTitles({
-        db: ctx.db,
-        network: ctx.cfg.network,
-        limit: 200,
-      });
+    run: async (ctx) => {
+      const titles = await backfillGovTopicTitles({ db: ctx.db, network: ctx.cfg.network, limit: 200 });
       console.log(`[gov-title-backfill] scanned=${titles.scanned} updated=${titles.updated}`);
       return { items: titles.updated };
     },
@@ -212,15 +178,9 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // one generous limit drains it in a single run.
     name: 'post-dates',
     when: heavyOnly,
-    run: async ctx => {
-      const postDate = await backfillGovTopicSubmittedAt({
-        db: ctx.db,
-        network: ctx.cfg.network,
-        limit: 500,
-      });
-      console.log(
-        `[gov-postdate-backfill] scanned=${postDate.scanned} updated=${postDate.updated}`,
-      );
+    run: async (ctx) => {
+      const postDate = await backfillGovTopicSubmittedAt({ db: ctx.db, network: ctx.cfg.network, limit: 500 });
+      console.log(`[gov-postdate-backfill] scanned=${postDate.scanned} updated=${postDate.updated}`);
       return { items: postDate.updated };
     },
   },
@@ -230,7 +190,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // it folds in everything this run changed. Only-changed writes; a no-op once settled.
     name: 'trending',
     when: heavyOnly,
-    run: async ctx => {
+    run: async (ctx) => {
       const trending = await refreshTrendingScores({ db: ctx.db });
       console.log(`[gov-trending] scanned=${trending.scanned} updated=${trending.updated}`);
       return { items: trending.updated };
@@ -242,7 +202,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // only-changed write (see governance/paramsSync.ts for the details).
     name: 'params',
     when: heavyOnly,
-    run: async ctx => {
+    run: async (ctx) => {
       const r = await syncProtocolParams({ koios: ctx.koios, db: ctx.db, now: ctx.now });
       return { items: r.written };
     },
@@ -253,11 +213,9 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // materialized earlier in this same run (or by the vote/drep sync crons since
     // the last run) delivers in this run instead of waiting for the next one.
     name: 'delegation-fanout',
-    run: async ctx => {
+    run: async (ctx) => {
       const r = await runFanout(ctx.db, Math.floor(Date.now() / 1000));
-      console.log(
-        `[delegation-fanout] jobs=${r.jobs} delivered=${r.delivered} completed=${r.completed}`,
-      );
+      console.log(`[delegation-fanout] jobs=${r.jobs} delivered=${r.delivered} completed=${r.completed}`);
       return { items: r.delivered };
     },
   },
@@ -268,7 +226,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // run is already counted.
     // Fails soft (all-zero, one warning) when the VAPID secret pair is not yet set.
     name: 'webpush',
-    run: async ctx => {
+    run: async (ctx) => {
       const r = await dispatchWebPush(ctx.db, ctx.vapid, { send: sendWebPush, now: Date.now() });
       console.log(`[webpush-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
       return { items: r.sent };
@@ -278,10 +236,8 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // Same bundles as the webpush phase, delivered as Telegram bot messages.
     // Fails soft (all-zero, one warning) until the bot token secret is set.
     name: 'telegram',
-    run: async ctx => {
-      const cfg = ctx.telegramBotToken
-        ? { botToken: ctx.telegramBotToken, origin: ctx.cfg.siteOrigin }
-        : null;
+    run: async (ctx) => {
+      const cfg = ctx.telegramBotToken ? { botToken: ctx.telegramBotToken, origin: ctx.cfg.siteOrigin } : null;
       const r = await dispatchTelegram(ctx.db, cfg, { send: sendTelegramMessage, now: Date.now() });
       console.log(`[telegram-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
       return { items: r.sent };
@@ -296,12 +252,10 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // refresh gains nothing from the 5-minute cadence and it is a Koios call.
     name: 'delegation-refresh',
     when: heavyOnly,
-    run: async ctx => {
+    run: async (ctx) => {
       const nowSec = Math.floor(Date.now() / 1000);
       const res = await refreshBulk(ctx.db, ctx.koios, nowSec);
-      console.log(
-        `[delegation-refresh] attempted=${res.attempted} resolved=${res.resolved} changed=${res.changed} failed=${res.failed}`,
-      );
+      console.log(`[delegation-refresh] attempted=${res.attempted} resolved=${res.resolved} changed=${res.changed} failed=${res.failed}`);
       return { items: res.resolved, failed: res.failed };
     },
   },
@@ -310,7 +264,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // its retention window has passed. Runs before the cip100 phase, but the
     // order is not load-bearing: the two phases operate on disjoint row sets.
     name: 'post-erasure',
-    run: async ctx => {
+    run: async (ctx) => {
       const r = await runPostErasureSweep(ctx.db, { now: ctx.now, limit: 200 });
       // Logged only when there is something to say, but `remaining` and `failed`
       // are always part of it: a backlog that is not draining has to be visible
@@ -327,7 +281,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // CIP-100 documents: a bounded reconcile batch. Cheap enough for every tick,
     // and running it often keeps the citable state close to the live state.
     name: 'cip100',
-    run: async ctx => {
+    run: async (ctx) => {
       const r = await runCip100Sync(ctx.db, {
         origin: originForNetwork(ctx.cfg.network),
         network: ctx.cfg.network,

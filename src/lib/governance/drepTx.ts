@@ -3,27 +3,14 @@
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
 import {
-  Address,
-  Anchor,
-  Client,
-  Credential,
-  DRep,
-  GovernanceAction,
-  KeyHash,
-  mainnet,
-  preprod,
-  ScriptHash,
-  Transaction,
-  TransactionHash,
-  Url,
-  UTxO,
-  VotingProcedures,
+  Address, Anchor, Client, Credential, DRep, GovernanceAction, KeyHash, ScriptHash,
+  Transaction, TransactionHash, Url, UTxO, VotingProcedures, mainnet, preprod,
 } from '@evolution-sdk/evolution';
 import { METADATA_LABEL, type Metadatum } from 'cip-179';
 import { toTxMetadatum } from 'cip-179/evolution';
-import { DREPTALK_CIP20_LABEL, dreptalkCip20Metadatum } from '../cardano/tx.js';
-import type { CardanoNetwork } from '../config/network.js';
+import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
+import type { CardanoNetwork } from '../config/network.js';
 
 // WalletApi is not re-exported from the barrel. We define a structurally compatible
 // interface (a strict superset of what we actually call) so callers can pass the
@@ -34,10 +21,7 @@ export interface WalletApi {
   getRewardAddresses(): Promise<ReadonlyArray<string>>;
   getUtxos(): Promise<ReadonlyArray<string>>;
   signTx(txCborHex: string, partialSign: boolean): Promise<string>;
-  signData(
-    addressHex: string,
-    payload: string | Uint8Array,
-  ): Promise<{ payload: string | Uint8Array; signature: string }>;
+  signData(addressHex: string, payload: string | Uint8Array): Promise<{ payload: string | Uint8Array; signature: string }>;
   submitTx(txCborHex: string): Promise<string>;
 }
 
@@ -136,7 +120,7 @@ async function collectWalletUtxos(
   const addresses = used.length > 0 ? used : await walletApi.getUnusedAddresses();
 
   const perAddress = await Promise.all(
-    addresses.map(addressHex => reader.getUtxos(Address.fromHex(addressHex))),
+    addresses.map((addressHex) => reader.getUtxos(Address.fromHex(addressHex))),
   );
 
   // Dedupe by output reference: an address list is normally disjoint, but guard
@@ -258,10 +242,7 @@ export async function registerDRep(opts: RegisterDRepOpts): Promise<{ txHash: st
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
   // reg_drep locks the DRep deposit, so the inputs must cover deposit + fee.
-  const inputs = pickInputsToCover(
-    availableUtxos,
-    DREP_DEPOSIT_LOVELACE + FUNDING_HEADROOM_LOVELACE,
-  );
+  const inputs = pickInputsToCover(availableUtxos, DREP_DEPOSIT_LOVELACE + FUNDING_HEADROOM_LOVELACE);
 
   const built = await queueRegisterDrepOps(client.newTx(), {
     drepCredential,
@@ -353,7 +334,7 @@ export function stakeCredentialFromRewardAddress(rewardAddressHex: string): {
   if (bytes.length !== 29) {
     throw new Error('Unexpected reward address length; expected a 29-byte stake address.');
   }
-  const isScript = bytes[0] >> 4 === 0b1111;
+  const isScript = (bytes[0] >> 4) === 0b1111;
   const hash = bytes.slice(1, 29);
   return {
     stakeCredential: isScript ? Credential.makeScriptHash(hash) : Credential.makeKeyHash(hash),
@@ -398,11 +379,7 @@ export function buildGovActionId(id: string): GovernanceAction.GovActionId {
 
 /** Maps our vote string to the SDK Vote value. */
 function voteValue(vote: 'yes' | 'no' | 'abstain') {
-  return vote === 'yes'
-    ? VotingProcedures.yes()
-    : vote === 'no'
-      ? VotingProcedures.no()
-      : VotingProcedures.abstain();
+  return vote === 'yes' ? VotingProcedures.yes() : vote === 'no' ? VotingProcedures.no() : VotingProcedures.abstain();
 }
 
 /**
@@ -478,7 +455,7 @@ export async function castDRepVotes(opts: CastDRepVotesOpts): Promise<{ txHash: 
     throw new Error('At least one vote is required.');
   }
   const seen = new Set<string>();
-  const votes = opts.votes.map(v => {
+  const votes = opts.votes.map((v) => {
     const key = v.govActionId.trim().toLowerCase();
     if (seen.has(key)) {
       throw new Error(`Duplicate governance action in batch: ${v.govActionId}`);
@@ -657,18 +634,11 @@ export interface DelegateVotesOpts {
  * needs a redeemer rather than a vkey signer and is out of scope here.
  */
 export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ txHash: string }> {
-  const { stakeCredential, stakeKeyHash, isScript } = stakeCredentialFromRewardAddress(
-    opts.rewardAddressHex,
-  );
+  const { stakeCredential, stakeKeyHash, isScript } = stakeCredentialFromRewardAddress(opts.rewardAddressHex);
   if (isScript) {
-    throw new Error(
-      'This wallet uses a script-controlled stake credential, which is not supported for delegation.',
-    );
+    throw new Error('This wallet uses a script-controlled stake credential, which is not supported for delegation.');
   }
-  const drep = buildDrepTarget({
-    credentialHex: opts.drepCredentialHex,
-    isScript: opts.drepIsScript,
-  });
+  const drep = buildDrepTarget({ credentialHex: opts.drepCredentialHex, isScript: opts.drepIsScript });
 
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);

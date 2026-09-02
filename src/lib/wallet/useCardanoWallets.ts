@@ -1,6 +1,6 @@
 // Shared Cardano wallet enumeration logic (CIP-30 + CIP-95 detection).
 // Pure function + React hook so both WalletLogin and DRepService can reuse.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 
 // CIP-30 wallet object shape with optional CIP-95 extension marker.
@@ -20,7 +20,9 @@ export interface CardanoWalletInfo {
 
 // Internal type guard: a raw wallet entry must have a string name and an
 // enable function to be considered valid CIP-30.
-function isValidWalletEntry(v: unknown): v is CardanoWalletInfo['raw'] {
+function isValidWalletEntry(
+  v: unknown,
+): v is CardanoWalletInfo['raw'] {
   if (!v || typeof v !== 'object') return false;
   const obj = v as Record<string, unknown>;
   return typeof obj.enable === 'function' && typeof obj.name === 'string';
@@ -45,7 +47,7 @@ export function listCardanoWallets(cardano: unknown): CardanoWalletInfo[] {
         name: raw.name,
         icon: raw.icon ?? '',
         supportsCip95: Array.isArray(raw.supportedExtensions)
-          ? raw.supportedExtensions.some(e => e.cip === 95)
+          ? raw.supportedExtensions.some((e) => e.cip === 95)
           : false,
         raw,
       };
@@ -108,11 +110,10 @@ export function chooseSelectedWallet(
   currentIsUserPick: boolean,
   preferCip95 = false,
 ): string {
-  if (currentIsUserPick && current && found.some(w => w.key === current)) return current;
+  if (currentIsUserPick && current && found.some((w) => w.key === current)) return current;
 
-  const pool =
-    preferCip95 && found.some(w => w.supportsCip95) ? found.filter(w => w.supportsCip95) : found;
-  const inPool = (key: string) => pool.some(w => w.key === key);
+  const pool = preferCip95 && found.some((w) => w.supportsCip95) ? found.filter((w) => w.supportsCip95) : found;
+  const inPool = (key: string) => pool.some((w) => w.key === key);
 
   if (remembered && inPool(remembered)) return remembered;
   if (current && inPool(current)) return current;
@@ -165,9 +166,7 @@ export function useCardanoWallets(opts?: { preferCip95?: boolean }): {
       setWallets(found);
       // Keep a valid selection: the user's pick, else the remembered wallet,
       // else the first one found.
-      setSelected(cur =>
-        chooseSelectedWallet(cur, remembered, found, userPickedRef.current, preferCip95),
-      );
+      setSelected((cur) => chooseSelectedWallet(cur, remembered, found, userPickedRef.current, preferCip95));
       // The question "is there a wallet here" is answered as soon as one shows
       // up; later scans only keep the list current.
       if (found.length > 0) setScanning(false);
