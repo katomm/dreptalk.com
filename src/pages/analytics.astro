@@ -10,7 +10,7 @@ import DrepConcentration from '@/components/DrepConcentration.tsx';
 import EpochSeriesChart from '@/components/EpochSeriesChart.astro';
 import HeadingAnchor from '@/components/HeadingAnchor.astro';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
-import { cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
+import { cacheControlForSynced, formatAda, formatAdaCompact, truncateId } from '@/lib/forum/view.js';
 import { listEpochStats } from '@/lib/db/governanceEpochStats.js';
 import { getDefaultDelegationCurrent } from '@/lib/db/defaultDelegation.js';
 import { getDrepActivityBreakdown } from '@/lib/db/drepActivityBreakdown.js';
@@ -31,12 +31,12 @@ import {
   type WindowThirds,
 } from '@/lib/db/recordDiagnostics.js';
 import { lineagePredecessorTxIds } from '@/lib/governance/onchain.js';
-import { readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
+import { fmtPct, readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
-import { buildVitals, commonSeriesStart, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from '@/lib/analytics/hubView.js';
+import { buildVitals, commonSeriesStart, contiguousPrefix, defaultOptionsComparison, defaultsShareSeries, metricSeries, netChange, rowBeforeEpoch, votedShareSeries } from '@/lib/analytics/hubView.js';
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
@@ -108,6 +108,20 @@ const recentlyVotingSeries = metricSeries(
 // The caption states the first epoch actually drawn, not the contract start,
 // so it cannot claim data the chart does not show.
 const recentlyVotingSince = recentlyVotingSeries[0]?.epoch ?? null;
+// The silent counterpart on the same window, read against each epoch's own
+// power holders. The column is filled in oldest-first after the fact, so the
+// series simply starts at the first filled row.
+const silentSeries = metricSeries(
+  voteChartStats,
+  'silentPoweredDrepCount',
+  seriesStartFromRows(voteChartStats, 'silentPoweredDrepCount'),
+);
+const silentSince = silentSeries[0]?.epoch ?? null;
+const votedShare = votedShareSeries(voteChartStats);
+const votedShareSince = votedShare[0]?.epoch ?? null;
+// Default options as a share of everything delegated, per epoch.
+const defaultsShare = defaultsShareSeries(chartStats);
+const defaultsShareSince = defaultsShare[0]?.epoch ?? null;
 
 // Ten charts each captioned "data since epoch N" is the same number ten
 // times. The shared start is stated once in the page footnote, and only a
@@ -119,6 +133,9 @@ const commonSince = commonSeriesStart([
   starts.poweredDrepCount,
   starts.delegatorTotal,
   recentlyVotingSince,
+  silentSince,
+  votedShareSince,
+  defaultsShareSince,
   starts.gini,
   starts.top10SharePct,
   starts.minCoalition50,
@@ -244,6 +261,7 @@ const timing = buildVotingTiming({
 });
 
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
+const inactiveLabel = (retired: boolean): string => (retired ? 'retired' : 'inactive');
 // Medians can end in .5 with an even action count, render as-is.
 const fmtCount = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
@@ -413,6 +431,11 @@ const activityBars = activity
       {defaultsComparison && (
         <p class="hub-defaults__compare">Default options hold {defaultsComparison.defaultsLabel}, compared with {defaultsComparison.reprLabel} delegated to representative DReps.</p>
       )}
+      {defaultsShare.length > 1 && (
+        <div class="hub-defaults__share">
+          <EpochSeriesChart title="Share of all delegated power on the default options" points={defaultsShare} format={fmtPct} sinceEpoch={sinceCaption(defaultsShareSince)} note="The two options together, as a percentage of everything delegated to them and to representative DReps." />
+        </div>
+      )}
       <p class="hub-defaults__note">Changes are net movement per epoch. Arrivals and departures inside an epoch are not individually visible on chain aggregates, so this page never claims inflow or outflow.</p>
     </section>
 
@@ -423,7 +446,9 @@ const activityBars = activity
           <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={sinceCaption(starts.totalDrepPower)} />
           <EpochSeriesChart title="DReps holding delegated power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={sinceCaption(starts.poweredDrepCount)} />
           <EpochSeriesChart title="Delegators" points={metricSeries(chartStats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={sinceCaption(starts.delegatorTotal)} />
-          <EpochSeriesChart title="DReps voting in the last 12 epochs" points={recentlyVotingSeries} sinceEpoch={sinceCaption(recentlyVotingSince)} note="Counted per epoch over the twelve epochs up to it. The running epoch appears once it has ended." />
+          <EpochSeriesChart title="DReps voting in the last 12 epochs" points={recentlyVotingSeries} sinceEpoch={sinceCaption(recentlyVotingSince)} note="Counted per epoch over the twelve epochs up to it, roughly two months, so a quiet stretch between actions does not read as inactivity. The running epoch appears once it has ended." />
+          <EpochSeriesChart title="DReps holding power but silent in the last 12 epochs" points={silentSeries} sinceEpoch={sinceCaption(silentSince)} note="Same window, read against the DReps holding delegated power in each epoch. Not simply the powered count minus the voting count: a DRep that voted and has since retired still counts as voting but holds no power, so it is never silent." />
+          <EpochSeriesChart title="Share of power-holding DReps that voted" points={votedShare} format={fmtPct} sinceEpoch={sinceCaption(votedShareSince)} note="Voted in the last 12 epochs, as a percentage of the DReps holding delegated power in the epoch." />
         </div>
       </section>
     )}
@@ -484,7 +509,18 @@ const activityBars = activity
             {bar.sub && <p class="hub-activity__sub">{bar.sub}</p>}
           </div>
         ))}
-        <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)} across {activity.inactiveCount.toLocaleString('en-US')} DReps.</p>
+        <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)} across {activity.inactiveCount.toLocaleString('en-US')} DReps.{activity.top10InactiveSharePct != null && ` The ten largest hold ${fmtShare(activity.top10InactiveSharePct)} of it.`}</p>
+        {activity.topInactive.length > 0 && (
+          <ul class="hub-rows hub-activity__top">
+            {activity.topInactive.map((d) => (
+              <li class="hub-row hub-row--inline">
+                <span class="hub-row__title"><a href={d.href}>{d.name ?? truncateId(d.drepId, 14)}</a></span>
+                <span class="hub-activity__top-state">{inactiveLabel(d.retired)}</span>
+                <span class="hub-row__meta">{formatAda(d.votingPower)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         <p class="hub-activity__note">Definitions: active registrations follow the on-chain registration state, voted counts any on-chain vote including later-changed ones, counts are live as of the latest sync.</p>
       </section>
     )}
@@ -543,6 +579,20 @@ const activityBars = activity
               <p class="hub-tile__sub">power-weighted, over {spo.turnoutBasis} actions</p>
             </div>
           )}
+          {spo.medianEngagedTurnoutPct != null && (
+            <div class="hub-tile">
+              <p class="hub-tile__value">{fmtShare(spo.medianEngagedTurnoutPct)}</p>
+              <p class="hub-tile__label">Among pools without a default stance</p>
+              <p class="hub-tile__sub">the same votes over the pools that could still take a position, {spo.engagedBasis} actions</p>
+            </div>
+          )}
+          {spo.defaultStance && (
+            <div class="hub-tile">
+              <p class="hub-tile__value">{fmtShare(spo.defaultStance.pct)}</p>
+              <p class="hub-tile__label">Pool stake on a default stance</p>
+              <p class="hub-tile__sub">pre-set to always abstain or no confidence, as of the action decided in epoch {spo.defaultStance.epoch}</p>
+            </div>
+          )}
           {spo.divergenceBasis > 0 && (
             <div class="hub-tile">
               <p class="hub-tile__value">{spo.divergent} of {spo.divergenceBasis}</p>
@@ -570,8 +620,26 @@ const activityBars = activity
             </ul>
           </>
         )}
+        {spo.actions.length > 0 && (
+          <>
+            <h4 class="hub-spo__subtitle">Every action SPOs voted on</h4>
+            <ul class="hub-spo__rows">
+              {spo.actions.map((a) => {
+                const label = a.title ?? readableType(a.type);
+                return (
+                  <li class="hub-spo__row">
+                    <span class="hub-spo__row-title">{a.href ? <a href={a.href}>{label}</a> : label}</span>
+                    {a.title != null && <span class="hub-spo__row-type">{readableType(a.type)}</span>}
+                    <span class="hub-spo__row-epoch">Epoch {a.decidedEpoch}</span>
+                    <span class="hub-spo__row-turnout">{a.turnoutPct != null ? `${fmtShare(a.turnoutPct)} turnout` : 'turnout pending'}{a.engagedTurnoutPct != null && `, ${fmtShare(a.engagedTurnoutPct)} without default stances`}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
         <p class="hub-spo__footnote">{spo.medianTurnoutPct != null ? (
-          <>Turnout weighs each pool's stake against the pools that could vote, the always-abstain pools included and the No side as the ledger counts it.{spo.turnoutExcluded > 0 && ` ${spo.turnoutExcluded} actions without complete stake figures are left out.`}</>
+          <>Turnout weighs each pool's stake against the pools that could vote, the always-abstain pools included and the No side as the ledger counts it. A pool is on a default stance when its reward account delegates to always abstain or always no confidence, so its stake is counted without a vote of its own. The second reading leaves that stake out of the denominator.{spo.turnoutExcluded > 0 && ` ${spo.turnoutExcluded} actions without complete stake figures are left out.`}</>
         ) : (
           spo.turnoutExcluded > 0 && `No turnout figure yet, ${spo.turnoutExcluded} of ${spo.eligible} actions still lack complete stake figures.`
         )}</p>
@@ -1106,6 +1174,10 @@ const activityBars = activity
     margin: 1.25rem 0 0;
     color: var(--muted);
     font-size: 0.85rem;
+  }
+  .hub-defaults__share {
+    margin: 1.25rem 0 0;
+    max-width: 34rem;
   }
   .hub-defaults__note {
     margin: 0.5rem 0 0;
@@ -1658,7 +1730,8 @@ const activityBars = activity
   .hub-spo__row-title a:hover {
     text-decoration: underline;
   }
-  .hub-spo__row-type {
+  .hub-spo__row-type,
+  .hub-activity__top-state {
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -1668,9 +1741,20 @@ const activityBars = activity
     border: 1px solid var(--border);
     border-radius: 999px;
   }
-  .hub-spo__row-missed {
+  .hub-spo__row-missed,
+  .hub-spo__row-epoch,
+  .hub-spo__row-turnout {
     font-size: 0.8rem;
     color: var(--muted);
+  }
+  .hub-spo__row-turnout {
+    flex-basis: 100%;
+  }
+  @media (min-width: 720px) {
+    .hub-spo__row-turnout {
+      flex-basis: auto;
+      margin-left: auto;
+    }
   }
   .hub-spo__footnote {
     margin: 0;
@@ -1787,6 +1871,9 @@ const activityBars = activity
   .hub-activity__stake {
     margin: 0 0 0.4rem;
     font-size: 0.875rem;
+  }
+  .hub-activity__top {
+    margin: 0 0 0.75rem;
   }
   .hub-activity__note {
     margin: 0;

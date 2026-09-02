@@ -37,6 +37,10 @@ Changes between epochs are shown as net change. If a chart shows 2,000 more dele
 
 The "voted in the last 12 epochs" figure counts DReps with at least one on-chain vote in that window, including votes that were later changed. Twelve epochs is roughly two months, long enough that a quiet stretch between governance actions does not make the whole network look inactive.
 
+The silent counterpart uses the same window but a different base: it counts the DReps that held delegated power in an epoch and cast no vote in the twelve epochs up to it. The two charts are deliberately not each other's mirror. A DRep that voted and has since retired still counts as having voted in the window, but it holds no power and so is never silent. The share chart next to them reads the silent count against the power holders of the same epoch, so it is the cleaner participation rate of the two.
+
+The default options also get a share chart: the two predefined options together, as a percentage of everything delegated to them and to representative DReps. It is the per-epoch version of the comparison sentence under the two option cards.
+
 ## Voting concentration in practice
 
 The effective-representation panel and the Positions tab of a governance action also read how concentrated the cast votes were. These numbers describe exercised power, the voting power that actually voted, not the distribution of all delegated power. The half-count says how few of the largest voters together cast at least half of the voted power. The action page adds the largest voter's share, the combined top-5 share, and, where the action has an approval threshold, how many of the largest voters together held as much power as the threshold required in yes votes. That reading is arithmetic on cast votes, it does not claim those voters coordinated or voted the same way.
@@ -72,6 +76,8 @@ A committee vote against an action expresses that the member did not find it con
 ## SPO participation
 
 Stake pool operators vote alongside DReps and the Constitutional Committee, but only on a subset of governance actions: hard forks, motions of no confidence, committee changes and security-relevant parameter changes. The panel counts how many decided actions fall in that eligible set, then reports two figures over them. Median SPO turnout weighs each pool's stake against the stake of every pool that could vote, the pools permanently set to abstain included and the No side counted the way the ledger counts it, the same denominator the on-chain ratification check uses. The second figure counts how often the SPO verdict and the DRep verdict on the same action fell on opposite sides of their respective thresholds. The actions behind that count are listed under the tiles, each one naming the body whose tally stayed below its own threshold.
+
+A pool is on a default stance when its reward account delegates to always abstain or always no confidence: its stake counts in every SPO tally without a vote of its own, and by now a large part of all pool stake sits there. The panel therefore adds a second turnout reading that leaves that stake out of the denominator, the turnout among the pools that could still take a position, and a tile with the share of pool stake on a default stance as of the most recently decided eligible action. The eligible set is small and stays small, so every action in it is listed with both readings, newest decision first, which is where a surprising median can be traced to the actions behind it.
 
 Both figures only cover actions with a complete reading. An action whose stake tally is missing or unparseable is left out of the turnout median rather than folded in as a guess, and the panel states how many actions that affected.
 

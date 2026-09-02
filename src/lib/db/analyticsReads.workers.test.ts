@@ -103,8 +103,9 @@ describe('getDrepActivityBreakdown', () => {
   it('counts layers with specials excluded and sums inactive stake as BigInt', async () => {
     await seedDrep('drep1a', { voting_power: '600' });
     await seedDrep('drep1b', { voting_power: '0' });
-    await seedDrep('drep1gone', { active: 0, voting_power: '9007199254740993' }); // above 2^53
-    await seedDrep('drep1gone2', { active: 0, voting_power: '7' });
+    await seedDrep('drep1gone', { active: 0, status: 'deregistered', voting_power: '9007199254740993' }); // above 2^53
+    await seedDrep('drep1gone2', { active: 0, name: 'Lapsed', slug: 'lapsed', voting_power: '7' });
+    await seedDrep('drep1gone3', { active: 0, voting_power: '0' });
     await seedDrep('drep_always_abstain', { voting_power: '9000' });
     await env.DB.prepare(
       `INSERT INTO governance_actions (id, type, title, status, topic_id, created_at, last_synced_at)
@@ -120,11 +121,17 @@ describe('getDrepActivityBreakdown', () => {
     ).run();
 
     const b = await getDrepActivityBreakdown(env.DB);
-    expect(b.registered).toBe(4);
+    expect(b.registered).toBe(5);
     expect(b.active).toBe(2);
     expect(b.powered).toBe(1);
     expect(b.everVoted).toBe(2); // drep1a live vote + drep1gone2 superseded, special excluded
-    expect(b.inactiveCount).toBe(2);
+    expect(b.inactiveCount).toBe(3);
     expect(b.inactiveStake).toBe('9007199254741000'); // exact BigInt sum, not a float
+    // Largest first, the empty holder left out, retired read off the on-chain status.
+    expect(b.topInactive).toEqual([
+      { drepId: 'drep1gone', name: null, href: '/dreps/drep1gone/', votingPower: '9007199254740993', retired: true },
+      { drepId: 'drep1gone2', name: 'Lapsed', href: '/dreps/lapsed/', votingPower: '7', retired: false },
+    ]);
+    expect(b.top10InactiveSharePct).toBe(100);
   });
 });

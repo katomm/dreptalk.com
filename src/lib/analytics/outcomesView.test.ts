@@ -20,6 +20,7 @@ const row = (over: Partial<DecidedOutcomeRow> = {}): DecidedOutcomeRow => ({
   spoNoPower: 20,
   spoAbstainPower: 5,
   spoAlwaysAbstainPower: '10',
+  spoAlwaysNoConfidencePower: '0',
   spoNoSidePower: '30',
   ...over,
 });
@@ -34,7 +35,55 @@ describe('buildSpoSnapshot', () => {
       divergent: 0,
       divergenceBasis: 0,
       divergentActions: [],
+      actions: [],
+      medianEngagedTurnoutPct: null,
+      engagedBasis: 0,
+      defaultStance: null,
     });
+  });
+
+  it('lists every eligible action newest first with its turnout readings', () => {
+    // yes 100 + no 20 + abstain 5 = 125 voted. No side 30 folds in the 10 on
+    // always-no-confidence, always-abstain holds 45: every pool = 180, pools
+    // without a default stance = 100 + 20 + 5 = 125.
+    const v = buildSpoSnapshot([
+      row({ gaId: 'ga1', decidedEpoch: 605, spoAlwaysAbstainPower: '45', spoAlwaysNoConfidencePower: '10', spoNoSidePower: '30' }),
+      row({ gaId: 'ga2', decidedEpoch: 610, title: null, topicSlug: null, spoNoSidePower: null }),
+      row({ gaId: 'ga3', decidedEpoch: 600, thresholdsJson: thresholds({ spo: null }) }),
+    ]);
+    expect(v.actions.map((a) => a.gaId)).toEqual(['ga2', 'ga1']);
+    expect(v.actions[1]).toEqual({
+      gaId: 'ga1',
+      title: 'Action ga1',
+      href: '/t/action-ga1/',
+      type: 'ParameterChange',
+      status: 'enacted',
+      decidedEpoch: 605,
+      turnoutPct: 69.4444,
+      engagedTurnoutPct: 100,
+      defaultStancePct: 30.5555,
+    });
+    // An incomplete tally keeps its place in the list with empty readings.
+    expect(v.actions[0]).toMatchObject({ gaId: 'ga2', title: null, href: null, turnoutPct: null, engagedTurnoutPct: null, defaultStancePct: null });
+    expect(v.medianEngagedTurnoutPct).toBe(100);
+    expect(v.engagedBasis).toBe(1);
+    // The headline default-stance share comes from the newest action that has one.
+    expect(v.defaultStance).toEqual({ pct: 30.5555, epoch: 605 });
+  });
+
+  it('leaves the default-stance readings empty on a no-confidence action, where the bucket is not on the No side', () => {
+    const v = buildSpoSnapshot([row({ type: 'NoConfidence' })]);
+    expect(v.turnoutBasis).toBe(1);
+    expect(v.engagedBasis).toBe(0);
+    expect(v.defaultStance).toBeNull();
+  });
+
+  it('leaves the default-stance readings empty without the always-no-confidence bucket', () => {
+    const v = buildSpoSnapshot([row({ spoAlwaysNoConfidencePower: null })]);
+    expect(v.turnoutBasis).toBe(1);
+    expect(v.engagedBasis).toBe(0);
+    expect(v.actions[0].engagedTurnoutPct).toBeNull();
+    expect(v.defaultStance).toBeNull();
   });
 
   it('counts SPO eligibility from the frozen threshold snapshot', () => {

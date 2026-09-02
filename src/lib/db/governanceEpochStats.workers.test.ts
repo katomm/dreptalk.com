@@ -5,7 +5,7 @@ import {
   insertEpochStatsIfMissing,
   getStoredStatsEpochs,
   countDrepVotesInEpoch,
-  countRecentlyVotingDreps,
+  listRecentlyVotingDrepIds,
   countUnsweptActions,
   listIncompleteVoteDataEpochs,
   updateVoteDerivedStats,
@@ -21,6 +21,7 @@ function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
     totalDrepPower: '1000',
     poweredDrepCount: 3,
     recentlyVotingDrepCount: 2,
+    silentPoweredDrepCount: 1,
     abstainPower: '500',
     ancPower: '50',
     delegatorTotal: null,
@@ -63,7 +64,7 @@ describe('epoch stats persistence', () => {
     await upsertEpochStats(env.DB, row(540, { voteDataComplete: false }));
     await upsertEpochStats(env.DB, row(541, { voteDataComplete: true }));
     expect(await listIncompleteVoteDataEpochs(env.DB)).toEqual([540]);
-    await updateVoteDerivedStats(env.DB, 540, 42, 7, true);
+    await updateVoteDerivedStats(env.DB, 540, 42, 7, 4, true);
     expect(await listIncompleteVoteDataEpochs(env.DB)).toEqual([]);
     const stored = await env.DB.prepare(
       'SELECT votes_cast, recently_voting_drep_count FROM governance_epoch_stats WHERE epoch = 540',
@@ -94,8 +95,8 @@ describe('vote counting', () => {
     // prove the SQL guarantees includesSpecials: false instead of assuming it.
     expect(await countDrepVotesInEpoch(env.DB, 540, cfg)).toBe(3);
     expect(await countDrepVotesInEpoch(env.DB, 541, cfg)).toBe(0);
-    expect(await countRecentlyVotingDreps(env.DB, 540, cfg, 12)).toBe(2);
-    expect(await countRecentlyVotingDreps(env.DB, 560, cfg, 12)).toBe(0);
+    expect((await listRecentlyVotingDrepIds(env.DB, 540, cfg, 12)).size).toBe(2);
+    expect((await listRecentlyVotingDrepIds(env.DB, 560, cfg, 12)).size).toBe(0);
   });
 
   it('counts a DRep whose only vote in the window is superseded', async () => {
@@ -104,7 +105,7 @@ describe('vote counting', () => {
       `INSERT INTO drep_vote_history (ga_id, voter_id, vote, block_time, superseded_at, voter_role)
        VALUES ('ga2', 'drepOnlySuperseded', 'Yes', ?, ?, 'DRep')`,
     ).bind(t0 + 5, t0 + 10).run();
-    expect(await countRecentlyVotingDreps(env.DB, 540, cfg, 12)).toBe(1);
+    expect((await listRecentlyVotingDrepIds(env.DB, 540, cfg, 12)).size).toBe(1);
   });
 
   it('reports unswept actions', async () => {

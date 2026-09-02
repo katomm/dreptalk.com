@@ -10,14 +10,14 @@
 // Koios transiently (never into the history table), oldest first, budgeted
 // per run, and leaves the forward-only delegator columns NULL. See
 // epochStatsContract.ts for what every column means.
-import { computeEpochStatsRow, type EpochHistoryInput } from './epochStats.js';
+import { computeEpochStatsRow, countSilentPoweredDreps, type EpochHistoryInput } from './epochStats.js';
 import { RECENT_VOTING_WINDOW_EPOCHS } from './epochStatsContract.js';
 import {
   upsertEpochStats,
   insertEpochStatsIfMissing,
   getStoredStatsEpochs,
   countDrepVotesInEpoch,
-  countRecentlyVotingDreps,
+  listRecentlyVotingDrepIds,
   countUnsweptActions,
   listIncompleteVoteDataEpochs,
   updateVoteDerivedStats,
@@ -60,13 +60,17 @@ async function buildRow(
   treasuryLovelace: string | null,
   epochClosed: boolean,
 ) {
-  const voteDataComplete = epochClosed && (await countUnsweptActions(db)) === 0;
+  const [unswept, recentlyVotingDrepIds, votesCast] = await Promise.all([
+    countUnsweptActions(db),
+    listRecentlyVotingDrepIds(db, epoch, cfg, RECENT_VOTING_WINDOW_EPOCHS),
+    countDrepVotesInEpoch(db, epoch, cfg),
+  ]);
   return computeEpochStatsRow({
     epoch,
     history,
-    recentlyVotingDrepCount: await countRecentlyVotingDreps(db, epoch, cfg, RECENT_VOTING_WINDOW_EPOCHS),
-    votesCast: await countDrepVotesInEpoch(db, epoch, cfg),
-    voteDataComplete,
+    recentlyVotingDrepIds,
+    votesCast,
+    voteDataComplete: epochClosed && unswept === 0,
     treasuryLovelace,
   });
 }
@@ -93,7 +97,11 @@ export interface BackfillEpochStatsDeps {
   koios: EpochStatsKoios;
   cfg: NetworkConfig;
   currentEpoch: number;
-  /** Epochs fetched per run, keeps the drain bounded per cron invocation. */
+  /**
+   * Koios snapshot fetches per run, keeps the drain bounded per cron
+   * invocation. Shared by the repair pass (a row that predates the silent
+   * column and has left the stored history window) and the insert backfill.
+   */
   budget: number;
 }
 
@@ -102,24 +110,55 @@ export interface BackfillEpochStatsDeps {
 // the repair pass runs every backfill invocation. The cap only guards the
 // pathological case where the sweep stayed behind for a long stretch and
 // many epochs piled up incomplete, so one run cannot be made to walk an
-// unbounded backlog.
+// unbounded backlog. Rows stored before the silent-DRep column existed are
+// in the same list until that column is filled.
 const MAX_REPAIRS_PER_RUN = 24;
+
+/**
+ * Powered DReps of the epoch with no vote in the window, or null when no
+ * power snapshot is at hand to read the count against. The snapshot comes
+ * from the stored history window where the epoch is still in it, and from a
+ * transient Koios fetch otherwise, one fetch per epoch counted against the
+ * run's budget. The silent count is the only vote-derived column that needs
+ * the snapshot, so a missing one leaves the other repairs untouched.
+ */
+async function silentCount(
+  deps: BackfillEpochStatsDeps,
+  epoch: number,
+  stored: EpochHistoryInput[],
+  voters: ReadonlySet<string>,
+  fetchBudget: { left: number },
+): Promise<number | null> {
+  let history = stored;
+  if (history.length === 0 && fetchBudget.left > 0) {
+    fetchBudget.left -= 1;
+    history = (await fetchEpochPowerRows(deps.koios, epoch)).map((r) => ({ drepId: r.drepId, amount: r.amount }));
+  }
+  if (history.length === 0) return null;
+  return countSilentPoweredDreps(history, voters);
+}
 
 export async function backfillEpochStats(
   deps: BackfillEpochStatsDeps,
 ): Promise<{ inserted: number; repaired: number; remaining: number }> {
   // Repair pass first: rows whose vote-derived columns were computed while
-  // the epoch was still open or the sweep was pending get both columns
+  // the epoch was still open or the sweep was pending get the columns
   // recomputed together once the epoch has closed and nothing is unswept
-  // anymore. Pure local SQL. The current epoch is skipped, the live pass
-  // owns and recomputes it anyway.
+  // anymore. Local SQL, plus a Koios snapshot fetch only for a row that
+  // predates the silent-DRep column and has left the stored history window.
+  // The current epoch is skipped, the live pass owns and recomputes it anyway.
+  const fetchBudget = { left: deps.budget };
   let repaired = 0;
   if ((await countUnsweptActions(deps.db)) === 0) {
     const incomplete = (await listIncompleteVoteDataEpochs(deps.db)).filter((epoch) => epoch < deps.currentEpoch);
     for (const epoch of incomplete.slice(0, MAX_REPAIRS_PER_RUN)) {
-      const votes = await countDrepVotesInEpoch(deps.db, epoch, deps.cfg);
-      const recent = await countRecentlyVotingDreps(deps.db, epoch, deps.cfg, RECENT_VOTING_WINDOW_EPOCHS);
-      await updateVoteDerivedStats(deps.db, epoch, votes, recent, true);
+      const [votes, voters, stored] = await Promise.all([
+        countDrepVotesInEpoch(deps.db, epoch, deps.cfg),
+        listRecentlyVotingDrepIds(deps.db, epoch, deps.cfg, RECENT_VOTING_WINDOW_EPOCHS),
+        loadStoredEpochHistory(deps.db, epoch),
+      ]);
+      const silent = await silentCount(deps, epoch, stored, voters, fetchBudget);
+      await updateVoteDerivedStats(deps.db, epoch, votes, voters.size, silent, true);
       repaired++;
     }
   }
@@ -132,7 +171,7 @@ export async function backfillEpochStats(
   for (let e = floor; e < deps.currentEpoch; e++) if (!stored.has(e)) missing.push(e);
 
   let inserted = 0;
-  for (const epoch of missing.slice(0, deps.budget)) {
+  for (const epoch of missing.slice(0, fetchBudget.left)) {
     // Both fetches are required: a totals fetch that throws, or comes back
     // null (Koios served nothing for the epoch), leaves the epoch missing for
     // the next run instead of writing a write-once row with a NULL treasury

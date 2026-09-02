@@ -5,6 +5,8 @@
 // spoAlwaysAbstainPower and spoNoSidePower arrive as TEXT and can exceed
 // Number's safe-integer range. No I/O, deterministic, unit-tested.
 import type { DecidedOutcomeRow, LineageActionRow } from '../db/hubOutcomes.js';
+import { pct4 } from '../format/pct.js';
+import { ancIsNoSide } from '../governance/fullStakeView.js';
 import { lineagePredecessor } from '../governance/onchain.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 
@@ -23,6 +25,29 @@ export interface SpoSnapshot {
   divergenceBasis: number;
   /** The divergent actions themselves, one entry per row counted in divergent. */
   divergentActions: DivergentAction[];
+  /** Every eligible action with its own turnout readings, newest decision first. */
+  actions: SpoActionRow[];
+  /** Median turnout among pools without a default stance, over actions with that reading. */
+  medianEngagedTurnoutPct: number | null;
+  engagedBasis: number;
+  /** Share of the eligible pool stake on a default stance at the newest action with the reading. */
+  defaultStance: { pct: number; epoch: number } | null;
+}
+
+export interface SpoActionRow {
+  gaId: string;
+  /** Null when the action has no title, so the caller can name it by its readable type. */
+  title: string | null;
+  href: string | null;
+  type: string;
+  status: string;
+  decidedEpoch: number;
+  /** Voted stake over every pool that could vote, null without a complete tally. */
+  turnoutPct: number | null;
+  /** Voted stake over the pools without a default stance, null without a complete tally. */
+  engagedTurnoutPct: number | null;
+  /** Pool stake pre-set to always-abstain or always-no-confidence, over every pool that could vote. */
+  defaultStancePct: number | null;
 }
 
 export interface DivergentAction {
@@ -68,25 +93,30 @@ function median(values: number[]): number | null {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-/** Four-decimal percent of part out of total, BigInt-safe, 0 when total is 0 or negative. */
-function pct4(part: bigint, total: bigint): number {
-  if (total <= 0n) return 0;
-  return Number((part * 1_000_000n) / total) / 10_000;
-}
-
 /** Whether a body's tally met its threshold, null unless both are known. */
 function verdict(thresholdPct: number | null | undefined, yesPct: number | null): boolean | null {
   if (thresholdPct == null || yesPct == null) return null;
   return yesPct >= thresholdPct;
 }
 
+interface SpoTurnoutReading {
+  turnoutPct: number;
+  engagedTurnoutPct: number | null;
+  defaultStancePct: number | null;
+}
+
 /**
  * SPO turnout for one action: (yes + no + abstain) over (yes + noSide +
  * abstain + alwaysAbstain), the same ledger-counted "no side" the full-stake
  * bar uses elsewhere. Null unless all four stake fields are present and the
- * TEXT ones parse.
+ * TEXT ones parse. The two default-stance readings need the always-no-
+ * confidence bucket as well: the No side already folds it in (see migration
+ * 0088), so the engaged denominator takes it back out of the No side rather
+ * than subtracting it twice. They stay null when that bucket is missing, and
+ * for the one action type where the ledger counts the bucket as Yes instead
+ * (ancIsNoSide), where the No side does not hold it.
  */
-function spoTurnoutPct(row: DecidedOutcomeRow): number | null {
+function spoTurnout(row: DecidedOutcomeRow): SpoTurnoutReading | null {
   if (
     row.spoYesPower == null ||
     row.spoNoPower == null ||
@@ -98,9 +128,11 @@ function spoTurnoutPct(row: DecidedOutcomeRow): number | null {
   }
   let noSide: bigint;
   let alwaysAbstain: bigint;
+  let alwaysNoConfidence: bigint | null;
   try {
     noSide = BigInt(row.spoNoSidePower);
     alwaysAbstain = BigInt(row.spoAlwaysAbstainPower);
+    alwaysNoConfidence = row.spoAlwaysNoConfidencePower == null ? null : BigInt(row.spoAlwaysNoConfidencePower);
   } catch {
     return null;
   }
@@ -109,7 +141,18 @@ function spoTurnoutPct(row: DecidedOutcomeRow): number | null {
   const abstain = BigInt(row.spoAbstainPower);
   const numerator = yes + no + abstain;
   const denominator = yes + noSide + abstain + alwaysAbstain;
-  return pct4(numerator, denominator);
+  if (alwaysNoConfidence == null || !ancIsNoSide(row.type)) {
+    return { turnoutPct: pct4(numerator, denominator), engagedTurnoutPct: null, defaultStancePct: null };
+  }
+  // Clamped: a snapshot taken mid-update can report a No side smaller than
+  // the default bucket folded into it.
+  const noSideWithoutDefault = noSide > alwaysNoConfidence ? noSide - alwaysNoConfidence : 0n;
+  const engagedDenominator = yes + noSideWithoutDefault + abstain;
+  return {
+    turnoutPct: pct4(numerator, denominator),
+    engagedTurnoutPct: Math.min(100, pct4(numerator, engagedDenominator)),
+    defaultStancePct: pct4(alwaysAbstain + alwaysNoConfidence, denominator),
+  };
 }
 
 /**
@@ -124,17 +167,29 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
   let divergenceBasis = 0;
   const turnouts: number[] = [];
   const divergentActions: DivergentAction[] = [];
+  const actions: SpoActionRow[] = [];
 
   for (const row of rows) {
     const snapshot = readThresholdSnapshot(row.thresholdsJson);
     if (snapshot?.spo != null) {
       eligible += 1;
-      const turnout = spoTurnoutPct(row);
-      if (turnout == null) {
+      const reading = spoTurnout(row);
+      if (reading == null) {
         turnoutExcluded += 1;
       } else {
-        turnouts.push(turnout);
+        turnouts.push(reading.turnoutPct);
       }
+      actions.push({
+        gaId: row.gaId,
+        title: row.title,
+        href: row.topicSlug != null ? `/t/${row.topicSlug}/` : null,
+        type: row.type,
+        status: row.status,
+        decidedEpoch: row.decidedEpoch,
+        turnoutPct: reading?.turnoutPct ?? null,
+        engagedTurnoutPct: reading?.engagedTurnoutPct ?? null,
+        defaultStancePct: reading?.defaultStancePct ?? null,
+      });
     }
 
     // An enacted or ratified action proves both bodies met their threshold by the chain
@@ -164,6 +219,9 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
     }
   }
 
+  actions.sort((a, b) => b.decidedEpoch - a.decidedEpoch || a.gaId.localeCompare(b.gaId));
+  const engaged = actions.map((a) => a.engagedTurnoutPct).filter((v): v is number => v != null);
+  const newestWithStance = actions.find((a) => a.defaultStancePct != null);
   return {
     eligible,
     medianTurnoutPct: median(turnouts),
@@ -172,6 +230,13 @@ export function buildSpoSnapshot(rows: DecidedOutcomeRow[]): SpoSnapshot {
     divergent,
     divergenceBasis,
     divergentActions,
+    actions,
+    medianEngagedTurnoutPct: median(engaged),
+    engagedBasis: engaged.length,
+    defaultStance:
+      newestWithStance?.defaultStancePct != null
+        ? { pct: newestWithStance.defaultStancePct, epoch: newestWithStance.decidedEpoch }
+        : null,
   };
 }
 

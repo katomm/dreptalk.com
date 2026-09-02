@@ -52,6 +52,7 @@ export type EpochStatsMetricKey =
   | 'totalDrepPower'
   | 'poweredDrepCount'
   | 'recentlyVotingDrepCount'
+  | 'silentPoweredDrepCount'
   | 'abstainPower'
   | 'ancPower'
   | 'delegatorTotal'
@@ -88,6 +89,14 @@ export const EPOCH_STATS_METRICS: Record<EpochStatsMetricKey, EpochStatsMetric> 
     includesSpecials: false,
     source: 'local-votes',
     definition: 'DReps that voted at least once in the last 12 epochs, superseded votes included. Votes without a block time are not counted.',
+  },
+  silentPoweredDrepCount: {
+    column: 'silent_powered_drep_count',
+    reliability: 'flagged',
+    start: 'first-non-null',
+    includesSpecials: false,
+    source: 'local-votes',
+    definition: 'DReps holding delegated power in the epoch snapshot with no vote in the last 12 epochs, superseded votes included. NULL until the repair pass has read the epoch.',
   },
   abstainPower: {
     column: 'abstain_power',

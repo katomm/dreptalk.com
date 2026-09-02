@@ -11,6 +11,7 @@ function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
     totalDrepPower: '1000',
     poweredDrepCount: 10,
     recentlyVotingDrepCount: 5,
+    silentPoweredDrepCount: 4,
     abstainPower: '500',
     ancPower: '50',
     delegatorTotal: null,

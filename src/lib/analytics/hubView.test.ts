@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildGlanceTiles, buildVitals, commonSeriesStart, contiguousPrefix, contiguousTail, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
+import { buildGlanceTiles, buildVitals, commonSeriesStart, contiguousPrefix, contiguousTail, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch, defaultsShareSeries, votedShareSeries } from './hubView.js';
 import { RECENT_VOTING_WINDOW_EPOCHS, seriesStartFromRows } from './epochStatsContract.js';
 import { hubHref } from './hubSections.js';
 import type { EpochStatsRow } from './epochStats.js';
@@ -10,6 +10,7 @@ function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
     totalDrepPower: '2000000000000000',
     poweredDrepCount: 700,
     recentlyVotingDrepCount: 300,
+    silentPoweredDrepCount: 200,
     abstainPower: '9000',
     ancPower: '400',
     delegatorTotal: null,
@@ -242,5 +243,34 @@ describe('commonSeriesStart', () => {
 
   it('resolves a tie to the earlier epoch', () => {
     expect(commonSeriesStart([631, 631, 508, 508])).toBe(508);
+  });
+});
+
+describe('defaultsShareSeries', () => {
+  it('reads the default options as a share of all delegated power and skips rows missing an option', () => {
+    const rows = [
+      row(538, { totalDrepPower: '3000', abstainPower: '1000', ancPower: null }),
+      row(539, { totalDrepPower: '3000', abstainPower: '900', ancPower: '100' }),
+      row(540, { totalDrepPower: '1000', abstainPower: '2500', ancPower: '500' }),
+    ];
+    expect(defaultsShareSeries(rows)).toEqual([
+      { epoch: 539, value: 25 },
+      { epoch: 540, value: 75 },
+    ]);
+  });
+
+  it('skips a malformed stored amount instead of throwing', () => {
+    expect(defaultsShareSeries([row(538, { abstainPower: 'x', ancPower: '1' })])).toEqual([]);
+  });
+});
+
+describe('votedShareSeries', () => {
+  it('reads voted powered DReps against the same snapshot and skips rows without a silent count', () => {
+    const rows = [
+      row(538, { poweredDrepCount: 400, silentPoweredDrepCount: null }),
+      row(539, { poweredDrepCount: 400, silentPoweredDrepCount: 300 }),
+      row(540, { poweredDrepCount: 0, silentPoweredDrepCount: 0 }),
+    ];
+    expect(votedShareSeries(rows)).toEqual([{ epoch: 539, value: 25 }]);
   });
 });

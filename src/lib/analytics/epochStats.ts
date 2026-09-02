@@ -8,6 +8,7 @@
 // throws instead of silently double counting.
 import { computeConcentration } from '../dreps/concentration.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
+import { pct4 } from '../format/pct.js';
 
 export interface EpochHistoryInput {
   drepId: string;
@@ -21,7 +22,8 @@ export interface EpochStatsInput {
   epoch: number;
   /** Every history row of the epoch, specials included, this module splits them. */
   history: EpochHistoryInput[];
-  recentlyVotingDrepCount: number;
+  /** Distinct non-special DReps with a vote in the trailing window ending at this epoch. */
+  recentlyVotingDrepIds: ReadonlySet<string>;
   votesCast: number;
   voteDataComplete: boolean;
   treasuryLovelace: string | null;
@@ -32,6 +34,8 @@ export interface EpochStatsRow {
   totalDrepPower: string;
   poweredDrepCount: number;
   recentlyVotingDrepCount: number;
+  /** Powered DReps without a vote in the window, null on stored rows the repair pass has not read yet. */
+  silentPoweredDrepCount: number | null;
   abstainPower: string | null;
   ancPower: string | null;
   delegatorTotal: number | null;
@@ -72,10 +76,19 @@ export function computeGini(amounts: bigint[]): number {
   return Math.max(0, Number(scaled) / 1_000_000 - (n + 1) / n);
 }
 
-/** Four-decimal percent of part out of total, BigInt-safe, 0 when total is 0. */
-function pct4(part: bigint, total: bigint): number {
-  if (total <= 0n) return 0;
-  return Number((part * 1_000_000n) / total) / 10_000;
+/**
+ * DReps holding power in the snapshot with no vote in the recently-voting
+ * window. Read against the epoch's own power holders, so a voter that has
+ * since lost its power or retired counts as recently voting but never as
+ * silent. Specials are excluded, they never vote.
+ */
+export function countSilentPoweredDreps(history: EpochHistoryInput[], voters: ReadonlySet<string>): number {
+  let silent = 0;
+  for (const r of history) {
+    if ((SPECIAL_DREP_IDS as readonly string[]).includes(r.drepId) || voters.has(r.drepId)) continue;
+    if (BigInt(r.amount) > 0n) silent += 1;
+  }
+  return silent;
 }
 
 export function computeEpochStatsRow(input: EpochStatsInput): EpochStatsRow {
@@ -116,7 +129,8 @@ export function computeEpochStatsRow(input: EpochStatsInput): EpochStatsRow {
     epoch: input.epoch,
     totalDrepPower: totalPower.toString(),
     poweredDrepCount: clamped.filter((p) => p > 0n).length,
-    recentlyVotingDrepCount: input.recentlyVotingDrepCount,
+    recentlyVotingDrepCount: input.recentlyVotingDrepIds.size,
+    silentPoweredDrepCount: countSilentPoweredDreps(regular, input.recentlyVotingDrepIds),
     abstainPower: abstain?.amount ?? null,
     ancPower: anc?.amount ?? null,
     delegatorTotal: delegatorsComplete ? (counts as number[]).reduce((a, b) => a + b, 0) : null,
