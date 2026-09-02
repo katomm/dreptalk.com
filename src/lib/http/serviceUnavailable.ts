@@ -57,7 +57,7 @@ export function isDatabaseUnavailable(err: unknown): boolean {
 // The DRepTalk burst mark, inline so it inherits currentColor. Mirrors
 // src/components/LogoMark.astro; kept in sync by hand (this page must not import
 // Astro components, so it can render with no build/runtime dependencies).
-const LOGO_MARK = `<svg viewBox="0 0 72 72" fill="currentColor" aria-hidden="true" width="44" height="44">
+const LOGO_MARK = `<svg viewBox="0 0 72 72" fill="currentColor" aria-hidden="true" width="56" height="56">
   <g stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
     <line x1="36" y1="27.5" x2="36" y2="19.5"/><line x1="42" y1="30" x2="47.7" y2="24.3"/>
     <line x1="44.5" y1="36" x2="52.5" y2="36"/><line x1="42" y1="42" x2="47.7" y2="47.7"/>
@@ -136,7 +136,7 @@ main::before{
 .mark{color:var(--muted);margin-bottom:1.1rem}
 .mark svg{display:block}
 .brand{
-  font-family:var(--font);font-weight:600;font-size:1.15rem;letter-spacing:-.01em;
+  font-family:var(--font);font-weight:600;font-size:1.3rem;letter-spacing:-.01em;
   color:var(--muted);margin-bottom:2.25rem;
 }
 .brand .talk{
