@@ -31,7 +31,7 @@ DRep statistics on DRepTalk always separate two things. The representative layer
 
 ## Reading the trends
 
-Every trend chart states the epoch its data starts in. That start is not cosmetic: it marks the first epoch the metric can be measured reliably, and the chart refuses to show anything earlier rather than guessing.
+Almost every trend chart starts in the same epoch, and the analytics page states that epoch once, in the note at the bottom. A chart that starts later says so on the chart itself. That start is not cosmetic: it marks the first epoch the metric can be measured reliably, and a chart refuses to show anything earlier rather than guessing.
 
 Changes between epochs are shown as net change. If a chart shows 2,000 more delegators than the epoch before, that is the balance of everyone who arrived and everyone who left. On-chain epoch aggregates cannot tell those two groups apart, so the page never claims inflow or outflow.
 
@@ -85,7 +85,7 @@ The minimum coalition table applies the live approval thresholds to the current 
 
 ## Governance throughput
 
-The last chapter steps back from any single vote and looks at the pipeline of governance actions as a whole: how many are submitted, how they conclude, and how long a conclusion takes. An action's outcome is one of enacted, expired, closed, or dropped. Closed is the outcome reserved for info actions, which by design never enact anything, they conclude once the vote has run its course. Dropped covers actions withdrawn or superseded before a decision was reached. Actions still open have not reached any of these outcomes yet.
+The last chapter steps back from any single vote and looks at the pipeline of governance actions as a whole: how many are submitted, how they conclude, and how long a conclusion takes. An action's outcome is one of enacted, expired, closed, or dropped. Closed is the outcome reserved for info actions, which by design never enact anything, they conclude once the vote has run its course. Dropped covers actions removed from the proposal set before a decision was reached, which happens when another action building on the same predecessor is enacted first and leaves this one no path to enactment. Because a bare count of those would raise more questions than it answers, the page lists the dropped actions by name, each with the enacted action that took its place where the chain records one. Actions still open have not reached any of these outcomes yet.
 
 Timing is measured in epochs, not calendar days, because both submission and decision are recorded per epoch on chain. The overall median and the per-type breakdown only include actions with a known submission epoch, and a type needs at least three such actions before its own median is shown, otherwise the table reports its counts without one.
 

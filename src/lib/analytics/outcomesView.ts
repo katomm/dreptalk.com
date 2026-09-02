@@ -4,7 +4,7 @@
 // inputs always produce the same numbers. Stake sums use BigInt end to end,
 // spoAlwaysAbstainPower and spoNoSidePower arrive as TEXT and can exceed
 // Number's safe-integer range. No I/O, deterministic, unit-tested.
-import type { DecidedOutcomeRow } from '../db/hubOutcomes.js';
+import type { DecidedOutcomeRow, LineageActionRow } from '../db/hubOutcomes.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 
 export interface SpoSnapshot {
@@ -238,4 +238,88 @@ export function buildThroughput(
     decisionBasis: overallSpans.length,
     byType: byTypeRows,
   };
+}
+
+/**
+ * A dropped action as the hub lists it: what it was, when it left the
+ * proposal set, and, where the chain says so, the action that superseded it.
+ */
+export interface DroppedActionView {
+  gaId: string;
+  title: string | null;
+  href: string | null;
+  type: string;
+  droppedEpoch: number | null;
+  /** Epochs of voting the action still had left when it was removed, when both epochs are known. */
+  epochsLeft: number | null;
+  supersededBy: { title: string | null; href: string | null; type: string; epoch: number | null } | null;
+}
+
+/**
+ * The predecessor an action points at, as "txId#index", or null when it names
+ * none. A governance action of a lineage-tracked type (parameter change, hard
+ * fork, committee, constitution) carries its predecessor as the first payload
+ * element, and the ledger only ever enacts a child of the current tip. Types
+ * without a lineage (treasury withdrawals, info actions) put something else
+ * there, hence the shape check rather than a blind index read.
+ */
+export function lineagePredecessor(payload: string | null): string | null {
+  if (!payload) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  const contents = (parsed as { contents?: unknown })?.contents;
+  if (!Array.isArray(contents)) return null;
+  const first = contents[0];
+  if (first == null || typeof first !== 'object' || Array.isArray(first)) return null;
+  const { txId, govActionIx } = first as { txId?: unknown; govActionIx?: unknown };
+  if (typeof txId !== 'string' || typeof govActionIx !== 'number') return null;
+  return `${txId}#${govActionIx}`;
+}
+
+/**
+ * Pairs each dropped action with the enacted action that took its place in
+ * the lineage: same predecessor, decided no later than the drop. A dropped
+ * action with no such sibling (a type without a lineage, or a drop caused by
+ * something else) keeps a null, the page then states no reason rather than
+ * guessing one.
+ */
+export function buildDroppedActions(
+  dropped: LineageActionRow[],
+  successors: LineageActionRow[],
+): DroppedActionView[] {
+  const href = (row: LineageActionRow) => (row.topicSlug ? `/t/${row.topicSlug}/` : null);
+  return dropped.map((row) => {
+    const prev = lineagePredecessor(row.payload);
+    const match = prev == null
+      ? null
+      : successors
+          .filter(
+            (s) =>
+              s.gaId !== row.gaId &&
+              lineagePredecessor(s.payload) === prev &&
+              s.decidedEpoch != null &&
+              (row.decidedEpoch == null || s.decidedEpoch <= row.decidedEpoch),
+          )
+          // The latest one at or before the drop is the enactment that moved
+          // the lineage tip past this action.
+          .sort((a, b) => (b.decidedEpoch ?? 0) - (a.decidedEpoch ?? 0))[0] ?? null;
+    return {
+      gaId: row.gaId,
+      title: row.title,
+      href: href(row),
+      type: row.type,
+      droppedEpoch: row.decidedEpoch,
+      epochsLeft:
+        row.decidedEpoch != null && row.expiryEpoch != null && row.expiryEpoch > row.decidedEpoch
+          ? row.expiryEpoch - row.decidedEpoch
+          : null,
+      supersededBy: match
+        ? { title: match.title, href: href(match), type: match.type, epoch: match.decidedEpoch }
+        : null,
+    };
+  });
 }

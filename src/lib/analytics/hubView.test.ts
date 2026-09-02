@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildVitals, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
+import { buildVitals, commonSeriesStart, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from './hubView.js';
 import { RECENT_VOTING_WINDOW_EPOCHS, seriesStartFromRows } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';
 
@@ -178,5 +178,21 @@ describe('defaultOptionsComparison', () => {
     expect(defaultOptionsComparison('not-a-number', '150000000000000', '5134000000000000')).toBeNull();
     expect(defaultOptionsComparison('9776000000000000', 'not-a-number', '5134000000000000')).toBeNull();
     expect(defaultOptionsComparison('9776000000000000', '150000000000000', 'not-a-number')).toBeNull();
+  });
+});
+
+describe('commonSeriesStart', () => {
+  it('picks the start most charts share', () => {
+    expect(commonSeriesStart([508, 508, 508, 631, null])).toBe(508);
+  });
+
+  it('is null when no start repeats, so every chart keeps its own caption', () => {
+    expect(commonSeriesStart([508, 631, null])).toBeNull();
+    expect(commonSeriesStart([])).toBeNull();
+    expect(commonSeriesStart([null, null])).toBeNull();
+  });
+
+  it('resolves a tie to the earlier epoch', () => {
+    expect(commonSeriesStart([631, 631, 508, 508])).toBe(508);
   });
 });

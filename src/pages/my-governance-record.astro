@@ -344,6 +344,13 @@ function participationLine(stat: ParticipationStat): string {
     flex-direction: column;
     gap: 0.75rem;
   }
+  /* The page gutter plus the card's own padding took 48px off a 375px screen,
+     which the long action titles inside pay for. */
+  @media (max-width: 600px) {
+    .mgr-section {
+      padding: 1.1rem 1rem;
+    }
+  }
   .mgr-section__title {
     margin: 0;
     font-size: 1.05rem;
@@ -491,6 +498,27 @@ function participationLine(stat: ParticipationStat): string {
     color: var(--muted);
     font-size: 0.8125rem;
     font-variant-numeric: tabular-nums;
+  }
+  /* One row on a phone left the title about 8px wide: the type pill does not
+     shrink and the epoch column is fixed, so the flexible title column was
+     squeezed to nothing and its text broke one letter per line. The title
+     takes the full width there and the pill and epoch move onto a line of
+     their own underneath. */
+  @media (max-width: 600px) {
+    .mgr-row {
+      flex-wrap: wrap;
+      align-items: flex-start;
+      row-gap: 0.35rem;
+      padding: 0.75rem 0;
+    }
+    .mgr-row__title {
+      flex: 1 0 100%;
+      align-items: flex-start;
+    }
+    .mgr-row__epoch {
+      width: auto;
+      margin-left: auto;
+    }
   }
 
   /* Section 4: per-type table. */

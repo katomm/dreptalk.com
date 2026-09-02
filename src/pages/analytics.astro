@@ -23,7 +23,7 @@ import { listDecidedVoteChangeRows, countVoteChangeCoverage } from '@/lib/db/vot
 import { listDecidedActionRationaleCoverage, countRationaleAddedViaRevote } from '@/lib/db/rationaleCoverage.js';
 import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, type CcVoteRow } from '@/lib/db/committee.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
-import { listDecidedOutcomeRows, countSubmittedSince, countActionsByStatus } from '@/lib/db/hubOutcomes.js';
+import { listDecidedOutcomeRows, countSubmittedSince, countActionsByStatus, listDroppedActions, listLineageSuccessors } from '@/lib/db/hubOutcomes.js';
 import {
   getNetworkTimingByType,
   getNetworkTimingOverall,
@@ -36,12 +36,12 @@ import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
-import { buildVitals, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from '@/lib/analytics/hubView.js';
+import { buildVitals, commonSeriesStart, contiguousPrefix, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch } from '@/lib/analytics/hubView.js';
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
 import { buildCcPanel, selectExtremes } from '@/lib/analytics/ccPanelView.js';
-import { buildSpoSnapshot, buildThroughput } from '@/lib/analytics/outcomesView.js';
+import { buildDroppedActions, buildSpoSnapshot, buildThroughput, lineagePredecessor } from '@/lib/analytics/outcomesView.js';
 import { buildVotingTiming } from '@/lib/analytics/votingTimingView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
@@ -106,6 +106,24 @@ const recentlyVotingSeries = metricSeries(
 // The caption states the first epoch actually drawn, not the contract start,
 // so it cannot claim data the chart does not show.
 const recentlyVotingSince = recentlyVotingSeries[0]?.epoch ?? null;
+
+// Ten charts each captioned "data since epoch N" is the same number ten
+// times. The shared start is stated once in the page footnote, and only a
+// chart that starts later carries a caption of its own.
+const commonSince = commonSeriesStart([
+  starts.abstainPower,
+  starts.ancPower,
+  starts.totalDrepPower,
+  starts.poweredDrepCount,
+  starts.delegatorTotal,
+  recentlyVotingSince,
+  starts.gini,
+  starts.top10SharePct,
+  starts.minCoalition50,
+  starts.minCoalition67,
+]);
+const sinceCaption = (epoch: number | null): number | null =>
+  epoch != null && epoch !== commonSince ? epoch : null;
 
 const current = stats.length > 0 ? stats[stats.length - 1] : null;
 // The true previous epoch's row, never a positional neighbor: mid-backfill
@@ -200,6 +218,18 @@ const [
   : [[], 0, {}, [], [], null, null, [], emptyThirds];
 const spo = buildSpoSnapshot(outcomeRows);
 const throughput = buildThroughput(outcomeRows, statusCounts, submittedRecent);
+// A count of dropped actions with no way to see which ones raises more
+// questions than it answers, so the panel lists them by name. Dropped actions
+// are rare (usually none), and the successor lookup only runs when there is
+// one, so the common case costs a single indexed read.
+const droppedRows = db ? await listDroppedActions(db) : [];
+const successorRows = db && droppedRows.length > 0
+  ? await listLineageSuccessors(
+      db,
+      [...new Set(droppedRows.map((r) => lineagePredecessor(r.payload)?.split('#')[0]).filter((id): id is string => !!id))],
+    )
+  : [];
+const droppedActions = buildDroppedActions(droppedRows, successorRows);
 const showSubmittedRecent = params?.epoch != null;
 const timing = buildVotingTiming({
   drepByType: drepTimingByType,
@@ -342,7 +372,14 @@ const activityBars = activity
           <span class="drep-stat__icon"><DrepStatIcon name={card.icon} /></span>
           <span class="drep-stat__body">
             <span class="drep-stat__label">{card.label}</span>
-            <span class="drep-stat__value">{card.value}</span>
+            <span class="drep-stat__value">
+              {card.valueShort ? (
+                <>
+                  <span class="hub-vital__long">{card.value}</span>
+                  <span class="hub-vital__short">{card.valueShort}</span>
+                </>
+              ) : card.value}
+            </span>
             {card.trend && (
               <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
                 {card.trend.direction !== 'flat' && (
@@ -390,7 +427,7 @@ const activityBars = activity
                 <span class={`hub-defaults__chip hub-defaults__chip--${opt.chip.direction}`}>{opt.chip.label}</span>
               )}
             </p>
-            <EpochSeriesChart title="Voting power" ariaLabel={opt.ariaLabel} points={opt.series} format={fmtAdaCompact} sinceEpoch={opt.sinceEpoch} />
+            <EpochSeriesChart title="Voting power" ariaLabel={opt.ariaLabel} points={opt.series} format={fmtAdaCompact} sinceEpoch={sinceCaption(opt.sinceEpoch)} />
           </div>
         ))}
       </div>
@@ -404,10 +441,10 @@ const activityBars = activity
       <section class="hub-trends" aria-labelledby="hub-trends-title">
         <HeadingAnchor level={3} id="hub-trends-title">Per-epoch trends</HeadingAnchor>
         <div class="hub-trends__grid">
-          <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={starts.totalDrepPower} />
-          <EpochSeriesChart title="DReps holding delegated power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
-          <EpochSeriesChart title="Delegators" points={metricSeries(chartStats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={starts.delegatorTotal} />
-          <EpochSeriesChart title="DReps voting in the last 12 epochs" points={recentlyVotingSeries} sinceEpoch={recentlyVotingSince} note="Counted per epoch over the twelve epochs up to it. The running epoch appears once it has ended." />
+          <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={sinceCaption(starts.totalDrepPower)} />
+          <EpochSeriesChart title="DReps holding delegated power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={sinceCaption(starts.poweredDrepCount)} />
+          <EpochSeriesChart title="Delegators" points={metricSeries(chartStats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={sinceCaption(starts.delegatorTotal)} />
+          <EpochSeriesChart title="DReps voting in the last 12 epochs" points={recentlyVotingSeries} sinceEpoch={sinceCaption(recentlyVotingSince)} note="Counted per epoch over the twelve epochs up to it. The running epoch appears once it has ended." />
         </div>
       </section>
     )}
@@ -792,10 +829,10 @@ const activityBars = activity
       <section class="hub-conc-trends" aria-labelledby="hub-conc-trends-title">
         <HeadingAnchor level={3} id="hub-conc-trends-title">Concentration over time</HeadingAnchor>
         <div class="hub-conc-trends__grid">
-          <EpochSeriesChart title="Gini coefficient" points={metricSeries(chartStats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={starts.gini} note="Higher means voting power is more concentrated." />
-          <EpochSeriesChart title="Top-10 share" points={metricSeries(chartStats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={starts.top10SharePct} note="Share held by the ten largest DReps." />
-          <EpochSeriesChart title="DReps for 50% of delegated power" points={metricSeries(chartStats, 'minCoalition50', starts.minCoalition50)} sinceEpoch={starts.minCoalition50} note="Fewer DReps means more concentrated." />
-          <EpochSeriesChart title="DReps for 67% of delegated power" points={metricSeries(chartStats, 'minCoalition67', starts.minCoalition67)} sinceEpoch={starts.minCoalition67} note="Fewer DReps means more concentrated." />
+          <EpochSeriesChart title="Gini coefficient" points={metricSeries(chartStats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={sinceCaption(starts.gini)} note="Higher means voting power is more concentrated." />
+          <EpochSeriesChart title="Top-10 share" points={metricSeries(chartStats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={sinceCaption(starts.top10SharePct)} note="Share held by the ten largest DReps." />
+          <EpochSeriesChart title="DReps for 50% of delegated power" points={metricSeries(chartStats, 'minCoalition50', starts.minCoalition50)} sinceEpoch={sinceCaption(starts.minCoalition50)} note="Fewer DReps means more concentrated." />
+          <EpochSeriesChart title="DReps for 67% of delegated power" points={metricSeries(chartStats, 'minCoalition67', starts.minCoalition67)} sinceEpoch={sinceCaption(starts.minCoalition67)} note="Fewer DReps means more concentrated." />
         </div>
       </section>
     )}
@@ -867,9 +904,39 @@ const activityBars = activity
         </div>
       )}
 
-      <p class="hub-throughput__footnote">Closed is the outcome of info actions, which conclude without enactment. Timing is counted in epochs because decisions are recorded per epoch.{throughput.dropped > 0 && ` ${throughput.dropped} ${throughput.dropped === 1 ? 'action was' : 'actions were'} dropped before a decision.`}{throughput.active > 0 && ` ${throughput.active} ${throughput.active === 1 ? 'action is' : 'actions are'} still open.`}</p>
+      {droppedActions.length > 0 && (
+        <div class="hub-dropped">
+          <h4 class="hub-dropped__subtitle">{droppedActions.length === 1 ? 'Dropped without a decision' : `Dropped without a decision (${droppedActions.length})`}</h4>
+          <p class="hub-dropped__lede">A dropped action left the proposal set before its voting window ended, so it never reached a verdict of its own. <a href="/help/governance-statuses/">What the statuses mean</a></p>
+          <ul class="hub-dropped__rows">
+            {droppedActions.map((d) => (
+              <li class="hub-dropped__row">
+                <span class="hub-dropped__title">{d.href ? <a href={d.href}>{d.title ?? readableType(d.type)}</a> : (d.title ?? readableType(d.type))}</span>
+                <span class="hub-dropped__meta">
+                  <span class="hub-dropped__type">{readableType(d.type)}</span>
+                  {d.droppedEpoch != null && <span class="hub-dropped__epoch">Dropped in epoch {d.droppedEpoch}</span>}
+                  {d.epochsLeft != null && <span class="hub-dropped__early">{d.epochsLeft} {d.epochsLeft === 1 ? 'epoch' : 'epochs'} of voting left</span>}
+                </span>
+                <p class="hub-dropped__reason">
+                  {d.supersededBy ? (
+                    <>Superseded by {d.supersededBy.href ? <a href={d.supersededBy.href}>{d.supersededBy.title ?? readableType(d.supersededBy.type)}</a> : (d.supersededBy.title ?? readableType(d.supersededBy.type))}, enacted{d.supersededBy.epoch != null && ` in epoch ${d.supersededBy.epoch}`}. Both actions extended the same predecessor, so enacting one left the other no path to enactment.</>
+                  ) : (
+                    'The chain records no enacted action that took its place, so this page does not name a reason.'
+                  )}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p class="hub-throughput__footnote">Closed is the outcome of info actions, which conclude without enactment. Timing is counted in epochs because decisions are recorded per epoch.{throughput.dropped > droppedActions.length && ` ${throughput.dropped - droppedActions.length} further dropped ${throughput.dropped - droppedActions.length === 1 ? 'action is' : 'actions are'} not listed.`}{throughput.active > 0 && ` ${throughput.active} ${throughput.active === 1 ? 'action is' : 'actions are'} still open.`}</p>
     </div>
   </section>
+  )}
+
+  {commonSince != null && (
+    <p class="hub-pagenote">The trend charts on this page draw data from epoch {commonSince} on, the first epoch these metrics can be measured reliably. A chart whose series begins later states its own start. <a href="/help/governance-analytics/">Why charts start where they start</a></p>
   )}
 
   <p class="hub-back"><a href="/dreps/">Browse the DRep directory</a></p>
@@ -902,6 +969,20 @@ const activityBars = activity
   .drep-stat__value,
   .drep-stat__delta {
     overflow-wrap: anywhere;
+  }
+  /* A phone card is about 135px wide, too narrow for a full lovelace figure:
+     it breaks mid-number ("5,141," / "000,000 ₳"). The compact form says the
+     same thing and stays on one line, the full figure returns above 480px. */
+  .hub-vital__short {
+    display: none;
+  }
+  @media (max-width: 480px) {
+    .hub-vital__long {
+      display: none;
+    }
+    .hub-vital__short {
+      display: inline;
+    }
   }
   .hub-intro {
     color: var(--muted);
@@ -987,6 +1068,29 @@ const activityBars = activity
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface);
+  }
+  /* On a phone the tinted section's padding plus a card's own frame ate 70px
+     of a 375px screen, and the charts inside were drawn in what was left. The
+     tint alone marks the layer there, so the inner frames give way to a plain
+     divider and the content gets the width back. */
+  @media (max-width: 560px) {
+    .hub-defaults {
+      padding: 1.1rem 1rem;
+    }
+    .hub-defaults__grid {
+      gap: 0;
+    }
+    .hub-defaults__card {
+      padding: 1.1rem 0 0;
+      border: none;
+      border-top: 1px solid var(--border);
+      border-radius: 0;
+      background: none;
+    }
+    .hub-defaults__card:first-child {
+      padding-top: 0;
+      border-top: none;
+    }
   }
   .hub-defaults__name {
     margin: 0 0 0.4rem;
@@ -1342,12 +1446,20 @@ const activityBars = activity
   .hub-tile {
     /* Fixed width so the row wraps predictably: four across at 1440px, two
        around 720px, one on mobile, without a grid leaving empty tracks
-       when a panel has fewer tiles than the row's column count. */
+       when a panel has fewer tiles than the row's column count. Below its own
+       width the tile would keep 16rem and leave the rest of the row empty, so
+       narrow screens get the full width instead. */
     width: 16rem;
+    max-width: 100%;
     padding: 0.75rem 0.9rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface);
+  }
+  @media (max-width: 560px) {
+    .hub-tile {
+      width: 100%;
+    }
   }
   .hub-tile__value {
     margin: 0 0 0.15rem;
@@ -1739,6 +1851,66 @@ const activityBars = activity
     max-width: 60ch;
     margin: 0 0 1.25rem;
   }
+  /* Dropped actions, named. Rare enough that the list is short, important
+     enough that a bare count would read as a hidden outcome. */
+  .hub-dropped {
+    margin: 0 0 1.25rem;
+  }
+  .hub-dropped__subtitle {
+    margin: 0 0 0.35rem;
+    font-size: 0.95rem;
+  }
+  .hub-dropped__lede {
+    margin: 0 0 0.75rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    max-width: 60ch;
+  }
+  .hub-dropped__rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .hub-dropped__row {
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .hub-dropped__title {
+    display: block;
+    font-weight: 600;
+  }
+  .hub-dropped__title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .hub-dropped__title a:hover {
+    text-decoration: underline;
+  }
+  .hub-dropped__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    margin-top: 0.15rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .hub-dropped__reason {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .hub-dropped__reason a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .hub-dropped__reason a:hover {
+    text-decoration: underline;
+  }
   .hub-throughput__footnote {
     margin: 0;
     color: var(--muted);
@@ -1780,6 +1952,15 @@ const activityBars = activity
     text-align: right;
   }
 
+  /* The series-start note the charts no longer repeat, stated once. */
+  .hub-pagenote {
+    margin: 2rem 0 0;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.8rem;
+    max-width: 70ch;
+  }
   .hub-back {
     margin-top: 2rem;
     font-size: 0.9rem;
