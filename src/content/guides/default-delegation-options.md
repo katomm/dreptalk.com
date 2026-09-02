@@ -13,7 +13,7 @@ faqs:
     a: "Yes, at any time. Delegating to a DRep, or switching between the two default options, is a single on-chain action. See delegating your voting power for the steps."
 ---
 
-When you delegate voting power on Cardano, you do not have to pick a person. The protocol ships two predefined options, and a large amount of stake sits in them. The [analytics page](/analytics/) shows how much, and how it moves per epoch.
+When you delegate voting power on Cardano, you do not have to pick a person. The protocol ships two predefined options, and a large amount of stake sits in them. The [analytics page](/analytics/#hub-defaults-title) shows how much, and how it moves per epoch.
 
 ## Always abstain
 
@@ -29,7 +29,7 @@ It is a standing protest vote: choose it if you believe the current constitution
 
 ## Why they matter for the numbers
 
-Both options hold real voting weight, so they change what it takes for governance actions to pass. A treasury withdrawal, for example, needs a share of the participating stake, and stake parked in always abstain shrinks that pool while stake in always no confidence pushes against every action. The [analytics page](/analytics/) keeps both visible next to the DRep statistics, as their own layer, so you can see how much of Cardano's governance weight sits in defaults rather than with representatives.
+Both options hold real voting weight, so they change what it takes for governance actions to pass. A treasury withdrawal, for example, needs a share of the participating stake, and stake parked in always abstain shrinks that pool while stake in always no confidence pushes against every action. The [analytics page](/analytics/#hub-defaults-title) keeps both visible next to the DRep statistics, as their own layer, so you can see how much of Cardano's governance weight sits in defaults rather than with representatives.
 
 If you would rather have a person represent you, [find a DRep that matches your views](/match/) or read [delegating your voting power](/help/delegate-to-a-drep/).
 

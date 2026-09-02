@@ -33,6 +33,10 @@ import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { cacheControlFor, formatRelativeTime, ACTIVE_WINDOW_MS, CARD_FACE_LIMIT } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
+import DrepStatCard from '@/components/DrepStatCard.astro';
+import { listLatestEpochStats } from '@/lib/db/governanceEpochStats.js';
+import { getCirculationLovelace } from '@/lib/db/protocolParams.js';
+import { buildGlanceTiles, GLANCE_WINDOW_EPOCHS } from '@/lib/analytics/hubView.js';
 import CategorySidebar from '@/components/CategorySidebar.astro';
 import { countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
@@ -66,14 +70,18 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 // the denominator for the hero card's vote-composition bar; it depends only on db,
 // so it rides this Promise.all instead of adding a serial round-trip later.
 const cutoff = now - ACTIVE_WINDOW_MS;
-const [stats, feed, votedHero, activeFaces, activeDrepStake, activeCounts] = db
+const [stats, feed, votedHero, activeFaces, activeDrepStake, activeCounts, latestEpochStats, circulationLovelace] = db
   ? await Promise.all([
       getCategoryStats(db),
-      loadActivityFeed(db, { limit: 15, withParticipants: true }).then((r) => r.events),
+      loadActivityFeed(db, { limit: 10, withParticipants: true }).then((r) => r.events),
       getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
       loadActiveFaces(db, cutoff, CARD_FACE_LIMIT, now),
       getActiveDrepStake(db),
       countActiveByRole(db, cutoff),
+      // The at-a-glance strip needs a short trailing window of epochs (its
+      // sparklines and deltas), plus circulation for the share line.
+      listLatestEpochStats(db, GLANCE_WINDOW_EPOCHS),
+      getCirculationLovelace(db),
     ])
   : [
       new Map<string, { topicCount: number; lastPostAt: number | null }>(),
@@ -82,7 +90,15 @@ const [stats, feed, votedHero, activeFaces, activeDrepStake, activeCounts] = db
       [],
       { total: 0, asOf: null },
       { actors: 0, dreps: 0, spos: 0, delegators: 0 },
+      [],
+      null,
     ];
+
+// "Governance at a glance": the hub's headline figures with a jump into the
+// chapter that explains each. Empty (and the strip hidden) until the first
+// epoch snapshot exists, so a fresh deploy never shows zeros.
+const glanceEpoch = latestEpochStats.at(-1) ?? null;
+const glanceTiles = buildGlanceTiles(latestEpochStats, circulationLovelace);
 
 // Personalized hero for a logged-in DRep: center on an action they voted on and
 // pin their own avatar into the ring. Only DReps reach this, so the extra reads
@@ -495,6 +511,21 @@ const heroFeatures = [
   </section>
 
   <RecentlyActiveCard faces={activeFaces} counts={activeCounts} />
+
+  {glanceEpoch && (
+    <section class="glance reveal" style="--reveal-delay:120ms" aria-labelledby="glance-heading">
+      <div class="glance__head">
+        <div>
+          <h2 id="glance-heading" class="glance__title">Governance at a glance</h2>
+          <p class="glance__sub">A Cardano governance dashboard in four figures: where DRep governance stands as of epoch {glanceEpoch.epoch}, with the trend over the last epochs. Every figure opens the analytics chapter that explains it.</p>
+        </div>
+        <a class="glance__more" href="/analytics/">Explore the governance dashboard</a>
+      </div>
+      <div class="drep-stats glance__grid">
+        {glanceTiles.map((tile) => <DrepStatCard card={tile} href={tile.href} ring={tile.ring} series={tile.series} />)}
+      </div>
+    </section>
+  )}
 </Layout>
 
 <style>
@@ -1031,6 +1062,54 @@ const heroFeatures = [
     color: var(--muted);
     font-size: 0.85rem;
   }
+  /* ---- Governance at a glance ---------------------------------------- */
+  /* Reuses the shared .drep-stats tile tokens (link affordance included, see
+     a.drep-stat in global.css); only the section head is local. Closes the
+     page below the activity blocks: a summary, not a headline. */
+  .glance {
+    /* Same divider rhythm as the recently-active card above it. */
+    margin: 2.5rem 0 1rem;
+    border-top: 1px solid var(--border);
+    padding-top: 2rem;
+  }
+  .glance__head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 0 0.85rem;
+  }
+  .glance__title {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+  .glance__sub {
+    margin: 0.2rem 0 0;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .glance__more {
+    flex: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .glance__more:hover {
+    text-decoration: underline;
+  }
+  .glance__grid {
+    margin-bottom: 0;
+  }
+  @media (max-width: 640px) {
+    .glance__head {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.35rem;
+    }
+  }
+
   /* ---- Categories + discussions overview ------------------------------ */
   .categories {
     scroll-margin-top: 5rem;

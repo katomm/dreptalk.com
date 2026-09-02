@@ -6,7 +6,6 @@
 // which get their own default-options layer below instead.
 export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
-import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import DrepConcentration from '@/components/DrepConcentration.tsx';
 import EpochSeriesChart from '@/components/EpochSeriesChart.astro';
 import HeadingAnchor from '@/components/HeadingAnchor.astro';
@@ -45,6 +44,8 @@ import { buildSpoSnapshot, buildThroughput } from '@/lib/analytics/outcomesView.
 import { buildVotingTiming } from '@/lib/analytics/votingTimingView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
+import { HUB_SECTION_IDS as HUB } from '@/lib/analytics/hubSections.js';
+import DrepStatCard from '@/components/DrepStatCard.astro';
 
 // The site's governance actions list route, same href as the header nav's
 // "Governance Actions" link (src/lib/config/nav.ts).
@@ -337,24 +338,7 @@ const activityBars = activity
 
   {vitals.length > 0 && (
     <div class="drep-stats">
-      {vitals.map((card) => (
-        <div class={`drep-stat${card.alt ? ' drep-stat--alt' : ''}`}>
-          <span class="drep-stat__icon"><DrepStatIcon name={card.icon} /></span>
-          <span class="drep-stat__body">
-            <span class="drep-stat__label">{card.label}</span>
-            <span class="drep-stat__value">{card.value}</span>
-            {card.trend && (
-              <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
-                {card.trend.direction !== 'flat' && (
-                  <span class="drep-stat__arrow" aria-hidden="true">{card.trend.direction === 'up' ? '↑' : '↓'}</span>
-                )}
-                {card.trend.label}
-              </span>
-            )}
-            {card.sub && <span class="drep-stat__sub">{card.sub}</span>}
-          </span>
-        </div>
-      ))}
+      {vitals.map((card) => <DrepStatCard card={card} />)}
     </div>
   )}
   {current && <p class="hub-asof">As of epoch {current.epoch}</p>}
@@ -365,15 +349,15 @@ const activityBars = activity
     <p class="hub-empty">Historical epochs are still being backfilled. The trend charts show the epochs recorded so far and complete on their own over the next days, and panels that need the missing epochs appear as they fill in.</p>
   )}
 
-  <section class="hub-chapter" aria-labelledby="chapter-today-title">
+  <section class="hub-chapter" aria-labelledby={HUB.today}>
     <header class="hub-chapter__head">
       <p class="hub-chapter__eyebrow">Chapter</p>
-      <HeadingAnchor level={2} id="chapter-today-title" class="hub-chapter__title">Governance today</HeadingAnchor>
+      <HeadingAnchor level={2} id={HUB.today} class="hub-chapter__title">Governance today</HeadingAnchor>
       <p class="hub-chapter__intro">The current state of DRep governance, the two default options kept apart, and how the core figures moved epoch by epoch.</p>
     </header>
 
-    <section class="hub-defaults" aria-labelledby="hub-defaults-title">
-      <HeadingAnchor level={3} id="hub-defaults-title">The default options</HeadingAnchor>
+    <section class="hub-defaults" aria-labelledby={HUB.defaults}>
+      <HeadingAnchor level={3} id={HUB.defaults}>The default options</HeadingAnchor>
       <p class="hub-defaults__lede">Not everyone delegates to a person. These two predefined options hold real voting weight, and they are kept apart from every DRep statistic on this site. <a href="/help/default-delegation-options/">What they do</a></p>
       <div class="hub-defaults__grid">
         {defaultCards.map((opt) => (
@@ -401,8 +385,8 @@ const activityBars = activity
     </section>
 
     {hasBackbone && (
-      <section class="hub-trends" aria-labelledby="hub-trends-title">
-        <HeadingAnchor level={3} id="hub-trends-title">Per-epoch trends</HeadingAnchor>
+      <section class="hub-trends" aria-labelledby={HUB.trends}>
+        <HeadingAnchor level={3} id={HUB.trends}>Per-epoch trends</HeadingAnchor>
         <div class="hub-trends__grid">
           <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={starts.totalDrepPower} />
           <EpochSeriesChart title="DReps holding delegated power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={starts.poweredDrepCount} />
@@ -413,16 +397,16 @@ const activityBars = activity
     )}
   </section>
 
-  <section class="hub-chapter" aria-labelledby="chapter-representation-title">
+  <section class="hub-chapter" aria-labelledby={HUB.representation}>
     <header class="hub-chapter__head">
       <p class="hub-chapter__eyebrow">Chapter</p>
-      <HeadingAnchor level={2} id="chapter-representation-title" class="hub-chapter__title">Representation and participation</HeadingAnchor>
+      <HeadingAnchor level={2} id={HUB.representation} class="hub-chapter__title">Representation and participation</HeadingAnchor>
       <p class="hub-chapter__intro">How much of the delegated power actually shows up in votes, and who takes part.</p>
     </header>
 
     {effRep.rows.length > 0 && (
-      <section class="hub-effrep" aria-labelledby="hub-effrep-title">
-        <HeadingAnchor level={3} id="hub-effrep-title">Effective representation</HeadingAnchor>
+      <section class="hub-effrep" aria-labelledby={HUB.effrep}>
+        <HeadingAnchor level={3} id={HUB.effrep}>Effective representation</HeadingAnchor>
         <p class="hub-effrep__lede">Across the last {effRep.rows.length} decided actions, a median of {fmtShare(effRep.medianPowerSharePct)} of the delegated voting power was actually represented in the vote.{effRep.medianHalfCount != null && ` A median of ${fmtCount(effRep.medianHalfCount)} DReps was enough to cast half of the voted power.`}</p>
         <ul class="hub-effrep__rows">
           {effRep.rows.slice(0, 6).map((row) => (
@@ -450,8 +434,8 @@ const activityBars = activity
     )}
 
     {activity && (
-      <section class="hub-activity" aria-labelledby="hub-activity-title">
-        <HeadingAnchor level={3} id="hub-activity-title">DRep activity</HeadingAnchor>
+      <section class="hub-activity" aria-labelledby={HUB.activity}>
+        <HeadingAnchor level={3} id={HUB.activity}>DRep activity</HeadingAnchor>
         {activityBars.map((bar) => (
           <div class="hub-activity__group">
             <p class="hub-activity__title">{bar.title}</p>
@@ -474,8 +458,8 @@ const activityBars = activity
     )}
 
     {ccPanel.considered > 0 && (
-      <section class="hub-cc" aria-labelledby="hub-cc-title">
-        <HeadingAnchor level={3} id="hub-cc-title">Constitutional Committee</HeadingAnchor>
+      <section class="hub-cc" aria-labelledby={HUB.cc}>
+        <HeadingAnchor level={3} id={HUB.cc}>Constitutional Committee</HeadingAnchor>
         <p class="hub-cc__lede">Across {ccPanel.considered} decided actions the committee could vote on, a median of {fmtShare(ccPanel.medianTurnoutPct)} of its members cast a vote.{ccPanel.splitCount > 0 && ` ${ccPanel.splitCount} ${ccPanel.splitCount === 1 ? 'action' : 'actions'} saw a split committee.`}{ccPanel.verdictBasis > 0 && ` ${ccPanel.belowThreshold} of ${ccPanel.verdictBasis} finished below the committee's approval threshold.`}</p>
         {ccPanel.medianLatencyDays != null && (
           <p class="hub-cc__latency">Committee votes came a median of {fmtCount(ccPanel.medianLatencyDays)} days after an action was submitted.</p>
@@ -513,8 +497,8 @@ const activityBars = activity
     )}
 
     {spo.eligible > 0 && (
-      <section class="hub-spo" aria-labelledby="hub-spo-title">
-        <HeadingAnchor level={3} id="hub-spo-title">SPO participation</HeadingAnchor>
+      <section class="hub-spo" aria-labelledby={HUB.spo}>
+        <HeadingAnchor level={3} id={HUB.spo}>SPO participation</HeadingAnchor>
         <p class="hub-spo__lede">SPOs vote on {spo.eligible} of the decided actions (hard forks, motions of no confidence, committee changes and security-relevant parameter changes).</p>
         <div class="hub-tiles">
           {spo.medianTurnoutPct != null && (
@@ -560,16 +544,16 @@ const activityBars = activity
     )}
   </section>
 
-  <section class="hub-chapter" aria-labelledby="chapter-accountability-title">
+  <section class="hub-chapter" aria-labelledby={HUB.accountability}>
     <header class="hub-chapter__head">
       <p class="hub-chapter__eyebrow">Chapter</p>
-      <HeadingAnchor level={2} id="chapter-accountability-title" class="hub-chapter__title">Accountability and behavior</HeadingAnchor>
+      <HeadingAnchor level={2} id={HUB.accountability} class="hub-chapter__title">Accountability and behavior</HeadingAnchor>
       <p class="hub-chapter__intro">What DReps do beyond the vote itself: reconsidering positions and publishing rationales.</p>
     </header>
 
     {voteChanges.decidedSwept > 0 && voteChanges.changedCount + voteChanges.samePositionCount > 0 && (
-      <section class="hub-votechange" aria-labelledby="hub-votechange-title">
-        <HeadingAnchor level={3} id="hub-votechange-title">Changed votes</HeadingAnchor>
+      <section class="hub-votechange" aria-labelledby={HUB.votechange}>
+        <HeadingAnchor level={3} id={HUB.votechange}>Changed votes</HeadingAnchor>
         <p class="hub-votechange__lede">Across {voteChanges.decidedSwept} decided actions, {voteChanges.actionsWithChange} saw at least one DRep change their position. {voteChanges.changedCount} votes changed position in total, while {voteChanges.samePositionCount} re-votes kept the voter's position.</p>
         <div class="hub-cbar-group">
           {voteChanges.changedCount > 0 && (
@@ -621,8 +605,8 @@ const activityBars = activity
     )}
 
     {rationaleCoverage.countPct != null && (
-      <section class="hub-rationale" aria-labelledby="hub-rationale-title">
-        <HeadingAnchor level={3} id="hub-rationale-title">Vote rationales</HeadingAnchor>
+      <section class="hub-rationale" aria-labelledby={HUB.rationale}>
+        <HeadingAnchor level={3} id={HUB.rationale}>Vote rationales</HeadingAnchor>
         <div class="hub-tiles">
           <div class="hub-tile">
             <p class="hub-tile__value">{fmtShare(rationaleCoverage.countPct)}</p>
@@ -679,8 +663,8 @@ const activityBars = activity
     )}
 
     {timing.drepMedianDay != null && timing.drepTimed > 0 && (
-      <section class="hub-timing" aria-labelledby="hub-timing-title">
-        <HeadingAnchor level={3} id="hub-timing-title">Voting timing</HeadingAnchor>
+      <section class="hub-timing" aria-labelledby={HUB.timing}>
+        <HeadingAnchor level={3} id={HUB.timing}>Voting timing</HeadingAnchor>
         <p class="hub-timing__lede">Every vote counts once here, whatever voting power stands behind it. Timing describes when votes arrive, not how carefully they were cast.</p>
         <div class="hub-tiles">
           <div class="hub-tile">
@@ -751,10 +735,10 @@ const activityBars = activity
     )}
   </section>
 
-  <section class="hub-chapter" aria-labelledby="chapter-decentralization-title">
+  <section class="hub-chapter" aria-labelledby={HUB.decentralization}>
     <header class="hub-chapter__head">
       <p class="hub-chapter__eyebrow">Chapter</p>
-      <HeadingAnchor level={2} id="chapter-decentralization-title" class="hub-chapter__title">Decentralization</HeadingAnchor>
+      <HeadingAnchor level={2} id={HUB.decentralization} class="hub-chapter__title">Decentralization</HeadingAnchor>
       <p class="hub-chapter__intro">How concentrated delegated voting power is, today and over time.</p>
     </header>
 
@@ -772,8 +756,8 @@ const activityBars = activity
     )}
 
     {coalitionRows.length > 0 && (
-      <section class="hub-coalition" aria-labelledby="hub-coalition-title">
-        <HeadingAnchor level={3} id="hub-coalition-title">Minimum coalition by threshold</HeadingAnchor>
+      <section class="hub-coalition" aria-labelledby={HUB.coalition}>
+        <HeadingAnchor level={3} id={HUB.coalition}>Minimum coalition by threshold</HeadingAnchor>
         <p class="hub-coalition__lede">How few of the largest DReps currently hold each threshold share.</p>
         <ul class="hub-coalition__rows">
           {coalitionRows.map((row) => (
@@ -789,8 +773,8 @@ const activityBars = activity
     )}
 
     {hasBackbone && (
-      <section class="hub-conc-trends" aria-labelledby="hub-conc-trends-title">
-        <HeadingAnchor level={3} id="hub-conc-trends-title">Concentration over time</HeadingAnchor>
+      <section class="hub-conc-trends" aria-labelledby={HUB.concTrends}>
+        <HeadingAnchor level={3} id={HUB.concTrends}>Concentration over time</HeadingAnchor>
         <div class="hub-conc-trends__grid">
           <EpochSeriesChart title="Gini coefficient" points={metricSeries(chartStats, 'gini', starts.gini)} format={fmtTwoDec} sinceEpoch={starts.gini} note="Higher means voting power is more concentrated." />
           <EpochSeriesChart title="Top-10 share" points={metricSeries(chartStats, 'top10SharePct', starts.top10SharePct)} format={fmtShare} sinceEpoch={starts.top10SharePct} note="Share held by the ten largest DReps." />
@@ -802,10 +786,10 @@ const activityBars = activity
   </section>
 
   {throughput.enacted + throughput.expired + throughput.closed > 0 && (
-  <section class="hub-chapter" aria-labelledby="chapter-throughput-title">
+  <section class="hub-chapter" aria-labelledby={HUB.throughput}>
     <header class="hub-chapter__head">
       <p class="hub-chapter__eyebrow">Chapter</p>
-      <HeadingAnchor level={2} id="chapter-throughput-title" class="hub-chapter__title">Governance throughput</HeadingAnchor>
+      <HeadingAnchor level={2} id={HUB.throughput} class="hub-chapter__title">Governance throughput</HeadingAnchor>
       <p class="hub-chapter__intro">What happens to governance actions: how many arrive, how they conclude, and how long a decision takes.</p>
     </header>
 
@@ -964,6 +948,7 @@ const activityBars = activity
     border-radius: var(--radius-lg);
     background: color-mix(in srgb, var(--accent) 4%, transparent);
   }
+  /* Literal on purpose: CSS cannot read HUB_SECTION_IDS.defaults. */
   :global(#hub-defaults-title) {
     margin: 0 0 0.4rem;
   }

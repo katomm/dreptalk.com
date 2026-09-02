@@ -72,6 +72,16 @@ export async function getProtocolParams(db: D1Database): Promise<ProtocolParams 
   };
 }
 
+/**
+ * Circulating supply only, for pages that need the share denominator and
+ * nothing else. getProtocolParams drags raw_json (the full Koios response)
+ * across the wire, too much for the homepage.
+ */
+export async function getCirculationLovelace(db: D1Database): Promise<string | null> {
+  const r = await db.prepare('SELECT circulation_lovelace FROM protocol_params WHERE id = 1').first<{ circulation_lovelace: string | null }>();
+  return r?.circulation_lovelace ?? null;
+}
+
 export async function upsertProtocolParams(db: D1Database, p: ProtocolParams): Promise<void> {
   await db.prepare(
     `INSERT OR REPLACE INTO protocol_params

@@ -14,6 +14,11 @@ import { listDreps, listDrepsForConcentration, getDrepRanking, type DrepRanking 
 import { getSelfDrepId } from '@/lib/db/users.js';
 import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
+import { hubHref } from '@/lib/analytics/hubSections.js';
+import { contiguousTail, recentSeries, GLANCE_WINDOW_EPOCHS } from '@/lib/analytics/hubView.js';
+import { listLatestEpochStats } from '@/lib/db/governanceEpochStats.js';
+import DonutRing from '@/components/DonutRing.astro';
+import Sparkline from '@/components/Sparkline.astro';
 import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
 import { influencePct } from '@/lib/dreps/profile.js';
 import { computeVotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
@@ -35,13 +40,18 @@ const listOffset = pageToOffset(page, PAGE_SIZE);
 // The directory listing, the concentration aggregate, and the power-history
 // aggregates are independent reads, fetch them concurrently so a cold (uncached)
 // render pays one round-trip of latency, not three.
-const [dreps, concentrationRows, powerAggregates] = db
+const [dreps, concentrationRows, powerAggregates, recentEpochStats] = db
   ? await Promise.all([
       listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: listOffset, sort }),
       listDrepsForConcentration(db),
       getVotingPowerEpochAggregates(db),
+      // A short epoch window for the concentration teaser's trend line.
+      listLatestEpochStats(db, GLANCE_WINDOW_EPOCHS),
     ])
-  : [[], [], []];
+  : [[], [], [], []];
+// Top-10 share per epoch for the teaser sparkline (the live figure above it
+// comes from the current snapshot, the line from the stored epoch series).
+const top10Series = recentSeries(contiguousTail(recentEpochStats), 'top10SharePct');
 
 // Voting power concentration: all active, non-special DReps as BigInt powers.
 // Parse lovelace defensively so a single malformed row cannot 500 the page
@@ -326,9 +336,18 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
   />
 
   {concentration.drepCount > 0 && (
-    <a class="drep-conc-teaser" href="/analytics/">
-      <strong>Voting power concentration</strong>
-      <span>The top 10 DReps hold {top10Pct.toFixed(1)}% of the delegated power. Explore the full picture, thresholds and trends on the analytics page.</span>
+    <a class="drep-conc-teaser drep-stat--alt" href={hubHref('decentralization')}>
+      <DonutRing pct={top10Pct} class="drep-conc-teaser__ring" />
+      <span class="drep-conc-teaser__text">
+        <strong>Voting power concentration</strong>
+        <span>The top 10 DReps hold {top10Pct.toFixed(1)}% of the delegated power. Explore the full picture, thresholds and trends in the decentralization chapter of the analytics page.</span>
+      </span>
+      {top10Series.length >= 2 && (
+        <span class="drep-conc-teaser__trend">
+          <Sparkline series={top10Series} />
+          <span class="drep-conc-teaser__trend-label">Top-10 share, last {top10Series.length} epochs</span>
+        </span>
+      )}
     </a>
   )}
 
@@ -368,10 +387,10 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
      stat-tile tokens (border, radius, surface) so it reads as part of the page. */
   .drep-conc-teaser {
     display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
+    align-items: center;
+    gap: 1rem;
     padding: 0.85rem 1rem;
-    margin: 0 0 1.25rem;
+    margin: 1.25rem 0;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--surface);
@@ -382,13 +401,46 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
   .drep-conc-teaser:hover {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
+  .drep-conc-teaser__text {
+    /* Zero basis so the copy shares the row with the donut instead of
+       wrapping under it once the row is allowed to wrap on phones. */
+    flex: 1 1 0;
+    min-width: 0;
+  }
   .drep-conc-teaser strong {
     font-size: 0.9375rem;
   }
-  .drep-conc-teaser span {
+  .drep-conc-teaser__text > span {
     display: block;
     margin-top: 0.15rem;
     font-size: 0.8125rem;
     color: var(--muted);
+  }
+  /* The trend sits at the right edge with its own caption, sized so the line
+     reads as a chart, not a squiggle. */
+  .drep-conc-teaser__trend {
+    flex: 0 0 11rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .drep-conc-teaser__trend :global(.drep-stat__spark) {
+    height: 2.4rem;
+  }
+  .drep-conc-teaser__trend-label {
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-align: right;
+  }
+  @media (max-width: 640px) {
+    .drep-conc-teaser {
+      flex-wrap: wrap;
+    }
+    .drep-conc-teaser__trend {
+      flex: 1 0 100%;
+    }
+    .drep-conc-teaser__trend-label {
+      text-align: left;
+    }
   }
 </style>

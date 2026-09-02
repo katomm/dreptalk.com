@@ -14,4 +14,5 @@ export const NAV_LINKS: readonly NavLink[] = [
   { label: 'Discussions', href: '/discussions/?filter=comments' },
   { label: 'DReps', href: '/dreps/' },
   { label: 'Treasury', href: '/c/budget/' },
+  { label: 'Analytics', href: '/analytics/' },
 ];
