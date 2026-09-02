@@ -11,6 +11,7 @@
 
 import { BADGES } from '../../../config/badges.js';
 import { EPOCH_LENGTH_SECONDS, epochFromUnix, type NetworkConfig } from '../config/network.js';
+import { concludedStatusSql } from '../db/sql.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import {
   applyAwards,
@@ -226,12 +227,14 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
   }
 
   // --- On-chain: iron streak --------------------------------------------------
-  // Eligibility mirrors getDrepParticipation: decided actions with at least one
-  // DRep vote, from the DRep's registration epoch onward.
+  // Eligibility mirrors getDrepParticipation: concluded actions with at least
+  // one DRep vote, from the DRep's registration epoch onward. A dropped action
+  // is excluded on both sides, so a streak cannot break on an action the
+  // ledger removed before its voting window ended.
   const epochTotals = await all<{ e: number; n: number }>(
     db,
     `SELECT g.decided_epoch AS e, COUNT(*) AS n FROM governance_actions g
-     WHERE g.decided_epoch IS NOT NULL
+     WHERE g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}
        AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep')
      GROUP BY g.decided_epoch`,
   );
@@ -241,7 +244,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     db,
     `SELECT v.voter_id AS id, g.decided_epoch AS e, COUNT(*) AS n
      FROM drep_votes v JOIN governance_actions g ON g.id = v.ga_id
-     WHERE v.voter_role = 'DRep' AND g.decided_epoch IS NOT NULL
+     WHERE v.voter_role = 'DRep' AND g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}
      GROUP BY v.voter_id, g.decided_epoch`,
   );
   const votedByDrep = new Map<string, Map<number, number>>();

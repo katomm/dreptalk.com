@@ -11,6 +11,12 @@ import type { EpochStatsRow } from './epochStats.js';
 export interface VitalCard {
   label: string;
   value: string;
+  /**
+   * Shorter form of the same figure, rendered instead of `value` on phones,
+   * where a card is barely wider than the full digit run and the number would
+   * break across lines mid-figure. Absent when the full form already fits.
+   */
+  valueShort?: string;
   icon: 'people' | 'power' | 'gauge' | 'share';
   alt?: boolean;
   trend?: { direction: 'up' | 'down' | 'flat'; label: string } | null;
@@ -93,6 +99,33 @@ export function rowBeforeEpoch(rows: EpochStatsRow[], epoch: number): EpochStats
   return rows.find((r) => r.epoch === epoch - 1) ?? null;
 }
 
+/**
+ * The start epoch most of the page's trend charts share, or null when there is
+ * no majority to state. Every chart used to repeat "data since epoch N", which
+ * is the same number ten times over: the page states the shared start once and
+ * only a chart that begins later keeps its own caption. Ties resolve to the
+ * earliest epoch, and a single chart is never a shared start.
+ */
+export function commonSeriesStart(starts: (number | null)[]): number | null {
+  const counts = new Map<number, number>();
+  for (const s of starts) {
+    if (s == null) continue;
+    counts.set(s, (counts.get(s) ?? 0) + 1);
+  }
+  // Ascending epochs plus a strict comparison means the earliest start wins a
+  // tie, without a second clause to say so. The seed of 1 keeps a start that
+  // only one chart uses from counting as shared.
+  let best: number | null = null;
+  let bestCount = 1;
+  for (const [epoch, count] of [...counts].sort((a, b) => a[0] - b[0])) {
+    if (count > bestCount) {
+      best = epoch;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
 function countTrend(current: number, prev: number | null): VitalCard['trend'] {
   const chip = netChange(current, prev, (n) => n.toLocaleString('en-US'));
   return chip ? { direction: chip.direction, label: chip.label } : null;
@@ -155,6 +188,9 @@ export function buildVitals(
     {
       label: 'Delegated voting power',
       value: formatAda(current.totalDrepPower),
+      // Two fraction digits, not the default one: this is the page's headline
+      // figure, and "5.14B ₳" still separates epochs that "5.1B ₳" flattens.
+      valueShort: formatAdaCompact(current.totalDrepPower, 2) ?? undefined,
       icon: 'power',
       trend: powerTrend(current.totalDrepPower, prev ? prev.totalDrepPower : null),
     },

@@ -598,7 +598,9 @@ main.container {
 /* Donut + controls on the left, the top-DReps list on the right (desktop). The
    list is dropped on narrow screens; the donut then centers on its own. */
 .drep-conc__body { display: flex; flex-wrap: wrap; gap: 1.25rem 2rem; align-items: center; justify-content: center; }
-.drep-conc__main { flex: 0 0 auto; }
+/* max-width keeps the column (its controls are 360px wide) inside a phone's
+   285px content box instead of overflowing it on both sides. */
+.drep-conc__main { flex: 0 0 auto; max-width: 100%; }
 .drep-conc__chart { position: relative; width: 200px; height: 200px; margin: 0 auto; }
 .drep-conc__center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .drep-conc__count { font-size: 2rem; font-weight: 700; line-height: 1; }
@@ -635,15 +637,6 @@ main.container {
   margin: 0 0 1.25rem;
 }
 @media (max-width: 900px) { .drep-stats { grid-template-columns: repeat(2, 1fr); } }
-/* Keep a 2x2 grid on phones (was a single column of four tall boxes): drop the
-   large icon tile and tighten padding so all four metrics, trend line included,
-   fit above the fold instead of pushing the table down. */
-@media (max-width: 480px) {
-  .drep-stats { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
-  .drep-stat { padding: 0.7rem 0.75rem; gap: 0; }
-  .drep-stat__icon { display: none; }
-  .drep-stat__value { font-size: 1.15rem; }
-}
 .drep-stat {
   display: flex;
   align-items: flex-start;
@@ -676,6 +669,16 @@ main.container {
 .drep-stat__delta--down { color: var(--c-neg); }
 .drep-stat__delta--flat, .drep-stat__sub { color: var(--muted); font-size: 0.75rem; }
 .drep-stat__arrow { font-size: 0.8em; line-height: 1; }
+/* Keep a 2x2 grid on phones (was a single column of four tall boxes): drop the
+   large icon tile and tighten padding so all four metrics, trend line included,
+   fit above the fold instead of pushing the table down. Must stay AFTER the
+   base rules above, equal specificity means source order decides. */
+@media (max-width: 480px) {
+  .drep-stats { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .drep-stat { padding: 0.7rem 0.75rem; gap: 0; }
+  .drep-stat__icon { display: none; }
+  .drep-stat__value { font-size: 1.15rem; }
+}
 
 .drep-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; table-layout: fixed; }
 .drep-table thead th {

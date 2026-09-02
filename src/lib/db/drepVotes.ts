@@ -10,6 +10,7 @@ import {
 } from './voteHistory.js';
 import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
 import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
+import { concludedStatusSql } from './sql.js';
 import { voteBucket } from '@/lib/governance/view.js';
 
 export interface VoteInput {
@@ -656,6 +657,7 @@ export async function getDrepParticipation(
        LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'DRep'
             AND ${liveVoteSql('v')}
        WHERE g.decided_epoch IS NOT NULL
+         AND ${concludedStatusSql('g')}
          AND g.decided_epoch >= ?
          AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep'
                        AND ${liveVoteSql('dv')})`,
@@ -891,6 +893,7 @@ export async function getPoolParticipation(db: D1Database, poolId: string): Prom
        LEFT JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ? AND v.voter_role = 'SPO'
             AND ${liveVoteSql('v')}
        WHERE g.decided_epoch IS NOT NULL
+         AND ${concludedStatusSql('g')}
          AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'SPO'
                        AND ${liveVoteSql('dv')})`,
     )
