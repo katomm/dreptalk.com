@@ -4,6 +4,7 @@ description: "What the participation percentile, rationale coverage, vote timing
 cardLabel: "Governance record"
 category: "Understanding governance"
 order: 92
+updated: 2026-09-02
 faqs:
   - q: "Why does one DRep show percentiles and another none?"
     a: "Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so the card shows its plain numbers without a percentile rather than one drawn from too small or too uneven a group."
@@ -29,7 +30,7 @@ The rationale percentile uses the same active, five-eligible-action cohort as pa
 
 ## Vote timing
 
-Vote timing reports the median day after an action's submission that a DRep casts its vote, counted only over votes that carry both a submission and a vote timestamp. Where not every vote has a recorded time, the card says how many of the total were usable for the median.
+Vote timing reports the median day after an action's submission that a DRep casts its vote, counted only over votes that carry both a submission and a vote timestamp. A vote whose timestamp predates the action's own submission is a data anomaly and is skipped as well. Where not every vote was usable, the card says how many of the total went into the median.
 
 This number describes a style, not a quality. Earlier is not better. A DRep that tends to vote late in a window may be waiting for discussion to develop before committing, one that votes early may already hold a firm position from prior review. Both are legitimate ways to participate, and the card makes no attempt to rank one above the other.
 

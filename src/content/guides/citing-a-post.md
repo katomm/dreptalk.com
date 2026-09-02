@@ -4,7 +4,7 @@ description: "Posts on DRepTalk have a permanent, verifiable version you can cit
 cardLabel: "Citing a post"
 category: "About DRepTalk"
 order: 6
-updated: 2026-08-16
+updated: 2026-09-02
 faqs:
   - q: "How do I cite a DRepTalk post so the quote cannot change?"
     a: "Use the Cite action on the post. It opens the post's version list, where each version has its own permanent address. Link to a version and the text behind that link can never change, because the address is derived from the content itself."
@@ -31,7 +31,7 @@ on-chain text of the action itself.
 
 ## Getting a citable link
 
-Open the **Cite** action in a post's action row, next to Reply and Edit. It
+Open the **Cite** action at the end of a post's action row, after Flag. It
 opens the post's version list: a page listing every version of that post,
 newest first, each with its own permanent address you can copy. Link to one
 version, and the text behind that address stays exactly what it was when you

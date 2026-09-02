@@ -4,7 +4,7 @@ description: "How a DRep selects several open governance actions on the voting d
 cardLabel: "Voting on multiple actions"
 category: "For DReps"
 order: 5
-updated: 2026-08-02
+updated: 2026-09-02
 ---
 
 When several governance actions are open at the same time, you do not have to vote on them one by one. The voting dashboard lets you pick a choice for each action and submit everything as a single transaction: one wallet prompt, one signature, one network fee. This guide covers how the batch flow works, how rationales behave in a batch, and the limits that apply.
@@ -34,7 +34,7 @@ Rationales are written in the same editor as single votes, with Markdown support
 
 - **Up to 50 votes per batch.** All submitted as one transaction. In practice the real ceiling is simply how many governance actions are open at the same time.
 - **Up to 10 different rationale texts per batch.** What counts is the number of distinct texts, not the number of votes. No rationale and one shared rationale always work, at any batch size: a shared text counts once even when it is attached to 50 votes. Identical custom texts are also counted once. If a batch exceeds the limit, the submit button is disabled and a notice explains it before anything is signed; reuse the shared rationale for some votes, or split the batch into two submissions.
-- **Up to 20,000 characters per rationale**, same as for single votes.
+- **Up to 60,000 characters per rationale**, same as for single votes.
 
 ## Good to know
 

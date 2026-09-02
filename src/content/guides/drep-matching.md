@@ -4,7 +4,7 @@ description: "The full methodology behind Find your DRep: how questions are sele
 cardLabel: "How DRep matching works"
 category: "Start here"
 order: 6
-updated: 2026-08-23
+updated: 2026-09-02
 ---
 
 [Find your DRep](/match/) is a short quiz built entirely from completed
@@ -107,9 +107,11 @@ Two floors apply before a result appears:
 
 - You must answer at least two thirds of the questions, 7 out of 10, to
   get a result at all.
-- A DRep must share at least 5 answered questions with you to be ranked. A
-  DRep who voted on very few of the questions you answered is excluded, since
-  too small a shared set makes the percentage unreliable.
+- A DRep must share at least 5 answered questions with you to be ranked, on
+  the full set of 10. The floor scales with the set size: two thirds of the
+  set, rounded up, minus two, and never below two. A DRep who voted on very
+  few of the questions you answered is excluded, since too small a shared set
+  makes the percentage unreliable.
 
 When DReps tie on match percent, the one with more shared questions ranks
 higher, since their score rests on more evidence. If they are still tied,

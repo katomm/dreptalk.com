@@ -102,3 +102,16 @@ export function computeReportCards(input: ReportCardInput): ReportCardRow[] {
     rationaleCohortSize,
   }));
 }
+
+// One wording for both surfaces that print a percentile (the DRep profile and
+// the private governance record), so the cohort a figure is measured against
+// cannot drift between them. The rationale cohort is the subset that cast at
+// least one vote, hence the different N and suffix.
+export function participationAheadLabel(card: { participationAheadPct: number; cohortSize: number }): string {
+  return `Ahead of ${card.participationAheadPct}% of ${card.cohortSize} active DReps`;
+}
+
+export function rationaleAheadLabel(card: { rationaleAheadPct: number | null; rationaleCohortSize: number }): string | null {
+  if (card.rationaleAheadPct == null) return null;
+  return `Ahead of ${card.rationaleAheadPct}% of ${card.rationaleCohortSize} active DReps with votes`;
+}

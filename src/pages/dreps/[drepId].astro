@@ -404,7 +404,7 @@ const profileSummary = drep
     </section>
 
     <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} changes={changeStat}
-      percentiles={reportCard ? { participationAheadPct: reportCard.participationAheadPct, rationaleAheadPct: reportCard.rationaleAheadPct, cohortSize: reportCard.cohortSize } : null}
+      percentiles={reportCard}
       timing={timingStat ? { ...timingStat, totalVotes: rationaleStats.total } : null} />
 
     <div class="drep-summary">

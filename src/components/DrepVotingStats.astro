@@ -9,6 +9,7 @@ import {
   type VoteChangeStat,
 } from '@/lib/dreps/voteStatsView.js';
 import type { DrepVoteBreakdown, DrepRationaleStats, DrepParticipation } from '@/lib/db/drepVotes.js';
+import { participationAheadLabel, rationaleAheadLabel } from '@/lib/analytics/reportCardView.js';
 
 interface Props {
   breakdown: DrepVoteBreakdown;
@@ -18,7 +19,7 @@ interface Props {
   changes?: VoteChangeStat | null;
   /** Report-card percentiles vs the active-DRep cohort. Only the DRep profile
    *  passes these. The SPO and home cards stay role-neutral and omit them. */
-  percentiles?: { participationAheadPct: number; rationaleAheadPct: number | null; cohortSize: number } | null;
+  percentiles?: { participationAheadPct: number; rationaleAheadPct: number | null; cohortSize: number; rationaleCohortSize: number } | null;
   /** Median vote-timing stat (see voteTimingStat). Only the DRep profile passes
    *  this. The SPO and home cards stay role-neutral and omit it. */
   timing?: { medianDay: number; timed: number; totalVotes: number } | null;
@@ -60,7 +61,7 @@ const participationLine =
         {pStat.kind === 'ok' && <span class="vstats__big">{pStat.pct}%</span>}
         <span class="vstats__cell-line">{participationLine}</span>
         {percentiles && (
-          <span class="vstats__pctile">Ahead of {percentiles.participationAheadPct}% of {percentiles.cohortSize} active DReps</span>
+          <span class="vstats__pctile">{participationAheadLabel(percentiles)}</span>
         )}
         {pStat.kind === 'ok' && (
           <span class="vstats__bar" aria-hidden="true">
@@ -86,7 +87,7 @@ const participationLine =
           <span class="vstats__big">{rStat.pct}%</span>
           <span class="vstats__cell-line">{rStat.withRationale} of {rStat.total} votes with rationale</span>
           {percentiles?.rationaleAheadPct != null && (
-            <span class="vstats__pctile">Ahead of {percentiles.rationaleAheadPct}% of {percentiles.cohortSize} active DReps</span>
+            <span class="vstats__pctile">{rationaleAheadLabel(percentiles)}</span>
           )}
           <span class="vstats__bar" aria-hidden="true">
             <span class="vstats__bar-fill vstats__bar-fill--pos" style={`width:${rStat.pct}%;`}></span>

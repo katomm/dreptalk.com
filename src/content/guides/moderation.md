@@ -4,6 +4,7 @@ description: "How moderation works on DRepTalk: community flagging today, with a
 cardLabel: "Moderation"
 category: "About DRepTalk"
 order: 3
+updated: 2026-09-02
 ---
 
 DRepTalk keeps moderation light and transparent. There are no appointed
@@ -13,7 +14,10 @@ what gets hidden.
 
 ## How flagging works today
 
-Any signed-in member can flag a post they consider abusive, spam, or off-topic.
+Members signed in with a writer role (DRep, SPO, Constitutional Committee
+member, or proposer) can flag a post they consider abusive, spam, or
+off-topic. Delegator logins cannot flag, and nobody can flag their own post
+or a system post such as the opening post of a governance action.
 Once a post has been flagged by **3 different people**, it is
 automatically hidden from the forum. No single person can take a post down on
 their own: it always takes three independent flags, so one bad actor cannot
@@ -26,7 +30,10 @@ hidden post is out of sight but still stored, and it comes back unchanged if
 the flags are withdrawn. A deleted post leaves the forum at once, and once 30
 days have passed its text is erased: the post itself, every earlier version
 of it, and its entry in the search index. Deletion is not a member action:
-only the site operator deletes a post, on request or to deal with abuse.
+only the site operator deletes a post, on request or to deal with abuse. One
+exception happens automatically: a vote rationale cross-posted to a
+discussion is removed on its own when the on-chain vote behind it never
+confirms.
 
 The 30 days exist so that abusive content can still be dealt with after it
 has been taken down. Anything that has to be kept on record needs to stay

@@ -4,12 +4,12 @@ description: "How an ada holder signs in to DRepTalk as a delegator to follow th
 cardLabel: "Tracking your delegation"
 category: "Start here"
 order: 3
-updated: 2026-08-02
+updated: 2026-09-02
 faqs:
   - q: "Does signing in as a delegator cost anything?"
     a: "No. Signing in is a message signature, not a transaction. There is no fee, nothing is sent on-chain, and DRepTalk never sees your keys."
   - q: "Can I change my delegation on DRepTalk?"
-    a: "Yes. Every DRep profile has a Delegate button. Your wallet signs and submits the delegation certificate; DRepTalk never holds your funds or keys. You can also delegate from the governance section of your wallet."
+    a: "Yes. The profile of every DRep who is not retired has a Delegate button. Your wallet signs and submits the delegation certificate, DRepTalk never holds your funds or keys. You can also delegate from the governance section of your wallet."
   - q: "Can delegators post or vote on DRepTalk?"
     a: "No. Posting and voting require an on-chain governance role such as DRep, proposer, SPO, or Constitutional Committee member. A delegator sign-in is read-only: it is for following your DRep and getting notified."
   - q: "Which wallets work for the delegator sign-in?"
@@ -90,6 +90,12 @@ wallet signs the change, and your dashboard follows it. If you want a fresh
 starting point, [Find your DRep](/match/) ranks DReps by how their past votes
 line up with your own answers.
 
+For the longer view, the private [My DRep](/my-drep/) page shows what your
+DRep has done since your delegation started: the actions, rationales, vote
+changes and voting power in that span, and what a default option would have
+meant on the decided actions. [Following your own DRep](/help/my-drep/)
+explains that page.
+
 ## Frequently asked questions
 
 ### Does signing in as a delegator cost anything?
@@ -99,8 +105,8 @@ nothing is recorded on-chain.
 
 ### Can I change my delegation on DRepTalk?
 
-Yes. Every DRep profile has a Delegate button; your wallet signs and submits
-the delegation certificate. You can also delegate from your wallet's
+Yes. The profile of every DRep who is not retired has a Delegate button, and
+your wallet signs and submits the delegation certificate. You can also delegate from your wallet's
 governance section, as described in [How to delegate to a
 DRep](/help/delegate-to-a-drep/).
 
@@ -118,6 +124,7 @@ Typhon. Governance features like CIP-95 are not required for tracking.
 ## Related
 
 - [How to delegate to a DRep](/help/delegate-to-a-drep/)
+- [Following your own DRep](/help/my-drep/)
 - [How DRep matching works](/help/drep-matching/)
 - [Signing in](/help/signing-in/)
 - [Pair a phone or tablet](/help/pair-a-device/)
