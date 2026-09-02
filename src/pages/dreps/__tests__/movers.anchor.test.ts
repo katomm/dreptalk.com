@@ -5,6 +5,6 @@ import { expect, test } from 'vitest';
 // selector. Class names are free to change, this attribute is not: without it
 // the routine would silently photograph the wrong region.
 test('the movers board carries its screenshot anchor', () => {
-  const source = readFileSync(new URL('./movers.astro', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../movers.astro', import.meta.url), 'utf8');
   expect(source).toContain('data-screenshot="movers-board"');
 });
