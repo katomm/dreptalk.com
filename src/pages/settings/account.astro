@@ -15,6 +15,7 @@ import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { getSelfDrepId, getUserById } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
 import { getFollow } from '@/lib/db/delegatorFollows';
+import { resolveDelegationView, trackedDelegationKind } from '@/lib/delegation/delegationView';
 import { requireGrantManager } from '@/lib/auth/coProposerManage';
 
 const user = Astro.locals.user;
@@ -45,17 +46,9 @@ const stakeAddr = selfRow?.stake_addr ?? null;
 const follow = db ? await getFollow(db, user.id) : null;
 const followDrep =
   follow?.delegation_type === 'drep' && follow.drep_id && db ? await getDrepById(db, follow.drep_id) : null;
-// The "My DRep" link only shows for a resolved follow that has something to
-// report on (a DRep with an id, or one of the two default options), the same
-// condition the home card uses. A pending or undelegated follow would open an
-// empty page, and a 'drep' row without a drep_id resolves to no delegation.
-const trackedType =
-  follow?.resolution_status === 'resolved' &&
-  ((follow.delegation_type === 'drep' && follow.drep_id != null) ||
-    follow.delegation_type === 'abstain' ||
-    follow.delegation_type === 'no_confidence')
-    ? follow.delegation_type
-    : null;
+// The "My DRep" link only shows for a follow that has something to report on,
+// resolved through the same helper the home card uses.
+const trackedType = trackedDelegationKind(resolveDelegationView(follow));
 const initialTracking = follow
   ? {
       resolutionStatus: follow.resolution_status,

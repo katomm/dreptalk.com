@@ -23,6 +23,26 @@ export function resolveDelegationView(follow: DelegatorFollowRow | null): Delega
   return { kind: 'none', staleError };
 }
 
+/** The delegation states the "My DRep" page has something to report on. */
+export type TrackedDelegation = 'drep' | 'abstain' | 'no_confidence';
+
+/**
+ * The tracked delegation behind a view, or null when there is nothing to report
+ * on. Pending, missing and undelegated follows return null, and so does a drep
+ * row without a drep_id (resolveDelegationView already reads that as none), so
+ * an entry point to /my-drep/ never opens a page with nothing on it.
+ */
+export function trackedDelegationKind(view: DelegationView): TrackedDelegation | null {
+  switch (view.kind) {
+    case 'drep':
+    case 'abstain':
+    case 'no_confidence':
+      return view.kind;
+    default:
+      return null;
+  }
+}
+
 const RETIRED_STATUSES = new Set(['deregistered', 'retired']);
 
 /**

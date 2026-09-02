@@ -20,6 +20,7 @@ import { getVotableActionsForViewer } from '@/lib/db/votableActions';
 import { getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation } from '@/lib/db/drepVotes';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory';
 import { loadDelegation, NO_FOLLOW_DELEGATION } from '@/lib/db/loadDelegation';
+import { trackedDelegationKind } from '@/lib/delegation/delegationView';
 import { getMostRepliedRecentTopic } from '@/lib/db/forum';
 import { countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
@@ -119,14 +120,9 @@ interface HomeCard {
   newUntil?: string;
 }
 
-// The delegation states the "My DRep" card has something to show for, taken
-// from the dashboard's own resolved view so the card costs no extra query.
-const trackedDelegation =
-  delegationData.view.kind === 'drep' ||
-  delegationData.view.kind === 'abstain' ||
-  delegationData.view.kind === 'no_confidence'
-    ? delegationData.view.kind
-    : null;
+// The delegation the "My DRep" card has something to show for, taken from the
+// dashboard's own resolved view so the card costs no extra query.
+const trackedDelegation = trackedDelegationKind(delegationData.view);
 
 // Recently shipped cards carry a "New" pill until this date passes, so the
 // marker retires itself instead of needing a follow-up commit.

@@ -25,24 +25,19 @@ export interface DelegatorFollowRow {
 }
 
 /**
- * The SQL clause that keeps since_attempts honest on a capture write: a
- * successful lookup that came back with no start counts up, a captured start
- * resets the run to 0. A failed lookup (a throw, a timeout, an address the
- * batch response omitted while others in it came back, or a whole
- * multi-address batch that came back with no rows at all) never confirmed an
- * empty history, only that the lookup could not be completed, so the count is
- * left untouched by omitting the clause entirely. Returns an empty string for
- * the failed case, which the caller drops from the SET list. Chosen from the
- * caller's own arguments, so no value is interpolated.
+ * The trailing SET clause that keeps since_attempts honest on a capture write:
+ * a successful lookup that came back with no start counts up, a captured start
+ * resets the run to 0, and a FAILED lookup leaves the count alone by dropping
+ * the clause entirely. A failure (a throw, a timeout, an address the batch
+ * response omitted while others in it came back, or a whole multi-address batch
+ * that came back with no rows at all) never confirmed an empty history, only
+ * that the lookup could not be completed. The clause is chosen from the caller's
+ * own arguments, so no value is interpolated.
  */
-function attemptsFragment(epoch: number | null, failed: boolean): string {
+function attemptsSetClause(epoch: number | null, failed: boolean): string {
   if (failed) return '';
-  return epoch != null ? 'since_attempts = 0' : 'since_attempts = since_attempts + 1';
-}
-
-/** Prefixes a non-empty SQL fragment with ", " so it can be appended to a SET list, or drops it. */
-function optionalSetClause(fragment: string): string {
-  return fragment === '' ? '' : `, ${fragment}`;
+  if (epoch != null) return ', since_attempts = 0';
+  return ', since_attempts = since_attempts + 1';
 }
 
 function columnsFor(state: DelegationState): { type: string; drepId: string | null } {
@@ -188,13 +183,10 @@ export async function getFollowedDrepIds(db: D1Database): Promise<Set<string>> {
 
 /**
  * Records a delegation-start capture attempt unconditionally. `epoch` null means
- * the attempt found no start: either the lookup succeeded and came back with no
- * delegation_drep event (an empty history, so the row is retried but the attempt
- * counts toward giving up), or the lookup itself failed (a throw, a timeout, or
- * an address a batch response omitted while other addresses in it came back), in
- * which case `failed` must be true so the attempt is NOT counted, only the retry
- * window is advanced. Either way since_checked_at is stamped and the row waits
- * out the retry window instead of being re-queried on every login.
+ * the attempt found no start, and `failed` says whether that was a confirmed
+ * empty history or a lookup that could not be completed (see attemptsSetClause).
+ * Either way since_checked_at is stamped, so the row waits out the retry window
+ * instead of being re-queried on every login.
  * Only for a capture that directly follows a created or changed baseline, where
  * this call owns the freshly written delegation. Retry paths that act on a row
  * they read earlier must use captureDelegatedSince instead.
@@ -208,11 +200,19 @@ export async function setDelegatedSince(
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?${optionalSetClause(attemptsFragment(epoch, failed))}
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?${attemptsSetClause(epoch, failed)}
         WHERE user_id = ?`,
     )
     .bind(epoch, now, userId)
     .run();
+}
+
+/** Code-point order, the same tiebreaker the SQL ORDER BY applies, so the merged
+ *  chunks sort exactly as one query would have. localeCompare would not. */
+function compareBinary(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }
 
 /** A follow awaiting a start capture, with the attempt stamp observed when it was listed. */
@@ -264,10 +264,7 @@ export async function listFollowsMissingSince(
       });
     }
   }
-  found.sort(
-    (a, b) =>
-      a.order - b.order || (a.row.userId < b.row.userId ? -1 : a.row.userId > b.row.userId ? 1 : 0),
-  );
+  found.sort((a, b) => a.order - b.order || compareBinary(a.row.userId, b.row.userId));
   return found.slice(0, limit).map((f) => f.row);
 }
 
@@ -281,13 +278,9 @@ export async function listFollowsMissingSince(
  * `observedSinceCheckedAt` null means the row was observed never attempted, which
  * the predicate expresses as the sentinel -1 (since_checked_at is unix seconds,
  * so no real stamp can collide with it).
- * `failed` marks a lookup that could not be completed or trusted (a throw, a
- * timeout, an address a batch response omitted while other addresses in it
- * came back, or a whole multi-address batch that came back with no rows at
- * all): the row still records the attempt time, but since_attempts is left
- * unchanged, because only a successful, trustworthy lookup that came back
- * empty confirms anything about the account's history. Defaults to false, an
- * ordinary confirmed-empty capture.
+ * `failed` marks a lookup that could not be completed or trusted, which records
+ * the attempt time but leaves since_attempts alone (see attemptsSetClause). It
+ * defaults to false, an ordinary confirmed-empty capture.
  * Returns whether this call wrote the row.
  */
 export async function captureDelegatedSince(
@@ -300,7 +293,7 @@ export async function captureDelegatedSince(
 ): Promise<boolean> {
   const res = await db
     .prepare(
-      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?${optionalSetClause(attemptsFragment(epoch, failed))}
+      `UPDATE delegator_follows SET delegated_since_epoch = ?, since_checked_at = ?${attemptsSetClause(epoch, failed)}
         WHERE user_id = ? AND delegated_since_epoch IS NULL AND COALESCE(since_checked_at, -1) = ?`,
     )
     .bind(epoch, now, userId, observedSinceCheckedAt ?? -1)

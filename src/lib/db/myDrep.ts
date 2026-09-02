@@ -116,6 +116,17 @@ export async function countVoteChangesSince(
   return row?.n ?? 0;
 }
 
+/** The snapshot columns as stored, before the camelCase mapping. */
+interface PowerRow {
+  epoch: number;
+  amount: string;
+  delegator_count: number | null;
+}
+
+function toPowerPoint(row: PowerRow | null): PowerPoint | null {
+  return row ? { epoch: row.epoch, amount: row.amount, delegatorCount: row.delegator_count } : null;
+}
+
 /**
  * The DRep's earliest power snapshot at or after the given epoch. The history is
  * a rolling window, so a delegation that started before the retention floor has
@@ -134,8 +145,8 @@ export async function getPowerAtOrAfter(
         WHERE drep_id = ? AND epoch >= ? ORDER BY epoch ASC LIMIT 1`,
     )
     .bind(drepId, epoch)
-    .first<{ epoch: number; amount: string; delegator_count: number | null }>();
-  return row ? { epoch: row.epoch, amount: row.amount, delegatorCount: row.delegator_count } : null;
+    .first<PowerRow>();
+  return toPowerPoint(row);
 }
 
 /** The DRep's most recent power snapshot, or null when none was ever captured. */
@@ -146,8 +157,8 @@ export async function getPowerLatest(db: D1Database, drepId: string): Promise<Po
         WHERE drep_id = ? ORDER BY epoch DESC LIMIT 1`,
     )
     .bind(drepId)
-    .first<{ epoch: number; amount: string; delegator_count: number | null }>();
-  return row ? { epoch: row.epoch, amount: row.amount, delegatorCount: row.delegator_count } : null;
+    .first<PowerRow>();
+  return toPowerPoint(row);
 }
 
 /**

@@ -86,19 +86,22 @@ const effectiveSince =
   sinceEpoch != null ? Math.max(sinceEpoch, drep?.registeredEpoch ?? sinceEpoch) : null;
 const clampedToRegistration = effectiveSince != null && sinceEpoch != null && effectiveSince > sinceEpoch;
 
+// All four reads below need the same three things, so the guard is resolved once
+// instead of per read. Null means the current state has nothing to read and each
+// read resolves to its own empty value.
+const sinceRead = db && drepId && effectiveSince != null ? { db, drepId, epoch: effectiveSince } : null;
+
 const [actions, voteChanges, powerThen, powerNow] = await Promise.all([
-  db && drepId && effectiveSince != null
-    ? listDrepActionsSince(db, drepId, effectiveSince)
+  sinceRead
+    ? listDrepActionsSince(sinceRead.db, sinceRead.drepId, sinceRead.epoch)
     : Promise.resolve([] as SinceActionRow[]),
-  db && drepId && effectiveSince != null
-    ? countVoteChangesSince(db, drepId, epochStartUnix(effectiveSince, cfg))
+  sinceRead
+    ? countVoteChangesSince(sinceRead.db, sinceRead.drepId, epochStartUnix(sinceRead.epoch, cfg))
     : Promise.resolve(0),
-  db && drepId && effectiveSince != null
-    ? getPowerAtOrAfter(db, drepId, effectiveSince)
+  sinceRead
+    ? getPowerAtOrAfter(sinceRead.db, sinceRead.drepId, sinceRead.epoch)
     : Promise.resolve(null as PowerPoint | null),
-  db && drepId && effectiveSince != null
-    ? getPowerLatest(db, drepId)
-    : Promise.resolve(null as PowerPoint | null),
+  sinceRead ? getPowerLatest(sinceRead.db, sinceRead.drepId) : Promise.resolve(null as PowerPoint | null),
 ]);
 
 const m1 =
@@ -129,13 +132,13 @@ const drepLabel = drep?.name ?? 'Your DRep';
 
 // Registration state as one line, no history. expires_epoch_no is the epoch the
 // registration lapses in unless the DRep votes or updates before then.
-const statusLine = drep
-  ? drep.active
-    ? drep.expiresEpochNo != null
-      ? `Active, and the registration expires in epoch ${drep.expiresEpochNo} unless this DRep votes or updates before then.`
-      : 'Active.'
-    : (drepStatusHint(drep.active, drep.status) ?? 'This DRep is not currently active.')
-  : null;
+function registrationLine(): string | null {
+  if (!drep) return null;
+  if (!drep.active) return drepStatusHint(drep.active, drep.status) ?? 'This DRep is not currently active.';
+  if (drep.expiresEpochNo == null) return 'Active.';
+  return `Active, and the registration expires in epoch ${drep.expiresEpochNo} unless this DRep votes or updates before then.`;
+}
+const statusLine = registrationLine();
 
 const num = (n: number) => n.toLocaleString('en-US');
 /** Signed count change, with an unchanged count reading "0" rather than nothing. */
@@ -147,11 +150,12 @@ const signed = (n: number) => (n > 0 ? `+${num(n)}` : num(n));
 // cell that says there is no figure. A snapshot later than the start epoch is
 // the earliest one available, not the figure for that epoch, and the column says
 // so instead of passing it off as the start.
-const startColLabel = m1?.power.start
-  ? m1.power.start.firstOnRecord
-    ? `Epoch ${m1.power.start.epoch}, earliest figure available`
-    : `Epoch ${m1.power.start.epoch}`
-  : 'Delegation start';
+function startColumnLabel(): string {
+  const start = m1?.power.start;
+  if (!start) return 'Delegation start';
+  return start.firstOnRecord ? `Epoch ${start.epoch}, earliest figure available` : `Epoch ${start.epoch}`;
+}
+const startColLabel = startColumnLabel();
 // Same rule on the current column, for the same reason.
 const nowColLabel = m1?.power.now ? `Epoch ${m1.power.now.epoch}` : 'Now';
 const NO_FIGURE = 'No figure for that epoch';

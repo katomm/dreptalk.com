@@ -61,6 +61,33 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
+ * One delegation-start lookup: the epoch found (null when none was) and whether
+ * the lookup itself could not be completed or trusted. Only a lookup that ran
+ * and came back honestly empty says anything about the account's history, so
+ * `failed` is what keeps the give-up count honest on the write.
+ */
+interface SinceLookup {
+  epoch: number | null;
+  failed: boolean;
+}
+
+/**
+ * The delegation start for one address. A throw or a timeout is a failed lookup,
+ * a response without a delegation_drep event is a confirmed empty history. Both
+ * are recorded as a NULL start by the caller, so the retry window applies
+ * instead of a per-login hammer, but only the confirmed one counts toward
+ * giving up.
+ */
+async function lookupSince(koios: KoiosLike, stakeAddr: string, timeoutMs: number): Promise<SinceLookup> {
+  try {
+    const rows = await withTimeout(koios.accountUpdateHistoryBatch([stakeAddr]), timeoutMs);
+    return { epoch: delegationStartEpoch(rows.filter((r) => r.stake_address === stakeAddr)), failed: false };
+  } catch {
+    return { epoch: null, failed: true };
+  }
+}
+
+/**
  * Resolve one account's delegation. Fail-soft: any Koios error, timeout, a null
  * (no account row), or an invalid delegated_drep all become an 'error' outcome
  * (row stays pending or keeps its baseline, retried later); only a FOUND account
@@ -75,11 +102,11 @@ export async function resolveFollow(
   now: number,
   opts?: { timeoutMs?: number },
 ): Promise<void> {
+  const timeoutMs = opts?.timeoutMs ?? LOGIN_TIMEOUT_MS;
   try {
     let outcome: ResolutionOutcome;
     try {
-      const info = await withTimeout(koios.accountInfo(stakeAddr), opts?.timeoutMs ?? LOGIN_TIMEOUT_MS);
-      outcome = outcomeFor(info);
+      outcome = outcomeFor(await withTimeout(koios.accountInfo(stakeAddr), timeoutMs));
     } catch {
       outcome = { status: 'error' };
     }
@@ -89,45 +116,23 @@ export async function resolveFollow(
     // re-delegation) or when it is still missing and the retry window has passed.
     // An unchanged follow that already has a start never touches the endpoint.
     const fresh = applied === 'created' || applied === 'changed';
-    let capture = fresh;
-    // The since_checked_at this login observed on the row, used to compare and set
-    // on the retry path so a cron capture that happened in between is not undone.
-    let observedSince: number | null = null;
-    if (!capture) {
-      const row = await getFollow(db, userId);
-      capture =
-        row != null &&
-        row.delegated_since_epoch == null &&
-        (row.since_checked_at == null || row.since_checked_at < now - SINCE_RETRY_SEC);
-      observedSince = row?.since_checked_at ?? null;
-    }
-    if (capture) {
-      let epoch: number | null = null;
-      // True only when the lookup itself could not be completed (a throw or a
-      // timeout), never for a lookup that ran and simply found nothing: only
-      // the latter is a confirmed empty history and counts toward giving up.
-      let failed = false;
-      try {
-        const rows = await withTimeout(
-          koios.accountUpdateHistoryBatch([stakeAddr]),
-          opts?.timeoutMs ?? LOGIN_TIMEOUT_MS,
-        );
-        epoch = delegationStartEpoch(rows.filter((r) => r.stake_address === stakeAddr));
-      } catch {
-        // A failed capture is recorded as a NULL start below, so the attempt is
-        // visible and the retry window applies instead of a per-login hammer.
-        // It does not count toward the give-up threshold: the lookup never ran
-        // to completion, so it confirmed nothing about the account's history.
-        failed = true;
-      }
-      // A fresh baseline owns the start it just captured, so it writes flat. The
-      // retry path only writes while the row is still the one it read.
-      if (fresh) await setDelegatedSince(db, userId, epoch, now, failed);
-      else await captureDelegatedSince(db, userId, epoch, now, observedSince, failed);
-    }
+    // Read only for the retry decision. Its since_checked_at is what the write
+    // compares against, so a cron capture that ran in between is not undone.
+    const row = fresh ? null : await getFollow(db, userId);
+    const dueRetry =
+      row != null &&
+      row.delegated_since_epoch == null &&
+      (row.since_checked_at == null || row.since_checked_at < now - SINCE_RETRY_SEC);
+    if (!fresh && !dueRetry) return;
+
+    const { epoch, failed } = await lookupSince(koios, stakeAddr, timeoutMs);
+    // A fresh baseline owns the start it just captured, so it writes flat. The
+    // retry path only writes while the row is still the one it read.
+    if (fresh) await setDelegatedSince(db, userId, epoch, now, failed);
+    else await captureDelegatedSince(db, userId, epoch, now, row?.since_checked_at ?? null, failed);
   } catch {
     // Never throw: a D1 write failure here must not fail the login. The row
-    // stays as-is (pending or its prior baseline); the cron retries later.
+    // stays as-is (pending or its prior baseline), the cron retries later.
   }
 }
 
@@ -239,22 +244,15 @@ async function captureBulkSince(db: D1Database, koios: KoiosLike, userIds: strin
     // rule (see the doc comment above).
     const wholeBatchEmpty = !batchFailed && pending.length >= 2 && !anyAddressResponded;
     for (const { userId, stakeAddr, sinceCheckedAt } of pending) {
+      const addrRows = byStake.get(stakeAddr) ?? [];
+      // A per-address failure: the whole call threw, the whole multi-address
+      // batch came back with no rows at all, or this address has no rows while
+      // some other requested address in the batch did come back.
+      const failed = batchFailed || wholeBatchEmpty || (addrRows.length === 0 && anyAddressResponded);
       try {
-        const responded = byStake.has(stakeAddr);
-        // A per-address failure: the whole call threw, the whole multi-address
-        // batch came back with no rows at all, or this address has no rows
-        // while some other requested address in the batch did come back.
-        const failed = batchFailed || wholeBatchEmpty || (!responded && anyAddressResponded);
         // Compare and set on what the listing observed: a login that captured the
         // start while this bulk call was in flight keeps its value.
-        await captureDelegatedSince(
-          db,
-          userId,
-          delegationStartEpoch(byStake.get(stakeAddr) ?? []),
-          now,
-          sinceCheckedAt,
-          failed,
-        );
+        await captureDelegatedSince(db, userId, delegationStartEpoch(addrRows), now, sinceCheckedAt, failed);
       } catch {
         // A per-row write failure must not abort the rest of the capture.
       }
