@@ -5,20 +5,10 @@
 // otherwise treats the newlines/indentation as empty flex children and skews
 // justify-content (it pushed the header logo off the left edge).
 
-import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint } from './theme.js';
+import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint, HAIRLINE } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
-import type {
-  AnalyticsCardModel,
-  CommitteeCardModel,
-  DiscussionCardModel,
-  DrepCardModel,
-  DrepStat,
-  GovCardModel,
-  MoverRow,
-  MoversCardModel,
-  TreasuryCardModel,
-  VoteCardModel,
-} from './model.js';
+import type { AnalyticsCardChart, AnalyticsCardModel, CommitteeCardModel, DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, MoverRow, MoversCardModel, TreasuryCardModel, VoteCardModel } from './model.js';
+import { ANALYTICS_CHART_HEIGHT, ANALYTICS_CHART_INSET, ANALYTICS_CHART_WIDTH } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
 // escaping &, " or ' would show the entity literally. We only neutralize the one
@@ -319,22 +309,46 @@ export function moversCardHtml(m: MoversCardModel): string {
 // flex item after the header, so space-between just pushes it to the bottom,
 // leaving a dead gap under the header. Splitting the headline and the detail
 // lines into two items lets the same layout balance this card too.
+// The chart travels as a base64 SVG image like the icons: satori draws
+// nothing for inline <svg> children, while resvg renders an embedded SVG in
+// full, gradient included.
+function chartSvg(c: AnalyticsCardChart, accent: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${ANALYTICS_CHART_WIDTH}" height="${ANALYTICS_CHART_HEIGHT}" viewBox="0 0 ${ANALYTICS_CHART_WIDTH} ${ANALYTICS_CHART_HEIGHT}"><g transform="translate(${ANALYTICS_CHART_INSET},0)"><defs><linearGradient id="f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${accent}" stop-opacity="0.34"/><stop offset="1" stop-color="${accent}" stop-opacity="0.03"/></linearGradient></defs><path d="${c.area}" fill="url(#f)"/><path d="${c.line}" fill="none" stroke="${accent}" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${c.end.x}" cy="${c.end.y}" r="8" fill="${CARD_BG}" stroke="${accent}" stroke-width="4"/></g></svg>`;
+}
+
+// Number-led like the action cards, with the one thing no other card has: the
+// delegated voting power drawn epoch by epoch on a zero baseline, so a share
+// preview shows the shape of DRep governance and not only today's figure. The
+// chart is an embedded SVG image (see chartSvg). Without two epochs on record the chart row is dropped and the
+// stats carry the card alone.
 export function analyticsCardHtml(m: AnalyticsCardModel): string {
-  const abstainRow = m.abstainLine
-    ? `<div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:16px;">${esc(m.abstainLine)}</div>`
-    : '';
-  const headlineBlock = `<div style="display:flex;flex-direction:column;">
-      <div style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-bottom:10px;">${esc(m.epochLabel)}</div>
-      <div style="display:flex;align-items:baseline;">
-        <span style="display:flex;font-size:72px;font-weight:800;color:${INK};letter-spacing:-1px;">${esc(m.poweredCount)}</span>
-        <span style="display:flex;font-size:32px;font-weight:500;color:${MUTED};margin-left:16px;">DReps hold ${esc(m.totalPowerLabel)}</span>
+  const headline = `<div style="display:flex;align-items:baseline;">
+      <span style="display:flex;font-size:84px;font-weight:800;color:${INK};letter-spacing:-2px;line-height:1;">${esc(m.totalPowerLabel)}</span>
+      <span style="display:flex;font-size:30px;font-weight:500;color:${MUTED};margin-left:20px;">${esc(m.poweredLine)}</span>
+      <span style="display:flex;font-size:26px;font-weight:500;color:${SUBTLE};margin-left:auto;">${esc(m.epochLabel)}</span>
+    </div>`;
+  const chart = m.chart
+    ? `<div style="display:flex;flex-direction:column;">
+      <img src="data:image/svg+xml;base64,${btoa(chartSvg(m.chart, m.accent))}" width="${ANALYTICS_CHART_WIDTH}" height="${ANALYTICS_CHART_HEIGHT}" />
+      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:22px;font-weight:500;color:${SUBTLE};">
+        <span style="display:flex;">${esc(m.chart.fromLabel)}</span>
+        <span style="display:flex;">Delegated voting power, epoch by epoch</span>
+        <span style="display:flex;">${esc(m.chart.toLabel)}</span>
       </div>
+    </div>`
+    : '';
+  const stats = `<div style="display:flex;">
+      ${m.stats
+        .map(
+          (st, i) => `<div style="display:flex;flex-direction:column;${i > 0 ? `margin-left:40px;padding-left:40px;border-left:2px solid ${HAIRLINE};` : ''}">
+        <span style="display:flex;font-size:${m.chart ? 40 : 56}px;font-weight:800;color:${INK};letter-spacing:-1px;">${esc(st.value)}</span>
+        <span style="display:flex;font-size:22px;font-weight:500;color:${MUTED};margin-top:4px;">${esc(st.label)}</span>
+      </div>`,
+        )
+        .join('')}
     </div>`;
-  const detailBlock = `<div style="display:flex;flex-direction:column;">
-      <div style="display:flex;font-size:32px;font-weight:600;color:${INK};">${esc(m.votingLine)}</div>
-      ${abstainRow}
-    </div>`;
-  return cardShell(m.accent, 'Governance analytics', `${headlineBlock}${detailBlock}`);
+  const body = `<div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;margin-top:28px;">${headline}${chart}${stats}</div>`;
+  return cardShell(m.accent, 'Governance analytics', body);
 }
 
 // Also renders help-guide cards: helpCardModel returns the same shape with no

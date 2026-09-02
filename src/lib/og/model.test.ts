@@ -313,63 +313,73 @@ describe('voteCardModel', () => {
 });
 
 describe('analyticsCardModel', () => {
-  it('composes the epoch, powered count, voting line and abstain line', () => {
+  const series = [
+    { epoch: 640, totalDrepPower: '1000000000000000' },
+    { epoch: 641, totalDrepPower: '1100000000000000' },
+    { epoch: 643, totalDrepPower: '1200000000000000' },
+  ];
+
+  it('composes the headline, the chart over the series and three stats', () => {
     const m = analyticsCardModel({
       epoch: 643,
       powered: 1234,
       recentlyVoting: 512,
-      totalPowerLabel: '1,200,000,000 ₳',
-      abstainLabel: '45,000 ₳',
+      totalPowerLovelace: '1200000000000000',
+      abstainLovelace: '45000000000',
+      halfCount: 17,
+      circulationLovelace: '36000000000000000',
+      series,
     });
     expect(m.accent).toBe(BRAND_ACCENT);
     expect(m.epochLabel).toBe('Epoch 643');
-    expect(m.poweredCount).toBe('1,234');
-    expect(m.totalPowerLabel).toBe('1,200,000,000 ₳');
-    expect(m.votingLine).toBe('512 voted in the last 12 epochs');
-    expect(m.abstainLine).toBe('Always abstain holds 45,000 ₳');
+    expect(m.totalPowerLabel).toBe('1.2B ₳');
+    expect(m.poweredLine).toBe('delegated to 1,234 DReps');
+    expect(m.chart?.fromLabel).toBe('Epoch 640');
+    expect(m.chart?.toLabel).toBe('Epoch 643');
+    expect(m.chart?.line.startsWith('M0,')).toBe(true);
+    expect(m.chart?.end.x).toBe(1104 - 16);
+    // 1.2B of 36B circulating: 3.3%, the circulation share wins over the abstain figure.
+    expect(m.stats).toEqual([
+      { value: '512', label: 'voted in the last 12 epochs' },
+      { value: '17', label: 'DReps hold half of the power' },
+      { value: '3.3%', label: 'of circulating ada delegated' },
+    ]);
+    const html = analyticsCardHtml(m);
+    expect(html).toContain('data:image/svg+xml;base64,');
+    expect(html).toContain('Delegated voting power, epoch by epoch');
+    expect(html).toContain('Governance analytics');
   });
 
-  it('omits the abstain line when the option holds no power', () => {
+  it('drops the chart under two epochs and falls back to the abstain figure without a supply', () => {
     const m = analyticsCardModel({
       epoch: 643,
-      powered: 1234,
-      recentlyVoting: 512,
-      totalPowerLabel: '1,200,000,000 ₳',
-      abstainLabel: null,
+      powered: 3,
+      recentlyVoting: 1,
+      totalPowerLovelace: '5000000',
+      abstainLovelace: '45000000000',
+      halfCount: null,
+      circulationLovelace: null,
+      series: [{ epoch: 643, totalDrepPower: '5000000' }],
     });
-    expect(m.abstainLine).toBeNull();
+    expect(m.chart).toBeNull();
+    expect(m.stats).toEqual([
+      { value: '1', label: 'voted in the last 12 epochs' },
+      { value: '45K ₳', label: 'held by always abstain' },
+    ]);
+    expect(analyticsCardHtml(m)).not.toContain('Delegated voting power, epoch by epoch');
   });
 
-  it('renders an html card that includes the eyebrow, headline and voting line', () => {
-    const html = analyticsCardHtml(
-      analyticsCardModel({
-        epoch: 643,
-        powered: 1234,
-        recentlyVoting: 512,
-        totalPowerLabel: '1,200,000,000 ₳',
-        abstainLabel: '45,000 ₳',
-      }),
-    );
-    expect(html).toContain('Governance analytics');
-    expect(html).toContain('Epoch 643');
-    expect(html).toContain('1,234');
-    expect(html).toContain('1,200,000,000 ₳');
-    expect(html).toContain('512 voted in the last 12 epochs');
-    expect(html).toContain('Always abstain holds 45,000 ₳');
-    // Every flex container satori needs is declared, no bare multi-child div slipped in.
-    expect(html).not.toMatch(/<div (?![^>]*display:flex)[^>]*>\s*</);
-  });
-
-  it('drops the abstain row from the html when the line is null', () => {
-    const html = analyticsCardHtml(
-      analyticsCardModel({
-        epoch: 643,
-        powered: 1234,
-        recentlyVoting: 512,
-        totalPowerLabel: '1,200,000,000 ₳',
-        abstainLabel: null,
-      }),
-    );
-    expect(html).not.toContain('Always abstain');
+  it('shows neither the half-power group nor a share when the inputs are unknown', () => {
+    const m = analyticsCardModel({
+      epoch: 643,
+      powered: 3,
+      recentlyVoting: 0,
+      totalPowerLovelace: '5000000',
+      abstainLovelace: null,
+      halfCount: 0,
+      circulationLovelace: '0',
+      series,
+    });
+    expect(m.stats).toEqual([{ value: '0', label: 'voted in the last 12 epochs' }]);
   });
 });

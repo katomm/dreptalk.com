@@ -258,7 +258,7 @@ const hasBackbone = current != null;
 // Cache-busted by the same stats fields the OG card renders, so a scraper's
 // cached image refreshes whenever any of those fields actually changes.
 const ogImage = current
-  ? `/og/analytics.png?v=${ogCardVersion([current.epoch, current.poweredDrepCount, current.recentlyVotingDrepCount, current.totalDrepPower, current.abstainPower])}`
+  ? `/og/analytics.png?v=${ogCardVersion([current.epoch, current.poweredDrepCount, current.recentlyVotingDrepCount, current.totalDrepPower, current.abstainPower, current.minCoalition50, chartStats.length, chartStats[0]?.epoch, params?.circulationLovelace])}`
   : undefined;
 
 // formatAda renders a NULL amount as "0 ₳", which would misreport an absent
