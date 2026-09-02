@@ -547,6 +547,9 @@ const activityBars = activity
             <p class="hub-cc__raster-note">Each square is one decided action from the oldest to the newest, filled when the member voted, outlined when eligible without a vote, faded outside the member's eligibility window.</p>
           </>
         )}
+        {ccPanel.interimEnd != null && (
+          <p class="hub-cc__footnote">A term ending in epoch {ccPanel.interimEnd} belongs to the interim committee, which the elected committee replaced in epoch {ccPanel.interimEnd + 1}.{ccPanel.interimCarryOver > 0 && ` ${ccPanel.interimCarryOver} of its members appear again on the committee that followed, listed once with a tenure spanning the change.`}</p>
+        )}
         <p class="hub-cc__footnote">Eligibility follows the committee membership at each action's tally epoch, and only a member's final vote counts.{ccPanel.skipped > 0 && ` ${ccPanel.skipped} actions without a resolvable committee are not counted.`}{ccPanel.verdictBasis < ccPanel.considered && ` The threshold reading covers ${ccPanel.verdictBasis} actions with a frozen committee threshold.`}</p>
       </section>
     )}
@@ -1671,6 +1674,11 @@ const activityBars = activity
     margin: 0;
     color: var(--muted);
     font-size: 0.75rem;
+  }
+  /* The panel carries two footnotes, one about reading the list and one about
+     the method. Without this they run together as a single block of text. */
+  .hub-cc__footnote + .hub-cc__footnote {
+    margin-top: 0.5rem;
   }
 
   .hub-spo {

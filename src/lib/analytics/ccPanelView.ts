@@ -38,6 +38,47 @@ export interface CcPanelView {
   /** Decided epochs of the considered actions, ascending, ties broken by gaId. One entry per member sequence position. */
   actionEpochs: number[];
   members: CcMemberRow[];
+  /** Last epoch of the interim committee, null while no replacement has been enacted. */
+  interimEnd: number | null;
+  /** Cold keys that served on the interim committee and on a later one. */
+  interimCarryOver: number;
+}
+
+/**
+ * The interim committee's last epoch and how many of its members carried on
+ * to a later one. The end is null while the interim committee is still the
+ * only one there has been. The interim committee is the earliest membership
+ * version, the set that governance started with before any committee action
+ * had been enacted, so this reads the timeline rather than naming an epoch.
+ * The panel states the boundary once, under the member list: a tenure ending
+ * in that epoch is the only signal a reader has that they are looking at the
+ * interim committee, and it cannot be a per-member label because two cold
+ * keys served on both committees.
+ */
+export function interimCommittee(members: CommitteeMemberTerm[]): { end: number | null; carryOver: number } {
+  const none = { end: null, carryOver: 0 };
+  if (members.length === 0) return none;
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const m of members) {
+    if (m.versionFrom < earliest) earliest = m.versionFrom;
+  }
+  // Every member of one version shares its end, and a null means that version
+  // is still the current one: no replacement has happened yet.
+  let end: number | null = null;
+  const interimKeys = new Set<string>();
+  for (const m of members) {
+    if (m.versionFrom !== earliest) continue;
+    if (m.versionTo == null) return none;
+    if (end == null || m.versionTo > end) end = m.versionTo;
+    interimKeys.add(m.coldKeyHex);
+  }
+  // A cold key holding a later term as well sat on both committees, so the
+  // list shows it once with a tenure spanning the change.
+  const carried = new Set<string>();
+  for (const m of members) {
+    if (m.versionFrom !== earliest && interimKeys.has(m.coldKeyHex)) carried.add(m.coldKeyHex);
+  }
+  return { end, carryOver: carried.size };
 }
 
 /** Selects the best and worst n rows from an already best-first sorted list. Under 2n rows, everything is "top" and there is no bottom. */
@@ -105,6 +146,8 @@ export function buildCcPanel(input: {
   const latencies: number[] = [];
   const actionEpochs: number[] = [];
   const perMember = new Map<string, { voted: number; eligible: number; seq: Map<number, 'voted' | 'missed'> }>();
+
+  const interim = interimCommittee(members);
 
   const termsByCold = new Map<string, CommitteeMemberTerm[]>();
   for (const m of members) {
@@ -188,5 +231,7 @@ export function buildCcPanel(input: {
     medianLatencyDays: median(latencies),
     actionEpochs,
     members: memberRows,
+    interimEnd: interim.end,
+    interimCarryOver: interim.carryOver,
   };
 }
