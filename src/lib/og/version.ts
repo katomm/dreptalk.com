@@ -18,7 +18,8 @@
 // Bump when a card template changes in a way that should re-version every
 // existing share (new layout, moved fields), independent of the underlying data.
 // 2: help cards gained the guide illustration and a two-column layout.
-export const OG_CARD_VERSION = 4;
+// 5: avatars stored as webp now render as the DRep's own picture, not an identicon.
+export const OG_CARD_VERSION = 5;
 
 // djb2, base36. Not cryptographic: a compact fingerprint whose only job is to
 // change when the inputs change. A collision merely misses a cache-bust (i.e.

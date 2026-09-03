@@ -39,6 +39,9 @@ export default defineConfig(async () => {
           d1Databases: ['DB'],
           kvNamespaces: ['SESSIONS'],
           r2Buckets: ['AVATARS'],
+          // Images binding: the pool serves the low-fidelity offline version,
+          // which covers the width/height/format transform the OG renditions use.
+          images: { binding: 'IMAGES' },
           durableObjects: { RATE_LIMITER: 'RateLimiter' },
           bindings: {
             // Pass serialized migration data so the setup file can apply them.

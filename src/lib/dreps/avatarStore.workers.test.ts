@@ -8,6 +8,7 @@ import {
   decodeDataUriImage,
   ingestDataUriAvatar,
   AVATAR_KEY_PREFIX,
+  ogAvatarKey,
   type ImageDownscaler,
 } from './avatarStore.js';
 import { upsertDrep, getDrepById, listDrepsNeedingAvatar, countGivenUpAvatars } from '../db/dreps.js';
@@ -270,6 +271,19 @@ describe('gcDrepAvatars', () => {
     expect(r.deleted).toBe(1);
     expect(await bucket().get(AVATAR_KEY_PREFIX + keepHash)).not.toBeNull();
     expect(await bucket().get(AVATAR_KEY_PREFIX + '4'.repeat(64))).toBeNull();
+  });
+
+  it('deletes an orphaned PNG rendition alongside its avatar, keeps a referenced one', async () => {
+    const keepHash = '6'.repeat(64);
+    const dropHash = '7'.repeat(64);
+    await upsertDrep(db(), { ...BASE, drepId: 'gc-rendition', imageUrl: 'https://img.example/k.webp', imageContentHash: keepHash, imageStoredUrl: 'https://img.example/k.webp' });
+    await bucket().put(ogAvatarKey(keepHash), PNG_BYTES);
+    await bucket().put(ogAvatarKey(dropHash), PNG_BYTES);
+
+    const r = await gcDrepAvatars({ db: db(), bucket: bucket(), nowMs: Date.now() + 25 * 60 * 60 * 1000 });
+    expect(r.deleted).toBe(1);
+    expect(await bucket().get(ogAvatarKey(keepHash))).not.toBeNull();
+    expect(await bucket().get(ogAvatarKey(dropHash))).toBeNull();
   });
 
   it('keeps a fresh orphan inside the grace period', async () => {

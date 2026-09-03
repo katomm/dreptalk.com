@@ -13,6 +13,7 @@ import { getTopicBySlug } from '@/lib/db/forum.js';
 import { getPoolByIdOrSlug } from '@/lib/db/pools.js';
 import { getVoteStatement } from '@/lib/db/voteRationale.js';
 import { loadAvatar } from '@/lib/og/assets.js';
+import type { ImagesLike } from '@/lib/dreps/avatarStore.js';
 import { voteCardModel } from '@/lib/og/model.js';
 import { renderOgCard } from '@/lib/og/render.js';
 import { voteCardHtml } from '@/lib/og/templates.js';
@@ -41,7 +42,12 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   const name = drep?.name ?? pool?.name ?? null;
   const seed = isDrep ? (drep!.hex ?? drep!.drepId) : (pool!.poolHash ?? pool!.poolId);
   const imageHash = drep?.imageContentHash ?? pool?.imageContentHash ?? null;
-  const avatarDataUrl = await loadAvatar(env.AVATARS as R2Bucket | undefined, seed, imageHash);
+  const avatarDataUrl = await loadAvatar(
+    env.AVATARS as R2Bucket | undefined,
+    seed,
+    imageHash,
+    env.IMAGES as ImagesLike | undefined,
+  );
 
   const model = voteCardModel(
     { name, voterId: voterKey, vote: vote.vote, rationaleText: vote.bodyText, actionTitle: action.title ?? topic!.title, role: isDrep ? 'DRep' : 'SPO' },
