@@ -671,10 +671,14 @@ main.container {
 .drep-stat__ring-arc { stroke: var(--accent); stroke-linecap: butt; }
 .drep-stat--alt .drep-stat__ring-track { stroke: color-mix(in srgb, var(--c-pos) 16%, transparent); }
 .drep-stat--alt .drep-stat__ring-arc { stroke: var(--c-pos); }
-/* Chart variant: the body wraps to a second row so the sparkline can run the
-   full tile width under the figure. The line is the picture, no icon. */
-.drep-stat--chart { flex-wrap: wrap; row-gap: 0.55rem; }
-.drep-stat--chart .drep-stat__body { flex: 1 1 0; }
+/* Chart variant: the body takes the whole first row so the sparkline can run
+   the full tile width under the figure. The line is the picture, no icon.
+   The body's min-width is what forces that break: line breaking measures the
+   flex base size, so with basis 0 the body counted as empty, the 100%-wide
+   sparkline still fitted beside it, and the text was squeezed into a
+   zero-width column that spilled one word per line. */
+.drep-stat--chart { flex-wrap: wrap; row-gap: 0.55rem; align-content: space-between; }
+.drep-stat--chart .drep-stat__body { flex: 1 1 0; min-width: 50%; }
 .drep-stat__spark { flex: 1 0 100%; width: 100%; height: 2rem; display: block; overflow: visible; }
 .drep-stat__spark-line { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .drep-stat__spark-area { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
