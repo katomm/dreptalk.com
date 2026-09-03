@@ -828,13 +828,15 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
   .drep-table__trend { display: none; }
   .drep-table thead th.drep-table__rank-h,
   .drep-table__rank { display: none; }
+  /* No opacity here: --muted is already the quiet tone, and fading it further
+     put 12px text at 4.4:1 on dark and 3.2:1 on light, under the 4.5:1 small
+     text needs. The token on its own clears it in both themes. */
   .drep-table__ranksub {
     display: block;
     color: var(--muted);
     font-size: 0.75rem;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    opacity: 0.75;
     line-height: 1.15;
   }
 }

@@ -958,7 +958,9 @@ const activityBars = activity
 
       {droppedActions.length > 0 && (
         <div class="hub-dropped">
-          <h4 class="hub-rows__subtitle hub-dropped__subtitle">Dropped without a decision{droppedActions.length > 1 && ` (${droppedActions.length})`}</h4>
+          {/* h3, not h4 like the other subtitles: this chapter has no panel
+              heading above it, so an h4 here would skip a level. */}
+          <h3 class="hub-rows__subtitle hub-dropped__subtitle">Dropped without a decision{droppedActions.length > 1 && ` (${droppedActions.length})`}</h3>
           <p class="hub-dropped__lede">A dropped action left the proposal set before its voting window ended, so it never reached a verdict of its own. <a href="/help/governance-statuses/">What the statuses mean</a></p>
           <ul class="hub-rows">
             {droppedActions.map((d) => {
@@ -1914,12 +1916,11 @@ const activityBars = activity
     color: var(--muted);
     font-size: 0.8rem;
   }
+  /* Underlined at rest, not only on hover: the accent sits at about 1.1:1
+     against the muted prose around it, so colour alone does not mark the link
+     as one. The underline is what carries it. */
   .hub-dropped__reason a {
     color: var(--accent);
-    text-decoration: none;
-  }
-  .hub-dropped__reason a:hover {
-    text-decoration: underline;
   }
   .hub-throughput__footnote {
     margin: 0;
