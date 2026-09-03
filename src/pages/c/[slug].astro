@@ -9,7 +9,8 @@ import TopicRow from '@/components/TopicRow.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
 import Pager from '@/components/Pager.astro';
 import CategoryShell from '@/components/CategoryShell.astro';
-import { getCategory, getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG, SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
+import { getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG, SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
+import { surveysEnabled } from '@/lib/surveys/switch.js';
 import SurveyRow from '@/components/survey/SurveyRow.astro';
 import { getSurveySyncState, listSurveysWithTopics, type SurveyListEntry } from '@/lib/db/surveys.js';
 import { getTopicsByIds, getCategoryStats, type Topic } from '@/lib/db/forum.js';
@@ -50,7 +51,10 @@ import govPrefsRestoreJs from '@/scripts/gov-prefs-restore.js?raw';
 import { env } from 'cloudflare:workers';
 
 const { slug } = Astro.params;
-const category = slug ? getCategory(slug) : undefined;
+// The categories this deployment serves, for the sidebar and for resolving
+// the route: a category the switch hides is a 404 here, not an empty list.
+const allCategories = getCategories({ surveys: surveysEnabled(env) });
+const category = slug ? allCategories.find((c) => c.slug === slug) : undefined;
 // Active network, passed to each row so it can turn an expiry epoch into a date.
 const netCfg = currentNetwork();
 const network = netCfg.network;
@@ -71,10 +75,6 @@ const now = Date.now();
 const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
 const isBudgetCategory = category?.slug === BUDGET_CATEGORY_SLUG;
 const isSurveysCategory = category?.slug === SURVEYS_CATEGORY_SLUG;
-// The surveys category is fed by the Tessera mirror, which only runs where
-// TESSERA_BACKEND_URL is configured (preprod today). Presence of the var is
-// how this page tells "no surveys yet" from "not indexed on this network".
-const surveysIndexed = Boolean(env.TESSERA_BACKEND_URL);
 // OG card per category kind: the governance-actions overview gets its own card,
 // other discussion categories share the generic discussion card. The budget
 // category is finalized to the current treasury card after the overview loads,
@@ -202,9 +202,8 @@ if (category && db) {
   }
 }
 
-// All categories plus per-category topic counts / last-activity, for the category
-// sidebar shown on every category page (desktop; hidden on mobile).
-const allCategories = getCategories();
+// Per-category topic counts / last-activity, for the category sidebar shown on
+// every category page (desktop; hidden on mobile).
 const catStats = catStatsPromise
   ? await catStatsPromise
   : new Map<string, { topicCount: number; lastPostAt: number | null }>();
@@ -415,15 +414,7 @@ const breadcrumbLd = {
                mobile: on desktop the whole list is short enough that the bottom pager
                alone suffices, so the top one is hidden there. */}
             <div class="ga-toppager">
-              <Pager
-                prevHref={prevPage ? pageHref(prevPage) : null}
-                nextHref={nextPage ? pageHref(nextPage) : null}
-                firstHref={firstPage ? pageHref(firstPage) : null}
-                lastHref={lastPage ? pageHref(lastPage) : null}
-                page={page}
-                totalPages={totalPages}
-                label="Topic list pagination (top)"
-              />
+              <Pager {...pager} label="Topic list pagination (top)" />
             </div>
             <div class="ga-wrap">
             <div class="ga-list">
@@ -471,28 +462,11 @@ const breadcrumbLd = {
         </>
       ) : isSurveysCategory ? (
         <>
-          {/* Rows outlive the mirror: they are on-chain records with forum
-              threads and human replies, so they stay. What they must not do
-              is look current — nothing refreshes them, and answering is off. */}
-          {!surveysIndexed && surveyEntries.length > 0 && (
-            <p class="svy-stale">
-              Surveys are no longer indexed on this network. These records are shown as last
-              mirrored; they are not being refreshed and cannot be answered here.
-            </p>
-          )}
-
           {surveyEntries.length === 0 ? (
-            surveysIndexed ? (
-              <p style="color:var(--muted);">
-                No surveys yet. A survey appears here once a DRep-eligible survey is linked by a
-                governance action.
-              </p>
-            ) : (
-              <p style="color:var(--muted);">
-                Surveys are not indexed on this network. CIP-179 surveys are currently mirrored
-                on the preprod deployment only.
-              </p>
-            )
+            <p style="color:var(--muted);">
+              No surveys yet. A survey appears here once a DRep-eligible survey is linked by a
+              governance action.
+            </p>
           ) : (
             <>
               <div style="display:flex;flex-direction:column;gap:0;">
@@ -560,17 +534,6 @@ const breadcrumbLd = {
 )}
 
 <style>
-  /* Disclosure above a survey listing whose mirror has been switched off: the
-     rows are real records, the freshness claim on them is not. */
-  .svy-stale {
-    font-size: 0.875rem;
-    color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 8%, transparent);
-    border-radius: 8px;
-    padding: 0.6rem 0.8rem;
-    margin: 0 0 1rem;
-  }
-
   /* DRep shortcut to the personal voting dashboard: a quiet accent-tinted pill
      that sits with the Sort/Type dropdowns. */
   .ga-dashlink {

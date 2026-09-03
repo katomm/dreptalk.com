@@ -28,6 +28,7 @@ import {
   getViewerSurveyResponse,
 } from '@/lib/db/surveys.js';
 import { surveyState } from '@/lib/surveys/state.js';
+import { surveysEnabled } from '@/lib/surveys/switch.js';
 import { parseSurveyDefinition } from '@/lib/surveys/view.js';
 import type { SurveyDefinition } from 'cip-179';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
@@ -343,7 +344,7 @@ const canAnswerSurvey =
   !!surveyRow &&
   surveyState(surveyRow, now, netCfg).answerable &&
   surveyDefinition !== null &&
-  Boolean(env.TESSERA_BACKEND_URL) &&
+  surveysEnabled(env) &&
   !!viewerDrepId &&
   !isScriptDrep;
 

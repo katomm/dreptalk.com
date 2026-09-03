@@ -3,7 +3,6 @@ import { Role, type SurveyDefinition } from 'cip-179';
 import { hexToBytes, type SurveyRecord } from 'cip-179/domain';
 import { toJsonSafe } from 'cip-179/tally';
 import { describe, expect, it } from 'vitest';
-import { resolveNetwork } from '../config/network.js';
 import { buildInsertGovernanceAction } from '../db/governance.js';
 import {
   getHeldSurveys,
@@ -190,7 +189,7 @@ function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
 }
 
 function deps(tessera: SurveysTessera, now = 1_780_000_500_000): SurveysSyncDeps {
-  return { db: env.DB, tessera, cfg: resolveNetwork('preprod'), now, rand: () => 'abcd1234' };
+  return { db: env.DB, tessera, now, rand: () => 'abcd1234' };
 }
 
 async function importLinkingAction(proposalId = ACTION_ID, now = 1): Promise<void> {

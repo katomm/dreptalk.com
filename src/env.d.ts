@@ -53,8 +53,9 @@ declare namespace Cloudflare {
      * Tessera serving backend for CIP-179 surveys (preprod only for now).
      * Non-empty = the surveys feature is on: gov-sync mirrors the linked
      * surveys and the app renders /c/surveys/ from D1. Empty or unset = off —
-     * the sync phase is gated out and the category shows a not-indexed state.
-     * Only gov-sync ever calls the URL; the app reads presence alone.
+     * the sync phase is gated out and the category does not exist (unlisted,
+     * /c/surveys/ a 404). Only gov-sync ever calls the URL; the app reads
+     * presence alone, through surveysEnabled().
      */
     TESSERA_BACKEND_URL?: string;
     /**

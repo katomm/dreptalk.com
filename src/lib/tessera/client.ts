@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HEX_64_SOURCE } from '../crypto/hex.js';
 
 // HTTP client for the Tessera serving backend (CIP-179 surveys). Tessera owns
 // the protocol behind this API; DRepTalk mirrors its answers into D1 the way it
@@ -57,7 +58,7 @@ export const MAX_REFS_PER_CALL = 200;
  * The contract with Tessera, which keys every survey by this exact string and
  * rejects any other spelling — so the routes and the record API validate a ref
  * against this one shape rather than each carrying a copy of it. */
-export const SURVEY_KEY_RE = /^[0-9a-f]{64}:(0|[1-9][0-9]*)$/;
+export const SURVEY_KEY_RE = new RegExp(`^${HEX_64_SOURCE}:(0|[1-9][0-9]*)$`);
 
 const healthSchema = z.object({ ok: z.boolean(), network: z.string() });
 

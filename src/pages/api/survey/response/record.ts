@@ -8,12 +8,15 @@
 // against the credential this account actually is. The survey must still be
 // able to take an answer, by the same rule the page gates its panel on.
 import type { APIRoute } from 'astro';
+import { credentialKey } from 'cip-179/domain';
 import { z } from 'zod';
 import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { parseDrepId } from '@/lib/cardano/identity';
+import { hexToBytes } from '@/lib/crypto/hex';
 import { getSurveyByRef, recordLocalSurveyResponse } from '@/lib/db/surveys';
 import { getSelfDrepId } from '@/lib/db/users';
 import { surveyState } from '@/lib/surveys/state';
+import { surveysEnabled } from '@/lib/surveys/switch';
 import { SURVEY_KEY_RE } from '@/lib/tessera/client';
 
 export const prerender = false;
@@ -38,7 +41,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   // against the chain or ages it to failed. Recording one here would strand a
   // permanent "confirming…" on the card, so refuse before touching the DB —
   // missing deployment configuration, like the binding check above it.
-  if (!env.TESSERA_BACKEND_URL) return jsonResponse({ error: 'surveys not indexed' }, 503);
+  if (!surveysEnabled(env)) return jsonResponse({ error: 'surveys not indexed' }, 503);
 
   let raw: unknown;
   try {
@@ -72,7 +75,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     surveyRef: parsed.data.surveyRef,
     userId: user.id,
     txHash: parsed.data.txHash.toLowerCase(),
-    credential: `key:${cred.hashHex}`,
+    credential: credentialKey({ type: 'key', keyHash: hexToBytes(cred.hashHex) }),
     now,
   });
 

@@ -26,9 +26,23 @@ export const SURVEYS_CATEGORY_SLUG = 'surveys';
 
 // Pre-sorted once at module load; avoids repeated sort on every getCategories() call.
 const SORTED_CATEGORIES: readonly Category[] = [...CATEGORIES].sort((a, b) => a.position - b.position);
+const WITHOUT_SURVEYS: readonly Category[] = SORTED_CATEGORIES.filter((c) => c.kind !== 'survey');
 
-export function getCategories(): readonly Category[] {
-  return SORTED_CATEGORIES;
+/**
+ * Which optional category kinds this deployment switches on. The survey kind
+ * is fed by the Tessera mirror, which runs only where TESSERA_BACKEND_URL is
+ * set (preprod today). Where it is off the category does not exist: it is
+ * absent from the sidebar, the home page and the sitemap, and /c/surveys/ is
+ * a 404 — never an empty "Surveys 0" that mainnet could not fill. Topics the
+ * mirror created before a switch-off keep their pages (they are forum threads
+ * with human replies); only the category listing goes.
+ */
+export interface CategorySwitches {
+  surveys: boolean;
+}
+
+export function getCategories(on: CategorySwitches): readonly Category[] {
+  return on.surveys ? SORTED_CATEGORIES : WITHOUT_SURVEYS;
 }
 
 export function getCategory(slug: string): Category | undefined {

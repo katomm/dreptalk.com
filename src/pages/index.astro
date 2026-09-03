@@ -7,6 +7,7 @@ import ActivityFeed from '@/components/ActivityFeed.astro';
 import Avatar from '@/components/Avatar.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { getCategories } from '../../config/categories.js';
+import { surveysEnabled } from '@/lib/surveys/switch.js';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { getLatestGovernanceAction, getLatestActionWithVotes } from '@/lib/db/governance.js';
 import { getActionVoters, getDrepVotingHistory, type ActionVoterRow } from '@/lib/db/drepVotes.js';
@@ -195,7 +196,7 @@ const ringActive = { rx: HERO_RING_RADII.active.rx * VIEWBOX, ry: HERO_RING_RADI
 // have no guide ring behind them).
 const ringOuter = { rx: HERO_RING_RADII.active.rx * 1.1 * VIEWBOX, ry: HERO_RING_RADII.active.ry * 1.13 * VIEWBOX };
 
-const categories = getCategories();
+const categories = getCategories({ surveys: surveysEnabled(env) });
 
 // Collect the release started up top (already in flight alongside the D1 work).
 const latestRelease = await latestReleasePromise;

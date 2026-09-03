@@ -19,9 +19,9 @@ import {
 } from 'cip-179/domain';
 import { fromJsonSafe } from 'cip-179/tally';
 import { SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
-import type { NetworkConfig } from '../config/network.js';
 import { createTopic } from '../db/forum.js';
 import { getKnownProposalIds, hasActionsCreatedSince } from '../db/governance.js';
+import { chunked } from '../db/sql.js';
 import {
   buildDeleteGovLinks,
   buildInsertGovLink,
@@ -62,7 +62,6 @@ export type SurveysTessera = Pick<
 export interface SurveysSyncDeps {
   db: D1Database;
   tessera: SurveysTessera;
-  cfg: NetworkConfig;
   now: number;
   /** Slug-suffix source (injected for deterministic tests). */
   rand: () => string;
@@ -384,8 +383,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   try {
     const held = await getHeldSurveys(db, now - UNAVAILABLE_TTL_MS);
     let answered = true;
-    for (let i = 0; i < held.length; i += MAX_REFS_PER_CALL) {
-      const chunk = held.slice(i, i + MAX_REFS_PER_CALL);
+    for (const chunk of chunked(held, MAX_REFS_PER_CALL)) {
       const byRef = new Map(chunk.map(h => [h.ref, h]));
       const result = await tessera.surveysByRefs(chunk.map(h => h.ref));
       if (!result.ready) {
