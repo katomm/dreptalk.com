@@ -73,7 +73,6 @@ const { survey, network, epoch, drepId } = Astro.props;
 </section>
 
 <script>
-  import 'cardano-tessera-respond';
   import type { RespondResult, TesseraRespondElement } from 'cardano-tessera-respond';
   import { Role } from 'cip-179';
   import type { SurveyRecord } from 'cip-179/domain';
@@ -95,7 +94,6 @@ const { survey, network, epoch, drepId } = Astro.props;
   if (root) {
     const network = root.dataset.network as CardanoNetwork;
     const expectedDrepId = root.dataset.drepId ?? '';
-    const record = fromJsonSafe(JSON.parse(root.dataset.definition ?? '')) as SurveyRecord;
 
     // Not HTMLSelectElement: workers-types' HTMLRewriter Element (referenced
     // globally in env.d.ts) merges into the DOM Element, and HTMLSelectElement
@@ -105,7 +103,6 @@ const { survey, network, epoch, drepId } = Astro.props;
     const connectBtn = root.querySelector<HTMLButtonElement>('[data-connect]')!;
     const connectStep = root.querySelector<HTMLElement>('[data-connect-step]')!;
     const widgetSlot = root.querySelector<HTMLElement>('[data-widget-slot]')!;
-    const widget = root.querySelector<TesseraRespondElement>('tessera-respond')!;
     const statusEl = root.querySelector<HTMLElement>('[data-status]')!;
     const errorEl = root.querySelector<HTMLElement>('[data-error]')!;
     const successEl = root.querySelector<HTMLElement>('[data-success]')!;
@@ -140,6 +137,20 @@ const { survey, network, epoch, drepId } = Astro.props;
       errorEl.hidden = true;
     }
 
+    // The widget bundle is loaded on the connect click, not with the page: the
+    // panel renders for every DRep who could answer and most only read. Its
+    // import can fail on a stale page (after a deploy the old hashed chunk is
+    // gone), so that becomes a reload hint, as the tx builder's does.
+    async function loadWidget(): Promise<void> {
+      try {
+        await import('cardano-tessera-respond');
+      } catch {
+        throw new Error(
+          'Could not load the survey form; this page may be outdated after a site update. Please reload the page and try again.',
+        );
+      }
+    }
+
     let api: EnabledWalletApi | null = null;
     connectBtn.addEventListener('click', async () => {
       scanWallets();
@@ -155,13 +166,14 @@ const { survey, network, epoch, drepId } = Astro.props;
         // The manage flows' connect: enable, network guard, and the wallet's
         // DRep id checked against the session's. No Koios preflight — the
         // `drep` role already proves active registration at login.
-        const connected = await connectVerifiedDrep({
-          rawWallet: wallet.raw,
-          network,
-          expectedDrepId,
-        });
+        const [connected] = await Promise.all([
+          connectVerifiedDrep({ rawWallet: wallet.raw, network, expectedDrepId }),
+          loadWidget(),
+        ]);
         rememberWallet(wallet.key);
         api = connected.api;
+        const record = fromJsonSafe(JSON.parse(root.dataset.definition ?? '')) as SurveyRecord;
+        const widget = root.querySelector<TesseraRespondElement>('tessera-respond')!;
         // DOM properties, never attributes: these are objects. The widget
         // renders as soon as the last one lands.
         widget.responder = { [Role.DRep]: { type: 'key', keyHash: connected.drepKeyHash } };

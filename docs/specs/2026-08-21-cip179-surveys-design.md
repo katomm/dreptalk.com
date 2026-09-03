@@ -38,8 +38,9 @@ transaction; an optimistic local record until the index confirms.
 
 **Out, deliberately:**
 
-- Mainnet and Preview. The category ships everywhere and renders an
-  explicit "not indexed on this network" state where the switch is off.
+- Mainnet and Preview. The category exists only where the switch is on:
+  elsewhere it is unlisted, absent from the sitemap, and `/c/surveys/` is
+  a 404. Threads the mirror created before a switch-off keep their pages.
 - Results rendering, interim or final. CIP-179 does not mandate a tally;
   the survey maker owns the counting policy. The card shows Tessera's
   DRep participation count (the index's audited in-window figure, then
@@ -269,7 +270,10 @@ still answerable.
   action in the same transaction, so its place is the vote panel, riding
   with A. Deferred, not rejected.
 - **One deploy switch: `TESSERA_BACKEND_URL` presence** plus the
-  `/health` network match, owned by whoever deploys the site.
+  `/health` network match, owned by whoever deploys the site. Read once
+  by `surveysEnabled()`; the app's copy and gov-sync's are held equal per
+  environment by `src/lib/deployVars.test.ts`, since the switch on one
+  side only offers answers nothing settles or mirrors surveys nobody sees.
 
 ## 5. Open items, out of scope for this PR
 

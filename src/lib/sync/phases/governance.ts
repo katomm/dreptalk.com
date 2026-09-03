@@ -77,7 +77,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     run: async (ctx) => {
       if (!ctx.tessera) return { items: 0 };
       const r = await syncSurveys({
-        db: ctx.db, tessera: ctx.tessera, cfg: ctx.cfg, now: ctx.now, rand: randSuffix,
+        db: ctx.db, tessera: ctx.tessera, now: ctx.now, rand: randSuffix,
       });
       console.log(
         `[surveys] notReady=${r.notReady} admitted=${r.admitted} refreshed=${r.refreshed}` +
