@@ -81,7 +81,7 @@ proxy route) and nothing from a page request.
 a backend whose `/health` network differs from `CARDANO_NETWORK`.
 `TESSERA_APP_URL` (optional, display-only) feeds the card's deep link.
 
-**Schema** (`0083_surveys.sql`): `survey` (one row per admitted survey;
+**Schema** (`0091_surveys.sql`): `survey` (one row per admitted survey;
 `counted_dreps` is the audited display count, `claimed_count` the list's
 raw change-detector, `final_state` NULL until decided for good,
 `unavailable` marks an upstream rollback), `survey_gov_link`,
