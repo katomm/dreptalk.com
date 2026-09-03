@@ -180,7 +180,8 @@ export async function setPoolImageStored(
   await db
     .prepare(
       `UPDATE pools
-       SET image_content_hash = ?, image_stored_url = ?, image_fetch_failed_at = NULL, image_fetch_attempts = 0
+       SET image_content_hash = ?, image_stored_url = ?, image_fetch_failed_at = NULL,
+           image_fetch_attempts = 0, image_fit_checked = 1
        WHERE pool_id = ? AND image_url = ?`,
     )
     .bind(hash, `/api/avatar/${hash}`, poolId, imageUrl)
@@ -216,6 +217,28 @@ export async function clearOrphanedPoolImageStore(db: D1Database): Promise<numbe
     )
     .run();
   return res.meta.changes ?? 0;
+}
+
+/** Pool-logo counterpart of listDrepImageHashesNeedingFit. */
+export async function listPoolImageHashesNeedingFit(db: D1Database, limit: number): Promise<string[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT DISTINCT image_content_hash AS h FROM pools
+         WHERE image_content_hash IS NOT NULL AND image_fit_checked = 0
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<{ h: string }>()
+  ).results ?? [];
+  return rows.map((r) => r.h);
+}
+
+/** Pool-logo counterpart of markDrepImageFitChecked. */
+export async function markPoolImageFitChecked(db: D1Database, hashes: string[]): Promise<void> {
+  if (hashes.length === 0) return;
+  const stmt = db.prepare('UPDATE pools SET image_fit_checked = 1 WHERE image_content_hash = ?');
+  await db.batch(hashes.map((h) => stmt.bind(h)));
 }
 
 /**

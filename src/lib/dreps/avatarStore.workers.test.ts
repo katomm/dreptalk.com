@@ -5,20 +5,13 @@ import { env } from 'cloudflare:test';
 import {
   storeDrepAvatars,
   gcDrepAvatars,
-  refitStoredAvatars,
   decodeDataUriImage,
   ingestDataUriAvatar,
   AVATAR_KEY_PREFIX,
   ogAvatarKey,
   type ImageDownscaler,
 } from './avatarStore.js';
-import {
-  upsertDrep,
-  getDrepById,
-  listDrepsNeedingAvatar,
-  countGivenUpAvatars,
-  setDrepImageStored,
-} from '../db/dreps.js';
+import { upsertDrep, getDrepById, listDrepsNeedingAvatar, countGivenUpAvatars } from '../db/dreps.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { toArrayBuffer } from '../crypto/bytes.js';
 
@@ -511,136 +504,5 @@ describe('storeDrepAvatars self-hosted image URLs', () => {
 
     expect(r).toMatchObject({ stored: 0, failed: 1 });
     expect((await getDrepById(db(), 'st-self-other'))!.imageFetchFailedAt).not.toBeNull();
-  });
-});
-
-describe('refitStoredAvatars', () => {
-  // Bytes over AVATAR_REFIT_ABOVE_BYTES, standing in for a stored full-resolution
-  // source. The refitted output is the small WEBP_BYTES.
-  const oversized = (fill: number): Uint8Array => {
-    const b = new Uint8Array(200 * 1024);
-    b.set(PNG_BYTES);
-    b[b.length - 1] = fill;
-    return b;
-  };
-  const toWebp: ImageDownscaler = async () => ({ bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' });
-
-  /** Puts an object and points a DRep row at it, so the pass considers it. */
-  async function storedAndReferenced(
-    drepId: string,
-    bytes: Uint8Array,
-    contentType = 'image/png',
-  ): Promise<string> {
-    const hash = await sha256Of(bytes);
-    await bucket().put(AVATAR_KEY_PREFIX + hash, toArrayBuffer(bytes), { httpMetadata: { contentType } });
-    const imageUrl = `https://img.example/${drepId}.png`;
-    await upsertDrep(db(), { ...BASE, drepId, imageUrl });
-    await setDrepImageStored(db(), drepId, hash, imageUrl);
-    return hash;
-  }
-
-  it('rewrites an oversized object and moves its rows to the new hash', async () => {
-    const bytes = oversized(1);
-    const oldHash = await storedAndReferenced('rf-drep', bytes);
-
-    const r = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: toWebp });
-
-    expect(r.refitted).toBe(1);
-    expect(r.savedBytes).toBe(bytes.byteLength - WEBP_BYTES.byteLength);
-    const newHash = await sha256Of(WEBP_BYTES);
-    expect((await getDrepById(db(), 'rf-drep'))!.imageContentHash).toBe(newHash);
-    const obj = await bucket().get(AVATAR_KEY_PREFIX + newHash);
-    expect(obj!.httpMetadata?.contentType).toBe('image/webp');
-    // The old object survives the pass; the GC reaps it once it is unreferenced.
-    expect(await bucket().head(AVATAR_KEY_PREFIX + oldHash)).not.toBeNull();
-  });
-
-  it('walks past an object nothing references anymore', async () => {
-    // What a refit leaves behind: the rows have moved on, the GC has not run yet.
-    // Transforming it again would be pure waste, and would recount its savings.
-    const bytes = oversized(7);
-    await bucket().put(AVATAR_KEY_PREFIX + (await sha256Of(bytes)), toArrayBuffer(bytes), {
-      httpMetadata: { contentType: 'image/png' },
-    });
-    let calls = 0;
-    const counting: ImageDownscaler = async () => {
-      calls++;
-      return { bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' };
-    };
-
-    const r = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: counting });
-
-    expect(calls).toBe(0);
-    expect(r).toMatchObject({ scanned: 0, refitted: 0, kept: 0 });
-  });
-
-  it('marks an object it cannot improve so a second run skips it', async () => {
-    const hash = await storedAndReferenced('rf-nogain', oversized(2));
-    let calls = 0;
-    const noGain: ImageDownscaler = async () => {
-      calls++;
-      return null;
-    };
-
-    const first = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: noGain });
-    expect(first.kept).toBe(1);
-    expect(calls).toBe(1);
-
-    const second = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: noGain });
-    expect(second.scanned).toBe(0);
-    expect(calls).toBe(1);
-    // Kept objects keep their bytes, their content type, and their row.
-    const obj = await bucket().get(AVATAR_KEY_PREFIX + hash);
-    expect(obj!.httpMetadata?.contentType).toBe('image/png');
-    expect((await obj!.arrayBuffer()).byteLength).toBe(200 * 1024);
-    expect((await getDrepById(db(), 'rf-nogain'))!.imageContentHash).toBe(hash);
-  });
-
-  it('keeps a GIF as it is, with its content type intact', async () => {
-    // The marking re-put must carry the object's own content type through, or a
-    // kept GIF would come back out of the bucket labelled as something else.
-    const gif = new Uint8Array(200 * 1024);
-    gif.set([0x47, 0x49, 0x46, 0x38]);
-    gif[gif.length - 1] = 9;
-    const hash = await storedAndReferenced('rf-gif', gif, 'image/gif');
-    let calls = 0;
-    const counting: ImageDownscaler = async () => {
-      calls++;
-      return { bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' };
-    };
-
-    const r = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: counting });
-
-    expect(calls).toBe(0);
-    expect(r.kept).toBe(1);
-    const obj = await bucket().get(AVATAR_KEY_PREFIX + hash);
-    expect(obj!.httpMetadata?.contentType).toBe('image/gif');
-    expect((await obj!.arrayBuffer()).byteLength).toBe(gif.byteLength);
-  });
-
-  it('leaves objects under the threshold untouched', async () => {
-    const hash = await storedAndReferenced('rf-small', PNG_BYTES);
-    let calls = 0;
-    const counting: ImageDownscaler = async () => {
-      calls++;
-      return null;
-    };
-
-    await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: counting });
-    expect(calls).toBe(0);
-    expect(await bucket().head(AVATAR_KEY_PREFIX + hash)).not.toBeNull();
-    expect((await getDrepById(db(), 'rf-small'))!.imageContentHash).toBe(hash);
-  });
-
-  it('does nothing without a refitter', async () => {
-    await storedAndReferenced('rf-nodown', oversized(3));
-    expect(await refitStoredAvatars({ db: db(), bucket: bucket() })).toMatchObject({ scanned: 0, refitted: 0 });
-  });
-
-  it('stops at the per-run limit so the backlog drains over runs', async () => {
-    for (const fill of [4, 5, 6]) await storedAndReferenced(`rf-limit-${fill}`, oversized(fill));
-
-    const r = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: toWebp, limit: 2 });
-    expect(r.scanned).toBe(2);
   });
 });

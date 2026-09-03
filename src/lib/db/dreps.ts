@@ -843,7 +843,7 @@ export async function setDrepImageStored(
   await db
     .prepare(
       `UPDATE dreps SET image_content_hash = ?, image_stored_url = ?,
-         image_fetch_failed_at = NULL, image_fetch_attempts = 0
+         image_fetch_failed_at = NULL, image_fetch_attempts = 0, image_fit_checked = 1
        WHERE drep_id = ?`,
     )
     .bind(contentHash, storedUrl, drepId)
@@ -1038,6 +1038,36 @@ export async function setDrepSlugs(
   );
   await db.batch(stmts);
   return entries.length;
+}
+
+/**
+ * Distinct stored objects not yet measured against the current avatar size rule,
+ * as the refit pass's work queue. Returns hashes rather than rows because one
+ * object can back many DReps, and the pass acts on the object.
+ */
+export async function listDrepImageHashesNeedingFit(db: D1Database, limit: number): Promise<string[]> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT DISTINCT image_content_hash AS h FROM dreps
+         WHERE image_content_hash IS NOT NULL AND image_fit_checked = 0
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<{ h: string }>()
+  ).results ?? [];
+  return rows.map((r) => r.h);
+}
+
+/**
+ * Stamps every row on these objects as measured, whatever the outcome was, so
+ * they leave the refit queue. Keyed by hash so all the DReps sharing one object
+ * settle together. No-op for an empty list.
+ */
+export async function markDrepImageFitChecked(db: D1Database, hashes: string[]): Promise<void> {
+  if (hashes.length === 0) return;
+  const stmt = db.prepare('UPDATE dreps SET image_fit_checked = 1 WHERE image_content_hash = ?');
+  await db.batch(hashes.map((h) => stmt.bind(h)));
 }
 
 /**
