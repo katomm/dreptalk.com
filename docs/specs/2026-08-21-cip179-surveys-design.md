@@ -2,9 +2,9 @@
 
 > **Status: as-built summary, for review** (thread: katomm/dreptalk.com#379;
 > began as the design under discussion there, rewritten once the code
-> existed). The README's architecture/feature update, the
-> `docs/deployment.md` correction and the deletion of this document are
-> deliberately the branch's **last commit, after the review is validated** —
+> existed). The README's architecture/feature update and the deletion of
+> this document are deliberately the branch's **last commit, after the
+> review is validated** —
 > a review that notes the README unchanged is reading the branch mid-flight,
 > not finding an oversight.
 
@@ -303,13 +303,7 @@ Each has a destination; none may silently die with this document.
   → file as an upstream issue before this document is deleted.
 - **Mechanism B** (vote-in-same-transaction proof) — lands in the vote
   panel when scheduled.
-- **`docs/development.md`'s local-sync commands are stale** (pre-existing on
-  `main`): it documents the old `*/15` and hourly crons, and its bare
-  `curl .../__scheduled` sends an empty expression, so the worker logs
-  `unknown cron` and runs nothing. The working form is
-  `?cron=*/5+*+*+*+*`. The `CRON_*` drift test does not reach prose.
-  → fix with the README/deployment pass, or as its own upstream issue.
 
-At deletion time: the architecture summary above feeds the README and
-`docs/deployment.md` updates, the Decisions move into the PR description,
+At deletion time: the architecture summary above feeds the README
+update, the Decisions move into the PR description,
 and the two flagged items become upstream issues.
