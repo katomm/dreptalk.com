@@ -52,6 +52,18 @@ function isControlCode(code: number): boolean {
 }
 
 /**
+ * Caps for text taken off chain or from an anchor and shown as a title or as
+ * always-visible prose: a governance action's title and abstract, a survey's
+ * title, description, prompts and option labels. The prose cap must not cut
+ * an abstract mid-sentence (most mainnet abstracts run 1-2.5k chars); the
+ * title cap is a line, not a paragraph. Neither format bounds its text
+ * (CIP-108 is JSON, CIP-179 bounds only the 64-byte chunks), so a definition
+ * or anchor can carry as much as a transaction holds.
+ */
+export const MAX_EXTERNAL_TITLE_LEN = 300;
+export const MAX_EXTERNAL_PROSE_LEN = 4_000;
+
+/**
  * Normalizes untrusted external free text for safe storage and display:
  * removes control characters, trims surrounding whitespace, and caps the length.
  * The result must still be HTML-escaped at render time (this does not encode).

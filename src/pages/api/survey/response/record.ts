@@ -5,13 +5,15 @@
 // show "confirming…" before the sync sees the transaction. Gated to the
 // logged-in DRep, and the recorded credential is derived from the session's
 // drep_id — never trusted from the client — so the sync settles the row
-// against the credential this account actually is.
+// against the credential this account actually is. The survey must still be
+// able to take an answer, by the same rule the page gates its panel on.
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
-import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { parseDrepId } from '@/lib/cardano/identity';
-import { recordLocalSurveyResponse, surveyRefExists } from '@/lib/db/surveys';
+import { getSurveyByRef, recordLocalSurveyResponse } from '@/lib/db/surveys';
 import { getSelfDrepId } from '@/lib/db/users';
+import { surveyState } from '@/lib/surveys/state';
 import { SURVEY_KEY_RE } from '@/lib/tessera/client';
 
 export const prerender = false;
@@ -56,8 +58,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const cred = parseDrepId(drepId);
   if (cred?.kind !== 'key') return jsonResponse({ error: 'not a key DRep' }, 403);
 
-  if (!(await surveyRefExists(db, parsed.data.surveyRef))) {
-    return jsonResponse({ error: 'unknown survey' }, 404);
+  const survey = await getSurveyByRef(db, parsed.data.surveyRef);
+  if (!survey) return jsonResponse({ error: 'unknown survey' }, 404);
+  // A tab left open past the epoch roll can still submit (the chain accepts
+  // the transaction; whether it counts is Tessera's call). Recording it would
+  // age into "didn't confirm — answer again" on a survey with no panel.
+  const now = Date.now();
+  if (!surveyState(survey, now, currentNetwork()).answerable) {
+    return jsonResponse({ error: 'survey not answerable' }, 409);
   }
 
   await recordLocalSurveyResponse(db, {
@@ -65,7 +73,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     userId: user.id,
     txHash: parsed.data.txHash.toLowerCase(),
     credential: `key:${cred.hashHex}`,
-    now: Date.now(),
+    now,
   });
 
   return jsonResponse({ ok: true });

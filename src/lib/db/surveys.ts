@@ -384,10 +384,14 @@ export async function getTopicSlugBySurveyRef(db: D1Database, ref: string): Prom
   return row?.slug ?? null;
 }
 
-/** Whether a survey with this ref is mirrored here (any state). */
-export async function surveyRefExists(db: D1Database, ref: string): Promise<boolean> {
-  const row = await db.prepare('SELECT 1 AS x FROM survey WHERE ref = ?').bind(ref).first();
-  return row !== null;
+/** One mirrored survey by its ref — what the record API decides
+ * answerability from. Null when this mirror holds no such survey. */
+export async function getSurveyByRef(db: D1Database, ref: string): Promise<SurveyRow | null> {
+  const row = await db
+    .prepare(`SELECT ${SURVEY_COLUMNS} FROM survey WHERE survey.ref = ?`)
+    .bind(ref)
+    .first<RawSurveyRow>();
+  return row ? rowToSurvey(row) : null;
 }
 
 /**

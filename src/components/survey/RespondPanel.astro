@@ -3,6 +3,10 @@
 // owns the whole CIP-179 form and emits the finished label-17 payload —
 // DRepTalk assembles no CIP-179 structure itself. Whether answering is allowed
 // at all is decided server-side by the page; this component only assumes it.
+// The wallet it connects must be the signed-in DRep's: the record API stores
+// the session's credential and the sync settles only on that credential, so
+// another wallet's answer would land on chain and leave this account a row
+// nothing settles.
 //
 // The sibling script is a bundled <script> (never is:inline), so Astro hashes
 // it into the strict CSP automatically. Server data crosses to it through
@@ -20,9 +24,11 @@ interface Props {
    * to decide the survey is open, handed to the widget as its tip epoch so
    * the two cannot disagree about whether answering is still allowed. */
   epoch: number;
+  /** The signed-in DRep's bech32 id: the wallet must derive this very id. */
+  drepId: string;
 }
 
-const { survey, network, epoch } = Astro.props;
+const { survey, network, epoch, drepId } = Astro.props;
 ---
 
 <section
@@ -32,13 +38,15 @@ const { survey, network, epoch } = Astro.props;
   data-ref={survey.ref}
   data-definition={survey.definitionJson}
   data-tip-epoch={String(epoch)}
+  data-drep-id={drepId}
 >
   <h3 class="svy-respond__title">Answer this survey</h3>
 
   <div data-connect-step>
     <p class="svy-respond__hint">
-      Connect a DRep-capable wallet (Lace, Eternl, Typhon) to answer on chain. Your answer is a
-      public Cardano transaction signed by your DRep key; the wallet pays only the network fee.
+      Connect the DRep-capable wallet (Lace, Eternl, Typhon) of the DRep you signed in with to
+      answer on chain. Your answer is a public Cardano transaction signed by your DRep key; the
+      wallet pays only the network fee.
     </p>
     <div class="svy-respond__connect">
       <select data-wallet-select aria-label="Wallet">
@@ -74,7 +82,7 @@ const { survey, network, epoch } = Astro.props;
   import { txExplorerUrl } from '@/lib/config/network.js';
   import { loadDrepTxModule } from '@/lib/governance/voteFlowClient.js';
   import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
-  import { connectAsDrep, type EnabledWalletApi } from '@/lib/wallet/drepWalletConnect.js';
+  import { connectVerifiedDrep, type EnabledWalletApi } from '@/lib/wallet/drepWalletConnect.js';
   import {
     chooseSelectedWallet,
     listCardanoWallets,
@@ -86,6 +94,7 @@ const { survey, network, epoch } = Astro.props;
   const root = document.querySelector<HTMLElement>('[data-survey-respond]');
   if (root) {
     const network = root.dataset.network as CardanoNetwork;
+    const expectedDrepId = root.dataset.drepId ?? '';
     const record = fromJsonSafe(JSON.parse(root.dataset.definition ?? '')) as SurveyRecord;
 
     // Not HTMLSelectElement: workers-types' HTMLRewriter Element (referenced
@@ -143,13 +152,19 @@ const { survey, network, epoch } = Astro.props;
       connectBtn.disabled = true;
       showStatus('Connecting…');
       try {
-        const connected = await connectAsDrep(wallet.raw, network, {
-          onEnabled: () => rememberWallet(wallet.key),
+        // The manage flows' connect: enable, network guard, and the wallet's
+        // DRep id checked against the session's. No Koios preflight — the
+        // `drep` role already proves active registration at login.
+        const connected = await connectVerifiedDrep({
+          rawWallet: wallet.raw,
+          network,
+          expectedDrepId,
         });
+        rememberWallet(wallet.key);
         api = connected.api;
         // DOM properties, never attributes: these are objects. The widget
         // renders as soon as the last one lands.
-        widget.responder = { [Role.DRep]: { type: 'key', keyHash: connected.identity.drepKeyHash } };
+        widget.responder = { [Role.DRep]: { type: 'key', keyHash: connected.drepKeyHash } };
         widget.definition = record.definition;
         widget.surveyRef = record.ref;
         widget.tipEpoch = Number(root.dataset.tipEpoch);

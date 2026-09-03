@@ -3,20 +3,20 @@ import { Role, type SurveyDefinition } from 'cip-179';
 import { toJsonSafe } from 'cip-179/tally';
 import { hexToBytes } from 'cip-179/domain';
 import { EPOCH_LENGTH_SECONDS, resolveNetwork } from '../config/network.js';
+import { MAX_EXTERNAL_PROSE_LEN, MAX_EXTERNAL_TITLE_LEN } from '../validation/input.js';
 import {
   parseSurveyDefinition,
-  participationLabel,
   questionViews,
   roleLabels,
   surveyDeadlineUnix,
-  surveyLifecycle,
-  surveyParticipation,
+  surveyDescription,
+  surveyTitle,
   tesseraSurveyUrl,
 } from './view.js';
 
 const cfg = resolveNetwork('preprod');
 
-function definition(): SurveyDefinition {
+function definition(overrides: Partial<SurveyDefinition> = {}): SurveyDefinition {
   return {
     specVersion: 5,
     owner: { type: 'key', keyHash: hexToBytes('11'.repeat(28)) },
@@ -30,69 +30,21 @@ function definition(): SurveyDefinition {
       { type: 'multiSelect', prompt: 'Choose', options: { type: 'count', count: 4 }, minSelections: 1, maxSelections: 2 },
       { type: 'numericRange', prompt: 'How much', constraints: { min: 0n, max: 100n } },
     ],
+    ...overrides,
   };
 }
 
-describe('surveyLifecycle', () => {
-  const startOf = (epoch: number) =>
-    (cfg.epochAnchor.unixSeconds + (epoch - cfg.epochAnchor.epoch) * EPOCH_LENGTH_SECONDS) * 1000;
-
-  it('is open through end_epoch inclusive and closed from the next epoch', () => {
-    const row = { endEpoch: 300, cancelled: false };
-    // Last millisecond-ish of epoch 300 (the inclusive deadline).
-    expect(surveyLifecycle(row, startOf(301) - 1000, cfg)).toBe('open');
-    expect(surveyLifecycle(row, startOf(301), cfg)).toBe('closed');
-  });
-
-  it('cancelled wins over the clock', () => {
-    expect(surveyLifecycle({ endEpoch: 300, cancelled: true }, startOf(299), cfg)).toBe('cancelled');
-  });
-});
-
-describe('surveyParticipation', () => {
-  const row = (o: Partial<Parameters<typeof surveyParticipation>[0]>) =>
-    surveyParticipation({
-      countedDreps: null,
-      finalCountedDreps: null,
-      finalState: null,
-      unavailable: false,
-      ...o,
-    });
-
-  it('prefers the artifact figure, then the in-window one, then says what is coming', () => {
-    expect(row({ countedDreps: 3, finalCountedDreps: 2, finalState: 'finalized' })).toEqual({
-      kind: 'countedAtClose',
-      count: 2,
-    });
-    // Decided but the artifact not read yet: the last in-window figure still
-    // stands, labelled as what it is.
-    expect(row({ countedDreps: 3, finalState: 'finalized' })).toEqual({ kind: 'counted', count: 3 });
-    expect(row({ countedDreps: 0 })).toEqual({ kind: 'counted', count: 0 });
-    expect(row({})).toEqual({ kind: 'pending' });
-    expect(row({ finalState: 'finalized' })).toEqual({ kind: 'pending' });
-  });
-
-  it('has no figure for a cancelled or untalliable survey, whatever was counted in-window', () => {
-    expect(row({ countedDreps: 3, finalState: 'cancelled' })).toEqual({ kind: 'none' });
-    expect(row({ countedDreps: 3, finalState: 'untalliable' })).toEqual({ kind: 'none' });
-  });
-
-  it('a rolled-back record is unavailable whatever it stored', () => {
-    expect(row({ countedDreps: 3, finalCountedDreps: 3, unavailable: true })).toEqual({
-      kind: 'unavailable',
-    });
-  });
-
-  it('words each kind once', () => {
-    expect(participationLabel({ kind: 'counted', count: 1 })).toBe('1 DRep response counted');
-    expect(participationLabel({ kind: 'countedAtClose', count: 2 })).toBe(
-      '2 DRep responses counted at close',
-    );
-    expect(participationLabel({ kind: 'pending' })).toBe('count pending');
-    expect(participationLabel({ kind: 'unavailable' })).toBe('count unavailable');
-    expect(participationLabel({ kind: 'none' })).toBe('no count');
-  });
-});
+function wireOf(def: SurveyDefinition): string {
+  return JSON.stringify(
+    toJsonSafe({
+      ref: { txId: hexToBytes('a'.repeat(64)), index: 0 },
+      txHash: 'a'.repeat(64),
+      slot: 1,
+      epochNo: 1,
+      definition: def,
+    }),
+  );
+}
 
 describe('surveyDeadlineUnix', () => {
   it('is the start of the epoch after end_epoch (inclusive deadline)', () => {
@@ -104,12 +56,47 @@ describe('surveyDeadlineUnix', () => {
 
 describe('definition round-trip and rendering', () => {
   it('parseSurveyDefinition decodes what the sync stored', () => {
-    const wire = JSON.stringify(toJsonSafe({ ref: { txId: hexToBytes('a'.repeat(64)), index: 0 }, txHash: 'a'.repeat(64), slot: 1, epochNo: 1, definition: definition() }));
-    const def = parseSurveyDefinition(wire);
-    expect(def.endEpoch).toBe(300);
-    expect(def.questions).toHaveLength(3);
+    const def = parseSurveyDefinition(wireOf(definition()));
+    expect(def?.endEpoch).toBe(300);
+    expect(def?.questions).toHaveLength(3);
     // bigint constraints survive the wire form.
-    expect(def.questions[2]).toMatchObject({ type: 'numericRange' });
+    expect(def?.questions[2]).toMatchObject({ type: 'numericRange' });
+  });
+
+  it('parseSurveyDefinition is null, not a throw, for a stored form it cannot read', () => {
+    expect(parseSurveyDefinition('not json')).toBeNull();
+    expect(parseSurveyDefinition('null')).toBeNull();
+    expect(parseSurveyDefinition('{"ref":{"txId":{"$bytes":"zz"},"index":0}}')).toBeNull();
+    // A record shaped for some other version: no definition, or one without
+    // the fields the card and the widget index into.
+    expect(parseSurveyDefinition(JSON.stringify({ txHash: 'a'.repeat(64) }))).toBeNull();
+    const reshaped = JSON.parse(wireOf(definition()));
+    reshaped.definition = { title: 'T', endEpoch: 300 };
+    expect(parseSurveyDefinition(JSON.stringify(reshaped))).toBeNull();
+  });
+
+  it('caps and strips the title, description, prompts and labels; falls back for an empty title', () => {
+    const long = 'x'.repeat(MAX_EXTERNAL_PROSE_LEN + 100);
+    const def = definition({
+      title: ` Bud\u0000get ${'t'.repeat(MAX_EXTERNAL_TITLE_LEN)}`,
+      description: `line one\u0007\n\n\n\n${long}`,
+      questions: [
+        {
+          type: 'singleChoice',
+          prompt: `Pick\u0000 ${'p'.repeat(MAX_EXTERNAL_TITLE_LEN)}`,
+          options: { type: 'options', labels: [`A\u0000${'a'.repeat(MAX_EXTERNAL_TITLE_LEN)}`, 'B'] },
+        },
+      ],
+    });
+    const key = `${'a'.repeat(64)}:7`;
+    expect(surveyTitle(def, key)).toBe(`Budget ${'t'.repeat(MAX_EXTERNAL_TITLE_LEN - 7)}`);
+    expect(surveyTitle(definition({ title: '' }), key)).toBe('Survey (aaaaaaaa:7)');
+    const description = surveyDescription(def);
+    expect(description.startsWith('line one\n\nxxx')).toBe(true);
+    expect(description).toHaveLength(MAX_EXTERNAL_PROSE_LEN);
+    const [q] = questionViews(def);
+    expect(q.prompt).toBe(`Pick ${'p'.repeat(MAX_EXTERNAL_TITLE_LEN - 5)}`);
+    expect(q.options).toEqual([`A${'a'.repeat(MAX_EXTERNAL_TITLE_LEN - 1)}`, 'B']);
   });
 
   it('questionViews flattens prompts, kinds, and both option forms', () => {

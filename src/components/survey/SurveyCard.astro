@@ -4,24 +4,25 @@
 // CIP-179 mandates no counting policy, so the card shows participation, never
 // "the result".
 import type { SurveyDefinition } from 'cip-179';
+import SurveyBadges from '@/components/survey/SurveyBadges.astro';
 import type { NetworkConfig } from '@/lib/config/network.js';
 import type { LocalSurveyResponse, SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { participationLabel, surveyState } from '@/lib/surveys/state.js';
 import {
-  lifecycleLabel,
-  participationLabel,
   questionViews,
   roleLabels,
   surveyDeadlineUnix,
-  surveyLifecycle,
-  surveyParticipation,
+  surveyDescription,
   tesseraSurveyUrl,
 } from '@/lib/surveys/view.js';
 
 interface Props {
   survey: SurveyRow;
-  definition: SurveyDefinition;
+  /** The decoded definition, or null when the stored form could not be
+   * read — the card then shows the row's facts and says so. */
+  definition: SurveyDefinition | null;
   /** The governance actions advertising this survey (may name actions this
    * site has not imported — those render unlinked). */
   links: SurveyGovLinkView[];
@@ -38,19 +39,17 @@ interface Props {
 
 const { survey, definition, links, cfg, now, appUrl, asOf, viewerResponse } = Astro.props;
 
-const lifecycle = surveyLifecycle(survey, now, cfg);
+const { lifecycle, answerable, participation } = surveyState(survey, now, cfg);
 const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
-const questions = questionViews(definition);
+const questions = definition ? questionViews(definition) : [];
+const description = definition ? surveyDescription(definition) : '';
 const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
-
-const statusLabel = lifecycleLabel(lifecycle);
 ---
 
 <section class="svy-card">
   <div class="svy-card__head">
     <span class="svy-card__kind">CIP-179 survey</span>
-    <span class:list={['svy-badge', `svy-badge--${lifecycle}`]}>{statusLabel}</span>
-    {survey.sealed && <span class="svy-badge svy-badge--sealed">Sealed</span>}
+    <SurveyBadges lifecycle={lifecycle} sealed={survey.sealed} unavailable={survey.unavailable} />
   </div>
 
   {survey.unavailable && (
@@ -70,16 +69,20 @@ const statusLabel = lifecycleLabel(lifecycle);
   )}
   {viewerResponse && viewerResponse.status === 'failed' && (
     <p class="svy-card__mine svy-card__mine--failed">
-      Your answer didn't confirm — you can answer again.
+      Your answer didn't confirm{answerable ? ' — you can answer again' : ''}.
     </p>
   )}
 
-  {survey.externalContent ? (
+  {!definition ? (
+    <p class="svy-card__note">
+      The stored survey definition could not be read, so its text is not shown here.
+    </p>
+  ) : survey.externalContent ? (
     <p class="svy-card__note">
       The survey text lives in an external document that is not loaded here.
     </p>
   ) : (
-    definition.description && <p class="svy-card__desc">{definition.description}</p>
+    description && <p class="svy-card__desc">{description}</p>
   )}
 
   <ol class="svy-card__questions">
@@ -108,7 +111,7 @@ const statusLabel = lifecycleLabel(lifecycle);
     </div>
     <div>
       <dt>Participation</dt>
-      <dd>{participationLabel(surveyParticipation(survey))}</dd>
+      <dd>{participationLabel(participation)}</dd>
     </div>
     {links.length > 0 && (
       <div>
@@ -165,29 +168,6 @@ const statusLabel = lifecycleLabel(lifecycle);
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
-  }
-  .svy-badge {
-    font-size: 0.75rem;
-    font-weight: 600;
-    border-radius: 999px;
-    padding: 0.15rem 0.6rem;
-    border: 1px solid transparent;
-  }
-  .svy-badge--open {
-    color: var(--c-pos);
-    background: color-mix(in srgb, var(--c-pos) 12%, transparent);
-  }
-  .svy-badge--closed {
-    color: var(--muted);
-    background: color-mix(in srgb, var(--muted) 14%, transparent);
-  }
-  .svy-badge--cancelled {
-    color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
-  }
-  .svy-badge--sealed {
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .svy-card__warn {
     font-size: 0.875rem;
