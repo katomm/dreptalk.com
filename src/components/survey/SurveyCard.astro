@@ -9,12 +9,13 @@ import type { LocalSurveyResponse, SurveyGovLinkView, SurveyRow } from '@/lib/db
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import {
-  countStillExpected,
   lifecycleLabel,
+  participationLabel,
   questionViews,
   roleLabels,
   surveyDeadlineUnix,
   surveyLifecycle,
+  surveyParticipation,
   tesseraSurveyUrl,
 } from '@/lib/surveys/view.js';
 
@@ -27,11 +28,15 @@ interface Props {
   cfg: NetworkConfig;
   now: number;
   appUrl: string | undefined;
+  /** Snapshot time (unix s) the mirror was last brought fully up to date
+   * with — one value for every survey, since the sync refreshes every held
+   * row on every run; null until a run has done so. */
+  asOf: number | null;
   /** The viewer's own optimistic answer row, when signed in and present. */
   viewerResponse?: LocalSurveyResponse | null;
 }
 
-const { survey, definition, links, cfg, now, appUrl, viewerResponse } = Astro.props;
+const { survey, definition, links, cfg, now, appUrl, asOf, viewerResponse } = Astro.props;
 
 const lifecycle = surveyLifecycle(survey, now, cfg);
 const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
@@ -103,13 +108,7 @@ const statusLabel = lifecycleLabel(lifecycle);
     </div>
     <div>
       <dt>Participation</dt>
-      <dd>
-        {survey.countedDreps != null
-          ? `${survey.countedDreps} DRep ${survey.countedDreps === 1 ? 'response' : 'responses'} counted`
-          : countStillExpected(survey)
-            ? 'count pending'
-            : 'count unavailable'}
-      </dd>
+      <dd>{participationLabel(surveyParticipation(survey))}</dd>
     </div>
     {links.length > 0 && (
       <div>
@@ -138,9 +137,11 @@ const statusLabel = lifecycleLabel(lifecycle);
         View on Tessera ↗
       </a>
     )}
-    <span class="svy-card__asof">
-      Survey data as of {formatRelativeTime(survey.tesseraFetchedAt * 1000, now)}. Cached, not live.
-    </span>
+    {asOf != null && (
+      <span class="svy-card__asof">
+        Survey data as of {formatRelativeTime(asOf * 1000, now)}. Cached, not live.
+      </span>
+    )}
   </div>
 </section>
 

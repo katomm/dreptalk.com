@@ -81,10 +81,10 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       });
       console.log(
         `[surveys] notReady=${r.notReady} admitted=${r.admitted} refreshed=${r.refreshed}` +
-          ` rolledBack=${r.rolledBack} audited=${r.audited} settled=${r.settled}` +
+          ` rolledBack=${r.rolledBack} finalCounts=${r.finalCounts} settled=${r.settled}` +
           ` failed=${r.failed}`,
       );
-      return { items: r.admitted + r.refreshed + r.audited + r.settled, failed: r.failed };
+      return { items: r.admitted + r.refreshed + r.finalCounts + r.settled, failed: r.failed };
     },
   },
   {

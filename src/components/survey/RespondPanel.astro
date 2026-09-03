@@ -16,9 +16,13 @@ import type { SurveyRow } from '@/lib/db/surveys.js';
 interface Props {
   survey: SurveyRow;
   network: CardanoNetwork;
+  /** The current epoch by the network's calendar — the clock the page used
+   * to decide the survey is open, handed to the widget as its tip epoch so
+   * the two cannot disagree about whether answering is still allowed. */
+  epoch: number;
 }
 
-const { survey, network } = Astro.props;
+const { survey, network, epoch } = Astro.props;
 ---
 
 <section
@@ -27,7 +31,7 @@ const { survey, network } = Astro.props;
   data-network={network}
   data-ref={survey.ref}
   data-definition={survey.definitionJson}
-  data-tip-epoch={String(survey.tipEpoch)}
+  data-tip-epoch={String(epoch)}
 >
   <h3 class="svy-respond__title">Answer this survey</h3>
 

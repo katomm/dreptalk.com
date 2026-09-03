@@ -38,6 +38,52 @@ const surveyPage = {
   nextCursor: null,
 };
 
+// A finalized tally artifact as the preprod backend served it (survey
+// 1200298c…:0, one counted DRep responder), recorded verbatim so the decode
+// is held to the shape Tessera actually emits, not to one written from memory.
+const LIVE_ARTIFACT_HASH = 'a9f7815126da1f45e8c2d760c66064b22ff7446d689088435918e3337a316027';
+const liveArtifact = {
+  tally: {
+    rulesetHash: 'c11a980bc23a6fdfb8fb5878d4764225dc46b1a2010b43da8c68b918cf7bbc97',
+    network: 'preprod',
+    survey: {
+      txId: '1200298ce001b907801909c18e6a4d55eee587e1bc3c1d4b24cfc4662ecd2d23',
+      index: 0,
+      endEpoch: 309,
+    },
+    sealed: false,
+    perRole: [
+      {
+        role: 0,
+        total: '934790092603250',
+        responders: [
+          {
+            credential: 'key:3982112c16446e50a58cdff82a8b48689a7d893759bc7e30a1e4e86d',
+            weight: '0',
+            txHash: '4eb204e4245cbd9c02acfd41fe10ed840e13175f39f22ce1fcd27f3896ac8eef',
+            responseIndex: 0,
+          },
+        ],
+        questions: [
+          {
+            kind: 'options',
+            unit: 'singleChoice',
+            options: [{ index: 0, weight: '0', count: 1 }],
+            answeredCount: 1,
+            answeredWeight: '0',
+          },
+        ],
+      },
+    ],
+  },
+  provenance: {
+    source: { provider: 'koios', baseUrl: 'https://preprod.koios.rest/api/v1' },
+    fetchedAt: 1787962379,
+    byRole: [{ role: 0, endpoint: 'drep_voting_power_history' }],
+    govLinks: [],
+  },
+};
+
 // Routes health to the guard and everything else to `body`, so each test
 // declares only the data request it is about.
 function fetchWithHealth(body: unknown, status = 200, health: unknown = healthBody) {
@@ -86,6 +132,9 @@ describe('surveyList', () => {
     expect(result.value.counts.linked).toBe(1);
     expect(result.value.govLinks[0].endEpoch).toBe(299);
     expect(result.value.responseCounts[KEY_A]).toBe(12);
+    // A backend predating the audited counts serves none; the field must
+    // then be absent rather than the decode failing.
+    expect(result.value.countedByRole).toBeUndefined();
     expect(result.value.nextCursor).toBeNull();
     // The trailing slash of the base URL must not double.
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -100,6 +149,18 @@ describe('surveyList', () => {
 
     expect(result).toMatchObject({ ready: true, value: { resync: true, nextCursor: 'c2' } });
     expect(String(fetchImpl.mock.calls[1][0])).toContain('cursor=c1');
+  });
+
+  it('decodes the audited per-role counts, role keyed by its integer', async () => {
+    const fetchImpl = fetchWithHealth({
+      ...surveyPage,
+      countedByRole: { [KEY_A]: { '0': 7, '1': 2 }, [KEY_B]: {} },
+    });
+    const result = await client(fetchImpl).surveyList();
+    expect(result.ready).toBe(true);
+    if (!result.ready) return;
+    expect(result.value.countedByRole?.[KEY_A]['0']).toBe(7);
+    expect(result.value.countedByRole?.[KEY_B]).toEqual({});
   });
 
   it('rejects a body missing the envelope fields', async () => {
@@ -136,7 +197,7 @@ describe('surveysByRefs', () => {
     const result = await client(fetchWithHealth(decided)).surveysByRefs([KEY_A]);
     expect(result.ready).toBe(true);
     if (!result.ready) return;
-    // The artifact hash is unused but must survive the decode (passthrough).
+    // The hash is what the sync later reads the final count by.
     expect(result.value.finalState[KEY_A]).toEqual({
       state: 'finalized',
       artifactHash: 'ab'.repeat(32),
@@ -162,35 +223,37 @@ describe('surveysByRefs', () => {
   });
 });
 
-describe('surveyBundle', () => {
-  const bundle = {
-    survey: { ref: { txHash: TX_A, index: 0 } },
-    responses: [{ responseIndex: 0 }],
-    cancellations: [],
-    govLinks: [],
-    tip,
-    verdicts: { [`${TX_B}:0`]: true },
-    nextCursor: 'next',
-    fetchedAt: 1780000100,
-  };
+describe('artifactByHash', () => {
+  it('decodes a live-recorded artifact down to the per-role responders', async () => {
+    const fetchImpl = fetchWithHealth(liveArtifact);
+    const artifact = await client(fetchImpl).artifactByHash(LIVE_ARTIFACT_HASH);
 
-  it('decodes a bundle page and splits the key into the path', async () => {
-    const fetchImpl = fetchWithHealth(bundle);
-    const result = await client(fetchImpl).surveyBundle(KEY_A, 'cur');
-
-    expect(result.ready).toBe(true);
-    if (!result.ready) return;
-    expect(result.value.verdicts[`${TX_B}:0`]).toBe(true);
-    expect(result.value.nextCursor).toBe('next');
+    expect(artifact.tally.perRole).toHaveLength(1);
+    expect(artifact.tally.perRole[0].role).toBe(0);
+    expect(artifact.tally.perRole[0].responders).toHaveLength(1);
     expect(fetchImpl).toHaveBeenCalledWith(
-      `https://tessera.example.dev/api/surveys/${TX_A}/0?cursor=cur`,
+      `https://tessera.example.dev/api/artifacts/${LIVE_ARTIFACT_HASH}`,
       expect.objectContaining({ method: 'GET' }),
     );
   });
 
-  it('refuses a malformed key without a request', async () => {
-    const fetchImpl = fetchWithHealth(bundle);
-    await expect(client(fetchImpl).surveyBundle('nope')).rejects.toThrow(/malformed survey key/);
+  it('rejects an artifact without the per-role tally', async () => {
+    const fetchImpl = fetchWithHealth({ tally: { sealed: false }, provenance: {} });
+    await expect(client(fetchImpl).artifactByHash(LIVE_ARTIFACT_HASH)).rejects.toThrow();
+  });
+
+  it("throws on the backend's 404 for a hash it never emitted", async () => {
+    const fetchImpl = fetchWithHealth({ error: 'no artifact' }, 404);
+    await expect(client(fetchImpl).artifactByHash(LIVE_ARTIFACT_HASH)).rejects.toThrow(
+      /tessera request failed: 404/,
+    );
+  });
+
+  it('refuses a malformed hash without a request', async () => {
+    const fetchImpl = fetchWithHealth(liveArtifact);
+    await expect(client(fetchImpl).artifactByHash('nope')).rejects.toThrow(
+      /malformed artifact hash/,
+    );
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
@@ -240,9 +303,9 @@ describe('snapshot not ready', () => {
   });
 
   it('throws on any other non-2xx', async () => {
-    const fetchImpl = fetchWithHealth({ error: 'unknown survey' }, 404);
-    await expect(client(fetchImpl).surveyBundle(KEY_A)).rejects.toThrow(
-      /tessera request failed: 404/,
+    const fetchImpl = fetchWithHealth({ error: 'bad request' }, 400);
+    await expect(client(fetchImpl).surveysByRefs([KEY_A])).rejects.toThrow(
+      /tessera request failed: 400/,
     );
   });
 });

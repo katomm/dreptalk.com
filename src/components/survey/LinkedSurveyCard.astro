@@ -6,7 +6,13 @@
 import type { NetworkConfig } from '@/lib/config/network.js';
 import type { SurveyRow } from '@/lib/db/surveys.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
-import { countStillExpected, lifecycleLabel, surveyDeadlineUnix, surveyLifecycle } from '@/lib/surveys/view.js';
+import {
+  lifecycleLabel,
+  participationLabel,
+  surveyDeadlineUnix,
+  surveyLifecycle,
+  surveyParticipation,
+} from '@/lib/surveys/view.js';
 
 interface Props {
   survey: SurveyRow;
@@ -30,13 +36,7 @@ const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
     {survey.sealed && <span class="lsvy__badge lsvy__badge--sealed">Sealed</span>}
     {lifecycle === 'open' ? `until ${formatEpochDate(deadlineUnix)}` : `ended epoch ${survey.endEpoch}`}
   </p>
-  <p class="lsvy__count">
-    {survey.countedDreps != null
-      ? `${survey.countedDreps} DRep ${survey.countedDreps === 1 ? 'response' : 'responses'} counted`
-      : countStillExpected(survey)
-        ? 'response count pending'
-        : 'response count unavailable'}
-  </p>
+  <p class="lsvy__count">{participationLabel(surveyParticipation(survey))}</p>
   <p class="lsvy__note">Linked by this action's metadata.</p>
 </div>
 

@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
-import { Role, type SurveyDefinition, type SurveyResponse } from 'cip-179';
-import { hexToBytes, proofVerdictKey, type ResponseRecord, type SurveyRecord } from 'cip-179/domain';
+import { Role, type SurveyDefinition } from 'cip-179';
+import { hexToBytes, type SurveyRecord } from 'cip-179/domain';
 import { toJsonSafe } from 'cip-179/tally';
 import { describe, expect, it } from 'vitest';
 import { resolveNetwork } from '../config/network.js';
@@ -18,9 +18,9 @@ import {
 } from '../db/surveys.js';
 import { PENDING_VOTE_TTL_SEC } from '../governance/tallySync.js';
 import {
-  type SurveyBundlePage,
   type SurveyPage,
   type SurveySet,
+  type TesseraArtifact,
   TesseraHttpError,
   type TesseraTip,
 } from '../tessera/client.js';
@@ -36,14 +36,14 @@ const TX_SECOND = 'b'.repeat(64);
 const TX_NON_DREP = 'c'.repeat(64);
 const KEY_LINKED = `${TX_LINKED}:0`;
 const KEY_SECOND = `${TX_SECOND}:0`;
+const KEY_NON_DREP = `${TX_NON_DREP}:0`;
 const ACTION_ID = 'gov_action1linkedaction';
 const ACTION_SECOND = 'gov_action1secondaction';
+const ARTIFACT_HASH = 'ab'.repeat(32);
 
 const MIN_MS = 60 * 1000;
 const HOUR_MS = 60 * MIN_MS;
-/** Mirrors the sync's AUDIT_RECHECK_MS / AUDIT_RETRY_BASE_MS. */
 const DAY_MS = 24 * HOUR_MS;
-const RETRY_MS = 5 * MIN_MS;
 /** Mirrors the sync's UNAVAILABLE_TTL_MS. */
 const ROLLBACK_TTL_MS = 4 * DAY_MS;
 
@@ -51,7 +51,13 @@ const LINKED_LINKS: SurveySet['govLinks'] = [
   { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
 ];
 const FINALIZED: SurveySet['finalState'] = {
-  [KEY_LINKED]: { state: 'finalized', artifactHash: 'ab'.repeat(32) },
+  [KEY_LINKED]: { state: 'finalized', artifactHash: ARTIFACT_HASH },
+};
+/** The backend's audited in-window counts for the default page: two DReps
+ * on the linked survey, one SPO on the non-DRep one. */
+const COUNTED: SurveySet['countedByRole'] = {
+  [KEY_LINKED]: { [Role.DRep]: 2 },
+  [KEY_NON_DREP]: { [Role.SPO]: 1 },
 };
 
 const tip: TesseraTip = {
@@ -92,30 +98,12 @@ function surveyRecord(txHash: string, def: SurveyDefinition): SurveyRecord {
   };
 }
 
-function response(credHex: string, role = 0, slot = tip.slot - 5_000): ResponseRecord {
-  const resp: SurveyResponse = {
-    specVersion: 5,
-    surveyRef: { txId: hexToBytes(TX_LINKED), index: 0 },
-    role: role as SurveyResponse['role'],
-    credential: { type: 'key', keyHash: hexToBytes(credHex.repeat(28)) },
-    answers: {
-      type: 'public',
-      answers: [{ type: 'singleChoice', questionIndex: 0, optionIndex: 0 }],
-    },
-  };
-  return {
-    txHash: 'd'.repeat(62) + credHex,
-    slot,
-    epochNo: tip.epoch - 1,
-    responseIndex: 0,
-    response: resp,
-  };
-}
-
+/** `countedByRole: null` is a backend that predates the field. */
 function setOf(
   records: SurveyRecord[],
   govLinks: SurveySet['govLinks'],
   counts: Record<string, number>,
+  countedByRole: SurveySet['countedByRole'] | null = COUNTED,
 ): SurveySet {
   return {
     surveys: records.map(r => toJsonSafe(r)),
@@ -123,6 +111,7 @@ function setOf(
     govLinks,
     tip,
     responseCounts: counts,
+    ...(countedByRole ? { countedByRole } : {}),
     finalState: {},
     fetchedAt: tip.time,
   };
@@ -136,16 +125,23 @@ function pageOf(set: SurveySet, linked: number): SurveyPage {
   };
 }
 
-function bundleOf(record: SurveyRecord, responses: ResponseRecord[]): SurveyBundlePage {
+/** A finalized tally artifact with the given DRep responders (a role with
+ * none is absent from the artifact, as Tessera emits it). */
+function artifactOf(drepResponders: number): TesseraArtifact {
   return {
-    survey: toJsonSafe(record),
-    responses: responses.map(r => toJsonSafe(r)),
-    cancellations: [],
-    govLinks: [],
-    tip,
-    verdicts: {},
-    nextCursor: null,
-    fetchedAt: tip.time,
+    tally: {
+      perRole:
+        drepResponders === 0
+          ? []
+          : [
+              {
+                role: Role.DRep,
+                responders: Array.from({ length: drepResponders }, (_, i) => ({
+                  credential: `key:${String(i).padStart(2, '0').repeat(28)}`,
+                })),
+              },
+            ],
+    },
   };
 }
 
@@ -162,13 +158,13 @@ function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
       [
         { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
         {
-          surveyKey: `${TX_NON_DREP}:0`,
+          surveyKey: KEY_NON_DREP,
           actionId: ACTION_ID,
           endEpoch: 300,
           title: 'The linking action',
         },
       ],
-      { [KEY_LINKED]: 3, [`${TX_NON_DREP}:0`]: 1 },
+      { [KEY_LINKED]: 3, [KEY_NON_DREP]: 1 },
     ),
     2,
   );
@@ -180,19 +176,7 @@ function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
         ready: true,
         value: setOf([linked], page.govLinks.slice(0, 1), { [KEY_LINKED]: 3 }),
       })),
-    surveyBundle:
-      overrides.surveyBundle ??
-      (async () => ({
-        ready: true,
-        // Three raw responses: two distinct DRep credentials (one of them
-        // answering twice — latest wins) — the audited DRep count is 2, not
-        // the list's raw 3.
-        value: bundleOf(linked, [
-          response('aa'),
-          response('bb'),
-          { ...response('aa', 0, tip.slot - 4_000), txHash: 'e'.repeat(64) },
-        ]),
-      })),
+    artifactByHash: overrides.artifactByHash ?? (async () => artifactOf(2)),
     // "Submitted, not indexed yet" — the backend's answer for any tx the
     // fake was not told about.
     responsesByTx: overrides.responsesByTx ?? (async () => ({ ready: true, value: [] })),
@@ -228,41 +212,39 @@ async function importLinkingAction(proposalId = ACTION_ID): Promise<void> {
   }).run();
 }
 
-async function surveyRows(): Promise<
-  {
-    ref: string;
-    topic_id: string;
-    counted_dreps: number | null;
-    final_state: string | null;
-    audited_at: number | null;
-    audit_due_at: number | null;
-    audit_attempts: number;
-    unavailable: number;
-    unavailable_since: number | null;
-    cancelled: number;
-  }[]
-> {
+interface StoredSurvey {
+  ref: string;
+  topic_id: string;
+  counted_dreps: number | null;
+  final_counted_dreps: number | null;
+  final_state: string | null;
+  artifact_hash: string | null;
+  unavailable: number;
+  unavailable_since: number | null;
+  cancelled: number;
+  synced_at: number;
+}
+
+async function surveyRows(): Promise<StoredSurvey[]> {
   const { results } = await env.DB.prepare(
-    `SELECT ref, topic_id, counted_dreps, final_state, audited_at, audit_due_at, audit_attempts,
-            unavailable, unavailable_since, cancelled
+    `SELECT ref, topic_id, counted_dreps, final_counted_dreps, final_state, artifact_hash,
+            unavailable, unavailable_since, cancelled, synced_at
      FROM survey ORDER BY ref`,
-  ).all<{
-    ref: string;
-    topic_id: string;
-    counted_dreps: number | null;
-    final_state: string | null;
-    audited_at: number | null;
-    audit_due_at: number | null;
-    audit_attempts: number;
-    unavailable: number;
-    unavailable_since: number | null;
-    cancelled: number;
-  }>();
+  ).all<StoredSurvey>();
+  return results;
+}
+
+async function linksOf(ref: string): Promise<{ action_id: string; title: string | null }[]> {
+  const { results } = await env.DB.prepare(
+    'SELECT action_id, title FROM survey_gov_link WHERE survey_ref = ? ORDER BY action_id',
+  )
+    .bind(ref)
+    .all<{ action_id: string; title: string | null }>();
   return results;
 }
 
 describe('syncSurveys', () => {
-  it('admits only the DRep-eligible linked survey, opens its thread, audits its DRep count', async () => {
+  it('admits only the DRep-eligible linked survey, opens its thread, stores the audited DRep count', async () => {
     await importLinkingAction();
 
     const r = await syncSurveys(deps(fakeTessera()));
@@ -272,9 +254,14 @@ describe('syncSurveys', () => {
     // standalone survey never appears in the linked list at all.
     const rows = await surveyRows();
     expect(rows.map(s => s.ref)).toEqual([KEY_LINKED]);
-    // The card number is the audited DRep count (2 distinct credentials after
-    // latest-wins), not the list's raw responseCount of 3.
-    expect(rows[0].counted_dreps).toBe(2);
+    // The card number is the backend's audited DRep count, not the list's
+    // raw responseCount of 3 — and no artifact figure yet on a held survey.
+    expect(rows[0]).toMatchObject({
+      counted_dreps: 2,
+      final_counted_dreps: null,
+      final_state: null,
+      artifact_hash: null,
+    });
 
     const topic = await env.DB.prepare(
       'SELECT id, category_slug, source, title FROM topics WHERE id = ?',
@@ -286,11 +273,7 @@ describe('syncSurveys', () => {
       source: 'survey',
       title: 'Treasury priorities',
     });
-
-    const links = await env.DB.prepare('SELECT action_id FROM survey_gov_link WHERE survey_ref = ?')
-      .bind(KEY_LINKED)
-      .all<{ action_id: string }>();
-    expect(links.results.map(l => l.action_id)).toEqual([ACTION_ID]);
+    expect((await linksOf(KEY_LINKED)).map(l => l.action_id)).toEqual([ACTION_ID]);
 
     // Second run: nothing new, nothing duplicated.
     const r2 = await syncSurveys(deps(fakeTessera()));
@@ -306,6 +289,93 @@ describe('syncSurveys', () => {
     const r = await syncSurveys(deps(fakeTessera()));
     expect(r.admitted).toBe(0);
     expect((await surveyRows()).length).toBe(0);
+  });
+
+  it('stores no in-window count while the backend serves none, and picks it up once it does', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const linked = surveyRecord(TX_LINKED, definition());
+    const blind = fakeTessera({
+      surveyList: async () => ({
+        ready: true,
+        value: pageOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }, null), 1),
+      }),
+      surveysByRefs: async () => ({
+        ready: true,
+        value: setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }, null),
+      }),
+    });
+    // The raw count of 3 is never a fallback: the row says "unknown".
+    await syncSurveys(deps(blind, now));
+    expect((await surveyRows())[0].counted_dreps).toBeNull();
+    expect((await syncSurveys(deps(blind, now + HOUR_MS))).refreshed).toBe(0);
+    expect((await surveyRows())[0].counted_dreps).toBeNull();
+
+    // The field appears on the wire: one refresh, the audited figure lands.
+    expect((await syncSurveys(deps(fakeTessera(), now + 2 * HOUR_MS))).refreshed).toBe(1);
+    expect((await surveyRows())[0].counted_dreps).toBe(2);
+
+    // A survey the field names with nothing counted is a zero, not an unknown.
+    const empty = fakeTessera({
+      surveysByRefs: async () => ({
+        ready: true,
+        value: setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }, { [KEY_LINKED]: {} }),
+      }),
+    });
+    await syncSurveys(deps(empty, now + 3 * HOUR_MS));
+    expect((await surveyRows())[0].counted_dreps).toBe(0);
+  });
+
+  it('writes a held row only when the answer moved a value it stores', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    await syncSurveys(deps(fakeTessera(), now));
+    expect((await surveyRows())[0].synced_at).toBe(now);
+
+    // The same answer again: nothing written, so synced_at keeps dating the
+    // last change rather than the last look.
+    expect((await syncSurveys(deps(fakeTessera(), now + HOUR_MS))).refreshed).toBe(0);
+    expect((await surveyRows())[0].synced_at).toBe(now);
+
+    // The audited count moved.
+    const linked = surveyRecord(TX_LINKED, definition());
+    const answer = (
+      countedByRole: SurveySet['countedByRole'],
+      govLinks: SurveySet['govLinks'] = LINKED_LINKS,
+    ) =>
+      fakeTessera({
+        surveysByRefs: async () => ({
+          ready: true,
+          value: setOf([linked], govLinks, { [KEY_LINKED]: 4 }, countedByRole),
+        }),
+      });
+    const moved = now + 2 * HOUR_MS;
+    expect((await syncSurveys(deps(answer({ [KEY_LINKED]: { 0: 3 } }), moved))).refreshed).toBe(1);
+    expect((await surveyRows())[0]).toMatchObject({ counted_dreps: 3, synced_at: moved });
+
+    // Only a link moved — the action's title, then a second linking action.
+    const retitled = now + 3 * HOUR_MS;
+    const links: SurveySet['govLinks'] = [{ ...LINKED_LINKS[0], title: 'Renamed action' }];
+    expect(
+      (await syncSurveys(deps(answer({ [KEY_LINKED]: { 0: 3 } }, links), retitled))).refreshed,
+    ).toBe(1);
+    expect(await linksOf(KEY_LINKED)).toEqual([{ action_id: ACTION_ID, title: 'Renamed action' }]);
+    expect((await surveyRows())[0].synced_at).toBe(retitled);
+    const second: SurveySet['govLinks'] = [
+      ...links,
+      { surveyKey: KEY_LINKED, actionId: ACTION_SECOND, endEpoch: 300, title: 'Another' },
+    ];
+    const relinked = now + 4 * HOUR_MS;
+    expect(
+      (await syncSurveys(deps(answer({ [KEY_LINKED]: { 0: 3 } }, second), relinked))).refreshed,
+    ).toBe(1);
+    expect((await linksOf(KEY_LINKED)).map(l => l.action_id)).toEqual([ACTION_ID, ACTION_SECOND]);
+    // And once more unchanged: quiet.
+    expect(
+      (await syncSurveys(deps(answer({ [KEY_LINKED]: { 0: 3 } }, second), relinked + HOUR_MS)))
+        .refreshed,
+    ).toBe(0);
+    expect((await surveyRows())[0].synced_at).toBe(relinked);
   });
 
   it('restarts the discovery walk when a list page answers from an older snapshot', async () => {
@@ -346,17 +416,25 @@ describe('syncSurveys', () => {
     // Page two of the restarted walk is where the second survey lives: taking
     // the stale terminal page would have admitted only the first.
     expect((await surveyRows()).map(r => r.ref)).toEqual([KEY_LINKED, KEY_SECOND]);
-    expect(await getSurveySyncState(env.DB)).toEqual({ linkedCount: 3, lastFullWalkAt: now });
+    expect(await getSurveySyncState(env.DB)).toEqual({
+      linkedCount: 3,
+      lastFullWalkAt: now,
+      tesseraFetchedAt: tip.time,
+    });
 
-    // A walk that never converges leaves the state alone, so the next run
-    // tries again instead of believing a complete walk happened.
+    // A walk that never converges leaves the walk state alone, so the next
+    // run tries again instead of believing a complete walk happened.
     const churning = fakeTessera({
       surveyList: async params =>
         params?.cursor ? { ready: true, value: stale } : { ready: true, value: pageOne(4) },
       surveysByRefs: bothRefs,
     });
     expect(await syncSurveys(deps(churning, now + HOUR_MS))).toMatchObject({ admitted: 0 });
-    expect(await getSurveySyncState(env.DB)).toEqual({ linkedCount: 3, lastFullWalkAt: now });
+    expect(await getSurveySyncState(env.DB)).toEqual({
+      linkedCount: 3,
+      lastFullWalkAt: now,
+      tesseraFetchedAt: tip.time,
+    });
   });
 
   it('rolls a held survey back when a complete answer omits it, and clears it on reappearance', async () => {
@@ -387,8 +465,9 @@ describe('syncSurveys', () => {
     expect((await syncSurveys(deps(gone, 1_780_000_500_000 + HOUR_MS))).rolledBack).toBe(1);
     expect((await surveyRows())[0].unavailable_since).toBe(1_780_000_500_000);
 
-    // The ref reappears in a complete answer: cleared, clock and all.
-    await syncSurveys(deps(fakeTessera()));
+    // The ref reappears in a complete answer: cleared, clock and all — a
+    // write, even though nothing else on the row moved.
+    expect((await syncSurveys(deps(fakeTessera()))).refreshed).toBe(1);
     [row] = await surveyRows();
     expect(row.unavailable).toBe(0);
     expect(row.unavailable_since).toBeNull();
@@ -400,18 +479,8 @@ describe('syncSurveys', () => {
     await syncSurveys(deps(fakeTessera(), now));
     const gone = fakeTessera({
       surveysByRefs: async () => ({ ready: true, value: setOf([], [], {}) }),
-      // The rolled-back ref is outside Tessera's corpus, so its bundle 404s
-      // and every due audit backs off further.
-      surveyBundle: async () => {
-        throw new TesseraHttpError(404);
-      },
     });
     await syncSurveys(deps(gone, now + HOUR_MS));
-    // The re-audit due a day out meets the 404 and closes.
-    expect(await syncSurveys(deps(gone, now + 25 * HOUR_MS))).toMatchObject({
-      audited: 0,
-      failed: 1,
-    });
 
     // Within the TTL the ref is still asked about (the refs call runs and
     // reports it absent); past the TTL the row leaves the refresh set and the
@@ -423,22 +492,15 @@ describe('syncSurveys', () => {
       },
     });
     const after = await syncSurveys(deps(guard, now + HOUR_MS + ROLLBACK_TTL_MS + 1));
-    expect(after).toMatchObject({ refreshed: 0, rolledBack: 0, audited: 0, failed: 0 });
+    expect(after).toMatchObject({ refreshed: 0, rolledBack: 0, finalCounts: 0, failed: 0 });
     const [row] = await surveyRows();
-    // Retirement, not concession, is what ends the audits: the schedule stays
-    // where the last failure left it and is simply never selected again, and
-    // the count a held row was last given is not taken away from the card.
-    expect(row).toMatchObject({
-      unavailable: 1,
-      unavailable_since: now + HOUR_MS,
-      audit_attempts: 2,
-      counted_dreps: 2,
-    });
-    expect(row.audit_due_at).not.toBeNull();
+    // The row keeps what it last knew; the pages read `unavailable` and show
+    // no count for it.
+    expect(row).toMatchObject({ unavailable: 1, unavailable_since: now + HOUR_MS, counted_dreps: 2 });
     expect(await listSurveysWithTopics(env.DB, { limit: 10, offset: 0 })).toHaveLength(1);
   });
 
-  it('freezes a survey at any final state, and only "cancelled" reads as a cancellation', async () => {
+  it('freezes a survey at any final state, and reads the artifact of a finalized one only', async () => {
     const first = surveyRecord(TX_LINKED, definition());
     const second = surveyRecord(TX_SECOND, definition({ title: 'Second survey' }));
     const links: SurveySet['govLinks'] = [
@@ -446,7 +508,8 @@ describe('syncSurveys', () => {
       { surveyKey: KEY_SECOND, actionId: ACTION_SECOND, endEpoch: 300, title: 'The other action' },
     ];
     const counts = { [KEY_LINKED]: 3, [KEY_SECOND]: 1 };
-    const open = setOf([first, second], links, counts);
+    const counted = { [KEY_LINKED]: { 0: 2 }, [KEY_SECOND]: { 0: 1 } };
+    const open = setOf([first, second], links, counts, counted);
     await importLinkingAction();
     await importLinkingAction(ACTION_SECOND);
     await syncSurveys(
@@ -460,8 +523,9 @@ describe('syncSurveys', () => {
     expect((await getHeldSurveys(env.DB, 0)).map(h => h.ref).sort()).toEqual([KEY_LINKED, KEY_SECOND]);
 
     // The refresh answer declares both decided for good — one cancelled, one
-    // finalized with an artifact. Only the cancelled one may surface as a
-    // cancellation; both must freeze.
+    // finalized, each with an artifact. Only the cancelled one may surface as
+    // a cancellation; both must freeze; only the finalized one's artifact is
+    // a count to read.
     const decided: SurveySet = {
       ...open,
       finalState: {
@@ -469,36 +533,138 @@ describe('syncSurveys', () => {
         [KEY_SECOND]: { state: 'finalized', artifactHash: 'cd'.repeat(32) },
       },
     };
-    await syncSurveys(
+    const asked: string[] = [];
+    const r = await syncSurveys(
       deps(
         fakeTessera({
           surveyList: async () => ({ ready: true, value: pageOf(open, 2) }),
           surveysByRefs: async () => ({ ready: true, value: decided }),
+          artifactByHash: async hash => {
+            asked.push(hash);
+            return artifactOf(1);
+          },
         }),
       ),
     );
-    const { results } = await env.DB.prepare(
-      'SELECT ref, cancelled, final_state FROM survey ORDER BY ref',
-    ).all<{ ref: string; cancelled: number; final_state: string | null }>();
-    expect(results).toEqual([
-      { ref: KEY_LINKED, cancelled: 1, final_state: 'cancelled' },
-      { ref: KEY_SECOND, cancelled: 0, final_state: 'finalized' },
+    expect(r).toMatchObject({ refreshed: 2, finalCounts: 1, failed: 0 });
+    expect(asked).toEqual(['cd'.repeat(32)]);
+    expect(await surveyRows()).toMatchObject([
+      {
+        ref: KEY_LINKED,
+        cancelled: 1,
+        final_state: 'cancelled',
+        artifact_hash: 'ab'.repeat(32),
+        counted_dreps: 2,
+        final_counted_dreps: null,
+      },
+      {
+        ref: KEY_SECOND,
+        cancelled: 0,
+        final_state: 'finalized',
+        artifact_hash: 'cd'.repeat(32),
+        counted_dreps: 1,
+        final_counted_dreps: 1,
+      },
     ]);
     expect(await getHeldSurveys(env.DB, 0)).toEqual([]);
 
-    // Both frozen: the next run's refresh set is empty — the bounded working
-    // set the finalState wire change buys.
-    const r = await syncSurveys(
+    // Both frozen: the next run's refresh set is empty and no artifact is
+    // asked for again — the bounded working set the finalState wire buys.
+    const quiet = await syncSurveys(
       deps(
         fakeTessera({
           surveyList: async () => ({ ready: true, value: pageOf(open, 2) }),
           surveysByRefs: async () => {
             throw new Error('a decided survey must not be refreshed');
           },
+          artifactByHash: async () => {
+            throw new Error('a counted artifact must not be read again');
+          },
         }),
       ),
     );
-    expect(r).toMatchObject({ refreshed: 0, failed: 0 });
+    expect(quiet).toMatchObject({ refreshed: 0, finalCounts: 0, failed: 0 });
+  });
+
+  it('keeps asking for the artifact of a finalized survey until it answers', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    await syncSurveys(deps(fakeTessera(), now));
+
+    const linked = surveyRecord(TX_LINKED, definition());
+    const finalized = (artifactByHash: SurveysTessera['artifactByHash']) =>
+      fakeTessera({
+        surveysByRefs: async () => ({
+          ready: true,
+          value: { ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), finalState: FINALIZED },
+        }),
+        artifactByHash,
+      });
+
+    // The decision lands while the artifact route is down: the decision and
+    // its hash are kept, the in-window figure stands, the failure is charged.
+    const down = finalized(async () => {
+      throw new TesseraHttpError(500);
+    });
+    expect(await syncSurveys(deps(down, now + HOUR_MS))).toMatchObject({
+      refreshed: 1,
+      finalCounts: 0,
+      failed: 1,
+    });
+    let [row] = await surveyRows();
+    expect(row).toMatchObject({
+      final_state: 'finalized',
+      artifact_hash: ARTIFACT_HASH,
+      counted_dreps: 2,
+      final_counted_dreps: null,
+    });
+
+    // Next run: the row is no longer refreshed, but its artifact is asked for
+    // again — and a finalized tally can count fewer DReps than the in-window
+    // figure did (end-epoch role membership), which is the number to show.
+    const asked: string[] = [];
+    const up = finalized(async hash => {
+      asked.push(hash);
+      return artifactOf(1);
+    });
+    expect(await syncSurveys(deps(up, now + 2 * HOUR_MS))).toMatchObject({
+      refreshed: 0,
+      finalCounts: 1,
+      failed: 0,
+    });
+    expect(asked).toEqual([ARTIFACT_HASH]);
+    [row] = await surveyRows();
+    expect(row).toMatchObject({ counted_dreps: 2, final_counted_dreps: 1 });
+  });
+
+  it('reads the artifact of a survey admitted already finalized in the same run', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const linked = surveyRecord(TX_LINKED, definition());
+    const finalPage: SurveyPage = {
+      ...pageOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), 1),
+      finalState: FINALIZED,
+    };
+    const fake = fakeTessera({
+      surveyList: async () => ({ ready: true, value: finalPage }),
+      surveysByRefs: async () => {
+        throw new Error('a decided survey must not be refreshed');
+      },
+      // No DRep entry at all: nobody was counted at close.
+      artifactByHash: async () => artifactOf(0),
+    });
+    expect(await syncSurveys(deps(fake, now))).toMatchObject({
+      admitted: 1,
+      refreshed: 0,
+      finalCounts: 1,
+      failed: 0,
+    });
+    expect((await surveyRows())[0]).toMatchObject({
+      final_state: 'finalized',
+      artifact_hash: ARTIFACT_HASH,
+      counted_dreps: 2,
+      final_counted_dreps: 0,
+    });
   });
 
   it('serves the page readers: by topic, the category list, and the /s/<ref> slug', async () => {
@@ -513,6 +679,7 @@ describe('syncSurveys', () => {
       endEpoch: 300,
       eligibleRoles: [Role.DRep],
       countedDreps: 2,
+      finalCountedDreps: null,
       sealed: false,
       unavailable: false,
     });
@@ -551,287 +718,59 @@ describe('syncSurveys', () => {
       admitted: 0,
       refreshed: 0,
       rolledBack: 0,
-      audited: 0,
+      finalCounts: 0,
       settled: 0,
       failed: 0,
     });
-    expect((await getSurveySyncState(env.DB)).lastFullWalkAt).toBeNull();
+    expect(await getSurveySyncState(env.DB)).toEqual({
+      linkedCount: null,
+      lastFullWalkAt: null,
+      tesseraFetchedAt: null,
+    });
   });
 
   it('stamps the full-walk state on a single-page run', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     await syncSurveys(deps(fakeTessera(), now));
-    expect(await getSurveySyncState(env.DB)).toEqual({ linkedCount: 2, lastFullWalkAt: now });
-  });
-
-  it('re-arms a held survey a day out on success and re-audits it when due', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    expect((await syncSurveys(deps(fakeTessera(), now))).audited).toBe(1);
-    let [row] = await surveyRows();
-    expect(row).toMatchObject({ audited_at: now, audit_due_at: now + DAY_MS, audit_attempts: 0 });
-
-    // Not due and nothing moved: no audit an hour later.
-    expect((await syncSurveys(deps(fakeTessera(), now + HOUR_MS))).audited).toBe(0);
-
-    // Once due, the survey is re-audited with no trigger firing — a proof
-    // verdict can flip without the raw count moving.
-    const nextDay = now + 25 * HOUR_MS;
-    expect((await syncSurveys(deps(fakeTessera(), nextDay))).audited).toBe(1);
-    [row] = await surveyRows();
-    expect(row).toMatchObject({ audited_at: nextDay, audit_due_at: nextDay + DAY_MS });
-  });
-
-  it('audits once more when a final state arrives with the count unchanged, then closes', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    await syncSurveys(deps(fakeTessera(), now));
-    expect((await surveyRows())[0].counted_dreps).toBe(2);
-
-    // Tessera finalizes: the raw count has not moved, but a proof verdict now
-    // rejects one of the two counted responses.
-    const linked = surveyRecord(TX_LINKED, definition());
-    const finalized = fakeTessera({
-      surveysByRefs: async () => ({
-        ready: true,
-        value: { ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), finalState: FINALIZED },
-      }),
-      surveyBundle: async () => ({
-        ready: true,
-        value: {
-          ...bundleOf(linked, [response('aa'), response('bb')]),
-          verdicts: { [proofVerdictKey(response('bb'))]: false },
-        },
-      }),
-    });
-    const later = now + RETRY_MS;
-    expect((await syncSurveys(deps(finalized, later))).audited).toBe(1);
-    const [row] = await surveyRows();
-    expect(row).toMatchObject({
-      final_state: 'finalized',
-      counted_dreps: 1,
-      audited_at: later,
-      audit_due_at: null,
+    expect(await getSurveySyncState(env.DB)).toEqual({
+      linkedCount: 2,
+      lastFullWalkAt: now,
+      tesseraFetchedAt: tip.time,
     });
   });
 
-  it('keeps retrying a survey admitted already final until its audit lands', async () => {
+  it('dates the mirror by the oldest answer used, and not at all when the refresh broke off', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     const linked = surveyRecord(TX_LINKED, definition());
-    const finalPage: SurveyPage = {
-      ...pageOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), 1),
-      finalState: FINALIZED,
-    };
-    const listFinal = async () => ({ ready: true as const, value: finalPage });
-    const failing = fakeTessera({
-      surveyList: listFinal,
-      surveyBundle: async () => {
+    const refsAt = (fetchedAt: number) => async () => ({
+      ready: true as const,
+      value: { ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), fetchedAt },
+    });
+    // The page answers from tip.time, the refs from an older generation: the
+    // held row now reflects the older one, so that is the "as of".
+    await syncSurveys(deps(fakeTessera({ surveysByRefs: refsAt(tip.time - 100) }), now));
+    expect((await getSurveySyncState(env.DB)).tesseraFetchedAt).toBe(tip.time - 100);
+
+    // The refs call fails: the page was read, but the held row was not
+    // brought up to it, so the stamp must not move.
+    const broken = fakeTessera({
+      surveysByRefs: async () => {
         throw new TesseraHttpError(500);
       },
     });
-    const working = fakeTessera({ surveyList: listFinal });
+    expect((await syncSurveys(deps(broken, now + HOUR_MS))).failed).toBe(1);
+    expect((await getSurveySyncState(env.DB)).tesseraFetchedAt).toBe(tip.time - 100);
 
-    // The admission-run audit fails: the failure is persisted on the row, not
-    // forgotten with the in-memory queue.
-    expect(await syncSurveys(deps(failing, now))).toMatchObject({
-      admitted: 1,
-      audited: 0,
-      failed: 1,
-    });
-    let [row] = await surveyRows();
-    expect(row).toMatchObject({
-      final_state: 'finalized',
-      counted_dreps: null,
-      audited_at: null,
-      audit_attempts: 1,
-      audit_due_at: now + RETRY_MS,
-    });
+    // Snapshot lost between the page and the refs call: same.
+    const lost = fakeTessera({ surveysByRefs: async () => ({ ready: false }) });
+    expect((await syncSurveys(deps(lost, now + 2 * HOUR_MS))).failed).toBe(0);
+    expect((await getSurveySyncState(env.DB)).tesseraFetchedAt).toBe(tip.time - 100);
 
-    // Backing off: not due one minute later.
-    expect((await syncSurveys(deps(working, now + MIN_MS))).audited).toBe(0);
-
-    // Due: the retry stores the audited final count and closes the schedule.
-    expect((await syncSurveys(deps(working, now + 6 * MIN_MS))).audited).toBe(1);
-    [row] = await surveyRows();
-    expect(row).toMatchObject({ counted_dreps: 2, audit_due_at: null });
-  });
-
-  it('covers more than AUDIT_LIMIT due surveys across runs without re-auditing the done ones', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    const records = Array.from({ length: 25 }, (_, i) =>
-      surveyRecord(String(i).padStart(2, '0').repeat(32), definition({ title: `Survey ${i}` })),
-    );
-    const links: SurveySet['govLinks'] = records.map(r => ({
-      surveyKey: `${r.txHash}:0`,
-      actionId: ACTION_ID,
-      endEpoch: 300,
-      title: 'The linking action',
-    }));
-    const counts = Object.fromEntries(records.map(r => [`${r.txHash}:0`, 1]));
-    const set = setOf(records, links, counts);
-    const byKey = new Map(records.map(r => [`${r.txHash}:0`, r]));
-    const fake = fakeTessera({
-      surveyList: async () => ({ ready: true, value: pageOf(set, 25) }),
-      surveysByRefs: async () => ({ ready: true, value: set }),
-      surveyBundle: async key => {
-        const rec = byKey.get(key);
-        if (!rec) throw new Error(`no record for ${key}`);
-        return { ready: true, value: bundleOf(rec, []) };
-      },
-    });
-
-    expect(await syncSurveys(deps(fake, now))).toMatchObject({ admitted: 25, audited: 20 });
-    // The next run audits exactly the five left over — the twenty done ones
-    // are scheduled a day out, not first in line again.
-    expect(await syncSurveys(deps(fake, now + RETRY_MS))).toMatchObject({
-      admitted: 0,
-      audited: 5,
-      failed: 0,
-    });
-    const done = await env.DB.prepare(
-      'SELECT COUNT(*) AS n FROM survey WHERE counted_dreps IS NOT NULL',
-    ).first<{ n: number }>();
-    expect(done?.n).toBe(25);
-  });
-
-  it('a not-ready bundle marks no progress: the row stays due, uncharged', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    const notReadyBundle = fakeTessera({ surveyBundle: async () => ({ ready: false }) });
-    expect(await syncSurveys(deps(notReadyBundle, now))).toMatchObject({ audited: 0, failed: 0 });
-    const [row] = await surveyRows();
-    // Losing the snapshot is not the survey's failure: no backoff charged.
-    expect(row).toMatchObject({ audit_due_at: now, audit_attempts: 0 });
-    expect((await syncSurveys(deps(fakeTessera(), now + 1_000))).audited).toBe(1);
-  });
-
-  it('backs a held survey off after a bundle 404, and a refresh trigger re-arms it', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    await syncSurveys(deps(fakeTessera(), now));
-
-    const linked = surveyRecord(TX_LINKED, definition());
-    const gone404 = fakeTessera({
-      // The moved count schedules a re-audit; the bundle route answers 404.
-      surveysByRefs: async () => ({
-        ready: true,
-        value: setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 4 }),
-      }),
-      surveyBundle: async () => {
-        throw new TesseraHttpError(404);
-      },
-    });
-    expect(await syncSurveys(deps(gone404, now + HOUR_MS))).toMatchObject({
-      audited: 0,
-      failed: 1,
-    });
-    let [row] = await surveyRows();
-    // A held row is still changing, so a 404 only backs its schedule off — it
-    // keeps the last audited count and stays due.
-    expect(row).toMatchObject({
-      audit_due_at: now + HOUR_MS + RETRY_MS,
-      audit_attempts: 1,
-      counted_dreps: 2,
-    });
-
-    // The count moved again: the refresh trigger pulls the next attempt
-    // forward and clears the ladder the failures built.
-    const back = fakeTessera({
-      surveysByRefs: async () => ({
-        ready: true,
-        value: setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 5 }),
-      }),
-    });
-    expect((await syncSurveys(deps(back, now + 2 * HOUR_MS))).audited).toBe(1);
-    [row] = await surveyRows();
-    expect(row).toMatchObject({ counted_dreps: 2, audit_attempts: 0 });
-  });
-
-  it('re-audits a rolled-back survey the moment it reappears, count unchanged', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    await syncSurveys(deps(fakeTessera(), now));
-
-    // Rolled back, and its bundle 404s for as long as it is out of the corpus,
-    // so the daily re-audit fails and backs off.
-    const gone = fakeTessera({
-      surveysByRefs: async () => ({ ready: true, value: setOf([], [], {}) }),
-      surveyBundle: async () => {
-        throw new TesseraHttpError(404);
-      },
-    });
-    await syncSurveys(deps(gone, now + HOUR_MS));
-    expect(await syncSurveys(deps(gone, now + DAY_MS + HOUR_MS))).toMatchObject({ failed: 1 });
-    expect((await surveyRows())[0]).toMatchObject({
-      unavailable: 1,
-      audit_attempts: 1,
-      audit_due_at: now + DAY_MS + HOUR_MS + RETRY_MS,
-    });
-
-    // It comes back inside the settlement window with its claimed count
-    // unchanged, in the same epoch and still undecided — reappearance is the
-    // only trigger there is. Before the backed-off attempt is even due: the
-    // failures described a survey that was absent, not this one.
-    const back = now + DAY_MS + HOUR_MS + MIN_MS;
-    expect(await syncSurveys(deps(fakeTessera(), back))).toMatchObject({ audited: 1, failed: 0 });
-    expect((await surveyRows())[0]).toMatchObject({
-      unavailable: 0,
-      unavailable_since: null,
-      audit_attempts: 0,
-      audited_at: back,
-      audit_due_at: back + DAY_MS,
-      counted_dreps: 2,
-    });
-  });
-
-  it('a decided survey concedes after exhausted retries and clears its count; a held one never concedes', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    await syncSurveys(deps(fakeTessera(), now));
-
-    const linked = surveyRecord(TX_LINKED, definition());
-    const failing = (finalState: SurveySet['finalState']) =>
-      fakeTessera({
-        surveysByRefs: async () => ({
-          ready: true,
-          value: { ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), finalState },
-        }),
-        surveyBundle: async () => {
-          throw new TesseraHttpError(500);
-        },
-      });
-
-    // Held at the top of the ladder: the next failure keeps backing off at the
-    // cap instead of conceding — a held row exits by finalizing or rolling
-    // back, never by exhaustion.
-    await env.DB.prepare('UPDATE survey SET audit_attempts = 7, audit_due_at = ?').bind(now).run();
-    await syncSurveys(deps(failing({}), now));
-    let [row] = await surveyRows();
-    expect(row).toMatchObject({
-      audit_attempts: 8,
-      audit_due_at: now + Math.min(RETRY_MS * 2 ** 7, DAY_MS),
-      counted_dreps: 2,
-    });
-
-    // Finalization arrives while the bundle route is down: the trigger resets
-    // the ladder and records the post-final audit debt.
-    await syncSurveys(deps(failing(FINALIZED), now));
-    [row] = await surveyRows();
-    expect(row).toMatchObject({ final_state: 'finalized', audit_attempts: 1, counted_dreps: 2 });
-
-    // Fast-forward to the last rung: the next failure concedes — schedule
-    // closed, and the never-confirmed count cleared rather than frozen.
-    await env.DB.prepare('UPDATE survey SET audit_attempts = 7, audit_due_at = ?').bind(now).run();
-    await syncSurveys(deps(failing(FINALIZED), now));
-    [row] = await surveyRows();
-    expect(row).toMatchObject({ audit_due_at: null, counted_dreps: null });
-
-    // Closed means closed: a later healthy run audits nothing.
-    expect((await syncSurveys(deps(fakeTessera(), now + DAY_MS))).audited).toBe(0);
-    expect((await surveyRows())[0].counted_dreps).toBeNull();
+    // A newer generation answers the refs: forward again.
+    await syncSurveys(deps(fakeTessera({ surveysByRefs: refsAt(tip.time + 180) }), now + 3 * HOUR_MS));
+    expect((await getSurveySyncState(env.DB)).tesseraFetchedAt).toBe(tip.time);
   });
 
   it('settles a local answer by its exact tx, keeps a fresh one pending, ages a stale one', async () => {

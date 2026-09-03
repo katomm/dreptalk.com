@@ -4,12 +4,13 @@ import { toJsonSafe } from 'cip-179/tally';
 import { hexToBytes } from 'cip-179/domain';
 import { EPOCH_LENGTH_SECONDS, resolveNetwork } from '../config/network.js';
 import {
-  countStillExpected,
   parseSurveyDefinition,
+  participationLabel,
   questionViews,
   roleLabels,
   surveyDeadlineUnix,
   surveyLifecycle,
+  surveyParticipation,
   tesseraSurveyUrl,
 } from './view.js';
 
@@ -48,12 +49,48 @@ describe('surveyLifecycle', () => {
   });
 });
 
-describe('countStillExpected', () => {
-  it('is false only for a decided survey with its audit schedule closed', () => {
-    expect(countStillExpected({ finalState: null, auditDueAt: null })).toBe(true);
-    expect(countStillExpected({ finalState: null, auditDueAt: 1 })).toBe(true);
-    expect(countStillExpected({ finalState: 'finalized', auditDueAt: 1 })).toBe(true);
-    expect(countStillExpected({ finalState: 'finalized', auditDueAt: null })).toBe(false);
+describe('surveyParticipation', () => {
+  const row = (o: Partial<Parameters<typeof surveyParticipation>[0]>) =>
+    surveyParticipation({
+      countedDreps: null,
+      finalCountedDreps: null,
+      finalState: null,
+      unavailable: false,
+      ...o,
+    });
+
+  it('prefers the artifact figure, then the in-window one, then says what is coming', () => {
+    expect(row({ countedDreps: 3, finalCountedDreps: 2, finalState: 'finalized' })).toEqual({
+      kind: 'countedAtClose',
+      count: 2,
+    });
+    // Decided but the artifact not read yet: the last in-window figure still
+    // stands, labelled as what it is.
+    expect(row({ countedDreps: 3, finalState: 'finalized' })).toEqual({ kind: 'counted', count: 3 });
+    expect(row({ countedDreps: 0 })).toEqual({ kind: 'counted', count: 0 });
+    expect(row({})).toEqual({ kind: 'pending' });
+    expect(row({ finalState: 'finalized' })).toEqual({ kind: 'pending' });
+  });
+
+  it('has no figure for a cancelled or untalliable survey, whatever was counted in-window', () => {
+    expect(row({ countedDreps: 3, finalState: 'cancelled' })).toEqual({ kind: 'none' });
+    expect(row({ countedDreps: 3, finalState: 'untalliable' })).toEqual({ kind: 'none' });
+  });
+
+  it('a rolled-back record is unavailable whatever it stored', () => {
+    expect(row({ countedDreps: 3, finalCountedDreps: 3, unavailable: true })).toEqual({
+      kind: 'unavailable',
+    });
+  });
+
+  it('words each kind once', () => {
+    expect(participationLabel({ kind: 'counted', count: 1 })).toBe('1 DRep response counted');
+    expect(participationLabel({ kind: 'countedAtClose', count: 2 })).toBe(
+      '2 DRep responses counted at close',
+    );
+    expect(participationLabel({ kind: 'pending' })).toBe('count pending');
+    expect(participationLabel({ kind: 'unavailable' })).toBe('count unavailable');
+    expect(participationLabel({ kind: 'none' })).toBe('no count');
   });
 });
 

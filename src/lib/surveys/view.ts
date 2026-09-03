@@ -56,14 +56,55 @@ export function lifecycleLabel(lifecycle: SurveyLifecycle): string {
   return LIFECYCLE_LABELS[lifecycle];
 }
 
-/** Whether a row storing no count can still gain one. False once a decided
- * survey's audit schedule closes without one: "pending" would be a lie, since
- * nothing is scheduled any more. */
-export function countStillExpected(row: {
+/**
+ * What the participation line can say. Two figures, both Tessera's own
+ * counting and never one of this site's: while the survey is held, the
+ * index's audited in-window DRep count (provisional — a proof still pending
+ * is counted, and a responder who leaves the role by the end epoch is not yet
+ * excluded); once finalized, the tally artifact's DRep responders, counted
+ * at close. `pending` says a figure is still coming: the backend serves no
+ * in-window count yet, or the artifact has not been read. `none` says no
+ * figure ever will: a cancelled or untalliable survey has no tally. A
+ * rolled-back record is `unavailable` whatever it stored, since the count
+ * describes a survey the index no longer has.
+ */
+export type SurveyParticipation =
+  | { kind: 'counted'; count: number }
+  | { kind: 'countedAtClose'; count: number }
+  | { kind: 'pending' }
+  | { kind: 'unavailable' }
+  | { kind: 'none' };
+
+export function surveyParticipation(row: {
+  countedDreps: number | null;
+  finalCountedDreps: number | null;
   finalState: string | null;
-  auditDueAt: number | null;
-}): boolean {
-  return row.finalState === null || row.auditDueAt !== null;
+  unavailable: boolean;
+}): SurveyParticipation {
+  if (row.unavailable) return { kind: 'unavailable' };
+  if (row.finalCountedDreps !== null) {
+    return { kind: 'countedAtClose', count: row.finalCountedDreps };
+  }
+  if (row.finalState !== null && row.finalState !== 'finalized') return { kind: 'none' };
+  if (row.countedDreps !== null) return { kind: 'counted', count: row.countedDreps };
+  return { kind: 'pending' };
+}
+
+/** One wording for the participation line, so the row, the card and the
+ * sidebar card cannot describe the same figure differently. */
+export function participationLabel(p: SurveyParticipation): string {
+  switch (p.kind) {
+    case 'counted':
+      return `${p.count} DRep ${p.count === 1 ? 'response' : 'responses'} counted`;
+    case 'countedAtClose':
+      return `${p.count} DRep ${p.count === 1 ? 'response' : 'responses'} counted at close`;
+    case 'pending':
+      return 'count pending';
+    case 'unavailable':
+      return 'count unavailable';
+    case 'none':
+      return 'no count';
+  }
 }
 
 /** Unix seconds of the response cutoff: the start of the epoch after

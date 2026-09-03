@@ -5,7 +5,13 @@ import type { NetworkConfig } from '@/lib/config/network.js';
 import type { SurveyListEntry } from '@/lib/db/surveys.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { countStillExpected, lifecycleLabel, surveyDeadlineUnix, surveyLifecycle } from '@/lib/surveys/view.js';
+import {
+  lifecycleLabel,
+  participationLabel,
+  surveyDeadlineUnix,
+  surveyLifecycle,
+  surveyParticipation,
+} from '@/lib/surveys/view.js';
 
 interface Props {
   entry: SurveyListEntry;
@@ -37,13 +43,7 @@ const replies = Math.max(0, entry.postCount - 1);
     </span>
   </div>
   <div class="svy-row__stats">
-    <span>
-      {survey.countedDreps != null
-        ? `${survey.countedDreps} DRep${survey.countedDreps === 1 ? '' : 's'} counted`
-        : countStillExpected(survey)
-          ? 'count pending'
-          : 'count unavailable'}
-    </span>
+    <span>{participationLabel(surveyParticipation(survey))}</span>
     <span>{replies} {replies === 1 ? 'reply' : 'replies'} · {formatRelativeTime(entry.lastPostAt, now)}</span>
   </div>
 </a>

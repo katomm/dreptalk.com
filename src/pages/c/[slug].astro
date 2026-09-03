@@ -11,7 +11,7 @@ import Pager from '@/components/Pager.astro';
 import CategoryShell from '@/components/CategoryShell.astro';
 import { getCategory, getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG, SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
 import SurveyRow from '@/components/survey/SurveyRow.astro';
-import { listSurveysWithTopics, type SurveyListEntry } from '@/lib/db/surveys.js';
+import { getSurveySyncState, listSurveysWithTopics, type SurveyListEntry } from '@/lib/db/surveys.js';
 import { getTopicsByIds, getCategoryStats, type Topic } from '@/lib/db/forum.js';
 import {
   getDiscussionTopics,
@@ -131,7 +131,8 @@ let treasuryOverview: TreasuryOverviewData | null = null;
 // only; the governance overview keeps its own tally/countdown enrichment instead.
 let participantCounts = new Map<string, number>();
 let excerptHtml = new Map<string, string>();
-// The oldest snapshot time on the page is what the "as of" line must show.
+// The mirror-wide snapshot time is the "as of" line: the sync refreshes every
+// held survey on every run, so no row is fresher than the mirror.
 let surveyEntries: SurveyListEntry[] = [];
 let surveyAsOf: number | null = null;
 
@@ -187,11 +188,10 @@ if (category && db) {
       null,
     );
   } else if (isSurveysCategory) {
-    surveyEntries = await listSurveysWithTopics(db, { limit: PAGE_SIZE, offset });
-    surveyAsOf = surveyEntries.reduce<number | null>(
-      (mn, e) => (mn == null || e.survey.tesseraFetchedAt < mn ? e.survey.tesseraFetchedAt : mn),
-      null,
-    );
+    [surveyEntries, surveyAsOf] = await Promise.all([
+      listSurveysWithTopics(db, { limit: PAGE_SIZE, offset }),
+      getSurveySyncState(db).then((s) => s.tesseraFetchedAt),
+    ]);
   } else {
     topics = await getDiscussionTopics(db, category.slug, { sort: discussionSort, limit: PAGE_SIZE, offset });
     const topicIds = topics.map((t) => t.id);

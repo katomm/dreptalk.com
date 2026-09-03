@@ -2,10 +2,10 @@ import { z } from 'zod';
 
 // HTTP client for the Tessera serving backend (CIP-179 surveys). Tessera owns
 // the protocol behind this API; DRepTalk mirrors its answers into D1 the way it
-// mirrors Koios, so this client decodes envelopes only. Survey records,
-// responses and cancellations stay wire-form `unknown` here — the cip-179
-// package's `fromJsonSafe` is the one place they are parsed, and duplicating
-// its schema in zod would be a second CIP-179 implementation waiting to drift.
+// mirrors Koios, so this client decodes envelopes only. Survey records and
+// cancellations stay wire-form `unknown` here — the cip-179 package's
+// `fromJsonSafe` is the one place they are parsed, and duplicating its schema
+// in zod would be a second CIP-179 implementation waiting to drift.
 //
 // The client is called from gov-sync only. No page request and no browser code
 // may reach Tessera: SSR reads D1, and the CSP's connect-src blocks the backend
@@ -92,17 +92,29 @@ const govLinkSchema = z
 export type TesseraGovLink = z.infer<typeof govLinkSchema>;
 
 // A survey decided for good: no later snapshot changes it, so the sync freezes
-// the row and stops refreshing it. `finalized` and `cancelled` also carry the
-// tally artifact hash on the wire, but this mirror shows participation, never
-// a result — only `state` is pinned and the hash passes through unread.
+// the row and stops refreshing it. `finalized` and `cancelled` carry the
+// content address of the tally artifact the decision published; a finalized
+// survey's DRep participation is read from that artifact, nothing else in it
+// is looked at — this mirror shows participation, never a result.
 const finalStateEntrySchema = z
-  .object({ state: z.enum(['finalized', 'cancelled', 'untalliable']) })
+  .object({
+    state: z.enum(['finalized', 'cancelled', 'untalliable']),
+    artifactHash: z.string().optional(),
+  })
   .passthrough();
 
 // The shared body of both /api/surveys selections (a filtered page, or the
 // refs the caller names). `incomplete` set means the backend could not index
 // every matching record, so absence from `surveys` proves nothing — the sync's
 // rollback rule keys on it.
+//
+// `responseCounts` is raw: every responder, any role, no validity or proof
+// filter, so it is never shown. `countedByRole` is the backend's audited
+// count per survey key and CIP-179 role (the role integer as the JSON key):
+// in-window, valid against the definition, latest-valid-wins, refuted proofs
+// dropped, pending ones still counted — the figure a held survey shows.
+// Optional because a backend predating the field serves none; the sync then
+// stores no in-window count rather than falling back to the raw one.
 const surveySetSchema = z
   .object({
     surveys: z.array(z.unknown()),
@@ -110,6 +122,7 @@ const surveySetSchema = z
     govLinks: z.array(govLinkSchema),
     tip: tipSchema,
     responseCounts: z.record(z.string(), z.number()),
+    countedByRole: z.record(z.string(), z.record(z.string(), z.number())).optional(),
     finalState: z.record(z.string(), finalStateEntrySchema),
     incomplete: z.boolean().optional(),
     fetchedAt: z.number(),
@@ -140,24 +153,25 @@ const surveyPageSchema = surveySetSchema.extend({
 
 export type SurveyPage = z.infer<typeof surveyPageSchema>;
 
-// One survey's bundle: the full response set (paged, 200 per page, server-side
-// fixed) plus the credential-proof verdicts validation has decided. A response
-// key absent from `verdicts` is *pending*, never failed.
-const surveyBundleSchema = z
+// A finalized survey's tally artifact (Tessera's TALLY-SPEC), decoded only as
+// far as the participation line reads: `perRole` lists each role that had a
+// counted responder at close, so a role absent from it counted none. The
+// responders themselves, the weights and the per-question tallies pass
+// through unread — a result is the survey maker's to publish, not this
+// mirror's to show.
+const artifactSchema = z
   .object({
-    survey: z.unknown(),
-    responses: z.array(z.unknown()),
-    cancellations: z.array(z.unknown()),
-    govLinks: z.array(govLinkSchema),
-    tip: tipSchema,
-    verdicts: z.record(z.string(), z.boolean()),
-    nextCursor: z.string().nullable(),
-    resync: z.boolean().optional(),
-    fetchedAt: z.number(),
+    tally: z
+      .object({
+        perRole: z.array(
+          z.object({ role: z.number(), responders: z.array(z.unknown()) }).passthrough(),
+        ),
+      })
+      .passthrough(),
   })
   .passthrough();
 
-export type SurveyBundlePage = z.infer<typeof surveyBundleSchema>;
+export type TesseraArtifact = z.infer<typeof artifactSchema>;
 
 // The responses one transaction carried. Settling on the exact transaction is
 // the point: /api/responded cannot tell a replacement from the response it
@@ -293,15 +307,16 @@ export function createTesseraClient(opts: TesseraClientOptions) {
       return snapshotRequest(`/api/surveys?refs=${keys.join(',')}`, surveySetSchema);
     },
 
-    // One page of a survey's bundle (the server fixes the page size at 200
-    // responses). The audit pass pages by `nextCursor` and restarts on
-    // `resync`: a bundle is a tally input, and a response crossing a snapshot
-    // boundary between pages would silently change the count.
-    async surveyBundle(key: string, cursor?: string): Promise<SnapshotResult<SurveyBundlePage>> {
-      if (!SURVEY_KEY_RE.test(key)) throw new RangeError(`malformed survey key: ${key}`);
-      const [txHash, index] = key.split(':');
-      const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-      return snapshotRequest(`/api/surveys/${txHash}/${index}${qs}`, surveyBundleSchema);
+    // A tally artifact by its content address. Not snapshot-backed: the body
+    // is immutable once emitted, so the backend answers from its store with a
+    // 404 for a hash it never emitted — an error here, since a hash the list
+    // named is one the backend published.
+    async artifactByHash(hash: string): Promise<TesseraArtifact> {
+      if (!/^[0-9a-f]{64}$/.test(hash)) throw new RangeError(`malformed artifact hash: ${hash}`);
+      await ensureNetwork();
+      const res = await request(`/api/artifacts/${hash}`);
+      if (!res.ok) throw new TesseraHttpError(res.status);
+      return artifactSchema.parse(JSON.parse(res.text));
     },
 
     async responsesByTx(txHash: string): Promise<SnapshotResult<TxResponse[]>> {
