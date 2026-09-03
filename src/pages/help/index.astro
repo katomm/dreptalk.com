@@ -36,7 +36,7 @@ const groups = CATEGORY_ORDER.map((cat) => ({
 
   {featured && (
     <a href={`/help/${featured.id}/`} class="help-card help-card--featured reveal" style="--reveal-delay:60ms">
-      <img class="help-card__illu" src={`/help/${featured.id}.webp`} width="96" height="96" loading="lazy" alt="" />
+      <img class="help-card__illu" src={`/help/cards/${featured.id}.webp`} width="192" height="192" loading="lazy" alt="" />
       <span class="help-card__body">
         <span class="help-card__head">
           <span class="help-card__title">{featured.data.cardLabel}</span>
@@ -54,7 +54,7 @@ const groups = CATEGORY_ORDER.map((cat) => ({
       <div class="help-list">
         {grp.items.map((g, i) => (
           <a href={`/help/${g.id}/`} class="help-card reveal" style={`--reveal-delay:${60 + i * 60}ms`}>
-            <img class="help-card__illu" src={`/help/${g.id}.webp`} width="64" height="64" loading="lazy" alt="" />
+            <img class="help-card__illu" src={`/help/cards/${g.id}.webp`} width="192" height="192" loading="lazy" alt="" />
             <span class="help-card__body">
               <span class="help-card__head">
                 <span class="help-card__title">{g.data.cardLabel}</span>

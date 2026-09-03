@@ -22,8 +22,11 @@ interface Props {
   // Mark glossary terms in the prose with definition tooltips. Off on the
   // glossary's own pages, which are already densely cross-linked.
   glossaryTerms?: boolean;
-  // URL of a decorative header illustration; help guides pass it, the
-  // glossary does not.
+  // URL of a decorative header illustration, at /help/<id>.webp and 360px for
+  // the 180 CSS px this header draws it at. The help index and the OG card take
+  // their own smaller renditions of the same drawing; all three are derived from
+  // one master by `npm run assets:help`, which a new guide has to be run through.
+  // Help guides pass this, the glossary does not.
   illustration?: string;
 }
 
@@ -50,7 +53,7 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       )}
     </div>
     {illustration && (
-      <img class="help-head__illu" src={illustration} width="640" height="640" loading="lazy" alt="" />
+      <img class="help-head__illu" src={illustration} width="360" height="360" loading="lazy" alt="" />
     )}
   </div>
 
