@@ -44,11 +44,10 @@ async function seedSurvey(ref = SURVEY_REF) {
   await env.DB.prepare(
     `INSERT OR IGNORE INTO survey
        (ref, topic_id, title, end_epoch, eligible_roles, sealed, cancelled, external_content,
-        definition, counted_dreps, claimed_count, final_state, unavailable, tip_epoch,
-        tessera_fetched_at, submitted_at, synced_at)
-     VALUES (?, 'topic-survey-record', 'Survey', 300, '[0]', 0, 0, 0, '{}', NULL, 0, NULL, 0, 299, ?, ?, ?)`,
+        definition, counted_dreps, final_state, unavailable, submitted_at, synced_at)
+     VALUES (?, 'topic-survey-record', 'Survey', 300, '[0]', 0, 0, 0, '{}', NULL, NULL, 0, ?, ?)`,
   )
-    .bind(ref, NOW, NOW, NOW)
+    .bind(ref, NOW, NOW)
     .run();
 }
 

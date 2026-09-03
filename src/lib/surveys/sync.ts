@@ -1,9 +1,10 @@
 // CIP-179 surveys sync: mirror Tessera's answers about admitted surveys into
 // D1 and open one system thread per admission. DRepTalk implements no CIP-179
 // rule of its own — records are decoded with the cip-179 package's fromJsonSafe,
-// lifecycle/cancellation come from its published aggregate(), and the displayed
-// DRep count from its published auditResponses(): the same ruleset-pinned code
-// Tessera itself runs, so no second implementation exists to drift.
+// lifecycle/cancellation come from its published aggregate(), and both
+// participation figures are Tessera's own: the index's audited per-role count
+// while a survey is held, the finalized tally artifact's DRep responders once
+// it is decided. Nothing here counts a response.
 //
 // Admission (editorial policy, not a claim about the survey): DRep-eligible AND
 // linked by a governance action DRepTalk has imported. A miss is re-evaluated
@@ -12,10 +13,7 @@
 import { Role } from 'cip-179';
 import {
   aggregate,
-  auditResponses,
   type CancellationRecord,
-  type ProofVerdicts,
-  type ResponseRecord,
   type SurveyAggregate,
   type SurveyRecord,
 } from 'cip-179/domain';
@@ -30,17 +28,17 @@ import {
   buildInsertSurvey,
   buildRefreshSurvey,
   deleteLocalSurveyResponse,
-  getAuditDueSurveys,
   getHeldSurveys,
   getKnownSurveyRefs,
   getPendingSurveyResponses,
-  concedeSurveyAudit,
   getSurveySyncState,
+  getSurveysAwaitingFinalCount,
+  type HeldSurvey,
   markStaleSurveyResponsesFailed,
-  markSurveyAudited,
-  markSurveyAuditFailed,
   markSurveysUnavailable,
   putSurveySyncState,
+  setSurveyFinalCount,
+  type SurveyRefresh,
 } from '../db/surveys.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { PENDING_VOTE_TTL_SEC } from '../governance/tallySync.js';
@@ -49,14 +47,13 @@ import {
   MAX_REFS_PER_CALL,
   type SurveySet,
   type TesseraClient,
-  TesseraHttpError,
   type TesseraTip,
 } from '../tessera/client.js';
 import { roleLabels } from './view.js';
 
 export type SurveysTessera = Pick<
   TesseraClient,
-  'surveyList' | 'surveysByRefs' | 'surveyBundle' | 'responsesByTx'
+  'surveyList' | 'surveysByRefs' | 'artifactByHash' | 'responsesByTx'
 >;
 
 export interface SurveysSyncDeps {
@@ -72,9 +69,11 @@ export interface SurveysSyncResult {
   /** Backend had no snapshot yet; nothing ran. */
   notReady: boolean;
   admitted: number;
+  /** Held rows one of whose stored values the answer moved (an unchanged row costs no write). */
   refreshed: number;
   rolledBack: number;
-  audited: number;
+  /** Finalized surveys whose artifact count was stored this run. */
+  finalCounts: number;
   /** Local answer rows deleted because their exact tx is indexed upstream. */
   settled: number;
   failed: number;
@@ -84,26 +83,10 @@ export interface SurveysSyncResult {
 const BACKSTOP_MS = 24 * 60 * 60 * 1000;
 /** Hard cap on list pages one run walks (paranoia bound, 200 surveys each). */
 const MAX_LIST_PAGES = 25;
-/** Bundle audits per run: a large due set spreads over several cron
- * invocations, which due-order makes safe — the next run resumes where this
- * one stopped. */
-const AUDIT_LIMIT = 20;
-/** Re-audit cadence for a held survey: a proof verdict can flip without the
- * raw count moving, so no trigger would ever fire. */
-const AUDIT_RECHECK_MS = 24 * 60 * 60 * 1000;
-/** Failure backoff, from one cron interval to the recheck cadence. */
-const AUDIT_RETRY_BASE_MS = 5 * 60 * 1000;
-const AUDIT_RETRY_MAX_MS = 24 * 60 * 60 * 1000;
-/** Failures (~21 h) after which a decided survey concedes. Only a decided one:
- * a held survey is still changing, so giving up on it would re-create the
- * frozen-count bug this scheduling exists to kill. */
-const MAX_AUDIT_ATTEMPTS = 8;
 /** Pending answers one run polls, oldest first: pass 4 spends one request per
  * distinct transaction, so an unpolled backlog must not be able to walk the
  * Worker's subrequest budget. What is left over waits one cron interval. */
 const SETTLE_LIMIT = 50;
-/** Response pages one bundle collection reads (200 responses each). */
-const MAX_BUNDLE_PAGES = 50;
 /** Restarts a page walk tolerates when the snapshot moves mid-walk (resync). */
 const MAX_RESYNC_RESTARTS = 2;
 /** How long an absent ref keeps its refresh slot. Four days outlasts
@@ -115,7 +98,7 @@ const UNAVAILABLE_TTL_MS = 4 * 24 * 60 * 60 * 1000;
 interface DecodedSet {
   aggregates: SurveyAggregate[];
   tip: TesseraTip;
-  responseCounts: Record<string, number>;
+  countedByRole: SurveySet['countedByRole'];
   finalState: SurveySet['finalState'];
   incomplete: boolean;
   fetchedAt: number;
@@ -150,12 +133,47 @@ function decodeSet(set: SurveySet): DecodedSet {
   return {
     aggregates,
     tip: set.tip,
-    responseCounts: set.responseCounts,
+    countedByRole: set.countedByRole,
     finalState: set.finalState,
     incomplete: set.incomplete === true,
     fetchedAt: set.fetchedAt,
     wireByKey,
   };
+}
+
+/** The in-window DRep figure for one survey, or null while the backend serves
+ * no audited counts. A survey the field names with no counted response has an
+ * empty entry — a count of zero, not an unknown. */
+function countedDreps(set: DecodedSet, key: string): number | null {
+  const byRole = set.countedByRole?.[key];
+  return byRole ? (byRole[String(Role.DRep)] ?? 0) : null;
+}
+
+/** The row values one answer gives a survey — the same shape at admission and
+ * on every refresh, so the two cannot store the same answer differently. */
+function rowValues(set: DecodedSet, a: SurveyAggregate, now: number): SurveyRefresh {
+  const decided = set.finalState[a.key];
+  return {
+    ref: a.key,
+    countedDreps: countedDreps(set, a.key),
+    cancelled: a.cancelled,
+    finalState: decided?.state ?? null,
+    artifactHash: decided?.artifactHash ?? null,
+    now,
+  };
+}
+
+/** Whether Tessera's answer moves anything the held row stores. An
+ * unavailable row is always written: presence in the answer is what clears
+ * it. Any non-null final state is new, since only undecided rows are held. */
+function refreshChanged(h: HeldSurvey, next: SurveyRefresh, links: Map<string, string | null>) {
+  if (h.unavailable || next.finalState !== null) return true;
+  if (h.countedDreps !== next.countedDreps || h.cancelled !== next.cancelled) return true;
+  if (h.links.size !== links.size) return true;
+  for (const [actionId, title] of links) {
+    if (!h.links.has(actionId) || h.links.get(actionId) !== title) return true;
+  }
+  return false;
 }
 
 /** Title for the thread: the on-chain title, or a ref-derived fallback (empty
@@ -223,21 +241,15 @@ async function admitFromSet(
         rand: rand(),
         batchWith: topicId => [
           buildInsertSurvey(db, {
-            ref: a.key,
+            ...rowValues(set, a, now),
             topicId,
             title: surveyTitle(a),
             endEpoch: a.record.definition.endEpoch,
             eligibleRoles: a.record.definition.eligibleRoles,
             sealed: a.sealed,
-            cancelled: a.cancelled,
             externalContent: a.external,
             definitionJson: wire,
-            claimedCount: set.responseCounts[a.key] ?? 0,
-            finalState: set.finalState[a.key]?.state ?? null,
-            tipEpoch: set.tip.epoch,
-            tesseraFetchedAt: set.fetchedAt,
             submittedAt: recordUnixMs(a.record.slot, set.tip),
-            now,
           }),
           ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
         ],
@@ -251,47 +263,12 @@ async function admitFromSet(
   }
 }
 
-/**
- * Collect one survey's full bundle: every response page plus the merged proof
- * verdicts. A bundle is a tally input, so a `resync` (the snapshot moved
- * between pages) restarts the collection rather than stitching two snapshots.
- * Returns null when the backend lost its snapshot mid-run.
- */
-async function collectBundle(
-  tessera: SurveysTessera,
-  key: string,
-): Promise<{ record: SurveyRecord; responses: ResponseRecord[]; verdicts: ProofVerdicts } | null> {
-  for (let attempt = 0; ; attempt++) {
-    let cursor: string | undefined;
-    let record: SurveyRecord | null = null;
-    const responses: ResponseRecord[] = [];
-    const verdicts: Record<string, boolean> = {};
-    let resync = false;
-    for (let page = 0; page < MAX_BUNDLE_PAGES; page++) {
-      const result = await tessera.surveyBundle(key, cursor);
-      if (!result.ready) return null;
-      if (result.value.resync) {
-        resync = true;
-        break;
-      }
-      record ??= fromJsonSafe(result.value.survey) as SurveyRecord;
-      responses.push(...result.value.responses.map(w => fromJsonSafe(w) as ResponseRecord));
-      Object.assign(verdicts, result.value.verdicts);
-      if (result.value.nextCursor === null) return record ? { record, responses, verdicts } : null;
-      cursor = result.value.nextCursor;
-    }
-    if (!resync || attempt >= MAX_RESYNC_RESTARTS) {
-      throw new Error(`bundle collection for ${key} did not converge`);
-    }
-  }
-}
-
 export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncResult> {
   const { db, tessera, now } = deps;
   const counters = { admitted: 0, failed: 0 };
   let refreshed = 0;
   let rolledBack = 0;
-  let audited = 0;
+  let finalCounts = 0;
   let settled = 0;
 
   const state = await getSurveySyncState(db);
@@ -309,7 +286,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       admitted: 0,
       refreshed: 0,
       rolledBack: 0,
-      audited: 0,
+      finalCounts: 0,
       settled: 0,
       failed: 0,
     };
@@ -320,6 +297,9 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       (await hasActionsCreatedSince(db, state.lastFullWalkAt ?? 0)) ||
       now - (state.lastFullWalkAt ?? 0) > BACKSTOP_MS);
 
+  /** The oldest snapshot any row was written from this run: what the "as of"
+   * line may claim once every held row has been refreshed. */
+  let asOf = page1.value.fetchedAt;
   let completeWalk = false;
   /** The linked-set size the completed walk saw. A restart re-reads page one,
    * and what this pass persists has to describe the generation it actually
@@ -332,7 +312,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         : await tessera.surveyList({ filter: 'linked', limit: MAX_REFS_PER_CALL });
     for (let n = 0; n < MAX_LIST_PAGES; n++) {
       if (!page.ready) {
-        return { notReady: true, ...counters, refreshed, rolledBack, audited, settled };
+        return { notReady: true, ...counters, refreshed, rolledBack, finalCounts, settled };
       }
       // Read before the page is used for anything: `resync` says the snapshot
       // moved under the cursor, so these rows belong to a generation this walk
@@ -342,6 +322,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       // keyset boundary. Restart from a fresh page one instead.
       if (page.value.resync) break;
       if (n === 0) walkedCount = page.value.counts.linked;
+      asOf = Math.min(asOf, page.value.fetchedAt);
       await admitFromSet(deps, decodeSet(page.value), known, counters);
       if (page.value.nextCursor === null) {
         completeWalk = true;
@@ -356,61 +337,47 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     }
     if (!walkTriggered) break;
   }
-  if (completeWalk) {
-    await putSurveySyncState(db, { ...state, linkedCount: walkedCount, lastFullWalkAt: now });
-  }
 
   // --- Pass 2: refresh every held (not-yet-final) survey by explicit refs,
-  // rolled-back detection included.
+  // rolled-back detection included. The answer names every held survey on
+  // every run, so only a row one of whose stored values moved is written:
+  // rewriting the rest would be a write per held row per five minutes that
+  // changes nothing.
+  let refreshComplete = false;
   try {
     const held = await getHeldSurveys(db, now - UNAVAILABLE_TTL_MS);
+    let answered = true;
     for (let i = 0; i < held.length; i += MAX_REFS_PER_CALL) {
       const chunk = held.slice(i, i + MAX_REFS_PER_CALL);
       const byRef = new Map(chunk.map(h => [h.ref, h]));
       const result = await tessera.surveysByRefs(chunk.map(h => h.ref));
-      if (!result.ready) break;
+      if (!result.ready) {
+        answered = false;
+        break;
+      }
       const set = decodeSet(result.value);
+      asOf = Math.min(asOf, set.fetchedAt);
       const present = new Set(set.aggregates.map(a => a.key));
       // D1's 100-bind cap is per statement, not summed across a batch, and the
-      // widest statement here binds 9 — so one chunk's refreshes commit as a
-      // single batch, keeping the whole page's rewrite atomic. An empty answer
-      // (every held ref rolled back) yields no statements: D1 rejects an empty
-      // batch, so it must not be issued.
-      const refreshStatements = set.aggregates.flatMap(a => {
+      // widest statement here binds 6 — so one chunk's refreshes commit as a
+      // single batch, keeping the whole page's rewrite atomic. An answer that
+      // moved nothing yields no statements: D1 rejects an empty batch, so it
+      // must not be issued.
+      const statements: D1PreparedStatement[] = [];
+      for (const a of set.aggregates) {
         const h = byRef.get(a.key);
-        const claimedCount = set.responseCounts[a.key] ?? 0;
-        const finalState = set.finalState[a.key]?.state ?? null;
-        // Every row here was held, so any non-null finalState is its
-        // arrival — and it must trigger an audit rather than freeze the
-        // stored count, because verdicts land late: a proof verdict can
-        // still flip a counted response after the count itself settles.
-        // A ref that was unavailable and is answered again triggers too: its
-        // bundle 404'd for as long as it was gone, so the count on the row
-        // predates the rollback and the backoff those failures built describes
-        // a survey that was absent, not this one.
-        const triggered =
-          h !== undefined &&
-          (h.unavailable ||
-            claimedCount !== h.claimedCount ||
-            (h.tipEpoch <= h.endEpoch && set.tip.epoch > h.endEpoch) ||
-            finalState !== null);
-        return [
-          buildRefreshSurvey(db, {
-            ref: a.key,
-            claimedCount,
-            cancelled: a.cancelled,
-            finalState,
-            auditDueAt: triggered ? now : null,
-            tipEpoch: set.tip.epoch,
-            tesseraFetchedAt: set.fetchedAt,
-            now,
-          }),
+        if (!h) continue;
+        const next = rowValues(set, a, now);
+        const links = new Map(a.govLinks.map(l => [l.actionId, l.title]));
+        if (!refreshChanged(h, next, links)) continue;
+        statements.push(
+          buildRefreshSurvey(db, next),
           buildDeleteGovLinks(db, a.key),
           ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
-        ];
-      });
-      if (refreshStatements.length > 0) await db.batch(refreshStatements);
-      refreshed += set.aggregates.length;
+        );
+        refreshed++;
+      }
+      if (statements.length > 0) await db.batch(statements);
       // A ref absent from a COMPLETE answer names a rolled-back record; from an
       // incomplete one, absence proves nothing — touch no row.
       if (!set.incomplete) {
@@ -421,45 +388,44 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         }
       }
     }
+    refreshComplete = answered;
   } catch (err) {
     console.error('[surveys] refresh pass failed', err);
     counters.failed++;
   }
 
-  // --- Pass 3: audit counts through Tessera's published auditResponses, for
-  // every survey whose audit is due. Every outcome is persisted on the row, so
-  // a crashed or snapshot-less run leaves those surveys simply due again. A
-  // 404 says the survey is outside Tessera's corpus right now, which is the
-  // same thing pass 2 records as a rollback and not proof it is gone: the
-  // settlement window can bring the record back, which is why a rolled-back
-  // row keeps its refresh slot for four days. The audit schedule follows that
-  // lifecycle — a held row backs off and retries until it retires out of the
-  // due set, and only a decided one, whose count can no longer be confirmed,
-  // concedes.
+  // The mirror's bookkeeping, one row: the walk that completed (if one did)
+  // and the snapshot the held rows now reflect. The "as of" advances only when
+  // every held row was answered for — a refresh that broke off leaves rows
+  // describing an older snapshot, and the line must not promise fresher.
+  await putSurveySyncState(db, {
+    linkedCount: completeWalk ? walkedCount : state.linkedCount,
+    lastFullWalkAt: completeWalk ? now : state.lastFullWalkAt,
+    tesseraFetchedAt: refreshComplete ? asOf : state.tesseraFetchedAt,
+  });
+
+  // --- Pass 3: the final count of every finalized survey whose artifact has
+  // not been read — normally the one whose decision pass 2 just wrote, plus
+  // any whose artifact request failed on an earlier run. The artifact's DRep
+  // responders are the responses counted at close, after the end-epoch role
+  // membership the in-window count cannot apply; a role with no counted
+  // responder is absent from it, so absence reads as zero. Each survey is its
+  // own request and its own failure: one that fails is simply still awaiting
+  // on the next run.
   try {
-    for (const due of await getAuditDueSurveys(db, now, now - UNAVAILABLE_TTL_MS, AUDIT_LIMIT)) {
+    for (const { ref, artifactHash } of await getSurveysAwaitingFinalCount(db)) {
       try {
-        const bundle = await collectBundle(tessera, due.ref);
-        if (!bundle) break;
-        const audit = auditResponses(bundle.responses, bundle.record.definition, bundle.verdicts);
-        const counted = audit.counted.filter(r => r.response.role === Role.DRep).length;
-        const nextDueAt = due.finalState === null ? now + AUDIT_RECHECK_MS : null;
-        await markSurveyAudited(db, due.ref, counted, nextDueAt, now);
-        audited++;
+        const artifact = await tessera.artifactByHash(artifactHash);
+        const dreps = artifact.tally.perRole.find(r => r.role === Role.DRep);
+        await setSurveyFinalCount(db, ref, dreps ? dreps.responders.length : 0, now);
+        finalCounts++;
       } catch (err) {
-        console.error(`[surveys] audit failed for ${due.ref}`, err);
+        console.error(`[surveys] final count for ${ref} failed`, err);
         counters.failed++;
-        const gone = err instanceof TesseraHttpError && err.status === 404;
-        if (due.finalState !== null && (gone || due.auditAttempts + 1 >= MAX_AUDIT_ATTEMPTS)) {
-          await concedeSurveyAudit(db, due.ref, now);
-        } else {
-          const backoff = Math.min(AUDIT_RETRY_BASE_MS * 2 ** due.auditAttempts, AUDIT_RETRY_MAX_MS);
-          await markSurveyAuditFailed(db, due.ref, now + backoff, now);
-        }
       }
     }
   } catch (err) {
-    console.error('[surveys] audit pass failed', err);
+    console.error('[surveys] final count pass failed', err);
     counters.failed++;
   }
 
@@ -512,7 +478,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     counters.failed++;
   }
 
-  return { notReady: false, ...counters, refreshed, rolledBack, audited, settled };
+  return { notReady: false, ...counters, refreshed, rolledBack, finalCounts, settled };
 }
 
 /**

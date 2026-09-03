@@ -24,6 +24,7 @@ import {
   getLinkedSurveyForAction,
   getSurveyByTopicId,
   getSurveyGovLinks,
+  getSurveySyncState,
   getViewerSurveyResponse,
 } from '@/lib/db/surveys.js';
 import { parseSurveyDefinition, surveyLifecycle } from '@/lib/surveys/view.js';
@@ -56,7 +57,7 @@ import { buildCcPositions, type CcPositionRow } from '@/lib/governance/ccPositio
 import { activeCommitteeSizeAt } from '@/lib/koios/committeeTimeline.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendChart } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
-import { resolveNetwork } from '@/lib/config/network.js';
+import { epochFromUnix, resolveNetwork } from '@/lib/config/network.js';
 import {
   getActionRationales,
   getActionRationaleStatuses,
@@ -234,7 +235,7 @@ const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 const surveyDefinition: SurveyDefinition | null = surveyRow
   ? parseSurveyDefinition(surveyRow.definitionJson)
   : null;
-const [surveyLinks, linkedSurvey, viewerSurveyResponse] = await Promise.all([
+const [surveyLinks, linkedSurvey, viewerSurveyResponse, surveySync] = await Promise.all([
   surveyRow && db ? getSurveyGovLinks(db, surveyRow.ref) : Promise.resolve([]),
   db && govAction?.proposalId
     ? getLinkedSurveyForAction(db, govAction.proposalId)
@@ -242,6 +243,7 @@ const [surveyLinks, linkedSurvey, viewerSurveyResponse] = await Promise.all([
   surveyRow && db && user
     ? getViewerSurveyResponse(db, surveyRow.ref, user.id)
     : Promise.resolve(null),
+  surveyRow && db ? getSurveySyncState(db) : Promise.resolve(null),
 ]);
 
 // The answering panel renders only for a drep session on a survey that can
@@ -886,10 +888,13 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             cfg={netCfg}
             now={now}
             appUrl={env.TESSERA_APP_URL}
+            asOf={surveySync?.tesseraFetchedAt ?? null}
             viewerResponse={viewerSurveyResponse}
           />
         )}
-        {surveyRow && canAnswerSurvey && <RespondPanel survey={surveyRow} network={network} />}
+        {surveyRow && canAnswerSurvey && (
+          <RespondPanel survey={surveyRow} network={network} epoch={epochFromUnix(now / 1000, netCfg)} />
+        )}
         <ThreadPosts
           topic={topic}
           thread={thread}
