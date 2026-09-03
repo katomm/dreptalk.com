@@ -94,13 +94,15 @@ describe('votePhases', () => {
 });
 
 describe('drepPhases', () => {
-  it('runs the profile pipeline in order, avatar store only with the R2 binding', () => {
+  it('runs the profile pipeline in order, avatar phases only with the R2 binding', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual([
       'dreps', 'voting-power-history', 'drep-stats-digest', 'drep-report-card', 'vote-history-sweep',
       'epoch-stats', 'epoch-stats-backfill',
-      'registered-epochs', 'slugs', 'pool-slugs', 'pools', 'avatars',
+      'registered-epochs', 'slugs', 'pool-slugs', 'pools', 'avatars', 'avatar-refit',
     ]);
-    expect(activePhaseNames(drepPhases, drepCtx({ avatars: false }))).not.toContain('avatars');
+    const withoutBucket = activePhaseNames(drepPhases, drepCtx({ avatars: false }));
+    expect(withoutBucket).not.toContain('avatars');
+    expect(withoutBucket).not.toContain('avatar-refit');
   });
 
   it('marks exactly dreps as primary and keeps names unique', () => {

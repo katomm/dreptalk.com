@@ -23,10 +23,38 @@ import {
   gcDrepAvatars,
   type ImageDownscaler,
 } from '../../dreps/avatarStore.js';
-import { listReferencedPoolImageHashes, backfillPoolSlugs } from '../../db/pools.js';
+import { refitStoredAvatars, type RefitTable } from '../../avatars/refit.js';
+import {
+  listDrepImageHashesNeedingFit,
+  markDrepImageFitChecked,
+  repointDrepImageHash,
+} from '../../db/dreps.js';
+import {
+  listReferencedPoolImageHashes,
+  listPoolImageHashesNeedingFit,
+  markPoolImageFitChecked,
+  repointPoolImageHash,
+  backfillPoolSlugs,
+} from '../../db/pools.js';
+
 import type { CoreSyncContext } from './context.js';
 import type { SyncPhaseDef } from './registry.js';
 import { poolsPhase, mirrorPoolAvatars } from './shared.js';
+
+// Both tables reference objects in the one avatars bucket, so the refit pass
+// gets each table's queue and writers here, where both are already in scope.
+const REFIT_TABLES: RefitTable[] = [
+  {
+    listPending: listDrepImageHashesNeedingFit,
+    markChecked: markDrepImageFitChecked,
+    repoint: repointDrepImageHash,
+  },
+  {
+    listPending: listPoolImageHashesNeedingFit,
+    markChecked: markPoolImageFitChecked,
+    repoint: repointPoolImageHash,
+  },
+];
 
 /** Cross-phase state of one DRep run. Keep this small and explicit. */
 export interface DrepSyncState {
@@ -262,6 +290,28 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
       const gc = await gcDrepAvatars({ db: ctx.db, bucket, nowMs: Date.now(), extraReferenced: poolHashes });
       console.log(`[drep-avatars-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);
       return { items: a.stored + (p.items ?? 0), failed: a.failed + (p.failed ?? 0) };
+    },
+  },
+  {
+    // Rewrite avatars stored at full source resolution before the display-size
+    // rule existed. Its own phase so a failure here neither fails the store
+    // pass that already succeeded nor lands in its counters. Self-draining: the
+    // queue is a D1 predicate that shrinks to nothing.
+    name: 'avatar-refit',
+    when: (ctx) => ctx.avatars !== null,
+    run: async (ctx) => {
+      const f = await refitStoredAvatars({
+        db: ctx.db,
+        bucket: ctx.avatars as R2Bucket,
+        tables: REFIT_TABLES,
+        downscale: ctx.downscale,
+      });
+      if (f.scanned > 0) {
+        console.log(
+          `[avatar-refit] scanned=${f.scanned} refitted=${f.refitted} savedKB=${Math.round(f.savedBytes / 1024)}`,
+        );
+      }
+      return { items: f.refitted, failed: 0 };
     },
   },
 ];

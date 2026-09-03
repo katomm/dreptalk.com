@@ -17,10 +17,17 @@ import {
   listReferencedImageHashes,
 } from '../db/dreps.js';
 
-// Images up to this size (512 KB) are stored as-is. Larger images are downscaled
-// to AVATAR_MAX_EDGE and re-encoded as WebP before storing, not rejected.
-// Exported so the upload endpoint shares the same store-as-is threshold.
+// Hard ceiling on the bytes we are willing to keep in R2 for one avatar (512 KB).
+// An image over this is only storable as a downscaled WebP; without a downscaler
+// it is rejected. Exported so the upload endpoint shares the same cap.
 export const MAX_IMAGE_BYTES = 512 * 1024;
+// Above this size (24 KB) an avatar is refitted to AVATAR_MAX_EDGE as WebP before
+// storing. Sources are routinely 512px or 1024px artwork shown in a 38px list
+// cell, so the source bytes are mostly resolution nobody ever sees: a typical
+// 200 KB PNG lands around 12 KB with no visible difference at any size the UI
+// renders. Below the threshold the source is already cheap enough that a
+// re-encode is not worth the transform, so it is stored byte for byte.
+export const AVATAR_REFIT_ABOVE_BYTES = 24 * 1024;
 // Hard ceiling on a fetched or uploaded image (10 MB). Above this the source is
 // treated as mislinked or hostile and rejected outright, even for downscaling.
 export const MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024;
@@ -57,6 +64,16 @@ export interface ImagesLike {
 interface ImagesTransformer {
   transform(opts: { width?: number; height?: number; fit?: string }): ImagesTransformer;
   output(opts: { format: string; quality?: number }): Promise<{ response(): Response }>;
+}
+
+/**
+ * Whether refitting an image of this type would throw away an animation. The
+ * refit re-encodes to a single WebP frame, so a GIF is the one input where the
+ * smaller bytes cost something the viewer can see. Lives next to the transform
+ * that has the limitation, not in the size policy that consults it.
+ */
+export function refitDropsAnimation(contentType: string): boolean {
+  return contentType === 'image/gif';
 }
 
 /**
@@ -104,17 +121,27 @@ export function pngRenditionEncoder(images: ImagesLike): ImageDownscaler {
 }
 
 /**
- * Decides what bytes to store for an avatar: the original when it is within
- * MAX_IMAGE_BYTES, otherwise the downscaled WebP. Returns null when the image is
- * over the cap and no downscaler is available (or downscaling failed), so each
+ * Decides what bytes to store for an avatar: the source when it is already small
+ * or cannot be improved, otherwise the refitted WebP. Returns null only when the
+ * image is over MAX_IMAGE_BYTES and refitting is unavailable or failed, so each
  * caller maps that to its own failure (a failed sync row, or a 413 on upload).
  */
 export async function fitAvatarForStore(
   img: { bytes: ArrayBuffer; contentType: string },
   downscale?: ImageDownscaler,
 ): Promise<{ bytes: ArrayBuffer; contentType: string } | null> {
-  if (img.bytes.byteLength <= MAX_IMAGE_BYTES) return img;
-  return (await downscale?.(img.bytes)) ?? null;
+  if (img.bytes.byteLength <= AVATAR_REFIT_ABOVE_BYTES) return img;
+  // Whether keeping the source is an option at all, once refitting is ruled out.
+  const sourceStorable = img.bytes.byteLength <= MAX_IMAGE_BYTES;
+  // Losing an animation to save bytes is a bad trade, so a type that would lose
+  // one is only refitted when the alternative is rejecting it outright.
+  if (refitDropsAnimation(img.contentType) && sourceStorable) return img;
+
+  const refitted = await downscale?.(img.bytes);
+  // The transform can lose to a well packed source (a small flat-colour PNG, an
+  // image already at avatar size). Take it only when it actually wins.
+  if (refitted && (!sourceStorable || refitted.bytes.byteLength < img.bytes.byteLength)) return refitted;
+  return sourceStorable ? img : null;
 }
 
 // How many times the avatar pass may fail to fetch or validate a DRep's image
@@ -129,7 +156,7 @@ export interface AvatarStoreDeps {
   bucket: R2Bucket;
   /** Image fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
-  /** Downscaler for images over MAX_IMAGE_BYTES; when absent, oversized images fail. */
+  /** Refitter for images over AVATAR_REFIT_ABOVE_BYTES; when absent, over-cap images fail. */
   downscale?: ImageDownscaler;
   /** Max downloads per run; the backlog drains over successive cron runs. */
   limit?: number;
@@ -293,8 +320,8 @@ export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarSto
         failedIds.push(row.drepId);
         continue;
       }
-      // Store small images byte-for-byte; downscale anything over the cap to a
-      // WebP thumbnail instead of rejecting it. No downscaler -> oversized fails.
+      // Store small images byte-for-byte; refit anything larger to a WebP
+      // thumbnail. No downscaler -> only over-cap images fail.
       const toStore = await fitAvatarForStore(img, deps.downscale);
       if (!toStore) {
         failedIds.push(row.drepId);
