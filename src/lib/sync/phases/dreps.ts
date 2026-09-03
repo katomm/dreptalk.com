@@ -21,6 +21,7 @@ import { computeReportCards } from '../../analytics/reportCardView.js';
 import {
   storeDrepAvatars,
   gcDrepAvatars,
+  refitStoredAvatars,
   type ImageDownscaler,
 } from '../../dreps/avatarStore.js';
 import { listReferencedPoolImageHashes, backfillPoolSlugs } from '../../db/pools.js';
@@ -258,6 +259,15 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
       const a = await storeDrepAvatars({ db: ctx.db, bucket, fetchImpl: fetch, downscale: ctx.downscale });
       console.log(`[drep-avatars] scanned=${a.scanned} stored=${a.stored} cleared=${a.cleared} failed=${a.failed}`);
       const p = await mirrorPoolAvatars(ctx.db, bucket, ctx.downscale);
+      // Refit objects stored at full source resolution before the size rule
+      // existed. Runs ahead of the GC so the objects it replaces are already
+      // unreferenced and start their grace period in the same run.
+      const f = await refitStoredAvatars({ db: ctx.db, bucket, downscale: ctx.downscale });
+      if (f.scanned > 0) {
+        console.log(
+          `[drep-avatars-refit] scanned=${f.scanned} refitted=${f.refitted} kept=${f.kept} savedKB=${Math.round(f.savedBytes / 1024)}`,
+        );
+      }
       const poolHashes = await listReferencedPoolImageHashes(ctx.db);
       const gc = await gcDrepAvatars({ db: ctx.db, bucket, nowMs: Date.now(), extraReferenced: poolHashes });
       console.log(`[drep-avatars-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);

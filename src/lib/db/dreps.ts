@@ -1040,6 +1040,25 @@ export async function setDrepSlugs(
   return entries.length;
 }
 
+/**
+ * Points every dreps row that referenced one stored object at another, for the
+ * refit pass that rewrites an oversized avatar at display size. Only the hash
+ * moves: image_url and image_stored_url still describe the same source. Returns
+ * the number of rows moved. The old object is left to the avatar GC, which
+ * reaps it once nothing references it anymore.
+ */
+export async function repointDrepImageHash(
+  db: D1Database,
+  oldHash: string,
+  newHash: string,
+): Promise<number> {
+  const res = await db
+    .prepare('UPDATE dreps SET image_content_hash = ? WHERE image_content_hash = ?')
+    .bind(newHash, oldHash)
+    .run();
+  return res.meta.changes ?? 0;
+}
+
 /** The set of content hashes still referenced by a dreps row (GC keep set). */
 export async function listReferencedImageHashes(db: D1Database): Promise<Set<string>> {
   const rows = (

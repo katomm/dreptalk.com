@@ -15,12 +15,21 @@ import {
   markDrepImageFetchFailed,
   clearOrphanedImageStore,
   listReferencedImageHashes,
+  repointDrepImageHash,
 } from '../db/dreps.js';
+import { repointPoolImageHash, listReferencedPoolImageHashes } from '../db/pools.js';
 
-// Images up to this size (512 KB) are stored as-is. Larger images are downscaled
-// to AVATAR_MAX_EDGE and re-encoded as WebP before storing, not rejected.
-// Exported so the upload endpoint shares the same store-as-is threshold.
+// Hard ceiling on the bytes we are willing to keep in R2 for one avatar (512 KB).
+// An image over this is only storable as a downscaled WebP; without a downscaler
+// it is rejected. Exported so the upload endpoint shares the same cap.
 export const MAX_IMAGE_BYTES = 512 * 1024;
+// Above this size (24 KB) an avatar is refitted to AVATAR_MAX_EDGE as WebP before
+// storing. Sources are routinely 512px or 1024px artwork shown in a 38px list
+// cell, so the source bytes are mostly resolution nobody ever sees: a typical
+// 200 KB PNG lands around 12 KB with no visible difference at any size the UI
+// renders. Below the threshold the source is already cheap enough that a
+// re-encode is not worth the transform, so it is stored byte for byte.
+export const AVATAR_REFIT_ABOVE_BYTES = 24 * 1024;
 // Hard ceiling on a fetched or uploaded image (10 MB). Above this the source is
 // treated as mislinked or hostile and rejected outright, even for downscaling.
 export const MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024;
@@ -104,17 +113,31 @@ export function pngRenditionEncoder(images: ImagesLike): ImageDownscaler {
 }
 
 /**
- * Decides what bytes to store for an avatar: the original when it is within
- * MAX_IMAGE_BYTES, otherwise the downscaled WebP. Returns null when the image is
- * over the cap and no downscaler is available (or downscaling failed), so each
+ * Decides what bytes to store for an avatar: the source when it is already small
+ * or cannot be improved, otherwise the refitted WebP. Returns null only when the
+ * image is over MAX_IMAGE_BYTES and refitting is unavailable or failed, so each
  * caller maps that to its own failure (a failed sync row, or a 413 on upload).
  */
 export async function fitAvatarForStore(
   img: { bytes: ArrayBuffer; contentType: string },
   downscale?: ImageDownscaler,
 ): Promise<{ bytes: ArrayBuffer; contentType: string } | null> {
-  if (img.bytes.byteLength <= MAX_IMAGE_BYTES) return img;
-  return (await downscale?.(img.bytes)) ?? null;
+  // Whether the source is storable at all, i.e. whether falling back to it is an
+  // option once refitting is ruled out.
+  const sourceStorable = img.bytes.byteLength <= MAX_IMAGE_BYTES;
+  if (img.bytes.byteLength <= AVATAR_REFIT_ABOVE_BYTES) return img;
+  // A GIF may be animated, and the WebP transform keeps only the first frame.
+  // So a GIF is refitted only when the alternative is rejecting it outright,
+  // never merely to save bytes on one that is already storable as it stands.
+  if (img.contentType === 'image/gif' && sourceStorable) return img;
+
+  const refitted = await downscale?.(img.bytes);
+  // The transform can lose to a well packed source (a small flat-colour PNG, an
+  // image already at avatar size). Keep whichever is actually smaller.
+  if (!refitted || (sourceStorable && refitted.bytes.byteLength >= img.bytes.byteLength)) {
+    return sourceStorable ? img : null;
+  }
+  return refitted;
 }
 
 // How many times the avatar pass may fail to fetch or validate a DRep's image
@@ -129,7 +152,7 @@ export interface AvatarStoreDeps {
   bucket: R2Bucket;
   /** Image fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
-  /** Downscaler for images over MAX_IMAGE_BYTES; when absent, oversized images fail. */
+  /** Refitter for images over AVATAR_REFIT_ABOVE_BYTES; when absent, over-cap images fail. */
   downscale?: ImageDownscaler;
   /** Max downloads per run; the backlog drains over successive cron runs. */
   limit?: number;
@@ -293,8 +316,8 @@ export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarSto
         failedIds.push(row.drepId);
         continue;
       }
-      // Store small images byte-for-byte; downscale anything over the cap to a
-      // WebP thumbnail instead of rejecting it. No downscaler -> oversized fails.
+      // Store small images byte-for-byte; refit anything larger to a WebP
+      // thumbnail. No downscaler -> only over-cap images fail.
       const toStore = await fitAvatarForStore(img, deps.downscale);
       if (!toStore) {
         failedIds.push(row.drepId);
@@ -318,6 +341,114 @@ export async function storeDrepAvatars(deps: AvatarStoreDeps): Promise<AvatarSto
   await markDrepImageFetchFailed(deps.db, failedIds, nowMs);
 
   return { scanned: rows.length, stored, cleared, failed: failedIds.length };
+}
+
+// Marker written into an object's R2 custom metadata once the refit pass has
+// considered it, so a later run skips it without paying for another read and
+// transform. The value records the outcome ('refit' for a rewritten object,
+// 'source' for one kept as it was) purely for debugging; only its presence is
+// checked. Objects written before the pass existed carry no marker, which is
+// what makes them visible to it in the first place.
+const AVATAR_FIT_MARKER = 'avatarFit';
+
+export interface AvatarRefitDeps {
+  db: D1Database;
+  bucket: R2Bucket;
+  /** Refitter; without it the pass is a no-op, since refitting is the whole job. */
+  downscale?: ImageDownscaler;
+  /** Max objects read and transformed per run; the backlog drains over runs. */
+  limit?: number;
+}
+
+export interface AvatarRefitResult {
+  /** Objects considered this run (over the threshold and not yet marked). */
+  scanned: number;
+  /** Objects rewritten smaller, with their referencing rows moved over. */
+  refitted: number;
+  /** Objects kept as they were, marked so they are not revisited. */
+  kept: number;
+  /** Bytes saved across the rewritten objects. */
+  savedBytes: number;
+}
+
+/**
+ * One-way pass over avatars already in R2, rewriting anything stored at full
+ * source resolution to display size. Existing objects predate the refit rule in
+ * fitAvatarForStore, so without this they would keep their original bytes
+ * forever: nothing re-fetches an avatar whose source URL has not changed.
+ *
+ * The bytes are refitted from the stored object itself, so no upstream request
+ * is made and a source that has since gone offline is refitted just the same.
+ * Refitting changes the content hash, so the referencing dreps and pools rows
+ * are moved to the new hash and the old object falls to the avatar GC. Only
+ * referenced objects are considered, and each one is marked whichever way it
+ * goes, so the pass settles to zero work once the bucket is caught up.
+ */
+export async function refitStoredAvatars(deps: AvatarRefitDeps): Promise<AvatarRefitResult> {
+  const result: AvatarRefitResult = { scanned: 0, refitted: 0, kept: 0, savedBytes: 0 };
+  if (!deps.downscale) return result;
+  const limit = deps.limit ?? 50;
+
+  // Only objects something still points at are worth refitting. This also keeps
+  // the pass off the object it just replaced: that one is unreferenced from the
+  // moment its rows move, so the next run walks past it and the GC reaps it.
+  const referenced = await listReferencedImageHashes(deps.db);
+  for (const h of await listReferencedPoolImageHashes(deps.db)) referenced.add(h);
+
+  let cursor: string | undefined;
+  do {
+    const page = await deps.bucket.list({
+      prefix: AVATAR_KEY_PREFIX,
+      cursor,
+      include: ['customMetadata', 'httpMetadata'],
+    });
+    for (const listed of page.objects) {
+      if (result.scanned >= limit) return result;
+      if (listed.size <= AVATAR_REFIT_ABOVE_BYTES) continue;
+      if (listed.customMetadata?.[AVATAR_FIT_MARKER]) continue;
+      const oldHash = listed.key.slice(AVATAR_KEY_PREFIX.length);
+      if (!referenced.has(oldHash)) continue;
+      result.scanned++;
+
+      const contentType = listed.httpMetadata?.contentType ?? 'image/png';
+      try {
+        const obj = await deps.bucket.get(listed.key);
+        if (!obj) continue;
+        const bytes = await obj.arrayBuffer();
+        // Same decision as on the way in, so a stored object ends up with the
+        // bytes it would have had if it had arrived after the refit rule.
+        const fitted = await fitAvatarForStore({ bytes, contentType }, deps.downscale);
+        const newHash = fitted ? await sha256Hex(fitted.bytes) : oldHash;
+        if (!fitted || newHash === oldHash) {
+          // Unchanged: keep the object and mark it so it is skipped from now on.
+          await deps.bucket.put(listed.key, bytes, {
+            httpMetadata: { contentType },
+            customMetadata: { ...listed.customMetadata, [AVATAR_FIT_MARKER]: 'source' },
+          });
+          result.kept++;
+          continue;
+        }
+
+        // Write the smaller object before moving any row to it, so no row can
+        // ever point at a key that is not there yet.
+        await deps.bucket.put(AVATAR_KEY_PREFIX + newHash, fitted.bytes, {
+          httpMetadata: { contentType: fitted.contentType },
+          customMetadata: { [AVATAR_FIT_MARKER]: 'refit' },
+        });
+        await repointDrepImageHash(deps.db, oldHash, newHash);
+        await repointPoolImageHash(deps.db, oldHash, newHash);
+        result.refitted++;
+        result.savedBytes += bytes.byteLength - fitted.bytes.byteLength;
+      } catch {
+        // Isolate per-object failures; an unmarked object is simply retried on
+        // the next run, and the rows keep pointing at bytes that still exist.
+        continue;
+      }
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+
+  return result;
 }
 
 // Grace period before an unreferenced object is deleted. Covers the window

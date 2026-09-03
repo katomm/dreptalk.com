@@ -5,13 +5,20 @@ import { env } from 'cloudflare:test';
 import {
   storeDrepAvatars,
   gcDrepAvatars,
+  refitStoredAvatars,
   decodeDataUriImage,
   ingestDataUriAvatar,
   AVATAR_KEY_PREFIX,
   ogAvatarKey,
   type ImageDownscaler,
 } from './avatarStore.js';
-import { upsertDrep, getDrepById, listDrepsNeedingAvatar, countGivenUpAvatars } from '../db/dreps.js';
+import {
+  upsertDrep,
+  getDrepById,
+  listDrepsNeedingAvatar,
+  countGivenUpAvatars,
+  setDrepImageStored,
+} from '../db/dreps.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { toArrayBuffer } from '../crypto/bytes.js';
 
@@ -116,22 +123,89 @@ describe('storeDrepAvatars', () => {
     expect((await getDrepById(db(), 'st-svg'))!.imageContentHash).toBeNull();
   });
 
-  it('stores a body up to the cap as-is without downscaling', async () => {
-    await upsertDrep(db(), { ...BASE, drepId: 'st-midsize', imageUrl: 'https://img.example/mid.png' });
-    // 300 KB: over the old 256 KB cap, under the new 512 KB cap -> stored as-is.
-    const mid = new Uint8Array(300 * 1024);
-    mid.set(PNG_BYTES);
+  it('stores an image under the refit threshold as-is, without a transform', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-small', imageUrl: 'https://img.example/small.png' });
+    // 20 KB: under AVATAR_REFIT_ABOVE_BYTES, so the source bytes are kept.
+    const small = new Uint8Array(20 * 1024);
+    small.set(PNG_BYTES);
     let downscaleCalls = 0;
     const downscale: ImageDownscaler = async () => {
       downscaleCalls++;
       return null;
     };
-    const fetchImpl = (async () => imageResponse(mid)) as unknown as typeof fetch;
+    const fetchImpl = (async () => imageResponse(small)) as unknown as typeof fetch;
 
     const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, downscale });
     expect(r.stored).toBe(1);
     expect(downscaleCalls).toBe(0);
-    expect((await getDrepById(db(), 'st-midsize'))!.imageContentHash).toBe(await sha256Of(mid));
+    expect((await getDrepById(db(), 'st-small'))!.imageContentHash).toBe(await sha256Of(small));
+  });
+
+  it('refits an image over the threshold even though it is under the hard cap', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-midsize', imageUrl: 'https://img.example/mid.png' });
+    // 300 KB: well under the 512 KB hard cap, but far more resolution than any
+    // avatar slot renders, so it is refitted rather than stored as it arrived.
+    const mid = new Uint8Array(300 * 1024);
+    mid.set(PNG_BYTES);
+    let downscaleCalls = 0;
+    const downscale: ImageDownscaler = async () => {
+      downscaleCalls++;
+      return { bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' };
+    };
+    const fetchImpl = (async () => imageResponse(mid)) as unknown as typeof fetch;
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, downscale });
+    expect(r.stored).toBe(1);
+    expect(downscaleCalls).toBe(1);
+    expect((await getDrepById(db(), 'st-midsize'))!.imageContentHash).toBe(await sha256Of(WEBP_BYTES));
+  });
+
+  it('keeps the source when the transform comes back no smaller', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-nogain', imageUrl: 'https://img.example/packed.png' });
+    // A well packed source: the WebP re-encode loses, so the source is kept.
+    const packed = new Uint8Array(30 * 1024);
+    packed.set(PNG_BYTES);
+    const bigger = new Uint8Array(40 * 1024);
+    const downscale: ImageDownscaler = async () => ({ bytes: toArrayBuffer(bigger), contentType: 'image/webp' });
+    const fetchImpl = (async () => imageResponse(packed)) as unknown as typeof fetch;
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, downscale });
+    expect(r.stored).toBe(1);
+    expect((await getDrepById(db(), 'st-nogain'))!.imageContentHash).toBe(await sha256Of(packed));
+  });
+
+  it('stores an oversized image as-is when no transform is available', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-nofit', imageUrl: 'https://img.example/nofit.png' });
+    // Over the refit threshold but under the hard cap: without a downscaler the
+    // source is still perfectly storable, so it must not be rejected.
+    const mid = new Uint8Array(300 * 1024);
+    mid.set(PNG_BYTES);
+    const fetchImpl = (async () => imageResponse(mid)) as unknown as typeof fetch;
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl });
+    expect(r.stored).toBe(1);
+    expect((await getDrepById(db(), 'st-nofit'))!.imageContentHash).toBe(await sha256Of(mid));
+  });
+
+  it('keeps a GIF unconverted so an animation survives', async () => {
+    await upsertDrep(db(), { ...BASE, drepId: 'st-gif', imageUrl: 'https://img.example/anim.gif' });
+    // Over the refit threshold, but converting to WebP would drop every frame
+    // after the first, and the source is storable as it stands.
+    const gif = new Uint8Array(60 * 1024);
+    gif.set([0x47, 0x49, 0x46, 0x38]);
+    let downscaleCalls = 0;
+    const downscale: ImageDownscaler = async () => {
+      downscaleCalls++;
+      return { bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' };
+    };
+    const fetchImpl = (async () => imageResponse(gif, 'image/gif')) as unknown as typeof fetch;
+
+    const r = await storeDrepAvatars({ db: db(), bucket: bucket(), fetchImpl, downscale });
+    expect(r.stored).toBe(1);
+    expect(downscaleCalls).toBe(0);
+    const row = await getDrepById(db(), 'st-gif');
+    expect(row!.imageContentHash).toBe(await sha256Of(gif));
+    expect((await bucket().get(AVATAR_KEY_PREFIX + row!.imageContentHash))!.httpMetadata?.contentType).toBe('image/gif');
   });
 
   it('downscales an over-cap image via the injected downscaler', async () => {
@@ -437,5 +511,136 @@ describe('storeDrepAvatars self-hosted image URLs', () => {
 
     expect(r).toMatchObject({ stored: 0, failed: 1 });
     expect((await getDrepById(db(), 'st-self-other'))!.imageFetchFailedAt).not.toBeNull();
+  });
+});
+
+describe('refitStoredAvatars', () => {
+  // Bytes over AVATAR_REFIT_ABOVE_BYTES, standing in for a stored full-resolution
+  // source. The refitted output is the small WEBP_BYTES.
+  const oversized = (fill: number): Uint8Array => {
+    const b = new Uint8Array(200 * 1024);
+    b.set(PNG_BYTES);
+    b[b.length - 1] = fill;
+    return b;
+  };
+  const toWebp: ImageDownscaler = async () => ({ bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' });
+
+  /** Puts an object and points a DRep row at it, so the pass considers it. */
+  async function storedAndReferenced(
+    drepId: string,
+    bytes: Uint8Array,
+    contentType = 'image/png',
+  ): Promise<string> {
+    const hash = await sha256Of(bytes);
+    await bucket().put(AVATAR_KEY_PREFIX + hash, toArrayBuffer(bytes), { httpMetadata: { contentType } });
+    const imageUrl = `https://img.example/${drepId}.png`;
+    await upsertDrep(db(), { ...BASE, drepId, imageUrl });
+    await setDrepImageStored(db(), drepId, hash, imageUrl);
+    return hash;
+  }
+
+  it('rewrites an oversized object and moves its rows to the new hash', async () => {
+    const bytes = oversized(1);
+    const oldHash = await storedAndReferenced('rf-drep', bytes);
+
+    const r = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: toWebp });
+
+    expect(r.refitted).toBe(1);
+    expect(r.savedBytes).toBe(bytes.byteLength - WEBP_BYTES.byteLength);
+    const newHash = await sha256Of(WEBP_BYTES);
+    expect((await getDrepById(db(), 'rf-drep'))!.imageContentHash).toBe(newHash);
+    const obj = await bucket().get(AVATAR_KEY_PREFIX + newHash);
+    expect(obj!.httpMetadata?.contentType).toBe('image/webp');
+    // The old object survives the pass; the GC reaps it once it is unreferenced.
+    expect(await bucket().head(AVATAR_KEY_PREFIX + oldHash)).not.toBeNull();
+  });
+
+  it('walks past an object nothing references anymore', async () => {
+    // What a refit leaves behind: the rows have moved on, the GC has not run yet.
+    // Transforming it again would be pure waste, and would recount its savings.
+    const bytes = oversized(7);
+    await bucket().put(AVATAR_KEY_PREFIX + (await sha256Of(bytes)), toArrayBuffer(bytes), {
+      httpMetadata: { contentType: 'image/png' },
+    });
+    let calls = 0;
+    const counting: ImageDownscaler = async () => {
+      calls++;
+      return { bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' };
+    };
+
+    const r = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: counting });
+
+    expect(calls).toBe(0);
+    expect(r).toMatchObject({ scanned: 0, refitted: 0, kept: 0 });
+  });
+
+  it('marks an object it cannot improve so a second run skips it', async () => {
+    const hash = await storedAndReferenced('rf-nogain', oversized(2));
+    let calls = 0;
+    const noGain: ImageDownscaler = async () => {
+      calls++;
+      return null;
+    };
+
+    const first = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: noGain });
+    expect(first.kept).toBe(1);
+    expect(calls).toBe(1);
+
+    const second = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: noGain });
+    expect(second.scanned).toBe(0);
+    expect(calls).toBe(1);
+    // Kept objects keep their bytes, their content type, and their row.
+    const obj = await bucket().get(AVATAR_KEY_PREFIX + hash);
+    expect(obj!.httpMetadata?.contentType).toBe('image/png');
+    expect((await obj!.arrayBuffer()).byteLength).toBe(200 * 1024);
+    expect((await getDrepById(db(), 'rf-nogain'))!.imageContentHash).toBe(hash);
+  });
+
+  it('keeps a GIF as it is, with its content type intact', async () => {
+    // The marking re-put must carry the object's own content type through, or a
+    // kept GIF would come back out of the bucket labelled as something else.
+    const gif = new Uint8Array(200 * 1024);
+    gif.set([0x47, 0x49, 0x46, 0x38]);
+    gif[gif.length - 1] = 9;
+    const hash = await storedAndReferenced('rf-gif', gif, 'image/gif');
+    let calls = 0;
+    const counting: ImageDownscaler = async () => {
+      calls++;
+      return { bytes: toArrayBuffer(WEBP_BYTES), contentType: 'image/webp' };
+    };
+
+    const r = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: counting });
+
+    expect(calls).toBe(0);
+    expect(r.kept).toBe(1);
+    const obj = await bucket().get(AVATAR_KEY_PREFIX + hash);
+    expect(obj!.httpMetadata?.contentType).toBe('image/gif');
+    expect((await obj!.arrayBuffer()).byteLength).toBe(gif.byteLength);
+  });
+
+  it('leaves objects under the threshold untouched', async () => {
+    const hash = await storedAndReferenced('rf-small', PNG_BYTES);
+    let calls = 0;
+    const counting: ImageDownscaler = async () => {
+      calls++;
+      return null;
+    };
+
+    await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: counting });
+    expect(calls).toBe(0);
+    expect(await bucket().head(AVATAR_KEY_PREFIX + hash)).not.toBeNull();
+    expect((await getDrepById(db(), 'rf-small'))!.imageContentHash).toBe(hash);
+  });
+
+  it('does nothing without a refitter', async () => {
+    await storedAndReferenced('rf-nodown', oversized(3));
+    expect(await refitStoredAvatars({ db: db(), bucket: bucket() })).toMatchObject({ scanned: 0, refitted: 0 });
+  });
+
+  it('stops at the per-run limit so the backlog drains over runs', async () => {
+    for (const fill of [4, 5, 6]) await storedAndReferenced(`rf-limit-${fill}`, oversized(fill));
+
+    const r = await refitStoredAvatars({ db: db(), bucket: bucket(), downscale: toWebp, limit: 2 });
+    expect(r.scanned).toBe(2);
   });
 });

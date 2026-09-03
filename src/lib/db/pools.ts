@@ -218,6 +218,27 @@ export async function clearOrphanedPoolImageStore(db: D1Database): Promise<numbe
   return res.meta.changes ?? 0;
 }
 
+/**
+ * Pool-logo counterpart of repointDrepImageHash: both tables can reference the
+ * same object, so the refit pass moves each one to the rewritten hash. Unlike
+ * dreps, a pool's image_stored_url is the served path rather than the source
+ * URL, so it carries the hash too and is rewritten with it.
+ */
+export async function repointPoolImageHash(
+  db: D1Database,
+  oldHash: string,
+  newHash: string,
+): Promise<number> {
+  const res = await db
+    .prepare(
+      `UPDATE pools SET image_content_hash = ?, image_stored_url = ?
+       WHERE image_content_hash = ?`,
+    )
+    .bind(newHash, `/api/avatar/${newHash}`, oldHash)
+    .run();
+  return res.meta.changes ?? 0;
+}
+
 export async function listReferencedPoolImageHashes(db: D1Database): Promise<Set<string>> {
   const rows = (
     await db

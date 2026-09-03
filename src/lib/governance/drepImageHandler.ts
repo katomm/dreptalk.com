@@ -15,7 +15,7 @@ export interface DrepImageUploadInput {
   bytes: ArrayBuffer;
   bucket: R2Bucket;
   origin: string;
-  /** Downscaler for uploads over MAX_IMAGE_BYTES; when absent, oversized uploads are rejected. */
+  /** Refitter for uploads over AVATAR_REFIT_ABOVE_BYTES; when absent, over-cap uploads are rejected. */
   downscale?: ImageDownscaler;
 }
 
