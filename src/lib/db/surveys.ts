@@ -145,23 +145,29 @@ export function buildRefreshSurvey(db: D1Database, r: SurveyRefresh): D1Prepared
     .bind(r.countedDreps, r.cancelled ? 1 : 0, r.finalState, r.artifactHash, r.now, r.ref);
 }
 
+/** Withdraws held surveys the latest answer no longer admits: the flag hides
+ * answering and starts the retirement clock, and the gov links go with it so
+ * the linking action's thread stops naming the survey — a survey is listed
+ * there only while an admitted link exists. The thread and row stay. Called
+ * for rows not yet unavailable only, so the clock is set once. */
 export async function markSurveysUnavailable(
   db: D1Database,
   refs: readonly string[],
   now: number,
 ): Promise<void> {
-  // Two binds are taken by `now`, the rest by the IN list. COALESCE keeps the
-  // first disappearance: the retirement clock must not restart on every run
-  // the ref stays absent.
+  // Two binds are taken by `now`, the rest by the IN list.
   for (const chunk of chunked(refs, D1_MAX_BINDS - 2)) {
-    await db
-      .prepare(
-        `UPDATE survey SET unavailable = 1, unavailable_since = COALESCE(unavailable_since, ?),
-           synced_at = ?
-         WHERE ref IN (${sqlPlaceholders(chunk)})`,
-      )
-      .bind(now, now, ...chunk)
-      .run();
+    await db.batch([
+      db
+        .prepare(
+          `UPDATE survey SET unavailable = 1, unavailable_since = ?, synced_at = ?
+           WHERE ref IN (${sqlPlaceholders(chunk)})`,
+        )
+        .bind(now, now, ...chunk),
+      db
+        .prepare(`DELETE FROM survey_gov_link WHERE survey_ref IN (${sqlPlaceholders(chunk)})`)
+        .bind(...chunk),
+    ]);
   }
 }
 
@@ -388,8 +394,10 @@ export async function surveyRefExists(db: D1Database, ref: string): Promise<bool
  * Optimistic record of the viewer's own just-submitted answer, written by
  * POST /api/survey/response/record and settled (deleted) by the sync once
  * Tessera indexes the exact transaction. `failed` rows stay for the viewer's
- * own overlay ("didn't confirm — answer again"); a re-answer overwrites the
- * row via the (survey_ref, user_id) key, resetting it to pending.
+ * own overlay ("didn't confirm — answer again") and keep being polled for a
+ * while, since a transaction can land after the cutoff that failed the row; a
+ * re-answer overwrites the row via the (survey_ref, user_id) key, resetting
+ * it to pending.
  */
 export interface LocalSurveyResponse {
   txHash: string;
@@ -437,22 +445,29 @@ export interface PendingSurveyResponse {
   createdAt: number;
 }
 
-/** The local answers still awaiting their transaction — the set pass 4 polls,
- * bounded because it spends one request per distinct transaction. Oldest
- * first, so the rows nearest the confirmation cutoff get their last look
- * before it passes and the next run resumes on what is left. */
-export async function getPendingSurveyResponses(
+/** The local answers whose transaction may still be indexed — the set pass 4
+ * polls, bounded because it spends one request per distinct transaction.
+ * Every pending row, plus the failed rows created after `failedSinceMs`: a
+ * transaction can land after the cutoff that failed its row (an outage longer
+ * than the cutoff fails every pending row at once), and a row that is never
+ * looked at again would invite a second answer nobody needed. Pending rows
+ * first, oldest first within each status, so a backlog of failed rows cannot
+ * crowd a fresh answer out of the budget and delay its "confirming" going
+ * away; what is left over waits one cron interval. */
+export async function getSettleableSurveyResponses(
   db: D1Database,
   limit: number,
+  failedSinceMs: number,
 ): Promise<PendingSurveyResponse[]> {
   const { results } = await db
     .prepare(
       `SELECT survey_ref, user_id, tx_hash, credential, created_at
-       FROM survey_response_local WHERE status = 'pending'
-       ORDER BY created_at, tx_hash
+       FROM survey_response_local
+       WHERE status = 'pending' OR (status = 'failed' AND created_at > ?)
+       ORDER BY status = 'pending' DESC, created_at, tx_hash
        LIMIT ?`,
     )
-    .bind(limit)
+    .bind(failedSinceMs, limit)
     .all<{
       survey_ref: string;
       user_id: string;
@@ -469,16 +484,24 @@ export async function getPendingSurveyResponses(
   }));
 }
 
-/** Settles one local answer: the indexed on-chain response supersedes it. */
+/** Settles one local answer: the indexed on-chain response supersedes it.
+ * Keyed by the transaction as well, because a re-answer replaces the row
+ * under the same (survey_ref, user_id) key while the pass is polling the old
+ * transaction — deleting by key alone would settle the new claim on the old
+ * evidence. Returns whether the row was still there to settle. */
 export async function deleteLocalSurveyResponse(
   db: D1Database,
   surveyRef: string,
   userId: string,
-): Promise<void> {
-  await db
-    .prepare('DELETE FROM survey_response_local WHERE survey_ref = ? AND user_id = ?')
-    .bind(surveyRef, userId)
+  txHash: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      'DELETE FROM survey_response_local WHERE survey_ref = ? AND user_id = ? AND tx_hash = ?',
+    )
+    .bind(surveyRef, userId, txHash)
     .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 /** Flags pending answers older than the cutoff (unix ms) as failed: the tx

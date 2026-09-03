@@ -97,28 +97,39 @@ complete walk, the mirror-wide "as of").
    moved, this run imported new governance actions, or on a daily
    backstop. A page answering from an older snapshot (`resync`) restarts
    the walk; only a walk that completed within one generation stamps the
-   set size and walk time. Admission — DRep-eligible *and* linked by an
-   imported action — creates the survey row, its topic and its gov links
-   in one batch.
+   set size and walk time, and a walk the 25-page cap ends is abandoned
+   with a warning rather than restarted. The pass is isolated like the
+   others: a page that fails to decode costs this tick's discovery, not
+   its refresh and settle. Admission is one pure predicate
+   (`src/lib/surveys/admission.ts`): DRep-eligible, talliable as
+   `aggregate()` judges it, not sealed on a drand chain other than
+   quicknet, *and* linked by an imported action. It creates the survey
+   row, its topic and its gov links in one batch; the definition-derived
+   half is asked before any database round trip, so a page of known or
+   ineligible surveys costs none.
 2. **Refresh held.** Every held row with NULL `final_state`, by `?refs=`
-   in chunks of 200; only a row one of whose stored values the answer
-   moved (count, cancellation, decision, links) is written. A ref absent
-   from a *complete* answer is rolled back: `unavailable` hides answering
-   and erases the row's gov links (erasure is the contract — a rolled-back
-   action must take its link down), but keeps the thread; the row stays in
-   this set for 4 days because Tessera's settlement window can bring the
-   transaction back, then retires. From an `incomplete` answer, absence
-   proves nothing.
+   in chunks of 200, re-applying admission to each; only a row one of
+   whose stored values the answer moved (count, cancellation, decision,
+   links) is written. A held survey the answer no longer admits — absent
+   from a *complete* answer, or present without an imported link — is
+   withdrawn once: `unavailable` hides answering and its gov links are
+   erased (a rolled-back action must take its link down), but the thread
+   stays; the row stays in this set for 4 days because Tessera's
+   settlement window can bring the transaction back, then retires. From
+   an `incomplete` answer, absence proves nothing.
 3. **Final counts.** Every `finalized` row without one reads its tally
    artifact by `artifact_hash` (content-addressed, immutable) and stores
    the DRep responders it lists — the responses counted at close, after
    the end-epoch role membership the in-window count cannot apply, so the
    figure can be lower. Retried each run until the artifact answers;
    `cancelled` and `untalliable` rows store no count.
-4. **Settle.** `GET /api/responses/{txHash}` per pending optimistic row
-   (oldest-first, 50 per run, failures isolated per transaction) deletes
-   the row once the exact transaction names a response for the survey —
-   which is what makes a *replacement* observable.
+4. **Settle.** `GET /api/responses/{txHash}` per optimistic row still
+   worth polling — every `pending` row, and `failed` rows recorded within
+   the last week, pending first then oldest first, 50 per run, failures
+   isolated per transaction — deletes the row once the exact transaction
+   names a response for the survey, keyed by that transaction so a
+   re-answer that replaced the row mid-poll is left alone. Matching the
+   transaction is what makes a *replacement* observable.
 
 A separate **`survey-reconcile` phase**, never gated by the feature
 switch, ages optimistic rows still `pending` after 6 h to `failed`
@@ -178,8 +189,28 @@ resolves it.
 - **A held survey refreshes until `final_state`, never freezing at
   close** — verdicts land after the deadline, so freezing at close would
   pin whatever snapshot the deadline landed on.
-- **A ref missing from a complete snapshot means rolled back**, and the
-  link rewrite stands unguarded: erasure is part of the contract.
+- **Admission is applied on refresh as well as on discovery**, and its
+  negation is treated like a rollback: a held survey that a complete
+  answer omits, or lists without an imported link, is withdrawn — flag,
+  clock, links erased. The two passes share one predicate so they cannot
+  disagree about what an admitted survey is, and in practice a lost link
+  *is* a rollback of the linking action's transaction. The alternative,
+  a separate "delinked" state with its own badge, was not taken: it
+  would add a column and copy for a case the settlement window already
+  bounds.
+- **Talliability and the sealed-chain check gate admission**, rather than
+  being surfaced as a state on an admitted survey. Tessera's own app
+  badges such a survey and blocks responding, and its finalizer decides
+  it `untalliable` at close; a thread inviting answers in between would
+  waste every fee spent. cip-179's `aggregate()` still reports a sealed
+  survey on a foreign drand chain talliable, so the check is DRepTalk's
+  until the package carries it.
+- **A failed local answer keeps being polled for a week.** The
+  confirmation cutoff fails a row on the clock alone, so an outage longer
+  than it fails every pending row at once; a transaction that then lands
+  must still settle its row, or the card invites an answer the chain
+  already has. Pending rows go first so a failed backlog cannot delay a
+  fresh answer's "confirming" going away.
 - **A finalized row's artifact read is retried every run, unscheduled.**
   The artifact is immutable and content-addressed, so the request cannot
   fail on the survey's account, only on the backend's; a backoff ladder

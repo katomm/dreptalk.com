@@ -38,11 +38,13 @@ CREATE TABLE survey (
   -- fails on the run the decision arrives.
   final_state        TEXT,
   artifact_hash      TEXT,
-  -- The on-chain record disappeared from a complete Tessera answer (rolled
-  -- back). Hides answering, keeps the thread; cleared if the ref reappears.
-  -- unavailable_since (unix ms) is the rollback exit from the refresh set:
-  -- past the sync's TTL the row stops being named in ?refs= calls, since no
-  -- final state is ever coming for a record that is gone.
+  -- A complete Tessera answer no longer admits the survey: its record is
+  -- gone, or it is listed without a link to an imported action — either
+  -- way a rollback upstream. Hides answering, keeps the thread; cleared if
+  -- the survey is admitted again. unavailable_since (unix ms) is the
+  -- rollback exit from the refresh set: past the sync's TTL the row stops
+  -- being named in ?refs= calls, since no final state is ever coming for a
+  -- record that is gone.
   unavailable        INTEGER NOT NULL DEFAULT 0,
   unavailable_since  INTEGER,
   submitted_at       INTEGER,            -- survey publication time (unix ms, slot-derived)
