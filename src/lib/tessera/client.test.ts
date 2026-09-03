@@ -185,7 +185,7 @@ describe('surveysByRefs', () => {
     );
   });
 
-  it('decodes the three final states and rejects a state it cannot store', async () => {
+  it('decodes the three final states, and stores one it does not know rather than failing', async () => {
     const decided = {
       ...surveySet,
       finalState: {
@@ -204,10 +204,12 @@ describe('surveysByRefs', () => {
     });
     expect(result.value.finalState[`${'c'.repeat(64)}:0`]).toEqual({ state: 'untalliable' });
 
-    // A fourth state would freeze a row under a value no reader understands:
-    // fail at the envelope, where the wire change gets reviewed.
+    // A state this code predates freezes one survey's row with no count; it
+    // must not fail the parse and cost every other survey on the page its
+    // refresh for the whole tick.
     const unknown = { ...surveySet, finalState: { [KEY_A]: { state: 'vetoed' } } };
-    await expect(client(fetchWithHealth(unknown)).surveysByRefs([KEY_A])).rejects.toThrow();
+    const later = await client(fetchWithHealth(unknown)).surveysByRefs([KEY_A]);
+    expect(later.ready && later.value.finalState[KEY_A]).toEqual({ state: 'vetoed' });
   });
 
   it('refuses an oversized or malformed key list without a request', async () => {

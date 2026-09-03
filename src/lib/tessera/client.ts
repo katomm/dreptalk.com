@@ -92,13 +92,17 @@ const govLinkSchema = z
 export type TesseraGovLink = z.infer<typeof govLinkSchema>;
 
 // A survey decided for good: no later snapshot changes it, so the sync freezes
-// the row and stops refreshing it. `finalized` and `cancelled` carry the
-// content address of the tally artifact the decision published; a finalized
-// survey's DRep participation is read from that artifact, nothing else in it
-// is looked at — this mirror shows participation, never a result.
+// the row and stops refreshing it. Today's states are `finalized`, `cancelled`
+// and `untalliable`; `finalized` and `cancelled` carry the content address of
+// the tally artifact the decision published, and a finalized survey's DRep
+// participation is read from that artifact, nothing else in it is looked at —
+// this mirror shows participation, never a result. The state is kept an open
+// string: only `finalized` and `cancelled` are ever matched, so a state this
+// code predates freezes its row with no count rather than failing the parse
+// of every other survey on the page for a five-minute tick each.
 const finalStateEntrySchema = z
   .object({
-    state: z.enum(['finalized', 'cancelled', 'untalliable']),
+    state: z.string(),
     artifactHash: z.string().optional(),
   })
   .passthrough();
