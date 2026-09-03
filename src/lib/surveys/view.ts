@@ -1,11 +1,20 @@
-// Presentation helpers for mirrored CIP-179 surveys, shared by the survey
-// pages and the sync's opening-post composer. Pure: everything derives from
-// the stored row, the network config, and the wall clock — no chain read.
+// Presentation of a mirrored survey's definition text, shared by the survey
+// pages and the sync's opening-post composer. Pure. What a survey *is* —
+// lifecycle, answerability, participation — is decided in ./state.ts from the
+// stored row; this module reads the definition, which is untrusted on-chain
+// text: every string that reaches a page or a post goes through the same
+// sanitizer and caps as a governance action's anchor text.
 
 import { Role, type SurveyDefinition } from 'cip-179';
 import type { SurveyRecord } from 'cip-179/domain';
 import { fromJsonSafe } from 'cip-179/tally';
-import { epochFromUnix, epochStartUnix, type NetworkConfig } from '../config/network.js';
+import { epochStartUnix, type NetworkConfig } from '../config/network.js';
+import {
+  MAX_EXTERNAL_PROSE_LEN,
+  MAX_EXTERNAL_TITLE_LEN,
+  sanitizeExternalMultiline,
+  sanitizeExternalText,
+} from '../validation/input.js';
 
 export const ROLE_LABELS: Record<number, string> = {
   [Role.DRep]: 'DReps',
@@ -19,92 +28,52 @@ export function roleLabels(roles: readonly number[]): string {
   return roles.map((r) => ROLE_LABELS[r] ?? `role ${r}`).join(', ');
 }
 
-/** Decode a stored wire-form record back to its definition (the same
- * fromJsonSafe + cast Tessera's own consumers use). */
-export function parseSurveyDefinition(definitionJson: string): SurveyDefinition {
-  return (fromJsonSafe(JSON.parse(definitionJson)) as SurveyRecord).definition;
-}
-
 /**
- * Lifecycle from the wall clock: responses are accepted through `end_epoch`
- * inclusive (CIP-179), so the survey is open while the current epoch is at or
- * before it — the same rule as Tessera's surveyStatus, anchored on the
- * network's epoch calendar instead of a chain tip. `unavailable` is a separate
- * flag on the row, not a status: it clouds what is known, it doesn't end the
- * survey.
+ * Decode a stored wire-form record back to its definition (the same
+ * fromJsonSafe + cast Tessera's own consumers use), or null when the stored
+ * form cannot be read. The form is frozen at admission and decoded on every
+ * page view, so a shape this code cannot read — a corrupted row, a cip-179
+ * wire change the mirror predates — must cost the card its text and the
+ * page its answer panel, not the whole thread a 500. fromJsonSafe throws only
+ * on bad hex and otherwise revives whatever it is given, so the shape is
+ * checked as far as the readers go: the fields the card and the widget index
+ * into.
  */
-export type SurveyLifecycle = 'open' | 'closed' | 'cancelled';
-
-export function surveyLifecycle(
-  row: { endEpoch: number; cancelled: boolean },
-  nowMs: number,
-  cfg: NetworkConfig,
-): SurveyLifecycle {
-  if (row.cancelled) return 'cancelled';
-  return epochFromUnix(nowMs / 1000, cfg) > row.endEpoch ? 'closed' : 'open';
-}
-
-const LIFECYCLE_LABELS: Record<SurveyLifecycle, string> = {
-  open: 'Open',
-  closed: 'Closed',
-  cancelled: 'Cancelled',
-};
-
-/** Badge text for a lifecycle, so the row, the card and the sidebar card
- * cannot come to disagree about what a survey's state is called. */
-export function lifecycleLabel(lifecycle: SurveyLifecycle): string {
-  return LIFECYCLE_LABELS[lifecycle];
-}
-
-/**
- * What the participation line can say. Two figures, both Tessera's own
- * counting and never one of this site's: while the survey is held, the
- * index's audited in-window DRep count (provisional — a proof still pending
- * is counted, and a responder who leaves the role by the end epoch is not yet
- * excluded); once finalized, the tally artifact's DRep responders, counted
- * at close. `pending` says a figure is still coming: the backend serves no
- * in-window count yet, or the artifact has not been read. `none` says no
- * figure ever will: a cancelled or untalliable survey has no tally. A
- * rolled-back record is `unavailable` whatever it stored, since the count
- * describes a survey the index no longer has.
- */
-export type SurveyParticipation =
-  | { kind: 'counted'; count: number }
-  | { kind: 'countedAtClose'; count: number }
-  | { kind: 'pending' }
-  | { kind: 'unavailable' }
-  | { kind: 'none' };
-
-export function surveyParticipation(row: {
-  countedDreps: number | null;
-  finalCountedDreps: number | null;
-  finalState: string | null;
-  unavailable: boolean;
-}): SurveyParticipation {
-  if (row.unavailable) return { kind: 'unavailable' };
-  if (row.finalCountedDreps !== null) {
-    return { kind: 'countedAtClose', count: row.finalCountedDreps };
+export function parseSurveyDefinition(definitionJson: string): SurveyDefinition | null {
+  try {
+    const record = fromJsonSafe(JSON.parse(definitionJson)) as Partial<SurveyRecord> | null;
+    const def = record?.definition as Partial<SurveyDefinition> | undefined;
+    if (
+      !def ||
+      typeof def !== 'object' ||
+      typeof def.title !== 'string' ||
+      typeof def.endEpoch !== 'number' ||
+      !Array.isArray(def.eligibleRoles) ||
+      !Array.isArray(def.questions) ||
+      !def.submissionMode
+    ) {
+      return null;
+    }
+    return def as SurveyDefinition;
+  } catch {
+    return null;
   }
-  if (row.finalState !== null && row.finalState !== 'finalized') return { kind: 'none' };
-  if (row.countedDreps !== null) return { kind: 'counted', count: row.countedDreps };
-  return { kind: 'pending' };
 }
 
-/** One wording for the participation line, so the row, the card and the
- * sidebar card cannot describe the same figure differently. */
-export function participationLabel(p: SurveyParticipation): string {
-  switch (p.kind) {
-    case 'counted':
-      return `${p.count} DRep ${p.count === 1 ? 'response' : 'responses'} counted`;
-    case 'countedAtClose':
-      return `${p.count} DRep ${p.count === 1 ? 'response' : 'responses'} counted at close`;
-    case 'pending':
-      return 'count pending';
-    case 'unavailable':
-      return 'count unavailable';
-    case 'none':
-      return 'no count';
-  }
+/** Thread and row title: the on-chain title, sanitized and capped like a
+ * governance action's, or a ref-derived fallback (empty titles are legal in
+ * external-content mode). */
+export function surveyTitle(def: SurveyDefinition, ref: string): string {
+  const title = sanitizeExternalText(def.title, MAX_EXTERNAL_TITLE_LEN);
+  if (title) return title;
+  const [txHash, index] = ref.split(':');
+  return `Survey (${txHash.slice(0, 8)}:${index})`;
+}
+
+/** The description as the card and the opening post show it: sanitized and
+ * capped like an action's abstract. Empty when the definition carries none. */
+export function surveyDescription(def: SurveyDefinition): string {
+  return sanitizeExternalMultiline(def.description, MAX_EXTERNAL_PROSE_LEN);
 }
 
 /** Unix seconds of the response cutoff: the start of the epoch after
@@ -121,7 +90,10 @@ export function tesseraSurveyUrl(appUrl: string | undefined, ref: string): strin
 }
 
 /** One question, flattened for rendering: what it asks, how it answers, and
- * its option labels (null in external-content count form, with a note). */
+ * its option labels (null in external-content count form, with a note).
+ * Prompts and labels are capped here, at render, because the stored
+ * definition must stay verbatim — the widget re-decodes it, and its byte
+ * fields would not survive a rewrite. */
 export interface QuestionView {
   prompt: string;
   kindLabel: string;
@@ -134,7 +106,7 @@ export function questionViews(def: SurveyDefinition): QuestionView[] {
   return def.questions.map((q) => {
     const opts = 'options' in q ? q.options : null;
     return {
-      prompt: q.prompt,
+      prompt: sanitizeExternalText(q.prompt, MAX_EXTERNAL_TITLE_LEN),
       kindLabel:
         q.type === 'singleChoice'
           ? 'Single choice'
@@ -149,7 +121,10 @@ export function questionViews(def: SurveyDefinition): QuestionView[] {
                   : q.type === 'rating'
                     ? 'Rate the options'
                     : 'Custom format',
-      options: opts?.type === 'options' ? [...opts.labels] : null,
+      options:
+        opts?.type === 'options'
+          ? opts.labels.map(l => sanitizeExternalText(l, MAX_EXTERNAL_TITLE_LEN))
+          : null,
       optionNote:
         opts?.type === 'count' ? `${opts.count} options (labels in the external document)` : null,
       required: q.required === true,

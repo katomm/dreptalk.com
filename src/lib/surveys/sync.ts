@@ -52,7 +52,7 @@ import {
   type TesseraTip,
 } from '../tessera/client.js';
 import { admissible, eligibleSurvey } from './admission.js';
-import { roleLabels } from './view.js';
+import { roleLabels, surveyDescription, surveyTitle } from './view.js';
 
 export type SurveysTessera = Pick<
   TesseraClient,
@@ -197,22 +197,18 @@ function refreshChanged(h: HeldSurvey, next: SurveyRefresh, links: Map<string, s
   return false;
 }
 
-/** Title for the thread: the on-chain title, or a ref-derived fallback (empty
- * titles are legal in external-content mode). */
-function surveyTitle(a: SurveyAggregate): string {
-  return a.record.definition.title || `Survey (${a.key.slice(0, 8)}:${a.record.ref.index})`;
-}
-
 /** Opening post, rendered through the same sanitizing markdown path as
- * governance threads (the description is untrusted on-chain data). */
+ * governance threads (the description is untrusted on-chain data, capped
+ * like an action's abstract before it gets there). */
 function composeFirstPostMd(a: SurveyAggregate): string {
   const def = a.record.definition;
   const roles = roleLabels(def.eligibleRoles);
+  const description = surveyDescription(def);
   const lines: string[] = ['**On-chain CIP-179 survey.**', ''];
   if (a.external) {
     lines.push('The survey text lives in an external document that is not loaded here.', '');
-  } else if (def.description) {
-    lines.push(def.description, '');
+  } else if (description) {
+    lines.push(description, '');
   }
   lines.push(`- Eligible to respond: ${roles}`);
   lines.push(`- Responses accepted through epoch ${def.endEpoch} (inclusive)`);
@@ -250,10 +246,11 @@ async function admitFromSet(
       // The survey row and its links commit in the same atomic batch as the
       // topic and first post, so a partial write can never leave an orphan
       // thread for the next run to duplicate.
+      const title = surveyTitle(a.record.definition, a.key);
       await createTopic(db, {
         categorySlug: SURVEYS_CATEGORY_SLUG,
         authorId: GOV_SYNC_AUTHOR,
-        title: surveyTitle(a),
+        title,
         bodyMd,
         bodyHtml: renderMarkdown(bodyMd),
         source: 'survey',
@@ -264,7 +261,7 @@ async function admitFromSet(
           buildInsertSurvey(db, {
             ...rowValues(set, a, now),
             topicId,
-            title: surveyTitle(a),
+            title,
             endEpoch: a.record.definition.endEpoch,
             eligibleRoles: a.record.definition.eligibleRoles,
             sealed: a.sealed,

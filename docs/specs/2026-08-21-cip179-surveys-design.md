@@ -136,17 +136,39 @@ switch, ages optimistic rows still `pending` after 6 h to `failed`
 (`PENDING_VOTE_TTL_SEC`, shared with the vote lifecycle), so "confirming…"
 cannot outlive a Tessera outage or the switch being turned off.
 
+**One derived state.** `src/lib/surveys/state.ts` turns a stored row,
+the network calendar and the clock into `{ lifecycle, answerable,
+participation }` once: lifecycle is `open` / `closed` / `cancelled` /
+`untalliable` (Tessera's decision outranks the clock), `answerable` is the
+survey's own half of the answer gate (open, held, DRep-eligible, not
+external-content), participation the tagged figure described above. The
+list row, the thread card, the action's sidebar card, the page's panel
+gate and the record API all render or decide from it, through one shared
+badge component and one wording per figure. The stored definition decodes
+through a guarded `parseSurveyDefinition` — null, a note and no panel when
+the frozen form cannot be read, never a 500 for the thread — and every
+string it yields for a page or a post (title, description, prompts, option
+labels) goes through the same sanitizer and caps as a governance action's
+anchor text; the stored wire form stays verbatim for the widget.
+
 **Answering.** `RespondPanel.astro` renders `<tessera-respond>` for a
-`drep` session on a DRep-eligible, open, available survey (bundled sibling
-script, so the CSP hash is automatic). On `tessera:response` the existing
-transaction path attaches the widget's payload at label 17 via the
-published `toTxMetadatum` and adds the DRep key hash to
-`required_signers` — proof mechanism A; the CIP-20 note rides at label 674
-as on votes. `POST /api/survey/response/record` then writes the optimistic
-row with a credential derived from the *session*, never the client; script
-DReps get a 403 (no key witness could ever settle such a row). The card
-overlays *Your answer · confirming…* until pass 4 or the reconcile phase
-resolves it.
+key-credential `drep` session on an answerable survey whose definition
+decoded, with the mirror configured (bundled sibling script, so the CSP
+hash is automatic). The panel connects with `connectVerifiedDrep`: the
+wallet must derive the signed-in DRep's id, since the record API stores
+the *session's* credential and the sync settles only on it — another
+wallet's answer would land on chain and leave the account a row nothing
+settles. On `tessera:response` the existing transaction path attaches the
+widget's payload at label 17 via the published `toTxMetadatum` and adds
+the DRep key hash to `required_signers` — proof mechanism A; the CIP-20
+note rides at label 674 as on votes. `POST /api/survey/response/record`
+then loads the row and refuses (409) a survey `state.ts` no longer calls
+answerable — a tab left open past the epoch roll can still submit — before
+writing the optimistic row with the session-derived credential; script
+DReps get a 403 as the backstop behind the page gate. The card overlays
+*Your answer · confirming…* until pass 4 or the reconcile phase resolves
+it, and offers "answer again" on a failed row only while the survey is
+still answerable.
 
 **Freshness.** Surveys have a row in `src/lib/freshness.ts` and the
 `data-freshness` guide; the existing drift test holds the pair together.
@@ -221,6 +243,15 @@ resolves it.
   no row is fresher than the oldest answer the run used — and stamping
   it only when every held row was answered for is what keeps it honest
   through a refresh that broke off.
+- **What a survey is and what may be done with it is decided in one
+  function, not per reader.** Before `state.ts`, lifecycle read two
+  columns, the count another two, the page's answer gate six plus the
+  session, and each component hand-wrote its own participation string; a
+  withdrawn row said "count pending" beside "Record missing" because
+  `unavailable` was consulted by some readers and not others. Session and
+  deployment facts (a key DRep, the mirror configured, the definition
+  readable) stay with the page and the record API, which are the only
+  places that know them.
 - **Pending rows settle by exact transaction and age to `failed`** — the
   GA-vote lifecycle DRepTalk already runs; `/api/responded` is
   replacement-blind. Ageing is its own ungated phase (PR review) because
@@ -251,18 +282,14 @@ Each has a destination; none may silently die with this document.
   mirror of the viewer's own latest response, read from Tessera as the
   row settles and served at SSR — a new table, to raise with the
   maintainer before the code exists.
-- **The connected wallet is not bound to the session's DRep** (PR review,
-  confirmed). `connectAsDrep` preflights that the wallet is *a*
-  registered active DRep, never that it is the session's; the record
-  endpoint stores the session's credential. Answering with another DRep's
-  wallet puts that DRep's answer on chain and the session's credential in
-  a row that can never settle; a script-DRep session is shown a panel
-  whose record call 403s. Nothing is forged — but the vote flow
-  (`VotePanel`, `MultiVoteBar`, `/api/vote/record`) runs the identical
-  model, so the fix spans both: give `connectVerifiedDrep` the
-  active-registration preflight, use it for both panels, and resolve the
-  viewer's DRep id (and credential kind) server-side. → file as an
-  upstream issue before this document is deleted.
+- **The vote flow still connects any registered DRep, not the session's.**
+  The survey panel now binds the wallet to the signed-in DRep
+  (`connectVerifiedDrep`), but `VotePanel`, `MultiVoteBar` and
+  `/api/vote/record` run the older model: `connectAsDrep` preflights that
+  the wallet is *a* registered active DRep, never that it is the
+  session's, while the record endpoint stores the session's credential.
+  Same defect, same fix, on a mainnet surface this PR does not touch.
+  → file as an upstream issue before this document is deleted.
 - **Route behaviour forks on ambient config vars and cannot be passed
   in** (`runtimeEnv()` ignores its argument since the adapter dropped
   `Astro.locals.runtime.env`), so tests assign to the module env instead

@@ -291,6 +291,35 @@ describe('syncSurveys', () => {
     expect(topics?.n).toBe(1);
   });
 
+  it('stores the title and opening post sanitized and capped, the definition verbatim', async () => {
+    await importLinkingAction();
+    const rawTitle = ` Bud\u0000get ${'t'.repeat(400)}`;
+    const record = surveyRecord(
+      TX_LINKED,
+      definition({ title: rawTitle, description: `Why\u0007 this\n\n\n\n${'d'.repeat(5000)}` }),
+    );
+    const page = pageOf(setOf([record], LINKED_LINKS, { [KEY_LINKED]: 0 }), 1);
+    await syncSurveys(
+      deps(fakeTessera({ surveyList: async () => ({ ready: true, value: page }) })),
+    );
+
+    const [row] = await surveyRows();
+    const expectedTitle = `Budget ${'t'.repeat(293)}`;
+    const topic = await env.DB.prepare('SELECT title FROM topics WHERE id = ?')
+      .bind(row.topic_id)
+      .first<{ title: string }>();
+    expect(topic?.title).toBe(expectedTitle);
+    const survey = await getSurveyByTopicId(env.DB, row.topic_id);
+    expect(survey?.title).toBe(expectedTitle);
+    const post = await env.DB.prepare('SELECT body_md FROM posts WHERE topic_id = ?')
+      .bind(row.topic_id)
+      .first<{ body_md: string }>();
+    expect(post?.body_md).toContain(`Why this\n\n${'d'.repeat(3990)}\n`);
+    expect(post?.body_md).not.toContain('\u0007');
+    // The stored wire form is what the widget re-decodes: untouched.
+    expect(survey?.definitionJson).toContain(JSON.stringify(rawTitle).slice(1, -1));
+  });
+
   it('does not admit a linked DRep survey whose action DRepTalk has not imported', async () => {
     const r = await syncSurveys(deps(fakeTessera()));
     expect(r.admitted).toBe(0);

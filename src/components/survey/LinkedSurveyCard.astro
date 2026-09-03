@@ -3,16 +3,12 @@
 // survey — at most one, since an action's metadata declares a single survey.
 // "Linked by the action's metadata", never "official": the linkage is a
 // discovery relation, not an endorsement.
+import SurveyBadges from '@/components/survey/SurveyBadges.astro';
 import type { NetworkConfig } from '@/lib/config/network.js';
 import type { SurveyRow } from '@/lib/db/surveys.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
-import {
-  lifecycleLabel,
-  participationLabel,
-  surveyDeadlineUnix,
-  surveyLifecycle,
-  surveyParticipation,
-} from '@/lib/surveys/view.js';
+import { participationLabel, surveyState } from '@/lib/surveys/state.js';
+import { surveyDeadlineUnix } from '@/lib/surveys/view.js';
 
 interface Props {
   survey: SurveyRow;
@@ -23,8 +19,7 @@ interface Props {
 
 const { survey, topicSlug, cfg, now } = Astro.props;
 
-const lifecycle = surveyLifecycle(survey, now, cfg);
-const statusLabel = lifecycleLabel(lifecycle);
+const { lifecycle, participation } = surveyState(survey, now, cfg);
 const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
 ---
 
@@ -32,11 +27,10 @@ const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
   <p class="sidebar-card__title">Linked survey</p>
   <a class="lsvy__name" href={`/t/${topicSlug}/`}>{survey.title}</a>
   <p class="lsvy__meta">
-    <span class:list={['lsvy__badge', `lsvy__badge--${lifecycle}`]}>{statusLabel}</span>
-    {survey.sealed && <span class="lsvy__badge lsvy__badge--sealed">Sealed</span>}
+    <SurveyBadges lifecycle={lifecycle} sealed={survey.sealed} unavailable={survey.unavailable} />
     {lifecycle === 'open' ? `until ${formatEpochDate(deadlineUnix)}` : `ended epoch ${survey.endEpoch}`}
   </p>
-  <p class="lsvy__count">{participationLabel(surveyParticipation(survey))}</p>
+  <p class="lsvy__count">{participationLabel(participation)}</p>
   <p class="lsvy__note">Linked by this action's metadata.</p>
 </div>
 
@@ -73,28 +67,6 @@ const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
     margin: 0.4rem 0 0;
     font-size: 0.78rem;
     color: var(--muted);
-  }
-  .lsvy__badge {
-    font-size: 0.7rem;
-    font-weight: 600;
-    border-radius: 999px;
-    padding: 0.1rem 0.5rem;
-  }
-  .lsvy__badge--open {
-    color: var(--c-pos);
-    background: color-mix(in srgb, var(--c-pos) 12%, transparent);
-  }
-  .lsvy__badge--closed {
-    color: var(--muted);
-    background: color-mix(in srgb, var(--muted) 14%, transparent);
-  }
-  .lsvy__badge--cancelled {
-    color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
-  }
-  .lsvy__badge--sealed {
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .lsvy__count {
     margin: 0.35rem 0 0;

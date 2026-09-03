@@ -34,7 +34,12 @@ async function seedUser(drepId = DREP_ID, userId = USER_ID) {
     .run();
 }
 
-async function seedSurvey(ref = SURVEY_REF) {
+/** An open, answerable survey unless told otherwise: the end epoch is far
+ * ahead of any wall clock the handler reads. */
+async function seedSurvey(
+  ref = SURVEY_REF,
+  opts: { endEpoch?: number; unavailable?: boolean; cancelled?: boolean } = {},
+) {
   await env.DB.prepare(
     `INSERT OR IGNORE INTO topics (id, category_slug, author_id, title, slug, created_at, last_post_at)
      VALUES ('topic-survey-record', 'surveys', ?, 'Survey', 'survey-record-topic', ?, ?)`,
@@ -45,9 +50,16 @@ async function seedSurvey(ref = SURVEY_REF) {
     `INSERT OR IGNORE INTO survey
        (ref, topic_id, title, end_epoch, eligible_roles, sealed, cancelled, external_content,
         definition, counted_dreps, final_state, unavailable, submitted_at, synced_at)
-     VALUES (?, 'topic-survey-record', 'Survey', 300, '[0]', 0, 0, 0, '{}', NULL, NULL, 0, ?, ?)`,
+     VALUES (?, 'topic-survey-record', 'Survey', ?, '[0]', 0, ?, 0, '{}', NULL, NULL, ?, ?, ?)`,
   )
-    .bind(ref, NOW, NOW)
+    .bind(
+      ref,
+      opts.endEpoch ?? 1_000_000,
+      opts.cancelled ? 1 : 0,
+      opts.unavailable ? 1 : 0,
+      NOW,
+      NOW,
+    )
     .run();
 }
 
@@ -117,6 +129,30 @@ describe('POST /api/survey/response/record', () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+
+  it('refuses a survey that can no longer take an answer, by the rule the page gates on', async () => {
+    await seedUser();
+    const user = { id: USER_ID, roles: ['drep'] };
+    // A tab left open past the epoch roll: the chain may accept the tx, but a
+    // row here would age into "answer again" on a survey with no panel.
+    const closed = `${'c'.repeat(64)}:0`;
+    await seedSurvey(closed, { endEpoch: 1 });
+    expect(
+      (await POST(makeCtx({ user, body: { surveyRef: closed, txHash: TX_HASH } }))).status,
+    ).toBe(409);
+    const gone = `${'d'.repeat(64)}:0`;
+    await seedSurvey(gone, { unavailable: true });
+    expect(
+      (await POST(makeCtx({ user, body: { surveyRef: gone, txHash: TX_HASH } }))).status,
+    ).toBe(409);
+    const cancelled = `${'e'.repeat(64)}:0`;
+    await seedSurvey(cancelled, { cancelled: true });
+    const res = await POST(makeCtx({ user, body: { surveyRef: cancelled, txHash: TX_HASH } }));
+    expect(res.status).toBe(409);
+    expect(await getViewerSurveyResponse(env.DB, closed, USER_ID)).toBeNull();
+    expect(await getViewerSurveyResponse(env.DB, gone, USER_ID)).toBeNull();
+    expect(await getViewerSurveyResponse(env.DB, cancelled, USER_ID)).toBeNull();
   });
 
   it('refuses a script-credential DRep — no key witness could ever settle the row', async () => {
