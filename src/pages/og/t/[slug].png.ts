@@ -15,6 +15,7 @@ import { loadAuthorIdentity } from '@/lib/forum/author.js';
 import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { proposerView } from '@/lib/identity/proposer.js';
 import { loadAvatar } from '@/lib/og/assets.js';
+import type { ImagesLike } from '@/lib/dreps/avatarStore.js';
 import { committeeCardModel, discussionCardModel, govCardModel } from '@/lib/og/model.js';
 import { renderOgCard } from '@/lib/og/render.js';
 import { committeeCardHtml, discussionCardHtml, govCardHtml } from '@/lib/og/templates.js';
@@ -62,7 +63,12 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   ]);
   const avatarDataUrl = author.isSystem
     ? null
-    : await loadAvatar(env.AVATARS as R2Bucket | undefined, author.identiconSeed ?? topic.author_id, author.imageHash);
+    : await loadAvatar(
+        env.AVATARS as R2Bucket | undefined,
+        author.identiconSeed ?? topic.author_id,
+        author.imageHash,
+        env.IMAGES as ImagesLike | undefined,
+      );
   const model = discussionCardModel(
     { title: topic.title, categorySlug: topic.category_slug, postCount: topic.post_count, openingPostHtml },
     { authorName: author.isSystem ? null : author.displayName, avatarDataUrl },

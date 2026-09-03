@@ -36,6 +36,16 @@ const FETCH_TIMEOUT_MS = 8_000;
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif'];
 // R2 key prefix; the full key is avatars/<sha256-hex>.
 export const AVATAR_KEY_PREFIX = 'avatars/';
+// R2 key prefix for the PNG rendition of an avatar the card rasterizer cannot
+// decode (webp/avif/gif). Derived from the stored bytes on first use and keyed by
+// the same content hash, so it stays valid as long as the avatar does. Kept off
+// the avatars/ prefix so the store pass and the serve proxy never see it.
+export const OG_AVATAR_KEY_PREFIX = 'og-avatars/';
+
+/** R2 key of the PNG rendition for a stored avatar hash. */
+export function ogAvatarKey(hash: string): string {
+  return `${OG_AVATAR_KEY_PREFIX}${hash}.png`;
+}
 
 /** A downscaler: returns smaller bytes for an oversized image, or null if it cannot. */
 export type ImageDownscaler = (bytes: ArrayBuffer) => Promise<{ bytes: ArrayBuffer; contentType: string } | null>;
@@ -65,6 +75,28 @@ export function imagesDownscaler(images: ImagesLike): ImageDownscaler {
       const out = await result.response().arrayBuffer();
       if (out.byteLength === 0 || out.byteLength > MAX_IMAGE_BYTES) return null;
       return { bytes: out, contentType: 'image/webp' };
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
+ * Wraps the Cloudflare Images binding into a re-encoder that fits an avatar to
+ * AVATAR_MAX_EDGE and outputs PNG, for formats the card rasterizer cannot decode.
+ * Returns null on any transform error, on empty output, or if the result is over
+ * MAX_IMAGE_BYTES, so the caller falls back to the identicon.
+ */
+export function pngRenditionEncoder(images: ImagesLike): ImageDownscaler {
+  return async (bytes) => {
+    try {
+      const result = await images
+        .input(new Response(bytes).body as ReadableStream)
+        .transform({ width: AVATAR_MAX_EDGE, height: AVATAR_MAX_EDGE, fit: 'scale-down' })
+        .output({ format: 'image/png' });
+      const out = await result.response().arrayBuffer();
+      if (out.byteLength === 0 || out.byteLength > MAX_IMAGE_BYTES) return null;
+      return { bytes: out, contentType: 'image/png' };
     } catch {
       return null;
     }
@@ -304,9 +336,10 @@ export interface AvatarGcDeps {
 }
 
 /**
- * Deletes avatars/<hash> objects that no dreps row references anymore, once
- * they are older than the grace period. Paginates the R2 listing; bounded
- * deletions per run.
+ * Deletes avatars/<hash> and og-avatars/<hash>.png objects that no dreps row
+ * references anymore, once they are older than the grace period. Both prefixes
+ * are keyed by the same content hash, so an avatar and its PNG rendition go at
+ * the same time. Paginates the R2 listing; bounded deletions per run.
  */
 export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: number; deleted: number }> {
   const deleteLimit = deps.deleteLimit ?? 200;
@@ -318,19 +351,26 @@ export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: numb
   // a full run costs one or two delete round-trips instead of one per object.
   let scanned = 0;
   const toDelete: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await deps.bucket.list({ prefix: AVATAR_KEY_PREFIX, cursor });
-    for (const obj of page.objects) {
-      scanned++;
-      if (toDelete.length >= deleteLimit) continue;
-      const hash = obj.key.slice(AVATAR_KEY_PREFIX.length);
-      if (referenced.has(hash)) continue;
-      if (deps.nowMs - obj.uploaded.getTime() < AVATAR_GC_GRACE_MS) continue;
-      toDelete.push(obj.key);
-    }
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor && toDelete.length < deleteLimit);
+
+  const sweep = async (prefix: string, hashOf: (key: string) => string) => {
+    let cursor: string | undefined;
+    do {
+      const page = await deps.bucket.list({ prefix, cursor });
+      for (const obj of page.objects) {
+        scanned++;
+        if (toDelete.length >= deleteLimit) continue;
+        if (referenced.has(hashOf(obj.key))) continue;
+        if (deps.nowMs - obj.uploaded.getTime() < AVATAR_GC_GRACE_MS) continue;
+        toDelete.push(obj.key);
+      }
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor && toDelete.length < deleteLimit);
+  };
+
+  await sweep(AVATAR_KEY_PREFIX, (key) => key.slice(AVATAR_KEY_PREFIX.length));
+  await sweep(OG_AVATAR_KEY_PREFIX, (key) =>
+    key.slice(OG_AVATAR_KEY_PREFIX.length).replace(/\.png$/, ''),
+  );
 
   for (let i = 0; i < toDelete.length; i += 1000) {
     await deps.bucket.delete(toDelete.slice(i, i + 1000));
