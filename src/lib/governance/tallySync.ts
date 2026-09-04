@@ -91,6 +91,9 @@ export interface VoteSyncDeps {
   paceMs?: number;
   /** Max vote pages to fetch per action; defaults to MAX_VOTE_PAGES. Tests lower it. */
   maxPages?: number;
+  /** Rows per proposal_votes page; defaults to VOTES_PAGE. Tests lower it so the
+   * cap behaviour can be exercised without writing 25k rows into D1. */
+  pageSize?: number;
   /**
    * When present, the set of DRep ids that have at least one follower to notify.
    * Threaded into upsertVotes by syncGovernanceVotes (the live sync) ONLY: a
@@ -122,11 +125,12 @@ async function collectProposalVotes(
   koios: VoteSyncDeps['koios'],
   proposalId: string,
   maxPages: number,
+  pageSize: number,
 ): Promise<{ votes: VoteInput[]; capped: boolean }> {
   const votes: VoteInput[] = [];
   let capped = true;
   for (let page = 0; page < maxPages; page++) {
-    const rows = await koios.proposalVotes(proposalId, VOTES_PAGE, page * VOTES_PAGE);
+    const rows = await koios.proposalVotes(proposalId, pageSize, page * pageSize);
     for (const v of rows) {
       votes.push({
         voterRole: v.voter_role,
@@ -138,7 +142,7 @@ async function collectProposalVotes(
         blockTime: v.block_time ?? null,
       });
     }
-    if (rows.length < VOTES_PAGE) {
+    if (rows.length < pageSize) {
       capped = false;
       break;
     }
@@ -596,7 +600,7 @@ export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): P
 }
 
 export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncResult> {
-  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES, followedDrepIds } = deps;
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES, pageSize = VOTES_PAGE, followedDrepIds } = deps;
 
   // Same bounded, stale-first strategy as the tally sync, but ordered by vote
   // recency (votes_synced_at): proposal_votes is even heavier (paginated per
@@ -613,12 +617,12 @@ export async function syncGovernanceVotes(deps: VoteSyncDeps): Promise<VoteSyncR
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     actions++;
     try {
-      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
+      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages, pageSize);
       await enrichVotedPower({ db, koios }, collected);
       votes += await upsertVotes(db, ga.id, collected, now, { followedDrepIds, notifyRationaleReady: true });
       await markVotesSynced(db, ga.id, now);
       if (capped) {
-        console.warn(`[gov-votes] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; synced a capped prefix`);
+        console.warn(`[gov-votes] action ${ga.id} vote list exceeds ${maxPages * pageSize}; synced a capped prefix`);
       }
     } catch (err) {
       failed++;
@@ -653,7 +657,7 @@ export interface VoteBackfillResult { actions: number; votes: number; failed: nu
  * action synced so it drops out of the candidate set. Bounded by `limit`.
  */
 export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBackfillResult> {
-  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES } = deps;
+  const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES, pageSize = VOTES_PAGE } = deps;
   const candidates = await getActionsNeedingVoteBackfill(db, limit);
   let votes = 0;
   let failed = 0;
@@ -663,7 +667,7 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     actions++;
     try {
-      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages);
+      const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages, pageSize);
       await enrichVotedPower({ db, koios }, collected);
       // Deliberately NO opts here (no followedDrepIds), even though deps carries
       // it: this backfill re-writes long-decided votes, and passing it through
@@ -674,7 +678,7 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
       // on the same action every run.
       await markVotesSynced(db, ga.id, now);
       if (capped) {
-        console.warn(`[gov-votes-backfill] action ${ga.id} vote list exceeds ${maxPages * VOTES_PAGE}; synced a capped prefix`);
+        console.warn(`[gov-votes-backfill] action ${ga.id} vote list exceeds ${maxPages * pageSize}; synced a capped prefix`);
       }
     } catch (err) {
       failed++;

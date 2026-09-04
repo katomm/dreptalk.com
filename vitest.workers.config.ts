@@ -14,6 +14,9 @@ function deployCompatibilityDate(): string {
   return match[1];
 }
 
+// GitHub Actions sets CI=true. The timeouts below widen only there.
+const isCI = Boolean(process.env.CI);
+
 // Vitest 4 / pool-workers 0.16: the old defineWorkersProject + poolOptions.workers
 // shape is replaced by the cloudflareTest() plugin. The previous worker pool
 // options object is now passed straight to cloudflareTest().
@@ -54,6 +57,20 @@ export default defineConfig(async () => {
       name: 'workers',
       include: ['src/**/*.workers.test.ts'],
       setupFiles: ['./src/lib/test-setup.workers.ts'],
+      // The CI runner executes this project several times slower than a dev
+      // machine, so vitest's 5s default left the heaviest workerd tests failing
+      // at random on PRs that never touched them. Locally the default stays, so
+      // a test that genuinely turns slow still surfaces while it is being
+      // written. CI gets headroom that is still far below a runaway loop.
+      testTimeout: isCI ? 30_000 : 5_000,
+      // The per-test reset in the setup file clears D1, KV, R2 and the Durable
+      // Object, so hooks need the same headroom.
+      hookTimeout: isCI ? 60_000 : 10_000,
+      // A separate failure mode from a timeout: under load the pool occasionally
+      // drops a miniflare connection mid-test ("Network connection lost"), which
+      // no timeout can absorb. One retry on CI only, so a genuinely flaky
+      // assertion still fails locally instead of being papered over.
+      retry: isCI ? 1 : 0,
     },
     resolve: {
       alias: { '@': new URL('./src', import.meta.url).pathname },
