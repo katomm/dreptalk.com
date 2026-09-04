@@ -19,6 +19,10 @@ declare module 'cloudflare:test' {
 // captured once per test file and restored before each test (see beforeEach).
 let d1Seed: { table: string; rows: Record<string, unknown>[] }[] = [];
 
+// The user-table list is fixed once migrations have run, so it is resolved once
+// per test file instead of being re-queried before every test.
+let tableNames: string[] = [];
+
 // User tables only: excludes SQLite internals, Cloudflare internals, the
 // migration-tracking table, and the FTS5 virtual tables plus their shadow
 // tables. FTS tables cannot be cleared with a direct DELETE (external
@@ -41,11 +45,13 @@ beforeAll(async () => {
 
   // Capture migration-seeded rows (e.g. the 'system' user) so the per-test reset
   // can restore them rather than wipe them.
-  d1Seed = [];
-  for (const table of await userTables()) {
-    const { results } = await env.DB.prepare(`SELECT * FROM "${table}"`).all<Record<string, unknown>>();
-    d1Seed.push({ table, rows: results });
-  }
+  tableNames = await userTables();
+  const seeded = await env.DB.batch<Record<string, unknown>>(
+    tableNames.map((table) => env.DB.prepare(`SELECT * FROM "${table}"`)),
+  );
+  d1Seed = tableNames
+    .map((table, i) => ({ table, rows: seeded[i].results ?? [] }))
+    .filter((entry) => entry.rows.length > 0);
 });
 
 beforeEach(async () => {
@@ -54,9 +60,9 @@ beforeEach(async () => {
   // so each one starts from the migrated-and-seeded state the suite was written against.
   // This runs before any test-file beforeEach, so files that seed their own fixtures
   // (e.g. stakeParticipation) still see a clean slate first.
-  for (const table of await userTables()) {
-    await env.DB.prepare(`DELETE FROM "${table}"`).run();
-  }
+  // One batch rather than a statement per table: the reset runs before every
+  // test, so ~34 sequential round trips each time dominated the suite runtime.
+  const reset = tableNames.map((table) => env.DB.prepare(`DELETE FROM "${table}"`));
   // Restore the migration seed rows captured after migrations ran.
   for (const { table, rows } of d1Seed) {
     for (const row of rows) {
@@ -64,11 +70,14 @@ beforeEach(async () => {
       if (cols.length === 0) continue;
       const columnList = cols.map((c) => `"${c}"`).join(', ');
       const placeholders = cols.map(() => '?').join(', ');
-      await env.DB.prepare(`INSERT INTO "${table}" (${columnList}) VALUES (${placeholders})`)
-        .bind(...cols.map((c) => row[c]))
-        .run();
+      reset.push(
+        env.DB.prepare(`INSERT INTO "${table}" (${columnList}) VALUES (${placeholders})`).bind(
+          ...cols.map((c) => row[c]),
+        ),
+      );
     }
   }
+  await env.DB.batch(reset);
 
   {
     const { keys } = await env.SESSIONS.list();

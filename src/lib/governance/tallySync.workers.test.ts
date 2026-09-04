@@ -553,9 +553,11 @@ describe('syncGovernanceVotes', () => {
       poolInfoBatch: async () => [],
     };
 
-    await syncGovernanceVotes({ koios, db: db(), now: NOW, maxPages: 3 });
+    // pageSize is lowered from the production 1000 so the cap is exercised with
+    // 60 rows instead of 3000: the assertion is about the page bound, not volume.
+    await syncGovernanceVotes({ koios, db: db(), now: NOW, maxPages: 3, pageSize: 20 });
     expect(calls).toBe(3); // bounded; did not run away
-    expect((await getVotesByGaId(db(), a.id)).size).toBe(3000);
+    expect((await getVotesByGaId(db(), a.id)).size).toBe(60);
   });
 
   it('threads followedDrepIds into upsertVotes, emitting a fan-out job for a followed DRep vote', async () => {
@@ -799,9 +801,9 @@ describe('backfillFinalizedVotes', () => {
       poolInfoBatch: async () => [],
     };
 
-    const r = await backfillFinalizedVotes({ koios, db: env.DB, now: 999, limit: 10, maxPages: 3 });
+    const r = await backfillFinalizedVotes({ koios, db: env.DB, now: 999, limit: 10, maxPages: 3, pageSize: 20 });
     expect(calls).toBe(3); // bounded; did not run away
-    expect(r.votes).toBe(3000);
+    expect(r.votes).toBe(60);
     // Marked synced despite the cap, so it cannot stall the backfill every run.
     expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]);
   });
