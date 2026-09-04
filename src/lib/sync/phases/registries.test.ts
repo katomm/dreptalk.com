@@ -22,8 +22,14 @@ const core: CoreSyncContext = {
   now: 0,
 };
 
-function govCtx(heavy: boolean): GovernanceSyncContext {
-  return { ...core, heavy, vapid: null, telegramBotToken: null };
+function govCtx(heavy: boolean, opts: { tessera?: boolean } = {}): GovernanceSyncContext {
+  return {
+    ...core,
+    heavy,
+    vapid: null,
+    telegramBotToken: null,
+    tessera: opts.tessera ? ({} as GovernanceSyncContext['tessera']) : null,
+  };
 }
 
 function voteCtx(opts: { hourly?: boolean; avatars?: boolean } = {}): VoteSyncContext {
@@ -56,16 +62,32 @@ function expectUniqueNames(defs: readonly { name: string }[]) {
 describe('governancePhases', () => {
   it('runs only discovery, notification dispatch, and cleanup phases on a light tick', () => {
     expect(activePhaseNames(governancePhases, govCtx(false))).toEqual([
-      'discovery', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure', 'cip100',
+      'discovery', 'survey-reconcile', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure',
+      'cip100',
     ]);
   });
 
   it('adds the tally/backfill/params phases in order on a heavy tick', () => {
     expect(activePhaseNames(governancePhases, govCtx(true))).toEqual([
-      'discovery', 'tallies', 'gov-status-times', 'voted-power', 'threshold-backfill',
-      'metadata', 'gov-titles', 'post-dates', 'trending', 'params',
+      'discovery', 'survey-reconcile', 'tallies', 'gov-status-times', 'voted-power',
+      'threshold-backfill', 'metadata', 'gov-titles', 'post-dates', 'trending', 'params',
       'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
     ]);
+  });
+
+  it('runs the surveys mirror only when the Tessera client is configured', () => {
+    expect(activePhaseNames(governancePhases, govCtx(false))).not.toContain('surveys');
+    expect(activePhaseNames(governancePhases, govCtx(false, { tessera: true }))).toEqual([
+      'discovery', 'surveys', 'survey-reconcile', 'delegation-fanout', 'webpush', 'telegram',
+      'post-erasure', 'cip100',
+    ]);
+  });
+
+  it('ages optimistic survey answers whether or not the mirror is configured', () => {
+    // The switch owns the mirror, never the confirmation cutoff: a card must
+    // not keep promising that an answer is being checked because surveys are
+    // not indexed here.
+    expect(activePhaseNames(governancePhases, govCtx(false))).toContain('survey-reconcile');
   });
 
   it('marks exactly discovery as primary and keeps names unique', () => {

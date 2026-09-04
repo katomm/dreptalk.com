@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import type { VotingProcedures, GovernanceAction } from '@evolution-sdk/evolution';
 import { Anchor, Url } from '@evolution-sdk/evolution';
+import { METADATA_LABEL } from 'cip-179';
 import {
   buildRegisterDrepParts,
   queueRegisterDrepOps,
@@ -16,7 +17,9 @@ import {
   buildGovActionId,
   queueVotesOps,
   castDRepVotes,
+  queueSurveyResponseOps,
 } from './drepTx.js';
+import { DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { bytesToHex } from '../crypto/hex.js';
 
 // Deterministic test fixtures.
@@ -359,5 +362,40 @@ describe('castDRepVotes input validation', () => {
         votes: [],
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe('queueSurveyResponseOps', () => {
+  function makeStub() {
+    const calls: Record<string, unknown[]> = {};
+    // biome-ignore lint/suspicious/noExplicitAny: recording stub for builder methods
+    const stub: any = new Proxy(
+      {},
+      { get: (_t, prop: string) => (arg: unknown) => { if (!calls[prop]) calls[prop] = []; calls[prop].push(arg); return stub; } },
+    );
+    return { stub, calls };
+  }
+
+  // A metadatum tree the widget could emit: toTxMetadatum is a type-level
+  // cast, so the exact same structure must come out at label 17.
+  const payload = new Map<bigint, unknown>([[0n, ['responses', 1n]]]) as never;
+
+  it('attaches the payload at label 17, one signer per key hash, and the CIP-20 tag', () => {
+    const { stub, calls } = makeStub();
+    const keyA = new Uint8Array(28).fill(1);
+    const keyB = new Uint8Array(28).fill(2);
+    queueSurveyResponseOps(stub, { payload, signerKeyHashes: [keyA, keyB] });
+
+    const meta = calls.attachMetadata as Array<{ label: bigint; metadata: unknown }>;
+    expect(meta.map((m) => m.label)).toEqual([BigInt(METADATA_LABEL), DREPTALK_CIP20_LABEL]);
+    expect(meta[0].metadata).toBe(payload);
+    // Mechanism A lives in required_signers: a missing entry silently
+    // invalidates the response, so the signer count is the assertion.
+    expect(calls.addSigner).toHaveLength(2);
+  });
+
+  it('rejects an empty credential list — an unproven response would carry no signature', () => {
+    const { stub } = makeStub();
+    expect(() => queueSurveyResponseOps(stub, { payload, signerKeyHashes: [] })).toThrow();
   });
 });

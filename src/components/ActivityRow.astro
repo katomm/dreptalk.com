@@ -9,7 +9,7 @@ import LogoMark from '@/components/LogoMark.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { authorProfileHref } from '@/lib/forum/author.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { GAVEL_PATH, MESSAGE_PATH, USERS_PATH } from '@/lib/forum/icons.js';
+import { MESSAGE_PATH, USERS_PATH, topicTypeIconPath } from '@/lib/forum/icons.js';
 import { statusBadge, govStatusVerb, isTerminalStatus, TONE_COLORS } from '@/lib/governance/view.js';
 
 interface Props {
@@ -27,7 +27,7 @@ const discussionsVerb =
   event.kind === 'topic_created'
     ? 'started'
     : event.kind === 'reply_created'
-      ? event.topic.isGovernance
+      ? event.topic.source === 'governance'
         ? 'commented'
         : 'replied'
       : event.kind === 'gov_created'
@@ -39,7 +39,7 @@ const discussionsVerb =
 // tab explicitly, otherwise the post anchor lands on the Overview tab where the
 // comment is not rendered and the scroll never resolves.
 const href = event.refPostId
-  ? `/t/${event.topic.slug}/${event.topic.isGovernance ? '?tab=discussion' : ''}#post-${event.refPostId}`
+  ? `/t/${event.topic.slug}/${event.topic.source === 'governance' ? '?tab=discussion' : ''}#post-${event.refPostId}`
   : `/t/${event.topic.slug}/`;
 
 const badge =
@@ -77,7 +77,7 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
   <div class="act-body2">
     <div class="act-titlerow">
       <svg class="act-type-icon" aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d={event.topic.isGovernance ? GAVEL_PATH : MESSAGE_PATH} />
+        <path d={topicTypeIconPath(event.topic.source)} />
       </svg>
       <a class="act-title2" href={href}>{event.topic.title}</a>
     </div>
@@ -139,7 +139,7 @@ const LINK = 'font-weight:500;text-decoration:none;color:var(--fg);';
         <Fragment>started <a href={href} style={LINK}>{event.topic.title}</a> <span style="color:var(--muted);">in {event.topic.categoryName}</span></Fragment>
       )}
       {event.kind === 'reply_created' && (
-        event.topic.isGovernance
+        event.topic.source === 'governance'
           ? <Fragment>commented on <a href={href} style={LINK}>{event.topic.title}</a></Fragment>
           : <Fragment>replied in <a href={href} style={LINK}>{event.topic.title}</a></Fragment>
       )}

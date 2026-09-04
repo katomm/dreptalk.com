@@ -1,0 +1,282 @@
+---
+// The survey thread's header card, from what the page loaded out of D1 — the
+// "as of" line owns the staleness. Deliberately no tally figure of any kind:
+// CIP-179 mandates no counting policy, so the card shows participation, never
+// "the result".
+import type { SurveyDefinition } from 'cip-179';
+import SurveyBadges from '@/components/survey/SurveyBadges.astro';
+import type { NetworkConfig } from '@/lib/config/network.js';
+import type { LocalSurveyResponse, SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import { participationLabel, surveyState } from '@/lib/surveys/state.js';
+import {
+  questionViews,
+  roleLabels,
+  surveyDeadlineUnix,
+  surveyDescription,
+  tesseraSurveyUrl,
+} from '@/lib/surveys/view.js';
+
+interface Props {
+  survey: SurveyRow;
+  /** The decoded definition, or null when the stored form could not be
+   * read — the card then shows the row's facts and says so. */
+  definition: SurveyDefinition | null;
+  /** The governance actions advertising this survey (may name actions this
+   * site has not imported — those render unlinked). */
+  links: SurveyGovLinkView[];
+  cfg: NetworkConfig;
+  now: number;
+  appUrl: string | undefined;
+  /** Snapshot time (unix s) the mirror was last brought fully up to date
+   * with — one value for every survey, since the sync refreshes every held
+   * row on every run; null until a run has done so. */
+  asOf: number | null;
+  /** The viewer's own optimistic answer row, when signed in and present. */
+  viewerResponse?: LocalSurveyResponse | null;
+}
+
+const { survey, definition, links, cfg, now, appUrl, asOf, viewerResponse } = Astro.props;
+
+const { lifecycle, answerable, participation } = surveyState(survey, now, cfg);
+const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
+const questions = definition ? questionViews(definition) : [];
+const description = definition ? surveyDescription(definition) : '';
+const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
+---
+
+<section class="svy-card">
+  <div class="svy-card__head">
+    <span class="svy-card__kind">CIP-179 survey</span>
+    <SurveyBadges lifecycle={lifecycle} sealed={survey.sealed} unavailable={survey.unavailable} />
+  </div>
+
+  {survey.unavailable && (
+    <p class="svy-card__warn">
+      This survey is no longer found in the index linked to an imported governance action — its
+      record, or the action's, may have been rolled back. The thread stays; answering is disabled.
+    </p>
+  )}
+
+  {/* The viewer's own submission state, from the optimistic local row. It
+      never claims validity — whether an answer is *counted* is only knowable
+      at finalization; this only tracks whether the transaction confirmed. */}
+  {viewerResponse && viewerResponse.status === 'pending' && (
+    <p class="svy-card__mine">
+      Your answer · confirming… (checked against the chain every few minutes)
+    </p>
+  )}
+  {viewerResponse && viewerResponse.status === 'failed' && (
+    <p class="svy-card__mine svy-card__mine--failed">
+      Your answer didn't confirm{answerable ? ' — you can answer again' : ''}.
+    </p>
+  )}
+
+  {!definition ? (
+    <p class="svy-card__note">
+      The stored survey definition could not be read, so its text is not shown here.
+    </p>
+  ) : survey.externalContent ? (
+    <p class="svy-card__note">
+      The survey text lives in an external document that is not loaded here.
+    </p>
+  ) : (
+    description && <p class="svy-card__desc">{description}</p>
+  )}
+
+  <ol class="svy-card__questions">
+    {questions.map((q) => (
+      <li>
+        <p class="svy-q__prompt">{q.prompt}{q.required && <span class="svy-q__req" title="An answer must include this question"> *</span>}</p>
+        <p class="svy-q__kind">{q.kindLabel}</p>
+        {q.options && (
+          <ul class="svy-q__options">
+            {q.options.map((o) => <li>{o}</li>)}
+          </ul>
+        )}
+        {q.optionNote && <p class="svy-q__kind">{q.optionNote}</p>}
+      </li>
+    ))}
+  </ol>
+
+  <dl class="svy-card__facts">
+    <div>
+      <dt>Eligible to respond</dt>
+      <dd>{roleLabels(survey.eligibleRoles)}</dd>
+    </div>
+    <div>
+      <dt>Responses accepted</dt>
+      <dd>through epoch {survey.endEpoch} (inclusive) — until {formatEpochDate(deadlineUnix)}</dd>
+    </div>
+    <div>
+      <dt>Participation</dt>
+      <dd>{participationLabel(participation)}</dd>
+    </div>
+    {links.length > 0 && (
+      <div>
+        <dt>Linked by {links.length} governance {links.length === 1 ? 'action' : 'actions'}</dt>
+        {links.map((l) => (
+          <dd>
+            {l.topicSlug ? (
+              <a class="svy-card__actionlink" href={`/t/${l.topicSlug}/`}>
+                {l.actionTitle ?? l.title ?? l.actionId}
+              </a>
+            ) : (
+              <>
+                {l.title ?? l.actionId}
+                <span class="svy-card__linknote"> (action not indexed here)</span>
+              </>
+            )}
+          </dd>
+        ))}
+      </div>
+    )}
+  </dl>
+
+  <div class="svy-card__foot">
+    {deepLink && (
+      <a class="svy-card__link" href={deepLink} target="_blank" rel="noopener noreferrer">
+        View on Tessera ↗
+      </a>
+    )}
+    {asOf != null && (
+      <span class="svy-card__asof">
+        Survey data as of {formatRelativeTime(asOf * 1000, now)}. Cached, not live.
+      </span>
+    )}
+  </div>
+</section>
+
+<style>
+  .svy-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 1.25rem 1.25rem 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .svy-card__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .svy-card__kind {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .svy-card__warn {
+    font-size: 0.875rem;
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin: 0 0 0.9rem;
+  }
+  .svy-card__mine {
+    font-size: 0.875rem;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin: 0 0 0.9rem;
+  }
+  .svy-card__mine--failed {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+  }
+  .svy-card__desc,
+  .svy-card__note {
+    font-size: 0.9375rem;
+    margin: 0 0 1rem;
+  }
+  .svy-card__note {
+    color: var(--muted);
+    font-style: italic;
+  }
+  .svy-card__questions {
+    margin: 0 0 1rem;
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .svy-q__prompt {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  .svy-q__req {
+    color: var(--danger);
+  }
+  .svy-q__kind {
+    margin: 0.1rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-q__options {
+    margin: 0.35rem 0 0;
+    padding-left: 1.1rem;
+    font-size: 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .svy-card__facts {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.9rem;
+  }
+  .svy-card__facts dt {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .svy-card__facts dd {
+    margin: 0.1rem 0 0;
+    font-size: 0.9rem;
+  }
+  .svy-card__actionlink {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .svy-card__actionlink:hover {
+    text-decoration: underline;
+  }
+  .svy-card__linknote {
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+  .svy-card__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.75rem;
+    justify-content: space-between;
+    margin-top: 1rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+  }
+  .svy-card__link {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .svy-card__link:hover {
+    text-decoration: underline;
+  }
+  .svy-card__asof {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+</style>

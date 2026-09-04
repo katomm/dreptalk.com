@@ -1,7 +1,7 @@
 ---
 import type { Category } from '../../config/categories.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { GAVEL_PATH, MESSAGE_PATH } from '@/lib/forum/icons.js';
+import { CHECKLIST_PATH, GAVEL_PATH, MESSAGE_PATH } from '@/lib/forum/icons.js';
 
 interface Props {
   categories: readonly Category[];
@@ -15,6 +15,7 @@ const ICONS: Record<string, string> = {
   'governance-actions': GAVEL_PATH,
   constitution: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
   budget: 'M3 7h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 7l2-4h14l2 4M16 12h4',
+  surveys: CHECKLIST_PATH,
   general: MESSAGE_PATH,
 };
 const FALLBACK_ICON = ICONS.general;

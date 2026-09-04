@@ -457,22 +457,25 @@ export async function searchDrepsPage(db: D1Database, match: string, page: numbe
   return { hits, total: countOf(countRes) };
 }
 
-// Forum = user topics matched by title OR by a visible post, ranked by best
-// bm25 across both. Governance-synced topics (source = 'governance') belong to
-// the Governance scope, so they are excluded here, mirroring how searchAll
-// routes GA-linked threads to the GA group. bm25() is evaluated inside each
-// UNION branch, where its FTS table is in scope; the outer query aggregates per
-// topic. UNION ALL is fine here because we GROUP BY topic_id afterwards.
+// Forum = discussion topics matched by title OR by a visible post, ranked by
+// best bm25 across both. Governance-synced topics belong to the Governance
+// scope, so they are excluded here, mirroring how searchAll routes GA-linked
+// threads to the GA group; survey threads have no scope of their own and take
+// real replies, so they stay in the forum — the typeahead already returns them,
+// and a hit that vanished on the full search page was the discrepancy.
+// bm25() is evaluated inside each UNION branch, where its FTS table is in
+// scope; the outer query aggregates per topic. UNION ALL is fine here because
+// we GROUP BY topic_id afterwards.
 const FORUM_MATCHED_ROWS = `
   SELECT t.id AS topic_id, bm25(topics_fts) AS rank, NULL AS snip
   FROM topics_fts JOIN topics t ON t.rowid = topics_fts.rowid
-  WHERE topics_fts MATCH ?1 AND t.deleted = 0 AND t.source = 'user'
+  WHERE topics_fts MATCH ?1 AND t.deleted = 0 AND t.source IN ('user', 'survey')
   UNION ALL
   SELECT p.topic_id AS topic_id, bm25(posts_fts) AS rank,
          snippet(posts_fts, 0, char(1), char(2), '…', 12) AS snip
   FROM posts_fts JOIN posts p ON p.rowid = posts_fts.rowid
   JOIN topics t ON t.id = p.topic_id
-  WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0 AND t.source = 'user'`;
+  WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0 AND t.source IN ('user', 'survey')`;
 
 interface ForumRow {
   slug: string;
@@ -542,11 +545,11 @@ export async function searchRationalesPage(db: D1Database, match: string, page: 
 export async function countScopes(db: D1Database, match: string): Promise<ScopeCounts> {
   const forumMatched = `
     SELECT t.id AS topic_id FROM topics_fts JOIN topics t ON t.rowid = topics_fts.rowid
-    WHERE topics_fts MATCH ?1 AND t.deleted = 0 AND t.source = 'user'
+    WHERE topics_fts MATCH ?1 AND t.deleted = 0 AND t.source IN ('user', 'survey')
     UNION
     SELECT p.topic_id FROM posts_fts JOIN posts p ON p.rowid = posts_fts.rowid
     JOIN topics t ON t.id = p.topic_id
-    WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0 AND t.source = 'user'`;
+    WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0 AND t.source IN ('user', 'survey')`;
   const [forumRes, govRes, drepRes, ratRes] = await db.batch([
     db.prepare(`SELECT COUNT(*) AS n FROM (${forumMatched})`).bind(match),
     db.prepare('SELECT COUNT(*) AS n FROM governance_actions_fts WHERE governance_actions_fts MATCH ?1').bind(match),

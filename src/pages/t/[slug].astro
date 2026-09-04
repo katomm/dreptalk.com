@@ -17,6 +17,20 @@ import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import ShareButton from '@/components/ShareButton.astro';
+import SurveyCard from '@/components/survey/SurveyCard.astro';
+import LinkedSurveyCard from '@/components/survey/LinkedSurveyCard.astro';
+import RespondPanel from '@/components/survey/RespondPanel.astro';
+import {
+  getLinkedSurveyForAction,
+  getSurveyByTopicId,
+  getSurveyGovLinks,
+  getSurveySyncState,
+  getViewerSurveyResponse,
+} from '@/lib/db/surveys.js';
+import { surveyState } from '@/lib/surveys/state.js';
+import { surveysEnabled } from '@/lib/surveys/switch.js';
+import { parseSurveyDefinition } from '@/lib/surveys/view.js';
+import type { SurveyDefinition } from 'cip-179';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
 import { getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
@@ -45,7 +59,7 @@ import { buildCcPositions, type CcPositionRow } from '@/lib/governance/ccPositio
 import { activeCommitteeSizeAt } from '@/lib/koios/committeeTimeline.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendChart } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
-import { resolveNetwork } from '@/lib/config/network.js';
+import { epochFromUnix, resolveNetwork } from '@/lib/config/network.js';
 import {
   getActionRationales,
   getActionRationaleStatuses,
@@ -130,6 +144,7 @@ const category = topic ? getCategory(topic.category_slug) : undefined;
 // Resolve author identities for the topic header and every post on this page in
 // exactly two batched queries (users, then dreps). No per-post lookups (no N+1).
 const isGovernanceTopic = topic?.source === 'governance';
+const isSurveyTopic = topic?.source === 'survey';
 
 const identities = db
   ? await loadAuthorIdentities(db, [topic?.author_id, ...pagePosts.map((p) => p.author_id)])
@@ -145,10 +160,10 @@ const mandates = db
   ? await loadMandates(db, [topic?.proposer_grant_id, ...pagePosts.map((p) => p.proposer_grant_id)])
   : new Map<string, string>();
 
-// The first post of a governance-sourced topic carries the system identity even
-// if its author_id is not literally gov-sync.
+// The first post of a system-sourced topic (governance action or survey)
+// carries the system identity even if its author_id is not literally gov-sync.
 const topicAuthor: AuthorDescriptor = topic
-  ? isGovernanceTopic
+  ? isGovernanceTopic || isSurveyTopic
     ? systemAuthor(topic.author_id)
     : describe(topic.author_id)
   : { authorId: '', displayName: '' };
@@ -172,7 +187,8 @@ if (!notFound) {
 
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
-const network = currentNetwork().network;
+const netCfg = currentNetwork();
+const network = netCfg.network;
 
 // CIP-100 discovery, layer 1: the thread manifest. A per-post alternate is not
 // possible, posts have no pages of their own, they live at /t/<slug>/#post-<id>.
@@ -204,15 +220,33 @@ const canEditTitle =
 // (flags + reactions, one batched round-trip) are independent, so load them
 // together. The per-author votes then need govAction.id, so that one follows.
 // All read from D1 ("as of").
-const [govAction, viewerPostState] = await Promise.all([
+const [govAction, viewerPostState, surveyRow] = await Promise.all([
   isGovernanceTopic && db && topic
     ? getGovernanceActionByTopicId(db, topic.id)
     : Promise.resolve(null),
   db && user && viewerIsWriter
     ? loadViewerPostState(db, user.id, pagePosts.map((p) => p.id))
     : Promise.resolve(emptyViewerPostState()),
+  isSurveyTopic && db && topic ? getSurveyByTopicId(db, topic.id) : Promise.resolve(null),
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
+
+// The stored wire record decodes with the same cip-179 codec the sync used to
+// write it. Linkage renders both ways: the survey card names its linking
+// actions, an action's sidebar names its linked survey.
+const surveyDefinition: SurveyDefinition | null = surveyRow
+  ? parseSurveyDefinition(surveyRow.definitionJson)
+  : null;
+const [surveyLinks, linkedSurvey, viewerSurveyResponse, surveySync] = await Promise.all([
+  surveyRow && db ? getSurveyGovLinks(db, surveyRow.ref) : Promise.resolve([]),
+  db && govAction?.proposalId
+    ? getLinkedSurveyForAction(db, govAction.proposalId)
+    : Promise.resolve(null),
+  surveyRow && db && user
+    ? getViewerSurveyResponse(db, surveyRow.ref, user.id)
+    : Promise.resolve(null),
+  surveyRow && db ? getSurveySyncState(db) : Promise.resolve(null),
+]);
 
 // If this action defines or challenges an NCL period, show its live tracker.
 const nclPeriod = govAction
@@ -284,7 +318,8 @@ const govVotes = govAction && db ? await getVotesByGaId(db, govAction.id) : new 
 // Gate on ga.status === 'active'; deriveStatus already accounts for expiry boundary.
 const isDrep = user?.roles?.includes('drep') ?? false;
 const isVotable = govAction?.status === 'active';
-const viewerDrepId = isDrep && isGovernanceTopic && db ? await getSelfDrepId(db, user) : null;
+const viewerDrepId =
+  isDrep && (isGovernanceTopic || isSurveyTopic) && db ? await getSelfDrepId(db, user) : null;
 const viewerVote =
   isDrep && isVotable && viewerDrepId && db && govAction
     ? await getViewerVote(db, govAction.id, viewerDrepId)
@@ -293,6 +328,25 @@ const viewerVote =
 // A script-credential DRep cannot sign votes directly: it needs the multisig
 // initiate/co-sign flow instead of the key-DRep VotePanel.
 const isScriptDrep = viewerDrepId ? parseDrepId(viewerDrepId)?.kind === 'script' : false;
+
+// The answering panel: the survey must be able to take a DRep answer (decided
+// once in state.ts, for the card and the record API too), the stored
+// definition must have decoded (the widget renders from it), and the viewer
+// must be a key-credential DRep — the panel then checks the wallet against
+// that very DRep, so a signed-in account cannot put another wallet's answer
+// on chain and be left with a row nothing settles; the record API's 403 for
+// a script DRep is the backstop, not the guard. It also needs the mirror to
+// still be configured: everything that follows an answer — settling the
+// optimistic row against the chain, or aging it to failed — happens in the
+// sync, so with TESSERA_BACKEND_URL gone a submitted answer would sit
+// "confirming…" forever against a row nothing refreshes.
+const canAnswerSurvey =
+  !!surveyRow &&
+  surveyState(surveyRow, now, netCfg).answerable &&
+  surveyDefinition !== null &&
+  surveysEnabled(env) &&
+  !!viewerDrepId &&
+  !isScriptDrep;
 
 // Governance detail page extras: tab, protocol params, stake participation.
 const tab = parseGaTab(Astro.url.searchParams.get('tab'));
@@ -813,13 +867,43 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />
               )}
+              {linkedSurvey && (
+                <LinkedSurveyCard
+                  slot="after-status"
+                  survey={linkedSurvey.survey}
+                  topicSlug={linkedSurvey.topicSlug}
+                  cfg={netCfg}
+                  now={now}
+                />
+              )}
             </GaSidebar>
           </div>
         </div>
       </>
     ) : (
-      // Non-governance topics: a single focused reading column.
+      // Non-governance topics: a single focused reading column. A survey topic
+      // leads with its mirrored survey card.
       <div class="thread-single">
+        {surveyRow && (
+          <SurveyCard
+            survey={surveyRow}
+            definition={surveyDefinition}
+            links={surveyLinks}
+            cfg={netCfg}
+            now={now}
+            appUrl={env.TESSERA_APP_URL}
+            asOf={surveySync?.tesseraFetchedAt ?? null}
+            viewerResponse={viewerSurveyResponse}
+          />
+        )}
+        {surveyRow && canAnswerSurvey && viewerDrepId && (
+          <RespondPanel
+            survey={surveyRow}
+            network={network}
+            epoch={epochFromUnix(now / 1000, netCfg)}
+            drepId={viewerDrepId}
+          />
+        )}
         <ThreadPosts
           topic={topic}
           thread={thread}

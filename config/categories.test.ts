@@ -21,10 +21,17 @@ describe('categories config', () => {
   });
 
   it('getCategories returns categories sorted ascending by position', () => {
-    const sorted = getCategories();
+    const sorted = getCategories({ surveys: true });
     for (let i = 1; i < sorted.length; i++) {
       expect(sorted[i].position).toBeGreaterThan(sorted[i - 1].position);
     }
+  });
+
+  it('the survey kind is listed only where the switch is on', () => {
+    const kinds = (on: boolean) => getCategories({ surveys: on }).map((c) => c.kind);
+    expect(kinds(true)).toContain('survey');
+    expect(kinds(false)).not.toContain('survey');
+    expect(getCategories({ surveys: false })).toHaveLength(CATEGORIES.length - 1);
   });
 
   it('getCategory returns undefined for unknown slug', () => {

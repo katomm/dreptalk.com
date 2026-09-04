@@ -1,0 +1,82 @@
+---
+// Sidebar card on a governance-action thread whose anchor links a CIP-179
+// survey — at most one, since an action's metadata declares a single survey.
+// "Linked by the action's metadata", never "official": the linkage is a
+// discovery relation, not an endorsement.
+import SurveyBadges from '@/components/survey/SurveyBadges.astro';
+import type { NetworkConfig } from '@/lib/config/network.js';
+import type { SurveyRow } from '@/lib/db/surveys.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
+import { participationLabel, surveyState } from '@/lib/surveys/state.js';
+import { surveyDeadlineUnix } from '@/lib/surveys/view.js';
+
+interface Props {
+  survey: SurveyRow;
+  topicSlug: string;
+  cfg: NetworkConfig;
+  now: number;
+}
+
+const { survey, topicSlug, cfg, now } = Astro.props;
+
+const { lifecycle, participation } = surveyState(survey, now, cfg);
+const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
+---
+
+<div class="sidebar-card">
+  <p class="sidebar-card__title">Linked survey</p>
+  <a class="lsvy__name" href={`/t/${topicSlug}/`}>{survey.title}</a>
+  <p class="lsvy__meta">
+    <SurveyBadges lifecycle={lifecycle} sealed={survey.sealed} unavailable={survey.unavailable} />
+    {lifecycle === 'open' ? `until ${formatEpochDate(deadlineUnix)}` : `ended epoch ${survey.endEpoch}`}
+  </p>
+  <p class="lsvy__count">{participationLabel(participation)}</p>
+  <p class="lsvy__note">Linked by this action's metadata.</p>
+</div>
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+  .lsvy__name {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--fg);
+    text-decoration: none;
+    line-height: 1.35;
+  }
+  .lsvy__name:hover {
+    text-decoration: underline;
+  }
+  .lsvy__meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.4rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .lsvy__count {
+    margin: 0.35rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .lsvy__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+</style>

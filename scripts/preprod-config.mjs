@@ -19,14 +19,21 @@ const cfg = JSON.parse(readFileSync(GENERATED, 'utf8'));
 cfg.name = 'dreptalk-com-preprod';
 // Other [vars] from the base config carry through unchanged via the spread.
 // CARDANO_NETWORK selects the network, and VAPID_PUBLIC_KEY must be the
-// preprod keypair's public half (the base config carries the mainnet one);
-// keep it in sync with [env.preprod.vars] in workers/gov-sync/wrangler.toml.
+// preprod keypair's public half (the base config carries the mainnet one).
+// Both, and TESSERA_BACKEND_URL, are held equal to [env.preprod.vars] in
+// workers/gov-sync/wrangler.toml by src/lib/deployVars.test.ts.
 cfg.vars = {
   ...(cfg.vars ?? {}),
   CARDANO_NETWORK: 'preprod',
   VAPID_PUBLIC_KEY: 'BP8lsNXkOYQipYvkb5iBFeXOlDdkcDrlC7Dqbgw3e1bNd9UhgF3KdbpjHCwEMyhtExwc06YlzwzaUo_pCK8VXJ0',
   // Preprod bot username for the notification deep link (mainnet bot differs).
   TELEGRAM_BOT_USERNAME: 'DRepTalkPreprodBot',
+  // Feature switch for CIP-179 surveys: the app only checks presence (without
+  // it the surveys category does not exist); gov-sync is the one caller of
+  // the URL.
+  TESSERA_BACKEND_URL: 'https://tessera-backend-preprod.matthieu-pizenberg.workers.dev',
+  // Deep-link target on survey cards ("open in Tessera"); display-only.
+  TESSERA_APP_URL: 'https://tessera-preprod.matthieu-pizenberg.workers.dev',
 };
 cfg.routes = [{ pattern: 'preprod.dreptalk.com', custom_domain: true }];
 cfg.d1_databases = [

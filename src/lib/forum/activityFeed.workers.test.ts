@@ -31,7 +31,7 @@ describe('loadActivityFeed', () => {
     expect(feed[0].kind).toBe('reply_created');
     expect(feed[0].topic.title).toBe('Budget thread');
     expect(feed[0].topic.categoryName).toBe('Budget and Treasury');
-    expect(feed[0].topic.isGovernance).toBe(false);
+    expect(feed[0].topic.source).toBe('user');
     expect(feed[0].refPostId).not.toBeNull();
     expect(feed[0].actor?.authorId).toBe('user-b');
 

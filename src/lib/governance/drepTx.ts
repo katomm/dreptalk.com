@@ -6,6 +6,8 @@ import {
   Address, Anchor, Client, Credential, DRep, GovernanceAction, KeyHash, ScriptHash,
   Transaction, TransactionHash, Url, UTxO, VotingProcedures, mainnet, preprod,
 } from '@evolution-sdk/evolution';
+import { METADATA_LABEL, type Metadatum } from 'cip-179';
+import { toTxMetadatum } from 'cip-179/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -523,6 +525,70 @@ export async function castDRepVote(opts: CastDRepVoteOpts): Promise<{ txHash: st
       },
     ],
   });
+}
+
+/**
+ * Queues a CIP-179 survey response onto a tx builder: the label-17 payload the
+ * `<tessera-respond>` widget emitted (already a complete, encoded metadatum —
+ * DRepTalk never assembles CIP-179 structures itself), one required signer per
+ * credential the payload must prove control of (mechanism A: the entry in
+ * `required_signers` is the proof, so dropping a signer silently invalidates
+ * the response rather than failing the tx), and the CIP-20 attribution tag.
+ * Labels 17 and 674 merge into one metadata map; the SDK rejects a duplicate
+ * label, which also enforces CIP-179's one-payload-per-transaction rule.
+ * Pure (no network); exported for unit tests.
+ */
+export function queueSurveyResponseOps(
+  txb: DrepTxBuilder,
+  parts: { payload: Metadatum; signerKeyHashes: readonly Uint8Array[] },
+): DrepTxBuilder {
+  if (parts.signerKeyHashes.length === 0) {
+    throw new Error('A survey response needs at least one credential to prove.');
+  }
+  let tx = txb.attachMetadata({
+    label: BigInt(METADATA_LABEL),
+    metadata: toTxMetadatum(parts.payload),
+  });
+  for (const keyHash of parts.signerKeyHashes) {
+    tx = tx.addSigner({ keyHash: KeyHash.fromBytes(keyHash) });
+  }
+  return tx.attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+}
+
+export interface CastSurveyResponseOpts {
+  /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
+  walletApi: WalletApi;
+  network: CardanoNetwork;
+  /** The label-17 metadatum from the widget's RespondResult, attached verbatim. */
+  payload: Metadatum;
+  /** 28-byte key hashes from RespondResult.proveCredentials (key credentials only). */
+  signerKeyHashes: readonly Uint8Array[];
+  /** window.location.origin, base for the /api/koios proxy. */
+  origin: string;
+}
+
+/**
+ * Builds, signs, and submits the transaction carrying one CIP-179 survey
+ * response (metadata label 17, credential proof via required_signers).
+ * Non-custodial like the vote flow: the wallet signs and submits. No deposit,
+ * so the inputs only need to cover the fee. Requires a live wallet and a
+ * reachable Koios provider; the queue step is unit-tested offline.
+ */
+export async function castSurveyResponse(
+  opts: CastSurveyResponseOpts,
+): Promise<{ txHash: string }> {
+  const client = makeClient(opts.network, opts.origin, opts.walletApi);
+  const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
+
+  const built = await queueSurveyResponseOps(client.newTx(), {
+    payload: opts.payload,
+    signerKeyHashes: opts.signerKeyHashes,
+  })
+    .collectFrom({ inputs })
+    .build({ availableUtxos });
+
+  return signAndSubmit(built, opts.walletApi);
 }
 
 /**

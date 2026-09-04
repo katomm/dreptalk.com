@@ -69,7 +69,8 @@ export function rememberWallet(key: string): void {
   }
 }
 
-function recallWallet(): string | null {
+/** Safe without localStorage. */
+export function recallWallet(): string | null {
   try {
     return localStorage.getItem(LAST_WALLET_STORAGE_KEY);
   } catch {
