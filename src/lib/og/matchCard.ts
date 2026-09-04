@@ -19,7 +19,18 @@ export const MATCH_CARD: DiscussionCardModel = {
   meta: 'Find your DRep',
 };
 
-/** Cache-busting token for the card URL, changes whenever the card copy changes. */
+/**
+ * Revision of the drawing the card embeds (public/help/og/drep-matching.png).
+ * Bump it when that file is replaced, the copy alone does not know.
+ */
+const MATCH_CARD_ILLUSTRATION_REV = 2;
+
+/** Cache-busting token for the card URL, changes whenever the card copy or drawing changes. */
 export function matchCardVersion(): string {
-  return ogCardVersion([MATCH_CARD.category, MATCH_CARD.title, MATCH_CARD.subtitle]);
+  return ogCardVersion([
+    MATCH_CARD.category,
+    MATCH_CARD.title,
+    MATCH_CARD.subtitle,
+    MATCH_CARD_ILLUSTRATION_REV,
+  ]);
 }
