@@ -41,34 +41,34 @@
     "deploy": "npm run deploy:all"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^14.1.5",
-    "@astrojs/react": "^6.0.1",
-    "@evolution-sdk/evolution": "^0.5.11",
-    "@noble/curves": "^2.2.0",
+    "@astrojs/cloudflare": "^14.2.6",
+    "@astrojs/react": "^6.0.5",
+    "@evolution-sdk/evolution": "^0.5.13",
+    "@noble/curves": "^2.4.0",
     "@stricahq/cardano-identicon": "^1.0.0",
-    "astro": "^7.1.4",
+    "astro": "^7.2.10",
     "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cborg": "^5.1.8",
-    "marked": "^18.0.7",
+    "marked": "^18.0.11",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "workers-og": "^0.0.27",
     "xss": "^1.0.15",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "@biomejs/biome": "^2.5.5",
-    "@cloudflare/vitest-pool-workers": "^0.18.8",
-    "@cloudflare/workers-types": "^5.20260722.1",
-    "@types/node": "^26.0.1",
+    "@biomejs/biome": "^2.5.11",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260901.1",
+    "@types/node": "^26.4.0",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "satori": "^0.15.2",
+    "@types/react-dom": "^19.2.5",
+    "satori": "^0.33.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.114.0"
+    "wrangler": "^4.127.1"
   },
   "overrides": {
     "yaml": "^2.9.0",
