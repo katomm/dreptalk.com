@@ -4,6 +4,7 @@ export const prerender = false;
 // DReps whose past votes align. All scoring happens client-side, answers
 // never reach the server (share state lives in the URL fragment).
 import { env } from 'cloudflare:workers';
+import JsonLd from '@/components/JsonLd.astro';
 import MatchQuiz from '@/components/MatchQuiz.tsx';
 import Layout from '@/layouts/Layout.astro';
 import { currentNetwork } from '@/lib/api/response';
@@ -57,15 +58,27 @@ const questions = selected.map((r) => ({
   slug: r.topic_slug,
 }));
 
+// Breadcrumb structured data, matching the pattern used across the site.
+const siteOrigin = Astro.site?.origin ?? 'https://dreptalk.com';
+const breadcrumbLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: `${siteOrigin}/` },
+    { '@type': 'ListItem', position: 2, name: 'Find your Cardano DRep', item: `${siteOrigin}/match/` },
+  ],
+};
+
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 ---
 
 <Layout
-  title="Find your DRep - DRepTalk"
-  description="Answer questions from real Cardano governance votes and find a DRep who votes like you. Matching runs in your browser, your answers never leave your device."
+  title="Find a Cardano DRep who votes like you - DRepTalk"
+  description="Answer real Cardano governance votes and find a DRep whose voting record matches yours, then delegate in one click. Matching runs in your browser, your answers never leave your device."
   ogImage={`/og/match.png?v=${matchCardVersion()}`}
 >
-  <h1>Find your DRep</h1>
+  <JsonLd data={breadcrumbLd} />
+  <h1>Find your Cardano DRep</h1>
   {enough && dreps.length >= 3 ? (
     <>
       <MatchQuiz client:load network={network} questions={questions} dreps={dreps} poolStats={poolStats} />
@@ -222,6 +235,36 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
     :global(.match-facts) {
       grid-template-columns: 1fr;
     }
+  }
+
+  /* Plain-text context and the question list, rendered on the server so the
+     page has readable content beyond the hero and the island's copy. */
+  :global(.match-context) {
+    max-width: 64ch;
+    margin: 2rem 0 0;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  :global(.match-actions) {
+    margin: 1.5rem 0 0;
+  }
+  :global(.match-actions__h) {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+  }
+  :global(.match-actions__list) {
+    margin: 0;
+    padding-left: 1.25rem;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  :global(.match-actions__list li) {
+    margin: 0 0 0.25rem;
+  }
+  :global(.match-actions__type) {
+    white-space: nowrap;
   }
 
   /* The three steps, numbered like the help index cards. */

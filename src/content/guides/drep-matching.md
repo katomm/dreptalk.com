@@ -1,6 +1,6 @@
 ---
 title: "How DRep matching works on DRepTalk"
-description: "The full methodology behind Find your DRep: how questions are selected from completed governance actions, which DReps can appear, how the match score is computed, and why your answers never leave your device."
+description: "How to choose a Cardano DRep with the Find your DRep quiz: how questions are selected from completed governance actions, which DReps can appear, how the match score is computed, and why your answers never leave your device."
 cardLabel: "How DRep matching works"
 category: "Start here"
 order: 6

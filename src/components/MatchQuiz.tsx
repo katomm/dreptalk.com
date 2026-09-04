@@ -180,7 +180,7 @@ export default function MatchQuiz({ network, questions, dreps, poolStats }: Prop
       {phase === 'intro' && (
         <IntroScreen
           staleLink={staleLink}
-          questionCount={questions.length}
+          questions={questions}
           poolStats={poolStats}
           onStart={startQuiz}
         />
@@ -221,15 +221,16 @@ export default function MatchQuiz({ network, questions, dreps, poolStats }: Prop
 
 function IntroScreen({
   staleLink,
-  questionCount,
+  questions,
   poolStats,
   onStart,
 }: {
   staleLink: boolean;
-  questionCount: number;
+  questions: MatchQuestion[];
   poolStats: MatchPoolStats;
   onStart: () => void;
 }) {
+  const questionCount = questions.length;
   const facts = [
     { label: 'Questions', value: questionCount, sub: 'completed governance actions' },
     { label: 'DReps compared', value: poolStats.drepCount, sub: 'voted on enough of them' },
@@ -308,6 +309,22 @@ function IntroScreen({
           </li>
         ))}
       </ol>
+      <p className="match-context">
+        A DRep (delegated representative) votes on Cardano governance actions with the ada
+        delegated to them. Every vote is public on chain, so the most reliable way to choose a
+        DRep is to compare their voting record with how you would have voted yourself.
+      </p>
+      <div className="match-actions">
+        <h2 className="match-actions__h">The governance actions in this quiz</h2>
+        <ol className="match-actions__list">
+          {questions.map((q) => (
+            <li key={q.gaId}>
+              {q.slug ? <a href={`/t/${q.slug}/`}>{q.title}</a> : q.title}{' '}
+              <span className="match-actions__type">({q.typeLabel})</span>
+            </li>
+          ))}
+        </ol>
+      </div>
     </section>
   );
 }

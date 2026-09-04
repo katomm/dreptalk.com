@@ -430,6 +430,9 @@ const profileSummary = drep
 
     <section id="activity" class="vhist-section">
       <h2 class="vhist-section__title">Activity</h2>
+      <p class="vhist-section__match">
+        Want to see how your own views compare? <a href="/match/">Find a DRep who votes like you</a>.
+      </p>
       <nav class="ptabs" aria-label="Activity sections">
         {profileTabs.map((t) => (
           <a
@@ -553,6 +556,12 @@ const profileSummary = drep
 )}
 
 <style>
+  .vhist-section__match {
+    margin: -0.5rem 0 1rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
   .drep-hd {
     display: flex;
     gap: 1.25rem;
