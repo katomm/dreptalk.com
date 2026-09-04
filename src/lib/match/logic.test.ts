@@ -4,6 +4,7 @@ import {
   buildMatchDreps,
   decodeShareFragment,
   discriminativeScore,
+  matchPoolStats,
   encodeShareFragment,
   minAnsweredFor,
   minSharedFor,
@@ -198,5 +199,16 @@ describe('share fragment', () => {
     expect(decodeShareFragment('#r=v2.abcd1234.yn')).toBeNull();
     expect(decodeShareFragment('#r=v1.abcd1234.yx')).toBeNull();
     expect(decodeShareFragment('#other=1')).toBeNull();
+  });
+});
+
+describe('matchPoolStats', () => {
+  it('counts the DReps and their cast votes, ignoring unvoted slots', () => {
+    const dreps = [{ votes: 'YN-A' }, { votes: '----' }, { votes: 'YYYY' }];
+    expect(matchPoolStats(dreps)).toEqual({ drepCount: 3, voteCount: 7 });
+  });
+
+  it('is zero for an empty pool', () => {
+    expect(matchPoolStats([])).toEqual({ drepCount: 0, voteCount: 0 });
   });
 });
