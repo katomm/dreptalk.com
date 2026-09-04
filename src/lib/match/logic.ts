@@ -205,6 +205,25 @@ const POINTS: Record<string, number> = {
   aN: 0.5,
 };
 
+/** Headline figures of the matching pool for the intro screen. */
+export interface MatchPoolStats {
+  drepCount: number;
+  voteCount: number;
+}
+
+/**
+ * Counts the DReps in the pool and the votes they actually cast on the
+ * question set, so the intro can say what the match is computed from.
+ * Unvoted slots ('-') are not votes.
+ */
+export function matchPoolStats(dreps: readonly Pick<MatchDrep, 'votes'>[]): MatchPoolStats {
+  let voteCount = 0;
+  for (const d of dreps) {
+    for (const v of d.votes) if (v !== '-') voteCount += 1;
+  }
+  return { drepCount: dreps.length, voteCount };
+}
+
 export function rankDreps(
   answers: readonly UserAnswer[],
   dreps: readonly MatchDrep[],

@@ -18,6 +18,7 @@ import {
   rankDreps,
   setFingerprint,
   type MatchDrep,
+  type MatchPoolStats,
   type RankedDrep,
   type UserAnswer,
 } from '@/lib/match/logic.js';
@@ -36,6 +37,7 @@ interface Props {
   network: CardanoNetwork;
   questions: MatchQuestion[];
   dreps: MatchDrep[];
+  poolStats: MatchPoolStats;
 }
 
 type Phase = 'intro' | 'quiz' | 'results';
@@ -71,7 +73,7 @@ function firstSkippedIndex(answers: readonly UserAnswer[]): number {
   return idx === -1 ? 0 : idx;
 }
 
-export default function MatchQuiz({ network, questions, dreps }: Props) {
+export default function MatchQuiz({ network, questions, dreps, poolStats }: Props) {
   const [phase, setPhase] = useState<Phase>('intro');
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<UserAnswer[]>(() => questions.map(() => 's'));
@@ -174,9 +176,14 @@ export default function MatchQuiz({ network, questions, dreps }: Props) {
   }
 
   return (
-    <div className="match-quiz">
+    <div className={phase === 'intro' ? 'match-quiz match-quiz--intro' : 'match-quiz'}>
       {phase === 'intro' && (
-        <IntroScreen staleLink={staleLink} questionCount={questions.length} onStart={startQuiz} />
+        <IntroScreen
+          staleLink={staleLink}
+          questionCount={questions.length}
+          poolStats={poolStats}
+          onStart={startQuiz}
+        />
       )}
       {phase === 'quiz' && (
         <QuizScreen
@@ -215,14 +222,35 @@ export default function MatchQuiz({ network, questions, dreps }: Props) {
 function IntroScreen({
   staleLink,
   questionCount,
+  poolStats,
   onStart,
 }: {
   staleLink: boolean;
   questionCount: number;
+  poolStats: MatchPoolStats;
   onStart: () => void;
 }) {
+  const facts = [
+    { label: 'Questions', value: questionCount, sub: 'completed governance actions' },
+    { label: 'DReps compared', value: poolStats.drepCount, sub: 'voted on enough of them' },
+    { label: 'On-chain votes', value: poolStats.voteCount, sub: 'cast by those DReps on these actions' },
+  ];
+  const steps = [
+    {
+      title: 'Answer',
+      text: 'Say Yes, No or Abstain on each action, or skip the ones you are unsure about.',
+    },
+    {
+      title: 'Compare',
+      text: 'See the DReps whose past votes line up with yours, with their written rationale where one exists.',
+    },
+    {
+      title: 'Delegate',
+      text: 'Read a matching DRep\'s profile, or delegate to them right from the results with your wallet.',
+    },
+  ];
   return (
-    <section className="match-panel match-intro">
+    <section className="match-intro">
       {staleLink && (
         <div className="callout callout--warning match-notice" role="status">
           <div className="callout__body">
@@ -231,21 +259,55 @@ function IntroScreen({
           </div>
         </div>
       )}
-      <p className="match-intro__lede">
-        You will see {questionCount} real governance actions that Cardano DReps have already
-        voted on. For each one, say how you would have voted: Yes, No or Abstain. At the end,
-        see the DReps whose past votes line up most closely with your answers.
-      </p>
-      <p className="match-intro__privacy">
-        <strong>Your answers never leave your device.</strong> Matching runs entirely in your
-        browser.
-      </p>
-      <p className="match-intro__how">
-        <a href="/help/drep-matching/">How matching works</a>
-      </p>
-      <button type="button" className="btn btn-primary match-intro__start" onClick={onStart}>
-        Start
-      </button>
+      <div className="match-panel match-intro__hero">
+        <div className="match-intro__text">
+          <p className="match-intro__lede">
+            Answer {questionCount} real governance actions that Cardano DReps have already voted
+            on, and see which DReps voted the way you would have.
+          </p>
+          <p className="match-intro__privacy">
+            <strong>Your answers never leave your device.</strong> Matching runs entirely in your
+            browser.
+          </p>
+          <p className="match-intro__how">
+            <a href="/help/drep-matching/">How matching works</a>
+          </p>
+          <button type="button" className="btn btn-primary match-intro__start" onClick={onStart}>
+            Start
+          </button>
+        </div>
+        <img
+          className="match-intro__illu"
+          src="/help/drep-matching.webp"
+          width="360"
+          height="360"
+          alt=""
+        />
+      </div>
+      <dl className="match-facts">
+        {facts.map((f) => (
+          <div key={f.label} className="match-fact">
+            <dt className="match-fact__label">{f.label}</dt>
+            <dd className="match-fact__body">
+              <span className="match-fact__value">{f.value.toLocaleString('en-US')}</span>
+              <span className="match-fact__sub">{f.sub}</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <ol className="match-steps">
+        {steps.map((st, i) => (
+          <li key={st.title} className="match-step">
+            <span className="match-step__num" aria-hidden="true">
+              {i + 1}
+            </span>
+            <span className="match-step__body">
+              <span className="match-step__title">{st.title}</span>
+              <span className="match-step__text">{st.text}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }

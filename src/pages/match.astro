@@ -17,6 +17,7 @@ import { readableType } from '@/lib/governance/view.js';
 import {
   MATCH_THRESHOLDS,
   buildMatchDreps,
+  matchPoolStats,
   minAnsweredFor,
   selectQuestions,
 } from '@/lib/match/logic.js';
@@ -45,6 +46,8 @@ const dreps = buildMatchDreps(matrixRows, gaIds, minAnsweredFor(selected.length)
   credentialHex: d.credentialHex ?? drepCredentialHexFromId(d.drepId),
 }));
 
+const poolStats = matchPoolStats(dreps);
+
 const questions = selected.map((r) => ({
   gaId: r.ga_id,
   title: r.title ?? '',
@@ -65,7 +68,7 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
   <h1>Find your DRep</h1>
   {enough && dreps.length >= 3 ? (
     <>
-      <MatchQuiz client:load network={network} questions={questions} dreps={dreps} />
+      <MatchQuiz client:load network={network} questions={questions} dreps={dreps} poolStats={poolStats} />
       <noscript>
         <p class="match-noscript">
           This quiz runs entirely in your browser so your answers never leave your device. Please
@@ -117,11 +120,25 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
     margin-bottom: 0;
   }
 
-  /* Intro screen */
+  /* Intro screen: wider than the quiz deck so the hero can sit the help
+     illustration next to the copy, with the pool figures and the three
+     steps below. The quiz and results keep the 42rem reading width. */
+  :global(.match-quiz--intro) {
+    max-width: var(--wrap);
+  }
+  :global(.match-intro__hero) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1.5rem 2.5rem;
+  }
+  :global(.match-intro__text) {
+    max-width: 42rem;
+  }
   :global(.match-intro__lede) {
     margin: 0 0 1rem;
-    font-size: 1rem;
-    line-height: 1.6;
+    font-size: clamp(1.05rem, 1.8vw, 1.25rem);
+    line-height: 1.55;
     color: var(--fg);
   }
   :global(.match-intro__privacy) {
@@ -137,9 +154,120 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
   :global(.match-intro__start) {
     width: 100%;
   }
+  :global(.match-intro__illu) {
+    width: 220px;
+    height: 220px;
+    justify-self: end;
+  }
+  /* The violet line art is drawn for light ground, same treatment as the
+     help pages: invert lightness, rotate the hue back to violet. */
+  :global(html[data-theme='dark'] .match-intro__illu) {
+    filter: invert(0.84) hue-rotate(180deg) saturate(1.5);
+  }
   @media (min-width: 480px) {
     :global(.match-intro__start) {
       width: auto;
+    }
+  }
+  @media (max-width: 720px) {
+    :global(.match-intro__hero) {
+      grid-template-columns: 1fr;
+    }
+    /* The drawing carries a wide canvas margin, so on a phone it would push
+       the copy half a screen down for a small picture. The copy is the point. */
+    :global(.match-intro__illu) {
+      display: none;
+    }
+  }
+
+  /* Pool figures: three tiles in the .drep-stat idiom (muted label, bold
+     tabular value, small sub line). */
+  :global(.match-facts) {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0.75rem 0 0;
+  }
+  :global(.match-fact) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  :global(.match-fact__label) {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  :global(.match-fact__body) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin: 0;
+  }
+  :global(.match-fact__value) {
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  :global(.match-fact__sub) {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  @media (max-width: 560px) {
+    :global(.match-facts) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* The three steps, numbered like the help index cards. */
+  :global(.match-steps) {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem 2rem;
+    margin: 2rem 0 0;
+    padding: 0;
+  }
+  :global(.match-step) {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  :global(.match-step__num) {
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    font-size: 0.875rem;
+    font-weight: 700;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+  }
+  :global(.match-step__body) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+  :global(.match-step__title) {
+    font-weight: 700;
+    color: var(--fg);
+  }
+  :global(.match-step__text) {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  @media (max-width: 720px) {
+    :global(.match-steps) {
+      grid-template-columns: 1fr;
     }
   }
 
