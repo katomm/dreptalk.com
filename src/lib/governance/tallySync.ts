@@ -17,6 +17,7 @@ import {
   getRatifiedActions,
   updateGovernanceTallyAndStatus,
   updateGovernanceActionStatus,
+  backfillRatifiedEpochs,
   getActionsNeedingVotedPower,
   updateVotedPower,
   getActionsNeedingVoteBackfill,
@@ -314,6 +315,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
   for (const p of await koios.proposalList()) {
     lifecycle.set(`${p.proposal_tx_hash}#${p.proposal_index}`, p);
   }
+  await backfillRatifiedEpochs(db, lifecycle);
 
   // Loaded once per run (not per action) for the threshold snapshot below; null
   // until the params sync has run at least once.
@@ -380,6 +382,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
         status,
         ...tally,
         decidedEpoch,
+        ratifiedEpoch: life?.ratified_epoch ?? null,
         tallySyncedAt: now,
         now,
         thresholdsJson,
@@ -428,7 +431,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       if (status === ga.status) continue;
       const decidedEpoch =
         life.enacted_epoch ?? life.ratified_epoch ?? life.expired_epoch ?? life.dropped_epoch ?? ga.decidedEpoch ?? null;
-      await updateGovernanceActionStatus(db, { id: ga.id, status, decidedEpoch, now });
+      await updateGovernanceActionStatus(db, { id: ga.id, status, decidedEpoch, ratifiedEpoch: life.ratified_epoch ?? null, now });
       // Enactment (ratified -> enacted) is itself a feed milestone, mirroring the
       // active-loop rule: a transition into a terminal status with a topic emits one.
       // Dated at the enacted-epoch boundary (statusEventTime), not detection time,

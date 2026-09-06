@@ -12,6 +12,8 @@ import {
   getGovernanceActionTopicIdsPage,
   batchUpdateTrendingScores,
   updateGovernanceTallyAndStatus,
+  updateGovernanceActionStatus,
+  backfillRatifiedEpochs,
   getActionsNeedingVotedPower,
   updateVotedPower,
   getActionsNeedingThresholdSnapshot,
@@ -33,6 +35,7 @@ import {
 import { getAllTopicsByCategory } from './forum.js';
 import { sortGovActionTopics, trendingOrderKey, type GovActionTopic } from '../governance/sort.js';
 import { THRESHOLD_SNAPSHOT_VERSION } from '../governance/thresholds.js';
+import type { ProposalListRow } from '../koios/client.js';
 
 const GOV = 'governance-actions';
 
@@ -191,7 +194,7 @@ describe('getStaleSyncableActions', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
-      tallyEpoch: 295, decidedEpoch: null, tallySyncedAt, now: tallySyncedAt,
+      tallyEpoch: 295, decidedEpoch: null, ratifiedEpoch: null, tallySyncedAt, now: tallySyncedAt,
       thresholdsJson: null, thresholdsEpoch: null,
     });
 
@@ -224,7 +227,7 @@ describe('getStaleSyncableActions', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
-      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 295, decidedEpoch: 295, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
     const ids = (await getStaleSyncableActions(db(), 10)).map((r) => r.id);
@@ -245,7 +248,7 @@ describe('getVoteStaleSyncableActions', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
-      tallyEpoch: 295, decidedEpoch: null, tallySyncedAt, now: tallySyncedAt,
+      tallyEpoch: 295, decidedEpoch: null, ratifiedEpoch: null, tallySyncedAt, now: tallySyncedAt,
       thresholdsJson: null, thresholdsEpoch: null,
     });
 
@@ -274,7 +277,7 @@ describe('getVoteStaleSyncableActions', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
-      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 295, decidedEpoch: 295, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
     const ids = (await getVoteStaleSyncableActions(db(), 10)).map((r) => r.id);
@@ -295,7 +298,7 @@ describe('updateGovernanceTallyAndStatus', () => {
       drepYesPct: 0.01, drepNoPct: 99.99, spoYesPct: 0, spoNoPct: 0,
       ccYesPct: 0, ccNoPct: 100,
       drepVotedPower: 3566193128637,
-      tallyEpoch: 293, decidedEpoch: 291, tallySyncedAt: NOW + 5, now: NOW + 5,
+      tallyEpoch: 293, decidedEpoch: 291, ratifiedEpoch: null, tallySyncedAt: NOW + 5, now: NOW + 5,
       thresholdsJson: null, thresholdsEpoch: null,
     });
 
@@ -306,6 +309,34 @@ describe('updateGovernanceTallyAndStatus', () => {
     expect(got!.tallyEpoch).toBe(293);
     expect(got!.decidedEpoch).toBe(291);
     expect(got!.tallySyncedAt).toBe(NOW + 5);
+  });
+});
+
+describe('ratified_epoch', () => {
+  it('is written by the status update and never erased by a later null', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, submitted_epoch, topic_id, created_at, last_synced_at)
+       VALUES ('ga-r', 'InfoAction', 'R', 'active', 600, NULL, 0, 0)`,
+    ).run();
+    await updateGovernanceActionStatus(env.DB, { id: 'ga-r', status: 'ratified', decidedEpoch: 605, ratifiedEpoch: 605, now: 1 });
+    await updateGovernanceActionStatus(env.DB, { id: 'ga-r', status: 'enacted', decidedEpoch: 606, ratifiedEpoch: null, now: 2 });
+    const row = await env.DB.prepare('SELECT status, decided_epoch, ratified_epoch FROM governance_actions WHERE id = ?').bind('ga-r').first<{ status: string; decided_epoch: number; ratified_epoch: number | null }>();
+    expect(row).toEqual({ status: 'enacted', decided_epoch: 606, ratified_epoch: 605 });
+  });
+
+  it('backfills ratified_epoch from a lifecycle map only where it is null', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, submitted_epoch, topic_id, created_at, last_synced_at, ratified_epoch)
+       VALUES ('h1#0', 'InfoAction', 'A', 'enacted', 600, NULL, 0, 0, NULL),
+              ('h2#0', 'InfoAction', 'B', 'enacted', 600, NULL, 0, 0, 611)`,
+    ).run();
+    const lifecycle = new Map<string, ProposalListRow>([
+      ['h1#0', { proposal_id: 'p1', proposal_tx_hash: 'h1', proposal_index: 0, proposal_type: 'InfoAction', ratified_epoch: 604 }],
+      ['h2#0', { proposal_id: 'p2', proposal_tx_hash: 'h2', proposal_index: 0, proposal_type: 'InfoAction', ratified_epoch: 999 }],
+    ]);
+    expect(await backfillRatifiedEpochs(env.DB, lifecycle)).toBe(1);
+    const rows = (await env.DB.prepare('SELECT id, ratified_epoch FROM governance_actions ORDER BY id').all<{ id: string; ratified_epoch: number | null }>()).results;
+    expect(rows).toEqual([{ id: 'h1#0', ratified_epoch: 604 }, { id: 'h2#0', ratified_epoch: 611 }]);
   });
 });
 
@@ -385,7 +416,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
-      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 295, decidedEpoch: 295, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
 
@@ -409,7 +440,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepAlwaysAbstainPower: '0', drepAlwaysNoConfidencePower: '0',
       spoAlwaysAbstainPower: '0', spoAlwaysNoConfidencePower: '0',
       drepNoSidePower: '0', spoNoSidePower: '0',
-      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 295, decidedEpoch: 295, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
 
@@ -427,7 +458,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepVotedPower: 999_000_000,
       drepYesPower: 999_000_000, drepNoPower: 0, drepAbstainPower: 0,
       spoEligiblePower: null,
-      tallyEpoch: 295, decidedEpoch: 295, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 295, decidedEpoch: 295, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
 
@@ -453,7 +484,7 @@ describe('getActionsNeedingVotedPower', () => {
         drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
         ccYesPct: null, ccNoPct: null,
         drepVotedPower: null,
-        tallyEpoch: 296, decidedEpoch: 296, tallySyncedAt: NOW, now: NOW,
+        tallyEpoch: 296, decidedEpoch: 296, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
         thresholdsJson: null, thresholdsEpoch: null,
       });
     }
@@ -472,7 +503,7 @@ describe('getActionsNeedingVotedPower', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
-      tallyEpoch: 296, decidedEpoch: 296, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 296, decidedEpoch: 296, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
     const candidates = await getActionsNeedingVotedPower(db(), 10);
@@ -492,7 +523,7 @@ describe('updateVotedPower', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
-      tallyEpoch: 297, decidedEpoch: 297, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 297, decidedEpoch: 297, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
 
@@ -651,7 +682,7 @@ describe('updateActionMetadata', () => {
       drepYesPct: null, drepNoPct: null, spoYesPct: null, spoNoPct: null,
       ccYesPct: null, ccNoPct: null,
       drepVotedPower: null,
-      tallyEpoch: 300, decidedEpoch: null, tallySyncedAt: NOW, now: NOW,
+      tallyEpoch: 300, decidedEpoch: null, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
 

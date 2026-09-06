@@ -2,9 +2,10 @@
 // Parameterized D1 access for the governance_actions table.
 // All queries use .prepare().bind(); never string-concatenated SQL.
 
-import { sqlPlaceholders } from './sql.js';
+import { sqlPlaceholders, chunked } from './sql.js';
 import { TERMINAL_STATUSES, OPEN_STATUSES } from '../governance/view.js';
 import type { GovSort, GovStatus } from '../governance/sort.js';
+import type { ProposalListRow } from '../koios/client.js';
 import { liveVoteSql } from './drepVotes.js';
 
 /** Returns the set of governance-action ids already stored, for the sync diff. */
@@ -1219,6 +1220,9 @@ export type GovernanceTallyUpdate = GovernanceTally & {
   status: string;
   // Epoch the action was decided (terminal), or null while active/pending.
   decidedEpoch: number | null;
+  // Epoch the action was ratified, from Koios proposal_list. Never erased by a
+  // later null (see the COALESCE in the write below).
+  ratifiedEpoch: number | null;
   tallySyncedAt: number;
   now: number;
   /** Frozen per-body threshold snapshot JSON + the epoch it was evaluated for. */
@@ -1235,15 +1239,15 @@ export type GovernanceTallyUpdate = GovernanceTally & {
  */
 export async function updateGovernanceActionStatus(
   db: D1Database,
-  u: { id: string; status: string; decidedEpoch: number | null; now: number },
+  u: { id: string; status: string; decidedEpoch: number | null; ratifiedEpoch: number | null; now: number },
 ): Promise<void> {
   await db
     .prepare(
       `UPDATE governance_actions
-         SET status = ?, decided_epoch = ?, last_synced_at = ?
+         SET status = ?, decided_epoch = ?, ratified_epoch = COALESCE(?, ratified_epoch), last_synced_at = ?
        WHERE id = ?`,
     )
-    .bind(u.status, u.decidedEpoch, u.now, u.id)
+    .bind(u.status, u.decidedEpoch, u.ratifiedEpoch, u.now, u.id)
     .run();
 }
 
@@ -1271,7 +1275,7 @@ export async function updateGovernanceTallyAndStatus(
              drep_yes_pct = ?, drep_no_pct = ?, spo_yes_pct = ?, spo_no_pct = ?,
              cc_yes_pct = ?, cc_no_pct = ?,
              drep_voted_power = ?,
-             tally_epoch = ?, decided_epoch = ?, tally_synced_at = ?, last_synced_at = ?,
+             tally_epoch = ?, decided_epoch = ?, ratified_epoch = COALESCE(?, ratified_epoch), tally_synced_at = ?, last_synced_at = ?,
              thresholds_json = ?, thresholds_epoch = ?,
              votes_synced_at = CASE WHEN ? = 'active' THEN votes_synced_at ELSE NULL END
        WHERE id = ?`,
@@ -1309,6 +1313,7 @@ export async function updateGovernanceTallyAndStatus(
       u.drepVotedPower,
       u.tallyEpoch,
       u.decidedEpoch,
+      u.ratifiedEpoch,
       u.tallySyncedAt,
       u.now,
       u.thresholdsJson,
@@ -1317,4 +1322,24 @@ export async function updateGovernanceTallyAndStatus(
       u.id,
     )
     .run();
+}
+
+/**
+ * Fills ratified_epoch for rows that never had it (pre-column history), from the
+ * proposal_list read the tally sync already makes every run. Rows with a value
+ * are left alone, so a later Koios flake cannot blank a known epoch. Returns the
+ * number of rows updated. Bounded by the 100-bind D1 limit via chunking.
+ */
+export async function backfillRatifiedEpochs(db: D1Database, lifecycle: Map<string, ProposalListRow>): Promise<number> {
+  const candidates = [...lifecycle.entries()].filter(([, p]) => p.ratified_epoch != null);
+  if (candidates.length === 0) return 0;
+  let updated = 0;
+  for (const batch of chunked(candidates, 40)) {
+    const stmts = batch.map(([id, p]) =>
+      db.prepare('UPDATE governance_actions SET ratified_epoch = ? WHERE id = ? AND ratified_epoch IS NULL').bind(p.ratified_epoch, id),
+    );
+    const results = await db.batch(stmts);
+    for (const r of results) updated += r.meta.changes ?? 0;
+  }
+  return updated;
 }

@@ -463,6 +463,56 @@ describe('syncGovernanceTallies re-syncs ratified actions until enacted', () => 
     expect(r.reSynced).toBe(0);
     expect((await getGovernanceActionByTopicId(db(), a.topicId))!.status).toBe('ratified');
   });
+
+  it('writes ratified_epoch, preserves it through enactment, and backfills a pre-column frozen row from the same lifecycle read', async () => {
+    const a = await insertActive(640);
+
+    // Phase 1: action becomes ratified, ratified_epoch written by the active-loop writer.
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 637 })]),
+      db: db(),
+      currentEpoch: 638,
+      now: NOW + 10,
+    });
+    const afterRatify = await db()
+      .prepare('SELECT ratified_epoch FROM governance_actions WHERE id = ?')
+      .bind(a.id)
+      .first<{ ratified_epoch: number | null }>();
+    expect(afterRatify!.ratified_epoch).toBe(637);
+
+    // A pre-column frozen row (ratified_epoch never populated) alongside it, to
+    // verify the same run's proposal_list read backfills it too.
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, submitted_epoch, topic_id, created_at, last_synced_at)
+         VALUES ('gtxold#0', 'InfoAction', 'Old', 'enacted', 600, NULL, 0, 0)`,
+      )
+      .run();
+
+    // Phase 2: ratified -> enacted re-check (status-only writer) must not erase
+    // ratified_epoch, and the frozen row above gets backfilled in the same run.
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([
+        lifeRow(a.txHash, { ratified_epoch: 637, enacted_epoch: 638 }),
+        lifeRow('gtxold', { proposal_type: 'InfoAction', ratified_epoch: 611 }),
+      ]),
+      db: db(),
+      currentEpoch: 639,
+      now: NOW + 20,
+    });
+
+    const enacted = await db()
+      .prepare('SELECT status, ratified_epoch FROM governance_actions WHERE id = ?')
+      .bind(a.id)
+      .first<{ status: string; ratified_epoch: number | null }>();
+    expect(enacted).toEqual({ status: 'enacted', ratified_epoch: 637 });
+
+    const old = await db()
+      .prepare('SELECT ratified_epoch FROM governance_actions WHERE id = ?')
+      .bind('gtxold#0')
+      .first<{ ratified_epoch: number | null }>();
+    expect(old!.ratified_epoch).toBe(611);
+  });
 });
 
 describe('syncGovernanceVotes', () => {
