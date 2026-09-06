@@ -95,32 +95,39 @@ export async function readVoteHistoryInRange(db: D1Database, startUnix: number, 
   return res.results ?? [];
 }
 
-/** Final votes on the given actions, whenever they were cast. */
-export async function readVotesForActions(db: D1Database, ids: string[]): Promise<VoteRow[]> {
+/**
+ * Final votes on the given actions, cast at or before the window's end. The
+ * window is the reference for the whole pack, so a ballot cast after it must
+ * not appear in the focus sections (voteTimeline, topVoters, spo, ccVotes,
+ * topDreps.ballots) as if it stood at that point. A null block_time (a vote
+ * synced before the column existed, or ahead of the backfill) cannot be placed
+ * on either side of the boundary, so it is kept rather than silently dropped.
+ */
+export async function readVotesForActions(db: D1Database, ids: string[], endUnix: number): Promise<VoteRow[]> {
   const out: VoteRow[] = [];
   for (const batch of chunked(ids, ID_CHUNK)) {
     const res = await db
       .prepare(
         `SELECT ga_id, voter_role, voter_id, voter_hex, vote, block_time FROM drep_votes
-          WHERE ga_id IN (${sqlPlaceholders(batch)})`,
+          WHERE ga_id IN (${sqlPlaceholders(batch)}) AND (block_time IS NULL OR block_time < ?)`,
       )
-      .bind(...batch)
+      .bind(...batch, endUnix)
       .all<VoteRow>();
     out.push(...(res.results ?? []));
   }
   return out;
 }
 
-/** Superseded votes on the given actions, so a timeline shows the re-vote too. */
-export async function readVoteHistoryForActions(db: D1Database, ids: string[]): Promise<VoteRow[]> {
+/** Superseded votes on the given actions cast at or before the window's end, so a timeline shows the re-vote too. */
+export async function readVoteHistoryForActions(db: D1Database, ids: string[], endUnix: number): Promise<VoteRow[]> {
   const out: VoteRow[] = [];
   for (const batch of chunked(ids, ID_CHUNK)) {
     const res = await db
       .prepare(
         `SELECT ga_id, voter_role, voter_id, NULL AS voter_hex, vote, block_time FROM drep_vote_history
-          WHERE ga_id IN (${sqlPlaceholders(batch)})`,
+          WHERE ga_id IN (${sqlPlaceholders(batch)}) AND (block_time IS NULL OR block_time < ?)`,
       )
-      .bind(...batch)
+      .bind(...batch, endUnix)
       .all<VoteRow>();
     out.push(...(res.results ?? []));
   }
@@ -173,17 +180,21 @@ export async function readTopDrepsAtEpoch(db: D1Database, epoch: number, limit: 
 /**
  * The steepest power losses between two epochs. Specials are excluded, the
  * two-layer convention of the analytics contract: the predefined options are
- * the default delegation layer, not DReps whose power moved.
+ * the default delegation layer, not DReps whose power moved. A DRep with no
+ * row at toEpoch (the power-history sync skips null amounts, so a DRep who
+ * deregistered between the two epochs simply has no snapshot) is a drop to
+ * zero, not an absent row, so the second history table is left joined and the
+ * missing side coalesced to zero rather than filtering the row out entirely.
  */
 export async function readPowerDrops(db: D1Database, fromEpoch: number, toEpoch: number, limit: number): Promise<Array<{ drep_id: string; name: string | null; status: string | null; from_amount: string; to_amount: string }>> {
   const res = await db
     .prepare(
-      `SELECT a.drep_id, d.name, d.status, a.amount AS from_amount, b.amount AS to_amount
+      `SELECT a.drep_id, d.name, d.status, a.amount AS from_amount, COALESCE(b.amount, '0') AS to_amount
          FROM drep_voting_power_history a
-         JOIN drep_voting_power_history b ON b.drep_id = a.drep_id AND b.epoch = ?
+         LEFT JOIN drep_voting_power_history b ON b.drep_id = a.drep_id AND b.epoch = ?
          LEFT JOIN dreps d ON d.drep_id = a.drep_id
         WHERE a.epoch = ? AND a.drep_id NOT IN (${SPECIAL_PLACEHOLDERS})
-        ORDER BY (CAST(a.amount AS INTEGER) - CAST(b.amount AS INTEGER)) DESC LIMIT ?`,
+        ORDER BY (CAST(a.amount AS INTEGER) - CAST(COALESCE(b.amount, '0') AS INTEGER)) DESC LIMIT ?`,
     )
     .bind(toEpoch, fromEpoch, ...SPECIAL_DREP_IDS, limit)
     .all<{ drep_id: string; name: string | null; status: string | null; from_amount: string; to_amount: string }>();

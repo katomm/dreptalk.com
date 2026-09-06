@@ -112,6 +112,31 @@ describe('buildWindowPack', () => {
     expect(older.topDreps).toEqual([]);
   });
 
+  it('reports a drep with no row at the window end as the largest power drop', async () => {
+    // drepBig deregistered between 649 and 652: no row at 652 at all, not merely
+    // a zero one. The largest drop must still name it, with toAda 0.
+    await env.DB.prepare(
+      `INSERT INTO drep_voting_power_history (drep_id, epoch, amount) VALUES
+        ('drepBig', 649, '90000000000000'),
+        ('drepSmall', 649, '50000000000'), ('drepSmall', 652, '40000000000')`,
+    ).run();
+    await env.DB.prepare(`INSERT INTO dreps (drep_id, status, last_synced_at, created_at) VALUES ('drepBig', 'deregistered', 0, 0)`).run();
+    const pack = await buildWindowPack(env.DB, cfg, 650, 652);
+    expect(pack.powerHistory.drops?.[0]).toMatchObject({ drepId: 'drepBig', toAda: 0, deregistered: true });
+  });
+
+  it('excludes votes cast after the window from voteTimeline and spo', async () => {
+    await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
+    await env.DB.prepare(
+      `INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at, block_time) VALUES
+        (?, 'DRep', 'drepInWindow', 'Yes', 0, ?), (?, 'DRep', 'drepAfter', 'No', 0, ?), (?, 'SPO', 'poolAfter', 'Yes', 0, ?)`,
+    ).bind(ids.closing, t(651), ids.closing, t(653), ids.closing, t(653)).run();
+    const pack = await buildWindowPack(env.DB, cfg, 650, 652);
+    expect(pack.voteTimeline[ids.closing].find((r) => r.epoch === 653)).toBeUndefined();
+    expect(pack.voteTimeline[ids.closing].find((r) => r.epoch === 651)?.byCount).toEqual({ yes: 1, no: 0, abstain: 0 });
+    expect(pack.spo[ids.closing]).toEqual({ yes: 0, no: 0, abstain: 0 });
+  });
+
   it('reads vote timelines for more voters than one statement can bind', async () => {
     await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
     const stmts = Array.from({ length: 120 }, (_, i) =>

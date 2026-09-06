@@ -529,7 +529,7 @@ const MAX_WINDOW_EPOCHS = 6;
 /**
  * Builds the full pack for one window. `allowShort` is for the state endpoint,
  * which asks for a candidate window while it is still growing towards three
- * epochs; a published edition always covers three to six.
+ * epochs, a published edition always covers three to six.
  */
 export async function buildWindowPack(
   db: D1Database,
@@ -573,8 +573,8 @@ export async function buildWindowPack(
   const focusActions = [...events, ...closingAtBoundary];
   const focusIds = focusActions.map((a) => a.id);
   const [focusCurrent, focusHistory] = await Promise.all([
-    readVotesForActions(db, focusIds),
-    readVoteHistoryForActions(db, focusIds),
+    readVotesForActions(db, focusIds, activityEnd),
+    readVoteHistoryForActions(db, focusIds, activityEnd),
   ]);
 
   // Power comes from the history table only. voted_power on a vote row is the
