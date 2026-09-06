@@ -55,7 +55,7 @@ corrections: []
 
 ## A bad paragraph
 
-Yoroi Wallet and Fantasy DRep voted, and 4,321 DReps took part — nothing happened; the [committee update](/ga/729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0/) was ratified with 9,000,000,000,000 ada.
+Yoroi Wallet and Fantasy DRep voted, and 4,321 DReps took part — nothing happened; the [committee update](/ga/729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb3909085000/) was ratified with 9,000,000,000,000 ada.
 
 The committee has 3 members whose terms end.
 

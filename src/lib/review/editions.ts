@@ -3,7 +3,7 @@
 // the sitemap, the OG route and the state endpoint cannot drift apart.
 import { getCollection, type CollectionEntry } from 'astro:content';
 import { buildEditionIndex, slugFor, type EditionIndex, type EditionSummary } from './windows.js';
-import { epochStartUnix, type NetworkConfig } from '../config/network.js';
+import { epochStartMs, type NetworkConfig } from '../config/network.js';
 
 export type Edition = CollectionEntry<'review'>;
 
@@ -35,5 +35,5 @@ const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', 
 
 /** "17 Aug 2026 to 1 Sept 2026": the window's first boundary and the boundary that closes it. */
 export function formatWindowDates(from: number, to: number, cfg: NetworkConfig): string {
-  return `${DATE.format(new Date(epochStartUnix(from, cfg) * 1000))} to ${DATE.format(new Date(epochStartUnix(to + 1, cfg) * 1000))}`;
+  return `${DATE.format(new Date(epochStartMs(from, cfg)))} to ${DATE.format(new Date(epochStartMs(to + 1, cfg)))}`;
 }

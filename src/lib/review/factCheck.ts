@@ -10,6 +10,7 @@ import type { z } from 'zod';
 import { parse as parseYaml } from 'yaml';
 import { chartSpecSchema } from './charts/index.js';
 import { scaleFor } from './charts/schema.js';
+import { govActionIdFromPath } from './links.js';
 import type { ActionRow, ReviewFrontmatter } from './schema.js';
 
 export interface Finding {
@@ -274,7 +275,13 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   const linkedActionIds = new Set<string>();
   for (const m of prose.matchAll(LINK_RE)) {
     const [, text, kind, rawId] = m;
-    const id = decodeURIComponent(rawId);
+    const decoded = decodeURIComponent(rawId);
+    // A /ga/ path is the CIP-129 hex form govActionHref emits (the resolver
+    // never decodes '%23' back to '#'), so it is normalized back to the pack's
+    // "<hash>#<index>" id before the lookup below. The '%23' form still works:
+    // it decodes straight to that id, and govActionIdFromPath returns null for
+    // it, so the fallback keeps it as is.
+    const id = kind === 'ga' ? (govActionIdFromPath(decoded) ?? decoded) : decoded;
     let canonical = false;
     if (kind === 'ga') {
       linkedActionIds.add(id);

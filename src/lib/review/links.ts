@@ -16,3 +16,16 @@ export function govActionHref(id: string): string {
   if (indexHex.length % 2) indexHex = `0${indexHex}`;
   return `/ga/${m[1]}${indexHex}/`;
 }
+
+/**
+ * Inverse of govActionHref's CIP-129 form: a captured "/ga/" path segment back
+ * to the "<hash>#<index>" id the pack keys its actions by. 64 hex chars for
+ * the hash, then 1 to 4 hex bytes (2 to 8 hex chars, even length) for the
+ * index. Null for anything else, including the already-decoded "#" form,
+ * which the caller falls back to unchanged.
+ */
+export function govActionIdFromPath(segment: string): string | null {
+  const m = /^([0-9a-f]{64})((?:[0-9a-f]{2}){1,4})$/.exec(segment);
+  if (!m) return null;
+  return `${m[1]}#${Number.parseInt(m[2], 16)}`;
+}

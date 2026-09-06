@@ -94,6 +94,19 @@ describe('an alias is no escape hatch', () => {
 
 describe('factCheckEdition on the good fixture', () => {
   it('has no findings', () => expect(factCheckEdition(load('good'))).toEqual([]));
+  it('passes a body link in the CIP-129 form govActionHref emits', () => {
+    const g = load('good');
+    expect(g.body).toContain('/ga/729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb3909085000/');
+    expect(factCheckEdition(g)).toEqual([]);
+  });
+  it('fails when the CIP-129 link points at a different action', () => {
+    const g = load('good');
+    const body = g.body.replace(
+      '/ga/729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb3909085000/',
+      '/ga/729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb3909085001/',
+    );
+    expect(factCheckEdition({ ...g, body }).map((f) => f.rule)).toContain('link-not-in-pack');
+  });
   it('fails when the link text of a verified action is manipulated', () => {
     const g = load('good');
     const body = g.body.replace('[Update Constitutional Committee 2026]', '[Update Constitutional Committee 2027]');

@@ -49,7 +49,7 @@ corrections: []
 
 ## As of the close
 
-As of the close of epoch 652, the [Update Constitutional Committee 2026](/ga/729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0/) stood at 163 yes to 7 no, 69.9% by power. [Yoroi Wallet](/dreps/drep1yoroi/) voted yes. The treasury held 1,337.4 million ada at the start of epoch 650. 4 of 7 committee seats end within twelve epochs, 3 run on.
+As of the close of epoch 652, the [Update Constitutional Committee 2026](/ga/729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb3909085000/) stood at 163 yes to 7 no, 69.9% by power. [Yoroi Wallet](/dreps/drep1yoroi/) voted yes. The treasury held 1,337.4 million ada at the start of epoch 650. 4 of 7 committee seats end within twelve epochs, 3 run on.
 
 ```chart
 type: line

@@ -19,6 +19,7 @@ import { EPOCH_STATS_METRICS, type EpochStatsMetricKey } from '../analytics/epoc
 import type { EpochStatsRow } from '../analytics/epochStats.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
+import { govActionHref } from './links.js';
 import { epochReadiness, watermarks, type EpochReadiness } from './readiness.js';
 import { epochBoundsUnix, lovelaceToAda, REVIEW_PACK_VERSION } from './units.js';
 import {
@@ -174,7 +175,7 @@ export function toPackAction(r: ActionDbRow, from: number, to: number): PackActi
   const close = closeEpoch(r);
   const action: PackAction = {
     id: r.id,
-    url: `/ga/${encodeURIComponent(r.id)}/`,
+    url: govActionHref(r.id),
     type: r.type,
     title: r.title,
     status: r.status,
