@@ -39,7 +39,7 @@ interface Props {
       double fetch. Pass null when no stored avatar exists (identicon fallback). */
   preloadImage?: string | null;
 }
-const { title, description = 'Wallet-authenticated forum for Cardano governance.', noindex = false, ogImage = '/og.jpg', wide = false, readingWidth = false, searchScope, preloadImage = null } = Astro.props;
+const { title, description = 'The public deliberation layer for Cardano governance: discussion, votes, and data on every governance action.', noindex = false, ogImage = '/og.jpg', wide = false, readingWidth = false, searchScope, preloadImage = null } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 // og:url and og:image must resolve on the host that actually served the page. On
 // preprod that is preprod.dreptalk.com, so build them from the request origin
@@ -271,7 +271,7 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
             <LogoMark style="height:34px;width:34px;color:var(--muted)" />
             <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
           </a>
-          <p class="site-footer__tagline">A calmer, accountable home for Cardano governance.</p>
+          <p class="site-footer__tagline">Where Cardano governance is discussed, voted, and explained.</p>
         </div>
         <nav class="site-footer__links" aria-label="Footer">
           <a href="/help/">Help</a>
