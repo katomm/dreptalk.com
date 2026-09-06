@@ -3,7 +3,7 @@
   "window": { "from": 650, "to": 652, "readiness": { "ready": true } },
   "actions": {
     "events": [],
-    "closingAtBoundary": [{ "id": "729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0", "title": "Update Constitutional Committee 2026", "tally": { "drep": { "yes": 163, "no": 7, "abstain": 10, "yesPct": 69.85 } } }],
+    "closingAtBoundary": [{ "id": "729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0", "title": "Update Constitutional Committee 2026", "status": "active", "open": true, "expiryEpoch": 653, "eventsInWindow": [], "tally": { "drep": { "yes": 163, "no": 7, "abstain": 10, "yesPct": 69.85 } } }],
     "open": [],
     "comparisons": []
   },

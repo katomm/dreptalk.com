@@ -7,8 +7,10 @@ export const actionRowSchema = z.object({
   id: z.string().regex(/^[0-9a-f]{64}#\d+$/),
   title: z.string().min(1),
   /** Short names the body uses for this action ("the committee update"), so
-   *  the fact check can find every paragraph about it. */
-  aliases: z.array(z.string().min(3)).default([]),
+   *  the fact check can find every paragraph about it. Digits are rejected: an
+   *  alias is a name, and a number inside one would ride into the body as link
+   *  text that no pack field has to back. */
+  aliases: z.array(z.string().min(3).regex(/^\D*$/, 'an alias must not contain digits')).default([]),
   type: z.string().min(1),
   outcome: z.enum(['ratified', 'enacted', 'expired', 'dropped', 'closed', 'open', 'submitted']),
   epoch: z.number().int(),
@@ -33,7 +35,9 @@ export const reviewFrontmatterSchema = z
     packVersion: z.number().int().positive(),
     facts: z.array(factTileSchema).length(4),
     featuredActions: z.array(z.string()).default([]),
-    ogFigure: z.object({ value: z.string(), label: z.string() }),
+    /** The figure the social card shows. Carries a source so the fact check can
+     *  hold it to the pack exactly like a fact tile. */
+    ogFigure: z.object({ value: z.string(), label: z.string(), source: z.string().min(1) }),
     alsoDecided: z.array(actionRowSchema).default([]),
     openActions: z.array(actionRowSchema).default([]),
     numbers: z.object({

@@ -22,14 +22,21 @@ facts:
 ogFigure:
   value: '₳120M'
   label: largest withdrawal
-alsoDecided: []
+  source: 'treasury.largestSingle[0].ada'
+alsoDecided:
+  - id: '529dccaadaa000746c22f1682574cb3f436eeba4d19710b90791a54226dc96d7#0'
+    title: Withdraw a different amount
+    type: TreasuryWithdrawals
+    outcome: expired
+    epoch: 999
+    drepYesPct: 88.5
 openActions:
   - id: '729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0'
     title: Update Constitutional Committee 2026
     aliases: ['committee update']
     type: NewCommittee
     outcome: open
-    epoch: 652
+    epoch: 653
     drepYesPct: 69.85
 numbers:
   delegatedPowerStartAda: null
@@ -69,6 +76,7 @@ format: M
 ```chart
 type: line
 title: Treasury shifted
+caption: "The 8,765 votes in this caption are invented — and so is this dash"
 sources: ["treasury.byEpochAda[].balanceAda"]
 epochSource: "treasury.byEpochAda[].epoch"
 epochFrom: 500

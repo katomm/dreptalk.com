@@ -21,7 +21,7 @@ facts:
   - { value: "1", label: b, source: x }
   - { value: "1", label: c, source: x }
   - { value: "1", label: d, source: x }
-ogFigure: { value: "1", label: x }
+ogFigure: { value: "1", label: x, source: x }
 numbers: { delegatedPowerStartAda: null, delegatedPowerEndAda: null, voteTransactions: null, finalDrepVoters: null, treasuryStartAda: null, treasuryEndAda: null }
 ---
 body

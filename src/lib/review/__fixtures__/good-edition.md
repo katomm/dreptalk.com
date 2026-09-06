@@ -22,6 +22,7 @@ facts:
 ogFigure:
   value: '₳96.8M'
   label: largest withdrawal
+  source: 'treasury.largestSingle[0].ada'
 alsoDecided: []
 openActions:
   - id: '729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0'
@@ -29,7 +30,7 @@ openActions:
     aliases: ['committee update']
     type: NewCommittee
     outcome: open
-    epoch: 652
+    epoch: 653
     drepYesPct: 69.85
 numbers:
   delegatedPowerStartAda: null

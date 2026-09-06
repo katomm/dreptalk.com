@@ -2,8 +2,8 @@
   "packVersion": 1,
   "window": { "from": 650, "to": 652, "readiness": { "ready": true } },
   "actions": {
-    "events": [],
-    "closingAtBoundary": [{ "id": "729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0", "title": "Update Constitutional Committee 2026", "tally": { "drep": { "yes": 163, "no": 7, "abstain": 10, "yesPct": 69.85 } } }],
+    "events": [{ "id": "529dccaadaa000746c22f1682574cb3f436eeba4d19710b90791a54226dc96d7#0", "title": "Withdraw 120,000,000 ada for AlphaGrowth", "status": "enacted", "open": false, "expiryEpoch": 655, "eventsInWindow": [{ "kind": "enacted", "epoch": 650 }], "tally": { "drep": { "yes": 100, "no": 2, "abstain": 1, "yesPct": 88.5 } } }],
+    "closingAtBoundary": [{ "id": "729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0", "title": "Update Constitutional Committee 2026", "status": "active", "open": true, "expiryEpoch": 653, "eventsInWindow": [], "tally": { "drep": { "yes": 163, "no": 7, "abstain": 10, "yesPct": 69.85 } } }],
     "open": [],
     "comparisons": []
   },
