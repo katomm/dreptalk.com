@@ -2,10 +2,9 @@
 // caches.default (the HTML page cache rejects JSON on purpose).
 import { waitUntil } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
-import { getCollection } from 'astro:content';
 import { jsonResponse, runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { buildReviewState } from '@/lib/review/state';
-import { buildEditionIndex } from '@/lib/review/windows';
+import { loadEditionIndex } from '@/lib/review/editions';
 
 export const prerender = false;
 const TTL = 3600;
@@ -21,15 +20,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
   // mutable copy so downstream middleware can still decorate it.
   if (hit) return new Response(hit.body, hit);
 
-  const editions = await getCollection('review');
-  const index = buildEditionIndex(
-    editions.map((e) => ({
-      from: e.data.epochFrom,
-      to: e.data.epochTo,
-      featured: e.data.featuredActions,
-      rows: [...e.data.alsoDecided, ...e.data.openActions].map((r) => r.id),
-    })),
-  );
+  const index = await loadEditionIndex();
   const body = await buildReviewState(db, currentNetwork(), { lastCoveredEpoch: index.lastCoveredEpoch, nowMs: Date.now() });
   const res = jsonResponse(body, 200, { 'Cache-Control': `public, max-age=60, s-maxage=${TTL}` });
   waitUntil(cache.put(key, res.clone()));

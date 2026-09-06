@@ -1,0 +1,37 @@
+---
+export const prerender = false;
+import Layout from '@/layouts/Layout.astro';
+import ReviewCard from '@/components/review/ReviewCard.astro';
+import { loadEditions } from '@/lib/review/editions.js';
+import { currentNetwork } from '@/lib/api/response';
+import { cacheControlFor } from '@/lib/forum/view.js';
+
+const editions = await loadEditions();
+const cfg = currentNetwork();
+Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
+---
+
+<Layout
+  title="Cardano Governance Review - DRepTalk"
+  description="Dated reviews of Cardano governance, a few epochs at a time: what was decided, who moved it, and what the numbers say."
+  readingWidth
+>
+  <nav class="rv-crumbs" aria-label="Breadcrumb">
+    <a href="/">DRepTalk</a><span aria-hidden="true">/</span><span>Governance Review</span>
+  </nav>
+  <h1>Governance Review</h1>
+  <p class="rv-intro">
+    Every few epochs, one article on what happened in Cardano governance: the decisions, the votes behind them and the
+    trends underneath. Written from the same data the <a href="/analytics/">analytics</a> pages show, and frozen when it
+    goes out.
+  </p>
+  {editions.length === 0 && <p class="rv-empty">The first edition is on its way.</p>}
+  <div class="rv-list">{editions.map((e) => <ReviewCard edition={e} cfg={cfg} />)}</div>
+</Layout>
+
+<style>
+  .rv-crumbs { display: flex; gap: 0.5rem; font-size: 0.875rem; color: var(--muted); margin: 1rem 0 0.5rem; }
+  .rv-intro { color: var(--muted); max-width: 62ch; line-height: 1.6; }
+  .rv-empty { color: var(--muted); margin-top: 2rem; }
+  .rv-list { display: grid; gap: 1.5rem; margin-top: 2rem; }
+</style>

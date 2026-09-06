@@ -1,0 +1,136 @@
+---
+export const prerender = false;
+import { getEntry, render } from 'astro:content';
+import Layout from '@/layouts/Layout.astro';
+import JsonLd from '@/components/JsonLd.astro';
+import ReviewFacts from '@/components/review/ReviewFacts.astro';
+import ReviewAlsoDecided from '@/components/review/ReviewAlsoDecided.astro';
+import ReviewNumbers from '@/components/review/ReviewNumbers.astro';
+import { loadEditions, editionSlug, formatWindowDates } from '@/lib/review/editions.js';
+import { govActionHref } from '@/lib/review/links.js';
+import { parseSlug } from '@/lib/review/windows.js';
+import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
+import { currentNetwork } from '@/lib/api/response';
+import { cacheControlFor } from '@/lib/forum/view.js';
+import { ogCardVersion } from '@/lib/og/version.js';
+
+const slug = Astro.params.slug ?? '';
+if (!parseSlug(slug)) return new Response('Not found', { status: 404 });
+const entry = await getEntry('review', slug);
+if (!entry) return new Response('Not found', { status: 404 });
+const d = entry.data;
+const cfg = currentNetwork();
+const { Content } = await render(entry);
+const editions = await loadEditions();
+const i = editions.findIndex((e) => editionSlug(e) === slug);
+const newer = i > 0 ? editions[i - 1] : null;
+const older = i >= 0 && i < editions.length - 1 ? editions[i + 1] : null;
+const origin = Astro.site?.origin ?? 'https://dreptalk.com';
+const dates = formatWindowDates(d.epochFrom, d.epochTo, cfg);
+const networkLabel = cfg.network === 'mainnet' ? 'Mainnet' : 'Preprod';
+const lastCorrection = d.corrections.at(-1)?.date;
+const articleLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: d.title,
+  description: d.standfirst,
+  url: `${origin}/governance-review/${slug}/`,
+  datePublished: d.published.toISOString().slice(0, 10),
+  ...(lastCorrection ? { dateModified: lastCorrection.toISOString().slice(0, 10) } : {}),
+  inLanguage: 'en',
+  about: d.featuredActions.map((id) => ({ '@type': 'Thing', name: id, url: `${origin}${govActionHref(id)}` })),
+  publisher: { '@type': 'Organization', name: 'DRepTalk', url: origin },
+};
+const crumbs = buildBreadcrumbLd(origin, [
+  { name: 'Governance Review', path: '/governance-review/' },
+  { name: `Epochs ${d.epochFrom} to ${d.epochTo}`, path: `/governance-review/${slug}/` },
+]);
+const ogImage = `/og/governance-review/${slug}.png?v=${ogCardVersion([d.title, d.ogFigure.value, d.ogFigure.label])}`;
+Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
+---
+
+<Layout title={`${d.title} - Governance Review - DRepTalk`} description={d.standfirst} readingWidth ogImage={ogImage}>
+  <JsonLd data={articleLd} />
+  <JsonLd data={crumbs} />
+  <article class="rv">
+    <p class="rv-kicker">
+      <a href="/governance-review/">Governance Review</a><span>Epochs {d.epochFrom} to {d.epochTo}</span><span
+        >{dates}</span
+      ><span>{networkLabel}</span>
+    </p>
+    <h1 class="rv-title">{d.title}</h1>
+    <p class="rv-stand">{d.standfirst}</p>
+    <ReviewFacts facts={d.facts} />
+    {
+      d.corrections.length > 0 && (
+        <aside class="rv-corrections">
+          <strong>Corrections.</strong>
+          {d.corrections.map((c) => (
+            <span>
+              {c.date.toISOString().slice(0, 10)}: {c.note}{' '}
+            </span>
+          ))}
+        </aside>
+      )
+    }
+    <div class="rv-body prose"><Content /></div>
+    <ReviewAlsoDecided rows={d.alsoDecided} featured={d.featuredActions} />
+    <ReviewNumbers numbers={d.numbers} from={d.epochFrom} to={d.epochTo} />
+    {
+      (older || newer) && (
+        <nav class="rv-pager" aria-label="Other editions">
+          {older && <a href={`/governance-review/${editionSlug(older)}/`}>Older: epochs {older.data.epochFrom} to {older.data.epochTo}</a>}
+          {newer && (
+            <a class="rv-pager__newer" href={`/governance-review/${editionSlug(newer)}/`}>
+              Newer: epochs {newer.data.epochFrom} to {newer.data.epochTo}
+            </a>
+          )}
+        </nav>
+      )
+    }
+  </article>
+</Layout>
+
+<style is:global>
+  /* Chart figures come from the markdown transform as raw HTML, so their styles
+     are global on purpose and scoped by the rv- prefix. Colour tokens map onto the
+     site theme variables so charts follow light and dark mode. */
+  .rv { --rv-s1: var(--accent); --rv-s2: #eb6834; --rv-s3: #7b8590; --rv-ink: var(--fg); --rv-ink-2: var(--muted); --rv-grid: var(--border); --rv-card: var(--surface); }
+  .rv-chart { margin: 1.5rem 0 2rem; background: var(--rv-card); border: 1px solid var(--rv-grid); border-radius: var(--radius-sm); padding: 1rem 1rem 0.75rem; }
+  .rv-chart__title { font-weight: 700; font-size: 0.95rem; margin: 0 0 0.1rem; }
+  .rv-chart__sub { font-size: 0.8rem; color: var(--rv-ink-2); margin: 0 0 0.75rem; }
+  .rv-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .rv-chart figcaption { font-size: 0.8rem; color: var(--rv-ink-2); margin-top: 0.6rem; line-height: 1.45; }
+  .rv-legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--rv-ink-2); margin: 0 0 0.6rem; }
+  .rv-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .rv-svg text { font-size: 11.5px; fill: var(--rv-ink-2); }
+  .rv-svg .rv-grid { stroke: var(--rv-grid); }
+  .rv-svg .rv-axis { stroke: var(--rv-grid); }
+  .rv-svg .rv-thr { stroke: var(--rv-ink); stroke-dasharray: 4 4; }
+  .rv-svg .rv-lbl, .rv-svg .rv-ann { fill: var(--rv-ink); }
+  .rv-svg .rv-muted { fill: var(--rv-ink-2); }
+  .rv-svg .rv-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; }
+  .rv-svg .rv-line.rv-s1, .rv-svg .rv-dot.rv-s1, .rv-svg .rv-bar.rv-s1, .rv-legend i.rv-s1 { stroke: var(--rv-s1); fill: var(--rv-s1); background: var(--rv-s1); }
+  .rv-svg .rv-line.rv-s2, .rv-svg .rv-dot.rv-s2, .rv-svg .rv-bar.rv-s2, .rv-legend i.rv-s2 { stroke: var(--rv-s2); fill: var(--rv-s2); background: var(--rv-s2); }
+  .rv-svg .rv-bar.rv-s3, .rv-legend i.rv-s3 { fill: var(--rv-s3); background: var(--rv-s3); }
+  .rv-svg .rv-line { fill: none; }
+  .rv-svg .rv-dot { stroke: var(--rv-card); stroke-width: 2; }
+  .rv-svg .rv-hit { fill: transparent; }
+  .rv-svg .rv-area { fill: var(--rv-s1); opacity: 0.08; }
+  .rv-svg .rv-shade { fill: var(--rv-s2); opacity: 0.1; }
+  .rv-svg .rv-bar.rv-dim { opacity: 0.35; }
+  .rv-svg .rv-seat { stroke-width: 2; fill: var(--rv-card); }
+  .rv-svg .rv-seat.rv-ending, .rv-legend i.rv-ending { stroke: var(--rv-s2); background: var(--rv-s2); }
+  .rv-svg .rv-seat.rv-staying, .rv-legend i.rv-staying { stroke: var(--rv-s1); background: var(--rv-s1); }
+</style>
+
+<style>
+  .rv-kicker { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 1rem 0 0; }
+  .rv-kicker a { color: var(--accent); text-decoration: none; }
+  .rv-title { font-size: clamp(1.9rem, 4.5vw, 2.7rem); line-height: 1.08; letter-spacing: -0.02em; margin: 0.75rem 0 1rem; text-wrap: balance; }
+  .rv-stand { font-size: 1.15rem; line-height: 1.5; color: var(--muted); margin: 0 0 1.75rem; }
+  .rv-corrections { border-left: 3px solid var(--accent); padding: 0.5rem 0.9rem; margin: 0 0 1.5rem; font-size: 0.9rem; }
+  .rv-pager { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.9rem; }
+  /* Keeps the newer link on the right even when it is the only one. */
+  .rv-pager__newer { margin-left: auto; }
+</style>

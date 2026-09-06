@@ -12,7 +12,8 @@ export const NAV_LINKS: readonly NavLink[] = [
   // Lands on the Discussion tab (human forum activity); the page itself defaults
   // to the "All" feed, which the homepage's "View all activity" link points to.
   { label: 'Discussions', href: '/discussions/?filter=comments' },
-  { label: 'DReps', href: '/dreps/' },
   { label: 'Treasury', href: '/c/budget/' },
+  { label: 'DReps', href: '/dreps/' },
   { label: 'Analytics', href: '/analytics/' },
+  { label: 'Review', href: '/governance-review/' },
 ];

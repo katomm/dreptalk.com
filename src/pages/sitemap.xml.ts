@@ -23,6 +23,11 @@ export const GET: APIRoute = async ({ site }) => {
     { path: '/help/' },
     { path: '/match/' },
     { path: '/analytics/' },
+    { path: '/governance-review/' },
+    ...(await getCollection('review')).map((e) => ({
+      path: `/governance-review/epochs-${e.data.epochFrom}-${e.data.epochTo}/`,
+      lastmod: (e.data.corrections.at(-1)?.date ?? e.data.published).toISOString(),
+    })),
     ...(await getCollection('guides')).map((g) => ({
       path: `/help/${g.id}/`,
       ...(g.data.updated ? { lastmod: g.data.updated.toISOString() } : {}),

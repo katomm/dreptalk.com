@@ -1,0 +1,68 @@
+---
+// The window's raw figures, so a reader can check the article against them.
+// Values are ada already (the frontmatter carries ada, not lovelace).
+import type { ReviewFrontmatter } from '@/lib/review/schema.js';
+
+interface Props {
+  numbers: ReviewFrontmatter['numbers'];
+  from: number;
+  to: number;
+}
+const { numbers, from, to } = Astro.props;
+
+const MISSING = 'not available';
+
+function ada(value: number | null): string {
+  if (value === null) return MISSING;
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `₳${(value / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `₳${(value / 1_000_000).toFixed(1)}M`;
+  return `₳${Math.round(value).toLocaleString('en-US')}`;
+}
+
+function count(value: number | null): string {
+  return value === null ? MISSING : value.toLocaleString('en-US');
+}
+
+const rows: Array<{ label: string; value: string }> = [
+  { label: `Delegated to DReps, start of epoch ${from}`, value: ada(numbers.delegatedPowerStartAda) },
+  { label: `Delegated to DReps, end of epoch ${to}`, value: ada(numbers.delegatedPowerEndAda) },
+  { label: 'Vote transactions', value: count(numbers.voteTransactions) },
+  { label: 'DReps whose final ballot fell in the window', value: count(numbers.finalDrepVoters) },
+  { label: `Treasury, start of epoch ${from}`, value: ada(numbers.treasuryStartAda) },
+  { label: `Treasury, end of epoch ${to}`, value: ada(numbers.treasuryEndAda) },
+];
+---
+
+<section class="rv-numbers">
+  <h2>The numbers behind the window</h2>
+  <dl>
+    {
+      rows.map((r) => (
+        <div class="rv-numbers__row">
+          <dt>{r.label}</dt>
+          <dd>{r.value}</dd>
+        </div>
+      ))
+    }
+  </dl>
+  {
+    numbers.limitations.length > 0 && (
+      <ul class="rv-numbers__limits">
+        {numbers.limitations.map((l) => (
+          <li>{l}</li>
+        ))}
+      </ul>
+    )
+  }
+</section>
+
+<style>
+  .rv-numbers { margin: 2.5rem 0 0; }
+  .rv-numbers h2 { font-size: 1.25rem; margin: 0 0 0.75rem; }
+  dl { margin: 0; }
+  .rv-numbers__row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.55rem 0; border-top: 1px solid var(--border); font-size: 0.9rem; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rv-numbers__limits { margin: 0.9rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
+</style>
