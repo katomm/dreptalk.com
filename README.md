@@ -12,11 +12,11 @@
   <a href="https://preprod.dreptalk.com"><img src="https://img.shields.io/website?url=https%3A%2F%2Fpreprod.dreptalk.com&amp;up_message=online&amp;down_message=offline&amp;label=preprod" alt="Preprod status" /></a>
 </p>
 
-Wallet-authenticated discussion forum for Cardano governance, running at [dreptalk.com](https://dreptalk.com).
+The public deliberation layer for Cardano governance, wallet-authenticated, running at [dreptalk.com](https://dreptalk.com).
 
 Incoming on-chain Governance Actions automatically open a thread, and DReps, SPOs, CC members, and proposers discuss them next to the live on-chain vote data. Reading is public; writing is gated to those on-chain roles, each proven by a wallet signature (no custody of keys, signature-based login). Delegators can sign in too, to follow their DRep and receive notifications, but they cannot post.
 
-The aim is a calmer, accountable home for governance discussion, away from the drama of social media.
+The aim is a place where Cardano governance is discussed, voted, and explained, next to the on-chain data it is about.
 
 ## Quickstart
 

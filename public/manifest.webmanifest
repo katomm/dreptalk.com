@@ -2,7 +2,7 @@
   "id": "/",
   "name": "DRepTalk",
   "short_name": "DRepTalk",
-  "description": "Wallet-authenticated forum for Cardano governance: track governance actions, DReps, and the treasury, and follow votes with rationales.",
+  "description": "The public deliberation layer for Cardano governance: discuss governance actions, vote, and follow DReps, votes, and rationales.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
