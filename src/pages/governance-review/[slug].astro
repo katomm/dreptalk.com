@@ -45,7 +45,7 @@ const crumbs = buildBreadcrumbLd(origin, [
   { name: 'Governance Review', path: '/governance-review/' },
   { name: `Epochs ${d.epochFrom} to ${d.epochTo}`, path: `/governance-review/${slug}/` },
 ]);
-const ogImage = `/og/governance-review/${slug}.png?v=${ogCardVersion([d.title, d.ogFigure.value, d.ogFigure.label])}`;
+const ogImage = `/og/governance-review/${slug}.png?v=${ogCardVersion([d.title, d.epochFrom, d.epochTo, d.ogFigure.value, d.ogFigure.label])}`;
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 ---
 

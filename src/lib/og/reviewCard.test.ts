@@ -10,4 +10,11 @@ describe('reviewCardHtml', () => {
     expect(html).toContain('₳120M');
     expect(html).toContain('largest single withdrawal');
   });
+
+  it('clamps a 200-character title so it never overflows the canvas', () => {
+    const longTitle = 'A'.repeat(200);
+    const model = reviewCardModel({ epochFrom: 650, epochTo: 652, title: longTitle, ogFigure: { value: '₳120M', label: 'largest single withdrawal' } });
+    expect(model.title.length).toBeLessThanOrEqual(96);
+    expect(model.title.endsWith('…')).toBe(true);
+  });
 });

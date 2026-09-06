@@ -243,7 +243,7 @@ export function reviewCardModel(d: {
 }): ReviewCardModel {
   return {
     eyebrow: `Governance Review · Epochs ${d.epochFrom} to ${d.epochTo}`,
-    title: d.title,
+    title: clamp(d.title, 96),
     figureValue: d.ogFigure.value,
     figureLabel: d.ogFigure.label,
     accent: BRAND_ACCENT,
