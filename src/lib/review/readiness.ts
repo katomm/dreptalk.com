@@ -37,6 +37,23 @@ export function classifyEpoch(input: {
 }
 
 /**
+ * Newest write of each sync that feeds the review, in unix milliseconds.
+ * Informational only: readiness itself is decided per epoch from the rows that
+ * matter for that epoch (see epochReadiness), never from the newest row of a
+ * whole table, since a freshly synced unrelated action would otherwise vouch
+ * for a stale one. Lives here rather than in state.ts so the window pack can
+ * date itself without importing the state builder that imports the pack.
+ */
+export async function watermarks(db: D1Database): Promise<{ votesMs: number | null; statsMs: number | null; actionsMs: number | null }> {
+  const [v, s, a] = await Promise.all([
+    db.prepare('SELECT MAX(synced_at) AS t FROM drep_votes').first<{ t: number | null }>(),
+    db.prepare('SELECT MAX(computed_at) AS t FROM governance_epoch_stats').first<{ t: number | null }>(),
+    db.prepare('SELECT MAX(last_synced_at) AS t FROM governance_actions').first<{ t: number | null }>(),
+  ]);
+  return { votesMs: v?.t ?? null, statsMs: s?.t ?? null, actionsMs: a?.t ?? null };
+}
+
+/**
  * Per-epoch readiness from the relevant rows: the stats row's completeness flag
  * (set only after the epoch closed and its vote history was swept, so it is the
  * vote signal too), and every action that was open during the epoch having been
