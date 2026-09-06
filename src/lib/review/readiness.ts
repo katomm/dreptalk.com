@@ -3,7 +3,7 @@
 // sync has not produced it yet) or permanently unavailable because the series
 // starts later. Only pending blocks a draft.
 import { getEpochStatsByEpoch } from '../db/governanceEpochStats.js';
-import { type NetworkConfig } from '../config/network.js';
+import type { NetworkConfig } from '../config/network.js';
 import { EPOCH_STATS_SERIES_FLOOR, epochBoundsUnix } from './units.js';
 
 export type InputState = 'available' | 'pending' | 'not_available_before_start';
