@@ -94,8 +94,8 @@ export interface WindowPack {
   ccVotes: Record<string, Array<{ hotKeyHex: string; name: string | null; vote: string; epochCast: number | null; activeAtDecision: boolean | null }>>;
   committee: { asOfEpoch: number; members: Array<{ coldKeyHex: string; termExpiration: number; authorizedFrom: number; resignedAt: number | null }>; minSize: { value: number | null; observedAtEpoch: number | null; reason?: string }; endingWithin12: number };
   epochStats: { rows: Array<Record<string, number | string | boolean | null> & { epoch: number }>; metrics: Record<string, { column: string; definition: string; reliability: string; unit: PackUnit }> };
-  powerHistory: { coverage: { from: number; to: number } | null; covered: boolean; drops: Array<{ drepId: string; name: string | null; fromAda: number; toAda: number; deltaAda: number; deregistered: boolean }> | null; dropsRange: { from: number; to: number } | null };
-  treasury: { byEpochAda: Array<{ epoch: number; balanceAda: number | null }>; enactedByEpoch: Array<{ epoch: number; count: number; totalAda: number; ids: string[] }>; largestSingle: Array<{ id: string; title: string; epoch: number; ada: number }>; totalEnactedAda: number };
+  powerHistory: { coverage: { from: number; to: number } | null; covered: boolean; coveredAtTo: boolean; drops: Array<{ drepId: string; name: string | null; fromAda: number; toAda: number; deltaAda: number; deregistered: boolean }> | null; dropsRange: { from: number; to: number } | null };
+  treasury: { byEpochAda: Array<{ epoch: number; balanceAda: number | null }>; enactedByEpoch: Array<{ epoch: number; count: number; totalAda: number; unreadableCount: number; ids: string[] }>; largestSingle: Array<{ id: string; title: string; epoch: number; ada: number }>; totalEnactedAda: number; unreadablePayloads: Array<{ id: string; epoch: number }> };
   records: PackRecord[];
   spo: Record<string, { yes: number; no: number; abstain: number }>;
 }
@@ -522,6 +522,12 @@ function buildRecords(rows: EpochStatsRow[], to: number): PackRecord[] {
  * Treasury as of the window's end. The withdrawal rows are already capped at
  * that epoch by their read, so a withdrawal enacted later can never enter a
  * historical pack, neither in the per-epoch groups nor in the lifetime total.
+ *
+ * A withdrawal whose on-chain payload cannot be read is a gap, not an amount of
+ * zero: counting it as zero would understate every sum and the ranking without
+ * saying so. Such a row keeps its place in the per-epoch count, stays out of
+ * the sums and the ranking, and is listed in `unreadablePayloads` so an edition
+ * can name the limitation instead of publishing a total that is quietly short.
  */
 function buildTreasury(
   statsRows: EpochStatsRow[],
@@ -529,24 +535,27 @@ function buildTreasury(
   from: number,
 ): WindowPack['treasury'] {
   const byEpochAda = statsRows.map((r) => ({ epoch: r.epoch, balanceAda: lovelaceToAda(r.treasuryLovelace) }));
-  const withAda = withdrawals.map((w) => ({ ...w, ada: withdrawalAda(w.onchain_payload) ?? 0 }));
-  const tail = new Map<number, { epoch: number; count: number; totalAda: number; ids: string[] }>();
+  const withAda = withdrawals.map((w) => ({ ...w, ada: withdrawalAda(w.onchain_payload) }));
+  const readable = withAda.filter((w): w is (typeof withAda)[number] & { ada: number } => w.ada != null);
+  const tail = new Map<number, { epoch: number; count: number; totalAda: number; unreadableCount: number; ids: string[] }>();
   for (const w of withAda) {
     if (w.enacted_epoch < from - LEAD_IN_EPOCHS) continue;
-    const g = tail.get(w.enacted_epoch) ?? { epoch: w.enacted_epoch, count: 0, totalAda: 0, ids: [] };
+    const g = tail.get(w.enacted_epoch) ?? { epoch: w.enacted_epoch, count: 0, totalAda: 0, unreadableCount: 0, ids: [] };
     g.count += 1;
-    g.totalAda += w.ada;
+    if (w.ada == null) g.unreadableCount += 1;
+    else g.totalAda += w.ada;
     g.ids.push(w.id);
     tail.set(w.enacted_epoch, g);
   }
   return {
     byEpochAda,
     enactedByEpoch: [...tail.values()].sort((a, b) => a.epoch - b.epoch),
-    largestSingle: [...withAda]
+    largestSingle: [...readable]
       .sort((a, b) => b.ada - a.ada || a.id.localeCompare(b.id))
       .slice(0, TOP_WITHDRAWALS)
       .map((w) => ({ id: w.id, title: w.title ?? '', epoch: w.enacted_epoch, ada: w.ada })),
-    totalEnactedAda: withAda.reduce((a, w) => a + w.ada, 0),
+    totalEnactedAda: readable.reduce((a, w) => a + w.ada, 0),
+    unreadablePayloads: withAda.filter((w) => w.ada == null).map((w) => ({ id: w.id, epoch: w.enacted_epoch })),
   };
 }
 
@@ -609,6 +618,11 @@ export async function buildWindowPack(
   // power at sync time and would silently restate an old ballot's weight.
   const coverage = await readPowerCoverage(db);
   const covered = coverage != null && coverage.from <= from && coverage.to >= to;
+  // The rankings taken at the window's end need only that one epoch inside the
+  // coverage, not the whole window: a window that reaches below the coverage
+  // floor still has a valid snapshot at its last epoch, and gating it on the
+  // whole window would drop the top DReps from every such backfill edition.
+  const coveredAtTo = coverage != null && coverage.from <= to && coverage.to >= to;
   const voterIds = [...new Set([...focusCurrent, ...focusHistory].filter((v) => v.voter_role === 'DRep').map((v) => v.voter_id))];
   // Power is read for every epoch a focus action was voted in, not only for the
   // window: voting on an action starts when it is submitted, which can be many
@@ -635,7 +649,7 @@ export async function buildWindowPack(
 
   const names = await readDrepNames(db, voterIds);
 
-  const topDrepRows = covered ? await readTopDrepsAtEpoch(db, to, TOP_DREPS) : [];
+  const topDrepRows = coveredAtTo ? await readTopDrepsAtEpoch(db, to, TOP_DREPS) : [];
   const ballotByDrep = new Map<string, Map<string, string>>();
   for (const v of focusCurrent) {
     if (v.voter_role !== 'DRep') continue;
@@ -718,7 +732,7 @@ export async function buildWindowPack(
       endingWithin12: committeeRows.filter((m) => m.termExpiration <= to + TERM_HORIZON).length,
     },
     epochStats: { rows: windowStats.map(packStatsRow), metrics: statsMetrics() },
-    powerHistory: { coverage, covered, drops, dropsRange },
+    powerHistory: { coverage, covered, coveredAtTo, drops, dropsRange },
     treasury: buildTreasury(windowStats, withdrawals, from),
     records: buildRecords(allStats, to),
     spo: spoCounts(focusIds, focusCurrent),

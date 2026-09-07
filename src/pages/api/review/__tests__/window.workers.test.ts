@@ -69,6 +69,35 @@ describe('buildWindowPack', () => {
     expect(pack.treasury.totalEnactedAda).toBe(5_000_000);
   });
 
+  it('treats an unreadable withdrawal payload as a gap, never as zero ada', async () => {
+    const payload = JSON.stringify({ tag: 'TreasuryWithdrawals', contents: [[[{ network: 'Mainnet', credential: { scriptHash: 'aa' } }, 5_000_000_000_000]], null] });
+    await seedAction(ids.withdrawal, 'TreasuryWithdrawals', 'enacted', { submitted: 642, enacted: 650, decided: 650, expiry: 649, payload });
+    await seedAction(`${W}c#0`, 'TreasuryWithdrawals', 'enacted', { submitted: 642, enacted: 650, decided: 650, expiry: 649, payload: '{ not json' });
+    const pack = await buildWindowPack(env.DB, cfg, 650, 652);
+    // The sum and the ranking hold what can be read, and the row that cannot be
+    // read is named rather than silently added as zero.
+    expect(pack.treasury.totalEnactedAda).toBe(5_000_000);
+    expect(pack.treasury.largestSingle.map((w) => w.id)).toEqual([ids.withdrawal]);
+    expect(pack.treasury.unreadablePayloads).toEqual([{ id: `${W}c#0`, epoch: 650 }]);
+    // The epoch still saw two withdrawals enacted, and one of the two amounts is unknown.
+    expect(pack.treasury.enactedByEpoch).toEqual([{ epoch: 650, count: 2, totalAda: 5_000_000, unreadableCount: 1, ids: [ids.withdrawal, `${W}c#0`] }]);
+    expect(pack.actions.events.find((a) => a.id === `${W}c#0`)?.withdrawalAda).toBeNull();
+  });
+
+  it('ranks the top DReps whenever the window end is covered, even when its start is not', async () => {
+    await env.DB.prepare(`INSERT INTO drep_voting_power_history (drep_id, epoch, amount) VALUES ('drepA', 651, '2000000'), ('drepA', 652, '3000000'), ('drepB', 652, '1000000')`).run();
+    const pack = await buildWindowPack(env.DB, cfg, 650, 652);
+    // Coverage starts inside the window, so the window as a whole is uncovered,
+    // but the ranking is a snapshot at epoch 652 and stands.
+    expect(pack.powerHistory.covered).toBe(false);
+    expect(pack.powerHistory.coveredAtTo).toBe(true);
+    expect(pack.topDreps.map((d) => d.drepId)).toEqual(['drepA', 'drepB']);
+    // A window that ends below the coverage has no snapshot to rank at all.
+    const below = await buildWindowPack(env.DB, cfg, 640, 642);
+    expect(below.powerHistory.coveredAtTo).toBe(false);
+    expect(below.topDreps).toEqual([]);
+  });
+
   it('counts votes cast with superseded votes and final voters once per range', async () => {
     await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
     await env.DB.prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at, block_time) VALUES (?, 'DRep', 'drepA', 'Yes', 0, ?), (?, 'DRep', 'drepB', 'No', 0, ?)`)
