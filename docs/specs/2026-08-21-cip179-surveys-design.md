@@ -84,7 +84,7 @@ contract) refuses a backend whose `/health` network differs from
 `CARDANO_NETWORK`, or whose contract major is not the one it speaks.
 `TESSERA_APP_URL` (optional, display-only) feeds the card's deep link.
 
-**Schema** (`0091_surveys.sql`): `survey` (one row per mirrored survey;
+**Schema** (`0094_surveys.sql`): `survey` (one row per mirrored survey;
 `topic_id` NULL until its thread is opened; `counted_dreps` is the index's
 audited in-window DRep count, `final_counted_dreps` the finalized
 artifact's, `final_state` NULL until decided for good with `artifact_hash`
