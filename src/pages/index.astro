@@ -41,6 +41,9 @@ import CategorySidebar from '@/components/CategorySidebar.astro';
 import { countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 import { fetchLatestRelease } from '@/lib/github/latestRelease.js';
+import ReviewCard from '@/components/review/ReviewCard.astro';
+import { loadEditions } from '@/lib/review/editions.js';
+import { resolveNetwork } from '@/lib/config/network';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
@@ -99,6 +102,10 @@ const [stats, feed, votedHero, activeFaces, activeDrepStake, activeCounts, lates
 // epoch snapshot exists, so a fresh deploy never shows zeros.
 const glanceEpoch = latestEpochStats.at(-1) ?? null;
 const glanceTiles = buildGlanceTiles(latestEpochStats, circulationLovelace);
+const latestReview = (await loadEditions())[0] ?? null;
+// Mainnet only, like the editions themselves: the card dates come from mainnet
+// epoch boundaries whatever network this worker runs on.
+const reviewCfg = resolveNetwork('mainnet');
 
 // Personalized hero for a logged-in DRep: center on an action they voted on and
 // pin their own avatar into the ring. Only DReps reach this, so the extra reads
@@ -524,6 +531,12 @@ const heroFeatures = [
       <div class="drep-stats glance__grid">
         {glanceTiles.map((tile) => <DrepStatCard card={tile} href={tile.href} ring={tile.ring} series={tile.series} />)}
       </div>
+      {latestReview && (
+        <div class="glance__review">
+          <p class="glance__review-label">Latest Governance Review</p>
+          <ReviewCard edition={latestReview} cfg={reviewCfg} compact />
+        </div>
+      )}
     </section>
   )}
 </Layout>
@@ -1101,6 +1114,16 @@ const heroFeatures = [
   }
   .glance__grid {
     margin-bottom: 0;
+  }
+  .glance__review {
+    margin-top: 1.5rem;
+  }
+  .glance__review-label {
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.5rem;
   }
   @media (max-width: 640px) {
     .glance__head {

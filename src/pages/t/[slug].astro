@@ -75,6 +75,8 @@ import { decodeOnchainChanges } from '@/lib/governance/onchain.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import NclPanel from '@/components/ncl/NclPanel.astro';
+import { loadEditionIndex } from '@/lib/review/editions.js';
+import { parseSlug } from '@/lib/review/windows.js';
 import NclMiniCard from '@/components/ncl/NclMiniCard.astro';
 import { NCL_PERIODS } from '../../../config/ncl-periods.js';
 import { nclStatusFor, currentNclPeriod } from '@/lib/governance/ncl.js';
@@ -213,6 +215,9 @@ const [govAction, viewerPostState] = await Promise.all([
     : Promise.resolve(emptyViewerPostState()),
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
+
+const reviewSlug = govAction ? (await loadEditionIndex()).byActionId.get(govAction.id) ?? null : null;
+const reviewWindow = reviewSlug ? parseSlug(reviewSlug) : null;
 
 // If this action defines or challenges an NCL period, show its live tracker.
 const nclPeriod = govAction
@@ -680,6 +685,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     {isGovernanceTopic && govAction ? (
       // Two-column tabbed layout for governance actions.
       <>
+        {reviewWindow && (
+          <p class="ga-review-link">Discussed in the <a href={`/governance-review/${reviewSlug}/`}>Governance Review for epochs {reviewWindow.from} to {reviewWindow.to}</a>.</p>
+        )}
         <GaTabs
           slug={topic.slug}
           active={tab}
@@ -909,6 +917,11 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     font-weight: 600;
     color: var(--accent);
     text-decoration: none;
+  }
+  .ga-review-link {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin: 0 0 1rem;
   }
   /* Two-column layout: main content on the left, sidebar on the right.
      Single column on mobile (sidebar stacks below). */

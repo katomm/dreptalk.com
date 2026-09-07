@@ -2,6 +2,7 @@ import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
 import { CATEGORY_ORDER } from './lib/help/categories.js';
 import { GROUP_ORDER } from './lib/glossary/groups.js';
+import { reviewFrontmatterSchema } from './lib/review/schema.js';
 
 const guides = defineCollection({
   loader: glob({ pattern: '*.md', base: './src/content/guides' }),
@@ -30,4 +31,9 @@ const glossary = defineCollection({
   }),
 });
 
-export const collections = { guides, glossary };
+const review = defineCollection({
+  loader: glob({ pattern: '*.md', base: './src/content/review' }),
+  schema: reviewFrontmatterSchema,
+});
+
+export const collections = { guides, glossary, review };

@@ -47,10 +47,13 @@ import { ogCardVersion } from '@/lib/og/version.js';
 import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
 import { HUB_SECTION_IDS as HUB } from '@/lib/analytics/hubSections.js';
 import DrepStatCard from '@/components/DrepStatCard.astro';
+import { loadEditions, editionSlug } from '@/lib/review/editions.js';
 
 // The site's governance actions list route, same href as the header nav's
 // "Governance Actions" link (src/lib/config/nav.ts).
 const ACTIONS_LIST_HREF = '/c/governance-actions/';
+
+const latestReview = (await loadEditions())[0] ?? null;
 
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
@@ -385,6 +388,9 @@ const activityBars = activity
 
   <h1>Governance analytics</h1>
   <p class="hub-intro">How healthy, representative and decentralized Cardano governance is right now, and how it moves per epoch. <a href="/help/governance-analytics/">How to read this page</a></p>
+  {latestReview && (
+    <p class="hub-review">Read the numbers in context: <a href={`/governance-review/${editionSlug(latestReview)}/`}>{latestReview.data.title}</a>, the Governance Review for epochs {latestReview.data.epochFrom} to {latestReview.data.epochTo}.</p>
+  )}
 
   {vitals.length > 0 && (
     <div class="drep-stats">
@@ -1035,6 +1041,11 @@ const activityBars = activity
     color: var(--muted);
     max-width: 60ch;
     margin: 0.4rem 0 1.5rem;
+  }
+  .hub-review {
+    font-size: 0.95rem;
+    color: var(--muted);
+    margin: -0.25rem 0 1.25rem;
   }
 
   .hub-asof {

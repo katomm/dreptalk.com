@@ -1,0 +1,14 @@
+{
+  "packVersion": 1,
+  "window": { "from": 650, "to": 652, "readiness": { "ready": true } },
+  "actions": {
+    "events": [],
+    "closingAtBoundary": [{ "id": "729daaf2f9f89f842a61f6e3ebf7e57d16d6fa4116e29c13114780cb39090850#0", "title": "Update Constitutional Committee 2026", "status": "active", "open": true, "expiryEpoch": 653, "eventsInWindow": [], "tally": { "drep": { "yes": 163, "no": 7, "abstain": 10, "yesPct": 69.85 } } }],
+    "open": [],
+    "comparisons": []
+  },
+  "topDreps": [{ "drepId": "drep1yoroi", "name": "Yoroi Wallet", "powerAda": 568900000 }],
+  "committee": { "members": [{ "coldKeyHex": "c1" }, { "coldKeyHex": "c2" }, { "coldKeyHex": "c3" }, { "coldKeyHex": "c4" }, { "coldKeyHex": "c5" }, { "coldKeyHex": "c6" }, { "coldKeyHex": "c7" }], "endingWithin12": 4 },
+  "votesByEpoch": [{ "epoch": 650, "role": "DRep", "votesCast": 154, "finalVoters": 61 }],
+  "treasury": { "largestSingle": [{ "id": "529dccaadaa000746c22f1682574cb3f436eeba4d19710b90791a54226dc96d7#0", "title": "Withdraw 120,000,000 ada for AlphaGrowth", "epoch": 650, "ada": 96800000 }], "byEpochAda": [{ "epoch": 650, "balanceAda": 1337356659.5 }, { "epoch": 651, "balanceAda": 1341062162.9 }] }
+}

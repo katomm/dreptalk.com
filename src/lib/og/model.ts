@@ -227,6 +227,29 @@ export function discussionCardModel(
   };
 }
 
+export interface ReviewCardModel {
+  eyebrow: string;
+  title: string;
+  figureValue: string;
+  figureLabel: string;
+  accent: string;
+}
+
+export function reviewCardModel(d: {
+  epochFrom: number;
+  epochTo: number;
+  title: string;
+  ogFigure: { value: string; label: string };
+}): ReviewCardModel {
+  return {
+    eyebrow: `Governance Review · Epochs ${d.epochFrom} to ${d.epochTo}`,
+    title: clamp(d.title, 96),
+    figureValue: d.ogFigure.value,
+    figureLabel: d.ogFigure.label,
+    accent: BRAND_ACCENT,
+  };
+}
+
 export interface HelpCardInput {
   title: string;
   description: string;

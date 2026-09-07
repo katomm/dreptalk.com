@@ -3,6 +3,7 @@ import { getCollection } from 'astro:content';
 import { env } from 'cloudflare:workers';
 import { getCategories } from '../../config/categories.js';
 import { listIndexableDrepIds } from '../lib/db/dreps.js';
+import { slugFor } from '../lib/review/windows.js';
 
 export const prerender = false;
 
@@ -23,6 +24,11 @@ export const GET: APIRoute = async ({ site }) => {
     { path: '/help/' },
     { path: '/match/' },
     { path: '/analytics/' },
+    { path: '/governance-review/' },
+    ...(await getCollection('review')).map((e) => ({
+      path: `/governance-review/${slugFor(e.data.epochFrom, e.data.epochTo)}/`,
+      lastmod: (e.data.corrections.at(-1)?.date ?? e.data.published).toISOString(),
+    })),
     ...(await getCollection('guides')).map((g) => ({
       path: `/help/${g.id}/`,
       ...(g.data.updated ? { lastmod: g.data.updated.toISOString() } : {}),

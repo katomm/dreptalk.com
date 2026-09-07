@@ -22,6 +22,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   '/c/governance-actions/': 'proposals votes ga',
   '/discussions/': 'forum topics threads',
   '/analytics/': 'analytics stats governance health concentration abstain',
+  '/governance-review/': 'review editions epochs articles analysis',
 };
 
 export const STATIC_ENTRIES: readonly StaticEntry[] = [

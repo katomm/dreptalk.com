@@ -7,7 +7,7 @@
 
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint, HAIRLINE } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
-import type { AnalyticsCardChart, AnalyticsCardModel, CommitteeCardModel, DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, MoverRow, MoversCardModel, TreasuryCardModel, VoteCardModel } from './model.js';
+import type { AnalyticsCardChart, AnalyticsCardModel, CommitteeCardModel, DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, MoverRow, MoversCardModel, ReviewCardModel, TreasuryCardModel, VoteCardModel } from './model.js';
 import { ANALYTICS_CHART_HEIGHT, ANALYTICS_CHART_INSET, ANALYTICS_CHART_WIDTH } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
@@ -239,6 +239,22 @@ export function treasuryCardHtml(m: TreasuryCardModel): string {
       <div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:8px;">${esc(m.amounts)}</div>
     </div>`;
   return cardShell(m.accent, 'Treasury', body);
+}
+
+// Governance Review edition card: the pack's headline title over its single
+// curated figure, number-led like treasuryCardHtml. No status/meta row (an
+// edition has no lifecycle state), so the body is just title then figure.
+export function reviewCardHtml(m: ReviewCardModel): string {
+  const body = `<div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;">
+    <div style="display:flex;flex-direction:column;">
+      ${title(m.title)}
+    </div>
+    <div style="display:flex;align-items:flex-end;">
+      <span style="display:flex;font-size:84px;font-weight:700;letter-spacing:-2px;color:${INK};line-height:1;">${esc(m.figureValue)}</span>
+      <span style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-left:22px;margin-bottom:10px;max-width:520px;line-height:1.3;">${esc(m.figureLabel)}</span>
+    </div>
+  </div>`;
+  return cardShell(m.accent, m.eyebrow, body);
 }
 
 // A small filled triangle as an SVG data URL (the proven satori image path). Used
