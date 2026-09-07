@@ -56,11 +56,12 @@ transaction; an optimistic local record until the index confirms.
 
 ```
 Tessera preprod backend
-  GET /api/surveys?filter=linked&…   discover: records, govLinks, audited counts, tip
-  GET /api/surveys?refs=…            refresh held not-yet-final surveys
+  GET /api/surveys?filter=linked&…   walk once: records, govLinks, audited counts, tip
+  GET /api/surveys?changes=…         every tick: what moved since, what was removed
+  GET /api/surveys?refs=…            deferred surveys; every held row after a walk
   GET /api/artifacts/{hash}          a finalized survey's tally artifact → final count
   GET /api/responses/{txHash}        settle pending local rows by exact tx
-  GET /health                        network guard
+  GET /health                        network and contract-version guard
         │   server-side only, from gov-sync; never from a page request or the browser
         ▼
 gov-sync worker  (*/5 cron; `surveys` + `survey-reconcile` phase entries)
@@ -79,8 +80,10 @@ Nothing reaches Tessera from the browser (CSP `connect-src` blocks it; no
 proxy route) and nothing from a page request.
 
 **Feature switch.** The mirror and the answer path exist iff
-`TESSERA_BACKEND_URL` is set — preprod only today — and the client refuses
-a backend whose `/health` network differs from `CARDANO_NETWORK`.
+`TESSERA_BACKEND_URL` is set — preprod only today — and the client
+(`cardano-tessera-client`, Tessera's own published consumer of its HTTP
+contract) refuses a backend whose `/health` network differs from
+`CARDANO_NETWORK`, or whose contract major is not the one it speaks.
 `TESSERA_APP_URL` (optional, display-only) feeds the card's deep link.
 
 **Schema** (`0091_surveys.sql`): `survey` (one row per admitted survey;
@@ -88,36 +91,40 @@ a backend whose `/health` network differs from `CARDANO_NETWORK`.
 `final_counted_dreps` the finalized artifact's, `final_state` NULL until
 decided for good with `artifact_hash` beside it, `unavailable` marks an
 upstream rollback), `survey_gov_link`, `survey_response_local` (the
-optimistic rows), `survey_sync_state` (one row: linked-set size, last
-complete walk, the mirror-wide "as of").
+optimistic rows), `survey_sync_state` (one row: the change cursor, the
+deferred refs, the mirror-wide "as of").
 
 **The sync**, four passes inside the `surveys` phase:
 
-1. **Discover.** Page one of `?filter=linked` covers the whole linked set
-   while it fits one page; the walk goes deeper only when the set size
-   moved, this run imported new governance actions, or on a daily
-   backstop. A page answering from an older snapshot (`resync`) restarts
-   the walk; only a walk that completed within one generation stamps the
-   set size and walk time, and a walk the 25-page cap ends is abandoned
-   with a warning rather than restarted. The pass is isolated like the
-   others: a page that fails to decode costs this tick's discovery, not
-   its refresh and settle. Admission is one pure predicate
-   (`src/lib/surveys/admission.ts`): DRep-eligible, talliable as
-   `aggregate()` judges it, not sealed on a drand chain other than
-   quicknet, *and* linked by an imported action. It creates the survey
-   row, its topic and its gov links in one batch; the definition-derived
-   half is asked before any database round trip, so a page of known or
-   ineligible surveys costs none.
-2. **Refresh held.** Every held row with NULL `final_state`, by `?refs=`
-   in chunks of 200, re-applying admission to each; only a row one of
-   whose stored values the answer moved (count, cancellation, decision,
-   links) is written. A held survey the answer no longer admits — absent
-   from a *complete* answer, or present without an imported link — is
-   withdrawn once: `unavailable` hides answering and its gov links are
-   erased (a rolled-back action must take its link down), but the thread
-   stays; the row stays in this set for 4 days because Tessera's
-   settlement window can bring the transaction back, then retires. From
-   an `incomplete` answer, absence proves nothing.
+1. **Mirror.** With a cursor, `?changes=<cursor>` once, followed up in
+   the same run while a page comes back full (the 25-page cap, then the
+   backlog waits a run): every survey whose projection moved and every
+   key removed, delivered once and never missed. Without one — the first
+   run, or the backend answering that the cursor outlived its retention
+   window — a walk of `?filter=linked`, whose last page hands out the
+   cursor to continue from; a page answering from an older snapshot
+   (`resync`) restarts the walk, and a walk the cap ends is abandoned
+   with a warning rather than restarted. Every survey an answer names
+   goes through one pure predicate (`src/lib/surveys/admission.ts`):
+   DRep-eligible, neither of `aggregate()`'s two definition-derived
+   verdicts against it (untalliable; sealed on a drand chain the
+   published tlock cannot decrypt), *and* linked by an imported action.
+   An unknown survey is admitted on it — survey row, topic and gov links
+   in one batch — or deferred while its links name actions not imported
+   yet; a held row is refreshed where a stored value moved (count,
+   cancellation, decision, links) and withdrawn once on the predicate's
+   negation or on a removal: `unavailable` hides answering and the gov
+   links go (a rolled-back action must take its link down), the thread
+   stays, and presence in a later answer clears it. The pass is isolated
+   like the others: an answer that fails to apply costs this tick's
+   mirror, not its settle.
+2. **By reference.** The deferred surveys every run — the DRepTalk half
+   of admission turns true with no move upstream, and a change is
+   delivered once — and, on a run that walked, every held row: the linked
+   list covers only what is linked now, so absence from a *complete*
+   `?refs=` answer is the rollback the delta would otherwise have
+   delivered as a removal. From an `incomplete` answer, absence proves
+   nothing. Empty on a steady-state run.
 3. **Final counts.** Every `finalized` row without one reads its tally
    artifact by `artifact_hash` (content-addressed, immutable) and stores
    the DRep responders it lists — the responses counted at close, after
@@ -212,12 +219,13 @@ still answerable.
 - **A held survey refreshes until `final_state`, never freezing at
   close** — verdicts land after the deadline, so freezing at close would
   pin whatever snapshot the deadline landed on.
-- **Admission is applied on refresh as well as on discovery**, and its
-  negation is treated like a rollback: a held survey that a complete
-  answer omits, or lists without an imported link, is withdrawn — flag,
-  clock, links erased. The two passes share one predicate so they cannot
-  disagree about what an admitted survey is, and in practice a lost link
-  *is* a rollback of the linking action's transaction. The alternative,
+- **Admission is applied to every answer, not only at discovery**, and
+  its negation is treated like a rollback: a held survey the delta
+  removes, that a complete reference answer omits, or that an answer
+  lists without an imported link, is withdrawn — flag, clock, links
+  erased. The paths share one predicate so they cannot disagree about
+  what an admitted survey is, and in practice a lost link *is* a
+  rollback of the linking action's transaction. The alternative,
   a separate "delinked" state with its own badge, was not taken: it
   would add a column and copy for a case the settlement window already
   bounds.
@@ -225,9 +233,8 @@ still answerable.
   being surfaced as a state on an admitted survey. Tessera's own app
   badges such a survey and blocks responding, and its finalizer decides
   it `untalliable` at close; a thread inviting answers in between would
-  waste every fee spent. cip-179's `aggregate()` still reports a sealed
-  survey on a foreign drand chain talliable, so the check is DRepTalk's
-  until the package carries it.
+  waste every fee spent. Both verdicts are `aggregate()`'s own
+  (`talliable`, `sealedUnsupported`); DRepTalk computes neither.
 - **A failed local answer keeps being polled for a week.** The
   confirmation cutoff fails a row on the clock alone, so an outage longer
   than it fails every pending row at once; a transaction that then lands
@@ -239,11 +246,35 @@ still answerable.
   fail on the survey's account, only on the backend's; a backoff ladder
   would re-create the scheduling the audit pass needed, with the
   concession and retirement rules that came with it.
-- **The "as of" is one value for the mirror**, not one per row: every
-  held row is refreshed on every run and a decided row cannot change, so
-  no row is fresher than the oldest answer the run used — and stamping
-  it only when every held row was answered for is what keeps it honest
-  through a refresh that broke off.
+- **The "as of" is one value for the mirror**, not one per row: the
+  delta names every held row that moved and a decided row cannot change,
+  so no row is fresher than the oldest answer the run used — and
+  stamping it only when the delta was applied to its end (or a walk
+  completed) and every reference asked for was answered is what keeps it
+  honest through a pass that broke off.
+- **The mirror is Tessera's change selection, not a per-tick walk and
+  refresh.** The earlier shape read page one of the linked list every
+  tick, walked further on heuristics (the set size moved, an action was
+  imported since, a daily backstop — with a blind spot when one survey
+  came in as another left), and re-asked every held row by `?refs=` in
+  chunks of 200; removals were inferred from absence, and a withdrawn
+  row retired from the refresh set after four days so a record that
+  never came back would not be named forever. `?changes=<cursor>`
+  delivers every moved row and every removal once, so the heuristics,
+  the per-tick refs call, their two state columns and the retirement
+  TTL are gone (the held set bounds no request now, and a record that
+  re-lands years later still clears its row). What the delta cannot
+  deliver is the DRepTalk half of an admission turning true — an action
+  imported after the survey's change went by — hence the deferred refs,
+  bounded to one request and re-asked each run until admission holds or
+  the record is gone.
+- **Tessera's contract is consumed through its published client**
+  (`cardano-tessera-client`, with `cip-179` as its peer) rather than a
+  hand-written zod client: the payload types, the decoders, the
+  network and contract-version guard and the not-ready state live with
+  the contract they describe, the sync casts nothing, and the stored
+  record is cip-179's own wire form (`toJsonSafe` at admission,
+  `decodeSurveyRecord` on every page view).
 - **What a survey is and what may be done with it is decided in one
   function, not per reader.** Before `state.ts`, lifecycle read two
   columns, the count another two, the page's answer gate six plus the

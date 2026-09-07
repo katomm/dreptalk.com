@@ -18,19 +18,18 @@ export interface HeldSurvey {
   links: Map<string, string | null>;
 }
 
-/** Every survey not yet decided for good — the set pass 2 keeps refreshing.
- * Unavailable rows stay in it so a reappearing ref is cleared, but only until
- * `retiredCutoff` (unix ms): without that exit a rolled-back record, which
- * never gets a final state, would be named in every ?refs= call for all time. */
-export async function getHeldSurveys(db: D1Database, retiredCutoff: number): Promise<HeldSurvey[]> {
+/** Every survey not yet decided for good — the rows an answer can still
+ * move. Unavailable rows stay in it: presence in an answer is what clears
+ * them, and a rolled-back record that never returns costs nothing here, since
+ * the set bounds no request. */
+export async function getHeldSurveys(db: D1Database): Promise<HeldSurvey[]> {
   const { results } = await db
     .prepare(
       `SELECT s.ref, s.counted_dreps, s.cancelled, s.unavailable, l.action_id, l.title
        FROM survey s LEFT JOIN survey_gov_link l ON l.survey_ref = s.ref
-       WHERE s.final_state IS NULL AND (s.unavailable_since IS NULL OR s.unavailable_since > ?)
+       WHERE s.final_state IS NULL
        ORDER BY s.ref`,
     )
-    .bind(retiredCutoff)
     .all<{
       ref: string;
       counted_dreps: number | null;
@@ -212,7 +211,7 @@ export interface SurveyRow {
   sealed: boolean;
   cancelled: boolean;
   externalContent: boolean;
-  /** Wire-form record JSON; decode with cip-179's fromJsonSafe. */
+  /** Wire-form record JSON; decode with cip-179's decodeSurveyRecord. */
   definitionJson: string;
   /** The in-window DRep figure (Tessera's audited per-role count), null while
    * the backend serves none. */
@@ -526,29 +525,32 @@ export async function markStaleSurveyResponsesFailed(
 }
 
 export interface SurveySyncState {
-  /** Last seen size of Tessera's linked set (counts.linked), or null before the first walk. */
-  linkedCount: number | null;
-  /** When pass 1 last evaluated the complete linked list (unix ms). */
-  lastFullWalkAt: number | null;
+  /** Where Tessera's change selection continues from — opaque, minted by the
+   * backend — or null while no walk of the linked list has completed since the
+   * mirror last had to start over. */
+  changesCursor: string | null;
+  /** Survey keys eligible for admission but linked only to actions not
+   * imported yet, re-asked by reference on every run. */
+  deferredRefs: string[];
   /** Snapshot time (unix s) of the oldest Tessera answer the held rows were
    * last brought up to date with — the "as of" every survey page shows. Null
-   * until a run has refreshed every held row. */
+   * until a run has brought every held row up to one. */
   tesseraFetchedAt: number | null;
 }
 
 export async function getSurveySyncState(db: D1Database): Promise<SurveySyncState> {
   const row = await db
     .prepare(
-      'SELECT linked_count, last_full_walk_at, tessera_fetched_at FROM survey_sync_state WHERE id = 1',
+      'SELECT changes_cursor, deferred_refs, tessera_fetched_at FROM survey_sync_state WHERE id = 1',
     )
     .first<{
-      linked_count: number | null;
-      last_full_walk_at: number | null;
+      changes_cursor: string | null;
+      deferred_refs: string;
       tessera_fetched_at: number | null;
     }>();
   return {
-    linkedCount: row?.linked_count ?? null,
-    lastFullWalkAt: row?.last_full_walk_at ?? null,
+    changesCursor: row?.changes_cursor ?? null,
+    deferredRefs: row ? (JSON.parse(row.deferred_refs) as string[]) : [],
     tesseraFetchedAt: row?.tessera_fetched_at ?? null,
   };
 }
@@ -556,13 +558,13 @@ export async function getSurveySyncState(db: D1Database): Promise<SurveySyncStat
 export async function putSurveySyncState(db: D1Database, s: SurveySyncState): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO survey_sync_state (id, linked_count, last_full_walk_at, tessera_fetched_at)
+      `INSERT INTO survey_sync_state (id, changes_cursor, deferred_refs, tessera_fetched_at)
        VALUES (1, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
-         linked_count = excluded.linked_count,
-         last_full_walk_at = excluded.last_full_walk_at,
+         changes_cursor = excluded.changes_cursor,
+         deferred_refs = excluded.deferred_refs,
          tessera_fetched_at = excluded.tessera_fetched_at`,
     )
-    .bind(s.linkedCount, s.lastFullWalkAt, s.tesseraFetchedAt)
+    .bind(s.changesCursor, JSON.stringify(s.deferredRefs), s.tesseraFetchedAt)
     .run();
 }

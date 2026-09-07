@@ -1,6 +1,11 @@
 import { Role, type SurveyDefinition } from 'cip-179';
-import { aggregate, type GovLink, hexToBytes, type SurveyRecord } from 'cip-179/domain';
-import { QUICKNET_CHAIN_HASH } from 'cip-179/tlock';
+import {
+  aggregate,
+  type GovLink,
+  hexToBytes,
+  QUICKNET_CHAIN_HASH,
+  type SurveyRecord,
+} from 'cip-179/domain';
 import { describe, expect, it } from 'vitest';
 import { admissible, eligibleSurvey } from './admission.js';
 
@@ -76,10 +81,11 @@ describe('eligibleSurvey', () => {
     const onQuicknet = aggregateOf(sealed(QUICKNET_CHAIN_HASH));
     expect(onQuicknet.sealed).toBe(true);
     expect(eligibleSurvey(onQuicknet)).toBe(true);
-    // aggregate() still calls the other chain talliable: the refusal here is
-    // the finalizer's later verdict, applied before a thread is opened.
+    // Still talliable in aggregate()'s terms: the refusal is its second
+    // verdict, the finalizer's, applied before a thread is opened.
     const elsewhere = aggregateOf(sealed(hexToBytes('ff'.repeat(32))));
     expect(elsewhere.talliable).toBe(true);
+    expect(elsewhere.sealedUnsupported).toBe(true);
     expect(eligibleSurvey(elsewhere)).toBe(false);
   });
 });

@@ -6,24 +6,20 @@
 
 import { Role } from 'cip-179';
 import type { SurveyAggregate } from 'cip-179/domain';
-import { isQuicknet } from 'cip-179/tlock';
 
 /**
  * The half of admission the definition alone decides, so it never changes for
- * a given record: DReps may respond; the definition is spec-valid enough to
- * tally (`aggregate()` badges an invalid one untalliable and Tessera's own app
- * blocks responding to it — answering would spend a fee on a survey no
- * conformant reader counts); and a sealed survey is on the drand chain the
- * published tlock can decrypt, since answers to any other chain stay
- * encrypted forever and Tessera decides such a survey untalliable at close
- * without `aggregate()` saying so beforehand.
+ * a given record: DReps may respond, and neither of `aggregate()`'s two
+ * definition-derived verdicts is against it — an untalliable definition (no
+ * conformant reader counts its answers), or a sealed survey on a drand chain
+ * the published tlock cannot decrypt (its answers stay encrypted forever and
+ * Tessera decides it untalliable at close). Tessera's own app blocks
+ * responding to either; a thread inviting answers would spend fees on them.
  */
 export function eligibleSurvey(a: SurveyAggregate): boolean {
-  const def = a.record.definition;
-  if (!def.eligibleRoles.includes(Role.DRep)) return false;
-  if (!a.talliable) return false;
-  const mode = def.submissionMode;
-  return mode.type !== 'sealed' || isQuicknet(mode.chainHash);
+  return (
+    a.record.definition.eligibleRoles.includes(Role.DRep) && a.talliable && !a.sealedUnsupported
+  );
 }
 
 /** Admission: an eligible survey linked by a governance action DRepTalk has

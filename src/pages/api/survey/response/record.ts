@@ -17,7 +17,7 @@ import { getSurveyByRef, recordLocalSurveyResponse } from '@/lib/db/surveys';
 import { getSelfDrepId } from '@/lib/db/users';
 import { surveyState } from '@/lib/surveys/state';
 import { surveysEnabled } from '@/lib/surveys/switch';
-import { SURVEY_KEY_RE } from '@/lib/tessera/client';
+import { SURVEY_KEY_RE } from 'cardano-tessera-client';
 
 export const prerender = false;
 

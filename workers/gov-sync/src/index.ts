@@ -30,7 +30,7 @@ import { governancePhases } from '../../../src/lib/sync/phases/governance.js';
 import { votePhases } from '../../../src/lib/sync/phases/votes.js';
 import { drepPhases, initialDrepSyncState } from '../../../src/lib/sync/phases/dreps.js';
 import { imagesDownscaler } from '../../../src/lib/dreps/avatarStore.js';
-import { createTesseraClient } from '../../../src/lib/tessera/client.js';
+import { createTesseraClient } from 'cardano-tessera-client';
 import type { VapidConfig } from '../../../src/lib/push/webPush.js';
 
 // The binding shapes live once on the global Cloudflare.Env augmentation
@@ -126,9 +126,16 @@ export default {
               telegramBotToken: env.TELEGRAM_BOT_TOKEN ?? null,
               // Non-empty TESSERA_BACKEND_URL switches the surveys phase on
               // (preprod only today). The client itself refuses a backend whose
-              // /health network differs from this deployment's.
+              // /health network differs from this deployment's, or whose
+              // contract major is not the one it was written against. Ten
+              // seconds per request, body included: a stalled body with nothing
+              // armed would park this phase and every phase behind it.
               tessera: env.TESSERA_BACKEND_URL
-                ? createTesseraClient({ baseUrl: env.TESSERA_BACKEND_URL, network: core.cfg.network })
+                ? createTesseraClient({
+                    baseUrl: env.TESSERA_BACKEND_URL,
+                    network: core.cfg.network,
+                    timeoutMs: 10_000,
+                  })
                 : null,
             };
             return runPhases(governancePhases, ctx, phase);

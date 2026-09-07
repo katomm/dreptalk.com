@@ -6,7 +6,7 @@ export const prerender = false;
 
 import NotFound from '@/components/NotFound.astro';
 import { getTopicSlugBySurveyRef } from '@/lib/db/surveys.js';
-import { SURVEY_KEY_RE } from '@/lib/tessera/client.js';
+import { SURVEY_KEY_RE } from 'cardano-tessera-client';
 import { env } from 'cloudflare:workers';
 
 const { ref } = Astro.params;

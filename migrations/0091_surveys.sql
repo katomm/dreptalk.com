@@ -79,18 +79,21 @@ CREATE TABLE survey_response_local (
   PRIMARY KEY (survey_ref, user_id)
 );
 
--- Single-row sync state (id = 1, like protocol_params). linked_count is the
--- last seen size of Tessera's linked set (page one re-evaluates the whole set
--- while it fits; a moved count is one of the triggers to walk further) and
--- last_full_walk_at when pass 1 last walked the complete list.
+-- The mirror's bookkeeping, one row. changes_cursor is where Tessera's change
+-- selection continues from (opaque, minted by the backend): NULL until a walk
+-- of the linked list completes, and again once the backend answers that the
+-- cursor outlived its retention window. deferred_refs is a JSON array of survey
+-- keys eligible for admission but linked only to actions not imported yet,
+-- re-asked by reference each run — a change is delivered once, and the
+-- DRepTalk half of an admission can turn true with no move upstream.
 -- tessera_fetched_at is the snapshot time (unix s) of the oldest answer used
 -- by the last run that brought every held row up to date — the "as of" every
--- survey page shows. One value for the whole mirror: every held row is
--- refreshed on every run, and a decided row cannot change, so no row is
--- fresher than the mirror.
+-- survey page shows. One value for the whole mirror: the delta names every
+-- held row that moved, and a decided row cannot change, so no row is fresher
+-- than the mirror.
 CREATE TABLE survey_sync_state (
   id                 INTEGER PRIMARY KEY,
-  linked_count       INTEGER,
-  last_full_walk_at  INTEGER,             -- unix ms
+  changes_cursor     TEXT,
+  deferred_refs      TEXT NOT NULL DEFAULT '[]',
   tessera_fetched_at INTEGER
 );

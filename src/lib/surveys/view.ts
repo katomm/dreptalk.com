@@ -6,8 +6,7 @@
 // sanitizer and caps as a governance action's anchor text.
 
 import { Role, type SurveyDefinition } from 'cip-179';
-import type { SurveyRecord } from 'cip-179/domain';
-import { fromJsonSafe } from 'cip-179/tally';
+import { decodeSurveyRecord } from 'cip-179/tally';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import {
   MAX_EXTERNAL_PROSE_LEN,
@@ -25,36 +24,19 @@ export const ROLE_LABELS: Record<number, string> = {
 };
 
 export function roleLabels(roles: readonly number[]): string {
-  return roles.map((r) => ROLE_LABELS[r] ?? `role ${r}`).join(', ');
+  return roles.map(r => ROLE_LABELS[r] ?? `role ${r}`).join(', ');
 }
 
 /**
- * Decode a stored wire-form record back to its definition (the same
- * fromJsonSafe + cast Tessera's own consumers use), or null when the stored
- * form cannot be read. The form is frozen at admission and decoded on every
- * page view, so a shape this code cannot read — a corrupted row, a cip-179
- * wire change the mirror predates — must cost the card its text and the
- * page its answer panel, not the whole thread a 500. fromJsonSafe throws only
- * on bad hex and otherwise revives whatever it is given, so the shape is
- * checked as far as the readers go: the fields the card and the widget index
- * into.
+ * Decode a stored wire-form record back to its definition, or null when the
+ * stored form cannot be read. The form is frozen at admission and decoded on
+ * every page view, so a shape this code cannot read — a corrupted row, a
+ * cip-179 wire change the mirror predates — must cost the card its text and
+ * the page its answer panel, not the whole thread a 500.
  */
 export function parseSurveyDefinition(definitionJson: string): SurveyDefinition | null {
   try {
-    const record = fromJsonSafe(JSON.parse(definitionJson)) as Partial<SurveyRecord> | null;
-    const def = record?.definition as Partial<SurveyDefinition> | undefined;
-    if (
-      !def ||
-      typeof def !== 'object' ||
-      typeof def.title !== 'string' ||
-      typeof def.endEpoch !== 'number' ||
-      !Array.isArray(def.eligibleRoles) ||
-      !Array.isArray(def.questions) ||
-      !def.submissionMode
-    ) {
-      return null;
-    }
-    return def as SurveyDefinition;
+    return decodeSurveyRecord(JSON.parse(definitionJson)).definition;
   } catch {
     return null;
   }
@@ -103,7 +85,7 @@ export interface QuestionView {
 }
 
 export function questionViews(def: SurveyDefinition): QuestionView[] {
-  return def.questions.map((q) => {
+  return def.questions.map(q => {
     const opts = 'options' in q ? q.options : null;
     return {
       prompt: sanitizeExternalText(q.prompt, MAX_EXTERNAL_TITLE_LEN),

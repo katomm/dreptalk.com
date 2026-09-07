@@ -41,16 +41,6 @@ export async function getKnownProposalIds(
   return known;
 }
 
-/** Whether any action was imported after `sinceMs` — the surveys sync's cue that
- * the DRepTalk half of an admission may have turned true since its last full walk. */
-export async function hasActionsCreatedSince(db: D1Database, sinceMs: number): Promise<boolean> {
-  const row = await db
-    .prepare('SELECT 1 AS present FROM governance_actions WHERE created_at > ? LIMIT 1')
-    .bind(sinceMs)
-    .first<{ present: number }>();
-  return row !== null;
-}
-
 /** Ids of actions whose on-chain payload has not yet been stored (backfill target). */
 export async function getActionIdsMissingOnchainPayload(db: D1Database): Promise<Set<string>> {
   const rows =

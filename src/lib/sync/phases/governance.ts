@@ -71,7 +71,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
   {
     // CIP-179 surveys mirrored from the Tessera backend. Right after discovery
     // so an action imported this run can admit its linked survey in the same
-    // run. Every tick: the phase is one list request when nothing changed.
+    // run. Every tick: the phase is one change request when nothing moved.
     name: 'surveys',
     when: (ctx) => ctx.tessera !== null,
     run: async (ctx) => {
