@@ -7,6 +7,14 @@ export const REVIEW_PACK_VERSION = 1;
  *  series on 2026-09-06. Preprod has no fixed floor yet. */
 export const EPOCH_STATS_SERIES_FLOOR: Record<CardanoNetwork, number | null> = { mainnet: 508, preprod: null };
 
+/** The Governance Review is mainnet only. Editions are mainnet facts bundled
+ *  into every deployment, so the API routes that feed them refuse to answer on
+ *  any other network instead of returning preprod numbers under a mainnet
+ *  edition. Kept pure so it can be tested without the workers runtime. */
+export function isMainnet(cfg: Pick<NetworkConfig, 'network'>): boolean {
+  return cfg.network === 'mainnet';
+}
+
 export function lovelaceToAda(s: string | number | null | undefined): number | null {
   if (s == null) return null;
   const n = typeof s === 'number' ? s : Number(s);

@@ -178,7 +178,7 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     const ok = shown ? typeof src === 'number' && shownMatches(shown, src) : String(src) === value;
     if (!ok) out.push({ rule: 'fact-source-mismatch', message: `${label} "${value}" does not equal ${source} (${String(src)})` });
   };
-  fm.facts.forEach((f, i) => checkValue(`fact ${i + 1}`, f.value, f.source));
+  for (const [i, f] of fm.facts.entries()) checkValue(`fact ${i + 1}`, f.value, f.source);
   checkValue('ogFigure', fm.ogFigure.value, fm.ogFigure.source);
 
   // Everything the number, name and phrasing scans run over. Body paragraphs are
@@ -213,10 +213,10 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     segments.push({ label: `chart ${n} title`, text: spec.title });
     if (spec.subtitle) segments.push({ label: `chart ${n} subtitle`, text: spec.subtitle });
     if (spec.caption) segments.push({ label: `chart ${n} caption`, text: spec.caption });
-    if (spec.type === 'line') spec.markers.forEach((mk, i) => segments.push({ label: `chart ${n} marker ${i + 1} label`, text: mk.label }));
-    if (spec.type === 'hbars') spec.rows.forEach((r, i) => segments.push({ label: `chart ${n} row ${i + 1} label`, text: r.label }));
-    if (spec.type === 'seats') spec.groups.forEach((g, i) => segments.push({ label: `chart ${n} group ${i + 1} label`, text: g.label }));
-    if (spec.type === 'lines') spec.series.forEach((s, i) => segments.push({ label: `chart ${n} series ${i + 1} name`, text: s.name }));
+    if (spec.type === 'line') for (const [i, mk] of spec.markers.entries()) segments.push({ label: `chart ${n} marker ${i + 1} label`, text: mk.label });
+    if (spec.type === 'hbars') for (const [i, r] of spec.rows.entries()) segments.push({ label: `chart ${n} row ${i + 1} label`, text: r.label });
+    if (spec.type === 'seats') for (const [i, g] of spec.groups.entries()) segments.push({ label: `chart ${n} group ${i + 1} label`, text: g.label });
+    if (spec.type === 'lines') for (const [i, s] of spec.series.entries()) segments.push({ label: `chart ${n} series ${i + 1} name`, text: s.name });
     // epoch-indexed charts: the epoch source must yield exactly the epochs the chart shows
     if (spec.type === 'line' || spec.type === 'bars' || spec.type === 'stacked') {
       const shownEpochs = spec.type === 'line' ? spec.values.map((_, i) => spec.epochFrom + i) : spec.epochs;
@@ -381,21 +381,30 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     const stillOpen = hit.group === 'closingAtBoundary' || hit.group === 'open' || p.open === true;
     if (stillOpen && r.outcome !== 'open') out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" but the pack still lists the action as running` });
     if (!stillOpen && r.outcome !== p.status) out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" is not the pack status "${p.status}"` });
-    const epochs = (p.eventsInWindow ?? []).map((e) => e.epoch);
-    if (stillOpen && typeof p.expiryEpoch === 'number') epochs.push(p.expiryEpoch);
-    if (!epochs.includes(r.epoch)) out.push({ rule: 'action-row-mismatch', message: `${at}: epoch ${r.epoch} is not an event epoch of the pack row (${epochs.join(', ') || 'none'})` });
+    // An open row is rendered as a voting close ("undecided at the close of
+    // epoch N", "voting ends at the start of epoch N"), so its epoch is the
+    // pack's expiry epoch and nothing else. An event epoch inside the window
+    // would print as a close it is not.
+    if (r.outcome === 'open') {
+      if (r.epoch !== p.expiryEpoch) out.push({ rule: 'action-row-mismatch', message: `${at}: epoch ${r.epoch} is not the pack expiry epoch (${String(p.expiryEpoch ?? 'none')})` });
+    } else {
+      const epochs = (p.eventsInWindow ?? []).map((e) => e.epoch);
+      if (!epochs.includes(r.epoch)) out.push({ rule: 'action-row-mismatch', message: `${at}: epoch ${r.epoch} is not an event epoch of the pack row (${epochs.join(', ') || 'none'})` });
+    }
     const packPct = p.tally?.drep?.yesPct ?? null;
     const rowPct = r.drepYesPct ?? null;
     if (rowPct !== packPct) out.push({ rule: 'action-row-mismatch', message: `${at}: drepYesPct ${String(rowPct)} is not the pack tally ${String(packPct)}` });
   };
-  fm.alsoDecided.forEach((r, i) => checkRow('alsoDecided', i, r));
-  fm.openActions.forEach((r, i) => checkRow('openActions', i, r));
+  for (const [i, r] of fm.alsoDecided.entries()) checkRow('alsoDecided', i, r);
+  for (const [i, r] of fm.openActions.entries()) checkRow('openActions', i, r);
 
   // 10. an action closing at the boundary has to be linked, not merely alluded
   // to. The link is the needle rule 7 searches for, so a closing action the body
   // never links is a closing action the "as of" and outcome checks cannot see.
+  // Rows with outcome "open" live in either list, so both are searched: an
+  // undecided action listed under "Also decided" needs the link just as much.
   const closingIds = new Set(closing.map((a) => a.id));
-  for (const r of fm.openActions) {
+  for (const r of [...fm.openActions, ...fm.alsoDecided.filter((a) => a.outcome === 'open')]) {
     if (closingIds.has(r.id) && !linkedActionIds.has(r.id)) {
       out.push({ rule: 'closing-not-linked', message: `"${r.title}" closes at the boundary but the body never links /ga/${r.id}/` });
     }

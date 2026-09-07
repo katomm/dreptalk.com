@@ -12,25 +12,34 @@ const { numbers, from, to } = Astro.props;
 
 const MISSING = 'not available';
 
-function ada(value: number | null): string {
+// The unit is per row, not per magnitude. Treasury readings a few million apart
+// have to stay apart, so they are printed in millions with one decimal, while
+// delegated power is printed in billions with two decimals to match the prose
+// and the power chart.
+function millions(value: number | null): string {
   if (value === null) return MISSING;
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000) return `₳${(value / 1_000_000_000).toFixed(2)}B`;
-  if (abs >= 1_000_000) return `₳${(value / 1_000_000).toFixed(1)}M`;
-  return `₳${Math.round(value).toLocaleString('en-US')}`;
+  return `₳${(value / 1_000_000).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`;
+}
+
+function billions(value: number | null): string {
+  if (value === null) return MISSING;
+  return `₳${(value / 1_000_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}B`;
 }
 
 function count(value: number | null): string {
   return value === null ? MISSING : value.toLocaleString('en-US');
 }
 
+// Two kinds of row: a snapshot reading, which is the value at the start of the
+// epoch it names, and a window total, which counts the whole window at once.
+// The labels say which, so no reading is mistaken for the other.
 const rows: Array<{ label: string; value: string }> = [
-  { label: `Delegated to DReps, start of epoch ${from}`, value: ada(numbers.delegatedPowerStartAda) },
-  { label: `Delegated to DReps, end of epoch ${to}`, value: ada(numbers.delegatedPowerEndAda) },
-  { label: 'Vote transactions', value: count(numbers.voteTransactions) },
+  { label: `Delegated to DReps, at the start of epoch ${from}`, value: billions(numbers.delegatedPowerStartAda) },
+  { label: `Delegated to DReps, at the start of epoch ${to}`, value: billions(numbers.delegatedPowerEndAda) },
+  { label: 'Vote transactions in the window', value: count(numbers.voteTransactions) },
   { label: 'DReps whose final ballot fell in the window', value: count(numbers.finalDrepVoters) },
-  { label: `Treasury, start of epoch ${from}`, value: ada(numbers.treasuryStartAda) },
-  { label: `Treasury, end of epoch ${to}`, value: ada(numbers.treasuryEndAda) },
+  { label: `Treasury, at the start of epoch ${from}`, value: millions(numbers.treasuryStartAda) },
+  { label: `Treasury, at the start of epoch ${to}`, value: millions(numbers.treasuryEndAda) },
 ];
 ---
 

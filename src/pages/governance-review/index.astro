@@ -3,11 +3,13 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import ReviewCard from '@/components/review/ReviewCard.astro';
 import { loadEditions } from '@/lib/review/editions.js';
-import { currentNetwork } from '@/lib/api/response';
+import { resolveNetwork } from '@/lib/config/network';
 import { cacheControlFor } from '@/lib/forum/view.js';
 
 const editions = await loadEditions();
-const cfg = currentNetwork();
+// Mainnet only, like the editions themselves: the card dates come from mainnet
+// epoch boundaries whatever network this worker runs on.
+const cfg = resolveNetwork('mainnet');
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 ---
 

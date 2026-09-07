@@ -219,7 +219,7 @@ export async function readDrepNames(db: D1Database, drepIds: string[]): Promise<
  * snapshot at or before it. Returns null when nothing was stored that early,
  * so a historical window never borrows today's value.
  */
-export async function readCommitteeMinSizeAt(db: D1Database, epoch: number): Promise<{ value: number | null; observedAtEpoch: number } | null> {
+export async function readCommitteeMinSizeAt(db: D1Database, epoch: number): Promise<{ value: number | null; observedAtEpoch: number; reason?: string } | null> {
   const row = await db
     .prepare(
       `SELECT committee_min_size, epoch FROM protocol_params
@@ -228,6 +228,11 @@ export async function readCommitteeMinSizeAt(db: D1Database, epoch: number): Pro
     .bind(epoch)
     .first<{ committee_min_size: number | null; epoch: number }>();
   if (!row) return null;
+  // A snapshot exists but never recorded the minimum. That is a different fact
+  // from having no snapshot at all, and an edition has to be able to say which.
+  if (row.committee_min_size == null) {
+    return { value: null, observedAtEpoch: row.epoch, reason: `snapshot at epoch ${row.epoch} has no committee minimum` };
+  }
   return { value: row.committee_min_size, observedAtEpoch: row.epoch };
 }
 

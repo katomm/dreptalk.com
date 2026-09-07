@@ -83,6 +83,29 @@ describe('buildWindowPack', () => {
     expect(pack.voteTimeline[ids.closing].find((r) => r.epoch === 651)?.byCount).toEqual({ yes: 1, no: 0, abstain: 0 });
   });
 
+  it('counts a voter active in several epochs once in the window totals', async () => {
+    await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
+    await seedAction(ids.open, 'TreasuryWithdrawals', 'active', { submitted: 649, expiry: 656 });
+    // drepA's surviving ballots fall in two epochs of the window, drepB voted
+    // once, and one superseded ballot adds a transaction without a voter.
+    await env.DB.prepare(
+      `INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at, block_time) VALUES
+        (?, 'DRep', 'drepA', 'Yes', 0, ?), (?, 'DRep', 'drepA', 'No', 0, ?),
+        (?, 'DRep', 'drepB', 'Yes', 0, ?), (?, 'SPO', 'poolA', 'Yes', 0, ?)`,
+    ).bind(ids.closing, t(650), ids.open, t(652), ids.closing, t(651), ids.closing, t(651)).run();
+    await env.DB.prepare(`INSERT INTO drep_vote_history (ga_id, voter_id, voter_role, vote, block_time, superseded_at) VALUES (?, 'drepA', 'DRep', 'Abstain', ?, 0)`)
+      .bind(ids.closing, t(650)).run();
+    // A vote before the window must not enter the totals.
+    await env.DB.prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at, block_time) VALUES (?, 'DRep', 'drepEarly', 'Yes', 0, ?)`)
+      .bind(ids.closing, t(648)).run();
+    const pack = await buildWindowPack(env.DB, cfg, 650, 652);
+    expect(pack.windowTotals).toEqual({ voteTransactions: 5, finalDrepVoters: 2, finalSpoVoters: 1 });
+    // The per-epoch rows would count drepA twice, which is exactly what the
+    // window totals must not do.
+    const drepRows = pack.votesByEpoch.filter((r) => r.role === 'DRep' && r.epoch >= 650);
+    expect(drepRows.reduce((a, r) => a + r.finalVoters, 0)).toBe(3);
+  });
+
   it('selects committee members active at epochTo with the inclusive version_to', async () => {
     // A migration seeds the real committee timeline and the per-test reset
     // restores it, so clear it to assert on these three rows alone.
@@ -108,6 +131,10 @@ describe('buildWindowPack', () => {
     const pack = await buildWindowPack(env.DB, cfg, 650, 652);
     expect(pack.powerHistory.coverage).toEqual({ from: 651, to: 652 });
     expect(pack.powerHistory.covered).toBe(false);
+    // Coverage starts after the epoch a drop would compare from, so there are no
+    // drops and no range to name either.
+    expect(pack.powerHistory.drops).toBeNull();
+    expect(pack.powerHistory.dropsRange).toBeNull();
     const older = await buildWindowPack(env.DB, cfg, 640, 642);
     expect(older.topDreps).toEqual([]);
   });
@@ -123,6 +150,9 @@ describe('buildWindowPack', () => {
     await env.DB.prepare(`INSERT INTO dreps (drep_id, status, last_synced_at, created_at) VALUES ('drepBig', 'deregistered', 0, 0)`).run();
     const pack = await buildWindowPack(env.DB, cfg, 650, 652);
     expect(pack.powerHistory.drops?.[0]).toMatchObject({ drepId: 'drepBig', toAda: 0, deregistered: true });
+    // The drops compare the epoch before the window with its last epoch, and an
+    // edition may only name that span from this field, never from the rows.
+    expect(pack.powerHistory.dropsRange).toEqual({ from: 649, to: 652 });
   });
 
   it('excludes votes cast after the window from voteTimeline and spo', async () => {
@@ -165,5 +195,24 @@ describe('GET /api/review/window/[range].json', () => {
     expect(bad.status).toBe(400);
     const future = await GET({ params: { range: '9000-9002' }, request: new Request('https://dreptalk.com/api/review/window/9000-9002.json'), locals: {} } as never);
     expect(future.status).toBe(400);
+  });
+
+  it('rejects a window that starts below the first epoch of the stats series', async () => {
+    const res = await GET({ params: { range: '2-4' }, request: new Request('https://dreptalk.com/api/review/window/2-4.json'), locals: {} } as never);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'window must start at epoch 508 or later' });
+  });
+
+  it('is mainnet only and answers 404 on another network before touching D1', async () => {
+    const holder = env as unknown as Record<string, string | undefined>;
+    const before = holder.CARDANO_NETWORK;
+    holder.CARDANO_NETWORK = 'preprod';
+    try {
+      const res = await GET({ params: { range: '650-652' }, request: new Request('https://dreptalk.com/api/review/window/650-652.json'), locals: {} } as never);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'governance review is mainnet only' });
+    } finally {
+      holder.CARDANO_NETWORK = before;
+    }
   });
 });

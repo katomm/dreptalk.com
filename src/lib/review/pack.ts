@@ -86,13 +86,15 @@ export interface WindowPack {
   window: { from: number; to: number; startsAt: string; endsAt: string; asOf: string | null; committeeAsOf: number; readiness: { ready: boolean; epochs: Record<string, EpochReadiness> } };
   actions: { events: PackAction[]; closingAtBoundary: PackAction[]; open: PackAction[]; comparisons: PackAction[] };
   votesByEpoch: Array<{ epoch: number; role: string; transactions: number; finalVoters: number }>;
+  /** Totals over the whole window, counted once per voter. Never the sum of the votesByEpoch rows. */
+  windowTotals: { voteTransactions: number; finalDrepVoters: number; finalSpoVoters: number };
   voteTimeline: Record<string, Array<{ epoch: number; byCount: { yes: number; no: number; abstain: number }; byPowerAda: { yes: number; no: number; abstain: number } | null }>>;
   topVoters: Record<string, Array<{ drepId: string; name: string | null; vote: string; epochCast: number | null; powerAda: number | null; powerAsOfEpoch: number }>>;
   topDreps: Array<{ drepId: string; name: string | null; powerAda: number; ballots: Record<string, string | 'did not vote'> }>;
   ccVotes: Record<string, Array<{ hotKeyHex: string; name: string | null; vote: string; epochCast: number | null; activeAtDecision: boolean | null }>>;
   committee: { asOfEpoch: number; members: Array<{ coldKeyHex: string; termExpiration: number; authorizedFrom: number; resignedAt: number | null }>; minSize: { value: number | null; observedAtEpoch: number | null; reason?: string }; endingWithin12: number };
   epochStats: { rows: Array<Record<string, number | string | boolean | null> & { epoch: number }>; metrics: Record<string, { column: string; definition: string; reliability: string; unit: PackUnit }> };
-  powerHistory: { coverage: { from: number; to: number } | null; covered: boolean; drops: Array<{ drepId: string; name: string | null; fromAda: number; toAda: number; deltaAda: number; deregistered: boolean }> | null };
+  powerHistory: { coverage: { from: number; to: number } | null; covered: boolean; drops: Array<{ drepId: string; name: string | null; fromAda: number; toAda: number; deltaAda: number; deregistered: boolean }> | null; dropsRange: { from: number; to: number } | null };
   treasury: { byEpochAda: Array<{ epoch: number; balanceAda: number | null }>; enactedByEpoch: Array<{ epoch: number; count: number; totalAda: number; ids: string[] }>; largestSingle: Array<{ id: string; title: string; epoch: number; ada: number }>; totalEnactedAda: number };
   records: PackRecord[];
   spo: Record<string, { yes: number; no: number; abstain: number }>;
@@ -270,6 +272,31 @@ function votesByEpoch(current: VoteRow[], history: VoteRow[], cfg: NetworkConfig
       return { epoch: Number(epoch), role, transactions: tx.get(k) ?? 0, finalVoters: voters.get(k)?.size ?? 0 };
     })
     .sort((a, b) => a.epoch - b.epoch || a.role.localeCompare(b.role));
+}
+
+/**
+ * The same figures over the whole window range, computed distinct across the
+ * range rather than summed over the per-epoch rows: a DRep whose surviving
+ * ballots fall in two epochs of the window is one final voter, not two. An
+ * edition's numbers strip reads these, never a single epoch's row.
+ */
+function windowTotals(current: VoteRow[], history: VoteRow[], cfg: NetworkConfig, from: number, to: number): WindowPack['windowTotals'] {
+  const inRange = (r: VoteRow): boolean => {
+    if (r.block_time == null) return false;
+    const e = epochFromUnix(r.block_time, cfg);
+    return e >= from && e <= to;
+  };
+  let voteTransactions = 0;
+  for (const r of current) if (inRange(r)) voteTransactions += 1;
+  for (const r of history) if (inRange(r)) voteTransactions += 1;
+  const dreps = new Set<string>();
+  const spos = new Set<string>();
+  for (const r of current) {
+    if (!inRange(r)) continue;
+    if (r.voter_role === 'DRep') dreps.add(r.voter_id);
+    else if (r.voter_role === 'SPO') spos.add(r.voter_id);
+  }
+  return { voteTransactions, finalDrepVoters: dreps.size, finalSpoVoters: spos.size };
 }
 
 /** Power in ada of one DRep at one epoch, keyed for the in-memory lookups below. */
@@ -633,6 +660,8 @@ export async function buildWindowPack(
     const toAda = lovelaceToAda(r.to_amount) ?? 0;
     return { drepId: r.drep_id, name: r.name, fromAda, toAda, deltaAda: toAda - fromAda, deregistered: r.status === 'deregistered' };
   }) ?? null;
+  // The two epochs a drop row compares, so a reader of the pack can name the span.
+  const dropsRange = drops == null ? null : { from: dropsFrom, to };
 
   const [ccNames, { members, hotToCold }] = await Promise.all([readCcMemberNames(db), getCommitteeTimeline(db)]);
   const activeAtCache = new Map<number, Set<string>>();
@@ -677,6 +706,7 @@ export async function buildWindowPack(
     },
     actions: { events, closingAtBoundary, open: openActions, comparisons },
     votesByEpoch: votesByEpoch(rangeCurrent, rangeHistory, cfg),
+    windowTotals: windowTotals(rangeCurrent, rangeHistory, cfg, from, to),
     voteTimeline: voteTimeline(focusIds, [...focusCurrent, ...focusHistory], cfg, power, powerRange),
     topVoters: topVoters(focusIds, focusCurrent, cfg, power, names, to),
     topDreps,
@@ -688,7 +718,7 @@ export async function buildWindowPack(
       endingWithin12: committeeRows.filter((m) => m.termExpiration <= to + TERM_HORIZON).length,
     },
     epochStats: { rows: windowStats.map(packStatsRow), metrics: statsMetrics() },
-    powerHistory: { coverage, covered, drops },
+    powerHistory: { coverage, covered, drops, dropsRange },
     treasury: buildTreasury(windowStats, withdrawals, from),
     records: buildRecords(allStats, to),
     spo: spoCounts(focusIds, focusCurrent),

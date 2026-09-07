@@ -125,6 +125,29 @@ describe('factCheckEdition on the good fixture', () => {
     const body = '## As of the close\n\nNothing to report as of the close.\n';
     expect(factCheckEdition({ ...g, body }).map((f) => f.rule)).toEqual(['closing-not-linked']);
   });
+  it('holds an open row to the expiry epoch, not to any event epoch', () => {
+    const g = load('good');
+    // An action submitted inside the window and still running: it has an event
+    // epoch the page would never print, because an open row renders as a close.
+    const pack = JSON.parse(JSON.stringify(g.pack)) as { actions: { events: unknown[] } };
+    const id = `${'b'.repeat(64)}#0`;
+    pack.actions.events.push({
+      id, url: `/ga/${id}/`, type: 'InfoAction', title: 'Still running', status: 'active',
+      expiryEpoch: 656, open: true, eventsInWindow: [{ kind: 'submitted', epoch: 651 }],
+      tally: { drep: { yesPct: null } },
+    });
+    const row = { id, title: 'Still running', aliases: [], type: 'InfoAction', outcome: 'open' as const, epoch: 651, drepYesPct: null };
+    const loose = factCheckEdition({ ...g, pack, frontmatter: { ...g.frontmatter, openActions: [...g.frontmatter.openActions, row] } });
+    expect(loose.map((f) => f.message)).toEqual([expect.stringContaining('is not the pack expiry epoch (656)')]);
+    const strict = factCheckEdition({ ...g, pack, frontmatter: { ...g.frontmatter, openActions: [...g.frontmatter.openActions, { ...row, epoch: 656 }] } });
+    expect(strict).toEqual([]);
+  });
+  it('requires the link for a closing action listed under "Also decided" too', () => {
+    const g = load('good');
+    const frontmatter = { ...g.frontmatter, openActions: [], alsoDecided: g.frontmatter.openActions };
+    const body = '## As of the close\n\nNothing to report as of the close.\n';
+    expect(factCheckEdition({ ...g, frontmatter, body }).map((f) => f.rule)).toEqual(['closing-not-linked']);
+  });
   it('scans headings for unknown names', () => {
     const rules = withBody('## As of the close', '## Fantasia at the close');
     expect(rules).toContain('name-not-in-pack');

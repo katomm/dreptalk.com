@@ -1,21 +1,38 @@
 ---
 // The actions of the window that the article does not walk through itself. The
-// featured ones are covered in the body, so they are left out here.
+// featured ones are covered in the body, so they are left out of the decided
+// table. The open table keeps all of its rows: an action that was still being
+// voted on has no outcome anywhere else on the page, featured or not.
 import type { ActionRow } from '@/lib/review/schema.js';
 import { govActionHref } from '@/lib/review/links.js';
 
 interface Props {
   rows: readonly ActionRow[];
+  open: readonly ActionRow[];
   featured: readonly string[];
+  epochTo: number;
 }
-const { rows, featured } = Astro.props;
+const { rows, open, featured, epochTo } = Astro.props;
 const shown = rows.filter((r) => !featured.includes(r.id));
 
 // "Enacted 650", "Expired 651", and for an action still in its voting window the
-// epoch it runs to instead of a past-tense outcome.
+// state it was in when the window closed.
 function outcomeLabel(row: ActionRow): string {
-  if (row.outcome === 'open') return `Voting to ${row.epoch}`;
+  if (row.outcome === 'open') return openLabel(row);
   return `${row.outcome[0].toUpperCase()}${row.outcome.slice(1)} ${row.epoch}`;
+}
+
+// An open row carries its expiry epoch. Voting on an action ends at the start of
+// its expiry epoch, so an action expiring one epoch after the window was still
+// open at the last moment this edition can report on, and every other one has a
+// voting window that outlives the edition.
+function openLabel(row: ActionRow): string {
+  if (row.epoch === epochTo + 1) return `Undecided at the close of epoch ${epochTo}`;
+  return `Voting ends at the start of epoch ${row.epoch}`;
+}
+
+function yesPct(row: ActionRow): string {
+  return row.drepYesPct === null ? 'n/a' : `${row.drepYesPct.toFixed(1)}%`;
 }
 ---
 
@@ -41,7 +58,39 @@ function outcomeLabel(row: ActionRow): string {
                 <td>
                   <span class={`rv-pill rv-pill--${row.outcome}`}>{outcomeLabel(row)}</span>
                 </td>
-                <td class="rv-num">{row.drepYesPct === null ? 'n/a' : `${row.drepYesPct.toFixed(1)}%`}</td>
+                <td class="rv-num">{yesPct(row)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+{
+  open.length > 0 && (
+    <section class="rv-also">
+      <h2>Open at the close of the window</h2>
+      <div class="rv-also__scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Action</th>
+              <th scope="col">Status</th>
+              <th scope="col">DRep yes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {open.map((row) => (
+              <tr>
+                <td>
+                  <a href={govActionHref(row.id)}>{row.title}</a>
+                </td>
+                <td>
+                  <span class="rv-pill rv-pill--open">{openLabel(row)}</span>
+                </td>
+                <td class="rv-num">{yesPct(row)}</td>
               </tr>
             ))}
           </tbody>
@@ -62,5 +111,7 @@ function outcomeLabel(row: ActionRow): string {
   .rv-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .rv-pill { display: inline-block; white-space: nowrap; font-size: 0.78rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
   .rv-pill--enacted, .rv-pill--ratified { color: var(--fg); }
-  .rv-pill--open { border-color: var(--accent); color: var(--accent); }
+    /* The open status is a sentence, not a one-word outcome, so it wraps on a
+     narrow screen and takes a rectangle rather than a pill's 999px radius. */
+  .rv-pill--open { border-color: var(--accent); color: var(--accent); white-space: normal; border-radius: var(--radius-sm); }
 </style>

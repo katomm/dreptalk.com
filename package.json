@@ -42,7 +42,6 @@
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.5",
-    "@astrojs/markdown-remark": "^7.2.3",
     "@astrojs/react": "^6.0.1",
     "@evolution-sdk/evolution": "^0.5.11",
     "@noble/curves": "^2.2.0",

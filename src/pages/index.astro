@@ -43,7 +43,7 @@ import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 import { fetchLatestRelease } from '@/lib/github/latestRelease.js';
 import ReviewCard from '@/components/review/ReviewCard.astro';
 import { loadEditions } from '@/lib/review/editions.js';
-import { currentNetwork } from '@/lib/api/response';
+import { resolveNetwork } from '@/lib/config/network';
 
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
@@ -103,7 +103,9 @@ const [stats, feed, votedHero, activeFaces, activeDrepStake, activeCounts, lates
 const glanceEpoch = latestEpochStats.at(-1) ?? null;
 const glanceTiles = buildGlanceTiles(latestEpochStats, circulationLovelace);
 const latestReview = (await loadEditions())[0] ?? null;
-const reviewCfg = currentNetwork();
+// Mainnet only, like the editions themselves: the card dates come from mainnet
+// epoch boundaries whatever network this worker runs on.
+const reviewCfg = resolveNetwork('mainnet');
 
 // Personalized hero for a logged-in DRep: center on an action they voted on and
 // pin their own avatar into the ring. Only DReps reach this, so the extra reads

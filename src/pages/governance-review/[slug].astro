@@ -10,7 +10,7 @@ import { loadEditions, editionSlug, formatWindowDates } from '@/lib/review/editi
 import { govActionHref } from '@/lib/review/links.js';
 import { parseSlug } from '@/lib/review/windows.js';
 import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
-import { currentNetwork } from '@/lib/api/response';
+import { resolveNetwork } from '@/lib/config/network';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
@@ -19,7 +19,10 @@ if (!parseSlug(slug)) return new Response('Not found', { status: 404 });
 const entry = await getEntry('review', slug);
 if (!entry) return new Response('Not found', { status: 404 });
 const d = entry.data;
-const cfg = currentNetwork();
+// The Governance Review is mainnet only. Editions are mainnet facts bundled
+// into every deployment, so the window dates and the kicker read mainnet
+// regardless of the network this worker runs on.
+const cfg = resolveNetwork('mainnet');
 const { Content } = await render(entry);
 const editions = await loadEditions();
 const i = editions.findIndex((e) => editionSlug(e) === slug);
@@ -27,8 +30,8 @@ const newer = i > 0 ? editions[i - 1] : null;
 const older = i >= 0 && i < editions.length - 1 ? editions[i + 1] : null;
 const origin = Astro.site?.origin ?? 'https://dreptalk.com';
 const dates = formatWindowDates(d.epochFrom, d.epochTo, cfg);
-const networkLabel = cfg.network === 'mainnet' ? 'Mainnet' : 'Preprod';
 const lastCorrection = d.corrections.at(-1)?.date;
+const actionTitles = new Map([...d.alsoDecided, ...d.openActions].map((r) => [r.id, r.title]));
 const articleLd = {
   '@context': 'https://schema.org',
   '@type': 'Article',
@@ -38,7 +41,12 @@ const articleLd = {
   datePublished: d.published.toISOString().slice(0, 10),
   ...(lastCorrection ? { dateModified: lastCorrection.toISOString().slice(0, 10) } : {}),
   inLanguage: 'en',
-  about: d.featuredActions.map((id) => ({ '@type': 'Thing', name: id, url: `${origin}${govActionHref(id)}` })),
+  about: d.featuredActions.map((id) => ({
+    '@type': 'Thing',
+    // The action's own title, from the frozen rows. An id is a locator, not a name.
+    name: actionTitles.get(id) ?? id,
+    url: `${origin}${govActionHref(id)}`,
+  })),
   publisher: { '@type': 'Organization', name: 'DRepTalk', url: origin },
 };
 const crumbs = buildBreadcrumbLd(origin, [
@@ -56,7 +64,7 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
     <p class="rv-kicker">
       <a href="/governance-review/">Governance Review</a><span>Epochs {d.epochFrom} to {d.epochTo}</span><span
         >{dates}</span
-      ><span>{networkLabel}</span>
+      ><span>Mainnet</span>
     </p>
     <h1 class="rv-title">{d.title}</h1>
     <p class="rv-stand">{d.standfirst}</p>
@@ -74,7 +82,7 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
       )
     }
     <div class="rv-body prose"><Content /></div>
-    <ReviewAlsoDecided rows={d.alsoDecided} featured={d.featuredActions} />
+    <ReviewAlsoDecided rows={d.alsoDecided} open={d.openActions} featured={d.featuredActions} epochTo={d.epochTo} />
     <ReviewNumbers numbers={d.numbers} from={d.epochFrom} to={d.epochTo} />
     {
       (older || newer) && (
@@ -110,10 +118,14 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   .rv-svg .rv-lbl, .rv-svg .rv-ann { fill: var(--rv-ink); }
   .rv-svg .rv-muted { fill: var(--rv-ink-2); }
   .rv-svg .rv-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; }
-  .rv-svg .rv-line.rv-s1, .rv-svg .rv-dot.rv-s1, .rv-svg .rv-bar.rv-s1, .rv-legend i.rv-s1 { stroke: var(--rv-s1); fill: var(--rv-s1); background: var(--rv-s1); }
-  .rv-svg .rv-line.rv-s2, .rv-svg .rv-dot.rv-s2, .rv-svg .rv-bar.rv-s2, .rv-legend i.rv-s2 { stroke: var(--rv-s2); fill: var(--rv-s2); background: var(--rv-s2); }
+  /* A polyline carries its series colour as a stroke only. The shared fill on
+     the next two rules is for dots, bars and legend swatches, and would flood
+     the area under a line's own path if it applied to the polyline too. */
+  .rv-svg .rv-line.rv-s1 { stroke: var(--rv-s1); }
+  .rv-svg .rv-line.rv-s2 { stroke: var(--rv-s2); }
+  .rv-svg .rv-dot.rv-s1, .rv-svg .rv-bar.rv-s1, .rv-legend i.rv-s1 { stroke: var(--rv-s1); fill: var(--rv-s1); background: var(--rv-s1); }
+  .rv-svg .rv-dot.rv-s2, .rv-svg .rv-bar.rv-s2, .rv-legend i.rv-s2 { stroke: var(--rv-s2); fill: var(--rv-s2); background: var(--rv-s2); }
   .rv-svg .rv-bar.rv-s3, .rv-legend i.rv-s3 { fill: var(--rv-s3); background: var(--rv-s3); }
-  .rv-svg .rv-line { fill: none; }
   .rv-svg .rv-dot { stroke: var(--rv-card); stroke-width: 2; }
   .rv-svg .rv-hit { fill: transparent; }
   .rv-svg .rv-area { fill: var(--rv-s1); opacity: 0.08; }
