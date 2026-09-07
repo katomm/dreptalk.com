@@ -105,15 +105,17 @@ of").
    predicate (`src/lib/surveys/admission.ts`): DRep-eligible, linked by
    at least one action, and neither of `aggregate()`'s two
    definition-derived verdicts against it (untalliable; sealed on a drand
-   chain the published tlock cannot decrypt). An unknown survey is stored
-   on it — row and gov links, no thread yet; a held row is refreshed
-   where a stored value moved (count, cancellation, decision, links) and
-   withdrawn once on the predicate's negation or on a removal. What
-   withdrawal does depends on what there is to keep: a published row is
-   flagged — `unavailable` hides answering and the gov links go (a
-   rolled-back action must take its link down), the thread stays, and
-   presence in a later answer clears it — and a row with no thread is
-   deleted, since an advisory removal delivers it again. The pass is
+   chain the published tlock cannot decrypt). A survey it passes is
+   written down — row and gov links, no thread yet — and one it refuses is
+   withdrawn, beside the keys the delta removed; the mirror keeps no
+   working set and compares nothing, since a delivered row is by
+   construction a moved row and a quiet tick delivers none. What
+   withdrawal does depends on what there is to keep, and that is a fact on
+   the row (`topic_id IS NULL`), so it is asked in the statements that
+   act: a published row is flagged — `unavailable` hides answering and the
+   gov links go (a rolled-back action must take its link down), the thread
+   stays, and presence in a later answer clears it — and a row with no
+   thread is deleted, since an advisory removal delivers it again. The pass is
    isolated like the others: an answer that fails to apply costs this
    tick's mirror, not its threads or its final counts.
 2. **Publish.** DRepTalk's half of admission, asked of the stored rows
@@ -196,9 +198,9 @@ published code.
   the artifact carrying the final one removes the pass and the schedule;
   a backend predating `countedByRole` shows "count pending" rather than
   the raw figure.
-- **A held survey refreshes until `final_state`, never freezing at
-  close** — verdicts land after the deadline, so freezing at close would
-  pin whatever snapshot the deadline landed on.
+- **A survey's row keeps taking Tessera's answers until `final_state`**,
+  never freezing at close — verdicts land after the deadline, so freezing
+  at close would pin whatever snapshot the deadline landed on.
 - **Admission is split along what Tessera knows.** Its two halves have
   two homes: the row mirrors what Tessera's answer alone decides
   (DRep-eligible, linked, talliable, supported), the thread records what
@@ -216,10 +218,9 @@ published code.
   imported" flag was not taken either: a third copy of a fact
   `governance_actions` owns, needing invalidation on every discovery.
 - **Tessera's half is applied to every answer, not only at discovery**,
-  and its negation is treated like a rollback: a held survey the delta
+  and its negation is treated like a rollback: a stored survey the delta
   removes, or that an answer lists with no link left, is withdrawn — a
-  published one flagged (clock, links erased), one with no thread
-  deleted. The paths share one predicate so they cannot disagree about
+  published one flagged, its links erased, one with no thread deleted. The paths share one predicate so they cannot disagree about
   what a mirrored survey is, and in practice a lost link *is* a rollback
   of the linking action's transaction. A published survey whose link
   moves to an action not imported yet stays published: the link is
@@ -240,11 +241,29 @@ published code.
   fail on the survey's account, only on the backend's; a backoff ladder
   would re-create the scheduling the audit pass needed, with the
   concession and retirement rules that came with it.
-- **The "as of" is one value for the mirror**, not one per row: the
-  delta names every held row that moved and a decided row cannot change,
-  so no row is fresher than the oldest answer the run used — and
-  stamping it only when the delta was applied to its end is what keeps
-  it honest through a pass that broke off.
+- **The "as of" is one value for the mirror**, not one per row: the delta
+  names every row that moved, so no row is fresher than the answer the run
+  finished on — and stamping it only when the delta was applied to its end
+  is what keeps it honest through a pass that broke off. It is the *last*
+  page's generation, not the oldest: each page is read at whatever
+  generation is published when its own request arrives, and the cursor is a
+  keyset over `(changed_at, key)`, so a row re-stamped after an earlier page
+  is delivered again on a later one.
+- **The mirror keeps no working set.** It used to read every undecided row
+  with its links, and every stored ref, before each run: the first to skip
+  writing a delivered row no stored value of which had moved, the second to
+  know whether a withdrawal should flag or delete. Both are answers the
+  change selection or the row itself already gives — a delivered row is a
+  moved row, and `topic_id IS NULL` is the published/pending fact — so the
+  two whole-table reads per tick went with them, along with an ordering
+  subtlety (the maps had to be kept current within a run so a survey two
+  pages name is judged against what the first wrote). The concession is
+  that a delivery moving only a figure this mirror does not store — an SPO
+  count, the raw response count — rewrites the row with the same values;
+  it costs one write, bounded by what Tessera reports. Decided rows follow
+  the same rule rather than carrying a `final_state IS NULL` exception:
+  Tessera does not move a decided survey, and a second predicate for a case
+  that cannot happen is worth less than one rule for every row.
 - **The mirror is Tessera's change selection, not a per-tick walk and
   refresh.** The earlier shape read page one of the linked list every
   tick, walked further on heuristics (the set size moved, an action was
@@ -255,7 +274,7 @@ published code.
   never came back would not be named forever. `?changes=<cursor>`
   delivers every moved row and every removal once, so the heuristics,
   the per-tick refs call, their two state columns and the retirement
-  TTL are gone (the held set bounds no request now, and a record that
+  TTL are gone (no set of rows bounds a request now, and a record that
   re-lands years later still clears its row). Contract 1.2 then took the
   bootstrap: the change selection has no horizon and answers from an
   instant the caller names, so the walk of `?filter=linked` that used to

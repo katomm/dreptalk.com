@@ -8,9 +8,10 @@
 
 -- One row per mirrored survey. `ref` is the canonical CIP-179 reference
 -- "<txHashHex>:<index>" (lowercase, index without leading zeros) — the same
--- string Tessera keys everything by. A row is written only when one of its
--- values moved, so `synced_at` dates the last change Tessera reported, not the
--- last time the sync looked; the mirror-wide "as of" lives in survey_sync_state.
+-- string Tessera keys everything by. A row is written each time Tessera reports
+-- the survey changed and never otherwise, so `synced_at` dates that report and
+-- not the last time the sync looked; the mirror-wide "as of", which every page
+-- shows instead, lives in survey_sync_state.
 CREATE TABLE survey (
   ref                TEXT PRIMARY KEY,
   -- The survey's forum thread, NULL while it has none: the row is Tessera's
@@ -27,8 +28,9 @@ CREATE TABLE survey (
   definition         TEXT NOT NULL,      -- wire-form record JSON (cip-179 decodeSurveyRecord reads it)
   -- Participation, from two of Tessera's own counts and never from a count of
   -- DRepTalk's own. counted_dreps is the in-window figure: the DRep entry of
-  -- the list's per-role audited count, refreshed while the survey is held and
-  -- NULL while the backend serves none. final_counted_dreps is the DRep
+  -- the index's per-role audited count, rewritten by every answer that names
+  -- the survey and NULL while the backend serves none. final_counted_dreps is
+  -- the DRep
   -- responder count of the finalized tally artifact, which also applies
   -- end-epoch role membership, so it can be lower than the in-window figure;
   -- NULL until the artifact has been read, and forever on a cancelled or
@@ -36,8 +38,10 @@ CREATE TABLE survey (
   counted_dreps      INTEGER,
   final_counted_dreps INTEGER,
   -- NULL while the survey can still change; set once Tessera decides it for
-  -- good ('finalized' | 'cancelled' | 'untalliable'). A decided row is no
-  -- longer refreshed. artifact_hash is the content address of the tally
+  -- good ('finalized' | 'cancelled' | 'untalliable'). Tessera stops changing a
+  -- decided survey, so in practice the row stops being written — nothing here
+  -- depends on that, and a re-delivery is written like any other.
+  -- artifact_hash is the content address of the tally
   -- artifact the decision published (finalized and cancelled carry one), kept
   -- so the final count can be read on a later run when the artifact request
   -- fails on the run the decision arrives.
@@ -47,10 +51,8 @@ CREATE TABLE survey (
   -- it is listed with no link at all — either way a rollback upstream. Only a
   -- published row is flagged (a row with no thread is simply deleted): the
   -- flag hides answering and keeps the thread, and presence in a later
-  -- answer clears it. unavailable_since (unix ms) dates the withdrawal for
-  -- the page.
+  -- answer clears it.
   unavailable        INTEGER NOT NULL DEFAULT 0,
-  unavailable_since  INTEGER,
   submitted_at       INTEGER,            -- survey publication time (unix ms, slot-derived)
   synced_at          INTEGER NOT NULL    -- last change written by the sync (unix ms)
 );
@@ -73,11 +75,10 @@ CREATE INDEX idx_survey_gov_link_action ON survey_gov_link(action_id);
 -- first run's bootstrap — the same selection from instant zero — has been
 -- applied to its end, and never expiring after, since the backend keeps its
 -- tombstones for the life of the corpus.
--- tessera_fetched_at is the snapshot time (unix s) of the oldest answer used
--- by the last run that brought every held row up to date — the "as of" every
--- survey page shows. One value for the whole mirror: the delta names every
--- held row that moved, and a decided row cannot change, so no row is fresher
--- than the mirror.
+-- tessera_fetched_at is the snapshot time (unix s) of the last answer applied
+-- by a run that reached the end of its delta — the "as of" every survey page
+-- shows. One value for the whole mirror: the delta names every row that moved,
+-- so no row is fresher than the mirror.
 CREATE TABLE survey_sync_state (
   id                 INTEGER PRIMARY KEY,
   changes_cursor     TEXT,

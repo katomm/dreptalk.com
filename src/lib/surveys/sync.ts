@@ -3,7 +3,7 @@
 // entitles to one. DRepTalk implements no CIP-179 rule of its own — records
 // arrive decoded by cardano-tessera-client, lifecycle/cancellation come from
 // cip-179's published aggregate(), and both participation figures are
-// Tessera's own: the index's audited per-role count while a survey is held,
+// Tessera's own: the index's audited per-role count while a survey is open,
 // the finalized tally artifact's DRep responders once it is decided. Nothing
 // here counts a response.
 //
@@ -11,9 +11,10 @@
 // moved since its cursor — each survey whose projection changed (a new
 // record, a count, a link, a cancellation, a decision) and each key removed —
 // and the first run asks the same of instant zero, which is the whole corpus.
-// A delta row is the survey's complete state, so the mirror stores what
+// A delta row is the survey's complete state and every delivered row is a
+// moved row, so the mirror needs no memory of its own: it writes down what
 // Tessera's half of admission (./admission.ts) passes, whether or not the
-// thread can open yet, and withdraws a held row on its negation. The thread
+// thread can open yet, and withdraws what it refuses. The thread
 // is DRepTalk's half, decided over the stored rows after every discovery,
 // from the row alone: the one fact Tessera cannot re-deliver — an action
 // imported here — is the one no verdict on an answer depends on.
@@ -32,21 +33,16 @@ import { createTopic } from '../db/forum.js';
 import {
   buildDeleteGovLinks,
   buildInsertGovLink,
-  buildInsertSurvey,
   buildPublishSurvey,
-  buildRefreshSurvey,
-  deleteSurveys,
-  getHeldSurveys,
-  getKnownSurveyRefs,
+  buildUpsertSurvey,
   getPublishableSurveys,
   getSurveySyncState,
   getSurveysAwaitingFinalCount,
-  type HeldSurvey,
-  markSurveysUnavailable,
+  type NewSurvey,
   type PublishableSurvey,
   putSurveySyncState,
-  type SurveyRefresh,
   setSurveyFinalCount,
+  withdrawSurveys,
 } from '../db/surveys.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { renderMarkdown } from '../markdown.js';
@@ -66,12 +62,11 @@ export interface SurveysSyncDeps {
 export interface SurveysSyncResult {
   /** Backend had no snapshot yet; nothing ran. */
   notReady: boolean;
-  /** Surveys mirrored this run — a row, no thread yet. */
-  stored: number;
+  /** Rows written this run: one per delivered survey the mirror admits,
+   * stored the first time and rewritten after. A quiet tick writes none. */
+  written: number;
   /** Threads opened this run, for stored surveys a linking action now imported entitles to one. */
   published: number;
-  /** Held rows one of whose stored values the answer moved (an unchanged row costs no write). */
-  refreshed: number;
   /** Rows withdrawn this run: removed upstream, or listed but no longer
    * eligible — in practice the survey's or the linking action's transaction
    * rolled back. A published row is flagged, one with no thread deleted. */
@@ -130,33 +125,6 @@ function countedDreps(set: DecodedSet, key: string): number | null {
   return byRole ? (byRole[String(Role.DRep)] ?? 0) : null;
 }
 
-/** The row values one answer gives a survey — the same shape at admission and
- * on every refresh, so the two cannot store the same answer differently. */
-function rowValues(set: DecodedSet, a: SurveyAggregate, now: number): SurveyRefresh {
-  const decided = set.finalState[a.key];
-  return {
-    ref: a.key,
-    countedDreps: countedDreps(set, a.key),
-    cancelled: a.cancelled,
-    finalState: decided?.state ?? null,
-    artifactHash: decided && decided.state !== 'untalliable' ? decided.artifactHash : null,
-    now,
-  };
-}
-
-/** Whether Tessera's answer moves anything the held row stores. An
- * unavailable row is always written: presence in the answer is what clears
- * it. Any non-null final state is new, since only undecided rows are held. */
-function refreshChanged(h: HeldSurvey, next: SurveyRefresh, links: Map<string, string | null>) {
-  if (h.unavailable || next.finalState !== null) return true;
-  if (h.countedDreps !== next.countedDreps || h.cancelled !== next.cancelled) return true;
-  if (h.links.size !== links.size) return true;
-  for (const [actionId, title] of links) {
-    if (!h.links.has(actionId) || h.links.get(actionId) !== title) return true;
-  }
-  return false;
-}
-
 /** Opening post, rendered through the same sanitizing markdown path as
  * governance threads (the description is untrusted on-chain data, capped
  * like an action's abstract before it gets there). */
@@ -183,123 +151,65 @@ function recordUnixMs(slot: number, tip: ChainTip): number {
   return (tip.time - (tip.slot - slot)) * 1000;
 }
 
-/** The mirror's working set for one run, kept current as answers are applied
- * so a survey two answers name in the same run is compared against what the
- * first one wrote. */
-interface Mirror {
-  /** Every stored survey, ref → published (has a thread). */
-  known: Map<string, boolean>;
-  held: Map<string, HeldSurvey>;
-  stored: number;
-  published: number;
-  refreshed: number;
-  rolledBack: number;
-  failed: number;
-}
-
-/** What the mirror remembers of a row it just wrote, while the survey is
- * still undecided; a decided row cannot move, so nothing is kept for it. */
-function heldOf(values: SurveyRefresh, links: Map<string, string | null>): HeldSurvey | null {
-  return values.finalState === null
-    ? {
-        ref: values.ref,
-        countedDreps: values.countedDreps,
-        cancelled: values.cancelled,
-        unavailable: false,
-        links,
-      }
-    : null;
-}
-
-/** Withdraws the rows the latest answer no longer lists as eligible — a
- * rolled-back record, links gone, a key removed upstream — by what there is
- * to preserve. A published row keeps its thread and takes the flag, once: a
- * withdrawn row stays withdrawn until presence clears it. A row with no
- * thread is deleted; a removal that was advisory delivers it again. Keys the
- * mirror never stored are ignored, so a delta's removals go through as is. */
-async function withdraw(deps: SurveysSyncDeps, refs: readonly string[], m: Mirror): Promise<void> {
-  const deleted = refs.filter(ref => m.known.get(ref) === false);
-  const flagged = refs.filter(
-    ref => m.known.get(ref) === true && m.held.get(ref)?.unavailable === false,
-  );
-  if (deleted.length > 0) {
-    await deleteSurveys(deps.db, deleted);
-    for (const ref of deleted) {
-      m.known.delete(ref);
-      m.held.delete(ref);
-    }
-  }
-  if (flagged.length > 0) {
-    await markSurveysUnavailable(deps.db, flagged, deps.now);
-    for (const ref of flagged) {
-      const h = m.held.get(ref);
-      if (h) m.held.set(ref, { ...h, unavailable: true, links: new Map() });
-    }
-  }
-  m.rolledBack += deleted.length + flagged.length;
-}
-
-/** Applies one answer to the mirror: held rows are refreshed where a stored
- * value moved and withdrawn where eligibility no longer holds; unknown
- * eligible surveys are stored, thread or no thread. One answer commits as a
- * single batch — D1's 100-bind cap is per statement, not summed across a
- * batch, and the widest statement here binds 13 — so its rewrite is atomic.
- * An answer that moved nothing yields no statements: D1 rejects an empty
- * batch, so it must not be issued. */
-async function applySet(deps: SurveysSyncDeps, set: DecodedSet, m: Mirror): Promise<void> {
+/** Applies one delta: the surveys it delivers, and the keys it removed.
+ *
+ * Every delivered survey Tessera's half of admission passes is written down,
+ * with no comparison against what is stored — under the change selection a
+ * delivered row *is* a moved row, and a quiet tick delivers none, so the
+ * comparison could only save a write when Tessera moved something it reports
+ * and this mirror does not keep. What admission refuses is withdrawn instead,
+ * beside the keys the delta removed: eligibility failing on a stored survey
+ * and its key disappearing are the same event upstream (the record's or the
+ * linking action's transaction rolled back), and the withdrawal itself asks
+ * the row what to do. Removals go first, as the contract says, so a key
+ * removed and re-landed in one delta ends up stored.
+ *
+ * The writes commit as one batch — D1's 100-bind cap is per statement, not
+ * summed across a batch, and the widest statement here binds 13 — so a
+ * survey's row and its links are rewritten atomically. A delta with nothing to
+ * write must issue no batch at all: D1 rejects an empty one. */
+async function applyDelta(
+  deps: SurveysSyncDeps,
+  set: DecodedSet,
+  removed: readonly string[],
+): Promise<{ written: number; rolledBack: number }> {
   const { db, now } = deps;
+  const withdrawn = [...removed];
   const statements: D1PreparedStatement[] = [];
-  const refreshed = new Map<string, HeldSurvey | null>();
-  const stored = new Map<string, HeldSurvey | null>();
-  const withdrawn: string[] = [];
+  let written = 0;
   for (const a of set.aggregates) {
-    const h = m.held.get(a.key);
-    if (h) {
-      if (!eligibleSurvey(a)) {
-        withdrawn.push(a.key);
-        continue;
-      }
-      const next = rowValues(set, a, now);
-      const links = new Map(a.govLinks.map(l => [l.actionId, l.title]));
-      if (!refreshChanged(h, next, links)) continue;
-      statements.push(
-        buildRefreshSurvey(db, next),
-        buildDeleteGovLinks(db, a.key),
-        ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
-      );
-      refreshed.set(a.key, heldOf(next, links));
-    } else if (!m.known.has(a.key) && eligibleSurvey(a)) {
-      const values = rowValues(set, a, now);
-      statements.push(
-        buildInsertSurvey(db, {
-          ...values,
-          title: surveyTitle(a.record.definition, a.key),
-          endEpoch: a.record.definition.endEpoch,
-          eligibleRoles: a.record.definition.eligibleRoles,
-          sealed: a.sealed,
-          externalContent: a.external,
-          // The record in cip-179's own wire form, the one its decoder reads
-          // back on every page view and when the thread opens.
-          definitionJson: JSON.stringify(toJsonSafe(a.record)),
-          submittedAt: recordUnixMs(a.record.slot, set.tip),
-        }),
-        ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
-      );
-      stored.set(a.key, heldOf(values, new Map(a.govLinks.map(l => [l.actionId, l.title]))));
+    if (!eligibleSurvey(a)) {
+      withdrawn.push(a.key);
+      continue;
     }
+    const decided = set.finalState[a.key];
+    const row: NewSurvey = {
+      ref: a.key,
+      title: surveyTitle(a.record.definition, a.key),
+      endEpoch: a.record.definition.endEpoch,
+      eligibleRoles: a.record.definition.eligibleRoles,
+      sealed: a.sealed,
+      cancelled: a.cancelled,
+      externalContent: a.external,
+      // The record in cip-179's own wire form, the one its decoder reads back
+      // on every page view and when the thread opens.
+      definitionJson: JSON.stringify(toJsonSafe(a.record)),
+      countedDreps: countedDreps(set, a.key),
+      finalState: decided?.state ?? null,
+      artifactHash: decided && decided.state !== 'untalliable' ? decided.artifactHash : null,
+      submittedAt: recordUnixMs(a.record.slot, set.tip),
+      now,
+    };
+    statements.push(
+      buildUpsertSurvey(db, row),
+      buildDeleteGovLinks(db, a.key),
+      ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
+    );
+    written++;
   }
+  const rolledBack = withdrawn.length > 0 ? await withdrawSurveys(db, withdrawn, now) : 0;
   if (statements.length > 0) await db.batch(statements);
-  for (const [key, h] of refreshed) {
-    if (h) m.held.set(key, h);
-    else m.held.delete(key);
-  }
-  for (const [key, h] of stored) {
-    m.known.set(key, false);
-    if (h) m.held.set(key, h);
-  }
-  m.refreshed += refreshed.size;
-  m.stored += stored.size;
-  await withdraw(deps, withdrawn, m);
+  return { written, rolledBack };
 }
 
 /** Opens the thread of one stored survey, from the row alone. The row takes
@@ -330,33 +240,26 @@ async function publish(deps: SurveysSyncDeps, p: PublishableSurvey): Promise<voi
 export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncResult> {
   const { db, tessera, now } = deps;
   const state = await getSurveySyncState(db);
-  const m: Mirror = {
-    known: await getKnownSurveyRefs(db),
-    held: new Map((await getHeldSurveys(db)).map(h => [h.ref, h])),
-    stored: 0,
-    published: 0,
-    refreshed: 0,
-    rolledBack: 0,
-    failed: 0,
-  };
+  let written = 0;
+  let published = 0;
+  let rolledBack = 0;
   let finalCounts = 0;
+  let failed = 0;
   const result = (notReady: boolean): SurveysSyncResult => ({
     notReady,
-    stored: m.stored,
-    published: m.published,
-    refreshed: m.refreshed,
-    rolledBack: m.rolledBack,
+    written,
+    published,
+    rolledBack,
     finalCounts,
-    failed: m.failed,
+    failed,
   });
 
-  /** The oldest generation any row was written from this run: what the "as
-   * of" line may claim once every held row reflects it. */
+  /** The generation the last applied delta was read at. Each page is read at
+   * whatever generation is published when its request arrives, and the cursor
+   * is a keyset, so a row re-stamped after an earlier page is delivered again
+   * on a later one: a run that reaches the end reflects its last page, not its
+   * first. */
   let asOf: number | null = null;
-  const used = (set: DecodedSet) => {
-    if (set.fetchedAt !== null)
-      asOf = asOf === null ? set.fetchedAt : Math.min(asOf, set.fetchedAt);
-  };
 
   // --- Pass 1: the mirror. The delta since the cursor, to its end — or,
   // while there is no cursor, the delta since instant zero, which is the whole
@@ -366,8 +269,8 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   // continues. Isolated like the passes after it: an answer that fails to
   // apply must not cost this tick its threads or its final counts.
   let cursor = state.changesCursor;
-  /** Every held row reflects `asOf` after this pass: the delta was applied
-   * to its end. */
+  /** The mirror reflects `asOf` after this pass: the delta was applied to its
+   * end. */
   let mirrorComplete = false;
   try {
     for (let n = 0; n < MAX_LIST_PAGES; n++) {
@@ -377,12 +280,11 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
           : await tessera.changes(cursor, MAX_PAGE_LIMIT);
       if (!answer.ready) return result(true);
       const delta = answer.body;
-      // Removals first, as the contract says: a key removed and re-landed
-      // in one answer is withdrawn, then stored again by its row.
-      await withdraw(deps, delta.removed, m);
       const set = decodeSet(delta);
-      await applySet(deps, set, m);
-      used(set);
+      const applied = await applyDelta(deps, set, delta.removed);
+      written += applied.written;
+      rolledBack += applied.rolledBack;
+      if (set.fetchedAt !== null) asOf = set.fetchedAt;
       cursor = delta.nextCursor;
       // A short answer on both axes is one that reached the published
       // generation; a full one may have more behind it.
@@ -396,13 +298,13 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     }
   } catch (err) {
     console.error('[surveys] mirror pass failed', err);
-    m.failed++;
+    failed++;
   }
 
   // The mirror's bookkeeping, one row: where the delta continues, and the
-  // snapshot the held rows now reflect. The "as of" advances only when every
-  // held row was brought up to it — a delta that broke off leaves rows
-  // describing an older snapshot, and the line must not promise fresher.
+  // snapshot the rows now reflect. The "as of" advances only when the delta
+  // was applied to its end — a run that broke off leaves rows describing an
+  // older snapshot, and the line must not promise fresher.
   await putSurveySyncState(db, {
     changesCursor: cursor,
     tesseraFetchedAt: mirrorComplete && asOf !== null ? asOf : state.tesseraFetchedAt,
@@ -419,16 +321,15 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     for (const p of await getPublishableSurveys(db)) {
       try {
         await publish(deps, p);
-        m.known.set(p.ref, true);
-        m.published++;
+        published++;
       } catch (err) {
         console.error(`[surveys] publishing ${p.ref} failed`, err);
-        m.failed++;
+        failed++;
       }
     }
   } catch (err) {
     console.error('[surveys] publish pass failed', err);
-    m.failed++;
+    failed++;
   }
 
   // --- Pass 3: the final count of every finalized survey whose artifact has
@@ -450,12 +351,12 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         finalCounts++;
       } catch (err) {
         console.error(`[surveys] final count for ${ref} failed`, err);
-        m.failed++;
+        failed++;
       }
     }
   } catch (err) {
     console.error('[surveys] final count pass failed', err);
-    m.failed++;
+    failed++;
   }
 
   return result(false);

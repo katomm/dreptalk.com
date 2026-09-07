@@ -80,11 +80,10 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
         db: ctx.db, tessera: ctx.tessera, now: ctx.now, rand: randSuffix,
       });
       console.log(
-        `[surveys] notReady=${r.notReady} stored=${r.stored} published=${r.published}` +
-          ` refreshed=${r.refreshed} rolledBack=${r.rolledBack} finalCounts=${r.finalCounts}` +
-          ` failed=${r.failed}`,
+        `[surveys] notReady=${r.notReady} written=${r.written} published=${r.published}` +
+          ` rolledBack=${r.rolledBack} finalCounts=${r.finalCounts} failed=${r.failed}`,
       );
-      return { items: r.stored + r.published + r.refreshed + r.finalCounts, failed: r.failed };
+      return { items: r.written + r.published + r.finalCounts, failed: r.failed };
     },
   },
   {

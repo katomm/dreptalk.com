@@ -2,7 +2,7 @@
 // Parameterized D1 access for the governance_actions table.
 // All queries use .prepare().bind(); never string-concatenated SQL.
 
-import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
+import { sqlPlaceholders, chunked } from './sql.js';
 import { TERMINAL_STATUSES, OPEN_STATUSES } from '../governance/view.js';
 import type { GovSort, GovStatus } from '../governance/sort.js';
 import type { ProposalListRow } from '../koios/client.js';
@@ -12,33 +12,6 @@ import { liveVoteSql } from './drepVotes.js';
 export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
   const rows = (await db.prepare('SELECT id FROM governance_actions').all<{ id: string }>()).results ?? [];
   return new Set(rows.map((r) => r.id));
-}
-
-/**
- * Which of the given bech32 gov_action ids name an imported action. The surveys
- * sync joins Tessera's govLink.actionId against proposal_id for its admission
- * rule, one call per Tessera page: 200 surveys with one-or-more links each, so
- * the id list runs well past D1's per-statement bind cap and must be chunked.
- */
-export async function getKnownProposalIds(
-  db: D1Database,
-  proposalIds: readonly string[],
-): Promise<Set<string>> {
-  if (proposalIds.length === 0) return new Set();
-
-  const stmts = chunked(proposalIds, D1_MAX_BINDS).map((chunk) =>
-    db
-      .prepare(
-        `SELECT proposal_id FROM governance_actions WHERE proposal_id IN (${sqlPlaceholders(chunk)})`,
-      )
-      .bind(...chunk),
-  );
-
-  const known = new Set<string>();
-  for (const res of await db.batch<{ proposal_id: string }>(stmts)) {
-    for (const row of res.results ?? []) known.add(row.proposal_id);
-  }
-  return known;
 }
 
 /** Ids of actions whose on-chain payload has not yet been stored (backfill target). */

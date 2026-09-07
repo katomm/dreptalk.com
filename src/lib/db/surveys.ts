@@ -1,73 +1,13 @@
 /// <reference types="@cloudflare/workers-types" />
 // Parameterized D1 access for the survey tables (survey, survey_gov_link,
-// survey_sync_state). All queries use
-// .prepare().bind(); never string-concatenated SQL. Rows are Tessera's answers
-// written down; the sync (src/lib/surveys/sync.ts) is the only writer.
+// survey_sync_state). All queries use .prepare().bind(); never
+// string-concatenated SQL. Rows are Tessera's answers written down; the sync
+// (src/lib/surveys/sync.ts) is the only writer.
 
 import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 
-/** A held survey as the refresh pass compares it against Tessera's next
- * answer: every value a refresh can move, so an answer that moved none of
- * them writes nothing. */
-export interface HeldSurvey {
-  ref: string;
-  countedDreps: number | null;
-  cancelled: boolean;
-  unavailable: boolean;
-  /** Current gov links, action id → Tessera's title for the action. */
-  links: Map<string, string | null>;
-}
-
-/** Every survey not yet decided for good — the rows an answer can still
- * move. Unavailable rows stay in it: presence in an answer is what clears
- * them, and a rolled-back record that never returns costs nothing here, since
- * the set bounds no request. */
-export async function getHeldSurveys(db: D1Database): Promise<HeldSurvey[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT s.ref, s.counted_dreps, s.cancelled, s.unavailable, l.action_id, l.title
-       FROM survey s LEFT JOIN survey_gov_link l ON l.survey_ref = s.ref
-       WHERE s.final_state IS NULL
-       ORDER BY s.ref`,
-    )
-    .all<{
-      ref: string;
-      counted_dreps: number | null;
-      cancelled: number;
-      unavailable: number;
-      action_id: string | null;
-      title: string | null;
-    }>();
-  const held = new Map<string, HeldSurvey>();
-  for (const r of results) {
-    let h = held.get(r.ref);
-    if (!h) {
-      h = {
-        ref: r.ref,
-        countedDreps: r.counted_dreps,
-        cancelled: r.cancelled === 1,
-        unavailable: r.unavailable === 1,
-        links: new Map(),
-      };
-      held.set(r.ref, h);
-    }
-    if (r.action_id !== null) h.links.set(r.action_id, r.title);
-  }
-  return [...held.values()];
-}
-
-/** Every mirrored survey, ref → whether it is published (has a thread). A
- * row without one is stored on Tessera's answer alone and waits for a linking
- * action to be imported; no page can reach it, since every reader joins
- * topics. */
-export async function getKnownSurveyRefs(db: D1Database): Promise<Map<string, boolean>> {
-  const { results } = await db
-    .prepare('SELECT ref, topic_id IS NOT NULL AS published FROM survey')
-    .all<{ ref: string; published: number }>();
-  return new Map(results.map(r => [r.ref, r.published === 1]));
-}
-
-/** A survey as the mirror first stores it: Tessera's answer, no thread yet. */
+/** A survey as the mirror writes it: Tessera's answer, no thread of its own
+ * yet — the thread is opened later, over the stored rows. */
 export interface NewSurvey {
   ref: string;
   title: string;
@@ -85,13 +25,27 @@ export interface NewSurvey {
   now: number;
 }
 
-export function buildInsertSurvey(db: D1Database, s: NewSurvey): D1PreparedStatement {
+/** Writes down one survey the mirror was given: an insert the first time, and
+ * an update of what Tessera can move on every later delivery. The record's own
+ * columns are deliberately not in the update list — a CIP-179 record is
+ * immutable under its ref, and the stored wire form is what the widget
+ * re-decodes, so re-deriving them per delivery could only introduce drift.
+ * `final_counted_dreps` is the artifact pass's alone. Reappearing clears
+ * `unavailable` unconditionally: being in an answer at all is the proof. */
+export function buildUpsertSurvey(db: D1Database, s: NewSurvey): D1PreparedStatement {
   return db
     .prepare(
       `INSERT INTO survey
          (ref, title, end_epoch, eligible_roles, sealed, cancelled, external_content,
           definition, counted_dreps, final_state, artifact_hash, submitted_at, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(ref) DO UPDATE SET
+         counted_dreps = excluded.counted_dreps,
+         cancelled = excluded.cancelled,
+         final_state = excluded.final_state,
+         artifact_hash = excluded.artifact_hash,
+         unavailable = 0,
+         synced_at = excluded.synced_at`,
     )
     .bind(
       s.ref,
@@ -188,65 +142,41 @@ export function buildPublishSurvey(
     .bind(topicId, ref);
 }
 
-/** Drops surveys Tessera no longer lists as eligible and no thread ever
- * named: with nothing to preserve there is nothing to flag, and a removal that
- * was advisory (a reorg re-landing the transaction) delivers the row again. */
-export async function deleteSurveys(db: D1Database, refs: readonly string[]): Promise<void> {
-  for (const chunk of chunked(refs, D1_MAX_BINDS)) {
-    await db.batch([
-      db
-        .prepare(`DELETE FROM survey_gov_link WHERE survey_ref IN (${sqlPlaceholders(chunk)})`)
-        .bind(...chunk),
-      db.prepare(`DELETE FROM survey WHERE ref IN (${sqlPlaceholders(chunk)})`).bind(...chunk),
-    ]);
-  }
-}
-
-/** The values a Tessera answer moves on a held row. Reappearing clears
- * `unavailable` unconditionally: presence in a complete answer is the proof. */
-export interface SurveyRefresh {
-  ref: string;
-  countedDreps: number | null;
-  cancelled: boolean;
-  finalState: string | null;
-  artifactHash: string | null;
-  now: number;
-}
-
-export function buildRefreshSurvey(db: D1Database, r: SurveyRefresh): D1PreparedStatement {
-  return db
-    .prepare(
-      `UPDATE survey SET counted_dreps = ?, cancelled = ?, final_state = ?, artifact_hash = ?,
-         unavailable = 0, unavailable_since = NULL, synced_at = ?
-       WHERE ref = ?`,
-    )
-    .bind(r.countedDreps, r.cancelled ? 1 : 0, r.finalState, r.artifactHash, r.now, r.ref);
-}
-
-/** Withdraws published surveys the latest answer no longer lists as eligible:
- * the flag hides answering and dates the withdrawal, and the gov links go with
- * it so the linking action's thread stops naming the survey — a survey is
- * listed there only while a link exists. The thread and row stay. Called for
- * rows not yet unavailable only, so the clock is set once. */
-export async function markSurveysUnavailable(
+/** Withdraws the surveys the latest answer no longer lists as eligible — a
+ * rolled-back record, its links gone, a key removed upstream. What withdrawal
+ * does depends on what there is to preserve, and that is a fact on the row:
+ * a survey with a thread keeps it and takes the `unavailable` flag, which
+ * hides answering until presence in a later answer clears it; one with no
+ * thread is deleted, since an advisory removal delivers it again. Asking
+ * `topic_id IS NULL` in the statements that act is what lets the sync withdraw
+ * a list of keys without knowing anything about them: refs never stored are
+ * no-ops, and an already-withdrawn row is untouched, so `unavailable` dates
+ * from the first withdrawal. The gov links go either way — a rolled-back
+ * action must stop naming the survey on its thread. Returns the rows
+ * withdrawn. */
+export async function withdrawSurveys(
   db: D1Database,
   refs: readonly string[],
   now: number,
-): Promise<void> {
-  // Two binds are taken by `now`, the rest by the IN list.
-  for (const chunk of chunked(refs, D1_MAX_BINDS - 2)) {
-    await db.batch([
+): Promise<number> {
+  let withdrawn = 0;
+  // The widest statement binds `now` plus the IN list, and the cap is per
+  // statement, not summed across the batch.
+  for (const chunk of chunked(refs, D1_MAX_BINDS - 1)) {
+    const list = sqlPlaceholders(chunk);
+    const [, deleted, flagged] = await db.batch([
+      db.prepare(`DELETE FROM survey_gov_link WHERE survey_ref IN (${list})`).bind(...chunk),
+      db.prepare(`DELETE FROM survey WHERE ref IN (${list}) AND topic_id IS NULL`).bind(...chunk),
       db
         .prepare(
-          `UPDATE survey SET unavailable = 1, unavailable_since = ?, synced_at = ?
-           WHERE ref IN (${sqlPlaceholders(chunk)})`,
+          `UPDATE survey SET unavailable = 1, synced_at = ?
+           WHERE ref IN (${list}) AND topic_id IS NOT NULL AND unavailable = 0`,
         )
-        .bind(now, now, ...chunk),
-      db
-        .prepare(`DELETE FROM survey_gov_link WHERE survey_ref IN (${sqlPlaceholders(chunk)})`)
-        .bind(...chunk),
+        .bind(now, ...chunk),
     ]);
+    withdrawn += (deleted.meta.changes ?? 0) + (flagged.meta.changes ?? 0);
   }
+  return withdrawn;
 }
 
 /** Finalized surveys whose artifact count is still to be read: the decision
@@ -470,9 +400,9 @@ export interface SurveySyncState {
    * end. Never expires: the backend keeps its tombstones for the life of the
    * corpus. */
   changesCursor: string | null;
-  /** Snapshot time (unix s) of the oldest Tessera answer the held rows were
-   * last brought up to date with — the "as of" every survey page shows. Null
-   * until a run has brought every held row up to one. */
+  /** Snapshot time (unix s) of the last Tessera answer this mirror applied —
+   * the "as of" every survey page shows. Null until a run has applied a delta
+   * to its end. */
   tesseraFetchedAt: number | null;
 }
 
